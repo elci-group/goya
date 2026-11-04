@@ -433,6 +433,16 @@ fn route_request(
     source: &str,
     initial_preview: &str,
 ) -> (&'static str, &'static str, String) {
+    route_request_for_scene(request, expected_host, source, initial_preview, None)
+}
+
+fn route_request_for_scene(
+    request: &[u8],
+    expected_host: &str,
+    source: &str,
+    initial_preview: &str,
+    save_path: Option<&Path>,
+) -> (&'static str, &'static str, String) {
     let req = match parse_request(request) {
         Ok(req) => req,
         Err(error) => {
@@ -451,14 +461,36 @@ fn route_request(
         );
     }
     if req.method == "GET" && req.target == "/" && req.body.is_empty() {
-        return (
-            "200 OK",
-            "text/html; charset=utf-8",
-            match SceneProject::from_source(source, Viewport::default()) {
-                Ok(project) => render_editor(&project, initial_preview),
-                Err(error) => render_error_html(&error.to_string()),
-            },
-        );
+        let current_source = match save_path {
+            Some(path) => read_scene_source(path),
+            None => Ok(source.to_owned()),
+        };
+        return match current_source.and_then(|source| {
+            SceneProject::from_source(source, Viewport::default()).map_err(|error| error.to_string())
+        }) {
+            Ok(project) if project.frame().nodes.len() <= MAX_PREVIEW_NODES => {
+                let preview = if save_path.is_some() {
+                    render_html(&project)
+                } else {
+                    initial_preview.to_owned()
+                };
+                (
+                    "200 OK",
+                    "text/html; charset=utf-8",
+                    render_editor(&project, &preview),
+                )
+            }
+            Ok(_) => (
+                "422 Unprocessable Content",
+                "text/html; charset=utf-8",
+                render_error_html("Scene exceeds the 512-node preview limit"),
+            ),
+            Err(error) => (
+                "500 Internal Server Error",
+                "text/html; charset=utf-8",
+                render_error_html(&error),
+            ),
+        };
     }
     if req.method == "POST" && req.target == "/preview" {
         let expected_origin = format!("http://{expected_host}");
@@ -501,6 +533,66 @@ fn route_request(
                 render_error_html(&error.to_string()),
             ),
         };
+    }
+    if req.method == "POST" && req.target == "/save" {
+        let Some(path) = save_path else {
+            return (
+                "404 Not Found",
+                "text/plain; charset=utf-8",
+                "No project file is open for saving".into(),
+            );
+        };
+        let expected_origin = format!("http://{expected_host}");
+        if req.origin.as_deref() != Some(expected_origin.as_str()) {
+            return (
+                "403 Forbidden",
+                "text/plain; charset=utf-8",
+                "Origin rejected".into(),
+            );
+        }
+        if req.content_type.as_deref() != Some("text/plain;charset=utf-8") {
+            return (
+                "415 Unsupported Media Type",
+                "text/plain; charset=utf-8",
+                "Use text/plain;charset=utf-8".into(),
+            );
+        }
+        let source = match String::from_utf8(req.body) {
+            Ok(source) => source,
+            Err(_) => {
+                return (
+                    "400 Bad Request",
+                    "text/plain; charset=utf-8",
+                    "Scene source must be UTF-8".into(),
+                )
+            }
+        };
+        match SceneProject::from_source(source.clone(), Viewport::default()) {
+            Ok(project) if project.frame().nodes.len() <= MAX_PREVIEW_NODES => {
+                match atomic_replace_scene(path, source.as_bytes()) {
+                    Ok(()) => (
+                        "200 OK",
+                        "text/plain; charset=utf-8",
+                        "Scene saved".into(),
+                    ),
+                    Err(error) => (
+                        "500 Internal Server Error",
+                        "text/plain; charset=utf-8",
+                        format!("Save failed: {error}"),
+                    ),
+                }
+            }
+            Ok(_) => (
+                "422 Unprocessable Content",
+                "text/html; charset=utf-8",
+                render_error_html("Scene exceeds the 512-node preview limit"),
+            ),
+            Err(error) => (
+                "422 Unprocessable Content",
+                "text/html; charset=utf-8",
+                render_error_html(&error.to_string()),
+            ),
+        }
     }
     if req.method != "GET" && req.method != "POST" {
         return (
