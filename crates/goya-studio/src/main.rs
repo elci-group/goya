@@ -1,4 +1,5 @@
 use goya_sdk::{SceneProject, Viewport};
+use goya_lang::{SceneCell, Vec3};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -185,15 +186,15 @@ fn escape_html(text: &str) -> String {
 fn render_html(project: &SceneProject) -> String {
     let viewport = project.viewport();
     let mut html = format!("<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{}</title><style>body{{margin:0;background:#111;color:#eee;font:14px system-ui,sans-serif}}header{{padding:12px 18px}}main{{padding:18px;overflow:auto}}.stage{{position:relative;margin:auto;background:#20202a;box-shadow:0 4px 24px #0008}}.node{{position:absolute;box-sizing:border-box;overflow:hidden;white-space:pre-wrap;padding:4px;border:1px solid #ffffff30;border-radius:3px}}.button{{display:flex;align-items:center;justify-content:center;font:inherit}}</style></head><body><header>Goya Studio preview · {}</header><main><div class=\"stage\" style=\"width:{}px;height:{}px\">", escape_html(&project.scene().name), escape_html(&project.scene().name), viewport.width_points, viewport.height_points);
-    for node in project.frame().nodes {
+    for (index, node) in project.frame().nodes.into_iter().enumerate() {
         let color = node
             .fill
             .map(|color| format!("#{:06x}", color & 0x00ff_ffff))
             .unwrap_or_else(|| "#353545".into());
         let label = node.text.as_deref().unwrap_or(&node.name);
         let role = if node.is_button { "button" } else { "group" };
-        html.push_str(&format!("<div class=\"node{}\" role=\"{}\" aria-label=\"{}\" style=\"left:{}px;top:{}px;width:{}px;height:{}px;background:{};{}\">{}</div>",
-            if node.is_button { " button" } else { "" }, role, escape_html(label), node.rect.x as f64 / 1000.0,
+        html.push_str(&format!("<div class=\"node{}\" data-node-index=\"{}\" role=\"{}\" aria-label=\"{}\" style=\"left:{}px;top:{}px;width:{}px;height:{}px;background:{};{}\">{}</div>",
+            if node.is_button { " button" } else { "" }, index, role, escape_html(label), node.rect.x as f64 / 1000.0,
             node.rect.y as f64 / 1000.0, node.rect.width as f64 / 1000.0, node.rect.height as f64 / 1000.0,
             color, node.text_size.map(|size| format!("font-size:{}px;", size)).unwrap_or_default(), escape_html(label)));
     }
@@ -206,12 +207,43 @@ fn render_error_html(message: &str) -> String {
     format!("<!doctype html><meta charset=\"utf-8\"><title>Scene validation failed</title><style>body{{background:#17171d;color:#eee;font:14px system-ui;padding:20px}}pre{{white-space:pre-wrap;color:#ffb8b8}}</style><h2>Scene validation failed</h2><pre>{}</pre>", escape_html(&bounded))
 }
 
-fn render_editor(source: &str, preview: &str) -> String {
-    let mut html = String::from("<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Goya Studio</title><style>body{margin:0;background:#17171d;color:#eee;font:14px system-ui,sans-serif}header{padding:10px 16px;border-bottom:1px solid #444}main{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;padding:12px;height:calc(100vh - 65px);height:calc(100dvh - 65px);box-sizing:border-box}section{display:flex;flex-direction:column;min-height:0}textarea{flex:1;resize:none;background:#101014;color:#e8e8f0;border:1px solid #777;padding:12px;font:13px/1.5 ui-monospace,monospace}button{margin-top:8px;min-height:44px;padding:9px 12px;background:#3267c8;color:white;border:0;border-radius:4px;cursor:pointer}iframe{width:100%;height:100%;border:1px solid #777;background:#111}button:focus-visible,textarea:focus-visible,iframe:focus-visible{outline:3px solid #9fc2ff;outline-offset:2px}output{min-height:1.4em;padding:5px}@media(max-width:760px){main{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(18rem,1fr) minmax(18rem,1fr);height:auto;min-height:calc(100vh - 65px);min-height:calc(100dvh - 65px)}}@media(forced-colors:active){button:focus-visible,textarea:focus-visible,iframe:focus-visible{outline:3px solid Highlight;outline-offset:2px}}</style></head><body><header><strong>Goya Studio</strong> · local visual editor and preview</header><main aria-label=\"Scene editor\"><section aria-labelledby=\"source-label\"><label id=\"source-label\" for=\"source\">Scene source</label><textarea id=\"source\" spellcheck=\"false\">");
+fn flatten_cells<'a>(cell: &'a SceneCell, out: &mut Vec<&'a SceneCell>) {
+    out.push(cell);
+    for child in &cell.children {
+        flatten_cells(child, out);
+    }
+}
+
+fn finite_or(value: Option<Vec3>, fallback: Vec3) -> Vec3 {
+    let value = value.unwrap_or(fallback);
+    Vec3 {
+        x: if value.x.is_finite() { value.x } else { 0.0 },
+        y: if value.y.is_finite() { value.y } else { 0.0 },
+        z: if value.z.is_finite() { value.z } else { 0.0 },
+    }
+}
+
+fn render_editor(project: &SceneProject, preview: &str) -> String {
+    let source = project.source();
+    let mut cells = Vec::new();
+    flatten_cells(&project.scene().root, &mut cells);
+    let frame = project.frame();
+    let mut html = String::from("<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Goya Studio</title><style>body{margin:0;background:#17171d;color:#eee;font:14px system-ui,sans-serif}header{padding:10px 16px;border-bottom:1px solid #444}main{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;padding:12px;height:calc(100vh - 65px);height:calc(100dvh - 65px);box-sizing:border-box}section{display:flex;flex-direction:column;min-height:0}.tools{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:8px 0}textarea{flex:1;resize:none;background:#101014;color:#e8e8f0;border:1px solid #777;padding:12px;font:13px/1.5 ui-monospace,monospace}input,select{min-height:36px;background:#101014;color:#eee;border:1px solid #777;padding:5px}button{margin-top:8px;min-height:44px;padding:9px 12px;background:#3267c8;color:white;border:0;border-radius:4px;cursor:pointer}iframe{width:100%;height:100%;border:1px solid #777;background:#111}button:focus-visible,textarea:focus-visible,iframe:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid #9fc2ff;outline-offset:2px}output{min-height:1.4em;padding:5px}@media(max-width:760px){main{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(18rem,1fr) minmax(18rem,1fr);height:auto;min-height:calc(100vh - 65px);min-height:calc(100dvh - 65px)}}@media(forced-colors:active){button:focus-visible,textarea:focus-visible,iframe:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid Highlight;outline-offset:2px}}</style></head><body><header><strong>Goya Studio</strong> · local visual editor and preview</header><main aria-label=\"Scene editor\"><section aria-labelledby=\"source-label\"><label id=\"source-label\" for=\"source\">Scene source</label><div class=\"tools\"><label>Node<select id=\"node\">");
+    for (index, cell) in cells.iter().enumerate() {
+        let draw = frame.nodes.get(index);
+        let pos_default = draw.map(|n| Vec3 { x: n.rect.x as f64 / 1000.0, y: n.rect.y as f64 / 1000.0, z: 0.0 }).unwrap_or_default();
+        let extent_default = draw.map(|n| Vec3 { x: n.rect.width as f64 / 1000.0, y: n.rect.height as f64 / 1000.0, z: 0.0 }).unwrap_or_default();
+        let pos_key = if cell.position_p.is_some() { "position_p" } else { "position" };
+        let extent_key = if cell.extent_p.is_some() { "extent_p" } else { "extent" };
+        let pos = finite_or(cell.position_p.or(cell.position), pos_default);
+        let extent = finite_or(cell.extent_p.or(cell.extent), extent_default);
+        html.push_str(&format!("<option value=\"{}\" data-pos-key=\"{}\" data-extent-key=\"{}\" data-x=\"{}\" data-y=\"{}\" data-w=\"{}\" data-h=\"{}\">{}</option>", index, pos_key, extent_key, pos.x, pos.y, extent.x, extent.y, escape_html(&cell.name)));
+    }
+    html.push_str("</select></label><label>Position mode<select id=\"pos-mode\"><option value=\"position\">Points</option><option value=\"position_p\">Parent fraction</option></select></label><label>Extent mode<select id=\"extent-mode\"><option value=\"extent\">Points</option><option value=\"extent_p\">Parent fraction</option></select></label><label>X<input id=\"x\" type=\"number\" step=\"any\"></label><label>Y<input id=\"y\" type=\"number\" step=\"any\"></label><label>Width<input id=\"w\" type=\"number\" step=\"any\"></label><label>Height<input id=\"h\" type=\"number\" step=\"any\"></label></div><textarea id=\"source\" spellcheck=\"false\">");
     html.push_str(&escape_html(source));
-    html.push_str("</textarea><div><button id=\"update\">Update preview</button> <button id=\"download\" type=\"button\">Download source</button><output id=\"status\" aria-live=\"polite\"></output></div></section><section aria-labelledby=\"preview-label\"><label id=\"preview-label\">Preview</label><iframe id=\"preview\" title=\"Scene preview\" sandbox></iframe></section></main><script>const source=document.querySelector('#source'),frame=document.querySelector('#preview'),status=document.querySelector('#status');frame.srcdoc='");
+    html.push_str("</textarea><div><button id=\"apply\" type=\"button\">Apply geometry</button> <button id=\"update\">Update preview</button> <button id=\"download\" type=\"button\">Download source</button><output id=\"status\" aria-live=\"polite\"></output></div></section><section aria-labelledby=\"preview-label\"><label id=\"preview-label\">Preview</label><iframe id=\"preview\" title=\"Scene preview\" sandbox></iframe></section></main><script>const source=document.querySelector('#source'),frame=document.querySelector('#preview'),status=document.querySelector('#status'),node=document.querySelector('#node');frame.srcdoc='");
     html.push_str(&escape_js_string(preview));
-    html.push_str("';document.querySelector('#update').onclick=async()=>{status.textContent='Validating…';try{const r=await fetch('/preview',{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:source.value});frame.srcdoc=await r.text();status.textContent=r.ok?'Preview updated':'Validation failed';}catch(e){status.textContent='Preview request failed';}};document.querySelector('#download').onclick=()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([source.value],{type:'text/plain'}));a.download='scene.gscene';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);};</script></body></html>");
+    html.push_str("';const fields=['x','y','w','h'].map(id=>document.querySelector('#'+id));function loadNode(){const o=node.selectedOptions[0];document.querySelector('#pos-mode').value=o.dataset.posKey;document.querySelector('#extent-mode').value=o.dataset.extentKey;fields.forEach((f,i)=>f.value=[o.dataset.x,o.dataset.y,o.dataset.w,o.dataset.h][i]);}node.onchange=loadNode;loadNode();function blocks(text){const out=[];function closeAt(open){let d=1,q=false,esc=false,line=false;for(let i=open+1;i<text.length;i++){const c=text[i],n=text[i+1];if(line){if(c==='\\n')line=false;continue;}if(q){if(esc)esc=false;else if(c==='\\\\')esc=true;else if(c==='\\\"')q=false;continue;}if(c==='\\\"')q=true;else if(c==='/'&&n==='/'){line=true;i++;}else if(c==='{')d++;else if(c==='}'&&--d===0)return i;}return -1;}function scan(from,to){let q=false,esc=false,line=false;for(let i=from;i<to;i++){const c=text[i],n=text[i+1];if(line){if(c==='\\n')line=false;continue;}if(q){if(esc)esc=false;else if(c==='\\\\')esc=true;else if(c==='\\\"')q=false;continue;}if(c==='\\\"'){q=true;continue;}if(c==='/'&&n==='/'){line=true;i++;continue;}if(c==='@'){const m=/^@(cell|button)\\s+([A-Za-z_][A-Za-z0-9_-]*)\\s*\\{/.exec(text.slice(i));if(m){const open=i+m[0].lastIndexOf('{'),end=closeAt(open);if(end<0)throw Error('Unclosed scene node');out.push({open,end});scan(open+1,end);i=end;}}}}scan(0,text.length);return out;}function editBlock(text,b,pk,ek,vals){const keys=new Set(['position','position_p','extent','extent_p']);let body=text.slice(b.open+1,b.end),lines=body.split('\\n'),depth=1,pDone=false,eDone=false;for(let i=0;i<lines.length;i++){const line=lines[i];if(depth===1){const m=/^(\\s*)(position(?:_p)?|extent(?:_p)?)\\s*:\\s*.*$/.exec(line);if(m){const k=m[2],isP=k.startsWith('position');if(isP||keys.has(k)){if(isP){if(!pDone){lines[i]=m[1]+pk+': ('+vals[0]+', '+vals[1]+', 0)';pDone=true;}else lines[i]='';}else if(!eDone){lines[i]=m[1]+ek+': ('+vals[2]+', '+vals[3]+', 0)';eDone=true;}else lines[i]='';}}}let q=false,esc=false,comment=false;for(let j=0;j<line.length;j++){const c=line[j],n=line[j+1];if(comment)break;if(q){if(esc)esc=false;else if(c==='\\\\')esc=true;else if(c==='\\\"')q=false;}else if(c==='\\\"')q=true;else if(c==='/'&&n==='/'){comment=true;break;}else if(c==='{')depth++;else if(c==='}')depth--;}}const indent=(lines.find(l=>l.trim())||'').match(/^\\s*/)[0]+'    ';if(!pDone)lines.splice(Math.max(0,lines.length-1),0,indent+pk+': ('+vals[0]+', '+vals[1]+', 0)');if(!eDone)lines.splice(Math.max(0,lines.length-1),0,indent+ek+': ('+vals[2]+', '+vals[3]+', 0)');return text.slice(0,b.open+1)+lines.join('\\n')+text.slice(b.end);}document.querySelector('#apply').onclick=()=>{const o=node.selectedOptions[0],v=fields.map(f=>f.valueAsNumber),pm=document.querySelector('#pos-mode').value,em=document.querySelector('#extent-mode').value;if(v.some(x=>!Number.isFinite(x))){status.textContent='Enter four finite geometry values';return;}const max=pm==='position_p'||em==='extent_p'?1:32768;if((pm==='position_p'&&(v[0]<0||v[0]>1||v[1]<0||v[1]>1))||(em==='extent_p'&&(v[2]<0||v[2]>1||v[3]<0||v[3]>1))||v[2]<0||v[3]<0||v.some(x=>Math.abs(x)>32768)){status.textContent='Geometry is outside the supported range';return;}try{const bs=blocks(source.value),b=bs[Number(o.value)];if(!b)throw Error('Could not match selected scene node');source.value=editBlock(source.value,b,pm,em,v);status.textContent='Geometry updated in memory. Download source to keep it.';}catch(e){status.textContent='Could not safely update this node';}};document.querySelector('#update').onclick=async e=>{e.preventDefault();status.textContent='Validating…';try{const r=await fetch('/preview',{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:source.value});frame.srcdoc=await r.text();status.textContent=r.ok?'Preview updated':'Validation failed';}catch(e){status.textContent='Preview request failed';}};document.querySelector('#download').onclick=()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([source.value],{type:'text/plain'}));a.download='scene.gscene';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);};</script></body></html>");
     html
 }
 
@@ -261,7 +293,10 @@ fn route_request(
         return (
             "200 OK",
             "text/html; charset=utf-8",
-            render_editor(source, initial_preview),
+            match SceneProject::from_source(source, Viewport::default()) {
+                Ok(project) => render_editor(&project, initial_preview),
+                Err(error) => render_error_html(&error.to_string()),
+            },
         );
     }
     if req.method == "POST" && req.target == "/preview" {
