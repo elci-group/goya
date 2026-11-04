@@ -811,15 +811,28 @@ mod tests {
 
     #[test]
     fn d1_vee_bridge_checks_source_types_before_building_request() {
-        let compiled = compile_d1_interactions(&parse(SOURCE).unwrap()).unwrap().remove(0);
-        let state = D1Snapshot::new(4, BTreeMap::from([("count".into(), D1Value::Int(9))])).unwrap();
-        let inputs = InputSnapshot::new(BTreeMap::from([("amount".into(), D1Value::Int(3))])).unwrap();
-        let request = compiled.to_vee_request(&state, &inputs, "goya-lang-d1").unwrap();
+        let compiled = compile_d1_interactions(&parse(SOURCE).unwrap())
+            .unwrap()
+            .remove(0);
+        let state =
+            D1Snapshot::new(4, BTreeMap::from([("count".into(), D1Value::Int(9))])).unwrap();
+        let inputs =
+            InputSnapshot::new(BTreeMap::from([("amount".into(), D1Value::Int(3))])).unwrap();
+        let request = compiled
+            .to_vee_request(&state, &inputs, "goya-lang-d1")
+            .unwrap();
         assert_eq!(request.language, "python");
         assert!(request.source_code.contains("GOYA_D1_PROGRAM_HASH"));
 
-        let wrong_state = D1Snapshot::new(4, BTreeMap::from([("count".into(), D1Value::Text("wrong".into()))])).unwrap();
-        assert_eq!(compiled.to_vee_request(&wrong_state, &inputs, "goya-lang-d1"), Err(TransitionError::StateTypeMismatch));
+        let wrong_state = D1Snapshot::new(
+            4,
+            BTreeMap::from([("count".into(), D1Value::Text("wrong".into()))]),
+        )
+        .unwrap();
+        assert_eq!(
+            compiled.to_vee_request(&wrong_state, &inputs, "goya-lang-d1"),
+            Err(TransitionError::StateTypeMismatch)
+        );
     }
 
     #[test]
@@ -943,12 +956,31 @@ mod tests {
         let compiled = d2_compiled();
         let mut journal = journal_for(&compiled);
         record_int(&mut journal, b"static request", 41);
-        let request = compiled.to_vee_request(&d2_state(), &InputSnapshot::default(), &journal, "goya-lang-d2").unwrap();
+        let request = compiled
+            .to_vee_request(
+                &d2_state(),
+                &InputSnapshot::default(),
+                &journal,
+                "goya-lang-d2",
+            )
+            .unwrap();
         assert_eq!(request.language, "python");
         assert!(request.source_code.contains("GOYA_D2_PROGRAM_HASH"));
 
-        let wrong_state = D1Snapshot::new(10, BTreeMap::from([("count".into(), D1Value::Text("wrong".into()))])).unwrap();
-        assert_eq!(compiled.to_vee_request(&wrong_state, &InputSnapshot::default(), &journal, "goya-lang-d2"), Err(TransitionError::StateTypeMismatch));
+        let wrong_state = D1Snapshot::new(
+            10,
+            BTreeMap::from([("count".into(), D1Value::Text("wrong".into()))]),
+        )
+        .unwrap();
+        assert_eq!(
+            compiled.to_vee_request(
+                &wrong_state,
+                &InputSnapshot::default(),
+                &journal,
+                "goya-lang-d2"
+            ),
+            Err(TransitionError::StateTypeMismatch)
+        );
     }
 
     #[test]
