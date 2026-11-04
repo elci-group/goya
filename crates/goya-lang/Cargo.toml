@@ -7,3 +7,5 @@ license.workspace = true
 [dependencies]
 goya-chroma.workspace = true
 goya-ir.workspace = true
+goya-determinism.workspace = true
+goya-executable.workspace = true

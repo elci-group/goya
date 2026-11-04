@@ -648,6 +648,8 @@ name = "goya-lang"
 version = "0.1.8"
 dependencies = [
  "goya-chroma",
+ "goya-determinism",
+ "goya-executable",
  "goya-ir",
 ]
 
