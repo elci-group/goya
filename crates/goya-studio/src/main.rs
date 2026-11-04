@@ -289,7 +289,10 @@ fn render_editor(project: &SceneProject, preview: &str) -> String {
             "function editBlock(text,b,pk,ek,vals){",
             "let dragPositionOnly=false;function editBlock(text,b,pk,ek,vals,positionOnly=false){",
         )
-        .replace("else if(!eDone){", "else if(!positionOnly&&!eDone){")
+        .replace(
+            "}else if(!eDone){",
+            "}else if(positionOnly){}else if(!eDone){",
+        )
         .replace("if(!eDone)lines.splice(", "if(!eDone&&!positionOnly)lines.splice(")
         .replace("source.value=editBlock(source.value,b,pm,em,v);", "source.value=editBlock(source.value,b,pm,em,v,dragPositionOnly);")
         .replace(
@@ -769,6 +772,8 @@ mod tests {
         assert!(initial.2.contains("data-name=\"ok\""));
         assert!(initial.2.contains("sandbox=\"allow-scripts\""));
         assert!(initial.2.contains("e.source!==frame.contentWindow"));
+        assert!(initial.2.contains("dragPositionOnly=true"));
+        assert!(initial.2.contains("positionOnly){}else if(!eDone)"));
         let preview = route_request(&post("/preview", SCENE), HOST, SCENE, &html);
         assert!(preview.2.contains("pointerup"));
         assert!(preview.2.contains("goya-drag"));
