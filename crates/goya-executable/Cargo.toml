@@ -6,5 +6,6 @@ license.workspace = true
 
 [dependencies]
 goya-determinism.workspace = true
+goya-state.workspace = true
 goya-ir = { path = "../goya-ir" }
 sha2 = "0.10"
