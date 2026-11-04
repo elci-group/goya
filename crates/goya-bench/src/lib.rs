@@ -100,13 +100,11 @@ impl Corpus {
         if output_pixels > MAX_LOCAL_TOTAL_PIXELS {
             return Err(LocalCorpusError::PixelLimit);
         }
-        let ffmpeg_version = tool_version(ffmpeg)?;
-
-        let mut ordered: Vec<PathBuf> = paths.to_vec();
-        ordered.sort();
+        let ordered = sort_local_paths(paths);
         if ordered.windows(2).any(|pair| pair[0] == pair[1]) {
             return Err(LocalCorpusError::DuplicatePath);
         }
+        let ffmpeg_version = tool_version(ffmpeg)?;
 
         let mut images = Vec::with_capacity(ordered.len());
         let mut sources = Vec::with_capacity(ordered.len());
@@ -308,6 +306,12 @@ impl Corpus {
         let n = size as usize;
         (0..n * n).map(|_| rng.next_byte()).collect()
     }
+}
+
+fn sort_local_paths(paths: &[PathBuf]) -> Vec<PathBuf> {
+    let mut ordered = paths.to_vec();
+    ordered.sort();
+    ordered
 }
 
 /// A successfully decoded caller-owned image corpus and source provenance.
@@ -1282,7 +1286,7 @@ impl BenchmarkResult {
     /// measurements. No pass threshold is implied by these measurements.
     pub fn to_json(&self) -> String {
         let mut json = format!(
-            "{{\n  \"schema\":\"GY-BENCH-REPORT/1\",\n  \"seed\":{},\n  \"images\":{},\n  \"width\":{},\n  \"height\":{},\n  \"key_hex\":\"{:016x}\",\n  \"alpha\":{},\n  \"corpus_kind\":\"{}\",\n  \"corpus_fnv1a64\":\"{:016x}\",\n  \"threshold_policy\":\"measurements only; no general robustness threshold\",\n  \"transforms\":[",
+            "{{\n  \"schema\":\"GY-BENCH-REPORT/1\",\n  \"seed\":{},\n  \"images\":{},\n  \"width\":{},\n  \"height\":{},\n  \"key_hex\":\"{:016x}\",\n  \"alpha\":{},\n  \"corpus_kind\":\"{}\",\n  \"decode_tool_version\":{},\n  \"corpus_fnv1a64\":\"{:016x}\",\n  \"threshold_policy\":\"measurements only; no general robustness threshold\",\n  \"transforms\":[",
             self.seed,
             self.n_images,
             self.width,
@@ -1290,6 +1294,10 @@ impl BenchmarkResult {
             self.key,
             self.alpha,
             json_escape(&self.corpus_kind),
+            self.decode_tool_version
+                .as_ref()
+                .map(|version| format!("\"{}\"", json_escape(version)))
+                .unwrap_or_else(|| "null".into()),
             self.corpus_fingerprint
         );
         for (index, (transform, result)) in self
