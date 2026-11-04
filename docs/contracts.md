@@ -206,8 +206,8 @@ three-button acceptance geometry depends on it.
 | ~~GY-WAYLAND-001 live surface~~ | 1 (done) | 0.1 release gate |
 | PipeWire audio adapter (`goya-audio-linux` backend) | 2a (implemented) | real ARSEM output; host/device smoke recorded |
 | Hot-swap interface reconciliation + Tov CLI adapter | 2b (implemented) | release 0.2; CLI and compatibility tests |
-| EDC canonical lowering + D0 bytecode/reference VM + D1/D2 journals | 2c (implemented, partial) | D1 and D2 now support bounded canonical program decoding and hash/proof validation; D2 execution is journal-replay only, D1/D2 still lack compiler lowering and VEE workers |
-| VEE submission API + bounded D0 data bridge | 3a (implemented, partial) | source/data submission and a bounded D0 Python worker; D1/D2 have no VEE worker, and no live VEE E2E |
+| EDC canonical lowering + D0 bytecode/reference VM + D1/D2 journals | 2c (implemented, partial) | D1 and D2 support bounded canonical program decoding and hash/proof validation; D1 has a bounded Python worker adapter; D2 execution is journal-replay only; general D1/D2 compiler lowering remains open |
+| VEE submission API + bounded D0 data bridge | 3a (implemented, partial) | source/data submission plus bounded D0 and D1 Python workers; D2 has no VEE worker and no live VEE E2E is verified |
 | RUGID / 3form / Mesut / Theosis adapters | 3b (implemented) | release 0.3–0.4; local companion-tool smokes |
 | C2PA signing + explicit trust-aware verification | 3c (implemented, partial) | artifact provenance; deployment trust policy remains external |
 | HRTF profile loader + multichannel output | 3d (implemented, partial) | beyond-stereo ARSEM; measured profiles remain external |

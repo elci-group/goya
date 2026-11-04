@@ -1459,6 +1459,82 @@ mod tests {
         Corpus::generate(7, 6, 64)
     }
 
+    #[test]
+    fn local_corpus_preflight_rejects_invalid_requests_before_external_tools() {
+        assert_eq!(
+            Corpus::from_local_paths(&[], 1, 64, "missing-ffmpeg", "missing-ffprobe"),
+            Err(LocalCorpusError::EmptyCorpus)
+        );
+        assert_eq!(
+            Corpus::from_local_paths(
+                &[PathBuf::from("b.png"), PathBuf::from("a.png")],
+                1,
+                32,
+                "missing-ffmpeg",
+                "missing-ffprobe"
+            ),
+            Err(LocalCorpusError::InvalidTargetSize(32))
+        );
+        assert_eq!(
+            Corpus::from_local_paths(
+                &[PathBuf::from("same.png"), PathBuf::from("same.png")],
+                1,
+                64,
+                "missing-ffmpeg",
+                "missing-ffprobe"
+            ),
+            Err(LocalCorpusError::DuplicatePath)
+        );
+        let too_many = vec![PathBuf::from("image.png"); MAX_LOCAL_IMAGES + 1];
+        assert_eq!(
+            Corpus::from_local_paths(
+                &too_many,
+                1,
+                64,
+                "missing-ffmpeg",
+                "missing-ffprobe"
+            ),
+            Err(LocalCorpusError::TooManyImages(MAX_LOCAL_IMAGES + 1))
+        );
+    }
+
+    #[test]
+    fn local_paths_sort_lexicographically_for_stable_corpus_order() {
+        assert_eq!(
+            sort_local_paths(&[PathBuf::from("z.png"), PathBuf::from("a.png")]),
+            vec![PathBuf::from("a.png"), PathBuf::from("z.png")]
+        );
+    }
+
+    #[test]
+    fn local_corpus_provenance_is_serialized_in_the_report() {
+        let mut image = Corpus::generate(7, 1, 64).remove(0);
+        image.name = "portrait.png".into();
+        let result = Benchmark.run_local(
+            7,
+            64,
+            KEY,
+            ALPHA,
+            LocalCorpus {
+                images: vec![image],
+                sources: vec![SourceImageMetadata {
+                    path: "/licensed/data/portrait.png".into(),
+                    sha256: "ab".repeat(32),
+                    source_width: 120,
+                    source_height: 240,
+                    normalized_width: 64,
+                    normalized_height: 64,
+                }],
+                ffmpeg_version: "ffmpeg test build".into(),
+            },
+        );
+        let json = result.to_json();
+        assert!(json.contains("\"corpus_kind\":\"local_files\""));
+        assert!(json.contains("\"decode_tool_version\":\"ffmpeg test build\""));
+        assert!(json.contains("\"sha256\":\"abababab"));
+        assert!(json.contains("\"normalized_width\":64"));
+    }
+
     #[cfg(unix)]
     #[test]
     fn subprocess_pipe_drains_large_stdout_while_writing_stdin() {
