@@ -1,7 +1,7 @@
 //! Scene AST and deterministic absolute/proportional layout.
 
-use std::collections::BTreeMap;
 use goya_determinism::EffectKind;
+use std::collections::BTreeMap;
 
 /// Contract millipoint scale: 1 point = 1000 mp (matches GY-LAYOUT/1).
 pub const MP: f64 = 1000.0;
@@ -69,11 +69,18 @@ pub enum InteractionType {
 
 /// Authored execution class for a bounded interaction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum InteractionClass { D1, D2 }
+pub enum InteractionClass {
+    D1,
+    D2,
+}
 
 /// Result type of a replayed static D2 effect request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EffectValueType { Int64, Text, Bool }
+pub enum EffectValueType {
+    Int64,
+    Text,
+    Bool,
+}
 
 /// Static request bytes and their explicit declared capability label.
 #[derive(Debug, Clone, PartialEq, Eq)]

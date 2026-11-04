@@ -27,8 +27,8 @@ pub use scene::{
     InteractionType, InteractionValue, StateAssignment, TypedKey,
 };
 pub use transition::{
-    compile_d1_interactions, compile_d2_interactions, CompiledD2Interaction,
-    CompiledInteraction, TransitionError,
+    compile_d1_interactions, compile_d2_interactions, CompiledD2Interaction, CompiledInteraction,
+    TransitionError,
 };
 
 /// Contract identifier implemented by this crate.
