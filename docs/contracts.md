@@ -251,26 +251,36 @@ both paths feed the same runtime/layout/render pipeline.
 - Appearance: `fill`/`stroke` hex colours (`#rgb`, `#rrggbb`, `#rrggbbaa`),
   `stroke-width`, `text`, `text-size`, `text-anchor: start|middle|end`.
 - Authoring extensions: `@template` blocks remain parsed and skipped;
-  unknown visual properties are consumed and ignored. `@interaction` is a
-  deliberately bounded executable subset: one `trigger: button.<name>.activate`,
-  `class: D1`, explicit `state { read key: int|text|bool; write ...; }`,
-  explicit `input { key: int|text|bool; }`, and straight-line `set key = expr;`
-  assignments. Expressions accept scalar literals, `state.key`, `input.key`,
-  and checked integer `+`. Every declared write must be assigned exactly once;
-  every declared read/input must be used. A trigger that resolves to no button
-  or to multiple same-named buttons is rejected; unrelated duplicate button
-  names do not by themselves block compilation. Undeclared keys, type
-  mismatches, and unsupported syntax are rejected.
+  unknown visual properties are consumed and ignored. `@interaction` supports
+  bounded D1 and static-journal D2 forms. Both require one
+  `trigger: button.<name>.activate`, typed `state` and `input` blocks, and
+  straight-line `set key = expr;` assignments. D1 uses `class: D1` and accepts
+  scalar literals, `state.key`, `input.key`, and checked integer `+`.
+  D2 uses `class: D2`, declares `effects { network; ... }`, then static requests
+  such as `lookup: effect network capability "network" request "GET /items"
+  result int64;`. Request results may be `int64`, `text`, or `bool`; expressions
+  can read them as `effect.lookup` and may also use the D1 scalar/state/input
+  forms and checked integer `+`. Capability strings must exactly match the
+  declared EffectKind name. Each declared effect must be used by a request;
+  each request must be referenced exactly once. Requests are emitted in their
+  declaration order and replayed only from a caller-supplied `EffectJournal`;
+  the compiler and wrapper perform no host effects. Every declared write must
+  be assigned exactly once; every declared read/input must be used. A trigger
+  that resolves to no button or to multiple same-named buttons is rejected;
+  unrelated duplicate button names do not by themselves block compilation.
+  Undeclared keys/effects, mismatched labels/result types, dynamic request
+  bytes, unsupported syntax, and duplicate interaction names or trigger
+  bindings are rejected. `compile_d1_interactions` and
+  `compile_d2_interactions` select only their class, while uniqueness is
+  validated across all interactions in the scene.
   `compile_d1_interactions` binds triggers to the same depth-first button
   `ActionId`s as scene lowering and emits only verified D1 VM programs. Its
   immutable schema metadata is exposed through read-only accessors, and the
   typed execution wrapper checks authored state/input and resulting write
-  types around the VM. The raw VM program is intentionally not exposed yet;
-  a future VM/VEE bridge must preserve authored scalar types because D1 itself
+  types around the VM. The raw VM programs are intentionally not exposed;
+  future VM/VEE bridges must preserve authored scalar types because the VM
   verifies key sets but does not encode scalar types. Button traversal stops
-  at buttons, matching IR lowering, and duplicate interaction names or trigger
-  bindings are rejected. D2 effect/journal requests,
-  branches, loops, comparisons, and other
+  at buttons, matching IR lowering. Branches, loops, comparisons, and other
   expression forms are not yet source-language features.
 - Totality: parse + layout never panic on any input — 10,000-input
   deterministic mutation fuzzer enforces it.
