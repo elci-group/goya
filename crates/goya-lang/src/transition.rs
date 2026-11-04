@@ -18,11 +18,14 @@ pub enum TransitionError {
     InvalidDeclaration,
     TriggerNotFound,
     TriggerAmbiguous,
+    TriggerAlreadyBound,
+    DuplicateInteractionName,
     InvalidSchema,
     UndeclaredRead,
     TypeMismatch,
     StateTypeMismatch,
     InputTypeMismatch,
+    OutputTypeMismatch,
     AssignmentMismatch,
     VmRejected(String),
 }
@@ -35,25 +38,24 @@ impl std::error::Error for TransitionError {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompiledInteraction {
-    pub name: String,
-    pub trigger: ActionId,
-    pub state_reads: Vec<crate::scene::TypedKey>,
-    pub state_writes: Vec<crate::scene::TypedKey>,
-    pub inputs: Vec<crate::scene::TypedKey>,
+    name: String,
+    trigger: ActionId,
+    state_reads: Vec<crate::scene::TypedKey>,
+    state_writes: Vec<crate::scene::TypedKey>,
+    inputs: Vec<crate::scene::TypedKey>,
     program: D1Program,
 }
 
 impl CompiledInteraction {
-    /// Access the verified VM program for bridges such as VEE requests. The
-    /// VM enforces exact key schemas; source-level scalar types are enforced
-    /// only by [`Self::execute`], so bridges must preserve this wrapper check
-    /// when accepting authored snapshots.
-    pub fn program(&self) -> &D1Program {
-        &self.program
-    }
+    pub fn name(&self) -> &str { &self.name }
+    pub fn trigger(&self) -> ActionId { self.trigger }
+    pub fn state_reads(&self) -> &[crate::scene::TypedKey] { &self.state_reads }
+    pub fn state_writes(&self) -> &[crate::scene::TypedKey] { &self.state_writes }
+    pub fn inputs(&self) -> &[crate::scene::TypedKey] { &self.inputs }
 
-    /// Execute while enforcing the authored typed state/input contract before
-    /// delegating to the lower-level D1 VM's exact-key schema checks.
+    /// Execute the transition while enforcing its immutable authored schema.
+    /// The lower-level VM program is intentionally not exposed until a typed
+    /// bridge can preserve these checks end to end.
     pub fn execute(
         &self,
         state: &D1Snapshot,
@@ -79,9 +81,10 @@ impl CompiledInteraction {
         {
             return Err(TransitionError::InputTypeMismatch);
         }
-        self.program
-            .execute(state, inputs)
-            .map_err(|e| TransitionError::VmRejected(e.to_string()))
+        let outcome = self.program.execute(state, inputs)
+            .map_err(|e| TransitionError::VmRejected(e.to_string()))?;
+        validate_output_types(&self.state_writes, &outcome.next_state)?;
+        Ok(outcome)
     }
 }
 
@@ -90,10 +93,10 @@ impl CompiledInteraction {
 pub fn compile_d1_interactions(scene: &Scene) -> Result<Vec<CompiledInteraction>, TransitionError> {
     let mut buttons = Vec::<(String, ActionId)>::new();
     collect_buttons(&scene.root, &mut 0, &mut buttons);
-    scene
-        .interactions
-        .iter()
-        .map(|i| {
+    let mut names = BTreeSet::new();
+    let mut bound_triggers = BTreeSet::new();
+    scene.interactions.iter().map(|i| {
+            if !names.insert(i.name.as_str()) { return Err(TransitionError::DuplicateInteractionName); }
             let matches: Vec<_> = buttons
                 .iter()
                 .filter(|(name, _)| name == &i.trigger_button)
@@ -103,6 +106,7 @@ pub fn compile_d1_interactions(scene: &Scene) -> Result<Vec<CompiledInteraction>
                 [(_, id)] => *id,
                 _ => return Err(TransitionError::TriggerAmbiguous),
             };
+            if !bound_triggers.insert(trigger) { return Err(TransitionError::TriggerAlreadyBound); }
             Ok(CompiledInteraction {
                 name: i.name.clone(),
                 trigger,
@@ -123,9 +127,10 @@ fn collect_buttons(
     if cell.kind == CellKind::Button {
         out.push((cell.name.clone(), ActionId(*next)));
         *next += 1;
-    }
-    for child in &cell.children {
-        collect_buttons(child, next, out);
+    } else {
+        for child in &cell.children {
+            collect_buttons(child, next, out);
+        }
     }
 }
 
@@ -236,6 +241,16 @@ fn value_has_type(value: &D1Value, ty: InteractionType) -> bool {
             | (D1Value::Text(_), InteractionType::Text)
             | (D1Value::Bool(_), InteractionType::Bool)
     )
+}
+
+fn validate_output_types(
+    writes: &[crate::scene::TypedKey],
+    next_state: &BTreeMap<String, D1Value>,
+) -> Result<(), TransitionError> {
+    if writes.iter().any(|key| {
+        next_state.get(&key.name).is_none_or(|value| !value_has_type(value, key.value_type))
+    }) { return Err(TransitionError::OutputTypeMismatch); }
+    Ok(())
 }
 
 fn compile_expr(
