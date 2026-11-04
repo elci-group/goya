@@ -195,7 +195,7 @@ fn collect_buttons(
 }
 
 fn compile_one(i: &InteractionDecl) -> Result<D1Program, TransitionError> {
-    if i.name.is_empty() || i.name.len() > 128 || i.assignments.is_empty() {
+    if i.class != InteractionClass::D1 || !i.declared_effects.is_empty() || !i.requests.is_empty() || i.name.is_empty() || i.name.len() > 128 || i.assignments.is_empty() {
         return Err(TransitionError::InvalidDeclaration);
     }
     let reads = key_types(&i.state_reads)?;
@@ -292,6 +292,26 @@ fn typed_union<'a>(
         all.insert(key, ty);
     }
     Ok(all)
+}
+
+fn validate_runtime_values(
+    reads: &[crate::scene::TypedKey],
+    writes: &[crate::scene::TypedKey],
+    declared_inputs: &[crate::scene::TypedKey],
+    state: &D1Snapshot,
+    inputs: &InputSnapshot,
+) -> Result<(), TransitionError> {
+    let state_schema = typed_union(reads, writes)?;
+    if state.values().len() != state_schema.len()
+        || state.values().iter().any(|(key, value)| {
+            state_schema.get(key.as_str()).is_none_or(|ty| !value_has_type(value, *ty))
+        }) { return Err(TransitionError::StateTypeMismatch); }
+    if inputs.values().len() != declared_inputs.len()
+        || inputs.values().iter().any(|(key, value)| {
+            declared_inputs.iter().find(|item| item.name == *key)
+                .is_none_or(|item| !value_has_type(value, item.value_type))
+        }) { return Err(TransitionError::InputTypeMismatch); }
+    Ok(())
 }
 
 fn value_has_type(value: &D1Value, ty: InteractionType) -> bool {
