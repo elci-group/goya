@@ -206,15 +206,15 @@ three-button acceptance geometry depends on it.
 | ~~GY-WAYLAND-001 live surface~~ | 1 (done) | 0.1 release gate |
 | PipeWire audio adapter (`goya-audio-linux` backend) | 2a (implemented) | real ARSEM output; host/device smoke recorded |
 | Hot-swap interface reconciliation + Tov CLI adapter | 2b (implemented) | release 0.2; CLI and compatibility tests |
-| EDC canonical lowering + D0 bytecode/reference VM + D1/D2 journals | 2c (implemented, partial) | D1 and D2 support bounded canonical program decoding and hash/proof validation; D1 has a bounded Python worker adapter; D2 execution is journal-replay only; general D1/D2 compiler lowering remains open |
-| VEE submission API + bounded D0 data bridge | 3a (implemented, partial) | source/data submission plus bounded D0 and D1 Python workers; D2 has no VEE worker and no live VEE E2E is verified |
+| EDC canonical lowering + D0 bytecode/reference VM + D1/D2 journals | 2c (implemented, partial) | D1/D2 have bounded canonical decoding and proof/hash checks; D1 store application and D1/D2 bounded VEE workers exist; general compiler lowering from authored Goya programs remains open |
+| VEE submission API + bounded D0 data bridge | 3a (implemented, partial) | D1/D2 workers passed local live submit/status/result E2E; D0 live-result semantics remain unverified; local Landlock was unavailable, so the live smoke used rlimit isolation only |
 | RUGID / 3form / Mesut / Theosis adapters | 3b (implemented) | release 0.3–0.4; local companion-tool smokes |
-| C2PA signing + explicit trust-aware verification | 3c (implemented, partial) | artifact provenance; deployment trust policy remains external |
-| HRTF profile loader + multichannel output | 3d (implemented, partial) | beyond-stereo ARSEM; measured profiles remain external |
+| C2PA signing + explicit trust-aware verification | 3c (implemented, partial) | official-tool signing and an ephemeral trusted-root verification smoke passed; production signer identity, trust anchors/allowlist, and key custody remain release-owner decisions |
+| HRTF profile loader + multichannel output | 3d (implemented, partial) | bounded SOFA converter and attributed 64-direction Viking HRTF fixture are included; additional subjects/full-dataset evaluation remains caller-supplied |
 | RPI Level-2 learned anticipation (opt-in) | 3e (implemented) | anticipatory runtime |
-| GTK/AT-SPI live-refresh bridge + accessibility conformance | 4 (bridge implemented, conformance open) | release 0.6; Orca/WCAG evidence remains |
-| SDK, Studio CLI/browser preview, reproducible package + offline installer | 4 (implemented, partial) | optional Ed25519 archive-signing and trusted-key verification are implemented; publisher key custody/distribution and publication, full visual IDE remain external/open |
-| Synthetic watermark corpus + optional MJPEG round-trip | 4 (implemented, limited claim) | reproducible measurements; broader photo/codec corpus remains |
+| GTK/AT-SPI live-refresh bridge + accessibility conformance | 4 (bridge implemented, conformance open) | Linux AT-SPI tree/actions were observed; Orca logged no focus target, so navigation/announcements and WCAG evidence across supported platforms remain open |
+| SDK, Studio CLI/browser preview, reproducible package + offline installer | 4 (implemented, partial) | browser editor has a geometry inspector and canvas drag; signed offline packages are supported; full IDE, publisher key custody/distribution, and release publication remain open |
+| Watermark corpus + real codec evaluation | 4 (implemented, limited claim) | synthetic and caller-supplied local-image corpora plus MJPEG/PNG codec paths are available; a larger licensed photo corpus and broader lossy-codec evaluation remain |
 
 ## GY-HOTSWAP/1 — Persisted-state migration
 
