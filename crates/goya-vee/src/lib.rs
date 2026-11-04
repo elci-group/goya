@@ -20,7 +20,8 @@
 use goya_determinism::DeterminismClass;
 use goya_executable::{
     execute, CompiledProgram, D1Error, D1Instruction, D1Program, D1Snapshot, D1Value,
-    InputSnapshot, Instruction, VmError, BYTECODE_VERSION,
+    D2Error, D2Instruction, D2Program, EffectJournal, EffectResultType, InputSnapshot,
+    Instruction, VmError, BYTECODE_VERSION,
 };
 use std::collections::HashSet;
 use std::io::{Read, Write};
@@ -44,6 +45,9 @@ const MAX_EDC_INSTRUCTIONS: usize = 2_048;
 const MAX_EDC_STRING_BYTES: usize = 32 * 1024;
 const MAX_EDC_SOURCE_BYTES: usize = 256 * 1024;
 const MAX_D1_DATA_BYTES: usize = 32 * 1024;
+const MAX_D2_PAYLOAD_BYTES: usize = 32 * 1024;
+const MAX_D2_JOURNAL_BYTES: usize = 64 * 1024;
+const MAX_D2_JOURNAL_ENTRIES: usize = 256;
 
 /// Convert an already decoded and verified D1 program plus explicit snapshots
 /// into a bounded VEE Python worker. The worker implements only D1's scalar
@@ -155,6 +159,191 @@ pub fn request_from_d1_program(
     }
     // Keep generation and Rust reference semantics coupled: the expected
     // outcome is not embedded in the worker; tests compare actual execution.
+    let _ = expected;
+    Ok(SubmitRequest {
+        agent_id: agent_id.to_string(),
+        language: "python".into(),
+        source_code: source,
+        capabilities: Vec::new(),
+        budget: Some(VeeBudgetRequest {
+            cpu_seconds: Some(3),
+            memory_mb: Some(128),
+            disk_mb: Some(64),
+            token_budget: Some(1_024),
+            wall_clock_seconds: Some(5),
+        }),
+    })
+}
+
+/// Convert a validated D2 program, exact snapshots, and caller-supplied
+/// effect journal into a bounded VEE Python worker. The worker can consume
+/// only the embedded journal records: it has no live effect or VEE capability
+/// path, and fails on request/capability mismatch or unused records.
+pub fn request_from_d2_program(
+    program: &D2Program,
+    state: &D1Snapshot,
+    inputs: &InputSnapshot,
+    journal: &EffectJournal,
+    agent_id: &str,
+) -> Result<SubmitRequest, VeeCompileError> {
+    validate_agent_id(agent_id)?;
+    let expected = program
+        .execute(state, inputs, journal)
+        .map_err(VeeCompileError::InvalidD2Program)?;
+    if program.instructions().len() > MAX_EDC_INSTRUCTIONS {
+        return Err(VeeCompileError::TooManyInstructions);
+    }
+    if journal.entries().len() > MAX_D2_JOURNAL_ENTRIES
+        || journal.encoded_bytes() > MAX_D2_JOURNAL_BYTES
+    {
+        return Err(VeeCompileError::D2JournalTooLarge);
+    }
+
+    let mut payload_bytes = 0usize;
+    for map in [state.values(), inputs.values()] {
+        for (key, value) in map {
+            payload_bytes = payload_bytes
+                .checked_add(key.len())
+                .and_then(|n| n.checked_add(d1_value_size(value)))
+                .ok_or(VeeCompileError::StringDataTooLarge)?;
+        }
+    }
+    for instruction in program.instructions() {
+        let added = match instruction {
+            D2Instruction::Constant { dst, value } => dst
+                .len()
+                .checked_add(d1_value_size(value))
+                .ok_or(VeeCompileError::StringDataTooLarge)?,
+            D2Instruction::ReadState { dst, key } | D2Instruction::ReadInput { dst, key } => {
+                dst.len() + key.len()
+            }
+            D2Instruction::AddInt { dst, left, right } => dst.len() + left.len() + right.len(),
+            D2Instruction::RequestEffect {
+                dst,
+                capability,
+                request,
+                ..
+            } => dst.len() + capability.as_str().len() + request.len(),
+            D2Instruction::WriteState { key, src } => key.len() + src.len(),
+        };
+        payload_bytes = payload_bytes
+            .checked_add(added)
+            .ok_or(VeeCompileError::StringDataTooLarge)?;
+    }
+    for entry in journal.entries() {
+        payload_bytes = payload_bytes
+            .checked_add(entry.capability.as_str().len())
+            .and_then(|n| n.checked_add(entry.request.len()))
+            .and_then(|n| n.checked_add(entry.result.len()))
+            .ok_or(VeeCompileError::StringDataTooLarge)?;
+    }
+    if payload_bytes > MAX_D2_PAYLOAD_BYTES {
+        return Err(VeeCompileError::D2PayloadTooLarge);
+    }
+
+    let mut source = String::from(
+        "# Goya EDC D2 worker; journal replay only.\nimport hashlib\nimport json\nGOYA_D2_VERSION = 1\nGOYA_D2_REVISION = ",
+    );
+    source.push_str(&state.revision.to_string());
+    source.push_str("\nGOYA_D2_PROGRAM_HASH = '");
+    source.push_str(&hex_bytes(&program.program_hash()));
+    source.push_str("'\nGOYA_D2_STATE = ");
+    push_py_map(&mut source, state.values());
+    source.push_str("\nGOYA_D2_INPUTS = ");
+    push_py_map(&mut source, inputs.values());
+    source.push_str("\nGOYA_D2_READ_KEYS = ");
+    push_py_strings(&mut source, program.contract().read_keys());
+    source.push_str("\nGOYA_D2_WRITE_KEYS = ");
+    push_py_strings(&mut source, program.contract().write_keys());
+    source.push_str("\nGOYA_D2_INPUT_KEYS = ");
+    push_py_strings(&mut source, program.contract().input_keys());
+    source.push_str("\nGOYA_D2_CODE = (\n");
+    for instruction in program.instructions() {
+        source.push_str("    ");
+        match instruction {
+            D2Instruction::Constant { dst, value } => {
+                source.push_str("('const', ");
+                push_python_string(&mut source, dst);
+                source.push_str(", ");
+                push_py_value(&mut source, value);
+                source.push_str("),");
+            }
+            D2Instruction::ReadState { dst, key } => {
+                source.push_str("('state', ");
+                push_python_string(&mut source, dst);
+                source.push_str(", ");
+                push_python_string(&mut source, key);
+                source.push_str("),");
+            }
+            D2Instruction::ReadInput { dst, key } => {
+                source.push_str("('input', ");
+                push_python_string(&mut source, dst);
+                source.push_str(", ");
+                push_python_string(&mut source, key);
+                source.push_str("),");
+            }
+            D2Instruction::AddInt { dst, left, right } => {
+                source.push_str("('add', ");
+                push_python_string(&mut source, dst);
+                source.push_str(", ");
+                push_python_string(&mut source, left);
+                source.push_str(", ");
+                push_python_string(&mut source, right);
+                source.push_str("),");
+            }
+            D2Instruction::RequestEffect {
+                dst,
+                capability,
+                request,
+                result_type,
+            } => {
+                source.push_str("('effect', ");
+                push_python_string(&mut source, dst);
+                source.push_str(", ");
+                push_python_string(&mut source, capability.as_str());
+                source.push_str(", bytes.fromhex('");
+                source.push_str(&hex_bytes(request));
+                source.push_str("'), ");
+                source.push_str(&d2_result_type_tag(*result_type).to_string());
+                source.push_str("),");
+            }
+            D2Instruction::WriteState { key, src } => {
+                source.push_str("('write', ");
+                push_python_string(&mut source, key);
+                source.push_str(", ");
+                push_python_string(&mut source, src);
+                source.push_str("),");
+            }
+        }
+        source.push('\n');
+        if source.len() > MAX_EDC_SOURCE_BYTES {
+            return Err(VeeCompileError::SourceTooLarge);
+        }
+    }
+    source.push_str(")\nGOYA_D2_JOURNAL = (\n");
+    for entry in journal.entries() {
+        source.push_str("    (");
+        source.push_str(&entry.sequence.to_string());
+        source.push_str(", ");
+        push_python_string(&mut source, entry.capability.as_str());
+        source.push_str(", bytes.fromhex('");
+        source.push_str(&hex_bytes(&entry.request));
+        source.push_str("'), bytes.fromhex('");
+        source.push_str(&hex_bytes(&entry.result));
+        source.push_str("'), '");
+        source.push_str(&hex_bytes(&entry.previous_hash));
+        source.push_str("', '");
+        source.push_str(&hex_bytes(&entry.hash));
+        source.push_str("'),\n");
+        if source.len() > MAX_EDC_SOURCE_BYTES {
+            return Err(VeeCompileError::SourceTooLarge);
+        }
+    }
+    source.push_str(")\n");
+    source.push_str(D2_WORKER_PYTHON);
+    if source.len() > MAX_EDC_SOURCE_BYTES {
+        return Err(VeeCompileError::SourceTooLarge);
+    }
     let _ = expected;
     Ok(SubmitRequest {
         agent_id: agent_id.to_string(),

@@ -1504,6 +1504,17 @@ mod tests {
             Corpus::from_local_paths(&too_many, 1, 64, "missing-ffmpeg", "missing-ffprobe"),
             Err(LocalCorpusError::TooManyImages(MAX_LOCAL_IMAGES + 1))
         );
+        let too_many_pixels = vec![PathBuf::from("image.png"); 9];
+        assert_eq!(
+            Corpus::from_local_paths(
+                &too_many_pixels,
+                1,
+                1024,
+                "missing-ffmpeg",
+                "missing-ffprobe"
+            ),
+            Err(LocalCorpusError::PixelLimit)
+        );
     }
 
     #[test]
