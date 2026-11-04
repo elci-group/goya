@@ -208,8 +208,8 @@ three-button acceptance geometry depends on it.
 | ~~GY-WAYLAND-001 live surface~~ | 1 (done) | 0.1 release gate |
 | PipeWire audio adapter (`goya-audio-linux` backend) | 2a (implemented) | real ARSEM output; host/device smoke recorded |
 | Hot-swap interface reconciliation + Tov CLI adapter | 2b (implemented) | release 0.2; CLI and compatibility tests |
-| EDC canonical lowering + D0 bytecode/reference VM + D1/D2 journals | 2c (implemented, partial) | Authored Goya source lowers through bounded typed single-button D1 and static-journal D2 subsets; typed wrappers can construct bounded D1/D2 VEE worker requests. Broader language features and live source-compiled submit evidence remain open. D1/D2 canonical decoding and VEE workers are available |
-| VEE submission API + bounded D0 data bridge | 3a (implemented, partial) | D0/D1/D2 workers passed local live submit/status/result E2E; VEE's D0 stdout artifact may prefix sandbox diagnostics; local Landlock was unavailable, so the live smoke used rlimit isolation only |
+| EDC canonical lowering + D0 bytecode/reference VM + D1/D2 journals | 2c (implemented, partial) | Authored Goya source lowers through bounded typed single-button D1 and static-journal D2 subsets; a loopback live smoke submitted both typed source-compiled worker requests and verified their results. Broader language features remain open. D1/D2 canonical decoding and VEE workers are available |
+| VEE submission API + bounded D0 data bridge | 3a (implemented, partial) | D0/D1/D2 workers and authored typed D1/D2 requests passed local loopback submit/status/result E2E; VEE's D0 stdout artifact may prefix sandbox diagnostics; local Landlock was unavailable, so live smokes used rlimit isolation only |
 | RUGID / 3form / Mesut / Theosis adapters | 3b (implemented) | release 0.3–0.4; local companion-tool smokes |
 | C2PA signing + explicit trust-aware verification | 3c (implemented, partial) | official-tool signing and an ephemeral trusted-root verification smoke passed; production signer identity, trust anchors/allowlist, and key custody remain release-owner decisions |
 | HRTF profile loader + multichannel output | 3d (implemented, partial) | bounded SOFA converter and attributed 64-direction Viking HRTF fixture are included; additional subjects/full-dataset evaluation remains caller-supplied |
@@ -353,11 +353,12 @@ Consequences for the DAG:
 - Wave 3a was reframed as **"VEE adapter: route Goya EDC executable units
   and agent tool calls through VEE's capability/budget/artifact machinery."**
   The HTTP client matches VEE's submit API for caller-supplied source, and
-  bounded D0/D1/D2 workers are available. Typed D1/D2 source wrappers now
+  bounded D0/D1/D2 workers are available. Typed D1/D2 source wrappers
   construct bounded worker requests after validating authored scalar types;
-  request generation does not submit them. Live end-to-end submission from
-  authored compiled source remains unverified, and broader source-language
-  features remain open.
+  an opt-in loopback smoke has also submitted both requests and verified the
+  returned state. Broader source-language features remain open. Live sandbox
+  evidence is limited to this environment's rlimit fallback because Landlock
+  setup returned `Operation not permitted`.
 - The Wave-1 evidence table row for Vico Vee is superseded by this section.
 
 ---
