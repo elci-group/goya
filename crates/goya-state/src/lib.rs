@@ -31,13 +31,15 @@ struct Inner {
     committed: Map,
     /// Staged snapshot of an open transaction, or `None`.
     scratch: Option<Map>,
+    /// Revision is protected by the same lock as committed state so a
+    /// snapshot can never pair one revision with another revision's values.
+    revision: u64,
 }
 
 /// Handle to the shared store. Clone to share across owners.
 #[derive(Clone, Default)]
 pub struct Store {
     inner: Arc<Mutex<Inner>>,
-    revision: Arc<Mutex<u64>>,
 }
 
 impl Store {
@@ -47,7 +49,10 @@ impl Store {
 
     /// Current committed revision counter.
     pub fn revision(&self) -> u64 {
-        *self.revision.lock().unwrap_or_else(|p| p.into_inner())
+        self.inner
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .revision
     }
 
     /// Read a value: staged writes during an open transaction, otherwise the
@@ -81,6 +86,18 @@ pub struct Transaction<'a> {
 }
 
 impl Transaction<'_> {
+    /// Capture selected values and the current revision under one lock.
+    /// Missing keys are omitted so callers can apply their own schema rules.
+    pub fn snapshot(&self, keys: &[String]) -> (u64, Map) {
+        let guard = self.store.inner.lock().unwrap_or_else(|p| p.into_inner());
+        let source = guard.scratch.as_ref().unwrap_or(&guard.committed);
+        let values = keys
+            .iter()
+            .filter_map(|key| source.get(key).cloned().map(|value| (key.clone(), value)))
+            .collect();
+        (guard.revision, values)
+    }
+
     /// Stage a write (visible to `Store::get` on this store until rollback).
     pub fn set(&self, key: &str, value: Value) {
         let mut guard = self.store.inner.lock().unwrap_or_else(|p| p.into_inner());
@@ -94,22 +111,16 @@ impl Transaction<'_> {
     /// returns `Err(CommitRejected)`.
     pub fn commit(self, invariant: impl Fn(&Map) -> bool) -> Result<(), CommitRejected> {
         let mut guard = self.store.inner.lock().unwrap_or_else(|p| p.into_inner());
-        let result = match &guard.scratch {
-            Some(scratch) if invariant(scratch) => {
+        let next_revision = guard.revision.checked_add(1);
+        let result = match (&guard.scratch, next_revision) {
+            (Some(scratch), Some(revision)) if invariant(scratch) => {
                 guard.committed = scratch.clone();
+                guard.revision = revision;
                 Ok(())
             }
             _ => Err(CommitRejected),
         };
         guard.scratch = None; // publish or discard, then close the transaction
-        drop(guard);
-        if result.is_ok() {
-            *self
-                .store
-                .revision
-                .lock()
-                .unwrap_or_else(|p| p.into_inner()) += 1;
-        }
         result
     }
 }

@@ -588,6 +588,7 @@ version = "0.1.8"
 dependencies = [
  "goya-determinism",
  "goya-ir",
+ "goya-state",
  "sha2",
 ]
 
