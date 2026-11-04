@@ -1138,8 +1138,14 @@ pub fn measure_ffmpeg_mpeg4(result: &mut BenchmarkResult, executable: &str) {
 }
 
 fn measure_ffmpeg_codec(result: &mut BenchmarkResult, executable: &str, codec: &str) {
-    let (encoder, quality_flag, quality_parameter, settings, muxer, pixel_format):
-        (&str, &str, &str, &[u8], &str, Option<&str>) = match codec {
+    let (encoder, quality_flag, quality_parameter, settings, muxer, pixel_format): (
+        &str,
+        &str,
+        &str,
+        &[u8],
+        &str,
+        Option<&str>,
+    ) = match codec {
         "mjpeg" => ("mjpeg", "-q:v", "q:v", &[2, 5, 8], "image2pipe", None),
         "png" => (
             "png",
@@ -1149,7 +1155,14 @@ fn measure_ffmpeg_codec(result: &mut BenchmarkResult, executable: &str, codec: &
             "image2pipe",
             None,
         ),
-        "h264" => ("libx264", "-crf", "crf", &[18, 28, 38], "matroska", Some("yuv420p")),
+        "h264" => (
+            "libx264",
+            "-crf",
+            "crf",
+            &[18, 28, 38],
+            "matroska",
+            Some("yuv420p"),
+        ),
         "mpeg4" => ("mpeg4", "-q:v", "q:v", &[2, 5, 8], "avi", Some("yuv420p")),
         _ => {
             result.codec_roundtrip = Some(codec_unavailable(codec, None, "unsupported codec"));
@@ -1200,22 +1213,22 @@ fn measure_ffmpeg_codec(result: &mut BenchmarkResult, executable: &str, codec: &
             let quality_arg = quality.to_string();
             let size_arg = format!("{}x{}", image.w, image.h);
             let mut encode_args = vec![
-                    "-v",
-                    "error",
-                    "-f",
-                    "rawvideo",
-                    "-pix_fmt",
-                    "gray",
-                    "-s:v",
-                    &size_arg,
-                    "-i",
-                    "pipe:0",
-                    "-frames:v",
-                    "1",
-                    "-an",
-                    "-c:v",
-                    encoder,
-                ];
+                "-v",
+                "error",
+                "-f",
+                "rawvideo",
+                "-pix_fmt",
+                "gray",
+                "-s:v",
+                &size_arg,
+                "-i",
+                "pipe:0",
+                "-frames:v",
+                "1",
+                "-an",
+                "-c:v",
+                encoder,
+            ];
             if let Some(pixel_format) = pixel_format {
                 if codec == "h264" {
                     encode_args.extend_from_slice(&["-preset", "medium"]);
@@ -1240,7 +1253,14 @@ fn measure_ffmpeg_codec(result: &mut BenchmarkResult, executable: &str, codec: &
                 decode_args.extend_from_slice(&["-vcodec", encoder]);
             }
             decode_args.extend_from_slice(&[
-                "-i", "pipe:0", "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray",
+                "-i",
+                "pipe:0",
+                "-frames:v",
+                "1",
+                "-f",
+                "rawvideo",
+                "-pix_fmt",
+                "gray",
                 "pipe:1",
             ]);
             let Some(decoded) = ffmpeg_pipe(executable, &decode_args, &encoded) else {
@@ -1389,8 +1409,9 @@ impl BenchmarkResult {
         }
         json.push(']');
         if let Some(codec) = &self.codec_roundtrip {
-            json.push_str(&format!(",\n  \"codec_roundtrip\":{{\"status\":\"{}\",\"codec\":\"{}\",\"encoder_version\":{},\"note\":{},\"qualities\":[",
+            json.push_str(&format!(",\n  \"codec_roundtrip\":{{\"status\":\"{}\",\"codec\":\"{}\",\"quality_parameter\":\"{}\",\"encoder_version\":{},\"note\":{},\"qualities\":[",
                 json_escape(&codec.status), json_escape(&codec.codec),
+                json_escape(&codec.quality_parameter),
                 codec.encoder_version.as_ref().map(|v| format!("\"{}\"", json_escape(v))).unwrap_or_else(|| "null".into()),
                 codec.note.as_ref().map(|v| format!("\"{}\"", json_escape(v))).unwrap_or_else(|| "null".into())));
             for (index, quality) in codec.qualities.iter().enumerate() {
