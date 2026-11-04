@@ -933,6 +933,31 @@ mod tests {
     }
 
     #[test]
+    fn d2_replays_text_and_bool_result_types() {
+        for (result_ty, state_ty, expected) in [
+            ("text", "text", D1Value::Text("ready".into())),
+            ("bool", "bool", D1Value::Bool(true)),
+        ] {
+            let src = D2_SOURCE
+                .replace("result int64", &format!("result {result_ty}"))
+                .replace("write count: int", &format!("write count: {state_ty}"));
+            let compiled = compile_d2_interactions(&parse(&src).unwrap()).unwrap().remove(0);
+            let mut journal = journal_for(&compiled);
+            let label = CapabilityLabel::new("network").unwrap();
+            let result = match expected.clone() {
+                D1Value::Text(value) => EffectResult::Text(value),
+                D1Value::Bool(value) => EffectResult::Bool(value),
+                D1Value::Int(_) => unreachable!(),
+            }.encode().unwrap();
+            journal.record(&label, b"static request", &result).unwrap();
+            let initial = match expected { D1Value::Text(_) => D1Value::Text(String::new()), D1Value::Bool(_) => D1Value::Bool(false), D1Value::Int(_) => unreachable!() };
+            let state = D1Snapshot::new(0, BTreeMap::from([("count".into(), initial)])).unwrap();
+            let outcome = compiled.execute(&state, &InputSnapshot::default(), &journal).unwrap();
+            assert_eq!(outcome.next_state["count"], expected);
+        }
+    }
+
+    #[test]
     fn d2_rejects_undeclared_and_mismatched_capability_labels() {
         let undeclared = D2_SOURCE.replace("effects { network; }", "effects { clock; }");
         assert_eq!(
