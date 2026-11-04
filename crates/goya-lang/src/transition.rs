@@ -318,8 +318,8 @@ fn compile_one_d2(i: &InteractionDecl) -> Result<(ProcessDecl, ExecutionProof, D
     for assignment in &i.assignments {
         let expected = *writes.get(assignment.key.as_str()).ok_or(TransitionError::AssignmentMismatch)?;
         if !assigned.insert(assignment.key.as_str()) { return Err(TransitionError::AssignmentMismatch); }
-        let (actual, src) = compile_expr_d2(&assignment.value, &request_registers,
-            &reads, &inputs, &mut used_reads, &mut used_inputs, &mut used_requests)?;
+        let (actual, src) = compile_expr_d2(&assignment.value, &mut instructions, &mut register,
+            &request_registers, &reads, &inputs, &mut used_reads, &mut used_inputs, &mut used_requests)?;
         if actual != expected { return Err(TransitionError::TypeMismatch); }
         instructions.push(D2Instruction::WriteState { key: assignment.key.clone(), src });
     }
@@ -342,9 +342,10 @@ fn compile_one_d2(i: &InteractionDecl) -> Result<(ProcessDecl, ExecutionProof, D
 }
 
 fn compile_expr_d2(
-    expr: &InteractionExpr, request_registers: &BTreeMap<&str, (InteractionType, String)>,
+    expr: &InteractionExpr, code: &mut Vec<D2Instruction>, next: &mut usize,
+    request_registers: &BTreeMap<&str, (InteractionType, String)>,
     reads: &BTreeMap<&str, InteractionType>, inputs: &BTreeMap<&str, InteractionType>,
-    requests: &BTreeMap<&str, &EffectRequestDecl>, used_reads: &mut BTreeSet<String>,
+    used_reads: &mut BTreeSet<String>,
     used_inputs: &mut BTreeSet<String>, used_requests: &mut BTreeSet<String>,
 ) -> Result<(InteractionType, String), TransitionError> {
     match expr {
@@ -366,11 +367,10 @@ fn compile_expr_d2(
             Ok((*value_type, reg.clone()))
         }
         InteractionExpr::Add(a, b) => {
-            let (ta, ra) = compile_expr_d2(a, request_registers, reads, inputs, used_reads, used_inputs, used_requests)?;
-            let (tb, rb) = compile_expr_d2(b, request_registers, reads, inputs, used_reads, used_inputs, used_requests)?;
+            let (ta, ra) = compile_expr_d2(a, code, next, request_registers, reads, inputs, used_reads, used_inputs, used_requests)?;
+            let (tb, rb) = compile_expr_d2(b, code, next, request_registers, reads, inputs, used_reads, used_inputs, used_requests)?;
             if ta != InteractionType::Int || tb != InteractionType::Int { return Err(TransitionError::TypeMismatch); }
-            let _ = (ra, rb);
-            Err(TransitionError::InvalidDeclaration)
+            let reg = format!("r{next}"); *next += 1; code.push(D2Instruction::AddInt { dst: reg.clone(), left: ra, right: rb }); Ok((InteractionType::Int, reg))
         }
     }
 }
