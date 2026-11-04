@@ -186,6 +186,13 @@ def _map(m):
     return _u64(len(m)) + b''.join(_str(k) + _val(m[k]) for k in sorted(m))
 def _value_size(v): return 8 if v[0] == 'i' else (len(v[1].encode('utf-8')) if v[0] == 's' else 1)
 def _map_size(m): return 8 + sum(8 + len(k.encode('utf-8')) + (9 + len(v[1].encode('utf-8')) if v[0] == 's' else (9 if v[0] == 'i' else 2)) for k, v in m.items())
+def _validate_map(m):
+    if len(m) > 256: raise ValueError('snapshot key limit')
+    for k, v in m.items():
+        if not k or len(k.encode('utf-8')) > 65536: raise ValueError('invalid snapshot key')
+        if v[0] == 's' and len(v[1].encode('utf-8')) > 65536: raise ValueError('text limit')
+_validate_map(GOYA_D1_STATE)
+_validate_map(GOYA_D1_INPUTS)
 if set(GOYA_D1_STATE) != set(GOYA_D1_READ_KEYS) | set(GOYA_D1_WRITE_KEYS): raise ValueError('state schema mismatch')
 if set(GOYA_D1_INPUTS) != set(GOYA_D1_INPUT_KEYS): raise ValueError('input schema mismatch')
 if _map_size(GOYA_D1_STATE) + _map_size(GOYA_D1_INPUTS) > 1024 * 1024: raise ValueError('snapshot limit')
@@ -221,6 +228,8 @@ for _ins in GOYA_D1_CODE:
     else: raise ValueError('unknown verified D1 opcode')
 _rev_after = GOYA_D1_REVISION + 1
 if _rev_after >= (1 << 64): raise OverflowError('revision overflow')
+_validate_map(_next)
+if _map_size(_next) > 1024 * 1024: raise ValueError('output state limit')
 _input_hash = hashlib.sha256(b'GOYA-D1-SNAPSHOT/1\x00' + _u64(GOYA_D1_REVISION) + _map(GOYA_D1_STATE) + _map(GOYA_D1_INPUTS)).digest()
 _outcome = hashlib.sha256(b'GOYA-D1-OUTCOME/1\x00' + bytes.fromhex(GOYA_D1_PROGRAM_HASH) + _input_hash + _u64(GOYA_D1_REVISION) + _u64(_rev_after) + _map(_next) + _map(_regs)).hexdigest()
 _result = {'program_hash':GOYA_D1_PROGRAM_HASH, 'input_hash':_input_hash.hex(), 'revision_before':str(GOYA_D1_REVISION), 'revision_after':str(_rev_after), 'next_state':{k:_outval(_next[k]) for k in sorted(_next)}, 'registers':{k:_outval(_regs[k]) for k in sorted(_regs)}, 'outcome_hash':_outcome}
