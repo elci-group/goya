@@ -764,6 +764,7 @@ mod tests {
         JournalLimits,
     };
     use goya_ir::ActionId;
+    use goya_vee::{VeeClient, VeeExecutionState, VeeJsonValue};
 
     const SOURCE: &str = "@ontology app { @button plus {} @interaction increment { trigger: button.plus.activate; class: D1; state { read count: int; write count: int; } input { amount: int; } set count = state.count + input.amount; } }";
     const D2_SOURCE: &str = "@ontology app { @button go {} @interaction fetch { trigger: button.go.activate; class: D2; effects { network; } requests { lookup: effect network capability \"network\" request \"static request\" result int64; } state { write count: int; } input { } set count = effect.lookup; } }";
@@ -788,6 +789,40 @@ mod tests {
         let label = CapabilityLabel::new("network").unwrap();
         let result = EffectResult::Int64(value).encode().unwrap();
         journal.record(&label, request, &result).unwrap();
+    }
+
+    fn submit_and_check_live_result(client: &mut VeeClient, request: &goya_vee::SubmitRequest, count: i64) {
+        assert!(request.capabilities.is_empty());
+        let submitted = client.submit(request).expect("VEE accepts compiled worker");
+        assert_eq!(submitted.success, Some(true), "VEE rejected request: {submitted:?}");
+        let execution_id = submitted.task_id.expect("VEE execution ID");
+        let expected = format!(
+            "\"next_state\":{{\"count\":{{\"type\":\"int\",\"value\":\"{count}\"}}}}"
+        );
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        loop {
+            let result = client.status(&execution_id).expect("VEE execution result");
+            match result.status {
+                VeeExecutionState::Completed => {
+                    let found = result.artifacts.iter().any(|artifact| {
+                        matches!(artifact, VeeJsonValue::Object(fields) if fields.iter().any(|(key, value)| {
+                            key == "data" && matches!(value, VeeJsonValue::Object(data) if data.iter().any(|(field, value)| {
+                                field == "content" && matches!(value, VeeJsonValue::String(content) if content.lines().any(|line| line.contains(&expected))
+                            ))
+                        }))
+                    });
+                    assert!(found, "compiled worker output did not contain {expected}: {result:?}");
+                    return;
+                }
+                VeeExecutionState::Failed | VeeExecutionState::Cancelled => {
+                    panic!("compiled worker did not complete: {result:?}");
+                }
+                _ if std::time::Instant::now() < deadline => {
+                    std::thread::sleep(std::time::Duration::from_millis(250));
+                }
+                _ => panic!("compiled worker timed out: {result:?}"),
+            }
+        }
     }
 
     fn d2_state() -> D1Snapshot {
@@ -981,6 +1016,48 @@ mod tests {
             ),
             Err(TransitionError::StateTypeMismatch)
         );
+    }
+
+    /// Opt-in acceptance for authored source through typed compilation, VEE
+    /// worker generation, and a local loopback VEE execution.
+    #[test]
+    fn compiled_source_live_vee_submit_when_enabled() {
+        if std::env::var("GOYA_VEE_COMPILED_LIVE_SMOKE").as_deref() != Ok("1") {
+            return;
+        }
+        let host = std::env::var("GOYA_VEE_HOST").unwrap_or_else(|_| "127.0.0.1".into());
+        let port = std::env::var("GOYA_VEE_PORT")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(18997);
+        assert!(host == "127.0.0.1" || host == "::1", "live smoke must use loopback");
+        let mut client = VeeClient::connect(&host, port);
+        assert!(client.available(), "loopback VEE is not reachable");
+
+        let d1 = compile_d1_interactions(&parse(SOURCE).unwrap())
+            .unwrap()
+            .remove(0);
+        let d1_state = D1Snapshot::new(4, BTreeMap::from([("count".into(), D1Value::Int(9))]))
+            .unwrap();
+        let d1_inputs = InputSnapshot::new(BTreeMap::from([("amount".into(), D1Value::Int(3))]))
+            .unwrap();
+        let d1_request = d1
+            .to_vee_request(&d1_state, &d1_inputs, "goya-lang-d1-live")
+            .unwrap();
+        submit_and_check_live_result(&mut client, &d1_request, 12);
+
+        let d2 = d2_compiled();
+        let mut journal = journal_for(&d2);
+        record_int(&mut journal, b"static request", 4);
+        let d2_request = d2
+            .to_vee_request(
+                &d2_state(),
+                &InputSnapshot::default(),
+                &journal,
+                "goya-lang-d2-live",
+            )
+            .unwrap();
+        submit_and_check_live_result(&mut client, &d2_request, 4);
     }
 
     #[test]
