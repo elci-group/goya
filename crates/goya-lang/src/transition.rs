@@ -6,12 +6,13 @@ use goya_determinism::proofs::ExecutionProof;
 use goya_determinism::{DeterminismClass, EffectKind, ProcessDecl};
 use goya_executable::{
     CapabilityLabel, D1Instruction, D1Outcome, D1Program, D1Snapshot, D1Value, D2Instruction,
-    D2Outcome, D2Program, D2Snapshot, EffectJournal, EffectResultType, InputSnapshot, StateContract,
+    D2Error, D2Outcome, D2Program, EffectJournal, EffectResultType, InputSnapshot, StateContract,
 };
 use goya_ir::ActionId;
 
 use crate::scene::{
-    CellKind, InteractionDecl, InteractionExpr, InteractionType, InteractionValue, Scene,
+    CellKind, EffectRequestDecl, EffectValueType, InteractionClass, InteractionDecl,
+    InteractionExpr, InteractionType, InteractionValue, Scene,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
