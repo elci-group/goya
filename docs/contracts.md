@@ -257,8 +257,10 @@ both paths feed the same runtime/layout/render pipeline.
   explicit `input { key: int|text|bool; }`, and straight-line `set key = expr;`
   assignments. Expressions accept scalar literals, `state.key`, `input.key`,
   and checked integer `+`. Every declared write must be assigned exactly once;
-  every declared read/input must be used; duplicate/ambiguous button names,
-  undeclared keys, type mismatches, and unsupported syntax are rejected.
+  every declared read/input must be used. A trigger that resolves to no button
+  or to multiple same-named buttons is rejected; unrelated duplicate button
+  names do not by themselves block compilation. Undeclared keys, type
+  mismatches, and unsupported syntax are rejected.
   `compile_d1_interactions` binds triggers to the same depth-first button
   `ActionId`s as scene lowering and emits only verified D1 VM programs. Its
   immutable schema metadata is exposed through read-only accessors, and the
