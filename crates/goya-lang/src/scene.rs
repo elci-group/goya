@@ -54,6 +54,58 @@ pub struct SceneCell {
 pub struct Scene {
     pub name: String,
     pub root: SceneCell,
+    /// Authored, bounded interaction programs. Visual layout remains separate.
+    pub interactions: Vec<InteractionDecl>,
+}
+
+/// D1 scalar schema type for authored interaction contracts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InteractionType {
+    Int,
+    Text,
+    Bool,
+}
+
+/// One explicitly declared contract key and its type.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypedKey {
+    pub name: String,
+    pub value_type: InteractionType,
+}
+
+/// Literal available to the deterministic transition subset.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InteractionValue {
+    Int(i64),
+    Text(String),
+    Bool(bool),
+}
+
+/// Supported typed expression AST. Addition is checked integer addition.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InteractionExpr {
+    Literal(InteractionValue),
+    State(String),
+    Input(String),
+    Add(Box<InteractionExpr>, Box<InteractionExpr>),
+}
+
+/// One straight-line state assignment.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StateAssignment {
+    pub key: String,
+    pub value: InteractionExpr,
+}
+
+/// A D1 transition explicitly bound to one button activation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InteractionDecl {
+    pub name: String,
+    pub trigger_button: String,
+    pub state_reads: Vec<TypedKey>,
+    pub state_writes: Vec<TypedKey>,
+    pub inputs: Vec<TypedKey>,
+    pub assignments: Vec<StateAssignment>,
 }
 
 impl Scene {
