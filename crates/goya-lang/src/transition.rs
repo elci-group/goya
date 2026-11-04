@@ -967,6 +967,24 @@ mod tests {
     }
 
     #[test]
+    fn d2_journal_order_is_request_declaration_order() {
+        let src = D2_SOURCE
+            .replace("effects { network; }", "effects { network; }")
+            .replace(
+                "lookup: effect network capability \"network\" request \"static request\" result int64;",
+                "first: effect network capability \"network\" request \"one\" result int64; second: effect network capability \"network\" request \"two\" result int64;",
+            )
+            .replace("set count = effect.lookup;", "set count = effect.second + effect.first;");
+        let compiled = compile_d2_interactions(&parse(&src).unwrap()).unwrap().remove(0);
+        let mut journal = journal_for(&compiled);
+        // Entries follow declaration order, though the source expression references them in reverse.
+        record_int(&mut journal, b"one", 3);
+        record_int(&mut journal, b"two", 5);
+        let outcome = compiled.execute(&d2_state(), &InputSnapshot::default(), &journal).unwrap();
+        assert_eq!(outcome.next_state["count"], D1Value::Int(8));
+    }
+
+    #[test]
     fn d1_and_d2_compilers_select_only_their_class_and_d2_hash_is_stable() {
         assert!(compile_d1_interactions(&parse(D2_SOURCE).unwrap())
             .unwrap()
