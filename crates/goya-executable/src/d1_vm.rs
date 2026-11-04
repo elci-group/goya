@@ -1033,7 +1033,10 @@ mod tests {
         let decoded = D1Program::decode(&bytes, source.program_hash()).unwrap();
         assert_eq!(decoded, source);
         let (state, inputs) = snapshot(7, 4);
-        assert_eq!(decoded.execute(&state, &inputs), source.execute(&state, &inputs));
+        assert_eq!(
+            decoded.execute(&state, &inputs),
+            source.execute(&state, &inputs)
+        );
 
         assert_eq!(
             D1Program::decode(&bytes, [0; 32]),

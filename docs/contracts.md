@@ -206,7 +206,7 @@ three-button acceptance geometry depends on it.
 | ~~GY-WAYLAND-001 live surface~~ | 1 (done) | 0.1 release gate |
 | PipeWire audio adapter (`goya-audio-linux` backend) | 2a (implemented) | real ARSEM output; host/device smoke recorded |
 | Hot-swap interface reconciliation + Tov CLI adapter | 2b (implemented) | release 0.2; CLI and compatibility tests |
-| EDC canonical lowering + D0 bytecode/reference VM + D1/D2 journals | 2c (implemented, partial) | D1 replay and D2 effect records exist; no general D1/D2 bytecode execution |
+| EDC canonical lowering + D0 bytecode/reference VM + D1/D2 journals | 2c (implemented, partial) | D1 supports bounded canonical program decoding, hash verification, execution and replay; D2 execution remains in-process and no general D1/D2 toolchain integration exists |
 | VEE submission API + bounded D0 data bridge | 3a (implemented, partial) | source/data submission; no Goya bytecode worker or live VEE E2E |
 | RUGID / 3form / Mesut / Theosis adapters | 3b (implemented) | release 0.3–0.4; local companion-tool smokes |
 | C2PA signing + explicit trust-aware verification | 3c (implemented, partial) | artifact provenance; deployment trust policy remains external |
