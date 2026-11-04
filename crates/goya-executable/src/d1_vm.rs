@@ -18,6 +18,7 @@ const MAX_CONTRACT_KEYS: usize = 256;
 const MAX_INSTRUCTIONS: usize = 4096;
 const MAX_SNAPSHOT_BYTES: usize = 1024 * 1024;
 const MAX_PROGRAM_BYTES: usize = 2 * 1024 * 1024;
+const MAX_PROOF_BYTES: usize = 1024;
 const MAX_REGISTER_BYTES: usize = 1024 * 1024;
 const MAX_TEXT_BYTES: usize = 64 * 1024;
 const DOMAIN_PROGRAM: &[u8] = b"GOYA-D1-PROGRAM/1\0";
@@ -152,6 +153,100 @@ pub struct D1Program {
 }
 
 impl D1Program {
+    /// Decode a canonical D1 program artifact and verify its externally
+    /// supplied content hash. Decoding is bounded and rejects noncanonical
+    /// encodings, unsupported versions, malformed proofs, and invalid code.
+    pub fn decode(bytes: &[u8], expected_hash: [u8; 32]) -> Result<Self, D1Error> {
+        if bytes.len() > MAX_PROGRAM_BYTES {
+            return Err(D1Error::ProgramTooLarge);
+        }
+        if hash(bytes) != expected_hash {
+            return Err(D1Error::ProgramHashMismatch);
+        }
+        let mut reader = D1Reader::new(bytes);
+        if reader.take(DOMAIN_PROGRAM.len())? != DOMAIN_PROGRAM {
+            return Err(D1Error::MalformedProgram);
+        }
+        let version = reader.u32()?;
+        if version != D1_VM_VERSION {
+            return Err(D1Error::UnsupportedProgramVersion(version));
+        }
+        let proof_bytes = reader.string(MAX_PROOF_BYTES)?;
+        let proof = decode_proof(&proof_bytes)?;
+        if proof.class != DeterminismClass::StateDeterministic
+            || proof.process.is_empty()
+            || proof.process.len() > 128
+            || proof.compiler_version.len() > 256
+            || proof.target.len() > 256
+            || proof
+                .process
+                .chars()
+                .chain(proof.compiler_version.chars())
+                .chain(proof.target.chars())
+                .any(char::is_control)
+        {
+            return Err(D1Error::InvalidProgramProof);
+        }
+        let contract = StateContract {
+            read_keys: reader.key_set()?,
+            write_keys: reader.key_set()?,
+            input_keys: reader.key_set()?,
+        };
+        let unique_count = contract
+            .read_keys
+            .union(&contract.write_keys)
+            .chain(contract.input_keys.iter())
+            .collect::<BTreeSet<_>>()
+            .len();
+        if unique_count > MAX_CONTRACT_KEYS {
+            return Err(D1Error::TooManyKeys);
+        }
+        let instruction_count = reader.count(MAX_INSTRUCTIONS)?;
+        let mut instructions = Vec::with_capacity(instruction_count);
+        for _ in 0..instruction_count {
+            let instruction = match reader.byte()? {
+                0 => D1Instruction::Constant {
+                    dst: reader.string(MAX_TEXT_BYTES)?,
+                    value: reader.value()?,
+                },
+                1 => D1Instruction::ReadState {
+                    dst: reader.string(MAX_TEXT_BYTES)?,
+                    key: reader.string(MAX_TEXT_BYTES)?,
+                },
+                2 => D1Instruction::ReadInput {
+                    dst: reader.string(MAX_TEXT_BYTES)?,
+                    key: reader.string(MAX_TEXT_BYTES)?,
+                },
+                3 => D1Instruction::AddInt {
+                    dst: reader.string(MAX_TEXT_BYTES)?,
+                    left: reader.string(MAX_TEXT_BYTES)?,
+                    right: reader.string(MAX_TEXT_BYTES)?,
+                },
+                4 => D1Instruction::WriteState {
+                    key: reader.string(MAX_TEXT_BYTES)?,
+                    src: reader.string(MAX_TEXT_BYTES)?,
+                },
+                _ => return Err(D1Error::MalformedProgram),
+            };
+            instructions.push(instruction);
+        }
+        if !reader.is_empty() {
+            return Err(D1Error::MalformedProgram);
+        }
+        validate_program(&contract, &instructions)?;
+        let program = Self {
+            process: proof.process.clone(),
+            proof,
+            contract,
+            instructions,
+            program_hash: expected_hash,
+        };
+        if program.canonical_bytes() != bytes {
+            return Err(D1Error::NonCanonicalProgram);
+        }
+        Ok(program)
+    }
+
     pub fn compile(
         declaration: &ProcessDecl,
         proof: &ExecutionProof,
@@ -406,6 +501,11 @@ pub enum D1Error {
     TextTooLarge,
     RevisionOverflow,
     ReplayMismatch,
+    MalformedProgram,
+    NonCanonicalProgram,
+    ProgramHashMismatch,
+    InvalidProgramProof,
+    UnsupportedProgramVersion(u32),
 }
 
 impl fmt::Display for D1Error {
@@ -438,6 +538,13 @@ impl fmt::Display for D1Error {
             Self::TextTooLarge => f.write_str("text state value exceeds the byte limit"),
             Self::RevisionOverflow => f.write_str("state revision counter exhausted"),
             Self::ReplayMismatch => f.write_str("deterministic replay outcome hash differs"),
+            Self::MalformedProgram => f.write_str("malformed D1 program encoding"),
+            Self::NonCanonicalProgram => f.write_str("D1 program encoding is not canonical"),
+            Self::ProgramHashMismatch => f.write_str("D1 program content hash differs"),
+            Self::InvalidProgramProof => f.write_str("D1 program proof is invalid"),
+            Self::UnsupportedProgramVersion(version) => {
+                write!(f, "unsupported D1 program version {version}")
+            }
         }
     }
 }
