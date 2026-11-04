@@ -1212,13 +1212,14 @@ impl BenchmarkResult {
     /// measurements. No pass threshold is implied by these measurements.
     pub fn to_json(&self) -> String {
         let mut json = format!(
-            "{{\n  \"schema\":\"GY-BENCH-REPORT/1\",\n  \"seed\":{},\n  \"images\":{},\n  \"width\":{},\n  \"height\":{},\n  \"key_hex\":\"{:016x}\",\n  \"alpha\":{},\n  \"corpus_fnv1a64\":\"{:016x}\",\n  \"threshold_policy\":\"measurements only; no general robustness threshold\",\n  \"transforms\":[",
+            "{{\n  \"schema\":\"GY-BENCH-REPORT/1\",\n  \"seed\":{},\n  \"images\":{},\n  \"width\":{},\n  \"height\":{},\n  \"key_hex\":\"{:016x}\",\n  \"alpha\":{},\n  \"corpus_kind\":\"{}\",\n  \"corpus_fnv1a64\":\"{:016x}\",\n  \"threshold_policy\":\"measurements only; no general robustness threshold\",\n  \"transforms\":[",
             self.seed,
             self.n_images,
             self.width,
             self.height,
             self.key,
             self.alpha,
+            json_escape(&self.corpus_kind),
             self.corpus_fingerprint
         );
         for (index, (transform, result)) in self
@@ -1247,6 +1248,22 @@ impl BenchmarkResult {
             self.report.n_valid_images,
             self.report.n_invalid_images
         ));
+        json.push_str(",\n  \"source_images\":[");
+        for (index, source) in self.source_images.iter().enumerate() {
+            if index > 0 {
+                json.push(',');
+            }
+            json.push_str(&format!(
+                "{{\"path\":\"{}\",\"sha256\":\"{}\",\"source_width\":{},\"source_height\":{},\"normalized_width\":{},\"normalized_height\":{}}}",
+                json_escape(&source.path),
+                source.sha256,
+                source.source_width,
+                source.source_height,
+                source.normalized_width,
+                source.normalized_height
+            ));
+        }
+        json.push(']');
         if let Some(codec) = &self.codec_roundtrip {
             json.push_str(&format!(",\n  \"codec_roundtrip\":{{\"status\":\"{}\",\"codec\":\"{}\",\"encoder_version\":{},\"note\":{},\"qualities\":[",
                 json_escape(&codec.status), json_escape(&codec.codec),
