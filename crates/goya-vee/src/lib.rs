@@ -593,6 +593,7 @@ fn validate_agent_id(agent_id: &str) -> Result<(), VeeCompileError> {
     }
 }
 
+#[cfg(test)]
 fn json_string(value: &str) -> String {
     let mut output = String::new();
     push_json_string(&mut output, value);
