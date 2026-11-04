@@ -208,7 +208,7 @@ three-button acceptance geometry depends on it.
 | ~~GY-WAYLAND-001 live surface~~ | 1 (done) | 0.1 release gate |
 | PipeWire audio adapter (`goya-audio-linux` backend) | 2a (implemented) | real ARSEM output; host/device smoke recorded |
 | Hot-swap interface reconciliation + Tov CLI adapter | 2b (implemented) | release 0.2; CLI and compatibility tests |
-| EDC canonical lowering + D0 bytecode/reference VM + D1/D2 journals | 2c (implemented, partial) | Authored Goya source lowers through bounded typed single-button D1 and static-journal D2 subsets; broader language features and typed source-compiled VM/VEE bridging remain open. D1/D2 canonical decoding and VEE workers are available |
+| EDC canonical lowering + D0 bytecode/reference VM + D1/D2 journals | 2c (implemented, partial) | Authored Goya source lowers through bounded typed single-button D1 and static-journal D2 subsets; typed wrappers can construct bounded D1/D2 VEE worker requests. Broader language features and live source-compiled submit evidence remain open. D1/D2 canonical decoding and VEE workers are available |
 | VEE submission API + bounded D0 data bridge | 3a (implemented, partial) | D0/D1/D2 workers passed local live submit/status/result E2E; VEE's D0 stdout artifact may prefix sandbox diagnostics; local Landlock was unavailable, so the live smoke used rlimit isolation only |
 | RUGID / 3form / Mesut / Theosis adapters | 3b (implemented) | release 0.3–0.4; local companion-tool smokes |
 | C2PA signing + explicit trust-aware verification | 3c (implemented, partial) | official-tool signing and an ephemeral trusted-root verification smoke passed; production signer identity, trust anchors/allowlist, and key custody remain release-owner decisions |
@@ -353,9 +353,11 @@ Consequences for the DAG:
 - Wave 3a was reframed as **"VEE adapter: route Goya EDC executable units
   and agent tool calls through VEE's capability/budget/artifact machinery."**
   The HTTP client matches VEE's submit API for caller-supplied source, and
-  bounded D0/D1/D2 workers are available. Compiled authored Goya execution is
-  still open: the typed source compiler has no bridge into its VM bytecode or
-  VEE worker format, and Goya bytecode is not a supported VEE language.
+  bounded D0/D1/D2 workers are available. Typed D1/D2 source wrappers now
+  construct bounded worker requests after validating authored scalar types;
+  request generation does not submit them. Live end-to-end submission from
+  authored compiled source remains unverified, and broader source-language
+  features remain open.
 - The Wave-1 evidence table row for Vico Vee is superseded by this section.
 
 ---
