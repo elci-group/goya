@@ -653,7 +653,9 @@ fn raster_parallel_tiles(
                                 x1: tile_w,
                                 y1: tile_h,
                             };
-                            for prim in primitives {
+                            for prim in primitives.iter().filter(|prim| {
+                                intersects_tile(prim, tile.x0, tile.y0, tile.x1, tile.y1)
+                            }) {
                                 raster_primitive_offset(
                                     &mut output,
                                     tile_w as i32,
@@ -726,31 +728,40 @@ fn raster_primitive_offset(
     origin_x: usize,
     origin_y: usize,
 ) {
+    let offset = |r: &Rect| Rect {
+        x: r.x - origin_x as i64 * MP_PER_PX,
+        y: r.y - origin_y as i64 * MP_PER_PX,
+        width: r.width,
+        height: r.height,
+    };
+    match prim {
+        goya_runtime::Primitive::Panel(_) => {}
+        goya_runtime::Primitive::Text(rect, text) => {
+            let rect = offset(rect);
+            fill_rect_clipped(pixels, width, height, &rect, [16, 16, 20], Some(clip));
+            draw_glyphs(pixels, width, height, &rect, text, fg, glyph_px, Some(clip));
+        }
+        goya_runtime::Primitive::Button(rect, text) => {
+            let rect = offset(rect);
+            fill_rect_clipped(pixels, width, height, &rect, [80, 100, 180], Some(clip));
+            draw_glyphs(pixels, width, height, &rect, text, fg, glyph_px, Some(clip));
+        }
+    }
+}
+
+fn intersects_tile(
+    prim: &goya_runtime::Primitive,
+    x0: usize,
+    y0: usize,
+    x1: usize,
+    y1: usize,
+) -> bool {
     let rect = prim_rect(prim);
-    let shifted = Rect {
-        x: rect.x - origin_x as i64 * MP_PER_PX,
-        y: rect.y - origin_y as i64 * MP_PER_PX,
-        width: rect.width,
-        height: rect.height,
-    };
-    let shifted_prim = match prim {
-        goya_runtime::Primitive::Panel(_) => goya_runtime::Primitive::Panel(shifted),
-        goya_runtime::Primitive::Text(_, text) => {
-            goya_runtime::Primitive::Text(shifted, text.clone())
-        }
-        goya_runtime::Primitive::Button(_, text) => {
-            goya_runtime::Primitive::Button(shifted, text.clone())
-        }
-    };
-    raster_primitive(
-        pixels,
-        width,
-        height,
-        &shifted_prim,
-        fg,
-        glyph_px,
-        Some(clip),
-    );
+    let rx0 = rect.x / MP_PER_PX;
+    let ry0 = rect.y / MP_PER_PX;
+    let rx1 = (rect.x + rect.width + MP_PER_PX - 1) / MP_PER_PX;
+    let ry1 = (rect.y + rect.height + MP_PER_PX - 1) / MP_PER_PX;
+    rx0 < x1 as i64 && ry0 < y1 as i64 && rx1 > x0 as i64 && ry1 > y0 as i64
 }
 
 fn fill_rect(pixels: &mut [u32], win_w: i32, win_h: i32, r: &Rect, rgb: [u8; 3]) {
@@ -805,8 +816,11 @@ fn draw_glyphs(
         Some(c) => (c.x0, c.y0, c.x1, c.y1),
         None => (0, 0, win_w as usize, win_h as usize),
     };
-    let ox = (r.x / MP_PER_PX + 2).max(0) as usize;
-    let oy = (r.y / MP_PER_PX + 2).max(0) as usize;
+    // Keep origins signed: tile-local rasterisation shifts a primitive by
+    // the tile origin, and clamping here would move a glyph into the tile
+    // instead of clipping the portion that begins before it.
+    let ox = r.x / MP_PER_PX + 2;
+    let oy = r.y / MP_PER_PX + 2;
     for (ci, ch) in s.chars().enumerate() {
         let glyph = glyph5x7(ch);
         for (gy, row) in glyph.iter().enumerate() {
@@ -814,16 +828,16 @@ fn draw_glyphs(
                 if row & (1 << (4 - gx)) != 0 {
                     // Block-scale: each glyph pixel is g×g screen pixels.
                     for dy in 0..g {
-                        let y = oy + gy * g + dy;
-                        if y >= cy1 || y < cy0 || y >= win_h as usize {
+                        let y = oy + (gy * g + dy) as i64;
+                        if y >= cy1 as i64 || y < cy0 as i64 || y >= i64::from(win_h) {
                             continue;
                         }
                         for dx in 0..g {
-                            let x = ox + (ci * 6 + gx) * g + dx;
-                            if x >= cx1 || x < cx0 || x >= win_w as usize {
+                            let x = ox + ((ci * 6 + gx) * g + dx) as i64;
+                            if x >= cx1 as i64 || x < cx0 as i64 || x >= i64::from(win_w) {
                                 continue;
                             }
-                            let idx = y * (win_w as usize) + x;
+                            let idx = y as usize * (win_w as usize) + x as usize;
                             if idx < pixels.len() {
                                 pixels[idx] = a;
                             }
