@@ -9,6 +9,7 @@ use std::fmt;
 
 use goya_determinism::proofs::ExecutionProof;
 use goya_determinism::{classify, DeterminismClass, ProcessDecl, RejectReason};
+use goya_state::{Map as StateMap, Store, Value as StateValue};
 use sha2::{Digest, Sha256};
 
 /// D1 VM bytecode and outcome format version.
@@ -172,7 +173,7 @@ impl D1Program {
             return Err(D1Error::UnsupportedProgramVersion(version));
         }
         let proof_bytes = reader.string(MAX_PROOF_BYTES)?;
-        let proof = decode_proof(&proof_bytes)?;
+        let proof = decode_proof(proof_bytes.as_bytes())?;
         if proof.class != DeterminismClass::StateDeterministic
             || proof.process.is_empty()
             || proof.process.len() > 128
@@ -434,6 +435,48 @@ impl D1Program {
         Ok(outcome)
     }
 
+    /// Execute this transition against a coherent store snapshot and publish
+    /// its declared writes in one state transaction. Inputs remain explicit;
+    /// no host data is read by the VM. A busy store, missing declared state,
+    /// execution error, or failed caller invariant leaves the store unchanged.
+    pub fn apply_to_store(
+        &self,
+        store: &Store,
+        inputs: &InputSnapshot,
+        invariant: impl Fn(&StateMap) -> bool,
+    ) -> Result<D1Outcome, D1ApplyError> {
+        let transaction = store.begin().ok_or(D1ApplyError::StoreBusy)?;
+        let keys: Vec<String> = self
+            .contract
+            .read_keys
+            .union(&self.contract.write_keys)
+            .cloned()
+            .collect();
+        let (revision, values) = transaction.snapshot(&keys);
+        if let Some(missing) = keys.iter().find(|key| !values.contains_key(*key)) {
+            return Err(D1ApplyError::MissingStateKey(missing.clone()));
+        }
+        let values = values
+            .into_iter()
+            .map(|(key, value)| (key, from_store_value(value)))
+            .collect();
+        let snapshot = D1Snapshot::new(revision, values).map_err(D1ApplyError::Execution)?;
+        let outcome = self
+            .execute(&snapshot, inputs)
+            .map_err(D1ApplyError::Execution)?;
+        for key in &self.contract.write_keys {
+            let value = outcome
+                .next_state
+                .get(key)
+                .ok_or_else(|| D1ApplyError::MissingStateKey(key.clone()))?;
+            transaction.set(key, to_store_value(value.clone()));
+        }
+        transaction
+            .commit(invariant)
+            .map_err(|_| D1ApplyError::CommitRejected)?;
+        Ok(outcome)
+    }
+
     fn validate_snapshots(
         &self,
         state: &D1Snapshot,
@@ -471,6 +514,50 @@ pub struct D1Outcome {
     pub next_state: BTreeMap<String, D1Value>,
     pub registers: BTreeMap<String, D1Value>,
     pub outcome_hash: [u8; 32],
+}
+
+/// Failure while applying a deterministic transition to the state store.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum D1ApplyError {
+    /// Another writer currently owns the store transaction.
+    StoreBusy,
+    /// A declared state key has not been initialized in the store.
+    MissingStateKey(String),
+    /// The VM rejected the snapshot, inputs, program, or transition.
+    Execution(D1Error),
+    /// The state store rejected the commit invariant or revision increment.
+    CommitRejected,
+}
+
+impl fmt::Display for D1ApplyError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            D1ApplyError::StoreBusy => write!(f, "state store already has an open transaction"),
+            D1ApplyError::MissingStateKey(key) => {
+                write!(f, "declared state key `{key}` is missing")
+            }
+            D1ApplyError::Execution(error) => write!(f, "D1 execution failed: {error}"),
+            D1ApplyError::CommitRejected => write!(f, "state store rejected D1 commit"),
+        }
+    }
+}
+
+impl std::error::Error for D1ApplyError {}
+
+fn from_store_value(value: StateValue) -> D1Value {
+    match value {
+        StateValue::Int(value) => D1Value::Int(value),
+        StateValue::Text(value) => D1Value::Text(value),
+        StateValue::Bool(value) => D1Value::Bool(value),
+    }
+}
+
+fn to_store_value(value: D1Value) -> StateValue {
+    match value {
+        D1Value::Int(value) => StateValue::Int(value),
+        D1Value::Text(value) => StateValue::Text(value),
+        D1Value::Bool(value) => StateValue::Bool(value),
+    }
 }
 
 /// D1 compiler/runtime failures.

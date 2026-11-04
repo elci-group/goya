@@ -17,6 +17,12 @@ process name and D1 class. D1 declarations with host effects are rejected.
   execution. There are no loops, clocks, RNG, system calls, or I/O.
 - Execution returns a new state map and increments its revision once. It
   never mutates a store. The caller may apply the result transactionally.
+- `D1Program::apply_to_store` is the optional store adapter: it reserves one
+  transaction, captures the declared state keys with their revision, executes
+  with explicit inputs, stages only declared writes, and commits once against
+  a caller-supplied invariant. Busy stores, missing declared keys, VM errors,
+  and rejected commits leave committed state unchanged. The store revision
+  and state snapshot are captured atomically.
 - Program encoding is stable: fixed opcodes, little-endian integers,
   length-prefixed strings, and sorted contract keys. SHA-256 hashes bind the
   program, input snapshot, and output state/registers. `replay` recomputes and
