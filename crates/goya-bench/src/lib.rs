@@ -12,8 +12,19 @@
 //! robustness thresholds always trace back to a reproducible run.
 
 use goya_watermark::{detect, embed};
+use sha2::{Digest, Sha256};
+use std::fs::{self, File};
 use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+
+const MAX_LOCAL_IMAGES: usize = 512;
+const MAX_LOCAL_EDGE: u32 = 8192;
+const MAX_LOCAL_SOURCE_PIXELS: u64 = 8 * 1024 * 1024;
+const MAX_LOCAL_TOTAL_PIXELS: u64 = 8 * 1024 * 1024;
+const MAX_LOCAL_FILE_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_LOCAL_TOTAL_FILE_BYTES: u64 = 256 * 1024 * 1024;
+const MAX_PROBE_OUTPUT_BYTES: usize = 256;
 
 /// xorshift64 PRNG for deterministic corpus and noise generation.
 struct Xorshift64(u64);
@@ -60,6 +71,100 @@ pub struct CorpusImage {
 pub struct Corpus;
 
 impl Corpus {
+    /// Decode local images in lexicographic path order through ffprobe/ffmpeg.
+    /// Inputs are dimension-checked before pixel decoding; every image is
+    /// normalized to `size`×`size` grayscale by aspect-preserving fit with a
+    /// neutral-gray pad. Source bytes are streamed through SHA-256 for report
+    /// provenance, and the decoded corpus is bounded by count/pixel limits.
+    pub fn from_local_paths(
+        paths: &[PathBuf],
+        seed: u64,
+        size: u32,
+        ffmpeg: &str,
+        ffprobe: &str,
+    ) -> Result<LocalCorpus, LocalCorpusError> {
+        if paths.is_empty() {
+            return Err(LocalCorpusError::EmptyCorpus);
+        }
+        if paths.len() > MAX_LOCAL_IMAGES {
+            return Err(LocalCorpusError::TooManyImages(paths.len()));
+        }
+        if !(64..=1024).contains(&size) {
+            return Err(LocalCorpusError::InvalidTargetSize(size));
+        }
+        let output_pixels = u64::from(size)
+            .checked_mul(u64::from(size))
+            .and_then(|pixels| pixels.checked_mul(paths.len() as u64))
+            .ok_or(LocalCorpusError::PixelLimit)?;
+        if output_pixels > MAX_LOCAL_TOTAL_PIXELS {
+            return Err(LocalCorpusError::PixelLimit);
+        }
+
+        let mut ordered: Vec<PathBuf> = paths.to_vec();
+        ordered.sort();
+        if ordered.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err(LocalCorpusError::DuplicatePath);
+        }
+
+        let mut images = Vec::with_capacity(ordered.len());
+        let mut sources = Vec::with_capacity(ordered.len());
+        let mut source_pixels_total = 0u64;
+        let mut file_bytes_total = 0u64;
+        let mut payloads = std::collections::BTreeSet::new();
+        for (index, path) in ordered.iter().enumerate() {
+            let (file_hash, file_bytes) = hash_local_file(path)?;
+            file_bytes_total = file_bytes_total
+                .checked_add(file_bytes)
+                .filter(|total| *total <= MAX_LOCAL_TOTAL_FILE_BYTES)
+                .ok_or(LocalCorpusError::TotalFileBytesLimit)?;
+            let (source_width, source_height) = probe_dimensions(ffprobe, path)?;
+            if source_width == 0
+                || source_height == 0
+                || source_width > MAX_LOCAL_EDGE
+                || source_height > MAX_LOCAL_EDGE
+            {
+                return Err(LocalCorpusError::SourceDimensionLimit {
+                    path: path.clone(),
+                    width: source_width,
+                    height: source_height,
+                });
+            }
+            let source_pixels = u64::from(source_width)
+                .checked_mul(u64::from(source_height))
+                .and_then(|pixels| source_pixels_total.checked_add(pixels))
+                .filter(|total| *total <= MAX_LOCAL_SOURCE_PIXELS)
+                .ok_or(LocalCorpusError::SourcePixelLimit)?;
+            source_pixels_total = source_pixels;
+
+            let pixels = decode_local_image(ffmpeg, path, size)?;
+            let mut payload = mix64(seed ^ mix64(index as u64) ^ digest_u64(&file_hash)) | 1;
+            while !payloads.insert(payload) {
+                payload = payload.wrapping_add(2);
+            }
+            let name = path
+                .file_name()
+                .unwrap_or(path.as_os_str())
+                .to_string_lossy()
+                .into_owned();
+            images.push(CorpusImage {
+                name,
+                pixels,
+                w: size,
+                h: size,
+                payload,
+            });
+            sources.push(SourceImageMetadata {
+                path: path.to_string_lossy().into_owned(),
+                sha256: hex_digest(&file_hash),
+                source_width,
+                source_height,
+                normalized_width: size,
+                normalized_height: size,
+            });
+        }
+        Ok(LocalCorpus { images, sources })
+    }
+
     /// Generate `n_images` deterministic synthetic images of `size` x `size`
     /// pixels, cycling through gradient, checkerboard, and noise-field
     /// patterns. Each image carries a distinct payload id derived from
@@ -197,6 +302,188 @@ impl Corpus {
         let n = size as usize;
         (0..n * n).map(|_| rng.next_byte()).collect()
     }
+}
+
+/// A successfully decoded caller-owned image corpus and source provenance.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalCorpus {
+    pub images: Vec<CorpusImage>,
+    pub sources: Vec<SourceImageMetadata>,
+}
+
+/// Per-image source identity and deterministic decode geometry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceImageMetadata {
+    pub path: String,
+    pub sha256: String,
+    pub source_width: u32,
+    pub source_height: u32,
+    pub normalized_width: u32,
+    pub normalized_height: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LocalCorpusError {
+    EmptyCorpus,
+    TooManyImages(usize),
+    InvalidTargetSize(u32),
+    PixelLimit,
+    SourcePixelLimit,
+    TotalFileBytesLimit,
+    DuplicatePath,
+    FileTooLarge(PathBuf),
+    ReadSource(PathBuf),
+    ProbeFailed(PathBuf),
+    MalformedProbe(PathBuf),
+    SourceDimensionLimit { path: PathBuf, width: u32, height: u32 },
+    DecodeFailed(PathBuf),
+    DecodedSizeMismatch(PathBuf),
+}
+
+impl std::fmt::Display for LocalCorpusError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::EmptyCorpus => write!(f, "local image corpus is empty"),
+            Self::TooManyImages(n) => write!(f, "local image count {n} exceeds {MAX_LOCAL_IMAGES}"),
+            Self::InvalidTargetSize(n) => write!(f, "target size {n} is outside 64..=1024"),
+            Self::PixelLimit => write!(f, "normalized corpus exceeds the 8-million-pixel limit"),
+            Self::SourcePixelLimit => write!(f, "source images exceed the 8-million-pixel limit"),
+            Self::TotalFileBytesLimit => write!(f, "source files exceed the 256-MiB total limit"),
+            Self::DuplicatePath => write!(f, "local corpus contains duplicate paths"),
+            Self::FileTooLarge(path) => write!(f, "source file exceeds 64 MiB: {}", path.display()),
+            Self::ReadSource(path) => write!(f, "could not read source image: {}", path.display()),
+            Self::ProbeFailed(path) => write!(f, "ffprobe failed for {}", path.display()),
+            Self::MalformedProbe(path) => write!(f, "ffprobe returned invalid dimensions for {}", path.display()),
+            Self::SourceDimensionLimit { path, width, height } => write!(f, "source dimensions {width}x{height} exceed the 8192-pixel edge limit: {}", path.display()),
+            Self::DecodeFailed(path) => write!(f, "ffmpeg could not decode {}", path.display()),
+            Self::DecodedSizeMismatch(path) => write!(f, "ffmpeg returned an unexpected normalized frame size for {}", path.display()),
+        }
+    }
+}
+
+impl std::error::Error for LocalCorpusError {}
+
+fn hash_local_file(path: &Path) -> Result<([u8; 32], u64), LocalCorpusError> {
+    let metadata = fs::metadata(path).map_err(|_| LocalCorpusError::ReadSource(path.to_path_buf()))?;
+    if !metadata.is_file() || metadata.len() > MAX_LOCAL_FILE_BYTES {
+        return Err(LocalCorpusError::FileTooLarge(path.to_path_buf()));
+    }
+    let mut file = File::open(path).map_err(|_| LocalCorpusError::ReadSource(path.to_path_buf()))?;
+    let mut hasher = Sha256::new();
+    let mut total = 0u64;
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .map_err(|_| LocalCorpusError::ReadSource(path.to_path_buf()))?;
+        if read == 0 {
+            break;
+        }
+        total = total.saturating_add(read as u64);
+        if total > MAX_LOCAL_FILE_BYTES {
+            return Err(LocalCorpusError::FileTooLarge(path.to_path_buf()));
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok((hasher.finalize().into(), total))
+}
+
+fn probe_dimensions(ffprobe: &str, path: &Path) -> Result<(u32, u32), LocalCorpusError> {
+    let mut command = Command::new(ffprobe);
+    command.args([
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height",
+            "-of",
+            "csv=p=0:s=x",
+        ]).arg(path);
+    let output = command_output_bounded(&mut command, MAX_PROBE_OUTPUT_BYTES)
+        .map_err(|_| LocalCorpusError::ProbeFailed(path.to_path_buf()))?;
+    let text = std::str::from_utf8(&output)
+        .map_err(|_| LocalCorpusError::MalformedProbe(path.to_path_buf()))?
+        .trim();
+    let (width, height) = text
+        .split_once('x')
+        .ok_or_else(|| LocalCorpusError::MalformedProbe(path.to_path_buf()))?;
+    let width = width
+        .parse()
+        .map_err(|_| LocalCorpusError::MalformedProbe(path.to_path_buf()))?;
+    let height = height
+        .parse()
+        .map_err(|_| LocalCorpusError::MalformedProbe(path.to_path_buf()))?;
+    Ok((width, height))
+}
+
+fn decode_local_image(
+    ffmpeg: &str,
+    path: &Path,
+    size: u32,
+) -> Result<Vec<u8>, LocalCorpusError> {
+    let filter = format!(
+        "scale={size}:{size}:force_original_aspect_ratio=decrease:flags=area,pad={size}:{size}:(ow-iw)/2:(oh-ih)/2:color=gray,format=gray"
+    );
+    let mut command = Command::new(ffmpeg);
+    command
+        .args(["-v", "error", "-i"])
+        .arg(path)
+        .args(["-map", "0:v:0", "-frames:v", "1", "-vf", &filter, "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1"]);
+    let max_output = usize::try_from(size)
+        .ok()
+        .and_then(|width| width.checked_mul(width))
+        .ok_or(LocalCorpusError::PixelLimit)?;
+    let output = command_output_bounded(&mut command, max_output)
+        .map_err(|_| LocalCorpusError::DecodeFailed(path.to_path_buf()))?;
+    if output.len() != max_output {
+        return Err(LocalCorpusError::DecodedSizeMismatch(path.to_path_buf()));
+    }
+    Ok(output)
+}
+
+fn command_output_bounded(command: &mut Command, max_output: usize) -> std::io::Result<Vec<u8>> {
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()?;
+    let mut stdout = child.stdout.take().expect("piped stdout configured");
+    let reader = std::thread::scope(|scope| {
+        let reader = scope.spawn(|| {
+            let mut output = Vec::with_capacity(max_output.min(1024 * 1024));
+            let mut buffer = [0u8; 8192];
+            let mut exceeded = false;
+            loop {
+                let read = stdout.read(&mut buffer)?;
+                if read == 0 {
+                    break;
+                }
+                let remaining = max_output.saturating_sub(output.len());
+                let keep = remaining.min(read);
+                output.extend_from_slice(&buffer[..keep]);
+                exceeded |= keep != read;
+            }
+            Ok::<_, std::io::Error>((output, exceeded))
+        });
+        let status = child.wait()?;
+        Ok::<_, std::io::Error>((status.success(), reader.join().map_err(|_| {
+            std::io::Error::other("output reader panicked")
+        })??))
+    })?;
+    let (success, (output, exceeded)) = reader;
+    if !success || exceeded {
+        return Err(std::io::Error::other("child failed or exceeded output limit"));
+    }
+    Ok(output)
+}
+
+fn digest_u64(digest: &[u8; 32]) -> u64 {
+    u64::from_le_bytes(digest[..8].try_into().expect("fixed digest prefix"))
+}
+
+fn hex_digest(digest: &[u8; 32]) -> String {
+    digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 /// A compression-simulating pixel transformation (no codec dependencies).
@@ -609,23 +896,66 @@ impl Benchmark {
         alpha: f64,
     ) -> BenchmarkResult {
         let corpus = Corpus::adversarial(seed, n_images, size);
+        self.run_corpus(seed, size, key, alpha, corpus, Vec::new(), "synthetic_adversarial")
+    }
+
+    /// Run the full transform suite and false-positive controls on a
+    /// pre-decoded caller-owned corpus.
+    pub fn run_local(
+        &self,
+        seed: u64,
+        size: u32,
+        key: u64,
+        alpha: f64,
+        corpus: LocalCorpus,
+    ) -> BenchmarkResult {
+        self.run_corpus(
+            seed,
+            size,
+            key,
+            alpha,
+            corpus.images,
+            corpus.sources,
+            "local_files",
+        )
+    }
+
+    fn run_corpus(
+        &self,
+        seed: u64,
+        size: u32,
+        key: u64,
+        alpha: f64,
+        corpus: Vec<CorpusImage>,
+        source_images: Vec<SourceImageMetadata>,
+        corpus_kind: &str,
+    ) -> BenchmarkResult {
         let transformations = standard_adversarial_suite();
         let mut control_keys = Vec::with_capacity(17);
         control_keys.push(key);
         for i in 1..=16u64 {
             control_keys.push(mix64(key ^ i.wrapping_mul(0x9E37_79B9_7F4A_7C15)));
         }
-        let report =
-            self.run_with_controls(&corpus, key, alpha, &transformations, &control_keys, seed);
+        let report = self.run_with_controls(
+            &corpus,
+            key,
+            alpha,
+            &transformations,
+            &control_keys,
+            seed,
+        );
         let corpus_fingerprint = corpus_fingerprint(&corpus);
         BenchmarkResult {
             seed,
-            n_images,
+            n_images: corpus.len(),
             width: size,
             height: size,
             key,
             alpha,
             corpus_fingerprint,
+            corpus_kind: corpus_kind.to_string(),
+            source_images,
+            corpus,
             transformations,
             report,
             codec_roundtrip: Some(CodecRoundTripReport::not_requested()),
@@ -644,6 +974,13 @@ pub struct BenchmarkResult {
     pub alpha: f64,
     /// FNV-1a 64-bit corpus fingerprint (identity aid, not a security hash).
     pub corpus_fingerprint: u64,
+    /// `synthetic_adversarial` or `local_files`.
+    pub corpus_kind: String,
+    /// Source-file hashes and decode geometry for caller-provided images.
+    pub source_images: Vec<SourceImageMetadata>,
+    /// Retained decoded pixels so optional codec measurements use the same
+    /// corpus as the deterministic transform measurements.
+    pub corpus: Vec<CorpusImage>,
     pub transformations: Vec<Compression>,
     pub report: RobustnessReport,
     /// Optional measurement through an installed external image codec.
@@ -722,12 +1059,12 @@ fn measure_ffmpeg_codec(result: &mut BenchmarkResult, executable: &str, codec: &
             return;
         }
     };
-    let corpus = Corpus::adversarial(result.seed, result.n_images, result.width);
+    let corpus = &result.corpus;
     let mut measurements = Vec::new();
     for quality in settings {
         let mut hits = 0usize;
         let mut delta_sum = 0.0;
-        for image in &corpus {
+        for image in corpus {
             let marked = embed(
                 &image.pixels,
                 image.w,
