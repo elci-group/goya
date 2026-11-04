@@ -4,7 +4,9 @@ use std::fmt;
 
 use goya_determinism::proofs::ExecutionProof;
 use goya_determinism::{DeterminismClass, ProcessDecl};
-use goya_executable::{D1Error, D1Instruction, D1Outcome, D1Program, D1Snapshot, D1Value, InputSnapshot, StateContract};
+use goya_executable::{
+    D1Instruction, D1Outcome, D1Program, D1Snapshot, D1Value, InputSnapshot, StateContract,
+};
 use goya_ir::ActionId;
 
 use crate::scene::{
@@ -44,15 +46,34 @@ pub struct CompiledInteraction {
 impl CompiledInteraction {
     /// Execute while enforcing the authored typed state/input contract before
     /// delegating to the lower-level D1 VM's exact-key schema checks.
-    pub fn execute(&self, state: &D1Snapshot, inputs: &InputSnapshot) -> Result<D1Outcome, TransitionError> {
+    pub fn execute(
+        &self,
+        state: &D1Snapshot,
+        inputs: &InputSnapshot,
+    ) -> Result<D1Outcome, TransitionError> {
         let state_schema = typed_union(&self.state_reads, &self.state_writes)?;
-        if state.values().len() != state_schema.len() || state.values().iter().any(|(key, value)| {
-            state_schema.get(key.as_str()).is_none_or(|ty| !value_has_type(value, *ty))
-        }) { return Err(TransitionError::StateTypeMismatch); }
-        if inputs.values().len() != self.inputs.len() || inputs.values().iter().any(|(key, value)| {
-            self.inputs.iter().find(|item| item.name == *key).is_none_or(|item| !value_has_type(value, item.value_type))
-        }) { return Err(TransitionError::InputTypeMismatch); }
-        self.program.execute(state, inputs).map_err(|e| TransitionError::VmRejected(e.to_string()))
+        if state.values().len() != state_schema.len()
+            || state.values().iter().any(|(key, value)| {
+                state_schema
+                    .get(key.as_str())
+                    .is_none_or(|ty| !value_has_type(value, *ty))
+            })
+        {
+            return Err(TransitionError::StateTypeMismatch);
+        }
+        if inputs.values().len() != self.inputs.len()
+            || inputs.values().iter().any(|(key, value)| {
+                self.inputs
+                    .iter()
+                    .find(|item| item.name == *key)
+                    .is_none_or(|item| !value_has_type(value, item.value_type))
+            })
+        {
+            return Err(TransitionError::InputTypeMismatch);
+        }
+        self.program
+            .execute(state, inputs)
+            .map_err(|e| TransitionError::VmRejected(e.to_string()))
     }
 }
 
@@ -74,13 +95,13 @@ pub fn compile_d1_interactions(scene: &Scene) -> Result<Vec<CompiledInteraction>
                 [(_, id)] => *id,
                 _ => return Err(TransitionError::TriggerAmbiguous),
             };
-        Ok(CompiledInteraction {
+            Ok(CompiledInteraction {
                 name: i.name.clone(),
                 trigger,
-            state_reads: i.state_reads.clone(),
-            state_writes: i.state_writes.clone(),
-            inputs: i.inputs.clone(),
-            program: compile_one(i)?,
+                state_reads: i.state_reads.clone(),
+                state_writes: i.state_writes.clone(),
+                inputs: i.inputs.clone(),
+                program: compile_one(i)?,
             })
         })
         .collect()
@@ -201,9 +222,12 @@ fn typed_union<'a>(
 }
 
 fn value_has_type(value: &D1Value, ty: InteractionType) -> bool {
-    matches!((value, ty), (D1Value::Int(_), InteractionType::Int)
-        | (D1Value::Text(_), InteractionType::Text)
-        | (D1Value::Bool(_), InteractionType::Bool))
+    matches!(
+        (value, ty),
+        (D1Value::Int(_), InteractionType::Int)
+            | (D1Value::Text(_), InteractionType::Text)
+            | (D1Value::Bool(_), InteractionType::Bool)
+    )
 }
 
 fn compile_expr(
@@ -323,15 +347,26 @@ mod tests {
     fn mismatched_state_contract_types_are_rejected() {
         let src = SOURCE.replace("write count: int", "write count: text");
         let scene = parse(&src).unwrap();
-        assert_eq!(compile_d1_interactions(&scene), Err(TransitionError::StateTypeMismatch));
+        assert_eq!(
+            compile_d1_interactions(&scene),
+            Err(TransitionError::StateTypeMismatch)
+        );
     }
 
     #[test]
     fn runtime_values_are_checked_against_authored_types() {
         let scene = parse(SOURCE).unwrap();
         let compiled = compile_d1_interactions(&scene).unwrap();
-        let state = D1Snapshot::new(4, BTreeMap::from([("count".into(), D1Value::Text("bad".into()))])).unwrap();
-        let inputs = InputSnapshot::new(BTreeMap::from([("amount".into(), D1Value::Int(3))])).unwrap();
-        assert_eq!(compiled[0].execute(&state, &inputs), Err(TransitionError::StateTypeMismatch));
+        let state = D1Snapshot::new(
+            4,
+            BTreeMap::from([("count".into(), D1Value::Text("bad".into()))]),
+        )
+        .unwrap();
+        let inputs =
+            InputSnapshot::new(BTreeMap::from([("amount".into(), D1Value::Int(3))])).unwrap();
+        assert_eq!(
+            compiled[0].execute(&state, &inputs),
+            Err(TransitionError::StateTypeMismatch)
+        );
     }
 }

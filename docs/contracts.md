@@ -250,15 +250,38 @@ both paths feed the same runtime/layout/render pipeline.
   parent. Millipoint scale matches GY-LAYOUT/1 (1 pt = 1000 mp).
 - Appearance: `fill`/`stroke` hex colours (`#rgb`, `#rrggbb`, `#rrggbbaa`),
   `stroke-width`, `text`, `text-size`, `text-anchor: start|middle|end`.
-- Forward compatibility: `@template` and `@interaction` blocks are parsed
-  and skipped (visual state work is Wave 3); unknown properties are
-  consumed and ignored, never fatal.
+- Authoring extensions: `@template` blocks remain parsed and skipped;
+  unknown visual properties are consumed and ignored. `@interaction` is a
+  deliberately bounded executable subset: one `trigger: button.<name>.activate`,
+  `class: D1`, explicit `state { read key: int|text|bool; write ...; }`,
+  explicit `input { key: int|text|bool; }`, and straight-line `set key = expr;`
+  assignments. Expressions accept scalar literals, `state.key`, `input.key`,
+  and checked integer `+`. Every declared write must be assigned exactly once;
+  every declared read/input must be used; duplicate/ambiguous button names,
+  undeclared keys, type mismatches, and unsupported syntax are rejected.
+  `compile_d1_interactions` binds triggers to the same depth-first button
+  `ActionId`s as scene lowering and emits only verified D1 VM programs. Its
+  typed execution wrapper checks authored state/input types before calling
+  the VM. D2 effect/journal requests, branches, loops, comparisons, and other
+  expression forms are not yet source-language features.
 - Totality: parse + layout never panic on any input — 10,000-input
   deterministic mutation fuzzer enforces it.
 - Hit testing: `hit_test(&Frame, x_mp, y_mp) -> Option<button-name>` with
   depth-first later-drawn-wins order.
 - Demo: `cargo run --bin scene [--file app.gscene] [--live]` builds a
   clickable GUI from a scene file.
+
+Example D1 interaction:
+
+```text
+@interaction increment {
+  trigger: button.plus.activate;
+  class: D1;
+  state { read count: int; write count: int; }
+  input { amount: int; }
+  set count = state.count + input.amount;
+}
+```
 
 ## Language decision record
 
