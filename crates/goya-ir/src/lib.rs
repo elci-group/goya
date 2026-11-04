@@ -3,7 +3,7 @@
 //! Contract: stable within Wave 1. Changes require architecture approval
 //! (Candidate stability level, see docs/contracts.md).
 
-use std::fmt;
+use std::{collections::HashSet, fmt};
 
 /// Semantic version of the IR contract this crate implements.
 pub const IR_CONTRACT: &str = "GY-IR/1";
@@ -94,6 +94,7 @@ impl Module {
 /// | `spacer <id> <size>` | `root <id>`
 pub fn parse(source: &str) -> Result<Module, ParseError> {
     let mut module = Module::default();
+    let mut node_ids = HashSet::new();
     for (line_no, raw) in source.lines().enumerate() {
         let line = raw.trim();
         if line.is_empty() || line.starts_with('#') {
@@ -135,11 +136,17 @@ pub fn parse(source: &str) -> Result<Module, ParseError> {
                     .ok_or(ParseError { line: line_no + 1 })?,
             },
             "root" => {
+                if !rest.is_empty() || module.root.is_some() {
+                    return Err(ParseError { line: line_no + 1 });
+                }
                 module.root = Some(id);
                 continue;
             }
             _ => return Err(ParseError { line: line_no + 1 }),
         };
+        if !node_ids.insert(id) {
+            return Err(ParseError { line: line_no + 1 });
+        }
         module.nodes.push((id, node));
     }
     // GY-IR/1 invariant: root must exist and reference a declared node. The
@@ -196,6 +203,52 @@ root 1
     fn rejects_bad_line() {
         let src = "text 1 hi\nfrobnicate 2\nroot 1";
         assert_eq!(parse(src), Err(ParseError { line: 2 }));
+    }
+
+    #[test]
+    fn rejects_duplicate_node_ids_and_root_declarations() {
+        assert_eq!(
+            parse("text 1 first\nbutton 1 8 second\nroot 1"),
+            Err(ParseError { line: 2 })
+        );
+        assert_eq!(
+            parse("text 1 first\nroot 1\nroot 1"),
+            Err(ParseError { line: 3 })
+        );
+        assert_eq!(
+            parse("text 1 first\nroot 1 unexpected"),
+            Err(ParseError { line: 2 })
+        );
+    }
+
+    #[test]
+    fn parses_each_wave_one_node_form_and_preserves_order() {
+        let module = parse(
+            "column 1 2 3 4 5\nrow 2 3 4\ntext 3 Hello, world!\nbutton 4 9 Save draft\nspacer 5 2.5\nroot 1",
+        )
+        .unwrap();
+        assert_eq!(module.root, Some(NodeId(1)));
+        assert_eq!(module.nodes.len(), 5);
+        assert_eq!(
+            module.node(NodeId(2)),
+            Some(&Node::Row {
+                children: vec![NodeId(3), NodeId(4)]
+            })
+        );
+        assert_eq!(
+            module.node(NodeId(3)),
+            Some(&Node::Text {
+                content: "Hello, world!".into()
+            })
+        );
+        assert_eq!(
+            module.node(NodeId(4)),
+            Some(&Node::Button {
+                label: "Save draft".into(),
+                on_activate: ActionId(9)
+            })
+        );
+        assert_eq!(module.node(NodeId(5)), Some(&Node::Spacer { size: 2.5 }));
     }
 
     /// Deterministic mutation fuzzing (GY-AIM assurance policy: parser never
