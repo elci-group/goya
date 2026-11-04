@@ -488,7 +488,10 @@ fn command_output_bounded(command: &mut Command, max_output: usize) -> std::io::
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()?;
-    let mut stdout = child.stdout.take().expect("piped stdout configured");
+    let mut stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| std::io::Error::other("child stdout pipe was not created"))?;
     let reader = std::thread::scope(|scope| {
         let reader = scope.spawn(|| {
             let mut output = Vec::with_capacity(max_output.min(1024 * 1024));
@@ -521,6 +524,19 @@ fn command_output_bounded(command: &mut Command, max_output: usize) -> std::io::
         ));
     }
     Ok(output)
+}
+
+fn tool_version(executable: &str) -> Result<String, LocalCorpusError> {
+    let mut command = Command::new(executable);
+    command.arg("-version");
+    let output = command_output_bounded(&mut command, MAX_VERSION_OUTPUT_BYTES)
+        .map_err(|_| LocalCorpusError::ToolVersionUnavailable(executable.into()))?;
+    let version = std::str::from_utf8(&output)
+        .ok()
+        .and_then(|text| text.lines().next())
+        .filter(|line| !line.trim().is_empty())
+        .ok_or_else(|| LocalCorpusError::ToolVersionUnavailable(executable.into()))?;
+    Ok(version.to_string())
 }
 
 fn digest_u64(digest: &[u8; 32]) -> u64 {
@@ -948,6 +964,7 @@ impl Benchmark {
             alpha,
             corpus,
             Vec::new(),
+            None,
             "synthetic_adversarial",
         )
     }
@@ -962,6 +979,7 @@ impl Benchmark {
         alpha: f64,
         corpus: LocalCorpus,
     ) -> BenchmarkResult {
+        let decode_tool_version = Some(corpus.ffmpeg_version.clone());
         self.run_corpus(
             seed,
             size,
@@ -969,6 +987,7 @@ impl Benchmark {
             alpha,
             corpus.images,
             corpus.sources,
+            decode_tool_version,
             "local_files",
         )
     }
@@ -981,6 +1000,7 @@ impl Benchmark {
         alpha: f64,
         corpus: Vec<CorpusImage>,
         source_images: Vec<SourceImageMetadata>,
+        decode_tool_version: Option<String>,
         corpus_kind: &str,
     ) -> BenchmarkResult {
         let transformations = standard_adversarial_suite();
@@ -1002,6 +1022,7 @@ impl Benchmark {
             corpus_fingerprint,
             corpus_kind: corpus_kind.to_string(),
             source_images,
+            decode_tool_version,
             corpus,
             transformations,
             report,
@@ -1025,6 +1046,8 @@ pub struct BenchmarkResult {
     pub corpus_kind: String,
     /// Source-file hashes and decode geometry for caller-provided images.
     pub source_images: Vec<SourceImageMetadata>,
+    /// Decoder build used to normalize local source images, when applicable.
+    pub decode_tool_version: Option<String>,
     /// Retained decoded pixels so optional codec measurements use the same
     /// corpus as the deterministic transform measurements.
     pub corpus: Vec<CorpusImage>,

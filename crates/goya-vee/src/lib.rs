@@ -95,6 +95,12 @@ pub fn request_from_d1_program(
     push_py_map(&mut source, state.values());
     source.push_str("\nGOYA_D1_INPUTS = ");
     push_py_map(&mut source, inputs.values());
+    source.push_str("\nGOYA_D1_READ_KEYS = ");
+    push_py_strings(&mut source, program.contract().read_keys());
+    source.push_str("\nGOYA_D1_WRITE_KEYS = ");
+    push_py_strings(&mut source, program.contract().write_keys());
+    source.push_str("\nGOYA_D1_INPUT_KEYS = ");
+    push_py_strings(&mut source, program.contract().input_keys());
     source.push_str("\nGOYA_D1_CODE = (\n");
     for instruction in program.instructions() {
         source.push_str("    ");
@@ -178,6 +184,11 @@ def _val(v):
     raise ValueError('invalid value tag')
 def _map(m):
     return _u64(len(m)) + b''.join(_str(k) + _val(m[k]) for k in sorted(m))
+def _value_size(v): return 8 if v[0] == 'i' else (len(v[1].encode('utf-8')) if v[0] == 's' else 1)
+def _map_size(m): return 8 + sum(8 + len(k.encode('utf-8')) + (9 + len(v[1].encode('utf-8')) if v[0] == 's' else (9 if v[0] == 'i' else 2)) for k, v in m.items())
+if set(GOYA_D1_STATE) != set(GOYA_D1_READ_KEYS) | set(GOYA_D1_WRITE_KEYS): raise ValueError('state schema mismatch')
+if set(GOYA_D1_INPUTS) != set(GOYA_D1_INPUT_KEYS): raise ValueError('input schema mismatch')
+if _map_size(GOYA_D1_STATE) + _map_size(GOYA_D1_INPUTS) > 1024 * 1024: raise ValueError('snapshot limit')
 def _outval(v):
     t, x = v
     if t == 'i': return {'type':'int','value':str(x)}
@@ -185,18 +196,27 @@ def _outval(v):
     if t == 'b': return {'type':'bool','value':x}
     raise ValueError('invalid value tag')
 _regs = {}
+_reg_bytes = 0
 _next = dict(GOYA_D1_STATE)
+def _store(name, value):
+    global _reg_bytes
+    if value[0] == 's' and len(value[1].encode('utf-8')) > 65536: raise ValueError('text limit')
+    size = len(name.encode('utf-8')) + _value_size(value)
+    old = len(name.encode('utf-8')) + _value_size(_regs[name]) if name in _regs else 0
+    if _reg_bytes - old + size > 1024 * 1024: raise ValueError('register limit')
+    _regs[name] = value
+    _reg_bytes = _reg_bytes - old + size
 for _ins in GOYA_D1_CODE:
     _op = _ins[0]
-    if _op == 'const': _regs[_ins[1]] = _ins[2]
-    elif _op == 'state': _regs[_ins[1]] = GOYA_D1_STATE[_ins[2]]
-    elif _op == 'input': _regs[_ins[1]] = GOYA_D1_INPUTS[_ins[2]]
+    if _op == 'const': _store(_ins[1], _ins[2])
+    elif _op == 'state': _store(_ins[1], GOYA_D1_STATE[_ins[2]])
+    elif _op == 'input': _store(_ins[1], GOYA_D1_INPUTS[_ins[2]])
     elif _op == 'add':
         _a, _b = _regs[_ins[2]], _regs[_ins[3]]
         if _a[0] != 'i' or _b[0] != 'i': raise TypeError('integer operands required')
         _n = _a[1] + _b[1]
         if _n < -(1 << 63) or _n >= (1 << 63): raise OverflowError('i64 addition overflow')
-        _regs[_ins[1]] = ('i', _n)
+        _store(_ins[1], ('i', _n))
     elif _op == 'write': _next[_ins[1]] = _regs[_ins[2]]
     else: raise ValueError('unknown verified D1 opcode')
 _rev_after = GOYA_D1_REVISION + 1
@@ -235,6 +255,14 @@ fn push_py_map(source: &mut String, values: &std::collections::BTreeMap<String, 
         source.push_str("),");
     }
     source.push_str("))");
+}
+fn push_py_strings(source: &mut String, values: &std::collections::BTreeSet<String>) {
+    source.push('(');
+    for value in values {
+        push_python_string(source, value);
+        source.push(',');
+    }
+    source.push(')');
 }
 fn hex_bytes(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
