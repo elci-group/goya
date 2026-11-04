@@ -23,9 +23,13 @@ pub use lowering::{lower, LowerError, Lowered, NodeKey, NodeRecord, NodeTable, R
 pub use parser::{parse, ParseError};
 pub use scene::{hit_test, layout, Anchor, CellKind, DrawNode, RectMp, Scene, SceneCell, Vec3};
 pub use scene::{
-    InteractionDecl, InteractionExpr, InteractionType, InteractionValue, StateAssignment, TypedKey,
+    EffectRequestDecl, EffectValueType, InteractionClass, InteractionDecl, InteractionExpr,
+    InteractionType, InteractionValue, StateAssignment, TypedKey,
 };
-pub use transition::{compile_d1_interactions, CompiledInteraction, TransitionError};
+pub use transition::{
+    compile_d1_interactions, compile_d2_interactions, CompiledD2Interaction,
+    CompiledInteraction, TransitionError,
+};
 
 /// Contract identifier implemented by this crate.
 pub const LANG_CONTRACT: &str = "GY-LANG/1";
