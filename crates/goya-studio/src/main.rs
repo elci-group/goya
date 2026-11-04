@@ -1,5 +1,5 @@
-use goya_sdk::{SceneProject, Viewport};
 use goya_lang::{SceneCell, Vec3};
+use goya_sdk::{SceneProject, Viewport};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -232,9 +232,23 @@ fn render_editor(project: &SceneProject, preview: &str) -> String {
     for (index, cell) in cells.iter().enumerate() {
         let draw = frame.nodes.get(index);
         let pos_default = Vec3::default();
-        let extent_default = draw.map(|n| Vec3 { x: n.rect.width as f64 / 1000.0, y: n.rect.height as f64 / 1000.0, z: 0.0 }).unwrap_or_default();
-        let pos_key = if cell.position_p.is_some() { "position_p" } else { "position" };
-        let extent_key = if cell.extent_p.is_some() { "extent_p" } else { "extent" };
+        let extent_default = draw
+            .map(|n| Vec3 {
+                x: n.rect.width as f64 / 1000.0,
+                y: n.rect.height as f64 / 1000.0,
+                z: 0.0,
+            })
+            .unwrap_or_default();
+        let pos_key = if cell.position_p.is_some() {
+            "position_p"
+        } else {
+            "position"
+        };
+        let extent_key = if cell.extent_p.is_some() {
+            "extent_p"
+        } else {
+            "extent"
+        };
         let pos = finite_or(cell.position_p.or(cell.position), pos_default);
         let extent = finite_or(cell.extent_p.or(cell.extent), extent_default);
         html.push_str(&format!("<option value=\"{}\" data-pos-key=\"{}\" data-extent-key=\"{}\" data-x=\"{}\" data-y=\"{}\" data-w=\"{}\" data-h=\"{}\">{}</option>", index, pos_key, extent_key, pos.x, pos.y, extent.x, extent.y, escape_html(&cell.name)));
