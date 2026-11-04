@@ -25,6 +25,7 @@ const MAX_LOCAL_TOTAL_PIXELS: u64 = 8 * 1024 * 1024;
 const MAX_LOCAL_FILE_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_LOCAL_TOTAL_FILE_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_PROBE_OUTPUT_BYTES: usize = 256;
+const MAX_VERSION_OUTPUT_BYTES: usize = 64 * 1024;
 
 /// xorshift64 PRNG for deterministic corpus and noise generation.
 struct Xorshift64(u64);
@@ -99,6 +100,7 @@ impl Corpus {
         if output_pixels > MAX_LOCAL_TOTAL_PIXELS {
             return Err(LocalCorpusError::PixelLimit);
         }
+        let ffmpeg_version = tool_version(ffmpeg)?;
 
         let mut ordered: Vec<PathBuf> = paths.to_vec();
         ordered.sort();
@@ -162,7 +164,11 @@ impl Corpus {
                 normalized_height: size,
             });
         }
-        Ok(LocalCorpus { images, sources })
+        Ok(LocalCorpus {
+            images,
+            sources,
+            ffmpeg_version,
+        })
     }
 
     /// Generate `n_images` deterministic synthetic images of `size` x `size`
@@ -309,6 +315,7 @@ impl Corpus {
 pub struct LocalCorpus {
     pub images: Vec<CorpusImage>,
     pub sources: Vec<SourceImageMetadata>,
+    pub ffmpeg_version: String,
 }
 
 /// Per-image source identity and deterministic decode geometry.
@@ -331,6 +338,7 @@ pub enum LocalCorpusError {
     SourcePixelLimit,
     TotalFileBytesLimit,
     DuplicatePath,
+    ToolVersionUnavailable(String),
     FileTooLarge(PathBuf),
     ReadSource(PathBuf),
     ProbeFailed(PathBuf),
@@ -354,6 +362,9 @@ impl std::fmt::Display for LocalCorpusError {
             Self::SourcePixelLimit => write!(f, "source images exceed the 8-million-pixel limit"),
             Self::TotalFileBytesLimit => write!(f, "source files exceed the 256-MiB total limit"),
             Self::DuplicatePath => write!(f, "local corpus contains duplicate paths"),
+            Self::ToolVersionUnavailable(tool) => {
+                write!(f, "could not identify decoder version for `{tool}`")
+            }
             Self::FileTooLarge(path) => write!(f, "source file exceeds 64 MiB: {}", path.display()),
             Self::ReadSource(path) => write!(f, "could not read source image: {}", path.display()),
             Self::ProbeFailed(path) => write!(f, "ffprobe failed for {}", path.display()),
