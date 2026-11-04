@@ -31,6 +31,16 @@ struct HttpRequest {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+struct RequestHead {
+    method: String,
+    target: String,
+    host: String,
+    origin: Option<String>,
+    content_type: Option<String>,
+    content_length: usize,
+}
+
+#[derive(Debug, PartialEq, Eq)]
 struct RequestError {
     status: &'static str,
     message: &'static str,
@@ -40,19 +50,7 @@ fn request_error(status: &'static str, message: &'static str) -> RequestError {
     RequestError { status, message }
 }
 
-fn parse_request_head(
-    header: &[u8],
-) -> Result<
-    (
-        String,
-        String,
-        String,
-        Option<String>,
-        Option<String>,
-        usize,
-    ),
-    RequestError,
-> {
+fn parse_request_head(header: &[u8]) -> Result<RequestHead, RequestError> {
     if header.len() > MAX_REQUEST_BYTES {
         return Err(request_error(
             "413 Payload Too Large",
@@ -125,14 +123,14 @@ fn parse_request_head(
             "Scene source exceeds the 128 KiB limit",
         ));
     }
-    Ok((
-        method.to_owned(),
-        target.to_owned(),
+    Ok(RequestHead {
+        method: method.to_owned(),
+        target: target.to_owned(),
         host,
         origin,
         content_type,
         content_length,
-    ))
+    })
 }
 
 fn parse_request(bytes: &[u8]) -> Result<HttpRequest, RequestError> {
@@ -149,8 +147,14 @@ fn parse_request(bytes: &[u8]) -> Result<HttpRequest, RequestError> {
                 request_error("400 Bad Request", "Incomplete request headers")
             }
         })?;
-    let (method, target, host, origin, content_type, content_length) =
-        parse_request_head(&bytes[..end])?;
+    let RequestHead {
+        method,
+        target,
+        host,
+        origin,
+        content_type,
+        content_length,
+    } = parse_request_head(&bytes[..end])?;
     let body = &bytes[end + 4..];
     if body.len() != content_length {
         return Err(request_error(
@@ -435,7 +439,7 @@ fn read_http_request(stream: &mut TcpStream) -> Result<Vec<u8>, RequestError> {
             return Err(request_error("413 Payload Too Large", "Request too large"));
         }
         if let Some(end) = request.windows(4).position(|window| window == b"\r\n\r\n") {
-            let (_, _, _, _, _, length) = parse_request_head(&request[..end])?;
+            let length = parse_request_head(&request[..end])?.content_length;
             if length > MAX_SCENE_BYTES as usize {
                 return Err(request_error(
                     "413 Payload Too Large",
