@@ -405,6 +405,12 @@ document.addEventListener('keydown',event=>{if((!event.ctrlKey&&!event.metaKey)|
 commitHistory();
 </script></body></html>"#,
     );
+    html = html.replace(
+        "</body></html>",
+        r#"<script>
+document.querySelector('#save').addEventListener('click',async event=>{event.preventDefault();const button=event.currentTarget;button.disabled=true;status.textContent='Saving…';try{const response=await fetch('/save',{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:source.value});const body=await response.text();if(response.ok){status.textContent='Scene saved to the opened file';document.querySelector('#error-line').hidden=true;}else{const message=response.headers.get('content-type')?.includes('text/html')?new DOMParser().parseFromString(body,'text/html').body.textContent.trim():body;status.textContent='Save failed: '+message;const match=/line (\d+)/i.exec(message);const errorLine=document.querySelector('#error-line');errorLine.hidden=!match;if(match)errorLine.dataset.line=match[1];}}catch(_error){status.textContent='Save request failed';}finally{button.disabled=false;}});
+</script></body></html>"#,
+    );
     html
 }
 
