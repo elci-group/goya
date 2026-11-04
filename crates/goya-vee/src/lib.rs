@@ -736,9 +736,12 @@ pub enum VeeCompileError {
     InvalidAgentId,
     TooManyInstructions,
     StringDataTooLarge,
+    D2PayloadTooLarge,
+    D2JournalTooLarge,
     SourceTooLarge,
     InvalidBytecode(VmError),
     InvalidD1Program(D1Error),
+    InvalidD2Program(D2Error),
 }
 
 impl std::fmt::Display for VeeCompileError {
@@ -757,11 +760,14 @@ impl std::fmt::Display for VeeCompileError {
             Self::StringDataTooLarge => {
                 f.write_str("program exceeds the VEE bridge string-data limit")
             }
+            Self::D2PayloadTooLarge => f.write_str("D2 worker payload exceeds its byte limit"),
+            Self::D2JournalTooLarge => f.write_str("D2 effect journal exceeds its VEE limits"),
             Self::SourceTooLarge => {
                 f.write_str("generated Python exceeds the VEE bridge source limit")
             }
             Self::InvalidBytecode(error) => write!(f, "invalid bytecode: {error}"),
             Self::InvalidD1Program(error) => write!(f, "invalid D1 program or snapshots: {error}"),
+            Self::InvalidD2Program(error) => write!(f, "invalid D2 program or journal: {error}"),
         }
     }
 }
