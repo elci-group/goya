@@ -1,10 +1,11 @@
 use goya_lang::{SceneCell, Vec3};
 use goya_sdk::{SceneProject, Viewport};
-use std::fs::File;
+use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 const TEMPLATE: &str = "@ontology my_app {\n    @cell root {\n        position: (0, 0, 0)\n        extent: (800, 600, 0)\n        fill: #20202a\n\n        @button hello {\n            position: (40, 40, 0)\n            extent: (160, 48, 0)\n            text: \"Hello, Goya\"\n            fill: #3267c8\n        }\n    }\n}\n";
@@ -19,6 +20,73 @@ fn usage() {
 const MAX_REQUEST_BYTES: usize = 8 * 1024;
 const MAX_SCENE_BYTES: u64 = 128 * 1024;
 const MAX_PREVIEW_NODES: usize = 512;
+static SAVE_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+fn read_scene_source(path: &Path) -> Result<String, String> {
+    let mut bytes = Vec::with_capacity(MAX_SCENE_BYTES as usize + 1);
+    File::open(path)
+        .map_err(|error| format!("cannot open scene: {error}"))?
+        .take(MAX_SCENE_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| format!("cannot read scene: {error}"))?;
+    if bytes.len() as u64 > MAX_SCENE_BYTES {
+        return Err(format!(
+            "scene exceeds the {} KiB preview limit",
+            MAX_SCENE_BYTES / 1024
+        ));
+    }
+    String::from_utf8(bytes).map_err(|error| format!("scene is not UTF-8: {error}"))
+}
+
+/// Replace only the already-selected scene path. A same-directory temporary
+/// file and rename keep readers from observing a partially written source.
+fn atomic_replace_scene(path: &Path, source: &[u8]) -> Result<(), String> {
+    if source.len() as u64 > MAX_SCENE_BYTES {
+        return Err("scene source exceeds the 128 KiB limit".into());
+    }
+    let metadata = fs::symlink_metadata(path).map_err(|error| error.to_string())?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err("save target is no longer a regular scene file".into());
+    }
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let file_name = path
+        .file_name()
+        .ok_or_else(|| "save target has no file name".to_string())?
+        .to_string_lossy();
+
+    for _ in 0..16 {
+        let sequence = SAVE_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let temporary = parent.join(format!(
+            ".{file_name}.goya-{}-{sequence}.tmp",
+            std::process::id()
+        ));
+        let mut file = match OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)
+        {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error.to_string()),
+        };
+        let result = (|| {
+            file.write_all(source)?;
+            file.set_permissions(metadata.permissions())?;
+            file.sync_all()?;
+            drop(file);
+            fs::rename(&temporary, path)
+        })();
+        if let Err(error) = result {
+            let _ = fs::remove_file(&temporary);
+            return Err(error.to_string());
+        }
+        return Ok(());
+    }
+    Err("could not allocate a unique temporary save file".into())
+}
 
 #[derive(Debug, PartialEq, Eq)]
 struct HttpRequest {
