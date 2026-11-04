@@ -33,6 +33,7 @@ pub enum TransitionError {
     CapabilityMismatch,
     DuplicateRequest,
     RequestResultMismatch,
+    BridgeRejected(String),
     VmRejected(String),
 }
 
@@ -99,6 +100,19 @@ impl CompiledD2Interaction {
         validate_output_types(&self.state_writes, &outcome.next_state)?;
         Ok(outcome)
     }
+
+    /// Build a bounded VEE worker request after enforcing the authored scalar
+    /// schema. This constructs a request only; network submission is explicit.
+    pub fn to_vee_request(
+        &self,
+        state: &D1Snapshot,
+        inputs: &InputSnapshot,
+        agent_id: &str,
+    ) -> Result<goya_vee::SubmitRequest, TransitionError> {
+        self.execute(state, inputs)?;
+        goya_vee::request_from_d1_program(&self.program, state, inputs, agent_id)
+            .map_err(|error| TransitionError::BridgeRejected(error.to_string()))
+    }
 }
 impl fmt::Display for TransitionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -160,6 +174,20 @@ impl CompiledInteraction {
             .map_err(|e| TransitionError::VmRejected(e.to_string()))?;
         validate_output_types(&self.state_writes, &outcome.next_state)?;
         Ok(outcome)
+    }
+
+    /// Build a bounded journal-replay VEE worker request. The authored typed
+    /// checks run before the existing VM-to-VEE adapter; no host effect runs.
+    pub fn to_vee_request(
+        &self,
+        state: &D1Snapshot,
+        inputs: &InputSnapshot,
+        journal: &EffectJournal,
+        agent_id: &str,
+    ) -> Result<goya_vee::SubmitRequest, TransitionError> {
+        self.execute(state, inputs, journal)?;
+        goya_vee::request_from_d2_program(&self.program, state, inputs, journal, agent_id)
+            .map_err(|error| TransitionError::BridgeRejected(error.to_string()))
     }
 }
 

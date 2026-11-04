@@ -32,9 +32,11 @@ hidden from assistive technology.
 channel and call `run_with_updates`; send a newly projected tree after a DIG
 change. The GTK main loop coalesces queued snapshots and applies the latest
 one to the existing window, including changed names, enabled state, tree
-structure, and focus. Focus is restored to the node marked focused in each
-snapshot. Dropping the sender stops the refresh source cleanly. Use a bounded
-channel if updates can arrive faster than GTK can render them.
+structure, and focus. Focus is restored to the enabled interactive node
+marked focused in each snapshot, after the window has shown the corresponding
+widgets so GTK has realized them. Dropping the sender stops the refresh source
+cleanly. Use a bounded channel if updates can arrive faster than GTK can
+render them.
 
 Action callbacks continue to carry stable node ids. Buttons and menu items
 emit `Press`; entries and sliders emit `SetValue` as their values change. The
