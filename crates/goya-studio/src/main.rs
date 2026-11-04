@@ -285,6 +285,17 @@ fn render_editor(project: &SceneProject, preview: &str) -> String {
             "node.onchange=loadNode;loadNode();",
             "node.onchange=()=>{loadNode();frame.contentWindow.postMessage({type:'goya-selected',index:Number(node.value)},'*')};loadNode();frame.onload=()=>frame.contentWindow.postMessage({type:'goya-selected',index:Number(node.value)},'*');window.addEventListener('message',e=>{if(e.source!==frame.contentWindow||!e.data||!Number.isInteger(e.data.index))return;const i=e.data.index;if(e.data.type==='goya-select'){if(!node.options[i])return;node.value=String(i);loadNode();return;}if(e.data.type!=='goya-drag'||i!==Number(node.value)||source.value!==inspectorSource)return;let dx=e.data.dx,dy=e.data.dy;if(!Number.isFinite(dx)||!Number.isFinite(dy)||Math.abs(dx)>32768||Math.abs(dy)>32768)return;const o=node.selectedOptions[0],pm=document.querySelector('#pos-mode').value;if(pm==='position_p'){const pw=Number(o.dataset.parentW),ph=Number(o.dataset.parentH);if(!(pw>0&&ph>0))return;dx/=pw;dy/=ph;}fields[0].value=String(fields[0].valueAsNumber+dx);fields[1].value=String(fields[1].valueAsNumber+dy);document.querySelector('#apply').click();});",
         )
+        .replace(
+            "function editBlock(text,b,pk,ek,vals){",
+            "let dragPositionOnly=false;function editBlock(text,b,pk,ek,vals,positionOnly=false){",
+        )
+        .replace("else if(!eDone){", "else if(!positionOnly&&!eDone){")
+        .replace("if(!eDone)lines.splice(", "if(!eDone&&!positionOnly)lines.splice(")
+        .replace("source.value=editBlock(source.value,b,pm,em,v);", "source.value=editBlock(source.value,b,pm,em,v,dragPositionOnly);")
+        .replace(
+            "document.querySelector('#apply').click();});",
+            "dragPositionOnly=true;document.querySelector('#apply').click();dragPositionOnly=false;});",
+        )
         .replace("out.push({open,end});", "out.push({open,end,name:m[2],kind:m[1]});")
         .replace(
             "/^@(cell|button)\\s+([A-Za-z_][A-Za-z0-9_-]*)\\s*\\{/",
