@@ -29,7 +29,48 @@ pub enum TransitionError {
     InputTypeMismatch,
     OutputTypeMismatch,
     AssignmentMismatch,
+    UndeclaredEffect,
+    CapabilityMismatch,
+    DuplicateRequest,
+    RequestResultMismatch,
     VmRejected(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompiledD2Interaction {
+    name: String,
+    trigger: ActionId,
+    state_reads: Vec<crate::scene::TypedKey>,
+    state_writes: Vec<crate::scene::TypedKey>,
+    inputs: Vec<crate::scene::TypedKey>,
+    declaration: ProcessDecl,
+    proof: ExecutionProof,
+    program: D2Program,
+}
+
+impl CompiledD2Interaction {
+    pub fn name(&self) -> &str { &self.name }
+    pub fn trigger(&self) -> ActionId { self.trigger }
+    pub fn declaration(&self) -> &ProcessDecl { &self.declaration }
+    pub fn proof(&self) -> &ExecutionProof { &self.proof }
+    pub fn program_hash(&self) -> [u8; 32] { self.program.program_hash() }
+    pub fn state_reads(&self) -> &[crate::scene::TypedKey] { &self.state_reads }
+    pub fn state_writes(&self) -> &[crate::scene::TypedKey] { &self.state_writes }
+    pub fn inputs(&self) -> &[crate::scene::TypedKey] { &self.inputs }
+
+    /// Replay only caller supplied journal entries. This never invokes a host effect.
+    pub fn execute(
+        &self,
+        state: &D1Snapshot,
+        inputs: &InputSnapshot,
+        journal: &EffectJournal,
+    ) -> Result<D2Outcome, TransitionError> {
+        validate_runtime_values(&self.state_reads, &self.state_writes, &self.inputs, state, inputs)?;
+        let outcome = self.program.execute(state, inputs, journal)
+            .map_err(|e| TransitionError::VmRejected(e.to_string()))?;
+        validate_output_types(&self.state_writes, &outcome.next_state)?;
+        Ok(outcome)
+    }
 }
 impl fmt::Display for TransitionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -78,26 +119,7 @@ impl CompiledInteraction {
         state: &D1Snapshot,
         inputs: &InputSnapshot,
     ) -> Result<D1Outcome, TransitionError> {
-        let state_schema = typed_union(&self.state_reads, &self.state_writes)?;
-        if state.values().len() != state_schema.len()
-            || state.values().iter().any(|(key, value)| {
-                state_schema
-                    .get(key.as_str())
-                    .is_none_or(|ty| !value_has_type(value, *ty))
-            })
-        {
-            return Err(TransitionError::StateTypeMismatch);
-        }
-        if inputs.values().len() != self.inputs.len()
-            || inputs.values().iter().any(|(key, value)| {
-                self.inputs
-                    .iter()
-                    .find(|item| item.name == *key)
-                    .is_none_or(|item| !value_has_type(value, item.value_type))
-            })
-        {
-            return Err(TransitionError::InputTypeMismatch);
-        }
+        validate_runtime_values(&self.state_reads, &self.state_writes, &self.inputs, state, inputs)?;
         let outcome = self
             .program
             .execute(state, inputs)
@@ -110,14 +132,33 @@ impl CompiledInteraction {
 /// Compile every authored interaction to the existing D1 bytecode verifier.
 /// Trigger numbering matches `lower`: buttons receive depth-first preorder IDs.
 pub fn compile_d1_interactions(scene: &Scene) -> Result<Vec<CompiledInteraction>, TransitionError> {
+    let triggers = validate_bindings(scene)?;
+    scene.interactions.iter().zip(triggers).filter(|(decl, _)| decl.class == InteractionClass::D1).map(|(i, trigger)| {
+            Ok(CompiledInteraction {
+                name: i.name.clone(),
+                trigger,
+                state_reads: i.state_reads.clone(),
+                state_writes: i.state_writes.clone(),
+                inputs: i.inputs.clone(),
+                program: compile_one(i)?,
+            })
+        }).collect()
+}
+
+pub fn compile_d2_interactions(scene: &Scene) -> Result<Vec<CompiledD2Interaction>, TransitionError> {
+    let triggers = validate_bindings(scene)?;
+    scene.interactions.iter().zip(triggers).filter(|(decl, _)| decl.class == InteractionClass::D2).map(|(i, trigger)| {
+        let (declaration, proof, program) = compile_one_d2(i)?;
+        Ok(CompiledD2Interaction { name: i.name.clone(), trigger, state_reads: i.state_reads.clone(), state_writes: i.state_writes.clone(), inputs: i.inputs.clone(), declaration, proof, program })
+    }).collect()
+}
+
+fn validate_bindings(scene: &Scene) -> Result<Vec<ActionId>, TransitionError> {
     let mut buttons = Vec::<(String, ActionId)>::new();
     collect_buttons(&scene.root, &mut 0, &mut buttons);
     let mut names = BTreeSet::new();
     let mut bound_triggers = BTreeSet::new();
-    scene
-        .interactions
-        .iter()
-        .map(|i| {
+    scene.interactions.iter().map(|i| {
             if !names.insert(i.name.as_str()) {
                 return Err(TransitionError::DuplicateInteractionName);
             }
@@ -133,14 +174,7 @@ pub fn compile_d1_interactions(scene: &Scene) -> Result<Vec<CompiledInteraction>
             if !bound_triggers.insert(trigger.0) {
                 return Err(TransitionError::TriggerAlreadyBound);
             }
-            Ok(CompiledInteraction {
-                name: i.name.clone(),
-                trigger,
-                state_reads: i.state_reads.clone(),
-                state_writes: i.state_writes.clone(),
-                inputs: i.inputs.clone(),
-                program: compile_one(i)?,
-            })
+            Ok(trigger)
         })
         .collect()
 }
