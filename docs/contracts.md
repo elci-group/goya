@@ -475,10 +475,15 @@ Implemented as four new crates (all std-only, Candidate status):
   (3.28% → balanced quality, protected-text glyph 4px).
 - Pipeline status: LCPE ✓ RARS ✓ CSR scheduler ✓ HCAR classifier ✓; tile
   raster integration is correctness-tested, but remains opt-in because the
-  current synthetic benchmark is slower than serial. The available path uses
-  ordinary OS-managed threads and HCAR `General` classifications. It does not
-  detect P/E topology or implement core affinity; those remain external work.
-  See `evidence/GY-CSR-RASTER-INTEGRATION.json` for the local measurement.
+  current synthetic benchmark is slower than serial. On an Intel Core 5 120U,
+  one manual run pinned to CPU 0 (5.0 GHz max-frequency P-core group) measured
+  180.4 ms serial vs 887.9 ms parallel over five renders; pinned to CPU 4
+  (3.8 GHz max-frequency E-core group), it measured 176.1 ms vs 1048.6 ms.
+  These are single-run exploratory measurements, not stable performance
+  claims. The available path still uses OS-managed threads and HCAR `General`
+  classifications; Goya does not detect P/E topology or apply core affinity.
+  Process-level `taskset` measurements do not validate application affinity.
+  See `evidence/GY-CSR-RASTER-INTEGRATION.json` for the unpinned baseline.
 
 ## Ownership
 | Path | Owner |
