@@ -2,7 +2,10 @@
 //! failure is `ParseError { line }`.
 
 use crate::lexer::{lex, Token, TokenKind};
-use crate::scene::{Anchor, CellKind, Scene, SceneCell, Vec3};
+use crate::scene::{
+    Anchor, CellKind, InteractionDecl, InteractionExpr, InteractionValue, InteractionType, Scene,
+    SceneCell, StateAssignment, TypedKey, Vec3,
+};
 use std::fmt;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -24,7 +27,11 @@ pub fn parse(source: &str) -> Result<Scene, ParseError> {
         Ok(t) => t,
         Err(e) => return Err(ParseError { line: e.line }),
     };
-    let mut p = P { tokens, i: 0 };
+    let mut p = P {
+        tokens,
+        i: 0,
+        interactions: Vec::new(),
+    };
     p.expect_at_word("ontology")?;
     let name = p.expect_ident()?;
     p.expect(TokenKind::LBrace)?;
@@ -50,12 +57,17 @@ pub fn parse(source: &str) -> Result<Scene, ParseError> {
     {
         root = root.children.remove(0);
     }
-    Ok(Scene { name, root })
+    Ok(Scene {
+        name,
+        root,
+        interactions: p.interactions,
+    })
 }
 
 struct P {
     tokens: Vec<Token>,
     i: usize,
+    interactions: Vec<InteractionDecl>,
 }
 
 impl P {
@@ -156,7 +168,12 @@ impl P {
                             child.kind = kind;
                             cell.children.push(child);
                         }
-                        "interaction" | "template" => {
+                        "interaction" => {
+                            let name = self.expect_ident()?;
+                            let interaction = self.parse_interaction(name)?;
+                            self.interactions.push(interaction);
+                        }
+                        "template" => {
                             // Recognised and skipped with its block: visual
                             // state and templates are Wave-3 expression work.
                             self.expect_ident()?;
