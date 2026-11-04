@@ -21,12 +21,21 @@ cargo run -p goya-studio -- serve apps/my_app.gscene
 preview at `http://127.0.0.1:8765` (or the optional port argument). It binds
 to IPv4 loopback only. The editor starts with the file's current source;
 **Update preview** sends edits to the local process for validation and
-in-memory rendering. **Download source** saves a copy through the browser.
+in-memory rendering. The geometry inspector lets you select a scene node and
+edit its X/Y position and width/height in points or parent fractions. It
+updates only the selected node's geometry properties in the source editor;
+the scene is reparsed when you update the preview. **Download source** saves a
+copy through the browser.
 The Studio server never writes edits to the scene file. Preview requests are
 limited to 128 KiB and same-origin requests. Stop the server with Ctrl-C.
 
-This remains an initial authoring tool, not a full IDE: there is no automatic
-file save, live reload, collaboration, or platform-native rendering.
+The geometry inspector is an initial visual editing aid, not a full IDE. It
+supports selecting nodes from the scene list and editing their geometry; it
+does not provide canvas dragging, automatic file save, live reload,
+collaboration, or platform-native rendering. If a source construct cannot be
+matched safely to the selected node, or the source text has been edited since
+the inspector loaded, it leaves the source unchanged and asks you to reload
+the editor before applying geometry.
 
 The live preview launches the packaged `goya-scene` host as a separate
 process. This keeps the editor workflow usable without embedding platform
