@@ -186,6 +186,26 @@ fn key_types(
     Ok(out)
 }
 
+fn typed_union<'a>(
+    reads: &'a [crate::scene::TypedKey],
+    writes: &'a [crate::scene::TypedKey],
+) -> Result<BTreeMap<&'a str, InteractionType>, TransitionError> {
+    let mut all = key_types(reads)?;
+    for (key, ty) in key_types(writes)? {
+        if all.get(key).is_some_and(|existing| *existing != ty) {
+            return Err(TransitionError::StateTypeMismatch);
+        }
+        all.insert(key, ty);
+    }
+    Ok(all)
+}
+
+fn value_has_type(value: &D1Value, ty: InteractionType) -> bool {
+    matches!((value, ty), (D1Value::Int(_), InteractionType::Int)
+        | (D1Value::Text(_), InteractionType::Text)
+        | (D1Value::Bool(_), InteractionType::Bool))
+}
+
 fn compile_expr(
     expr: &InteractionExpr,
     code: &mut Vec<D1Instruction>,
@@ -274,7 +294,7 @@ mod tests {
             D1Snapshot::new(4, BTreeMap::from([("count".into(), D1Value::Int(9))])).unwrap();
         let inputs =
             InputSnapshot::new(BTreeMap::from([("amount".into(), D1Value::Int(3))])).unwrap();
-        let outcome = compiled[0].program.execute(&state, &inputs).unwrap();
+        let outcome = compiled[0].execute(&state, &inputs).unwrap();
         assert_eq!(outcome.next_state["count"], D1Value::Int(12));
         assert_eq!(outcome.revision_after, 5);
     }
@@ -297,5 +317,21 @@ mod tests {
             Err(TransitionError::TriggerNotFound)
         );
         assert!(parse(&SOURCE.replace("class: D1", "class: D2")).is_err());
+    }
+
+    #[test]
+    fn mismatched_state_contract_types_are_rejected() {
+        let src = SOURCE.replace("write count: int", "write count: text");
+        let scene = parse(&src).unwrap();
+        assert_eq!(compile_d1_interactions(&scene), Err(TransitionError::StateTypeMismatch));
+    }
+
+    #[test]
+    fn runtime_values_are_checked_against_authored_types() {
+        let scene = parse(SOURCE).unwrap();
+        let compiled = compile_d1_interactions(&scene).unwrap();
+        let state = D1Snapshot::new(4, BTreeMap::from([("count".into(), D1Value::Text("bad".into()))])).unwrap();
+        let inputs = InputSnapshot::new(BTreeMap::from([("amount".into(), D1Value::Int(3))])).unwrap();
+        assert_eq!(compiled[0].execute(&state, &inputs), Err(TransitionError::StateTypeMismatch));
     }
 }
