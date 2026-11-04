@@ -22,7 +22,7 @@ fn run() -> Result<(), String> {
     let mut alpha = 24.0f64;
     let mut output: Option<PathBuf> = None;
     let mut codec_roundtrip = false;
-    let mut codec = "mjpeg";
+    let mut codec = "mjpeg".to_string();
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -62,9 +62,9 @@ fn run() -> Result<(), String> {
             "--output" => output = Some(PathBuf::from(value(&mut args, "--output")?)),
             "--codec-roundtrip" => codec_roundtrip = true,
             "--codec" => {
-                codec = match value(&mut args, "--codec")? {
-                    "mjpeg" => "mjpeg",
-                    "png" => "png",
+                codec = match value(&mut args, "--codec")?.as_str() {
+                    "mjpeg" => "mjpeg".to_string(),
+                    "png" => "png".to_string(),
                     other => return Err(format!("unsupported --codec `{other}` (choose mjpeg or png)")),
                 };
                 codec_roundtrip = true;

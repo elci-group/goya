@@ -251,7 +251,12 @@ fn render_editor(project: &SceneProject, preview: &str) -> String {
         };
         let pos = finite_or(cell.position_p.or(cell.position), pos_default);
         let extent = finite_or(cell.extent_p.or(cell.extent), extent_default);
-        html.push_str(&format!("<option value=\"{}\" data-pos-key=\"{}\" data-extent-key=\"{}\" data-x=\"{}\" data-y=\"{}\" data-w=\"{}\" data-h=\"{}\">{}</option>", index, pos_key, extent_key, pos.x, pos.y, extent.x, extent.y, escape_html(&cell.name)));
+        let kind = if cell.kind == goya_lang::CellKind::Button {
+            "button"
+        } else {
+            "cell"
+        };
+        html.push_str(&format!("<option value=\"{}\" data-name=\"{}\" data-kind=\"{}\" data-pos-key=\"{}\" data-extent-key=\"{}\" data-x=\"{}\" data-y=\"{}\" data-w=\"{}\" data-h=\"{}\">{}</option>", index, escape_html(&cell.name), kind, pos_key, extent_key, pos.x, pos.y, extent.x, extent.y, escape_html(&cell.name)));
     }
     html.push_str("</select></label><label>Position mode<select id=\"pos-mode\"><option value=\"position\">Points</option><option value=\"position_p\">Parent fraction</option></select></label><label>Extent mode<select id=\"extent-mode\"><option value=\"extent\">Points</option><option value=\"extent_p\">Parent fraction</option></select></label><label>X<input id=\"x\" type=\"number\" step=\"any\"></label><label>Y<input id=\"y\" type=\"number\" step=\"any\"></label><label>Width<input id=\"w\" type=\"number\" step=\"any\"></label><label>Height<input id=\"h\" type=\"number\" step=\"any\"></label></div><textarea id=\"source\" spellcheck=\"false\">");
     html.push_str(&escape_html(source));
