@@ -194,6 +194,9 @@ impl C2paTool {
     /// The source and destination must be distinct files. Existing output is
     /// rejected unless `overwrite` is true. The official tool handles media
     /// format parsing, JUMBF serialization, content binding and COSE signing.
+    /// The arguments mirror the signing inputs so callers must supply each
+    /// trust-sensitive path and policy explicitly.
+    #[allow(clippy::too_many_arguments)]
     pub fn sign_asset(
         &self,
         asset: impl AsRef<Path>,
