@@ -18,6 +18,9 @@ cargo run -p goya-bench --bin goya-watermark-benchmark -- \
 
 cargo run -p goya-bench --bin goya-watermark-benchmark -- \
   --images 6 --size 64 --codec png
+
+cargo run -p goya-bench --bin goya-watermark-benchmark -- \
+  --images 6 --size 64 --codec h264 --codec mpeg4
 ```
 
 To evaluate a caller-selected local corpus, put supported image files directly
@@ -51,15 +54,37 @@ and transformations in that report; it does not establish general robustness
 or rights to publish source imagery. Check licensing and redact source paths
 before sharing reports where paths are sensitive.
 
-The optional section reports the ffmpeg version, three MJPEG encoder quality
-settings (`-q:v` 2, 5, and 8) or three PNG compression settings
-(`-compression_level` 1, 6, and 9), exact-payload hits, sample counts,
-detection rates, and mean maximum pixel deltas. Run separately for each codec;
-the report has one codec field. If ffmpeg is missing or a codec step fails,
-`status` is `unavailable` with a reason and no codec samples; the deterministic
-pixel-surrogate results are still produced. No ffmpeg crate or binary is
+The optional section reports the ffmpeg version, quality parameter and
+settings, exact-payload hits, sample counts, detection rates, and mean maximum
+pixel deltas. Multiple `--codec` selections are kept as separate entries in
+`codec_roundtrips`; `--codec-roundtrip` alone remains an MJPEG shorthand. The
+available settings are MJPEG `-q:v` 2/5/8, PNG `-compression_level` 1/6/9,
+H.264/libx264 `-crf` 18/28/38 in Matroska with `yuv420p`, and MPEG-4 Part 2
+`-q:v` 2/5/8 in AVI with `yuv420p`. If ffmpeg is missing or a selected codec
+step fails, that codec entry is `unavailable` with a reason; remaining codecs
+and deterministic pixel-surrogate results are still reported. At most four
+codec measurements can be selected per run. No ffmpeg crate or binary is
 bundled or linked by this package. The installed ffmpeg build and its enabled
 codecs are external system configuration.
+
+One repeatability sample on the six-image synthetic corpus used seed
+`5141213315053340721`, size `64×64`, key `0a11cec0ffee`, alpha `24`, and
+`ffmpeg version 6.1.1-3ubuntu5`. Two identical invocations produced identical
+report bytes (SHA-256 `bf853a23d05d2759aef2060134fd596b04cf293696bfabe480475aa583a414a7`).
+The measured results were:
+
+| Codec | Setting | Exact payloads | Mean max pixel delta |
+|---|---:|---:|---:|
+| H.264/libx264 | CRF 18 | 6/6 | 13.500 |
+| H.264/libx264 | CRF 28 | 1/6 | 36.333 |
+| H.264/libx264 | CRF 38 | 0/6 | 91.000 |
+| MPEG-4 Part 2 | `-q:v` 2 | 6/6 | 4.500 |
+| MPEG-4 Part 2 | `-q:v` 5 | 6/6 | 9.167 |
+| MPEG-4 Part 2 | `-q:v` 8 | 4/6 | 15.667 |
+
+These are measurements for this exact synthetic corpus, selected encoder
+settings, and ffmpeg build only. They do not imply performance on photographs,
+other codec versions, other image normalization paths, or deployment data.
 
 The executable records the seed, image count and dimensions, key, embedding
 strength, corpus fingerprint, per-transform sample and hit counts, mean pixel
