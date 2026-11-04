@@ -2,7 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use goya_bench::{measure_ffmpeg_mjpeg, Benchmark, BenchmarkResult};
+use goya_bench::{measure_ffmpeg_mjpeg, measure_ffmpeg_png, Benchmark, BenchmarkResult};
 
 fn main() -> ExitCode {
     match run() {
@@ -22,14 +22,15 @@ fn run() -> Result<(), String> {
     let mut alpha = 24.0f64;
     let mut output: Option<PathBuf> = None;
     let mut codec_roundtrip = false;
+    let mut codec = "mjpeg";
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--help" | "-h" => {
                 println!(
-                    "Usage: goya-watermark-benchmark [--seed N] [--images N] [--size PX] [--key HEX] [--alpha N] [--codec-roundtrip] [--output PATH]\n\
+                    "Usage: goya-watermark-benchmark [--seed N] [--images N] [--size PX] [--key HEX] [--alpha N] [--codec-roundtrip] [--codec mjpeg|png] [--output PATH]\n\
                      Defaults: seed={seed}, images={images}, size={size}, key={key:016x}, alpha={alpha}.\n\
-                     Reports deterministic pixel-surrogate measurements; --codec-roundtrip optionally measures installed ffmpeg MJPEG. No general codec robustness is implied."
+                     Reports deterministic pixel-surrogate measurements; --codec-roundtrip optionally measures installed ffmpeg MJPEG. Select --codec png for a lossless PNG round-trip (compression levels 1, 6, 9). Results cover only this synthetic grayscale corpus and selected local ffmpeg build."
                 );
                 return Ok(());
             }
@@ -60,6 +61,14 @@ fn run() -> Result<(), String> {
             }
             "--output" => output = Some(PathBuf::from(value(&mut args, "--output")?)),
             "--codec-roundtrip" => codec_roundtrip = true,
+            "--codec" => {
+                codec = match value(&mut args, "--codec")? {
+                    "mjpeg" => "mjpeg",
+                    "png" => "png",
+                    other => return Err(format!("unsupported --codec `{other}` (choose mjpeg or png)")),
+                };
+                codec_roundtrip = true;
+            }
             unknown => return Err(format!("unknown argument `{unknown}` (use --help)")),
         }
     }
@@ -82,7 +91,11 @@ fn run() -> Result<(), String> {
 
     let mut result: BenchmarkResult = Benchmark.run_adversarial(seed, images, size, key, alpha);
     if codec_roundtrip {
-        measure_ffmpeg_mjpeg(&mut result, "ffmpeg");
+        if codec == "png" {
+            measure_ffmpeg_png(&mut result, "ffmpeg");
+        } else {
+            measure_ffmpeg_mjpeg(&mut result, "ffmpeg");
+        }
     }
     let json = result.to_json();
     if let Some(path) = output {
