@@ -53,6 +53,11 @@ impl CompiledInteraction {
     pub fn trigger(&self) -> ActionId {
         self.trigger
     }
+    /// Stable hash of the verified D1 bytecode, without exposing the raw VM
+    /// program or bypassing this interaction's typed execution checks.
+    pub fn program_hash(&self) -> [u8; 32] {
+        self.program.program_hash()
+    }
     pub fn state_reads(&self) -> &[crate::scene::TypedKey] {
         &self.state_reads
     }
@@ -461,5 +466,15 @@ mod tests {
             validate_output_types(&writes, &output),
             Err(TransitionError::OutputTypeMismatch)
         );
+    }
+
+    #[test]
+    fn identical_source_compiles_to_identical_trigger_and_hash() {
+        let first_scene = parse(SOURCE).unwrap();
+        let second_scene = parse(SOURCE).unwrap();
+        let first = compile_d1_interactions(&first_scene).unwrap();
+        let second = compile_d1_interactions(&second_scene).unwrap();
+        assert_eq!(first[0].trigger(), second[0].trigger());
+        assert_eq!(first[0].program_hash(), second[0].program_hash());
     }
 }
