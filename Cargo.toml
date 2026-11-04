@@ -32,6 +32,13 @@ members = [
     "crates/goya-hcar",
     "crates/goya-fsc",
     "crates/goya-ddh",
+    "crates/goya-csr-cpu",
+    "crates/goya-dgpm",
+    "crates/goya-hotswap",
+    "crates/goya-vee",
+    "crates/goya-rpi2",
+    "crates/goya-a11y",
+    "crates/goya-bench",
 ]
 
 [workspace.package]
@@ -70,6 +77,13 @@ goya-csr = { path = "crates/goya-csr" }
 goya-hcar = { path = "crates/goya-hcar" }
 goya-fsc = { path = "crates/goya-fsc" }
 goya-ddh = { path = "crates/goya-ddh" }
+goya-csr-cpu = { path = "crates/goya-csr-cpu" }
+goya-dgpm = { path = "crates/goya-dgpm" }
+goya-hotswap = { path = "crates/goya-hotswap" }
+goya-vee = { path = "crates/goya-vee" }
+goya-rpi2 = { path = "crates/goya-rpi2" }
+goya-a11y = { path = "crates/goya-a11y" }
+goya-bench = { path = "crates/goya-bench" }
 
 [profile.release]
 debug = true

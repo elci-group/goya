@@ -6,3 +6,4 @@ license.workspace = true
 
 [dependencies]
 goya-chroma.workspace = true
+goya-ir.workspace = true

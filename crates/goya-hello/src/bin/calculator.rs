@@ -182,8 +182,9 @@ impl Calc {
             _ => {
                 if let Some(rest) = name.strip_prefix("btn_") {
                     if rest.len() == 1 && rest.chars().all(|c| c.is_ascii_digit()) {
-                        let d = rest.chars().next().unwrap();
-                        self.digit(d);
+                        if let Some(d) = rest.chars().next() {
+                            self.digit(d);
+                        }
                     }
                 }
             }

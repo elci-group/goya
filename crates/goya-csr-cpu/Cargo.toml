@@ -1,0 +1,11 @@
+[package]
+name = "goya-csr-cpu"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+goya-csr.workspace = true
+goya-runtime.workspace = true
+goya-change.workspace = true
+goya-layout.workspace = true

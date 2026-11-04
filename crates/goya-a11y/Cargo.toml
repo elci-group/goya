@@ -1,0 +1,10 @@
+[package]
+name = "goya-a11y"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+goya-ddh.workspace = true
+goya-chroma.workspace = true
+goya-change.workspace = true

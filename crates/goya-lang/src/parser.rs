@@ -20,12 +20,30 @@ impl std::error::Error for ParseError {}
 
 /// Parse a scene document.
 pub fn parse(source: &str) -> Result<Scene, ParseError> {
-    let tokens = lex(source).map_err(|e| ParseError { line: e.line })?;
+    let tokens = match lex(source) {
+        Ok(t) => t,
+        Err(e) => return Err(ParseError { line: e.line }),
+    };
     let mut p = P { tokens, i: 0 };
-    p.expect_at_word("ontology")?;
-    let name = p.expect_ident()?;
-    p.expect(TokenKind::LBrace)?;
-    let mut root = p.parse_cell_body()?;
+    if let Err(e) = p.expect_at_word("ontology") {
+        return Err(e);
+    }
+    let name = match p.expect_ident() {
+        Ok(n) => n,
+        Err(e) => return Err(e),
+    };
+    if let Err(e) = p.expect(TokenKind::LBrace) {
+        return Err(e);
+    }
+    let mut root = match p.parse_cell_body() {
+        Ok(r) => r,
+        Err(e) => return Err(e),
+    };
+    // A document is exactly one ontology block. Do not silently accept
+    // trailing tokens, which can hide a malformed second root or typo.
+    if p.peek().is_some() {
+        return Err(ParseError { line: p.line() });
+    }
     // Collapse the anonymous ontology wrapper when it holds exactly one
     // named cell and no own properties — the wrapper is syntax, not scene.
     if root.children.len() == 1
@@ -34,7 +52,11 @@ pub fn parse(source: &str) -> Result<Scene, ParseError> {
         && root.position_p.is_none()
         && root.extent_p.is_none()
         && root.fill.is_none()
+        && root.stroke.is_none()
+        && root.stroke_width.is_none()
         && root.text.is_none()
+        && root.text_size.is_none()
+        && root.anchor.is_none()
     {
         root = root.children.remove(0);
     }
@@ -64,15 +86,12 @@ impl P {
     }
 
     fn expect(&mut self, kind: TokenKind) -> Result<Token, ParseError> {
-        if matches!(self.peek().map(|t| t.kind), Some(k) if k == kind) {
-            // peek() confirmed the token exists, so bump() cannot fail here;
-            // the impossible arm returns a parse error rather than panicking.
-            match self.bump() {
+        match self.peek() {
+            Some(t) if t.kind == kind => match self.bump() {
                 Some(t) => Ok(t),
                 None => Err(ParseError { line: self.line() }),
-            }
-        } else {
-            Err(ParseError { line: self.line() })
+            },
+            _ => Err(ParseError { line: self.line() }),
         }
     }
 
@@ -137,9 +156,17 @@ impl P {
                             } else {
                                 CellKind::Cell
                             };
-                            let name = self.expect_ident()?;
-                            self.expect(TokenKind::LBrace)?;
-                            let mut child = self.parse_cell_body()?;
+                            let name = match self.expect_ident() {
+                                Ok(n) => n,
+                                Err(e) => return Err(e),
+                            };
+                            if let Err(e) = self.expect(TokenKind::LBrace) {
+                                return Err(e);
+                            }
+                            let mut child = match self.parse_cell_body() {
+                                Ok(c) => c,
+                                Err(e) => return Err(e),
+                            };
                             child.name = name;
                             child.kind = kind;
                             cell.children.push(child);
@@ -147,8 +174,12 @@ impl P {
                         "interaction" | "template" => {
                             // Recognised and skipped with its block: visual
                             // state and templates are Wave-3 expression work.
-                            let _ = self.expect_ident()?;
-                            self.skip_block()?;
+                            if let Err(e) = self.expect_ident() {
+                                return Err(e);
+                            }
+                            if let Err(e) = self.skip_block() {
+                                return Err(e);
+                            }
                         }
                         _ => return Err(ParseError { line: self.line() }),
                     }
@@ -190,10 +221,10 @@ impl P {
             "fill" => cell.fill = Some(self.parse_hex()?),
             "stroke" => cell.stroke = Some(self.parse_hex()?),
             "stroke-width" | "stroke_width" => cell.stroke_width = Some(self.parse_number()?),
-            "text" => {
-                let t = self.expect(TokenKind::Str)?;
-                cell.text = Some(t.text);
-            }
+            "text" => match self.expect(TokenKind::Str) {
+                Ok(t) => cell.text = Some(t.text),
+                Err(e) => return Err(e),
+            },
             "text-size" | "text_size" => cell.text_size = Some(self.parse_number()?),
             "text-anchor" | "text_anchor" => {
                 let name = self.expect_ident()?;
@@ -218,24 +249,33 @@ impl P {
     }
 
     fn parse_vec3(&mut self) -> Result<Vec3, ParseError> {
-        self.expect(TokenKind::LParen)?;
+        if let Err(e) = self.expect(TokenKind::LParen) {
+            return Err(e);
+        }
         let x = self.parse_number()?;
-        self.expect(TokenKind::Comma)?;
+        if let Err(e) = self.expect(TokenKind::Comma) {
+            return Err(e);
+        }
         let y = self.parse_number()?;
         let z = if matches!(self.peek().map(|t| t.kind), Some(TokenKind::Comma)) {
             self.bump();
-            self.parse_number()?
+            match self.parse_number() {
+                Ok(v) => v,
+                Err(e) => return Err(e),
+            }
         } else {
             0.0
         };
-        self.expect(TokenKind::RParen)?;
+        if let Err(e) = self.expect(TokenKind::RParen) {
+            return Err(e);
+        }
         Ok(Vec3 { x, y, z })
     }
 
     fn parse_number(&mut self) -> Result<f64, ParseError> {
         match self.peek() {
             Some(t) if t.kind == TokenKind::Number => {
-                let text = self.bump().unwrap().text.replace('_', "");
+                let text = self.bump().expect("invariant").text.replace('_', "");
                 text.parse::<f64>()
                     .map_err(|_| ParseError { line: self.line() })
             }
@@ -246,7 +286,7 @@ impl P {
     fn parse_hex(&mut self) -> Result<u32, ParseError> {
         match self.peek() {
             Some(t) if t.kind == TokenKind::Hex => {
-                let hex = self.bump().unwrap().text[1..].to_string();
+                let hex = self.bump().expect("invariant").text[1..].to_string();
                 let v = match hex.len() {
                     3 => {
                         let r = u32::from_str_radix(&hex[0..1], 16).unwrap_or(0);

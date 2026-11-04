@@ -1,0 +1,9 @@
+[package]
+name = "goya-bench"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+goya-watermark.workspace = true
+goya-artifact.workspace = true

@@ -828,9 +828,8 @@ mod utf8_boundary_tests {
         // boundary: 2 is interior → 1. Verify content stays valid UTF-8.
         text.apply_edit(Edit::Insert { pos: 2, len: 3 });
         assert!(std::str::from_utf8(text.content.as_bytes()).is_ok());
-        assert!(std::str::from_utf8(text.content.as_bytes())
-            .unwrap()
-            .contains('\u{0}'));
+        let rendered = std::str::from_utf8(text.content.as_bytes());
+        assert!(rendered.map(|r| r.contains('\u{0}')).unwrap_or(false));
         // Anchors snapped consistently: range stays char-boundary aligned.
         let s = text.deltas[0].range.start;
         let e = text.deltas[0].range.end;

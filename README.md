@@ -24,7 +24,8 @@ evidenced; see `evidence/GY-WAVE1-001.json` and `docs/contracts.md`.
 | `goya-wayland` | GY-WAYLAND/1 | Live Wayland window, pointer → runtime, shm presentation |
 | `goya-hello` | — | GY-005 proof: headless PPM + `--live` window; `buttons` bin = ARSEM acceptance |
 
-Zero external dependencies — the foundation is fully self-contained.
+The core IR, state, layout, and runtime crates have no external dependencies;
+platform adapters and extensions declare their own dependencies.
 
 ## Build and verify
 
@@ -41,21 +42,8 @@ doctests are excluded (`--lib --tests`); they assert nothing.
 
 ## Status
 
-- ✅ GY-001 reconnaissance · GY-002 contracts · GY-003/004 foundation · GY-005 proof
-- ⬜ GY-WAYLAND-001: live Wayland surface (contract consumer of GY-RUNTIME/1)
-- ✅ GY-CHR-001: chromatic relativism, Deep Copy provenance, dual-mode clipboard
-- ✅ Wave 2 (10-agent swarm): ARSEM spatial audio, NSB bridges, RPI + speculation, EDC determinism, native x402, artifact identity & DCT watermarking — 15 new crates, contracts GY-SONIC/1 … GY-WATERMARK/1
-- ✅ GY-WAYLAND-001: live Wayland surface (release 0.1 gate met); ARSEM 9/9 acceptance; parser under 20k-input mutation fuzz
-- ✅ GY-FUSION-001: fused milestone live — NSB retargetable bridges + ARSEM presentation-tracked pan + chromatic polarity + RPI/speculation gating in one interactive object (10/10 checks)
-- ✅ **GY-DDH-001 Deterministic Dehumanisation**: semantic UI traversal — text-only agent computes 87×42=3654 through the calculator's DIG with **2125× fewer bytes than a screenshot**; leases, authority gates, exposure policies (`cargo run --bin calculator -- --ddh`)
-- ✅ **Audit remediation**: triple-buffered presentation (never write unreleased slots), incremental damage-scoped raster, GitHub Actions CI
-- ✅ **GY-TYP-002 Formatting Similarity Compression** (`goya-fsc`): shared immutable formatting profiles with inheritance-aware identity, typed in-object deltas with stable anchors, run-based resolution, directive-table invalidation scopes, 100k-char acceptance test
-- ✅ **Efficiency hierarchy (GY-LCPE/RARS/CSR/HCAR-001)**: change envelopes + causal invalidation + quantised damage (LCPE), deterministic projection fidelity with hysteresis (RARS), spatial partition scheduling with work stealing (CSR), heterogeneous core classification (HCAR) — wired into the calculator: presses emit quantised local damage; glyph fidelity resolved from projected area
-- ✅ **Exemplar app: `apps/calculator.gscene`** — a full calculator authored in Goya scene syntax (`cargo run --bin calculator -- --live --sound`); headless acceptance: 7+3=10, 10*5=50, 50/0=Error, decimals, sign
-- ✅ Flicker fix: double buffering (buffer pair + Release sync), opaque region, dirty-flag redraw (idle 7200 commits → 1)
-- ✅ Wave 2 input/audio/hot-swap: keyboard typing (evdev US subset), window resize, **real audible PipeWire audio** (pw-cat adapter), transactional `.gscene` hot-swap (`--watch`; broken edits rejected, state retained)
-- ✅ GY-LANG-001: **Goya language revised to RUGID-compatible scene syntax** — `@ontology`/`@cell`/`@button` with absolute + proportional geometry; build a GUI from a `.gscene` file: `cargo run --bin scene --file app.gscene --live`
-- ⬜ Wave 2a: PipeWire backend; Wave 2b: hot-swap + Tov; Wave 3: RUGID/3form/Mesut/Theosis, C2PA, HRTF; Wave 4: a11y conformance, packaging
-- ⬜ Wave 2: Tov adapters, hot-swap, interface reconciliation
-- ⬜ Wave 3: RUGID, 3form, Mesut, Theosis, Vico Vee adapters
+- **Implemented milestones:** GY-001 through GY-005; GY-CHR-001; GY-WAYLAND-001; GY-FUSION-001; GY-DDH-001; GY-TYP-002; GY-LANG-001; efficiency hierarchy; calculator exemplar; Wave 2 spatial audio, bridge, anticipation, determinism, payment, artifact and watermark work. Evidence files are under `evidence/`.
+- **Platform follow-through implemented:** keyboard input (evdev US subset), window resize, `pw-cat` audio output, and transactional `.gscene` hot-swap. See `evidence/GY-WAVE2-INPUT-AUDIO-HOTSWAP.json`.
+- **Remaining roadmap gates:** Tov adapters and interface reconciliation; EDC canonical IR lowering and bytecode backend; RUGID/3form/Mesut/Theosis integrations; C2PA compatibility; HRTF/multichannel audio; opt-in RPI Level 2; accessibility conformance including screen-reader integration; packaging, SDK, Studio and distribution; adversarial watermark robustness corpus. The release-wave assignments are in [docs/contracts.md](docs/contracts.md#deferred-work-dag-explicit-wave-assignments).
+- Completion is therefore not yet claimed. Each remaining gate needs implementation and evidence before its associated release can be considered complete.
 # goya

@@ -6,7 +6,10 @@
 
 mod redaction;
 
+pub mod signing;
+
 pub use redaction::{redact, RedactionRecord};
+pub use signing::*;
 
 use std::fmt;
 
