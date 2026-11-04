@@ -747,6 +747,11 @@ mod tests {
             .2
             .contains("Scene structure changed; reload the editor"));
         assert!(initial.2.contains("data-name=\"ok\""));
+        assert!(initial.2.contains("sandbox=\"allow-scripts\""));
+        assert!(initial.2.contains("e.source!==frame.contentWindow"));
+        let preview = route_request(&post("/preview", SCENE), HOST, SCENE, &html);
+        assert!(preview.2.contains("pointerup"));
+        assert!(preview.2.contains("goya-drag"));
         assert!(initial.2.contains("Update preview"));
         assert_eq!(
             route_request(&get("/other"), HOST, SCENE, &html).0,
