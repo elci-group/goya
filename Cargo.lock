@@ -506,6 +506,7 @@ version = "0.1.8"
 dependencies = [
  "goya-artifact",
  "goya-watermark",
+ "sha2",
 ]
 
 [[package]]

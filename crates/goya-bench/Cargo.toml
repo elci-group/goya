@@ -7,6 +7,7 @@ license.workspace = true
 [dependencies]
 goya-watermark.workspace = true
 goya-artifact.workspace = true
+sha2 = "0.10"
 
 [[bin]]
 name = "goya-watermark-benchmark"
