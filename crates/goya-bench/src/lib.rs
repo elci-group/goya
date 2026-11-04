@@ -1120,22 +1120,47 @@ impl CodecRoundTripReport {
 /// Failures are reported as unavailable so optional codec support cannot
 /// prevent the deterministic surrogate benchmark from completing.
 pub fn measure_ffmpeg_mjpeg(result: &mut BenchmarkResult, executable: &str) {
-    measure_ffmpeg_codec(result, executable, "mjpeg");
+    measure_ffmpeg_codecs(result, executable, &["mjpeg"]);
 }
 
 /// Measure a lossless PNG encode/decode round-trip through installed ffmpeg.
 pub fn measure_ffmpeg_png(result: &mut BenchmarkResult, executable: &str) {
-    measure_ffmpeg_codec(result, executable, "png");
+    measure_ffmpeg_codecs(result, executable, &["png"]);
 }
 
 /// Measure a lossy H.264/libx264 Matroska round-trip through installed ffmpeg.
 pub fn measure_ffmpeg_h264(result: &mut BenchmarkResult, executable: &str) {
-    measure_ffmpeg_codec(result, executable, "h264");
+    measure_ffmpeg_codecs(result, executable, &["h264"]);
 }
 
 /// Measure a lossy MPEG-4 Part 2/AVI round-trip through installed ffmpeg.
 pub fn measure_ffmpeg_mpeg4(result: &mut BenchmarkResult, executable: &str) {
-    measure_ffmpeg_codec(result, executable, "mpeg4");
+    measure_ffmpeg_codecs(result, executable, &["mpeg4"]);
+}
+
+/// Measure several supported codecs in one report. The selection is bounded
+/// to four entries so subprocess count cannot grow without limit.
+pub fn measure_ffmpeg_codecs(
+    result: &mut BenchmarkResult,
+    executable: &str,
+    codecs: &[&str],
+) {
+    result.codec_roundtrips.clear();
+    if codecs.is_empty() {
+        result
+            .codec_roundtrips
+            .push(CodecRoundTripReport::not_requested());
+    } else if codecs.len() > MAX_CODEC_MEASUREMENTS {
+        result.codec_roundtrips.push(codec_unavailable(
+            "selection",
+            None,
+            "at most four codec measurements may be requested",
+        ));
+    } else {
+        for codec in codecs {
+            measure_ffmpeg_codec(result, executable, codec);
+        }
+    }
 }
 
 fn measure_ffmpeg_codec(result: &mut BenchmarkResult, executable: &str, codec: &str) {
@@ -1166,12 +1191,14 @@ fn measure_ffmpeg_codec(result: &mut BenchmarkResult, executable: &str, codec: &
         ),
         "mpeg4" => ("mpeg4", "-q:v", "q:v", &[2, 5, 8], "avi", Some("yuv420p")),
         _ => {
-            result.codec_roundtrip = Some(codec_unavailable(codec, None, "unsupported codec"));
+            result
+                .codec_roundtrips
+                .push(codec_unavailable(codec, None, "unsupported codec"));
             return;
         }
     };
     if pixel_format.is_some() && (result.width % 2 != 0 || result.height % 2 != 0) {
-        result.codec_roundtrip = Some(codec_unavailable(
+        result.codec_roundtrips.push(codec_unavailable(
             codec,
             None,
             "the selected yuv420p round-trip requires even frame dimensions",
@@ -1185,11 +1212,15 @@ fn measure_ffmpeg_codec(result: &mut BenchmarkResult, executable: &str, codec: &
             .unwrap_or("ffmpeg version unavailable")
             .to_string(),
         Ok(_) => {
-            result.codec_roundtrip = Some(codec_unavailable(codec, None, "ffmpeg -version failed"));
+            result.codec_roundtrips.push(codec_unavailable(
+                codec,
+                None,
+                "ffmpeg -version failed",
+            ));
             return;
         }
         Err(error) => {
-            result.codec_roundtrip = Some(codec_unavailable(
+            result.codec_roundtrips.push(codec_unavailable(
                 codec,
                 None,
                 &format!("could not start ffmpeg: {error}"),
@@ -1242,7 +1273,7 @@ fn measure_ffmpeg_codec(result: &mut BenchmarkResult, executable: &str, codec: &
             }
             encode_args.push("pipe:1");
             let Some(encoded) = ffmpeg_pipe(executable, &encode_args, &marked) else {
-                result.codec_roundtrip = Some(codec_unavailable(
+                result.codec_roundtrips.push(codec_unavailable(
                     codec,
                     Some(version),
                     &format!("ffmpeg {codec} encode failed at setting {quality}"),
@@ -1265,7 +1296,7 @@ fn measure_ffmpeg_codec(result: &mut BenchmarkResult, executable: &str, codec: &
                 "pipe:1",
             ]);
             let Some(decoded) = ffmpeg_pipe(executable, &decode_args, &encoded) else {
-                result.codec_roundtrip = Some(codec_unavailable(
+                result.codec_roundtrips.push(codec_unavailable(
                     codec,
                     Some(version),
                     &format!("ffmpeg {codec} decode failed at setting {quality}"),
@@ -1273,7 +1304,7 @@ fn measure_ffmpeg_codec(result: &mut BenchmarkResult, executable: &str, codec: &
                 return;
             };
             if decoded.len() != marked.len() {
-                result.codec_roundtrip = Some(codec_unavailable(
+                result.codec_roundtrips.push(codec_unavailable(
                     codec,
                     Some(version),
                     &format!("decoded frame size mismatch at quality {quality}"),
@@ -1299,7 +1330,7 @@ fn measure_ffmpeg_codec(result: &mut BenchmarkResult, executable: &str, codec: &
             },
         });
     }
-    result.codec_roundtrip = Some(CodecRoundTripReport {
+    result.codec_roundtrips.push(CodecRoundTripReport {
         status: "measured".into(),
         codec: codec.into(),
         quality_parameter: quality_parameter.into(),
