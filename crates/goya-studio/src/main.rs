@@ -730,7 +730,9 @@ mod tests {
         assert!(initial.2.contains("Parent fraction"));
         assert!(initial.2.contains("data-node-index=\"0\""));
         assert!(initial.2.contains("data-kind=\"button\""));
-        assert!(initial.2.contains("Scene structure changed; reload the editor"));
+        assert!(initial
+            .2
+            .contains("Scene structure changed; reload the editor"));
         assert!(initial.2.contains("data-name=\"ok\""));
         assert!(initial.2.contains("Update preview"));
         assert_eq!(
