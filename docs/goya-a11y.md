@@ -82,16 +82,58 @@ On a systemd-integrated Linux desktop, `dbus-run-session` alone may not be
 sufficient: `/usr/share/dbus-1/services/org.a11y.Bus.service` delegates to
 the `at-spi-dbus-bus.service` user unit. In an isolated session without the
 user systemd manager, activation can fail with `Could not activate remote
-peer: unit failed` and no AT-SPI desktop path. In the current Xvfb smoke, the
-existing desktop bus listed Orca and the sample application. A PID-matched,
-recursive AT-SPI traversal reported the application root as `atspi_demo` /
-`application`, the window as `Goya AT-SPI demo` / `frame`, and semantic
-children including `Search` / `text`, `Ready` / `label`, and `Submit` /
-`button`. An earlier query reported only `Close` because it queried a numeric
-AT-SPI object path directly; those paths are transient, and the traversal
-parser also missed later children because `gdbus` omits the repeated
-`objectpath` annotation in tuple output. The corrected query confirmed the
-semantic controls are present. This verifies registry exposure only; Orca
-navigation, focus behavior, action dispatch, and value announcements remain
-external gates, along with rendered contrast and evaluation on each supported
-screen reader. No WCAG conformance claim follows from this smoke.
+peer: unit failed` and no AT-SPI desktop path.
+
+### Observed Linux smoke (2026-11-04)
+
+Environment: COSMIC Wayland session, GTK 3.24.41, AT-SPI 2.58.1, Orca 49.4,
+session D-Bus and AT-SPI registry active. The `atspi_demo` process appeared
+in the AT-SPI registry. Traversal exposed the window as `Goya AT-SPI demo` /
+`frame` and controls as `Search` / `text`, `Ready` / `label`, and `Submit` /
+`button`. Direct AT-SPI calls to `Component.GrabFocus` and
+`EditableText.SetTextContents("query")` on Search returned true;
+`Action.DoAction(0)` on Submit returned true. The host callback logged
+`updated query: query` and `activated submit`.
+
+This did **not** verify interactive keyboard traversal or Orca announcements:
+Orca's debug log repeatedly reported `Locus of focus is None` during this
+smoke. The bridge's direct focus request and action/value dispatch therefore
+have evidence, while user-visible focus and screen-reader speech remain
+unverified. This smoke establishes neither WCAG conformance nor successful
+navigation by Orca.
+
+### Release accessibility gates
+
+Before making a WCAG conformance claim, select and document the applicable
+WCAG version and conformance level, then retain evidence for every applicable
+criterion on every shipped platform and input mode. At minimum, test each
+declared OS/toolkit and its supported screen reader/browser combination; a
+Linux AT-SPI pass cannot stand in for macOS VoiceOver, Windows Narrator or
+NVDA/UI Automation, or mobile screen readers if those platforms ship. For each
+combination, record OS/toolkit and assistive-technology versions, sample/app
+revision, steps, expected and observed results, and failures.
+
+The release run must cover:
+
+- Keyboard-only traversal in both directions through all exposed controls;
+  visible focus, initial and restored focus, no keyboard traps, and activation
+  with the platform's expected keys.
+- Screen-reader output for each control's name, role, enabled/disabled state,
+  current value, value changes, and focus changes; verify labels remain
+  available when placeholders disappear and dynamic state updates are
+  announced usefully.
+- Real actions and values in the host runtime, including button/menu
+  activation, text editing, slider adjustment, and disabled controls that
+  cannot be activated; check the resulting state is reflected back in the
+  accessible tree without losing focus.
+- Rendered visual checks on supported themes and display settings: text and
+  non-text contrast, focus indicator visibility, text scaling/zoom, clipping
+  and reflow at small windows, and any color/motion-dependent state cues.
+- Touch or other non-keyboard input and platform-specific accessibility APIs
+  wherever those are part of a shipped device experience.
+
+Store a criterion-by-criterion report and representative screenshots or
+recordings with the release evidence. Until those gates pass, describe the
+GTK/AT-SPI bridge and the specific smoke evidence only; do not claim WCAG
+conformance. Contrast helper unit tests do not replace checks of actual
+rendered colors and all applicable WCAG criteria.
