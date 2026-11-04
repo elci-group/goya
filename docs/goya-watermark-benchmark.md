@@ -67,20 +67,38 @@ codec measurements can be selected per run. No ffmpeg crate or binary is
 bundled or linked by this package. The installed ffmpeg build and its enabled
 codecs are external system configuration.
 
-One repeatability sample on the six-image synthetic corpus used seed
-`5141213315053340721`, size `64×64`, key `0a11cec0ffee`, alpha `24`, and
-`ffmpeg version 6.1.1-3ubuntu5`. Two identical invocations produced identical
-report bytes (SHA-256 `bf853a23d05d2759aef2060134fd596b04cf293696bfabe480475aa583a414a7`).
-The measured results were:
+An expanded repeatability sample measured all four codec paths in one run:
 
-| Codec | Setting | Exact payloads | Mean max pixel delta |
+```sh
+cargo run -p goya-bench --bin goya-watermark-benchmark -- \
+  --seed 5141213315053340721 --images 6 --size 64 \
+  --key 0a11cec0ffee --alpha 24 \
+  --codec mjpeg --codec png --codec h264 --codec mpeg4 \
+  --output target/goya-codec-sweep.json
+```
+
+The corpus uses six deterministic patterns at `64×64`; payloads and transforms
+are seed-derived. Both identical invocations produced byte-identical JSON
+(SHA-256 `b5aa58b095f58a397dcd4f2cefc51a016eb71852660e925d81cdefbbfd058cde`).
+The encoder build was `ffmpeg version 6.1.1-3ubuntu5`; its `libavutil` was
+58.29.100, `libavcodec` 60.31.102, and `libavformat` 60.16.100. SHA-256 of the
+complete `ffmpeg -version` output, including build configuration, was
+`5b320c97f515e79171f10a2147d875ffb6b14bd2b25681047b73c46fe0a527ee`.
+
+| Codec | Settings | Exact payloads | Mean max pixel delta |
 |---|---:|---:|---:|
-| H.264/libx264 | CRF 18 | 6/6 | 13.500 |
-| H.264/libx264 | CRF 28 | 1/6 | 36.333 |
-| H.264/libx264 | CRF 38 | 0/6 | 91.000 |
-| MPEG-4 Part 2 | `-q:v` 2 | 6/6 | 4.500 |
-| MPEG-4 Part 2 | `-q:v` 5 | 6/6 | 9.167 |
-| MPEG-4 Part 2 | `-q:v` 8 | 4/6 | 15.667 |
+| MJPEG | `-q:v` 2 | 6/6 | 5.500 |
+| MJPEG | `-q:v` 5 | 6/6 | 12.833 |
+| MJPEG | `-q:v` 8 | 6/6 | 15.500 |
+| PNG | `-compression_level` 1 | 6/6 | 0.000 |
+| PNG | `-compression_level` 6 | 6/6 | 0.000 |
+| PNG | `-compression_level` 9 | 6/6 | 0.000 |
+| H.264/libx264, Matroska, `yuv420p`, preset `medium` | CRF 18 | 6/6 | 13.500 |
+| H.264/libx264, Matroska, `yuv420p`, preset `medium` | CRF 28 | 1/6 | 36.333 |
+| H.264/libx264, Matroska, `yuv420p`, preset `medium` | CRF 38 | 0/6 | 91.000 |
+| MPEG-4 Part 2, AVI, `yuv420p` | `-q:v` 2 | 6/6 | 4.500 |
+| MPEG-4 Part 2, AVI, `yuv420p` | `-q:v` 5 | 6/6 | 9.167 |
+| MPEG-4 Part 2, AVI, `yuv420p` | `-q:v` 8 | 4/6 | 15.667 |
 
 These are measurements for this exact synthetic corpus, selected encoder
 settings, and ffmpeg build only. They do not imply performance on photographs,
@@ -105,13 +123,13 @@ are deterministic pixel-domain surrogates. `JPEGish` is not a JPEG encoder or
 decoder round-trip, and this corpus does not establish robustness on
 photographs, arbitrary codecs, or attacks absent from the report.
 
-The optional MJPEG and PNG measurements are real codec encode/decode
-round-trips, but they cover only this synthetic grayscale corpus, this ffmpeg
-build, and the reported settings. They are not evidence for other codec
-implementations, color images, photographs, or deployment robustness. PNG
-round-trips are lossless codec controls; they do not measure compression
-damage. Pixel deltas compare decoded output against the watermarked input, and
-detection requires exact payload recovery.
+The optional MJPEG, PNG, H.264, and MPEG-4 measurements are real codec
+encode/decode round-trips, but they cover only the selected synthetic
+grayscale corpus, this ffmpeg build, and the reported settings. They are not
+evidence for other codec implementations, color images, photographs, or
+deployment robustness. PNG round-trips are lossless codec controls; they do
+not measure compression damage. Pixel deltas compare decoded output against
+the watermarked input, and detection requires exact payload recovery.
 
 No universal pass threshold is applied by the executable. Detection rates,
 sample sizes, and distortions are reported as measurements. Existing unit
