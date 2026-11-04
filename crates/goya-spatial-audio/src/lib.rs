@@ -792,6 +792,22 @@ mod tests {
     }
 
     #[test]
+    fn attributed_viking_fixture_loads_as_bounded_measured_profile() {
+        let profile = MeasuredHrtfProfile::from_text(include_str!(
+            "../fixtures/viking-v2-subj-Z-first-64.gy-hrtf"
+        ))
+        .unwrap();
+        assert_eq!(profile.sample_rate_hz(), 48_000);
+        assert_eq!(profile.responses.len(), 64);
+        let front = profile
+            .response(Direction::new(0.0, -45.0).unwrap())
+            .unwrap();
+        assert_eq!(front.left.len(), 128);
+        assert_eq!(front.right.len(), 128);
+        assert!(front.left.iter().all(|tap| tap.is_finite()));
+    }
+
+    #[test]
     fn measured_profile_rejects_malformed_and_unbounded_data() {
         assert!(matches!(
             MeasuredHrtfProfile::from_text("sample_rate_hz=48000"),
