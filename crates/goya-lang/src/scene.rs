@@ -79,6 +79,7 @@ pub enum EffectValueType { Int64, Text, Bool }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EffectRequestDecl {
     pub name: String,
+    pub effect_kind: EffectKind,
     pub capability: String,
     pub request_utf8: String,
     pub result_type: EffectValueType,

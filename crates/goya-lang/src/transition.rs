@@ -289,10 +289,11 @@ fn compile_one_d2(i: &InteractionDecl) -> Result<(ProcessDecl, ExecutionProof, D
             return Err(TransitionError::DuplicateRequest);
         }
         let label = CapabilityLabel::new(request.capability.clone()).map_err(|_| TransitionError::CapabilityMismatch)?;
-        let kind = i.declared_effects.iter().find(|effect| effect.as_str() == label.as_str())
-            .ok_or(TransitionError::UndeclaredEffect)?;
-        if request.capability != kind.as_str() { return Err(TransitionError::CapabilityMismatch); }
-        requested_effects.insert(kind.as_str());
+        if !declared.contains(request.effect_kind.as_str()) { return Err(TransitionError::UndeclaredEffect); }
+        if request.capability != request.effect_kind.as_str() || label.as_str() != request.effect_kind.as_str() {
+            return Err(TransitionError::CapabilityMismatch);
+        }
+        requested_effects.insert(request.effect_kind.as_str());
     }
     if requested_effects.len() != declared.len() { return Err(TransitionError::InvalidSchema); }
 

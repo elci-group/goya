@@ -227,6 +227,8 @@ impl P {
             while !matches!(self.peek().map(|t| t.kind), Some(TokenKind::RBrace)) {
                 let request_name = self.expect_ident()?;
                 self.expect(TokenKind::Colon)?;
+                self.expect_ident_value("effect")?;
+                let effect_kind = self.parse_effect_kind()?;
                 self.expect_ident_value("capability")?;
                 let capability = self.expect(TokenKind::Str)?.text;
                 self.expect_ident_value("request")?;
@@ -240,6 +242,7 @@ impl P {
                 };
                 requests.push(EffectRequestDecl {
                     name: request_name,
+                    effect_kind,
                     capability,
                     request_utf8,
                     result_type,
