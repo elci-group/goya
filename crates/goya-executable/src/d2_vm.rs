@@ -152,6 +152,68 @@ pub struct D2Program {
 }
 
 impl D2Program {
+    /// Decode a portable canonical D2 program, binding it back to the caller's
+    /// declaration and proof before admitting it. The declaration is required
+    /// because proof metadata intentionally does not carry capability grants.
+    pub fn decode(
+        bytes: &[u8],
+        expected_hash: [u8; 32],
+        declaration: &ProcessDecl,
+        proof: &ExecutionProof,
+    ) -> Result<Self, D2Error> {
+        if bytes.len() > MAX_PROGRAM_BYTES {
+            return Err(D2Error::ProgramTooLarge);
+        }
+        if digest(bytes) != expected_hash {
+            return Err(D2Error::ProgramHashMismatch);
+        }
+        let mut reader = D2Reader::new(bytes);
+        if reader.take(DOMAIN_PROGRAM.len())? != DOMAIN_PROGRAM {
+            return Err(D2Error::MalformedProgram);
+        }
+        let version = reader.u32()?;
+        if version != D2_VM_VERSION {
+            return Err(D2Error::UnsupportedProgramVersion(version));
+        }
+        if reader.string(MAX_PROGRAM_BYTES)? != proof.canonical() {
+            return Err(D2Error::ProofMismatch);
+        }
+        let contract = StateContract {
+            read_keys: reader.key_set()?,
+            write_keys: reader.key_set()?,
+            input_keys: reader.key_set()?,
+        };
+        let count = reader.count(MAX_INSTRUCTIONS)?;
+        let mut instructions = Vec::with_capacity(count);
+        for _ in 0..count {
+            instructions.push(match reader.byte()? {
+                0 => D2Instruction::Constant { dst: reader.string(MAX_RESULT_BYTES)?, value: reader.value()? },
+                1 => D2Instruction::ReadState { dst: reader.string(MAX_RESULT_BYTES)?, key: reader.string(MAX_RESULT_BYTES)? },
+                2 => D2Instruction::ReadInput { dst: reader.string(MAX_RESULT_BYTES)?, key: reader.string(MAX_RESULT_BYTES)? },
+                3 => D2Instruction::AddInt { dst: reader.string(MAX_RESULT_BYTES)?, left: reader.string(MAX_RESULT_BYTES)?, right: reader.string(MAX_RESULT_BYTES)? },
+                4 => {
+                    let dst = reader.string(MAX_RESULT_BYTES)?;
+                    let capability = CapabilityLabel::new(reader.string(128)?).map_err(D2Error::Journal)?;
+                    let request = reader.bytes(MAX_REQUEST_BYTES)?;
+                    let result_type = match reader.byte()? {
+                        1 => EffectResultType::Int64,
+                        2 => EffectResultType::Text,
+                        3 => EffectResultType::Bool,
+                        _ => return Err(D2Error::MalformedProgram),
+                    };
+                    D2Instruction::RequestEffect { dst, capability, request, result_type }
+                }
+                5 => D2Instruction::WriteState { key: reader.string(MAX_RESULT_BYTES)?, src: reader.string(MAX_RESULT_BYTES)? },
+                _ => return Err(D2Error::MalformedProgram),
+            });
+        }
+        if !reader.is_empty() { return Err(D2Error::MalformedProgram); }
+        let program = Self::compile(declaration, proof, contract, instructions)?;
+        if program.canonical_bytes() != bytes { return Err(D2Error::NonCanonicalProgram); }
+        if program.program_hash != expected_hash { return Err(D2Error::ProgramHashMismatch); }
+        Ok(program)
+    }
+
     pub fn compile(
         declaration: &ProcessDecl,
         proof: &ExecutionProof,
@@ -376,6 +438,11 @@ pub enum D2Error {
     ProofClassMismatch,
     TooManyInstructions,
     ProgramTooLarge,
+    ProgramHashMismatch,
+    UnsupportedProgramVersion(u32),
+    MalformedProgram,
+    NonCanonicalProgram,
+    ProofMismatch,
     InvalidRegister(String),
     UndeclaredRead(String),
     UndeclaredInput(String),
@@ -406,6 +473,11 @@ impl fmt::Display for D2Error {
             Self::ProofClassMismatch => f.write_str("proof class differs from declaration"),
             Self::TooManyInstructions => f.write_str("D2 instruction limit exceeded"),
             Self::ProgramTooLarge => f.write_str("canonical D2 program exceeds the byte limit"),
+            Self::ProgramHashMismatch => f.write_str("D2 program hash does not match its encoding"),
+            Self::UnsupportedProgramVersion(v) => write!(f, "unsupported D2 program version {v}"),
+            Self::MalformedProgram => f.write_str("canonical D2 program is malformed"),
+            Self::NonCanonicalProgram => f.write_str("D2 program encoding is not canonical"),
+            Self::ProofMismatch => f.write_str("embedded D2 proof differs from supplied proof"),
             Self::InvalidRegister(r) => write!(f, "invalid register {r:?}"),
             Self::UndeclaredRead(k) => write!(f, "state read {k} is not declared"),
             Self::UndeclaredInput(k) => write!(f, "input read {k} is not declared"),
@@ -675,6 +747,52 @@ fn digest(bytes: &[u8]) -> [u8; 32] {
     Sha256::digest(bytes).into()
 }
 
+struct D2Reader<'a> { bytes: &'a [u8], offset: usize }
+impl<'a> D2Reader<'a> {
+    fn new(bytes: &'a [u8]) -> Self { Self { bytes, offset: 0 } }
+    fn take(&mut self, len: usize) -> Result<&'a [u8], D2Error> {
+        let end = self.offset.checked_add(len).ok_or(D2Error::MalformedProgram)?;
+        let value = self.bytes.get(self.offset..end).ok_or(D2Error::MalformedProgram)?;
+        self.offset = end;
+        Ok(value)
+    }
+    fn byte(&mut self) -> Result<u8, D2Error> { Ok(self.take(1)?[0]) }
+    fn u32(&mut self) -> Result<u32, D2Error> { Ok(u32::from_le_bytes(self.take(4)?.try_into().map_err(|_| D2Error::MalformedProgram)?)) }
+    fn u64(&mut self) -> Result<u64, D2Error> { Ok(u64::from_le_bytes(self.take(8)?.try_into().map_err(|_| D2Error::MalformedProgram)?)) }
+    fn count(&mut self, max: usize) -> Result<usize, D2Error> {
+        let count = usize::try_from(self.u64()?).map_err(|_| D2Error::MalformedProgram)?;
+        if count > max { Err(D2Error::MalformedProgram) } else { Ok(count) }
+    }
+    fn bytes(&mut self, max: usize) -> Result<Vec<u8>, D2Error> {
+        let len = self.count(max)?; Ok(self.take(len)?.to_vec())
+    }
+    fn string(&mut self, max: usize) -> Result<String, D2Error> {
+        String::from_utf8(self.bytes(max)?).map_err(|_| D2Error::MalformedProgram)
+    }
+    fn key_set(&mut self) -> Result<BTreeSet<String>, D2Error> {
+        let count = self.count(256)?;
+        let mut values = BTreeSet::new();
+        let mut previous: Option<String> = None;
+        for _ in 0..count {
+            let key = self.string(64 * 1024)?;
+            if key.is_empty() || key.chars().any(char::is_control) || previous.as_ref().is_some_and(|p| p >= &key) {
+                return Err(D2Error::NonCanonicalProgram);
+            }
+            previous = Some(key.clone()); values.insert(key);
+        }
+        Ok(values)
+    }
+    fn value(&mut self) -> Result<D1Value, D2Error> {
+        match self.byte()? {
+            0 => Ok(D1Value::Int(i64::from_le_bytes(self.take(8)?.try_into().map_err(|_| D2Error::MalformedProgram)?))),
+            1 => Ok(D1Value::Text(self.string(MAX_RESULT_BYTES)?)),
+            2 => match self.byte()? { 0 => Ok(D1Value::Bool(false)), 1 => Ok(D1Value::Bool(true)), _ => Err(D2Error::MalformedProgram) },
+            _ => Err(D2Error::MalformedProgram),
+        }
+    }
+    fn is_empty(&self) -> bool { self.offset == self.bytes.len() }
+}
+
 fn put_u64(bytes: &mut Vec<u8>, value: u64) {
     bytes.extend_from_slice(&value.to_le_bytes());
 }
@@ -788,6 +906,25 @@ mod tests {
             ],
         )
         .unwrap()
+    }
+
+    #[test]
+    fn canonical_d2_artifact_decodes_only_with_matching_declaration_and_proof() {
+        let original = program();
+        let bytes = original.canonical_bytes();
+        let restored = D2Program::decode(&bytes, original.program_hash(), &declaration(), &proof())
+            .expect("portable D2 artifact should validate");
+        assert_eq!(restored, original);
+        assert_eq!(
+            D2Program::decode(&bytes, original.program_hash(), &declaration(), &ExecutionProof { target: "other".into(), ..proof() }),
+            Err(D2Error::ProofMismatch)
+        );
+        let mut tampered = bytes;
+        tampered.push(0);
+        assert_eq!(
+            D2Program::decode(&tampered, original.program_hash(), &declaration(), &proof()),
+            Err(D2Error::ProgramHashMismatch)
+        );
     }
 
     fn state() -> (D1Snapshot, InputSnapshot) {
