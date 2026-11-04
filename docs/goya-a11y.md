@@ -97,10 +97,25 @@ in the AT-SPI registry. Traversal exposed the window as `Goya AT-SPI demo` /
 
 This did **not** verify interactive keyboard traversal or Orca announcements:
 Orca's debug log repeatedly reported `Locus of focus is None` during this
-smoke. The bridge's direct focus request and action/value dispatch therefore
-have evidence, while user-visible focus and screen-reader speech remain
+smoke, including after `Component.GrabFocus` returned true for Search. The
+AT-SPI `GetState` response for Search included the `FOCUSED` state, so GTK
+accepted the focus request at the accessibility-object level, but Orca did
+not report a focus target or an announcement. This isolates the gap to
+user-visible focus/speech or Orca/session integration; it does not establish
+which component is responsible. The bridge's action/value dispatch has
+evidence, while usable keyboard navigation and screen-reader speech remain
 unverified. This smoke establishes neither WCAG conformance nor successful
 navigation by Orca.
+
+The agent-controlled COSMIC session had no installed keyboard injection
+utility (`wtype`, `ydotool`, and `xdotool` were absent), and `grim` could not
+capture the display because COSMIC did not support the requested
+`wlr-screencopy-unstable-v1` protocol. Thus this run could send AT-SPI focus,
+edit, and action calls, but could not perform real Tab/Shift+Tab navigation
+or visually confirm the focus indicator. Complete those steps from an
+interactive desktop using a physical keyboard (or a supported compositor
+input automation tool), with Orca running; record whether Orca reports each
+focus target and announces the edited value and activation.
 
 ### Release accessibility gates
 
