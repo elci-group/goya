@@ -206,7 +206,7 @@ three-button acceptance geometry depends on it.
 | ~~GY-WAYLAND-001 live surface~~ | 1 (done) | 0.1 release gate |
 | PipeWire audio adapter (`goya-audio-linux` backend) | 2a (implemented) | real ARSEM output; host/device smoke recorded |
 | Hot-swap interface reconciliation + Tov CLI adapter | 2b (implemented) | release 0.2; CLI and compatibility tests |
-| EDC canonical lowering + D0 bytecode/reference VM + D1/D2 journals | 2c (implemented, partial) | D1/D2 have bounded canonical decoding and proof/hash checks; D1 store application and D1/D2 bounded VEE workers exist; general compiler lowering from authored Goya programs remains open |
+| EDC canonical lowering + D0 bytecode/reference VM + D1/D2 journals | 2c (implemented, partial) | Authored Goya source lowers through the bounded typed single-button D1 subset; broader D1 language features and authored D2 effect/journal lowering remain open. D1/D2 canonical decoding and VEE workers are available; raw source-compiled VM bridging awaits a typed adapter |
 | VEE submission API + bounded D0 data bridge | 3a (implemented, partial) | D0/D1/D2 workers passed local live submit/status/result E2E; VEE's D0 stdout artifact may prefix sandbox diagnostics; local Landlock was unavailable, so the live smoke used rlimit isolation only |
 | RUGID / 3form / Mesut / Theosis adapters | 3b (implemented) | release 0.3–0.4; local companion-tool smokes |
 | C2PA signing + explicit trust-aware verification | 3c (implemented, partial) | official-tool signing and an ephemeral trusted-root verification smoke passed; production signer identity, trust anchors/allowlist, and key custody remain release-owner decisions |
