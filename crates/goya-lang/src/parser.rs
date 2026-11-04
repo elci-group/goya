@@ -190,6 +190,123 @@ impl P {
         }
     }
 
+    fn parse_interaction(&mut self, name: String) -> Result<InteractionDecl, ParseError> {
+        self.expect(TokenKind::LBrace)?;
+        self.expect_ident_value("trigger")?;
+        self.expect(TokenKind::Colon)?;
+        self.expect_ident_value("button")?;
+        self.expect(TokenKind::Dot)?;
+        let trigger_button = self.expect_ident()?;
+        self.expect(TokenKind::Dot)?;
+        self.expect_ident_value("activate")?;
+        self.optional_semi();
+        self.expect_ident_value("class")?;
+        self.expect(TokenKind::Colon)?;
+        self.expect_ident_value("D1")?;
+        self.optional_semi();
+
+        self.expect_ident_value("state")?;
+        self.expect(TokenKind::LBrace)?;
+        let mut state_reads = Vec::new();
+        let mut state_writes = Vec::new();
+        while !matches!(self.peek().map(|t| t.kind), Some(TokenKind::RBrace)) {
+            let mode = self.expect_ident()?;
+            let target = match mode.as_str() {
+                "read" => &mut state_reads,
+                "write" => &mut state_writes,
+                _ => return Err(ParseError { line: self.line() }),
+            };
+            let key = self.expect_ident()?;
+            self.expect(TokenKind::Colon)?;
+            let value_type = self.parse_interaction_type()?;
+            target.push(TypedKey { name: key, value_type });
+            self.optional_semi();
+        }
+        self.expect(TokenKind::RBrace)?;
+
+        self.expect_ident_value("input")?;
+        self.expect(TokenKind::LBrace)?;
+        let mut inputs = Vec::new();
+        while !matches!(self.peek().map(|t| t.kind), Some(TokenKind::RBrace)) {
+            let key = self.expect_ident()?;
+            self.expect(TokenKind::Colon)?;
+            let value_type = self.parse_interaction_type()?;
+            inputs.push(TypedKey { name: key, value_type });
+            self.optional_semi();
+        }
+        self.expect(TokenKind::RBrace)?;
+
+        let mut assignments = Vec::new();
+        while !matches!(self.peek().map(|t| t.kind), Some(TokenKind::RBrace)) {
+            self.expect_ident_value("set")?;
+            let key = self.expect_ident()?;
+            self.expect(TokenKind::Equal)?;
+            let value = self.parse_interaction_expr()?;
+            assignments.push(StateAssignment { key, value });
+            self.expect(TokenKind::Semicolon)?;
+        }
+        self.expect(TokenKind::RBrace)?;
+        Ok(InteractionDecl { name, trigger_button, state_reads, state_writes, inputs, assignments })
+    }
+
+    fn parse_interaction_type(&mut self) -> Result<InteractionType, ParseError> {
+        let ty = self.expect_ident()?;
+        match ty.as_str() {
+            "int" => Ok(InteractionType::Int),
+            "text" => Ok(InteractionType::Text),
+            "bool" => Ok(InteractionType::Bool),
+            _ => Err(ParseError { line: self.line() }),
+        }
+    }
+
+    fn parse_interaction_expr(&mut self) -> Result<InteractionExpr, ParseError> {
+        let mut expr = self.parse_interaction_atom()?;
+        while matches!(self.peek().map(|t| t.kind), Some(TokenKind::Plus)) {
+            self.bump();
+            expr = InteractionExpr::Add(Box::new(expr), Box::new(self.parse_interaction_atom()?));
+        }
+        Ok(expr)
+    }
+
+    fn parse_interaction_atom(&mut self) -> Result<InteractionExpr, ParseError> {
+        match self.peek().map(|t| t.kind) {
+            Some(TokenKind::Number) => {
+                let text = self.bump().ok_or(ParseError { line: self.line() })?.text.replace('_', "");
+                let value = text.parse::<i64>().map_err(|_| ParseError { line: self.line() })?;
+                Ok(InteractionExpr::Literal(InteractionValue::Int(value)))
+            }
+            Some(TokenKind::Str) => Ok(InteractionExpr::Literal(InteractionValue::Text(
+                self.bump().ok_or(ParseError { line: self.line() })?.text,
+            ))),
+            Some(TokenKind::Ident) => {
+                let head = self.expect_ident()?;
+                match head.as_str() {
+                    "true" => Ok(InteractionExpr::Literal(InteractionValue::Bool(true))),
+                    "false" => Ok(InteractionExpr::Literal(InteractionValue::Bool(false))),
+                    "state" | "input" => {
+                        self.expect(TokenKind::Dot)?;
+                        let key = self.expect_ident()?;
+                        if head == "state" { Ok(InteractionExpr::State(key)) }
+                        else { Ok(InteractionExpr::Input(key)) }
+                    }
+                    _ => Err(ParseError { line: self.line() }),
+                }
+            }
+            _ => Err(ParseError { line: self.line() }),
+        }
+    }
+
+    fn expect_ident_value(&mut self, value: &str) -> Result<(), ParseError> {
+        if self.peek().is_some_and(|t| t.kind == TokenKind::Ident && t.text == value) {
+            self.bump();
+            Ok(())
+        } else { Err(ParseError { line: self.line() }) }
+    }
+
+    fn optional_semi(&mut self) {
+        if matches!(self.peek().map(|t| t.kind), Some(TokenKind::Semicolon)) { self.bump(); }
+    }
+
     fn skip_block(&mut self) -> Result<(), ParseError> {
         // Consume optional identifier(s) up to `{`, then balanced braces.
         while matches!(self.peek().map(|t| t.kind), Some(TokenKind::Ident)) {
