@@ -335,7 +335,11 @@ pub enum LocalCorpusError {
     ReadSource(PathBuf),
     ProbeFailed(PathBuf),
     MalformedProbe(PathBuf),
-    SourceDimensionLimit { path: PathBuf, width: u32, height: u32 },
+    SourceDimensionLimit {
+        path: PathBuf,
+        width: u32,
+        height: u32,
+    },
     DecodeFailed(PathBuf),
     DecodedSizeMismatch(PathBuf),
 }
@@ -353,10 +357,26 @@ impl std::fmt::Display for LocalCorpusError {
             Self::FileTooLarge(path) => write!(f, "source file exceeds 64 MiB: {}", path.display()),
             Self::ReadSource(path) => write!(f, "could not read source image: {}", path.display()),
             Self::ProbeFailed(path) => write!(f, "ffprobe failed for {}", path.display()),
-            Self::MalformedProbe(path) => write!(f, "ffprobe returned invalid dimensions for {}", path.display()),
-            Self::SourceDimensionLimit { path, width, height } => write!(f, "source dimensions {width}x{height} exceed the 8192-pixel edge limit: {}", path.display()),
+            Self::MalformedProbe(path) => write!(
+                f,
+                "ffprobe returned invalid dimensions for {}",
+                path.display()
+            ),
+            Self::SourceDimensionLimit {
+                path,
+                width,
+                height,
+            } => write!(
+                f,
+                "source dimensions {width}x{height} exceed the 8192-pixel edge limit: {}",
+                path.display()
+            ),
             Self::DecodeFailed(path) => write!(f, "ffmpeg could not decode {}", path.display()),
-            Self::DecodedSizeMismatch(path) => write!(f, "ffmpeg returned an unexpected normalized frame size for {}", path.display()),
+            Self::DecodedSizeMismatch(path) => write!(
+                f,
+                "ffmpeg returned an unexpected normalized frame size for {}",
+                path.display()
+            ),
         }
     }
 }
@@ -364,11 +384,13 @@ impl std::fmt::Display for LocalCorpusError {
 impl std::error::Error for LocalCorpusError {}
 
 fn hash_local_file(path: &Path) -> Result<([u8; 32], u64), LocalCorpusError> {
-    let metadata = fs::metadata(path).map_err(|_| LocalCorpusError::ReadSource(path.to_path_buf()))?;
+    let metadata =
+        fs::metadata(path).map_err(|_| LocalCorpusError::ReadSource(path.to_path_buf()))?;
     if !metadata.is_file() || metadata.len() > MAX_LOCAL_FILE_BYTES {
         return Err(LocalCorpusError::FileTooLarge(path.to_path_buf()));
     }
-    let mut file = File::open(path).map_err(|_| LocalCorpusError::ReadSource(path.to_path_buf()))?;
+    let mut file =
+        File::open(path).map_err(|_| LocalCorpusError::ReadSource(path.to_path_buf()))?;
     let mut hasher = Sha256::new();
     let mut total = 0u64;
     let mut buffer = [0u8; 64 * 1024];
@@ -390,7 +412,8 @@ fn hash_local_file(path: &Path) -> Result<([u8; 32], u64), LocalCorpusError> {
 
 fn probe_dimensions(ffprobe: &str, path: &Path) -> Result<(u32, u32), LocalCorpusError> {
     let mut command = Command::new(ffprobe);
-    command.args([
+    command
+        .args([
             "-v",
             "error",
             "-select_streams",
@@ -399,7 +422,8 @@ fn probe_dimensions(ffprobe: &str, path: &Path) -> Result<(u32, u32), LocalCorpu
             "stream=width,height",
             "-of",
             "csv=p=0:s=x",
-        ]).arg(path);
+        ])
+        .arg(path);
     let output = command_output_bounded(&mut command, MAX_PROBE_OUTPUT_BYTES)
         .map_err(|_| LocalCorpusError::ProbeFailed(path.to_path_buf()))?;
     let text = std::str::from_utf8(&output)
@@ -417,19 +441,24 @@ fn probe_dimensions(ffprobe: &str, path: &Path) -> Result<(u32, u32), LocalCorpu
     Ok((width, height))
 }
 
-fn decode_local_image(
-    ffmpeg: &str,
-    path: &Path,
-    size: u32,
-) -> Result<Vec<u8>, LocalCorpusError> {
+fn decode_local_image(ffmpeg: &str, path: &Path, size: u32) -> Result<Vec<u8>, LocalCorpusError> {
     let filter = format!(
         "scale={size}:{size}:force_original_aspect_ratio=decrease:flags=area,pad={size}:{size}:(ow-iw)/2:(oh-ih)/2:color=gray,format=gray"
     );
     let mut command = Command::new(ffmpeg);
-    command
-        .args(["-v", "error", "-i"])
-        .arg(path)
-        .args(["-map", "0:v:0", "-frames:v", "1", "-vf", &filter, "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1"]);
+    command.args(["-v", "error", "-i"]).arg(path).args([
+        "-map",
+        "0:v:0",
+        "-frames:v",
+        "1",
+        "-vf",
+        &filter,
+        "-f",
+        "rawvideo",
+        "-pix_fmt",
+        "gray",
+        "pipe:1",
+    ]);
     let max_output = usize::try_from(size)
         .ok()
         .and_then(|width| width.checked_mul(width))
@@ -467,13 +496,18 @@ fn command_output_bounded(command: &mut Command, max_output: usize) -> std::io::
             Ok::<_, std::io::Error>((output, exceeded))
         });
         let status = child.wait()?;
-        Ok::<_, std::io::Error>((status.success(), reader.join().map_err(|_| {
-            std::io::Error::other("output reader panicked")
-        })??))
+        Ok::<_, std::io::Error>((
+            status.success(),
+            reader
+                .join()
+                .map_err(|_| std::io::Error::other("output reader panicked"))??,
+        ))
     })?;
     let (success, (output, exceeded)) = reader;
     if !success || exceeded {
-        return Err(std::io::Error::other("child failed or exceeded output limit"));
+        return Err(std::io::Error::other(
+            "child failed or exceeded output limit",
+        ));
     }
     Ok(output)
 }
@@ -896,7 +930,15 @@ impl Benchmark {
         alpha: f64,
     ) -> BenchmarkResult {
         let corpus = Corpus::adversarial(seed, n_images, size);
-        self.run_corpus(seed, size, key, alpha, corpus, Vec::new(), "synthetic_adversarial")
+        self.run_corpus(
+            seed,
+            size,
+            key,
+            alpha,
+            corpus,
+            Vec::new(),
+            "synthetic_adversarial",
+        )
     }
 
     /// Run the full transform suite and false-positive controls on a
@@ -936,14 +978,8 @@ impl Benchmark {
         for i in 1..=16u64 {
             control_keys.push(mix64(key ^ i.wrapping_mul(0x9E37_79B9_7F4A_7C15)));
         }
-        let report = self.run_with_controls(
-            &corpus,
-            key,
-            alpha,
-            &transformations,
-            &control_keys,
-            seed,
-        );
+        let report =
+            self.run_with_controls(&corpus, key, alpha, &transformations, &control_keys, seed);
         let corpus_fingerprint = corpus_fingerprint(&corpus);
         BenchmarkResult {
             seed,

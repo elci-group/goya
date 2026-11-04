@@ -89,7 +89,10 @@ fn run() -> Result<(), String> {
         return Err("--images must be between 1 and 512".into());
     }
     if image_dir.is_some() && images_explicit {
-        return Err("--images cannot be combined with --image-dir; the directory determines image count".into());
+        return Err(
+            "--images cannot be combined with --image-dir; the directory determines image count"
+                .into(),
+        );
     }
     if !(64..=1024).contains(&size) {
         return Err("--size must be between 64 and 1024 pixels".into());
@@ -132,8 +135,12 @@ fn run() -> Result<(), String> {
 }
 
 fn local_image_paths(directory: &std::path::Path) -> Result<Vec<PathBuf>, String> {
-    let entries = fs::read_dir(directory)
-        .map_err(|error| format!("could not read image directory {}: {error}", directory.display()))?;
+    let entries = fs::read_dir(directory).map_err(|error| {
+        format!(
+            "could not read image directory {}: {error}",
+            directory.display()
+        )
+    })?;
     let mut paths = Vec::new();
     for entry in entries {
         let entry = entry.map_err(|error| format!("could not read directory entry: {error}"))?;
@@ -154,7 +161,10 @@ fn local_image_paths(directory: &std::path::Path) -> Result<Vec<PathBuf>, String
     }
     paths.sort();
     if paths.is_empty() {
-        return Err(format!("no supported image files found in {}", directory.display()));
+        return Err(format!(
+            "no supported image files found in {}",
+            directory.display()
+        ));
     }
     if paths.len() > 512 {
         return Err("local image directory contains more than 512 supported images".into());
