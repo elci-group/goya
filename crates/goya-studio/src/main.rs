@@ -320,7 +320,7 @@ fn render_editor(project: &SceneProject, preview: &str) -> String {
             "frame.srcdoc=await r.text();status.textContent=r.ok?'Preview updated':'Validation failed';",
             "const body=await r.text();frame.srcdoc=body;if(r.ok){status.textContent='Preview updated';errorLine.hidden=true;}else{const msg=new DOMParser().parseFromString(body,'text/html').body.textContent.trim();status.textContent='Validation failed: '+msg;const match=/line (\\d+)/i.exec(msg);errorLine.hidden=!match;if(match)errorLine.dataset.line=match[1];}",
         );
-    let html = html;
+    let mut html = html;
     html = html.replace(
         "</body></html>",
         r#"<script>
@@ -812,6 +812,13 @@ mod tests {
         assert!(initial.2.contains("Go to error line"));
         assert!(initial.2.contains("errorLine.hidden=!match"));
         assert!(initial.2.contains("source.setSelectionRange(start"));
+        assert!(initial.2.contains("id=\"undo\""));
+        assert!(initial.2.contains("id=\"redo\""));
+        assert!(initial.2.contains("historyLimit=64"));
+        assert!(initial.2.contains("source.addEventListener('input'"));
+        assert!(initial.2.contains("event.shiftKey?1:-1"));
+        assert!(initial.2.contains("event.ctrlKey&&key==='y'"));
+        assert!(initial.2.contains("Undo history is limited to scenes of 128 KiB or less"));
         assert_eq!(
             route_request(&get("/other"), HOST, SCENE, &html).0,
             "404 Not Found"
