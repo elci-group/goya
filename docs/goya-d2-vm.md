@@ -56,7 +56,10 @@ The request granted no VEE capabilities. In this environment Landlock setup
 failed with `Operation not permitted`; VEE continued with its rlimit sandbox
 layer only. This confirms local worker submit/status/result behavior, not
 production Landlock or other production sandbox coverage. The D1 result and
-full smoke details are in [goya-vee.md](goya-vee.md#local-d1d2-live-smoke).
+full D0/D1/D2 smoke details are in
+[goya-vee.md](goya-vee.md#local-d0d1d2-live-smoke). The D0 worker also passed
+local submit/status/result validation; VEE retained its expected JSON line in
+a text artifact preceded by sandbox diagnostics.
 
 ## Bounds and exclusions
 
