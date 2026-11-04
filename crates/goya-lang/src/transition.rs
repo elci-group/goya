@@ -11,8 +11,8 @@ use goya_executable::{
 use goya_ir::ActionId;
 
 use crate::scene::{
-    CellKind, EffectValueType, InteractionClass, InteractionDecl, InteractionExpr,
-    InteractionType, InteractionValue, Scene,
+    CellKind, EffectValueType, InteractionClass, InteractionDecl, InteractionExpr, InteractionType,
+    InteractionValue, Scene,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
