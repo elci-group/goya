@@ -530,11 +530,30 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::{validate_output_types, InteractionType};
-    use crate::{compile_d1_interactions, parse, TransitionError};
-    use goya_executable::{D1Snapshot, D1Value, InputSnapshot};
+    use crate::{compile_d1_interactions, compile_d2_interactions, parse, TransitionError};
+    use goya_executable::{CapabilityLabel, D1Snapshot, D1Value, EffectJournal, EffectResult, InputSnapshot, JournalLimits};
     use goya_ir::ActionId;
 
     const SOURCE: &str = "@ontology app { @button plus {} @interaction increment { trigger: button.plus.activate; class: D1; state { read count: int; write count: int; } input { amount: int; } set count = state.count + input.amount; } }";
+    const D2_SOURCE: &str = "@ontology app { @button go {} @interaction fetch { trigger: button.go.activate; class: D2; effects { network; } requests { lookup: effect network capability \"network\" request \"static request\" result int64; } state { write count: int; } input { } set count = effect.lookup; } }";
+
+    fn d2_compiled() -> crate::CompiledD2Interaction {
+        compile_d2_interactions(&parse(D2_SOURCE).unwrap()).unwrap().remove(0)
+    }
+
+    fn journal_for(compiled: &crate::CompiledD2Interaction) -> EffectJournal {
+        EffectJournal::new_d2(compiled.declaration(), compiled.proof(), compiled.capability_labels().iter().cloned(), JournalLimits::default()).unwrap()
+    }
+
+    fn record_int(journal: &mut EffectJournal, request: &[u8], value: i64) {
+        let label = CapabilityLabel::new("network").unwrap();
+        let result = EffectResult::Int64(value).encode().unwrap();
+        journal.record(&label, request, &result).unwrap();
+    }
+
+    fn d2_state() -> D1Snapshot {
+        D1Snapshot::new(10, BTreeMap::from([("count".into(), D1Value::Int(0))])).unwrap()
+    }
 
     #[test]
     fn authored_interaction_compiles_binds_and_executes_d1() {
@@ -652,5 +671,78 @@ mod tests {
         let second = compile_d1_interactions(&second_scene).unwrap();
         assert_eq!(first[0].trigger(), second[0].trigger());
         assert_eq!(first[0].program_hash(), second[0].program_hash());
+    }
+
+    #[test]
+    fn static_d2_request_replays_from_caller_journal_without_live_effects() {
+        let compiled = d2_compiled();
+        let mut journal = journal_for(&compiled);
+        record_int(&mut journal, b"static request", 41);
+        let before = journal.entries().to_vec();
+        let outcome = compiled.execute(&d2_state(), &InputSnapshot::default(), &journal).unwrap();
+        assert_eq!(outcome.next_state["count"], D1Value::Int(41));
+        assert_eq!(journal.entries(), before);
+    }
+
+    #[test]
+    fn d2_requires_exact_journal_replay() {
+        let compiled = d2_compiled();
+        let inputs = InputSnapshot::default();
+        let empty = journal_for(&compiled);
+        assert!(compiled.execute(&d2_state(), &inputs, &empty).is_err());
+
+        let mut wrong = journal_for(&compiled);
+        record_int(&mut wrong, b"different", 1);
+        assert!(compiled.execute(&d2_state(), &inputs, &wrong).is_err());
+
+        let mut extra = journal_for(&compiled);
+        record_int(&mut extra, b"static request", 1);
+        record_int(&mut extra, b"static request", 2);
+        assert!(compiled.execute(&d2_state(), &inputs, &extra).is_err());
+    }
+
+    #[test]
+    fn d2_rejects_wrong_result_encoding_and_expression_type() {
+        let compiled = d2_compiled();
+        let mut journal = journal_for(&compiled);
+        let label = CapabilityLabel::new("network").unwrap();
+        let wrong = EffectResult::Text("not int64".into()).encode().unwrap();
+        journal.record(&label, b"static request", &wrong).unwrap();
+        assert!(compiled.execute(&d2_state(), &InputSnapshot::default(), &journal).is_err());
+
+        let src = D2_SOURCE.replace("write count: int", "write count: text");
+        assert_eq!(compile_d2_interactions(&parse(&src).unwrap()), Err(TransitionError::TypeMismatch));
+    }
+
+    #[test]
+    fn d2_rejects_undeclared_and_mismatched_capability_labels() {
+        let undeclared = D2_SOURCE.replace("effects { network; }", "effects { clock; }");
+        assert_eq!(compile_d2_interactions(&parse(&undeclared).unwrap()), Err(TransitionError::UndeclaredEffect));
+        let mismatch = D2_SOURCE.replace("capability \\\"network\\\"", "capability \\\"clock\\\"");
+        assert_eq!(compile_d2_interactions(&parse(&mismatch).unwrap()), Err(TransitionError::CapabilityMismatch));
+    }
+
+    #[test]
+    fn d2_rejects_dynamic_request_bytes_and_duplicate_cross_class_bindings() {
+        let dynamic = D2_SOURCE.replace("request \\\"static request\\\"", "request input.query");
+        assert!(parse(&dynamic).is_err());
+
+        let mut scene = parse(D2_SOURCE).unwrap();
+        let mut duplicate = scene.interactions[0].clone();
+        duplicate.name = "also_go".into();
+        duplicate.class = crate::InteractionClass::D1;
+        scene.interactions.push(duplicate);
+        assert_eq!(compile_d1_interactions(&scene), Err(TransitionError::TriggerAlreadyBound));
+        assert_eq!(compile_d2_interactions(&scene), Err(TransitionError::TriggerAlreadyBound));
+    }
+
+    #[test]
+    fn d1_and_d2_compilers_select_only_their_class_and_d2_hash_is_stable() {
+        assert!(compile_d1_interactions(&parse(D2_SOURCE).unwrap()).unwrap().is_empty());
+        assert!(compile_d2_interactions(&parse(SOURCE).unwrap()).unwrap().is_empty());
+        let first = d2_compiled();
+        let second = d2_compiled();
+        assert_eq!(first.trigger(), second.trigger());
+        assert_eq!(first.program_hash(), second.program_hash());
     }
 }
