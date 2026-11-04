@@ -425,6 +425,125 @@ _result = {'program_hash':GOYA_D1_PROGRAM_HASH, 'input_hash':_input_hash.hex(), 
 print(json.dumps(_result, ensure_ascii=False, separators=(',', ':')))
 "#;
 
+const D2_WORKER_PYTHON: &str = r#"
+MAX_JOURNAL_BYTES = 64 * 1024
+MAX_JOURNAL_ENTRIES = 256
+MAX_OUTPUT_BYTES = 2 * 1024 * 1024
+def _u64(n):
+    if n < 0 or n >= (1 << 64): raise ValueError('u64 range')
+    return n.to_bytes(8, 'little', signed=False)
+def _str(s):
+    b = s.encode('utf-8')
+    return _u64(len(b)) + b
+def _field(b): return _u64(len(b)) + b
+def _val(v):
+    t, x = v
+    if t == 'i': return b'\x00' + int(x).to_bytes(8, 'little', signed=True)
+    if t == 's': return b'\x01' + _str(x)
+    if t == 'b': return b'\x02' + bytes((1 if x else 0,))
+    raise ValueError('invalid value tag')
+def _map(m):
+    return _u64(len(m)) + b''.join(_str(k) + _val(m[k]) for k in sorted(m))
+def _map_size(m):
+    return 8 + sum(8 + len(k.encode('utf-8')) + (9 + len(v[1].encode('utf-8')) if v[0] == 's' else (9 if v[0] == 'i' else 2)) for k, v in m.items())
+def _validate_map(m):
+    if len(m) > 256: raise ValueError('snapshot key limit')
+    for k, v in m.items():
+        if not k or len(k.encode('utf-8')) > 65536: raise ValueError('invalid snapshot key')
+        if v[0] == 's' and len(v[1].encode('utf-8')) > 65536: raise ValueError('text limit')
+        _val(v)
+def _verify_journal():
+    if len(GOYA_D2_JOURNAL) > MAX_JOURNAL_ENTRIES: raise ValueError('journal entry limit')
+    previous = hashlib.sha256(b'GOYA-D2-EFFECT-JOURNAL-GENESIS/1\x00').digest()
+    total = 0
+    for i, entry in enumerate(GOYA_D2_JOURNAL):
+        seq, capability, request, result, prev_hex, hash_hex = entry
+        if seq != i or bytes.fromhex(prev_hex) != previous: raise ValueError('journal chain sequence')
+        cap = capability.encode('utf-8')
+        total += 80 + len(cap) + len(request) + len(result)
+        if total > MAX_JOURNAL_BYTES: raise ValueError('journal byte limit')
+        calculated = hashlib.sha256(b'GOYA-D2-EFFECT-JOURNAL/1\x00' + previous + _u64(seq) + _field(cap) + _field(request) + _field(result)).digest()
+        if calculated.hex() != hash_hex: raise ValueError('journal hash mismatch')
+        previous = calculated
+_verify_journal()
+_validate_map(GOYA_D2_STATE)
+_validate_map(GOYA_D2_INPUTS)
+if set(GOYA_D2_STATE) != set(GOYA_D2_READ_KEYS) | set(GOYA_D2_WRITE_KEYS): raise ValueError('state schema mismatch')
+if set(GOYA_D2_INPUTS) != set(GOYA_D2_INPUT_KEYS): raise ValueError('input schema mismatch')
+if _map_size(GOYA_D2_STATE) + _map_size(GOYA_D2_INPUTS) > 1024 * 1024: raise ValueError('snapshot limit')
+_regs = {}
+_reg_bytes = 0
+_next = dict(GOYA_D2_STATE)
+def _value_size(v): return 8 if v[0] == 'i' else (len(v[1].encode('utf-8')) if v[0] == 's' else 1)
+def _store(name, value):
+    global _reg_bytes
+    if value[0] == 's' and len(value[1].encode('utf-8')) > 65536: raise ValueError('text limit')
+    size = len(name.encode('utf-8')) + _value_size(value)
+    old = len(name.encode('utf-8')) + _value_size(_regs[name]) if name in _regs else 0
+    if _reg_bytes - old + size > 1024 * 1024: raise ValueError('register limit')
+    _regs[name] = value
+    _reg_bytes = _reg_bytes - old + size
+def _effect_result(kind, raw):
+    if len(raw) > 64 * 1024: raise ValueError('effect result limit')
+    if kind == 1 and len(raw) == 9 and raw[0] == 1:
+        return ('i', int.from_bytes(raw[1:], 'little', signed=True))
+    if kind == 2 and len(raw) >= 5 and raw[0] == 2:
+        size = int.from_bytes(raw[1:5], 'little', signed=False)
+        if size != len(raw) - 5 or size > 64 * 1024: raise ValueError('malformed text effect result')
+        return ('s', raw[5:].decode('utf-8'))
+    if kind == 3 and raw in (b'\x03\x00', b'\x03\x01'):
+        return ('b', raw[1] == 1)
+    raise ValueError('malformed typed effect result')
+_journal_cursor = 0
+def _replay(capability, request):
+    global _journal_cursor
+    if _journal_cursor >= len(GOYA_D2_JOURNAL): raise ValueError('journal exhausted')
+    seq, recorded_capability, recorded_request, result, _prev, _hash = GOYA_D2_JOURNAL[_journal_cursor]
+    if seq != _journal_cursor or capability != recorded_capability or request != recorded_request:
+        raise ValueError('journal request or capability mismatch')
+    _journal_cursor += 1
+    return result
+for _ins in GOYA_D2_CODE:
+    _op = _ins[0]
+    if _op == 'const': _store(_ins[1], _ins[2])
+    elif _op == 'state': _store(_ins[1], GOYA_D2_STATE[_ins[2]])
+    elif _op == 'input': _store(_ins[1], GOYA_D2_INPUTS[_ins[2]])
+    elif _op == 'add':
+        _a, _b = _regs[_ins[2]], _regs[_ins[3]]
+        if _a[0] != 'i' or _b[0] != 'i': raise TypeError('integer operands required')
+        _n = _a[1] + _b[1]
+        if _n < -(1 << 63) or _n >= (1 << 63): raise OverflowError('i64 addition overflow')
+        _store(_ins[1], ('i', _n))
+    elif _op == 'effect': _store(_ins[1], _effect_result(_ins[4], _replay(_ins[2], _ins[3])))
+    elif _op == 'write': _next[_ins[1]] = _regs[_ins[2]]
+    else: raise ValueError('unknown verified D2 opcode')
+if _journal_cursor != len(GOYA_D2_JOURNAL): raise ValueError('journal has unused entries')
+_rev_after = GOYA_D2_REVISION + 1
+if _rev_after >= (1 << 64): raise OverflowError('revision overflow')
+_validate_map(_next)
+if _map_size(_next) > 1024 * 1024: raise ValueError('output state limit')
+_input_hash = hashlib.sha256(b'GOYA-D2-VM-INPUT/1\x00' + _u64(GOYA_D2_REVISION) + _map(GOYA_D2_STATE) + _map(GOYA_D2_INPUTS)).digest()
+_outcome = hashlib.sha256(b'GOYA-D2-VM-OUTCOME/1\x00' + bytes.fromhex(GOYA_D2_PROGRAM_HASH) + _input_hash + _u64(GOYA_D2_REVISION) + _u64(_rev_after) + _map(_next) + _map(_regs)).hexdigest()
+def _outval(v):
+    t, x = v
+    if t == 'i': return {'type':'int','value':str(x)}
+    if t == 's': return {'type':'text','value':x}
+    if t == 'b': return {'type':'bool','value':x}
+    raise ValueError('invalid value tag')
+_result = {'program_hash':GOYA_D2_PROGRAM_HASH, 'input_hash':_input_hash.hex(), 'revision_before':str(GOYA_D2_REVISION), 'revision_after':str(_rev_after), 'next_state':{k:_outval(_next[k]) for k in sorted(_next)}, 'registers':{k:_outval(_regs[k]) for k in sorted(_regs)}, 'outcome_hash':_outcome}
+_output = json.dumps(_result, ensure_ascii=False, separators=(',', ':'))
+if len(_output.encode('utf-8')) > MAX_OUTPUT_BYTES: raise ValueError('worker output limit')
+print(_output)
+"#;
+
+fn d2_result_type_tag(result_type: EffectResultType) -> u8 {
+    match result_type {
+        EffectResultType::Int64 => 1,
+        EffectResultType::Text => 2,
+        EffectResultType::Bool => 3,
+    }
+}
+
 fn d1_value_size(value: &D1Value) -> usize {
     match value {
         D1Value::Int(_) => 9,
