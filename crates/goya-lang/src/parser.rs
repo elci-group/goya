@@ -3,9 +3,11 @@
 
 use crate::lexer::{lex, Token, TokenKind};
 use crate::scene::{
-    Anchor, CellKind, InteractionDecl, InteractionExpr, InteractionType, InteractionValue, Scene,
-    SceneCell, StateAssignment, TypedKey, Vec3,
+    Anchor, CellKind, EffectRequestDecl, EffectValueType, InteractionClass, InteractionDecl,
+    InteractionExpr, InteractionType, InteractionValue, Scene, SceneCell, StateAssignment,
+    TypedKey, Vec3,
 };
+use goya_determinism::EffectKind;
 use std::fmt;
 
 #[derive(Debug, Clone, PartialEq)]
