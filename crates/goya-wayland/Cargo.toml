@@ -7,6 +7,8 @@ license.workspace = true
 [dependencies]
 goya-runtime.workspace = true
 goya-layout.workspace = true
+goya-csr.workspace = true
+goya-hcar.workspace = true
 wayland-client = "0.31"
 wayland-protocols = { version = "0.32", features = ["client"] }
 rustix = { version = "0.38", features = ["fs", "mm", "std"] }

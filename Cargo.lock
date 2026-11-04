@@ -759,6 +759,8 @@ version = "0.1.8"
 name = "goya-wayland"
 version = "0.1.8"
 dependencies = [
+ "goya-csr",
+ "goya-hcar",
  "goya-layout",
  "goya-runtime",
  "rustix 0.38.44",
