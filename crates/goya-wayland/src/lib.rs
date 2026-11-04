@@ -1361,6 +1361,193 @@ impl Dispatch<WlRegion, ()> for GoyaWindowInner {
 }
 
 #[cfg(test)]
+mod raster_tests {
+    use super::*;
+    use std::time::Instant;
+
+    fn overlapping_primitives() -> Vec<goya_runtime::Primitive> {
+        (0..48)
+            .map(|i| {
+                let x = (i % 8) * 20;
+                let y = (i / 8) * 20;
+                let rect = Rect {
+                    x: i64::from(x) * MP_PER_PX,
+                    y: i64::from(y) * MP_PER_PX,
+                    width: 28 * MP_PER_PX,
+                    height: 28 * MP_PER_PX,
+                };
+                if i % 2 == 0 {
+                    goya_runtime::Primitive::Button(rect, format!("B{i}"))
+                } else {
+                    goya_runtime::Primitive::Text(rect, format!("T{i}"))
+                }
+            })
+            .collect()
+    }
+
+    #[test]
+    fn parallel_tiles_match_serial_with_overlaps_and_damage() {
+        let (width, height) = (192, 128);
+        let primitives = overlapping_primitives();
+        let background = argb([4, 8, 12]);
+
+        let mut serial = vec![background; (width * height) as usize];
+        let mut parallel = serial.clone();
+        raster_serial(
+            &mut serial,
+            width,
+            height,
+            &primitives,
+            [255, 255, 255],
+            1,
+            None,
+        );
+        let roi = PixelClip {
+            x0: 0,
+            y0: 0,
+            x1: width as usize,
+            y1: height as usize,
+        };
+        let dirty = goya_change::PixelRect {
+            x: 0,
+            y: 0,
+            width,
+            height,
+        };
+        assert!(raster_parallel_tiles(
+            &mut parallel,
+            width,
+            height,
+            &primitives,
+            [255, 255, 255],
+            1,
+            roi,
+            dirty,
+            CsrPolicy::QuadCorner,
+            4,
+        ));
+        if parallel != serial {
+            let i = parallel
+                .iter()
+                .zip(&serial)
+                .position(|(a, b)| a != b)
+                .unwrap();
+            panic!(
+                "full-frame mismatch at ({}, {}): parallel={:#x} serial={:#x}",
+                i % width as usize,
+                i / width as usize,
+                parallel[i],
+                serial[i]
+            );
+        }
+
+        let roi = PixelClip {
+            x0: 17,
+            y0: 11,
+            x1: 177,
+            y1: 117,
+        };
+        let dirty = goya_change::PixelRect {
+            x: roi.x0 as i32,
+            y: roi.y0 as i32,
+            width: (roi.x1 - roi.x0) as i32,
+            height: (roi.y1 - roi.y0) as i32,
+        };
+        serial.fill(background);
+        parallel.fill(background);
+        raster_serial(
+            &mut serial,
+            width,
+            height,
+            &primitives,
+            [255, 255, 255],
+            1,
+            Some(roi),
+        );
+        assert!(raster_parallel_tiles(
+            &mut parallel,
+            width,
+            height,
+            &primitives,
+            [255, 255, 255],
+            1,
+            roi,
+            dirty,
+            CsrPolicy::DualHorizontal,
+            4,
+        ));
+        assert_eq!(parallel, serial);
+    }
+
+    #[test]
+    fn automatic_policy_keeps_small_workloads_serial() {
+        let policy = goya_csr::select_policy(32 * 32 * 4, RASTER_TILE_SIZE, 4);
+        assert_eq!(policy, CsrPolicy::Serial);
+    }
+
+    #[test]
+    #[ignore = "manual timing evidence; run with --ignored --nocapture"]
+    fn benchmark_serial_and_parallel_tile_raster() {
+        let (width, height) = (768, 512);
+        let primitives = (0..240)
+            .map(|i| {
+                let rect = Rect {
+                    x: i64::from((i * 23) % 700) * MP_PER_PX,
+                    y: i64::from((i * 47) % 460) * MP_PER_PX,
+                    width: 96 * MP_PER_PX,
+                    height: 48 * MP_PER_PX,
+                };
+                goya_runtime::Primitive::Text(rect, format!("tile workload {i}"))
+            })
+            .collect::<Vec<_>>();
+        let roi = PixelClip {
+            x0: 0,
+            y0: 0,
+            x1: width as usize,
+            y1: height as usize,
+        };
+        let dirty = goya_change::PixelRect {
+            x: 0,
+            y: 0,
+            width,
+            height,
+        };
+        let mut serial = vec![argb([4, 8, 12]); (width * height) as usize];
+        let mut parallel = serial.clone();
+        let start = Instant::now();
+        for _ in 0..5 {
+            serial.fill(argb([4, 8, 12]));
+            raster_serial(&mut serial, width, height, &primitives, [255; 3], 2, None);
+        }
+        let serial_elapsed = start.elapsed();
+        let start = Instant::now();
+        for _ in 0..5 {
+            parallel.fill(argb([4, 8, 12]));
+            assert!(raster_parallel_tiles(
+                &mut parallel,
+                width,
+                height,
+                &primitives,
+                [255; 3],
+                2,
+                roi,
+                dirty,
+                CsrPolicy::QuadCorner,
+                4,
+            ));
+        }
+        let parallel_elapsed = start.elapsed();
+        assert_eq!(parallel, serial);
+        eprintln!(
+            "serial_5_ns={} parallel_5_ns={} speedup={:.3}",
+            serial_elapsed.as_nanos(),
+            parallel_elapsed.as_nanos(),
+            serial_elapsed.as_secs_f64() / parallel_elapsed.as_secs_f64()
+        );
+    }
+}
+
+#[cfg(test)]
 mod key_tests {
     use super::key_char;
     #[test]
