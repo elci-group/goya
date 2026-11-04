@@ -336,7 +336,7 @@ mod tests {
         let scene = parse(SOURCE).unwrap();
         let compiled = compile_d1_interactions(&scene).unwrap();
         assert_eq!(compiled.len(), 1);
-        assert_eq!(compiled[0].trigger, ActionId(0));
+        assert_eq!(compiled[0].trigger(), ActionId(0));
         let state =
             D1Snapshot::new(4, BTreeMap::from([("count".into(), D1Value::Int(9))])).unwrap();
         let inputs =
@@ -391,5 +391,36 @@ mod tests {
             compiled[0].execute(&state, &inputs),
             Err(TransitionError::StateTypeMismatch)
         );
+    }
+
+    #[test]
+    fn trigger_ids_match_lowering_when_buttons_have_children() {
+        let src = "@ontology app { @button outer { @button hidden {} } @button target {} @interaction pick { trigger: button.target.activate; class: D1; state { write count: int; } input { amount: int; } set count = input.amount; } }";
+        let scene = parse(src).unwrap();
+        let compiled = compile_d1_interactions(&scene).unwrap();
+        assert_eq!(compiled[0].trigger(), ActionId(1));
+    }
+
+    #[test]
+    fn duplicate_interaction_names_and_button_bindings_are_rejected() {
+        let mut scene = parse(SOURCE).unwrap();
+        scene.interactions.push(scene.interactions[0].clone());
+        assert_eq!(compile_d1_interactions(&scene), Err(TransitionError::DuplicateInteractionName));
+        scene.interactions[1].name = "another".into();
+        assert_eq!(compile_d1_interactions(&scene), Err(TransitionError::TriggerAlreadyBound));
+    }
+
+    #[test]
+    fn duplicate_button_names_are_ambiguous() {
+        let src = SOURCE.replace("@button plus {}", "@button plus {} @button plus {}");
+        let scene = parse(&src).unwrap();
+        assert_eq!(compile_d1_interactions(&scene), Err(TransitionError::TriggerAmbiguous));
+    }
+
+    #[test]
+    fn output_types_are_checked() {
+        let writes = [crate::scene::TypedKey { name: "count".into(), value_type: InteractionType::Int }];
+        let output = BTreeMap::from([("count".into(), D1Value::Text("wrong".into()))]);
+        assert_eq!(validate_output_types(&writes, &output), Err(TransitionError::OutputTypeMismatch));
     }
 }
