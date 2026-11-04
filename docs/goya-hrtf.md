@@ -38,13 +38,30 @@ tap limit). The file is an interchange export, not an included or endorsed
 profile. Check the source dataset's attribution and license before using or
 redistributing either the source or converted data.
 
-The Viking HRTF dataset v2 is a suitable measured source for evaluation: it
-contains full-sphere measurements and is published by Simone Spagnol, Kristján
-Bjarki Purkhús, Sverrir Karl Björnsson, and Rúnar Unnthórsson under CC BY 4.0.
-The dataset record is [Zenodo 4160401](https://zenodo.org/records/4160401);
-its [dataset documentation](https://sofacoustics.org/data/database/viking/documentation.pdf)
-describes the measurements. Retain attribution to those authors and link the
-CC BY 4.0 license when distributing derived exports.
+The Viking HRTF dataset v2 is a suitable measured source for evaluation. Its
+record lists Simone Spagnol, Riccardo Miccini, and Rúnar Unnthórsson as
+creators and declares CC BY 4.0. Cite [Zenodo record 4160401
+(DOI 10.5281/zenodo.4160401)](https://zenodo.org/records/4160401) and link the
+[CC BY 4.0 license](https://creativecommons.org/licenses/by/4.0/). The
+[dataset documentation](https://sofacoustics.org/data/database/viking/documentation.pdf)
+describes the measurements. Preserve these source details when distributing
+derived exports.
+
+This repository includes a 64-direction, 128-tap excerpt from `subj_Z.sofa`
+at `crates/goya-spatial-audio/fixtures/viking-v2-subj-Z-first-64.gy-hrtf`.
+The converter deterministically selects the first 64 measurement rows in SOFA
+file order, skipping duplicate directions, and truncates each ear's response
+to the first 128 taps. It does not resample or normalize coefficients. Source
+archive `HRTFs.zip` SHA-256:
+`90971278359d667b962cc7f1d14ff5e8b8755349ebfc158245ec9b4a3a347fb0`;
+source file `subj_Z.sofa` SHA-256:
+`8206dffb8f40b141bdc16b34bce0800bd02ddb3f7fe4a9d68c3e7cc749cd633a`;
+converted fixture SHA-256:
+`0cc278de50a5496e4437b71b3a1eb81e6991f4c9872a62e40e0714cbfb03fc47`.
+The fixture is under the same CC BY 4.0 terms; its attribution is Simone
+Spagnol, Riccardo Miccini, and Rúnar Unnthórsson, “The Viking HRTF dataset
+v2,” Zenodo (2020), DOI 10.5281/zenodo.4160401, CC BY 4.0. The checked-in
+excerpt is test/evaluation data, not a listener-specific recommendation.
 
 Example, after obtaining a specific SOFA file and installing `sofar`:
 
@@ -53,16 +70,13 @@ python3 tools/convert_sofa_hrtf.py subject.sofa /tmp/viking-subject.gy-hrtf \
   --max-responses 4096 --max-taps 512
 ```
 
-The remaining external gate is to select and obtain a particular SOFA file,
-record its exact filename/subject and checksum, and validate the converter
-against that file. No measured data is checked into this repository. The
-converter deliberately does not download the dataset or write source
-attribution into the compact audio profile; keep source provenance beside the
-export.
+`sofar` 1.1.2 was used to produce the checked-in excerpt. The converter does
+not download dataset files or write full source attribution into the compact
+audio profile; keep provenance beside any separately produced export.
 
 ## Dataset status
 
-No measured HRTF data is bundled in this checkout. The example at the top is
-synthetic and exists only to show the interchange syntax. The converter and
-the identified CC BY 4.0 dataset now provide a documented path to an
-attributed measured profile once an integrator obtains a source file.
+The example at the top is synthetic and exists only to show the interchange
+syntax. The included excerpt demonstrates loading a licensed measured profile;
+full-dataset use still requires obtaining and tracking the original data under
+its CC BY 4.0 attribution terms.
