@@ -31,6 +31,19 @@ no live-host effect path in this VM.
   reclassifies it and verifies every effect capability against that
   declaration. Proof metadata alone does not carry capability grants.
 
+## VEE replay worker
+
+`goya-vee::request_from_d2_program` pre-executes the reference VM against the
+supplied snapshots and `EffectJournal`, then emits a Python worker carrying
+the same instructions and journal. The worker rechecks the journal sequence
+and hash chain, requires exact capability and request-byte matches, decodes
+only the declared result type, and requires all records to be consumed. It
+performs no host effects and the VEE request grants no capabilities. The
+adapter bounds the journal to 256 entries/64 KiB, combined embedded payload
+to 32 KiB, source to 256 KiB, and worker output to 2 MiB. Focused local Python
+tests compare the full output and hashes with the Rust D2 outcome; live VEE
+execution remains unverified.
+
 ## Bounds and exclusions
 
 - At most 4,096 instructions, 64 KiB per static effect request or typed
