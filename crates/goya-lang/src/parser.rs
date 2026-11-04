@@ -3,7 +3,7 @@
 
 use crate::lexer::{lex, Token, TokenKind};
 use crate::scene::{
-    Anchor, CellKind, InteractionDecl, InteractionExpr, InteractionValue, InteractionType, Scene,
+    Anchor, CellKind, InteractionDecl, InteractionExpr, InteractionType, InteractionValue, Scene,
     SceneCell, StateAssignment, TypedKey, Vec3,
 };
 use std::fmt;
@@ -219,7 +219,10 @@ impl P {
             let key = self.expect_ident()?;
             self.expect(TokenKind::Colon)?;
             let value_type = self.parse_interaction_type()?;
-            target.push(TypedKey { name: key, value_type });
+            target.push(TypedKey {
+                name: key,
+                value_type,
+            });
             self.optional_semi();
         }
         self.expect(TokenKind::RBrace)?;
@@ -231,7 +234,10 @@ impl P {
             let key = self.expect_ident()?;
             self.expect(TokenKind::Colon)?;
             let value_type = self.parse_interaction_type()?;
-            inputs.push(TypedKey { name: key, value_type });
+            inputs.push(TypedKey {
+                name: key,
+                value_type,
+            });
             self.optional_semi();
         }
         self.expect(TokenKind::RBrace)?;
@@ -246,7 +252,14 @@ impl P {
             self.expect(TokenKind::Semicolon)?;
         }
         self.expect(TokenKind::RBrace)?;
-        Ok(InteractionDecl { name, trigger_button, state_reads, state_writes, inputs, assignments })
+        Ok(InteractionDecl {
+            name,
+            trigger_button,
+            state_reads,
+            state_writes,
+            inputs,
+            assignments,
+        })
     }
 
     fn parse_interaction_type(&mut self) -> Result<InteractionType, ParseError> {
@@ -271,8 +284,14 @@ impl P {
     fn parse_interaction_atom(&mut self) -> Result<InteractionExpr, ParseError> {
         match self.peek().map(|t| t.kind) {
             Some(TokenKind::Number) => {
-                let text = self.bump().ok_or(ParseError { line: self.line() })?.text.replace('_', "");
-                let value = text.parse::<i64>().map_err(|_| ParseError { line: self.line() })?;
+                let text = self
+                    .bump()
+                    .ok_or(ParseError { line: self.line() })?
+                    .text
+                    .replace('_', "");
+                let value = text
+                    .parse::<i64>()
+                    .map_err(|_| ParseError { line: self.line() })?;
                 Ok(InteractionExpr::Literal(InteractionValue::Int(value)))
             }
             Some(TokenKind::Str) => Ok(InteractionExpr::Literal(InteractionValue::Text(
@@ -286,8 +305,11 @@ impl P {
                     "state" | "input" => {
                         self.expect(TokenKind::Dot)?;
                         let key = self.expect_ident()?;
-                        if head == "state" { Ok(InteractionExpr::State(key)) }
-                        else { Ok(InteractionExpr::Input(key)) }
+                        if head == "state" {
+                            Ok(InteractionExpr::State(key))
+                        } else {
+                            Ok(InteractionExpr::Input(key))
+                        }
                     }
                     _ => Err(ParseError { line: self.line() }),
                 }
@@ -297,14 +319,21 @@ impl P {
     }
 
     fn expect_ident_value(&mut self, value: &str) -> Result<(), ParseError> {
-        if self.peek().is_some_and(|t| t.kind == TokenKind::Ident && t.text == value) {
+        if self
+            .peek()
+            .is_some_and(|t| t.kind == TokenKind::Ident && t.text == value)
+        {
             self.bump();
             Ok(())
-        } else { Err(ParseError { line: self.line() }) }
+        } else {
+            Err(ParseError { line: self.line() })
+        }
     }
 
     fn optional_semi(&mut self) {
-        if matches!(self.peek().map(|t| t.kind), Some(TokenKind::Semicolon)) { self.bump(); }
+        if matches!(self.peek().map(|t| t.kind), Some(TokenKind::Semicolon)) {
+            self.bump();
+        }
     }
 
     fn skip_block(&mut self) -> Result<(), ParseError> {

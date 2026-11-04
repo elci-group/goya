@@ -100,10 +100,14 @@ fn push_token(
         ':' => Some(TokenKind::Colon),
         ';' => Some(TokenKind::Semicolon),
         ',' => Some(TokenKind::Comma),
-        '+' => Some(TokenKind::Plus),
-        '.' if chars.get(*i + 1).map_or(true, |c| !c.is_ascii_digit()) => {
-            Some(TokenKind::Dot)
+        '+' if chars
+            .get(*i + 1)
+            .is_some_and(|c| c.is_ascii_digit() || *c == '.') =>
+        {
+            None
         }
+        '+' => Some(TokenKind::Plus),
+        '.' if chars.get(*i + 1).map_or(true, |c| !c.is_ascii_digit()) => Some(TokenKind::Dot),
         '.' => None,
         '=' => Some(TokenKind::Equal),
         _ => None,
@@ -142,13 +146,13 @@ fn push_token(
         tokens.push(t(TokenKind::Str, &s, start_line));
         return Ok(());
     }
-    if c == '-' || c.is_ascii_digit() || c == '.' {
+    if c == '+' || c == '-' || c.is_ascii_digit() || c == '.' {
         let start = *i;
+        if chars[*i] == '+' || chars[*i] == '-' {
+            *i += 1;
+        }
         while *i < chars.len()
-            && (chars[*i].is_ascii_digit()
-                || chars[*i] == '.'
-                || chars[*i] == '-'
-                || chars[*i] == '_')
+            && (chars[*i].is_ascii_digit() || chars[*i] == '.' || chars[*i] == '_')
         {
             *i += 1;
         }
