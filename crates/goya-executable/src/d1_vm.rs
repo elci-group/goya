@@ -1027,6 +1027,46 @@ mod tests {
     }
 
     #[test]
+    fn canonical_program_decodes_and_replays_with_verified_hash() {
+        let source = program();
+        let bytes = source.canonical_bytes();
+        let decoded = D1Program::decode(&bytes, source.program_hash()).unwrap();
+        assert_eq!(decoded, source);
+        let (state, inputs) = snapshot(7, 4);
+        assert_eq!(decoded.execute(&state, &inputs), source.execute(&state, &inputs));
+
+        assert_eq!(
+            D1Program::decode(&bytes, [0; 32]),
+            Err(D1Error::ProgramHashMismatch)
+        );
+    }
+
+    #[test]
+    fn decoder_rejects_truncated_unsupported_and_oversized_programs() {
+        let bytes = program().canonical_bytes();
+        let truncated = &bytes[..bytes.len() - 1];
+        assert_eq!(
+            D1Program::decode(truncated, hash(truncated)),
+            Err(D1Error::MalformedProgram)
+        );
+
+        let mut unsupported = bytes;
+        let version_offset = DOMAIN_PROGRAM.len();
+        unsupported[version_offset..version_offset + 4]
+            .copy_from_slice(&(D1_VM_VERSION + 1).to_le_bytes());
+        assert_eq!(
+            D1Program::decode(&unsupported, hash(&unsupported)),
+            Err(D1Error::UnsupportedProgramVersion(D1_VM_VERSION + 1))
+        );
+
+        let oversized = vec![0; MAX_PROGRAM_BYTES + 1];
+        assert_eq!(
+            D1Program::decode(&oversized, [0; 32]),
+            Err(D1Error::ProgramTooLarge)
+        );
+    }
+
+    #[test]
     fn d1_transition_is_bounded_deterministic_and_replayable() {
         let program = program();
         let (state, inputs) = snapshot(7, 4);
