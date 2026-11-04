@@ -3,12 +3,15 @@ set -eu
 
 usage() {
     cat <<'EOF'
-Usage: install-local.sh [--dest DIRECTORY] [--force] [--verify-only] ARCHIVE.tar.gz
+Usage: install-local.sh [--dest DIRECTORY] [--force] [--verify-only]
+       [--trusted-key ED25519_PUBLIC_KEY.pem] ARCHIVE.tar.gz
 
 Verify ARCHIVE.tar.gz against ARCHIVE.tar.gz.sha256, validate its member
 paths, and install goya-studio and goya-scene into DIRECTORY (default:
-~/.local/bin). --force replaces existing regular files. --verify-only
-performs all archive checks without installing anything.
+~/.local/bin). SHA-256 checks integrity only. Supplying --trusted-key also
+requires and verifies ARCHIVE.tar.gz.sig as an Ed25519 publisher signature.
+--force replaces existing regular files. --verify-only performs checks
+without installing anything.
 EOF
 }
 
@@ -21,6 +24,7 @@ dest=
 force=no
 verify_only=no
 archive=
+trusted_key=
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --dest)
@@ -35,6 +39,12 @@ while [ "$#" -gt 0 ]; do
         --verify-only)
             verify_only=yes
             shift
+            ;;
+        --trusted-key)
+            [ "$#" -ge 2 ] || { usage >&2; exit 2; }
+            [ -z "$trusted_key" ] || { usage >&2; exit 2; }
+            trusted_key=$2
+            shift 2
             ;;
         --)
             shift
@@ -80,6 +90,19 @@ case "$expected" in
 esac
 actual=$(sha256sum "$archive" | awk '{ print $1 }')
 [ "$actual" = "$expected" ] || fail 'SHA-256 checksum mismatch'
+
+if [ -n "$trusted_key" ]; then
+    [ -f "$trusted_key" ] || fail "trusted public key not found: $trusted_key"
+    command -v openssl >/dev/null 2>&1 || fail 'openssl is required for Ed25519 signature verification'
+    signature=$archive.sig
+    [ -f "$signature" ] || fail "signature sidecar not found: $signature"
+    openssl pkeyutl -verify -pubin -inkey "$trusted_key" -rawin \
+        -in "$archive" -sigfile "$signature" >/dev/null 2>&1 ||
+        fail 'Ed25519 signature verification failed'
+    authenticity=verified
+else
+    authenticity=unchecked
+fi
 
 tmp_root=${TMPDIR:-/tmp}
 work=$(mktemp -d "$tmp_root/goya-install.XXXXXX") || fail 'could not create temporary directory'
@@ -135,7 +158,11 @@ while IFS= read -r detail || [ -n "$detail" ]; do
 done < "$work/details"
 
 [ "$verify_only" = no ] || {
-    printf 'verified: %s\n' "$archive"
+    if [ "$authenticity" = verified ]; then
+        printf 'verified: %s (SHA-256 integrity and Ed25519 publisher signature)\n' "$archive"
+    else
+        printf 'integrity verified: %s (SHA-256 only; publisher authenticity unchecked)\n' "$archive"
+    fi
     exit 0
 }
 
@@ -183,4 +210,8 @@ install_one() {
 
 install_one "$studio" "$dest/goya-studio"
 install_one "$scene" "$dest/goya-scene"
-printf 'installed goya-studio and goya-scene to %s\n' "$dest"
+if [ "$authenticity" = verified ]; then
+    printf 'installed goya-studio and goya-scene to %s (Ed25519 signature verified)\n' "$dest"
+else
+    printf 'installed goya-studio and goya-scene to %s (SHA-256 integrity only; publisher authenticity unchecked)\n' "$dest"
+fi
