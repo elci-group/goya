@@ -107,10 +107,11 @@ impl CompiledD2Interaction {
         &self,
         state: &D1Snapshot,
         inputs: &InputSnapshot,
+        journal: &EffectJournal,
         agent_id: &str,
     ) -> Result<goya_vee::SubmitRequest, TransitionError> {
-        self.execute(state, inputs)?;
-        goya_vee::request_from_d1_program(&self.program, state, inputs, agent_id)
+        self.execute(state, inputs, journal)?;
+        goya_vee::request_from_d2_program(&self.program, state, inputs, journal, agent_id)
             .map_err(|error| TransitionError::BridgeRejected(error.to_string()))
     }
 }
@@ -176,17 +177,16 @@ impl CompiledInteraction {
         Ok(outcome)
     }
 
-    /// Build a bounded journal-replay VEE worker request. The authored typed
-    /// checks run before the existing VM-to-VEE adapter; no host effect runs.
+    /// Build a bounded VEE worker request after enforcing the authored scalar
+    /// schema. This constructs a request only; network submission is explicit.
     pub fn to_vee_request(
         &self,
         state: &D1Snapshot,
         inputs: &InputSnapshot,
-        journal: &EffectJournal,
         agent_id: &str,
     ) -> Result<goya_vee::SubmitRequest, TransitionError> {
-        self.execute(state, inputs, journal)?;
-        goya_vee::request_from_d2_program(&self.program, state, inputs, journal, agent_id)
+        self.execute(state, inputs)?;
+        goya_vee::request_from_d1_program(&self.program, state, inputs, agent_id)
             .map_err(|error| TransitionError::BridgeRejected(error.to_string()))
     }
 }

@@ -28,6 +28,9 @@ the scene is reparsed when you update the preview. You can also drag a node
 in the preview canvas; the drag updates its position fields and applies the
 same guarded in-memory source edit. Click **Update preview** to redraw the
 canvas. The keyboard-operable inspector remains available for precise edits.
+When validation fails, the editor announces the validation message and offers
+**Go to error line** for parser errors, selecting the reported source line in
+the editor.
 **Download source** saves a copy through the browser.
 The Studio server never writes edits to the scene file. Preview requests are
 limited to 128 KiB and same-origin requests. Stop the server with Ctrl-C.
