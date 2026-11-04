@@ -518,6 +518,7 @@ fn argb(rgb: [u8; 3]) -> u32 {
 const RASTER_TILE_SIZE: u32 = 32;
 const MAX_RASTER_WORKERS: u32 = 4;
 
+#[allow(clippy::too_many_arguments)]
 fn raster_primitives(
     pixels: &mut [u32],
     width: i32,
@@ -548,12 +549,14 @@ fn raster_primitives(
         RASTER_TILE_SIZE,
         workers,
     );
-    if allow_parallel && policy != CsrPolicy::Serial && workers > 1 {
-        if raster_parallel_tiles(
+    if allow_parallel
+        && policy != CsrPolicy::Serial
+        && workers > 1
+        && raster_parallel_tiles(
             pixels, width, height, primitives, fg, glyph_px, roi, dirty, policy, workers,
-        ) {
-            return;
-        }
+        )
+    {
+        return;
     }
     raster_serial(pixels, width, height, primitives, fg, glyph_px, Some(roi));
 }
@@ -572,6 +575,7 @@ fn raster_serial(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn raster_parallel_tiles(
     pixels: &mut [u32],
     width: i32,
@@ -613,7 +617,7 @@ fn raster_parallel_tiles(
             .min(height))
         .max(0) as usize;
         if x0 >= x1 || y0 >= y1 || worker as usize >= by_worker.len() {
-            continue;
+            return false;
         }
         let item = WorkItem {
             deadline_ms: 16.67,
@@ -631,6 +635,7 @@ fn raster_parallel_tiles(
         by_worker[worker as usize].push(PixelClip { x0, y0, x1, y1 });
     }
 
+    let expected_tiles: usize = by_worker.iter().map(Vec::len).sum();
     let base: &[u32] = pixels;
     let rendered = std::thread::scope(|scope| {
         let handles = by_worker
@@ -680,6 +685,9 @@ fn raster_parallel_tiles(
             .flatten()
             .collect::<Vec<_>>()
     });
+    if rendered.len() != expected_tiles {
+        return false;
+    }
 
     // Merge complete, disjoint tile results in a fixed order. Each tile has
     // replayed the full primitive list in original draw order.
