@@ -454,7 +454,7 @@ impl HrtfProfile for MeasuredHrtfProfile {
         for entry in &self.responses {
             let vector = entry.direction.vector();
             let dot = source[0] * vector[0] + source[1] * vector[1] + source[2] * vector[2];
-            if closest.map_or(true, |(_, best)| dot > best) {
+            if closest.is_none_or(|(_, best)| dot > best) {
                 closest = Some((entry, dot));
             }
         }
