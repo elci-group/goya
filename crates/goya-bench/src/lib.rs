@@ -122,6 +122,10 @@ impl Corpus {
                 add_source_dimensions(source_pixels_total, path, source_width, source_height)?;
 
             let pixels = decode_local_image(ffmpeg, path, size)?;
+            let (hash_after_decode, _) = hash_local_file(path)?;
+            if hash_after_decode != file_hash {
+                return Err(LocalCorpusError::SourceChanged(path.clone()));
+            }
             let mut payload = mix64(seed ^ mix64(index as u64) ^ digest_u64(&file_hash)) | 1;
             while !payloads.insert(payload) {
                 payload = payload.wrapping_add(2);
@@ -350,6 +354,7 @@ pub enum LocalCorpusError {
     ToolVersionUnavailable(String),
     FileTooLarge(PathBuf),
     ReadSource(PathBuf),
+    SourceChanged(PathBuf),
     ProbeFailed(PathBuf),
     MalformedProbe(PathBuf),
     SourceDimensionLimit {
@@ -376,6 +381,9 @@ impl std::fmt::Display for LocalCorpusError {
             }
             Self::FileTooLarge(path) => write!(f, "source file exceeds 64 MiB: {}", path.display()),
             Self::ReadSource(path) => write!(f, "could not read source image: {}", path.display()),
+            Self::SourceChanged(path) => {
+                write!(f, "source image changed while being decoded: {}", path.display())
+            }
             Self::ProbeFailed(path) => write!(f, "ffprobe failed for {}", path.display()),
             Self::MalformedProbe(path) => write!(
                 f,
@@ -443,6 +451,7 @@ fn probe_dimensions(ffprobe: &str, path: &Path) -> Result<(u32, u32), LocalCorpu
             "-of",
             "csv=p=0:s=x",
         ])
+        .arg("-i")
         .arg(path);
     let output = command_output_bounded(&mut command, MAX_PROBE_OUTPUT_BYTES)
         .map_err(|_| LocalCorpusError::ProbeFailed(path.to_path_buf()))?;
