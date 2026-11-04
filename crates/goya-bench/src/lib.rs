@@ -26,6 +26,7 @@ const MAX_LOCAL_FILE_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_LOCAL_TOTAL_FILE_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_PROBE_OUTPUT_BYTES: usize = 256;
 const MAX_VERSION_OUTPUT_BYTES: usize = 64 * 1024;
+const MAX_CODEC_MEASUREMENTS: usize = 4;
 
 /// xorshift64 PRNG for deterministic corpus and noise generation.
 struct Xorshift64(u64);
@@ -1048,7 +1049,7 @@ impl Benchmark {
             corpus,
             transformations,
             report,
-            codec_roundtrip: Some(CodecRoundTripReport::not_requested()),
+            codec_roundtrips: vec![CodecRoundTripReport::not_requested()],
         }
     }
 }
@@ -1076,7 +1077,7 @@ pub struct BenchmarkResult {
     pub transformations: Vec<Compression>,
     pub report: RobustnessReport,
     /// Optional measurement through an installed external image codec.
-    pub codec_roundtrip: Option<CodecRoundTripReport>,
+    pub codec_roundtrips: Vec<CodecRoundTripReport>,
 }
 
 /// Result of an optional real encoder/decoder measurement.
