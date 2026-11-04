@@ -818,7 +818,9 @@ mod tests {
         assert!(initial.2.contains("source.addEventListener('input'"));
         assert!(initial.2.contains("event.shiftKey?1:-1"));
         assert!(initial.2.contains("event.ctrlKey&&key==='y'"));
-        assert!(initial.2.contains("Undo history is limited to scenes of 128 KiB or less"));
+        assert!(initial
+            .2
+            .contains("Undo history is limited to scenes of 128 KiB or less"));
         assert_eq!(
             route_request(&get("/other"), HOST, SCENE, &html).0,
             "404 Not Found"
