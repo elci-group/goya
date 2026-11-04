@@ -25,6 +25,11 @@ no live-host effect path in this VM.
   SHA-256. The state output is returned as data; the VM does not mutate
   `goya-state::Store` or perform network, filesystem, clock, RNG, or other
   host I/O.
+- `D2Program::decode` restores the canonical program bytes after checking the
+  supplied SHA-256, format version, canonical encoding, and exact embedded
+  proof. The caller must also supply the original `ProcessDecl`; compilation
+  reclassifies it and verifies every effect capability against that
+  declaration. Proof metadata alone does not carry capability grants.
 
 ## Bounds and exclusions
 
