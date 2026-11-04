@@ -30,6 +30,15 @@ process name and D1 class. D1 declarations with host effects are rejected.
 
 ## Bounds and exclusions
 
+## Typed GY-LANG bridge
+
+`goya-lang::CompiledInteraction::to_vee_request` checks the source-authored
+state/input/output scalar types, then builds the existing bounded VEE worker
+request from its private verified `D1Program`. It returns a `SubmitRequest`;
+it does not connect to VEE or submit anything. This preserves the source type
+contract without exposing the raw VM program. The resulting worker still
+applies the D1 VM's exact key-set, arithmetic, and outcome-hash checks.
+
 - At most 256 distinct contract/snapshot keys, 4,096 instructions, 64 KiB per
   text value, 1 MiB combined state/input snapshots, 2 MiB encoded program,
   and 1 MiB register data per execution.
