@@ -2,10 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use goya_bench::{
-    measure_ffmpeg_h264, measure_ffmpeg_mjpeg, measure_ffmpeg_mpeg4, measure_ffmpeg_png, Benchmark,
-    BenchmarkResult, Corpus,
-};
+use goya_bench::{measure_ffmpeg_codecs, Benchmark, BenchmarkResult, Corpus};
 
 fn main() -> ExitCode {
     match run() {
@@ -29,13 +26,13 @@ fn run() -> Result<(), String> {
     let mut ffmpeg = "ffmpeg".to_string();
     let mut ffprobe = "ffprobe".to_string();
     let mut codec_roundtrip = false;
-    let mut codec = "mjpeg".to_string();
+    let mut codecs = Vec::new();
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--help" | "-h" => {
                 println!(
-                    "Usage: goya-watermark-benchmark [--seed N] [--images N | --image-dir DIR] [--size PX] [--key HEX] [--alpha N] [--codec-roundtrip] [--codec mjpeg|png|h264|mpeg4] [--ffmpeg PATH] [--ffprobe PATH] [--output PATH]\n\
+                    "Usage: goya-watermark-benchmark [--seed N] [--images N | --image-dir DIR] [--size PX] [--key HEX] [--alpha N] [--codec-roundtrip] [--codec mjpeg|png|h264|mpeg4 ...] [--ffmpeg PATH] [--ffprobe PATH] [--output PATH]\n\
                      Defaults: seed={seed}, images={images}, size={size}, key={key:016x}, alpha={alpha}.\n\
                      --image-dir loads sorted local image files, normalizes to square grayscale, and records SHA-256 source hashes.\n\
                      Reports deterministic pixel-surrogate measurements; codec settings: MJPEG q:v 2/5/8, PNG levels 1/6/9, H.264 CRF 18/28/38, MPEG-4 q:v 2/5/8."
@@ -74,7 +71,7 @@ fn run() -> Result<(), String> {
             "--ffprobe" => ffprobe = value(&mut args, "--ffprobe")?,
             "--codec-roundtrip" => codec_roundtrip = true,
             "--codec" => {
-                codec = match value(&mut args, "--codec")?.as_str() {
+                let codec = match value(&mut args, "--codec")?.as_str() {
                     "mjpeg" => "mjpeg".to_string(),
                     "png" => "png".to_string(),
                     "h264" => "h264".to_string(),
@@ -85,6 +82,7 @@ fn run() -> Result<(), String> {
                         ))
                     }
                 };
+                codecs.push(codec);
                 codec_roundtrip = true;
             }
             unknown => return Err(format!("unknown argument `{unknown}` (use --help)")),
@@ -114,6 +112,19 @@ fn run() -> Result<(), String> {
     if !alpha.is_finite() || !(1.0..=64.0).contains(&alpha) {
         return Err("--alpha must be finite and between 1 and 64".into());
     }
+    if codec_roundtrip && codecs.is_empty() {
+        codecs.push("mjpeg".into());
+    }
+    if codecs.len() > 4 {
+        return Err("at most four --codec selections are allowed".into());
+    }
+    let mut unique_codecs = std::collections::BTreeSet::new();
+    if codecs
+        .iter()
+        .any(|codec| !unique_codecs.insert(codec.clone()))
+    {
+        return Err("duplicate --codec selections are not allowed".into());
+    }
 
     let mut result: BenchmarkResult = if let Some(directory) = image_dir {
         let paths = local_image_paths(&directory)?;
@@ -124,15 +135,8 @@ fn run() -> Result<(), String> {
         Benchmark.run_adversarial(seed, images, size, key, alpha)
     };
     if codec_roundtrip {
-        if codec == "png" {
-            measure_ffmpeg_png(&mut result, &ffmpeg);
-        } else if codec == "h264" {
-            measure_ffmpeg_h264(&mut result, &ffmpeg);
-        } else if codec == "mpeg4" {
-            measure_ffmpeg_mpeg4(&mut result, &ffmpeg);
-        } else {
-            measure_ffmpeg_mjpeg(&mut result, &ffmpeg);
-        }
+        let codec_refs: Vec<&str> = codecs.iter().map(String::as_str).collect();
+        measure_ffmpeg_codecs(&mut result, &ffmpeg, &codec_refs);
     }
     let json = result.to_json();
     if let Some(path) = output {

@@ -1140,11 +1140,7 @@ pub fn measure_ffmpeg_mpeg4(result: &mut BenchmarkResult, executable: &str) {
 
 /// Measure several supported codecs in one report. The selection is bounded
 /// to four entries so subprocess count cannot grow without limit.
-pub fn measure_ffmpeg_codecs(
-    result: &mut BenchmarkResult,
-    executable: &str,
-    codecs: &[&str],
-) {
+pub fn measure_ffmpeg_codecs(result: &mut BenchmarkResult, executable: &str, codecs: &[&str]) {
     result.codec_roundtrips.clear();
     if codecs.is_empty() {
         result
@@ -1212,11 +1208,9 @@ fn measure_ffmpeg_codec(result: &mut BenchmarkResult, executable: &str, codec: &
             .unwrap_or("ffmpeg version unavailable")
             .to_string(),
         Ok(_) => {
-            result.codec_roundtrips.push(codec_unavailable(
-                codec,
-                None,
-                "ffmpeg -version failed",
-            ));
+            result
+                .codec_roundtrips
+                .push(codec_unavailable(codec, None, "ffmpeg -version failed"));
             return;
         }
         Err(error) => {
@@ -1384,7 +1378,7 @@ impl BenchmarkResult {
     /// measurements. No pass threshold is implied by these measurements.
     pub fn to_json(&self) -> String {
         let mut json = format!(
-            "{{\n  \"schema\":\"GY-BENCH-REPORT/1\",\n  \"seed\":{},\n  \"images\":{},\n  \"width\":{},\n  \"height\":{},\n  \"key_hex\":\"{:016x}\",\n  \"alpha\":{},\n  \"corpus_kind\":\"{}\",\n  \"decode_tool_version\":{},\n  \"corpus_fnv1a64\":\"{:016x}\",\n  \"threshold_policy\":\"measurements only; no general robustness threshold\",\n  \"transforms\":[",
+            "{{\n  \"schema\":\"GY-BENCH-REPORT/2\",\n  \"seed\":{},\n  \"images\":{},\n  \"width\":{},\n  \"height\":{},\n  \"key_hex\":\"{:016x}\",\n  \"alpha\":{},\n  \"corpus_kind\":\"{}\",\n  \"decode_tool_version\":{},\n  \"corpus_fnv1a64\":\"{:016x}\",\n  \"threshold_policy\":\"measurements only; no general robustness threshold\",\n  \"transforms\":[",
             self.seed,
             self.n_images,
             self.width,
@@ -1830,11 +1824,11 @@ mod tests {
         assert_eq!(result.report.false_positive_controls, 6 * 17);
         assert_eq!(result.report.false_positives, 0);
         let json = result.to_json();
-        assert!(json.starts_with("{\n  \"schema\":\"GY-BENCH-REPORT/1\""));
+        assert!(json.starts_with("{\n  \"schema\":\"GY-BENCH-REPORT/2\""));
         assert!(json.contains(
             "\"threshold_policy\":\"measurements only; no general robustness threshold\""
         ));
-        assert!(json.contains("\"codec_roundtrip\":{\"status\":\"not_requested\""));
+        assert!(json.contains("\"codec_roundtrips\":[{\"status\":\"not_requested\""));
         assert_eq!(
             json,
             Benchmark.run_adversarial(42, 6, 64, KEY, ALPHA).to_json()
@@ -1845,13 +1839,33 @@ mod tests {
     fn unavailable_optional_codec_is_explicit_and_keeps_surrogate_results() {
         let mut result = Benchmark.run_adversarial(42, 1, 64, KEY, ALPHA);
         measure_ffmpeg_mjpeg(&mut result, "/definitely/missing/ffmpeg");
-        let codec = result.codec_roundtrip.as_ref().unwrap();
+        let codec = result.codec_roundtrips.last().unwrap();
         assert_eq!(codec.status, "unavailable");
         assert!(codec.note.as_deref().unwrap().contains("could not start"));
         assert_eq!(result.report.transforms.len(), 15);
         let json = result.to_json();
         assert!(json.contains("\"status\":\"unavailable\""));
         assert!(json.ends_with("}\n"));
+    }
+
+    #[test]
+    fn multiple_codec_requests_remain_separate_in_one_report() {
+        let mut result = Benchmark.run_adversarial(42, 1, 64, KEY, ALPHA);
+        measure_ffmpeg_codecs(
+            &mut result,
+            "/definitely/missing/ffmpeg",
+            &["h264", "mpeg4"],
+        );
+        assert_eq!(result.codec_roundtrips.len(), 2);
+        assert_eq!(result.codec_roundtrips[0].codec, "h264");
+        assert_eq!(result.codec_roundtrips[1].codec, "mpeg4");
+        let json = result.to_json();
+        assert!(json.contains(
+            "\"codec_roundtrips\":[{\"status\":\"unavailable\",\"codec\":\"h264\",\"quality_parameter\":\"\""
+        ));
+        assert!(json.contains(
+            "{\"status\":\"unavailable\",\"codec\":\"mpeg4\",\"quality_parameter\":\"\""
+        ));
     }
 
     #[test]
