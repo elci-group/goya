@@ -96,9 +96,14 @@ impl GtkAtspiBridge {
             content.set_margin_bottom(12);
             content.set_margin_start(12);
             content.set_margin_end(12);
-            populate(&content, &tree.borrow(), &on_action);
+            let initial_focus = populate(&content, &tree.borrow(), &on_action);
             window.add(&content);
             window.show_all();
+            if let Some(widget) = initial_focus {
+                // GTK cannot reliably focus a widget before it is realized.
+                // Apply projected focus only after it is visible in the window.
+                widget.grab_focus();
+            }
 
             if let Some(updates) = updates.borrow_mut().take() {
                 let tree = tree.clone();
@@ -114,8 +119,13 @@ impl GtkAtspiBridge {
                         while let Some(child) = content.children().first() {
                             content.remove(child);
                         }
-                        populate(&content, &tree.borrow(), &on_action);
+                        let focus = populate(&content, &tree.borrow(), &on_action);
                         content.show_all();
+                        if let Some(widget) = focus {
+                            // Rebuilt controls are not focusable until the
+                            // replacement snapshot has been shown.
+                            widget.grab_focus();
+                        }
                     }
                     gtk::glib::ControlFlow::Continue
                 });
@@ -138,15 +148,17 @@ fn take_latest(updates: &mpsc::Receiver<A11yTree>) -> Result<Option<A11yTree>, (
     }
 }
 
-fn populate(content: &GtkBox, tree: &A11yTree, on_action: &std::rc::Rc<dyn Fn(String, AtAction)>) {
+fn populate(
+    content: &GtkBox,
+    tree: &A11yTree,
+    on_action: &std::rc::Rc<dyn Fn(String, AtAction)>,
+) -> Option<Widget> {
     let mut focused = None;
     for root in tree.nodes.values().filter(|node| node.parent.is_none()) {
         let widget = make_node(tree, root, on_action, &mut focused);
         content.pack_start(&widget, false, false, 0);
     }
-    if let Some(widget) = focused {
-        widget.grab_focus();
-    }
+    focused
 }
 
 #[cfg(test)]
@@ -272,7 +284,7 @@ fn make_node(
     if let Some(accessible) = widget.accessible() {
         accessible.set_name(&node.accessible_name);
     }
-    if node.focused {
+    if node.focused && node.enabled && node.role.is_interactive() {
         *focused = Some(widget.clone());
     }
     widget
