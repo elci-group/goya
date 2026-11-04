@@ -759,6 +759,7 @@ version = "0.1.8"
 name = "goya-wayland"
 version = "0.1.8"
 dependencies = [
+ "goya-change",
  "goya-csr",
  "goya-hcar",
  "goya-layout",
