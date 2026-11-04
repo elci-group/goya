@@ -8,9 +8,9 @@
 //! protocol reimplementation is a security liability, not an asset
 //! (GOYA §13: Linux compositor fragmentation).
 
-use goya_layout::Rect;
 use goya_csr::{self, Policy as CsrPolicy};
 use goya_hcar::{AffinityMode, Classifier, CoreAssignment, WorkCost, WorkItem};
+use goya_layout::Rect;
 use rustix::fd::OwnedFd;
 use rustix::fs::{ftruncate, memfd_create, MemfdFlags};
 use rustix::mm::{mmap, munmap, MapFlags, ProtFlags};
@@ -550,16 +550,7 @@ fn raster_primitives(
     );
     if allow_parallel && policy != CsrPolicy::Serial && workers > 1 {
         if raster_parallel_tiles(
-            pixels,
-            width,
-            height,
-            primitives,
-            fg,
-            glyph_px,
-            roi,
-            dirty,
-            policy,
-            workers,
+            pixels, width, height, primitives, fg, glyph_px, roi, dirty, policy, workers,
         ) {
             return;
         }
@@ -609,10 +600,18 @@ fn raster_parallel_tiles(
     for (tile, worker) in plan {
         let x0 = (tile.x.max(roi.x0 as i32)) as usize;
         let y0 = (tile.y.max(roi.y0 as i32)) as usize;
-        let x1 = (tile.x.saturating_add(tile.size as i32).min(roi.x1 as i32).min(width))
-            .max(0) as usize;
-        let y1 = (tile.y.saturating_add(tile.size as i32).min(roi.y1 as i32).min(height))
-            .max(0) as usize;
+        let x1 = (tile
+            .x
+            .saturating_add(tile.size as i32)
+            .min(roi.x1 as i32)
+            .min(width))
+        .max(0) as usize;
+        let y1 = (tile
+            .y
+            .saturating_add(tile.size as i32)
+            .min(roi.y1 as i32)
+            .min(height))
+        .max(0) as usize;
         if x0 >= x1 || y0 >= y1 || worker as usize >= by_worker.len() {
             continue;
         }
@@ -743,7 +742,15 @@ fn raster_primitive_offset(
             goya_runtime::Primitive::Button(shifted, text.clone())
         }
     };
-    raster_primitive(pixels, width, height, &shifted_prim, fg, glyph_px, Some(clip));
+    raster_primitive(
+        pixels,
+        width,
+        height,
+        &shifted_prim,
+        fg,
+        glyph_px,
+        Some(clip),
+    );
 }
 
 fn fill_rect(pixels: &mut [u32], win_w: i32, win_h: i32, r: &Rect, rgb: [u8; 3]) {
