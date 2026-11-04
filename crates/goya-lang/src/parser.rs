@@ -204,8 +204,50 @@ impl P {
         self.optional_semi();
         self.expect_ident_value("class")?;
         self.expect(TokenKind::Colon)?;
-        self.expect_ident_value("D1")?;
+        let class = match self.expect_ident()?.as_str() {
+            "D1" => InteractionClass::D1,
+            "D2" => InteractionClass::D2,
+            _ => return Err(ParseError { line: self.line() }),
+        };
         self.optional_semi();
+
+        let mut declared_effects = Vec::new();
+        let mut requests = Vec::new();
+        if class == InteractionClass::D2 {
+            self.expect_ident_value("effects")?;
+            self.expect(TokenKind::LBrace)?;
+            while !matches!(self.peek().map(|t| t.kind), Some(TokenKind::RBrace)) {
+                declared_effects.push(self.parse_effect_kind()?);
+                self.optional_semi();
+            }
+            self.expect(TokenKind::RBrace)?;
+
+            self.expect_ident_value("requests")?;
+            self.expect(TokenKind::LBrace)?;
+            while !matches!(self.peek().map(|t| t.kind), Some(TokenKind::RBrace)) {
+                let request_name = self.expect_ident()?;
+                self.expect(TokenKind::Colon)?;
+                self.expect_ident_value("capability")?;
+                let capability = self.expect(TokenKind::Str)?.text;
+                self.expect_ident_value("request")?;
+                let request_utf8 = self.expect(TokenKind::Str)?.text;
+                self.expect_ident_value("result")?;
+                let result_type = match self.expect_ident()?.as_str() {
+                    "int64" => EffectValueType::Int64,
+                    "text" => EffectValueType::Text,
+                    "bool" => EffectValueType::Bool,
+                    _ => return Err(ParseError { line: self.line() }),
+                };
+                requests.push(EffectRequestDecl {
+                    name: request_name,
+                    capability,
+                    request_utf8,
+                    result_type,
+                });
+                self.expect(TokenKind::Semicolon)?;
+            }
+            self.expect(TokenKind::RBrace)?;
+        }
 
         self.expect_ident_value("state")?;
         self.expect(TokenKind::LBrace)?;
@@ -257,11 +299,25 @@ impl P {
         Ok(InteractionDecl {
             name,
             trigger_button,
+            class,
+            declared_effects,
+            requests,
             state_reads,
             state_writes,
             inputs,
             assignments,
         })
+    }
+
+    fn parse_effect_kind(&mut self) -> Result<EffectKind, ParseError> {
+        match self.expect_ident()?.as_str() {
+            "network" => Ok(EffectKind::Network),
+            "filesystem" => Ok(EffectKind::FileSystem),
+            "clock" => Ok(EffectKind::Clock),
+            "random" => Ok(EffectKind::Random),
+            "global_mutable" => Ok(EffectKind::GlobalMutable),
+            _ => Err(ParseError { line: self.line() }),
+        }
     }
 
     fn parse_interaction_type(&mut self) -> Result<InteractionType, ParseError> {
@@ -304,13 +360,15 @@ impl P {
                 match head.as_str() {
                     "true" => Ok(InteractionExpr::Literal(InteractionValue::Bool(true))),
                     "false" => Ok(InteractionExpr::Literal(InteractionValue::Bool(false))),
-                    "state" | "input" => {
+                    "state" | "input" | "effect" => {
                         self.expect(TokenKind::Dot)?;
                         let key = self.expect_ident()?;
                         if head == "state" {
                             Ok(InteractionExpr::State(key))
-                        } else {
+                        } else if head == "input" {
                             Ok(InteractionExpr::Input(key))
+                        } else {
+                            Ok(InteractionExpr::Effect(key))
                         }
                     }
                     _ => Err(ParseError { line: self.line() }),
