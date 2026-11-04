@@ -206,7 +206,7 @@ three-button acceptance geometry depends on it.
 | ~~GY-WAYLAND-001 live surface~~ | 1 (done) | 0.1 release gate |
 | PipeWire audio adapter (`goya-audio-linux` backend) | 2a (implemented) | real ARSEM output; host/device smoke recorded |
 | Hot-swap interface reconciliation + Tov CLI adapter | 2b (implemented) | release 0.2; CLI and compatibility tests |
-| EDC canonical lowering + D0 bytecode/reference VM + D1/D2 journals | 2c (implemented, partial) | Authored Goya source lowers through the bounded typed single-button D1 subset; broader D1 language features and authored D2 effect/journal lowering remain open. D1/D2 canonical decoding and VEE workers are available; raw source-compiled VM bridging awaits a typed adapter |
+| EDC canonical lowering + D0 bytecode/reference VM + D1/D2 journals | 2c (implemented, partial) | Authored Goya source lowers through bounded typed single-button D1 and static-journal D2 subsets; broader language features and typed source-compiled VM/VEE bridging remain open. D1/D2 canonical decoding and VEE workers are available |
 | VEE submission API + bounded D0 data bridge | 3a (implemented, partial) | D0/D1/D2 workers passed local live submit/status/result E2E; VEE's D0 stdout artifact may prefix sandbox diagnostics; local Landlock was unavailable, so the live smoke used rlimit isolation only |
 | RUGID / 3form / Mesut / Theosis adapters | 3b (implemented) | release 0.3–0.4; local companion-tool smokes |
 | C2PA signing + explicit trust-aware verification | 3c (implemented, partial) | official-tool signing and an ephemeral trusted-root verification smoke passed; production signer identity, trust anchors/allowlist, and key custody remain release-owner decisions |
@@ -273,15 +273,15 @@ both paths feed the same runtime/layout/render pipeline.
   bindings are rejected. `compile_d1_interactions` and
   `compile_d2_interactions` select only their class, while uniqueness is
   validated across all interactions in the scene.
-  `compile_d1_interactions` binds triggers to the same depth-first button
-  `ActionId`s as scene lowering and emits only verified D1 VM programs. Its
-  immutable schema metadata is exposed through read-only accessors, and the
-  typed execution wrapper checks authored state/input and resulting write
-  types around the VM. The raw VM programs are intentionally not exposed;
-  future VM/VEE bridges must preserve authored scalar types because the VM
-  verifies key sets but does not encode scalar types. Button traversal stops
-  at buttons, matching IR lowering. Branches, loops, comparisons, and other
-  expression forms are not yet source-language features.
+  The D1 and D2 compilers bind triggers to the same depth-first button
+  `ActionId`s as scene lowering and emit only verified programs. Their typed
+  execution wrappers check authored state/input and resulting write types
+  around the VM. D2 exposes read-only declaration, proof, and capability
+  metadata for caller-created journals. Raw VM programs are intentionally not
+  exposed; future VM/VEE bridges must preserve authored scalar types because
+  the VMs verify key sets but do not encode scalar types. Button traversal
+  stops at buttons, matching IR lowering. Branches, loops, comparisons, and
+  other expression forms are not yet source-language features.
 - Totality: parse + layout never panic on any input — 10,000-input
   deterministic mutation fuzzer enforces it.
 - Hit testing: `hit_test(&Frame, x_mp, y_mp) -> Option<button-name>` with
@@ -298,6 +298,22 @@ Example D1 interaction:
   state { read count: int; write count: int; }
   input { amount: int; }
   set count = state.count + input.amount;
+}
+```
+
+Example static D2 interaction (the caller supplies and records the journal):
+
+```text
+@interaction lookup_item {
+  trigger: button.search.activate;
+  class: D2;
+  effects { network; }
+  requests {
+    lookup: effect network capability "network" request "GET /items/42" result text;
+  }
+  state { write result: text; }
+  input { }
+  set result = effect.lookup;
 }
 ```
 
