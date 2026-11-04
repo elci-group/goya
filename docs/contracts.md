@@ -214,7 +214,7 @@ three-button acceptance geometry depends on it.
 | RPI Level-2 learned anticipation (opt-in) | 3e (implemented) | anticipatory runtime |
 | GTK/AT-SPI live-refresh bridge + accessibility conformance | 4 (bridge implemented, conformance open) | Linux AT-SPI tree/actions were observed; Orca logged no focus target, so navigation/announcements and WCAG evidence across supported platforms remain open |
 | SDK, Studio CLI/browser preview, reproducible package + offline installer | 4 (implemented, partial) | browser editor has a geometry inspector and canvas drag; signed offline packages are supported; full IDE, publisher key custody/distribution, and release publication remain open |
-| Watermark corpus + real codec evaluation | 4 (implemented, limited claim) | synthetic and caller-supplied local-image corpora plus MJPEG/PNG codec paths are available; a larger licensed photo corpus and broader lossy-codec evaluation remain |
+| Watermark corpus + real codec evaluation | 4 (implemented, limited claim) | synthetic and caller-supplied local-image corpora plus MJPEG/PNG/H.264/MPEG-4 paths are available; a larger licensed photo corpus and evaluation across broader codec settings/builds remain |
 
 ## GY-HOTSWAP/1 — Persisted-state migration
 
