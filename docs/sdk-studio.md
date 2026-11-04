@@ -26,9 +26,9 @@ edit its X/Y position and width/height in points or parent fractions. It
 updates only the selected node's geometry properties in the source editor;
 the scene is reparsed when you update the preview. You can also drag a node
 in the preview canvas; the drag updates its position fields and applies the
-same guarded in-memory source edit. The keyboard-operable inspector remains
-available for precise edits. **Download source** saves a copy through the
-browser.
+same guarded in-memory source edit. Click **Update preview** to redraw the
+canvas. The keyboard-operable inspector remains available for precise edits.
+**Download source** saves a copy through the browser.
 The Studio server never writes edits to the scene file. Preview requests are
 limited to 128 KiB and same-origin requests. Stop the server with Ctrl-C.
 

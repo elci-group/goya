@@ -263,8 +263,16 @@ fn render_editor(project: &SceneProject, preview: &str) -> String {
         };
         let parent_extent = parent_index
             .and_then(|parent| frame.nodes.get(parent))
-            .map(|parent| (parent.rect.width as f64 / 1000.0, parent.rect.height as f64 / 1000.0))
-            .unwrap_or((project.viewport().width_points, project.viewport().height_points));
+            .map(|parent| {
+                (
+                    parent.rect.width as f64 / 1000.0,
+                    parent.rect.height as f64 / 1000.0,
+                )
+            })
+            .unwrap_or((
+                project.viewport().width_points,
+                project.viewport().height_points,
+            ));
         html.push_str(&format!("<option value=\"{}\" data-name=\"{}\" data-kind=\"{}\" data-pos-key=\"{}\" data-extent-key=\"{}\" data-parent-w=\"{}\" data-parent-h=\"{}\" data-x=\"{}\" data-y=\"{}\" data-w=\"{}\" data-h=\"{}\">{}</option>", index, escape_html(&cell.name), kind, pos_key, extent_key, parent_extent.0, parent_extent.1, pos.x, pos.y, extent.x, extent.y, escape_html(&cell.name)));
     }
     html.push_str("</select></label><label>Position mode<select id=\"pos-mode\"><option value=\"position\">Points</option><option value=\"position_p\">Parent fraction</option></select></label><label>Extent mode<select id=\"extent-mode\"><option value=\"extent\">Points</option><option value=\"extent_p\">Parent fraction</option></select></label><label>X<input id=\"x\" type=\"number\" step=\"any\"></label><label>Y<input id=\"y\" type=\"number\" step=\"any\"></label><label>Width<input id=\"w\" type=\"number\" step=\"any\"></label><label>Height<input id=\"h\" type=\"number\" step=\"any\"></label></div><textarea id=\"source\" spellcheck=\"false\">");
@@ -734,7 +742,8 @@ mod tests {
         let project = SceneProject::from_source("@ontology demo { @button ok { position: (0, 0, 0) extent: (80, 40, 0) text: \"<script>\" } }", Viewport::default()).unwrap();
         let html = render_html(&project);
         assert!(html.contains("&lt;script&gt;"));
-        assert!(!html.contains("<script>"));
+        assert!(html.contains("<script>")); // fixed canvas interaction code
+        assert!(!html.contains("<script>alert(1)</script>"));
         let initial = route_request(&get("/"), HOST, SCENE, &html);
         assert_eq!(initial.0, "200 OK");
         assert!(initial.2.contains("Scene source"));
