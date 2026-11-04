@@ -41,8 +41,22 @@ only the declared result type, and requires all records to be consumed. It
 performs no host effects and the VEE request grants no capabilities. The
 adapter bounds the journal to 256 entries/64 KiB, combined embedded payload
 to 32 KiB, source to 256 KiB, and worker output to 2 MiB. Focused local Python
-tests compare the full output and hashes with the Rust D2 outcome; live VEE
-execution remains unverified.
+tests compare the full output and hashes with the Rust D2 outcome.
+
+On 2026-11-04, the generated D2 replay worker was submitted through Goya's
+`VeeClient` to the local VEE source on loopback with isolated temporary data,
+config, and pattern-store paths, authentication disabled only for that
+disposable instance, and mDNS disabled. The task reached `Completed`; the
+worker replayed the supplied integer result 4, changed `count` from 8 to 12,
+and advanced revision 5 to 6. Its program, input, and outcome hashes were
+`334527df00d3bd99771c6b7d59cbb87efbee989a4569c7331f47cdc6d5cd185a`,
+`d9914bb941607e8e603de0ecc9169b7ff46170d007a2ad8f5b2219e5b163904c`, and
+`ed8fe5c14d5e53adbf968467dccf6babb90c013feb7f7bd16e9ff929662db2ea`.
+The request granted no VEE capabilities. In this environment Landlock setup
+failed with `Operation not permitted`; VEE continued with its rlimit sandbox
+layer only. This confirms local worker submit/status/result behavior, not
+production Landlock or other production sandbox coverage. The D1 result and
+full smoke details are in [goya-vee.md](goya-vee.md#local-d1d2-live-smoke).
 
 ## Bounds and exclusions
 
