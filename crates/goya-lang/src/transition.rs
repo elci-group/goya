@@ -1,11 +1,12 @@
-//! Conservative lowering of authored single-button D1 interactions.
+//! Conservative lowering of authored single-button D1 and static-journal D2 interactions.
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use goya_determinism::proofs::ExecutionProof;
-use goya_determinism::{DeterminismClass, ProcessDecl};
+use goya_determinism::{DeterminismClass, EffectKind, ProcessDecl};
 use goya_executable::{
-    D1Instruction, D1Outcome, D1Program, D1Snapshot, D1Value, InputSnapshot, StateContract,
+    CapabilityLabel, D1Instruction, D1Outcome, D1Program, D1Snapshot, D1Value, D2Instruction,
+    D2Outcome, D2Program, D2Snapshot, EffectJournal, EffectResultType, InputSnapshot, StateContract,
 };
 use goya_ir::ActionId;
 
