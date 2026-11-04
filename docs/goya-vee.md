@@ -54,6 +54,18 @@ fields by the remote VEE task API still needs confirmation. Callers may
 continue to use `SubmitRequest` directly for independently authored
 supported-language source.
 
+`request_from_d1_program` accepts a `D1Program` handle produced by the bounded
+canonical decoder (or compiler), plus explicit `D1Snapshot` and
+`InputSnapshot` values. It first runs the Rust VM to validate the exact schema
+and execution, then generates a Python worker implementing only the validated
+constant, state-read, input-read, checked-add, and state-write operations.
+The worker repeats exact schema and size checks, emits typed state/register
+values and the same program/input/outcome hashes as the Rust VM, and requests
+no VEE capabilities. A local Python execution test compares its complete JSON
+output against the Rust outcome. This uses the existing VEE `language=python`
+submit contract; acceptance and result-field retention by a running VEE
+service remain unverified. D2 stays journal-replay-only and has no VEE worker.
+
 ## Verification scope
 
 Unit tests verify request JSON, endpoint path, bearer header, success/error
