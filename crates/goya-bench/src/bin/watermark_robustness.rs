@@ -2,7 +2,10 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use goya_bench::{measure_ffmpeg_mjpeg, measure_ffmpeg_png, Benchmark, BenchmarkResult, Corpus};
+use goya_bench::{
+    measure_ffmpeg_h264, measure_ffmpeg_mjpeg, measure_ffmpeg_mpeg4, measure_ffmpeg_png, Benchmark,
+    BenchmarkResult, Corpus,
+};
 
 fn main() -> ExitCode {
     match run() {
@@ -32,10 +35,10 @@ fn run() -> Result<(), String> {
         match arg.as_str() {
             "--help" | "-h" => {
                 println!(
-                    "Usage: goya-watermark-benchmark [--seed N] [--images N | --image-dir DIR] [--size PX] [--key HEX] [--alpha N] [--codec-roundtrip] [--codec mjpeg|png] [--ffmpeg PATH] [--ffprobe PATH] [--output PATH]\n\
+                    "Usage: goya-watermark-benchmark [--seed N] [--images N | --image-dir DIR] [--size PX] [--key HEX] [--alpha N] [--codec-roundtrip] [--codec mjpeg|png|h264|mpeg4] [--ffmpeg PATH] [--ffprobe PATH] [--output PATH]\n\
                      Defaults: seed={seed}, images={images}, size={size}, key={key:016x}, alpha={alpha}.\n\
                      --image-dir loads sorted local image files, normalizes to square grayscale, and records SHA-256 source hashes.\n\
-                     Reports deterministic pixel-surrogate measurements; --codec-roundtrip optionally measures ffmpeg MJPEG. Select --codec png for PNG round-trip (levels 1, 6, 9)."
+                     Reports deterministic pixel-surrogate measurements; codec settings: MJPEG q:v 2/5/8, PNG levels 1/6/9, H.264 CRF 18/28/38, MPEG-4 q:v 2/5/8."
                 );
                 return Ok(());
             }
@@ -74,9 +77,11 @@ fn run() -> Result<(), String> {
                 codec = match value(&mut args, "--codec")?.as_str() {
                     "mjpeg" => "mjpeg".to_string(),
                     "png" => "png".to_string(),
+                    "h264" => "h264".to_string(),
+                    "mpeg4" => "mpeg4".to_string(),
                     other => {
                         return Err(format!(
-                            "unsupported --codec `{other}` (choose mjpeg or png)"
+                            "unsupported --codec `{other}` (choose mjpeg, png, h264, or mpeg4)"
                         ))
                     }
                 };
@@ -121,6 +126,10 @@ fn run() -> Result<(), String> {
     if codec_roundtrip {
         if codec == "png" {
             measure_ffmpeg_png(&mut result, &ffmpeg);
+        } else if codec == "h264" {
+            measure_ffmpeg_h264(&mut result, &ffmpeg);
+        } else if codec == "mpeg4" {
+            measure_ffmpeg_mpeg4(&mut result, &ffmpeg);
         } else {
             measure_ffmpeg_mjpeg(&mut result, &ffmpeg);
         }
