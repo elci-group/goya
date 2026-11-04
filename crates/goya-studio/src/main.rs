@@ -472,7 +472,8 @@ fn route_request_for_scene(
             None => Ok(source.to_owned()),
         };
         return match current_source.and_then(|source| {
-            SceneProject::from_source(source, Viewport::default()).map_err(|error| error.to_string())
+            SceneProject::from_source(source, Viewport::default())
+                .map_err(|error| error.to_string())
         }) {
             Ok(project) if project.frame().nodes.len() <= MAX_PREVIEW_NODES => {
                 let preview = if save_path.is_some() {
@@ -576,11 +577,7 @@ fn route_request_for_scene(
         match SceneProject::from_source(source.clone(), Viewport::default()) {
             Ok(project) if project.frame().nodes.len() <= MAX_PREVIEW_NODES => {
                 match atomic_replace_scene(path, source.as_bytes()) {
-                    Ok(()) => (
-                        "200 OK",
-                        "text/plain; charset=utf-8",
-                        "Scene saved".into(),
-                    ),
+                    Ok(()) => ("200 OK", "text/plain; charset=utf-8", "Scene saved".into()),
                     Err(error) => (
                         "500 Internal Server Error",
                         "text/plain; charset=utf-8",
@@ -681,7 +678,8 @@ fn respond(
 }
 
 fn serve(path: &Path, port: u16) -> Result<(), String> {
-    let save_path = fs::canonicalize(path).map_err(|error| format!("cannot resolve scene path: {error}"))?;
+    let save_path =
+        fs::canonicalize(path).map_err(|error| format!("cannot resolve scene path: {error}"))?;
     let source = read_scene_source(&save_path)?;
     let scene = SceneProject::from_source(source.clone(), Viewport::default())
         .map_err(|error| error.to_string())?;
