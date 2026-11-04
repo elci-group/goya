@@ -15,12 +15,15 @@ mod lexer;
 mod lowering;
 mod parser;
 mod scene;
+mod transition;
 
 pub use hotswap::SceneStore;
 pub use lexer::{lex, LexError, Token, TokenKind};
 pub use lowering::{lower, LowerError, Lowered, NodeKey, NodeRecord, NodeTable, Role};
 pub use parser::{parse, ParseError};
 pub use scene::{hit_test, layout, Anchor, CellKind, DrawNode, RectMp, Scene, SceneCell, Vec3};
+pub use scene::{InteractionDecl, InteractionExpr, InteractionType, InteractionValue, StateAssignment, TypedKey};
+pub use transition::{compile_d1_interactions, CompiledInteraction, TransitionError};
 
 /// Contract identifier implemented by this crate.
 pub const LANG_CONTRACT: &str = "GY-LANG/1";
