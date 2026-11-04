@@ -7,3 +7,7 @@ license.workspace = true
 [dependencies]
 goya-watermark.workspace = true
 goya-artifact.workspace = true
+
+[[bin]]
+name = "goya-watermark-benchmark"
+path = "src/bin/watermark_robustness.rs"

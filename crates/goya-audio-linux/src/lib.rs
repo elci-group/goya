@@ -238,6 +238,7 @@ pub struct PwCatOutput {
     stdin: Option<std::process::ChildStdin>,
     state: DeviceState,
     written: usize,
+    channels: u16,
 }
 
 impl PwCatOutput {
@@ -247,6 +248,20 @@ impl PwCatOutput {
     /// Try to spawn a player. Returns `None` when no player binary exists
     /// or spawn fails — callers continue without audio.
     pub fn spawn() -> Option<Self> {
+        Self::spawn_with_channels(1)
+    }
+
+    /// Try to spawn a stereo player for interleaved binaural HRTF samples.
+    pub fn spawn_stereo() -> Option<Self> {
+        Self::spawn_with_channels(2)
+    }
+
+    /// Try to spawn a player for interleaved audio with `channels` channels.
+    /// The streamed WAV supports mono through 7.1 (1..=8 channels).
+    pub fn spawn_with_channels(channels: u16) -> Option<Self> {
+        if !(1..=8).contains(&channels) {
+            return None;
+        }
         let players: [[&str; 3]; 3] = [
             ["pw-cat", "--playback", "-"],
             ["paplay", "-", "-"],
@@ -265,8 +280,9 @@ impl PwCatOutput {
                     stdin,
                     state: DeviceState::Available,
                     written: 0,
+                    channels,
                 };
-                out.write_wav_header(Self::SAMPLE_RATE, 1);
+                out.write_wav_header(Self::SAMPLE_RATE, channels);
                 return Some(out);
             }
         }
@@ -275,28 +291,13 @@ impl PwCatOutput {
             stdin: None,
             state: DeviceState::Unavailable,
             written: 0,
+            channels,
         };
         Some(fallback)
     }
 
     fn write_wav_header(&mut self, sample_rate: u32, channels: u16) {
-        // 44-byte canonical WAV header; data length uses a large placeholder
-        // (0xFFFFFFFF) which pw-cat/paplay/aplay accept for streamed input.
-        let byte_rate = sample_rate * u32::from(channels) * 4; // f32 mono = 4 B
-        let mut h = Vec::with_capacity(44);
-        h.extend_from_slice(b"RIFF");
-        h.extend_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
-        h.extend_from_slice(b"WAVE");
-        h.extend_from_slice(b"fmt ");
-        h.extend_from_slice(&16u32.to_le_bytes()); // PCM chunk size
-        h.extend_from_slice(&3u16.to_le_bytes()); // IEEE float
-        h.extend_from_slice(&channels.to_le_bytes());
-        h.extend_from_slice(&sample_rate.to_le_bytes());
-        h.extend_from_slice(&byte_rate.to_le_bytes());
-        h.extend_from_slice(&(channels * 4).to_le_bytes()); // block align
-        h.extend_from_slice(&32u16.to_le_bytes()); // bits per sample
-        h.extend_from_slice(b"data");
-        h.extend_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
+        let h = wav_header(sample_rate, channels);
         let _ = self.push_raw(&h);
     }
 
@@ -317,10 +318,47 @@ impl PwCatOutput {
     pub fn is_live(&self) -> bool {
         self.child.is_some()
     }
+
+    /// Number of channels represented by each interleaved audio frame.
+    pub fn channels(&self) -> u16 {
+        self.channels
+    }
+}
+
+fn wav_header(sample_rate: u32, channels: u16) -> [u8; 44] {
+    // Streamed IEEE float WAV header with a placeholder data length. Players
+    // accept this form while the pipe remains open; channel count lets the
+    // stereo FIR output reach the playback device without being interpreted
+    // as a mono sequence.
+    let byte_rate = sample_rate
+        .saturating_mul(u32::from(channels))
+        .saturating_mul(4);
+    let mut h = [0u8; 44];
+    h[0..4].copy_from_slice(b"RIFF");
+    h[4..8].copy_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
+    h[8..12].copy_from_slice(b"WAVE");
+    h[12..16].copy_from_slice(b"fmt ");
+    h[16..20].copy_from_slice(&16u32.to_le_bytes());
+    h[20..22].copy_from_slice(&3u16.to_le_bytes()); // IEEE float
+    h[22..24].copy_from_slice(&channels.to_le_bytes());
+    h[24..28].copy_from_slice(&sample_rate.to_le_bytes());
+    h[28..32].copy_from_slice(&byte_rate.to_le_bytes());
+    h[32..34].copy_from_slice(&channels.saturating_mul(4).to_le_bytes());
+    h[34..36].copy_from_slice(&32u16.to_le_bytes());
+    h[36..40].copy_from_slice(b"data");
+    h[40..44].copy_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
+    h
 }
 
 impl AudioOutput for PwCatOutput {
     fn write(&mut self, samples: &[f32]) -> Result<usize, AudioError> {
+        if samples.len() % usize::from(self.channels) != 0 {
+            return Err(AudioError::Backend(format!(
+                "interleaved sample count {} is not a complete {}-channel frame",
+                samples.len(),
+                self.channels
+            )));
+        }
         if self.stdin.is_none() {
             return Ok(0); // dropped gracefully: no player, no error storm
         }
@@ -372,6 +410,7 @@ mod pwcat_tests {
             stdin: None,
             state: DeviceState::Unavailable,
             written: 0,
+            channels: 1,
         };
         assert_eq!(out.state(), DeviceState::Unavailable);
         assert_eq!(out.write(&[0.5, -0.5]), Ok(0));
@@ -392,5 +431,37 @@ mod pwcat_tests {
         // Either live (accepted == 16) or unavailable (0): both contracts.
         assert!(zero == 16 || zero == 0);
         assert_eq!(out.samples_written(), zero);
+    }
+
+    #[test]
+    fn wav_header_encodes_stereo_float_layout() {
+        let header = wav_header(PwCatOutput::SAMPLE_RATE, 2);
+        assert_eq!(&header[0..4], b"RIFF");
+        assert_eq!(&header[8..12], b"WAVE");
+        assert_eq!(u16::from_le_bytes([header[22], header[23]]), 2);
+        assert_eq!(
+            u32::from_le_bytes(header[24..28].try_into().unwrap()),
+            48_000
+        );
+        assert_eq!(
+            u32::from_le_bytes(header[28..32].try_into().unwrap()),
+            384_000
+        );
+        assert_eq!(u16::from_le_bytes([header[32], header[33]]), 8);
+        assert_eq!(u16::from_le_bytes([header[34], header[35]]), 32);
+    }
+
+    #[test]
+    fn stereo_output_rejects_partial_interleaved_frames() {
+        let mut out = PwCatOutput {
+            child: None,
+            stdin: None,
+            state: DeviceState::Unavailable,
+            written: 0,
+            channels: 2,
+        };
+        assert!(matches!(out.write(&[0.25]), Err(AudioError::Backend(_))));
+        assert_eq!(out.write(&[0.25, -0.25]), Ok(0));
+        assert_eq!(out.channels(), 2);
     }
 }

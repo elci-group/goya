@@ -16,6 +16,9 @@ use goya_chroma::{oklch_to_srgb, Oklch, WcagLevel};
 use goya_ddh::{DdhNode, Dig, SemanticRole};
 use std::collections::BTreeMap;
 
+#[cfg(feature = "atspi-gtk")]
+pub mod gtk_atspi;
+
 /// Contract identifier implemented by this crate.
 pub const A11Y_CONTRACT: &str = "GY-A11Y/1";
 

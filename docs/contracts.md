@@ -139,7 +139,7 @@ Implemented by a 10-agent concurrent swarm (J1–J10). All contracts Candidate.
 Equal-power stereo `stereo_gains(p)` (power ≈ 1 across the sweep), viewport-relative `pan_from_rect`, bounded inverse distance law with floor, smoothed `StereoPan` trajectory, `fold_mono` accessibility fold-down.
 
 ## GY-AUDIO-DSP/1 + GY-AUDIO-LINUX/1 (`Swarm J`)
-Deterministic decaying-sine `Tap`, priority-evicting `Mixer` (lower numeric = more urgent; graceful overload), hard + smoothed `Limiter`. Linux layer is the device lifecycle contract with `NullOutput` (missing device keeps the app operational); PipeWire C binding is a future adapter.
+Deterministic decaying-sine `Tap`, priority-evicting `Mixer` (lower numeric = more urgent; graceful overload), hard + smoothed `Limiter`. Linux output includes `NullOutput` and a `pw-cat` PipeWire adapter; when the device/player is unavailable, the app remains operational.
 
 ## GY-BRIDGE-PHYSICS/1 + GY-BRIDGE/1 — NSB (`Swarm J`)
 Fixed-1/240s semi-implicit spring (deterministic, dt-split-invariant), `clamp_overshoot` bites only on genuine overshoot (approach travel passes unclamped), retarget preserves position+velocity (interruption contract), reduced-motion snap, `interactive()` false the instant authoritative state exits even mid-animation. `Bridgeable` implemented for f64 and Oklch (shortest hue path).
@@ -204,17 +204,17 @@ three-button acceptance geometry depends on it.
 | Work package | Wave | Unblocks |
 |---|---|---|
 | ~~GY-WAYLAND-001 live surface~~ | 1 (done) | 0.1 release gate |
-| PipeWire audio adapter (`goya-audio-linux` backend) | 2a | real ARSEM output |
-| Hot-swap supervisor + Tov adapter | 2b | release 0.2 |
-| EDC: canonical IR lowering + bytecode backend | 2c | compiled execution units |
-| Vico Vee library extraction | 3a | containment contracts |
-| RUGID / 3form / Mesut / Theosis adapters | 3b | release 0.3–0.4 |
-| C2PA manifest compatibility (provenance signing) | 3c | artifact provenance |
-| HRTF / multichannel elevation cues | 3d | beyond-stereo ARSEM |
-| RPI Level-2 learned anticipation (opt-in) | 3e | anticipatory runtime |
-| Accessibility conformance suite (WCAG, screen readers) | 4 | release 0.6 |
-| Packaging, SDK, Studio, distribution | 4 | release 0.6–1.0 |
-| Adversarial robustness corpus for watermark detection | 4 | no robustness claim without corpus |
+| PipeWire audio adapter (`goya-audio-linux` backend) | 2a (implemented) | real ARSEM output; host/device smoke recorded |
+| Hot-swap interface reconciliation + Tov CLI adapter | 2b (implemented) | release 0.2; CLI and compatibility tests |
+| EDC canonical lowering + D0 bytecode/reference VM | 2c (implemented, D0 scope) | deterministic compiled pure modules; D1/D2 effects deferred |
+| VEE submission API client | 3a (implemented, partial) | agent tool calls; no Goya bytecode worker or live VEE E2E |
+| RUGID / 3form / Mesut / Theosis adapters | 3b (implemented) | release 0.3–0.4; local companion-tool smokes |
+| C2PA manifest tool integration | 3c (implemented) | artifact provenance; signer/trust policy external |
+| HRTF profile interface + multichannel output | 3d (implemented, partial) | beyond-stereo ARSEM; measured profiles remain external |
+| RPI Level-2 learned anticipation (opt-in) | 3e (implemented) | anticipatory runtime |
+| GTK/AT-SPI bridge + accessibility conformance | 4 (bridge implemented, conformance open) | release 0.6; Orca/WCAG evidence remains |
+| SDK, Studio CLI, reproducible local package | 4 (implemented, partial) | release 0.6–1.0; full visual IDE/distribution remain |
+| Synthetic adversarial watermark benchmark | 4 (implemented, limited claim) | reproducible measurements; real codec/photo corpus remains |
 
 ## Assurance note
 
@@ -279,11 +279,11 @@ Tauri discovery GUI at `~/vee-gui`. The directive-relevant component is the
   execution, typed artifacts, budget/cancellation, no credential passthrough.
 
 Consequences for the DAG:
-- Wave 3a changes from "Vico Vee library extraction" to **"VEE adapter:
-  route Goya EDC executable units and agent tool calls through VEE's
-  capability/budget/artifact machinery"** — a much smaller, better-fitting
-  package. VEE is a strong candidate to *be* the 0.3 "Contained Modules"
-  enforcement point rather than a peer to integrate.
+- Wave 3a was reframed as **"VEE adapter: route Goya EDC executable units
+  and agent tool calls through VEE's capability/budget/artifact machinery."**
+  The HTTP client now matches VEE's submit API for caller-supplied source,
+  but compiled Goya EDC execution is still open: Goya bytecode is not a
+  supported VEE language and no Goya worker/conversion exists yet.
 - The Wave-1 evidence table row for Vico Vee is superseded by this section.
 
 ---

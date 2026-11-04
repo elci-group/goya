@@ -16,6 +16,12 @@ use std::collections::HashMap;
 
 use goya_determinism::proofs::ExecutionProof;
 
+mod bytecode;
+pub use bytecode::{
+    compile_module, compile_verified, execute, Bytecode, CompileError, CompiledProgram,
+    ExecutionNode, Instruction, VerifiedCompileError, VmError, BYTECODE_VERSION,
+};
+
 /// The executable contract identifier this crate implements.
 pub const EXECUTABLE_CONTRACT: &str = "GY-EXECUTABLE/1";
 
@@ -46,6 +52,28 @@ impl Artifact {
     /// Build an artifact from a proof, hashing its canonical serialisation.
     pub fn from_proof(proof: ExecutionProof, capabilities: Vec<String>) -> Self {
         let content_hash = fnv1a(proof.canonical().as_bytes());
+        Self {
+            proof,
+            content_hash,
+            capabilities,
+        }
+    }
+
+    /// Build a code-bound artifact whose identity covers both proof metadata
+    /// and canonical executable bytes.
+    pub fn from_proof_and_code(
+        proof: ExecutionProof,
+        capabilities: Vec<String>,
+        canonical_code: &[u8],
+    ) -> Self {
+        let canonical_proof = proof.canonical();
+        let mut identity = Vec::with_capacity(canonical_proof.len() + canonical_code.len() + 32);
+        identity.extend_from_slice(b"GY-EDC-CODE-ARTIFACT/1\0");
+        identity.extend_from_slice(&(canonical_proof.len() as u64).to_le_bytes());
+        identity.extend_from_slice(canonical_proof.as_bytes());
+        identity.extend_from_slice(&(canonical_code.len() as u64).to_le_bytes());
+        identity.extend_from_slice(canonical_code);
+        let content_hash = fnv1a(&identity);
         Self {
             proof,
             content_hash,

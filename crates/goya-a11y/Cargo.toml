@@ -8,3 +8,16 @@ license.workspace = true
 goya-ddh.workspace = true
 goya-chroma.workspace = true
 goya-change.workspace = true
+
+[features]
+default = []
+atspi-gtk = ["dep:gtk"]
+
+[dependencies.gtk]
+version = "0.18"
+features = ["v3_24"]
+optional = true
+
+[[example]]
+name = "atspi_demo"
+required-features = ["atspi-gtk"]

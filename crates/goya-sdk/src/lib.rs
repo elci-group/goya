@@ -1,0 +1,219 @@
+//! Small stable facade for applications that author and run `.gscene` files.
+//!
+//! `SceneProject` validates source, lowers it to the shared GY-IR/2 table,
+//! exposes scene geometry, and can create a stateful runtime. Platform hosts
+//! still own window creation and presentation.
+
+use goya_ir::Module;
+use goya_lang::{layout as scene_layout, lower, DrawNode, Lowered, ParseError, Scene};
+use goya_layout::Constraints;
+use goya_runtime::Runtime;
+use goya_state::Store;
+use std::fmt;
+use std::path::Path;
+
+/// SDK contract implemented by this crate.
+pub const SDK_CONTRACT: &str = "GY-SDK/1";
+
+/// Logical viewport dimensions in points.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Viewport {
+    pub width_points: f64,
+    pub height_points: f64,
+}
+
+impl Viewport {
+    pub fn new(width_points: f64, height_points: f64) -> Result<Self, SdkError> {
+        if !width_points.is_finite()
+            || !height_points.is_finite()
+            || width_points <= 0.0
+            || height_points <= 0.0
+            || width_points > 32_768.0
+            || height_points > 32_768.0
+        {
+            return Err(SdkError::InvalidViewport);
+        }
+        Ok(Self {
+            width_points,
+            height_points,
+        })
+    }
+
+    fn layout_constraints(self) -> Constraints {
+        Constraints {
+            max_width: (self.width_points * 1000.0).round() as i64,
+            max_height: (self.height_points * 1000.0).round() as i64,
+        }
+    }
+}
+
+impl Default for Viewport {
+    fn default() -> Self {
+        Self {
+            width_points: 800.0,
+            height_points: 600.0,
+        }
+    }
+}
+
+/// Error returned by SDK scene-loading operations.
+#[derive(Debug)]
+pub enum SdkError {
+    InvalidViewport,
+    Parse(ParseError),
+    Lower(goya_lang::LowerError),
+    Read(std::io::Error),
+}
+
+impl fmt::Display for SdkError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidViewport => {
+                f.write_str("viewport must be finite and within 1..=32768 points")
+            }
+            Self::Parse(error) => write!(f, "scene parse failed: {error}"),
+            Self::Lower(error) => write!(f, "scene lowering failed: {error}"),
+            Self::Read(error) => write!(f, "could not read scene source: {error}"),
+        }
+    }
+}
+
+impl std::error::Error for SdkError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Parse(error) => Some(error),
+            Self::Lower(error) => Some(error),
+            Self::Read(error) => Some(error),
+            Self::InvalidViewport => None,
+        }
+    }
+}
+
+/// A validated scene project and its canonical lowering.
+#[derive(Debug, Clone)]
+pub struct SceneProject {
+    source: String,
+    scene: Scene,
+    lowered: Lowered,
+    viewport: Viewport,
+}
+
+/// Geometry emitted by the authored scene layout pass.
+#[derive(Debug, Clone, Default)]
+pub struct SceneFrame {
+    pub nodes: Vec<DrawNode>,
+}
+
+impl SceneFrame {
+    pub fn find(&self, name: &str) -> Option<&DrawNode> {
+        self.nodes.iter().find(|node| node.name == name)
+    }
+}
+
+impl SceneProject {
+    /// Parse and lower a source string using the given viewport.
+    pub fn from_source(source: impl Into<String>, viewport: Viewport) -> Result<Self, SdkError> {
+        // Revalidate public fields in case a caller constructed `Viewport`
+        // without `Viewport::new`.
+        let viewport = Viewport::new(viewport.width_points, viewport.height_points)?;
+        let source = source.into();
+        let scene = goya_lang::parse(&source).map_err(SdkError::Parse)?;
+        let lowered = lower(&scene, viewport.width_points, viewport.height_points)
+            .map_err(SdkError::Lower)?;
+        Ok(Self {
+            source,
+            scene,
+            lowered,
+            viewport,
+        })
+    }
+
+    /// Read, parse, and lower a scene file.
+    pub fn from_path(path: impl AsRef<Path>, viewport: Viewport) -> Result<Self, SdkError> {
+        let source = std::fs::read_to_string(path).map_err(SdkError::Read)?;
+        Self::from_source(source, viewport)
+    }
+
+    pub fn source(&self) -> &str {
+        &self.source
+    }
+
+    pub fn scene(&self) -> &Scene {
+        &self.scene
+    }
+
+    pub fn lowered(&self) -> &Lowered {
+        &self.lowered
+    }
+
+    pub fn module(&self) -> &Module {
+        &self.lowered.module
+    }
+
+    pub fn viewport(&self) -> Viewport {
+        self.viewport
+    }
+
+    /// Geometry computed by the scene frontend, preserving absolute and
+    /// proportional `.gscene` placement.
+    pub fn frame(&self) -> SceneFrame {
+        let frame = scene_layout(
+            &self.scene,
+            self.viewport.width_points,
+            self.viewport.height_points,
+        );
+        SceneFrame { nodes: frame.nodes }
+    }
+
+    /// Create an event runtime over the canonical IR. Its flow layout is the
+    /// GY-LAYOUT engine; use [`SceneProject::frame`] for authored scene geometry.
+    pub fn runtime(&self, state: Store) -> Runtime {
+        Runtime::new(
+            self.lowered.module.clone(),
+            state,
+            self.viewport.layout_constraints(),
+        )
+    }
+}
+
+/// Validate a scene source without retaining its project.
+pub fn validate(source: &str, viewport: Viewport) -> Result<(), SdkError> {
+    SceneProject::from_source(source, viewport).map(|_| ())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use goya_runtime::Event;
+
+    const SCENE: &str =
+        "@ontology sdk { @button go { position: (0, 0, 0) extent: (120, 40, 0) text: \"Go\" } }";
+
+    #[test]
+    fn project_parses_lowers_and_exposes_scene_geometry() {
+        let project =
+            SceneProject::from_source(SCENE, Viewport::new(240.0, 120.0).unwrap()).unwrap();
+        assert_eq!(project.scene().name, "sdk");
+        assert!(project.module().root.is_some());
+        assert_eq!(
+            project.lowered().table.get("go").unwrap().role,
+            goya_lang::Role::Button
+        );
+        assert_eq!(project.frame().find("go").unwrap().rect.width, 120_000);
+    }
+
+    #[test]
+    fn runtime_routes_canonical_button_actions() {
+        let project = SceneProject::from_source(SCENE, Viewport::default()).unwrap();
+        let mut runtime = project.runtime(Store::new());
+        let action = runtime.hit_test(500, 1_000).unwrap();
+        assert!(runtime.handle(Event::Activate(action)));
+        assert!(!runtime.render_list().is_empty());
+    }
+
+    #[test]
+    fn invalid_viewport_and_scene_fail_closed() {
+        assert!(Viewport::new(f64::NAN, 20.0).is_err());
+        assert!(SceneProject::from_source("not a scene", Viewport::default()).is_err());
+    }
+}

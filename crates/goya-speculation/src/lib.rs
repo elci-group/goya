@@ -8,9 +8,124 @@
 
 use std::collections::HashMap;
 
+use goya_ir::ActionId as RuntimeActionId;
 use goya_rpi::{net_value, valid_for, ActionId, Preparation};
+use goya_rpi2::{ConsentRecord, SequenceModel};
 
 pub const SPECULATION_CONTRACT: &str = "GY-SPECULATION/1";
+
+/// One learned successor prediction, bound to the exact runtime snapshot that
+/// produced it. The caller must validate it again immediately before using
+/// it; a state or geometry revision change makes it stale.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Level2Prediction {
+    pub action: RuntimeActionId,
+    pub probability: f64,
+    pub state_revision: u64,
+    pub geometry_revision: u64,
+}
+
+/// Consent-gated sequence learner used by the runtime's speculative path.
+/// It is disabled by default, and does not learn or predict until the caller
+/// explicitly opts in with a valid consent record.
+#[derive(Debug, Clone)]
+pub struct Level2Predictor {
+    enabled: bool,
+    model: SequenceModel,
+    previous: Option<RuntimeActionId>,
+}
+
+impl Default for Level2Predictor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Level2Predictor {
+    /// Create a disabled learner with no retained sequence data.
+    pub fn new() -> Self {
+        Self {
+            enabled: false,
+            model: SequenceModel::without_consent(),
+            previous: None,
+        }
+    }
+
+    /// Explicitly opt in. Consent remains checked at each observe/predict
+    /// call against the caller-supplied timestamp.
+    pub fn opt_in(&mut self, consent: ConsentRecord, max_transitions: usize) {
+        self.model = SequenceModel::with_consent_and_cap(consent, max_transitions);
+        self.previous = None;
+        self.enabled = true;
+    }
+
+    /// Withdraw consent and erase all learned transitions immediately.
+    pub fn opt_out(&mut self) {
+        self.enabled = false;
+        self.model.forget_all();
+        self.model = SequenceModel::without_consent();
+        self.previous = None;
+    }
+
+    pub fn is_enabled(&self) -> bool {
+        self.enabled
+    }
+
+    /// Record one authorised interaction. The first event seeds the sequence;
+    /// later events train a single adjacent transition. No event is retained
+    /// when consent is absent, withdrawn, or expired.
+    pub fn observe_action(&mut self, action: RuntimeActionId, now_ns: u64) -> bool {
+        if !self.enabled || !self.model.can_learn_at(now_ns) {
+            self.previous = None;
+            return false;
+        }
+        let current = goya_rpi2::ActionId(action.0);
+        if let Some(previous) = self.previous {
+            self.model
+                .observe_sequence(&[goya_rpi2::ActionId(previous.0), current], now_ns);
+        }
+        self.previous = Some(action);
+        true
+    }
+
+    /// Predict the most likely next action from the latest observed action.
+    /// Predictions are tagged with both revisions and withheld if the model
+    /// is disabled or the consent record has expired.
+    pub fn predict_next_at(
+        &self,
+        now_ns: u64,
+        state_revision: u64,
+        geometry_revision: u64,
+    ) -> Option<Level2Prediction> {
+        if !self.enabled || !self.model.can_learn_at(now_ns) {
+            return None;
+        }
+        let last = self.previous?;
+        let (action, probability) = self.model.predict_next(goya_rpi2::ActionId(last.0))?;
+        Some(Level2Prediction {
+            action: RuntimeActionId(action.0),
+            probability,
+            state_revision,
+            geometry_revision,
+        })
+    }
+
+    /// Re-check consent and exact revisions before speculative work is used.
+    pub fn is_current_at(
+        &self,
+        prediction: &Level2Prediction,
+        now_ns: u64,
+        state_revision: u64,
+        geometry_revision: u64,
+    ) -> bool {
+        self.enabled
+            && self.model.can_learn_at(now_ns)
+            && prediction.state_revision == state_revision
+            && prediction.geometry_revision == geometry_revision
+            && prediction.probability.is_finite()
+            && (0.0..=1.0).contains(&prediction.probability)
+    }
+}
 
 /// Finite speculation budget (Mesut-governed): speculation never overruns.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

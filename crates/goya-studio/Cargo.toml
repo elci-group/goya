@@ -1,0 +1,13 @@
+[package]
+name = "goya-studio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Initial command-line authoring and preview workflow for Goya scenes"
+
+[[bin]]
+name = "goya-studio"
+path = "src/main.rs"
+
+[dependencies]
+goya-sdk = { path = "../goya-sdk" }

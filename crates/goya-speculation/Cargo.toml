@@ -6,3 +6,5 @@ license.workspace = true
 
 [dependencies]
 goya-rpi.workspace = true
+goya-rpi2.workspace = true
+goya-ir.workspace = true

@@ -1,7 +1,7 @@
 //! Adapter to the ViCo Execution Environment (VEE).
 //!
-//! VEE serves a REST API on port 9987 (`POST /api/v1/tasks` for submission,
-//! plus status/cancel endpoints). We cannot link VEE's crate, so this module
+//! VEE serves a REST API on port 9987 (`POST /vee/submit` for submission).
+//! We cannot link VEE's crate, so this module
 //! is a self-contained network adapter over [`std::net::TcpStream`], std-only.
 //!
 //! Contract surface:
@@ -9,8 +9,8 @@
 //!   [`SubmitRequest`], returning a [`VeeResponse`] or [`VeeError`].
 //! - [`SubmitRequest::to_json`] is a tiny deterministic JSON writer
 //!   (string/number fields only, quotes/backslashes escaped; no serde).
-//! - Response parsing is a hand-rolled scan for `"id":"..."` and
-//!   `"status":"..."`. This is deliberately NOT a full JSON parser: keys
+//! - Response parsing is a hand-rolled scan for `success`, `execution_id`,
+//!   `status`, and `error`. This is deliberately NOT a full JSON parser: keys
 //!   nested in other objects with the same names, escaped quotes inside the
 //!   values, or key order changes may mis-extract. `VeeResponse::raw` always
 //!   carries the full body so callers can re-parse if needed.
@@ -37,6 +37,7 @@ const MAX_HEADER_BYTES: usize = 32 * 1024;
 pub struct VeeClient {
     pub host: String,
     pub port: u16,
+    auth_token: Option<String>,
 }
 
 impl VeeClient {
@@ -45,7 +46,14 @@ impl VeeClient {
         VeeClient {
             host: host.to_string(),
             port,
+            auth_token: None,
         }
+    }
+
+    /// Attach an API token for VEE deployments with authentication enabled.
+    pub fn with_bearer_token(mut self, token: impl Into<String>) -> Self {
+        self.auth_token = Some(token.into());
+        self
     }
 
     /// Probe whether VEE is reachable. Never panics; returns `false` on any
@@ -54,12 +62,20 @@ impl VeeClient {
         TcpStream::connect((self.host.as_str(), self.port)).is_ok()
     }
 
-    /// Submit a task to VEE (`POST /api/v1/tasks`).
+    /// Submit a task to VEE (`POST /vee/submit`).
     ///
     /// Opens a fresh TCP connection, writes a minimal HTTP/1.1 request with a
     /// correct `Content-Length`, reads the response up to `Content-Length`
-    /// bytes or connection close, and extracts `id`/`status` by scan.
+    /// bytes or connection close, and extracts the VEE response fields by scan.
     pub fn submit(&mut self, req: &SubmitRequest) -> Result<VeeResponse, VeeError> {
+        if self.host.chars().any(char::is_control)
+            || self
+                .auth_token
+                .as_deref()
+                .is_some_and(|token| token.is_empty() || token.chars().any(char::is_control))
+        {
+            return Err(VeeError::InvalidRequest);
+        }
         let body = req.to_json();
         let mut stream = TcpStream::connect((self.host.as_str(), self.port))
             .map_err(|e| VeeError::Connection(e.to_string()))?;
@@ -70,11 +86,17 @@ impl VeeClient {
             .set_write_timeout(Some(IO_TIMEOUT))
             .map_err(|e| VeeError::Connection(e.to_string()))?;
 
+        let auth = self
+            .auth_token
+            .as_ref()
+            .map(|token| format!("Authorization: Bearer {token}\r\n"))
+            .unwrap_or_default();
         let http = format!(
-            "POST /api/v1/tasks HTTP/1.1\r\n\
+            "POST /vee/submit HTTP/1.1\r\n\
              Host: {}:{}\r\n\
              Content-Type: application/json\r\n\
              Content-Length: {}\r\n\
+             {auth}\
              Connection: close\r\n\
              \r\n\
              {}",
@@ -97,37 +119,87 @@ impl VeeClient {
         }
         let body = extract_body(&raw).ok_or(VeeError::Protocol)?;
 
+        let success = scan_bool_field(&body, "success");
+        let error = scan_string_field(&body, "error");
+        if success == Some(false) {
+            return Err(VeeError::Rejected(
+                error.unwrap_or_else(|| "VEE rejected the task".to_string()),
+            ));
+        }
+        let task_id =
+            scan_string_field(&body, "execution_id").or_else(|| scan_string_field(&body, "id"));
         Ok(VeeResponse {
-            task_id: scan_string_field(&body, "id"),
+            success,
+            task_id,
             status: scan_string_field(&body, "status"),
+            error,
             raw: body,
         })
     }
 }
 
-/// A task submission payload for VEE.
+/// Budget fields supported by VEE's submit endpoint. Missing fields use VEE defaults.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct VeeBudgetRequest {
+    pub cpu_seconds: Option<u64>,
+    pub memory_mb: Option<u64>,
+    pub disk_mb: Option<u64>,
+    pub token_budget: Option<u64>,
+    pub wall_clock_seconds: Option<u64>,
+}
+
+/// A task submission payload matching VEE's `VeeSubmitRequest` contract.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SubmitRequest {
-    pub capability: String,
+    pub agent_id: String,
     pub language: String,
     pub source_code: String,
-    pub budget_ms: u64,
+    pub capabilities: Vec<String>,
+    pub budget: Option<VeeBudgetRequest>,
 }
 
 impl SubmitRequest {
-    /// Deterministic hand-rolled JSON serialisation (no serde). Field order
-    /// is fixed: capability, language, source_code, budget_ms.
+    /// Deterministic JSON for VEE's `/vee/submit` request schema.
     pub fn to_json(&self) -> String {
         let mut out = String::with_capacity(64 + self.source_code.len());
         out.push('{');
-        out.push_str("\"capability\":");
-        push_json_string(&mut out, &self.capability);
+        out.push_str("\"agent_id\":");
+        push_json_string(&mut out, &self.agent_id);
         out.push_str(",\"language\":");
         push_json_string(&mut out, &self.language);
         out.push_str(",\"source_code\":");
         push_json_string(&mut out, &self.source_code);
-        out.push_str(",\"budget_ms\":");
-        out.push_str(&self.budget_ms.to_string());
+        out.push_str(",\"capabilities\":[");
+        for (index, capability) in self.capabilities.iter().enumerate() {
+            if index > 0 {
+                out.push(',');
+            }
+            push_json_string(&mut out, capability);
+        }
+        out.push(']');
+        if let Some(budget) = &self.budget {
+            out.push_str(",\"budget\":{");
+            let fields = [
+                ("cpu_seconds", budget.cpu_seconds),
+                ("memory_mb", budget.memory_mb),
+                ("disk_mb", budget.disk_mb),
+                ("token_budget", budget.token_budget),
+                ("wall_clock_seconds", budget.wall_clock_seconds),
+            ];
+            let mut first = true;
+            for (name, value) in fields {
+                if let Some(value) = value {
+                    if !first {
+                        out.push(',');
+                    }
+                    first = false;
+                    push_json_string(&mut out, name);
+                    out.push(':');
+                    out.push_str(&value.to_string());
+                }
+            }
+            out.push('}');
+        }
         out.push('}');
         out
     }
@@ -155,8 +227,11 @@ fn push_json_string(out: &mut String, s: &str) {
 /// Result of a successful submit call.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VeeResponse {
+    /// The application's success field, when returned by VEE.
+    pub success: Option<bool>,
     pub task_id: Option<String>,
     pub status: Option<String>,
+    pub error: Option<String>,
     /// Full response body, kept so callers can re-parse if the naive scan
     /// extracted the wrong field (see module docs).
     pub raw: String,
@@ -171,6 +246,10 @@ pub enum VeeError {
     Timeout,
     /// Non-2xx status, unparseable HTTP framing, or malformed body.
     Protocol,
+    /// Request contains a value unsafe for an HTTP header.
+    InvalidRequest,
+    /// VEE returned a valid application-level task rejection.
+    Rejected(String),
 }
 
 /// Read the HTTP response until `Content-Length` bytes of body are received
@@ -302,6 +381,20 @@ fn scan_string_field(body: &str, key: &str) -> Option<String> {
     None
 }
 
+/// Scan a top-level boolean field from the small flat VEE response object.
+fn scan_bool_field(body: &str, key: &str) -> Option<bool> {
+    let needle = format!("\"{}\":", key);
+    let start = body.find(&needle)? + needle.len();
+    let rest = body[start..].trim_start();
+    if rest.starts_with("true") {
+        Some(true)
+    } else if rest.starts_with("false") {
+        Some(false)
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -311,10 +404,17 @@ mod tests {
 
     fn test_request(source: &str) -> SubmitRequest {
         SubmitRequest {
-            capability: "goya.unit.exec".to_string(),
-            language: "gasm".to_string(),
+            agent_id: "goya-test".to_string(),
+            capabilities: vec!["process_spawn".to_string(), "network_read".to_string()],
+            language: "python".to_string(),
             source_code: source.to_string(),
-            budget_ms: 5000,
+            budget: Some(VeeBudgetRequest {
+                cpu_seconds: Some(3),
+                memory_mb: Some(128),
+                disk_mb: Some(64),
+                token_budget: Some(800),
+                wall_clock_seconds: Some(5),
+            }),
         }
     }
 
@@ -367,14 +467,14 @@ mod tests {
         port
     }
 
-    const CANNED_OK: &str = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 27\r\n\r\n{\"id\":\"t-1\",\"status\":\"queued\"}";
+    const CANNED_OK: &str = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"success\":true,\"execution_id\":\"t-1\",\"status\":\"pending\",\"message\":\"ok\"}";
 
     #[test]
     fn json_writer_basic_and_field_order() {
         let json = test_request("HALT").to_json();
         assert_eq!(
             json,
-            "{\"capability\":\"goya.unit.exec\",\"language\":\"gasm\",\"source_code\":\"HALT\",\"budget_ms\":5000}"
+            "{\"agent_id\":\"goya-test\",\"language\":\"python\",\"source_code\":\"HALT\",\"capabilities\":[\"process_spawn\",\"network_read\"],\"budget\":{\"cpu_seconds\":3,\"memory_mb\":128,\"disk_mb\":64,\"token_budget\":800,\"wall_clock_seconds\":5}}"
         );
     }
 
@@ -404,8 +504,12 @@ mod tests {
         let mut client = VeeClient::connect("127.0.0.1", port);
         let resp = client.submit(&test_request("HALT")).expect("submit ok");
         assert_eq!(resp.task_id.as_deref(), Some("t-1"));
-        assert_eq!(resp.status.as_deref(), Some("queued"));
-        assert_eq!(resp.raw, "{\"id\":\"t-1\",\"status\":\"queued\"}");
+        assert_eq!(resp.success, Some(true));
+        assert_eq!(resp.status.as_deref(), Some("pending"));
+        assert_eq!(
+            resp.raw,
+            "{\"success\":true,\"execution_id\":\"t-1\",\"status\":\"pending\",\"message\":\"ok\"}"
+        );
     }
 
     #[test]
@@ -421,7 +525,7 @@ mod tests {
 
         let req = captured.lock().expect("lock").clone();
         assert!(
-            req.starts_with("POST /api/v1/tasks HTTP/1.1\r\n"),
+            req.starts_with("POST /vee/submit HTTP/1.1\r\n"),
             "wrong request line: {req}"
         );
         let expected_cl = format!("Content-Length: {}\r\n", body.len());
@@ -431,6 +535,54 @@ mod tests {
         );
         assert!(req.contains("Content-Type: application/json"));
         assert!(req.ends_with(&body));
+    }
+
+    #[test]
+    fn request_uses_current_vee_fields_and_optional_bearer_auth() {
+        let captured = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+        let sink = captured.clone();
+        let port = spawn_mock_with(CANNED_OK, move |req| {
+            *sink.lock().expect("lock") = req;
+        });
+        let mut client = VeeClient::connect("127.0.0.1", port).with_bearer_token("submit-token");
+        client.submit(&test_request("AQID")).expect("submit ok");
+        let req = captured.lock().expect("lock").clone();
+        assert!(req.contains("Authorization: Bearer submit-token\r\n"));
+        assert!(req.contains("\"agent_id\":\"goya-test\""));
+        assert!(req.contains("\"capabilities\":[\"process_spawn\",\"network_read\"]"));
+        assert!(req.contains("\"wall_clock_seconds\":5"));
+        assert!(req.contains("\"cpu_seconds\":3"));
+    }
+
+    #[test]
+    fn application_rejection_is_reported_and_header_injection_refused() {
+        let port = spawn_mock("HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n{\"success\":false,\"error\":\"unsupported language\"}");
+        let mut client = VeeClient::connect("127.0.0.1", port);
+        assert_eq!(
+            client.submit(&test_request("HALT")),
+            Err(VeeError::Rejected("unsupported language".into()))
+        );
+        let mut bad =
+            VeeClient::connect("127.0.0.1", 9987).with_bearer_token("ok\r\nX-Injected: yes");
+        assert_eq!(
+            bad.submit(&test_request("HALT")),
+            Err(VeeError::InvalidRequest)
+        );
+    }
+
+    #[test]
+    fn absent_budget_is_omitted_and_response_execution_id_is_used() {
+        let mut req = test_request("print('hello')");
+        req.budget = None;
+        assert_eq!(
+            req.to_json(),
+            "{\"agent_id\":\"goya-test\",\"language\":\"python\",\"source_code\":\"print('hello')\",\"capabilities\":[\"process_spawn\",\"network_read\"]}"
+        );
+        let port = spawn_mock(CANNED_OK);
+        let mut client = VeeClient::connect("127.0.0.1", port);
+        let resp = client.submit(&req).expect("submit ok");
+        assert_eq!(resp.task_id.as_deref(), Some("t-1"));
+        assert_eq!(resp.success, Some(true));
     }
 
     #[test]

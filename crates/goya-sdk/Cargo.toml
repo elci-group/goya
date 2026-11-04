@@ -1,0 +1,13 @@
+[package]
+name = "goya-sdk"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Rust SDK facade for authoring and running Goya scenes"
+
+[dependencies]
+goya-lang.workspace = true
+goya-ir.workspace = true
+goya-layout.workspace = true
+goya-runtime.workspace = true
+goya-state.workspace = true

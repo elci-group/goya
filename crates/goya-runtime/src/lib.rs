@@ -7,6 +7,8 @@
 
 use goya_ir::{ActionId, Module, Node, NodeId};
 use goya_layout::{layout, Constraints, Frame, Rect};
+use goya_rpi2::ConsentRecord;
+use goya_speculation::{Level2Prediction, Level2Predictor};
 use goya_state::{Store, Value};
 
 /// Contract identifier implemented by this crate.
@@ -39,6 +41,8 @@ pub struct Runtime {
     constraints: Constraints,
     frame: Frame,
     revision_at_layout: Option<u64>,
+    geometry_revision: Option<u64>,
+    level2: Level2Predictor,
 }
 
 impl Runtime {
@@ -49,6 +53,8 @@ impl Runtime {
             constraints,
             frame: Frame::default(),
             revision_at_layout: None,
+            geometry_revision: Some(0),
+            level2: Level2Predictor::new(),
         };
         rt.relayout();
         rt
@@ -60,6 +66,41 @@ impl Runtime {
 
     pub fn store(&self) -> &Store {
         &self.store
+    }
+
+    /// Explicitly enable Level-2 learning. It remains inactive unless this is
+    /// called with a currently valid consent record.
+    pub fn opt_in_level2(&mut self, consent: ConsentRecord, max_transitions: usize) {
+        self.level2.opt_in(consent, max_transitions);
+    }
+
+    /// Withdraw Level-2 consent and erase retained interaction transitions.
+    pub fn opt_out_level2(&mut self) {
+        self.level2.opt_out();
+    }
+
+    /// Current geometry generation, or `None` if its monotonic counter was
+    /// exhausted. No prediction is issued after exhaustion.
+    pub fn geometry_revision(&self) -> Option<u64> {
+        self.geometry_revision
+    }
+
+    /// Return the learned next-action prediction tied to this exact runtime
+    /// state/layout, if consent is valid at `now_ns` and a transition exists.
+    pub fn predict_level2_at(&self, now_ns: u64) -> Option<Level2Prediction> {
+        let geometry_revision = self.geometry_revision?;
+        self.level2
+            .predict_next_at(now_ns, self.store.revision(), geometry_revision)
+    }
+
+    /// Revalidate a prediction immediately before speculative use. State,
+    /// geometry, consent, and probability are all checked again.
+    pub fn level2_prediction_is_current(&self, prediction: &Level2Prediction, now_ns: u64) -> bool {
+        let Some(geometry_revision) = self.geometry_revision else {
+            return false;
+        };
+        self.level2
+            .is_current_at(prediction, now_ns, self.store.revision(), geometry_revision)
     }
 
     /// Find the topmost button under a point, in millipoints, and return its
@@ -81,9 +122,26 @@ impl Runtime {
 
     /// Process one event. Returns `true` if the application should continue.
     pub fn handle(&mut self, event: Event) -> bool {
+        self.handle_inner(event, None)
+    }
+
+    /// Process an event with a caller-supplied monotonic timestamp. This is
+    /// the only event path that records Level-2 training data.
+    pub fn handle_at(&mut self, event: Event, now_ns: u64) -> bool {
+        self.handle_inner(event, Some(now_ns))
+    }
+
+    fn handle_inner(&mut self, event: Event, now_ns: Option<u64>) -> bool {
         match event {
             Event::Quit => return false,
-            Event::Activate(action) => self.dispatch(action),
+            Event::Activate(action) => {
+                self.dispatch(action);
+                if let Some(now_ns) = now_ns {
+                    if self.action_is_declared(action) {
+                        self.level2.observe_action(action, now_ns);
+                    }
+                }
+            }
             Event::Character(c) => self.append_text(c),
         }
         // Relayout only when state changed since the last layout.
@@ -91,6 +149,12 @@ impl Runtime {
             self.relayout();
         }
         true
+    }
+
+    fn action_is_declared(&self, action: ActionId) -> bool {
+        self.module.nodes.iter().any(
+            |(_, node)| matches!(node, Node::Button { on_activate, .. } if *on_activate == action),
+        )
     }
 
     fn dispatch(&mut self, action: ActionId) {
@@ -139,6 +203,9 @@ impl Runtime {
         }
         self.frame = layout(&self.module, self.constraints);
         self.revision_at_layout = Some(self.store.revision());
+        self.geometry_revision = self
+            .geometry_revision
+            .and_then(|revision| revision.checked_add(1));
     }
 
     /// Produce the render primitive list for the current frame.
@@ -191,6 +258,18 @@ mod tests {
         )
     }
 
+    fn runtime_with_two_actions() -> Runtime {
+        let module = parse("column 1 2 3\nbutton 2 1 Increment\nbutton 3 2 Other\nroot 1").unwrap();
+        Runtime::new(
+            module,
+            Store::new(),
+            Constraints {
+                max_width: 800_000,
+                max_height: 600_000,
+            },
+        )
+    }
+
     #[test]
     fn quit_stops_the_loop() {
         let mut rt = runtime();
@@ -226,5 +305,44 @@ mod tests {
         let mut rt = runtime();
         assert!(rt.handle(Event::Activate(ActionId(999))));
         assert_eq!(rt.store().get("count"), None);
+    }
+
+    #[test]
+    fn level2_is_off_until_explicit_consent_and_revision_bound() {
+        let mut rt = runtime_with_two_actions();
+        assert!(!rt.level2.is_enabled());
+        for action in [1, 2, 1, 2] {
+            assert!(rt.handle_at(Event::Activate(ActionId(action)), 10));
+        }
+        assert_eq!(rt.predict_level2_at(10), None);
+
+        rt.opt_in_level2(ConsentRecord::granted("interaction-sequences", 100), 32);
+        for action in [1, 2, 1, 2] {
+            assert!(rt.handle_at(Event::Activate(ActionId(action)), 11));
+        }
+        let prediction = rt.predict_level2_at(11).expect("trained transition");
+        assert_eq!(prediction.action, ActionId(1));
+        assert_eq!(prediction.probability, 1.0);
+        assert!(rt.level2_prediction_is_current(&prediction, 11));
+
+        assert!(rt.handle_at(Event::Activate(ActionId(1)), 12));
+        assert!(!rt.level2_prediction_is_current(&prediction, 12));
+    }
+
+    #[test]
+    fn level2_expired_consent_and_opt_out_stop_learning_and_predictions() {
+        let mut rt = runtime_with_two_actions();
+        rt.opt_in_level2(ConsentRecord::granted("interaction-sequences", 20), 16);
+        assert!(rt.handle_at(Event::Activate(ActionId(1)), 10));
+        assert!(rt.handle_at(Event::Activate(ActionId(2)), 21));
+        assert_eq!(rt.predict_level2_at(21), None);
+
+        rt.opt_in_level2(ConsentRecord::granted("interaction-sequences", 40), 16);
+        for action in [1, 2, 1, 2] {
+            assert!(rt.handle_at(Event::Activate(ActionId(action)), 30));
+        }
+        assert!(rt.predict_level2_at(30).is_some());
+        rt.opt_out_level2();
+        assert_eq!(rt.predict_level2_at(30), None);
     }
 }

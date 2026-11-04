@@ -180,10 +180,10 @@ impl<K: Eq + Hash + Clone, R: Clone> KernelStore<K, R> {
 
         let value = (kernel.execute)(input);
         per_kernel.entry(input_hash).or_default().push(CacheEntry {
-                input: input.clone(),
-                value: value.clone(),
-                last_used: tick,
-            });
+            input: input.clone(),
+            value: value.clone(),
+            last_used: tick,
+        });
         self.stats.misses += 1;
         Ok(value)
     }
@@ -228,18 +228,19 @@ impl<K: Eq + Hash + Clone, R: Clone> KernelStore<K, R> {
                         per_kernel.remove(&hash);
                     }
                     if removed {
-                    self.stats.evictions += 1;
-                    to_evict -= 1;
+                        self.stats.evictions += 1;
+                        to_evict -= 1;
                     }
                 }
             }
         }
-        total - self
-            .cache
-            .values()
-            .flat_map(|m| m.values())
-            .map(Vec::len)
-            .sum::<usize>()
+        total
+            - self
+                .cache
+                .values()
+                .flat_map(|m| m.values())
+                .map(Vec::len)
+                .sum::<usize>()
     }
 
     /// Drop all memoised results for a kernel. The kernel stays registered;

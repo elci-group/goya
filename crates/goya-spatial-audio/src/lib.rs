@@ -1,14 +1,20 @@
-//! Goya spatial audio: stereo panning derived from goya-layout geometry.
+//! Goya spatial audio: geometry-derived panning plus pluggable HRTF and
+//! speaker-array rendering.
 //!
 //! Contract: `GY-SPATIAL-AUDIO/1`.
 //!
 //! This crate maps millipoint [`goya_layout::Rect`]s onto a normalised pan
 //! position `p ∈ [−1, +1]` (viewport-relative horizontal centre, clamped),
-//! applies an equal-power stereo panning law, bounded distance attenuation
-//! for z-layer depth, exponential trajectory smoothing to prevent clicks,
-//! and a mono fold-down so information remains audible on mono outputs.
+//! applies equal-power stereo panning, bounded distance attenuation for
+//! z-layer depth, exponential trajectory smoothing, and mono fold-down. The
+//! crate also provides a deterministic FIR binaural renderer that accepts
+//! measured HRTF impulse responses from a host-supplied profile, plus
+//! direction-aware speaker-array gains for layouts with height channels.
 
 use goya_layout::Rect;
+
+/// Maximum number of taps accepted from a host HRTF profile.
+pub const MAX_HRTF_TAPS: usize = 1024;
 
 /// Deterministic contract identifier for this crate.
 pub const SPATIAL_CONTRACT: &str = "GY-SPATIAL-AUDIO/1";
@@ -132,9 +138,273 @@ impl Default for StereoPan {
     }
 }
 
+/// Source direction in degrees. Azimuth is positive to the listener's right;
+/// elevation is positive above the horizontal plane.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Direction {
+    pub azimuth_deg: f32,
+    pub elevation_deg: f32,
+}
+
+impl Direction {
+    /// Construct a direction after checking the finite spherical ranges.
+    pub fn new(azimuth_deg: f32, elevation_deg: f32) -> Result<Self, SpatialError> {
+        if !azimuth_deg.is_finite()
+            || !elevation_deg.is_finite()
+            || !(-180.0..=180.0).contains(&azimuth_deg)
+            || !(-90.0..=90.0).contains(&elevation_deg)
+        {
+            return Err(SpatialError::InvalidDirection);
+        }
+        Ok(Self {
+            azimuth_deg,
+            elevation_deg,
+        })
+    }
+
+    fn vector(self) -> [f32; 3] {
+        let az = self.azimuth_deg.to_radians();
+        let el = self.elevation_deg.to_radians();
+        [el.cos() * az.cos(), el.cos() * az.sin(), el.sin()]
+    }
+}
+
+/// Spatial renderer errors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpatialError {
+    InvalidDirection,
+    EmptySpeakerLayout,
+    ChannelCountMismatch,
+    MissingHrtf,
+    InvalidHrtf,
+}
+
+impl core::fmt::Display for SpatialError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let message = match self {
+            Self::InvalidDirection => "direction is outside finite azimuth/elevation bounds",
+            Self::EmptySpeakerLayout => "speaker layout must contain at least one speaker",
+            Self::ChannelCountMismatch => "output channel count does not match the layout",
+            Self::MissingHrtf => "HRTF profile has no response for this direction",
+            Self::InvalidHrtf => "HRTF responses must be finite, non-empty, and bounded",
+        };
+        f.write_str(message)
+    }
+}
+
+impl std::error::Error for SpatialError {}
+
+/// Speaker layout in spherical coordinates. Include overhead/height speakers
+/// to preserve elevation; a horizontal-only layout cannot reproduce vertical
+/// source direction.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SpeakerLayout {
+    speakers: Vec<Direction>,
+}
+
+impl SpeakerLayout {
+    pub fn new(speakers: Vec<Direction>) -> Result<Self, SpatialError> {
+        if speakers.is_empty() {
+            return Err(SpatialError::EmptySpeakerLayout);
+        }
+        // Revalidate because Direction fields are public and may be modified.
+        for speaker in &speakers {
+            Direction::new(speaker.azimuth_deg, speaker.elevation_deg)?;
+        }
+        Ok(Self { speakers })
+    }
+
+    pub fn channel_count(&self) -> usize {
+        self.speakers.len()
+    }
+
+    /// Equal-power direction gains for each speaker. Gains are the positive
+    /// part of the source/speaker unit-vector dot product, normalized by
+    /// squared power. If a source falls behind every speaker, the nearest
+    /// speaker receives the full signal instead of silence.
+    pub fn gains(&self, source: Direction) -> Result<Vec<f32>, SpatialError> {
+        let source = Direction::new(source.azimuth_deg, source.elevation_deg)?.vector();
+        let mut gains: Vec<f32> = self
+            .speakers
+            .iter()
+            .map(|speaker| {
+                let speaker = speaker.vector();
+                (source[0] * speaker[0] + source[1] * speaker[1] + source[2] * speaker[2]).max(0.0)
+            })
+            .collect();
+        let power: f32 = gains.iter().map(|gain| gain * gain).sum();
+        if power > f32::EPSILON {
+            let scale = power.sqrt().recip();
+            gains.iter_mut().for_each(|gain| *gain *= scale);
+        } else {
+            let nearest = self
+                .speakers
+                .iter()
+                .enumerate()
+                .map(|(i, speaker)| {
+                    let speaker = speaker.vector();
+                    (
+                        i,
+                        source[0] * speaker[0] + source[1] * speaker[1] + source[2] * speaker[2],
+                    )
+                })
+                .max_by(|a, b| a.1.total_cmp(&b.1))
+                .map(|(i, _)| i)
+                .unwrap_or(0);
+            gains[nearest] = 1.0;
+        }
+        Ok(gains)
+    }
+
+    /// Apply one mono sample into a caller-provided interleaved frame.
+    pub fn render_sample(
+        &self,
+        sample: f32,
+        source: Direction,
+        output: &mut [f32],
+    ) -> Result<(), SpatialError> {
+        if output.len() != self.speakers.len() {
+            return Err(SpatialError::ChannelCountMismatch);
+        }
+        let gains = self.gains(source)?;
+        let sample = if sample.is_finite() { sample } else { 0.0 };
+        for (out, gain) in output.iter_mut().zip(gains) {
+            *out = sample * gain;
+        }
+        Ok(())
+    }
+}
+
+/// Borrowed pair of ear-specific FIR impulse responses supplied by an HRTF
+/// dataset or host adapter. `taps[0]` is the current sample coefficient;
+/// later taps encode delay and spectral cues such as interaural time
+/// difference and pinna filtering.
+#[derive(Debug, Clone, Copy)]
+pub struct HrtfResponse<'a> {
+    pub left: &'a [f32],
+    pub right: &'a [f32],
+}
+
+/// Pluggable HRTF dataset interface. Implementations may interpolate a
+/// measured database (for example SOFA-derived filters) and return stable
+/// impulse-response slices for the requested direction.
+///
+/// Goya does not bundle measured HRTF data; hosts must provide a licensed
+/// dataset and its interpolation policy.
+pub trait HrtfProfile {
+    fn response(&self, direction: Direction) -> Option<HrtfResponse<'_>>;
+}
+
+/// Deterministic binaural FIR renderer backed by a host HRTF profile.
+///
+/// Processing uses fixed-size history storage and writes interleaved L/R
+/// samples into a caller-provided buffer. Direction changes replace the
+/// filters while preserving recent input history.
+pub struct HrtfRenderer<P: HrtfProfile> {
+    profile: P,
+    left: Vec<f32>,
+    right: Vec<f32>,
+    history: [f32; MAX_HRTF_TAPS],
+    cursor: usize,
+}
+
+impl<P: HrtfProfile> HrtfRenderer<P> {
+    pub fn new(profile: P, direction: Direction) -> Result<Self, SpatialError> {
+        let mut renderer = Self {
+            profile,
+            left: Vec::new(),
+            right: Vec::new(),
+            history: [0.0; MAX_HRTF_TAPS],
+            cursor: 0,
+        };
+        renderer.set_direction(direction)?;
+        Ok(renderer)
+    }
+
+    pub fn set_direction(&mut self, direction: Direction) -> Result<(), SpatialError> {
+        let direction = Direction::new(direction.azimuth_deg, direction.elevation_deg)?;
+        let response = self
+            .profile
+            .response(direction)
+            .ok_or(SpatialError::MissingHrtf)?;
+        if response.left.is_empty()
+            || response.right.is_empty()
+            || response.left.len() > MAX_HRTF_TAPS
+            || response.right.len() > MAX_HRTF_TAPS
+            || response
+                .left
+                .iter()
+                .chain(response.right)
+                .any(|tap| !tap.is_finite())
+        {
+            return Err(SpatialError::InvalidHrtf);
+        }
+        self.left.clear();
+        self.left.extend_from_slice(response.left);
+        self.right.clear();
+        self.right.extend_from_slice(response.right);
+        Ok(())
+    }
+
+    pub fn process(
+        &mut self,
+        input: &[f32],
+        interleaved_stereo: &mut [f32],
+    ) -> Result<(), SpatialError> {
+        if interleaved_stereo.len() != input.len().saturating_mul(2) {
+            return Err(SpatialError::ChannelCountMismatch);
+        }
+        for (sample_index, input_sample) in input.iter().enumerate() {
+            self.history[self.cursor] = if input_sample.is_finite() {
+                *input_sample
+            } else {
+                0.0
+            };
+            let left = fir(&self.history, self.cursor, &self.left);
+            let right = fir(&self.history, self.cursor, &self.right);
+            interleaved_stereo[2 * sample_index] = left;
+            interleaved_stereo[2 * sample_index + 1] = right;
+            self.cursor = (self.cursor + 1) % MAX_HRTF_TAPS;
+        }
+        Ok(())
+    }
+}
+
+fn fir(history: &[f32; MAX_HRTF_TAPS], cursor: usize, taps: &[f32]) -> f32 {
+    taps.iter()
+        .enumerate()
+        .map(|(delay, tap)| {
+            let index = (cursor + MAX_HRTF_TAPS - delay) % MAX_HRTF_TAPS;
+            history[index] * tap
+        })
+        .sum()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct TestHrtf;
+
+    impl HrtfProfile for TestHrtf {
+        fn response(&self, direction: Direction) -> Option<HrtfResponse<'_>> {
+            static FRONT_LEFT: [f32; 2] = [1.0, 0.25];
+            static FRONT_RIGHT: [f32; 2] = [0.5, -0.25];
+            static ELEVATED_LEFT: [f32; 2] = [0.0, 1.0];
+            static ELEVATED_RIGHT: [f32; 2] = [1.0, 0.0];
+            if direction.elevation_deg > 0.0 {
+                Some(HrtfResponse {
+                    left: &ELEVATED_LEFT,
+                    right: &ELEVATED_RIGHT,
+                })
+            } else {
+                Some(HrtfResponse {
+                    left: &FRONT_LEFT,
+                    right: &FRONT_RIGHT,
+                })
+            }
+        }
+    }
 
     fn rect(x: i64, width: i64) -> Rect {
         Rect {
@@ -272,5 +542,66 @@ mod tests {
         // Full-left / full-right both fold to half amplitude — still audible.
         assert!((fold_mono(stereo_gains(-1.0)) - 0.5).abs() < 1e-6);
         assert!((fold_mono(stereo_gains(1.0)) - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn direction_rejects_non_finite_and_out_of_range_values() {
+        assert_eq!(
+            Direction::new(f32::NAN, 0.0),
+            Err(SpatialError::InvalidDirection)
+        );
+        assert_eq!(
+            Direction::new(181.0, 0.0),
+            Err(SpatialError::InvalidDirection)
+        );
+        assert_eq!(
+            Direction::new(0.0, 91.0),
+            Err(SpatialError::InvalidDirection)
+        );
+    }
+
+    #[test]
+    fn height_speaker_carries_elevation_and_array_is_equal_power() {
+        let layout = SpeakerLayout::new(vec![
+            Direction::new(-45.0, 0.0).unwrap(),
+            Direction::new(45.0, 0.0).unwrap(),
+            Direction::new(0.0, 75.0).unwrap(),
+            Direction::new(180.0, 0.0).unwrap(),
+        ])
+        .unwrap();
+        let elevated = Direction::new(0.0, 75.0).unwrap();
+        let gains = layout.gains(elevated).unwrap();
+        assert!(gains[2] > gains[0] && gains[2] > gains[1]);
+        assert!((gains.iter().map(|g| g * g).sum::<f32>() - 1.0).abs() < 1e-6);
+
+        let mut frame = [0.0; 4];
+        layout.render_sample(0.5, elevated, &mut frame).unwrap();
+        assert!((frame[2] - 0.5 * gains[2]).abs() < 1e-6);
+        assert_eq!(
+            layout.render_sample(0.5, elevated, &mut [0.0; 2]),
+            Err(SpatialError::ChannelCountMismatch)
+        );
+    }
+
+    #[test]
+    fn hrtf_renderer_convolves_each_ear_and_changes_with_elevation() {
+        let front = Direction::new(0.0, 0.0).unwrap();
+        let mut renderer = HrtfRenderer::new(TestHrtf, front).unwrap();
+        let mut stereo = [0.0; 6];
+        renderer.process(&[1.0, 0.0, 0.0], &mut stereo).unwrap();
+        assert_eq!(stereo, [1.0, 0.5, 0.25, -0.25, 0.0, 0.0]);
+
+        renderer
+            .set_direction(Direction::new(0.0, 40.0).unwrap())
+            .unwrap();
+        let mut elevated = [0.0; 2];
+        renderer.process(&[1.0], &mut elevated).unwrap();
+        // The host profile returns different ear responses for elevated
+        // sources; the result remains deterministic across direction changes.
+        assert_eq!(elevated, [0.0, 1.0]);
+        assert_eq!(
+            renderer.process(&[1.0], &mut [0.0; 1]),
+            Err(SpatialError::ChannelCountMismatch)
+        );
     }
 }

@@ -67,7 +67,19 @@ impl Corpus {
         // A zero-sized image has no meaningful luma pattern. Avoid the
         // modulo-by-zero path in gradient generation and keep corpus entries
         // valid for the watermark API.
-        if size == 0 {
+        let Some(pixels_per_image) = usize::try_from(size)
+            .ok()
+            .and_then(|width| width.checked_mul(width))
+        else {
+            return Vec::new();
+        };
+        if size == 0
+            || size > 1024
+            || n_images > 512
+            || pixels_per_image
+                .checked_mul(n_images)
+                .is_none_or(|n| n > 8 * 1024 * 1024)
+        {
             return Vec::new();
         }
         let mut images = Vec::with_capacity(n_images);
@@ -75,15 +87,13 @@ impl Corpus {
             let payload = mix64(seed ^ mix64((i as u64).wrapping_add(1))) | 1;
             let rng_seed = mix64(seed ^ mix64((i as u64).wrapping_add(0x9E37)));
             let mut rng = Xorshift64(rng_seed | 1);
-            let name = match i % 3 {
-                0 => format!("gradient_{:02}", i),
-                1 => format!("checkerboard_{:02}", i),
-                _ => format!("noise_{:02}", i),
-            };
-            let pixels = match i % 3 {
-                0 => Self::gradient(size),
-                1 => Self::checkerboard(size),
-                _ => Self::noise_field(size, &mut rng),
+            let (name, pixels) = match i % 6 {
+                0 => (format!("gradient_{:02}", i), Self::gradient(size)),
+                1 => (format!("checkerboard_{:02}", i), Self::checkerboard(size)),
+                2 => (format!("noise_{:02}", i), Self::noise_field(size, &mut rng)),
+                3 => (format!("stripes_{:02}", i), Self::stripes(size)),
+                4 => (format!("rings_{:02}", i), Self::rings(size)),
+                _ => (format!("low_contrast_{:02}", i), Self::low_contrast(size)),
             };
             images.push(CorpusImage {
                 name,
@@ -96,6 +106,13 @@ impl Corpus {
         images
     }
 
+    /// Generate the fixed six-pattern adversarial corpus with a documented
+    /// seed and distinct watermark payload per image. The patterns exercise
+    /// smooth, blocky, textured, edge-rich, radial, and low-contrast images.
+    pub fn adversarial(seed: u64, n_images: usize, size: u32) -> Vec<CorpusImage> {
+        Self::generate(seed, n_images, size)
+    }
+
     /// Smooth diagonal luminance ramp.
     fn gradient(size: u32) -> Vec<u8> {
         let n = size as usize;
@@ -106,7 +123,7 @@ impl Corpus {
                 let v = (x + y) * 255 / ((2 * n - 1).max(1));
                 v as u8
             })
-            .collect()
+            .collect::<Vec<_>>()
     }
 
     /// 8-pixel checkerboard.
@@ -120,6 +137,54 @@ impl Corpus {
                     230
                 } else {
                     25
+                }
+            })
+            .collect()
+    }
+
+    /// One-pixel alternating bars expose sensitivity to resampling and
+    /// high-frequency loss.
+    fn stripes(size: u32) -> Vec<u8> {
+        let n = size as usize;
+        (0..n * n)
+            .map(|i| {
+                if (i % n / 2).is_multiple_of(2) {
+                    220
+                } else {
+                    36
+                }
+            })
+            .collect()
+    }
+
+    /// Integer radial rings expose block alignment and crop sensitivity.
+    fn rings(size: u32) -> Vec<u8> {
+        let n = size as usize;
+        let center = n as i64 / 2;
+        (0..n * n)
+            .map(|i| {
+                let x = i % n;
+                let y = i / n;
+                let dx = x as i64 - center;
+                let dy = y as i64 - center;
+                if ((dx * dx + dy * dy).isqrt() / 4) % 2 == 0 {
+                    168
+                } else {
+                    88
+                }
+            })
+            .collect()
+    }
+
+    /// Low-contrast checker pattern for near-quantisation-limit inputs.
+    fn low_contrast(size: u32) -> Vec<u8> {
+        let n = size as usize;
+        (0..n * n)
+            .map(|i| {
+                if ((i % n / 4) + (i / n / 4)).is_multiple_of(2) {
+                    136
+                } else {
+                    120
                 }
             })
             .collect()
@@ -157,6 +222,15 @@ pub enum Compression {
         /// Maximum absolute per-pixel delta.
         amplitude: i32,
     },
+    /// Integer contrast scaling around midpoint 128. A 4/5 setting lowers
+    /// contrast; 6/5 increases it. This is a deterministic image-edit proxy.
+    Contrast { numerator: u16, denominator: u16 },
+    /// Integer brightness offset clamped to the luma range.
+    Brightness { offset: i16 },
+    /// Deterministic square box blur; radius is capped at 4 for bounded work.
+    BoxBlur { radius: u8 },
+    /// Salt-and-pepper impulse noise at `per_mille` of pixels (0..=1000).
+    SaltPepper { per_mille: u16 },
 }
 
 impl Compression {
@@ -167,19 +241,104 @@ impl Compression {
             Compression::Resize { factor } => format!("resize(x{})", factor),
             Compression::Crop { fraction } => format!("crop({:.2})", fraction),
             Compression::Noise { amplitude } => format!("noise(+-{})", amplitude),
+            Compression::Contrast {
+                numerator,
+                denominator,
+            } => {
+                format!("contrast({}/{})", numerator, (*denominator).max(1))
+            }
+            Compression::Brightness { offset } => format!("brightness({:+})", offset),
+            Compression::BoxBlur { radius } => format!("box-blur(r{})", (*radius).min(4)),
+            Compression::SaltPepper { per_mille } => {
+                format!("salt-pepper({})", (*per_mille).min(1000))
+            }
         }
     }
 
     /// Apply the transformation, returning the transformed pixel buffer and
     /// its dimensions.
-    fn apply(&self, pixels: &[u8], w: u32, h: u32, image_index: usize) -> (Vec<u8>, u32, u32) {
+    fn apply(&self, pixels: &[u8], w: u32, h: u32, image_index: u64) -> (Vec<u8>, u32, u32) {
         match *self {
             Compression::JPEGish { quality } => (jpegish(pixels, w, h, quality), w, h),
             Compression::Resize { factor } => resize(pixels, w, h, factor.max(1)),
             Compression::Crop { fraction } => crop(pixels, w, h, fraction),
             Compression::Noise { amplitude } => (add_noise(pixels, image_index, amplitude), w, h),
+            Compression::Contrast {
+                numerator,
+                denominator,
+            } => (contrast(pixels, numerator, denominator), w, h),
+            Compression::Brightness { offset } => (brightness(pixels, offset), w, h),
+            Compression::BoxBlur { radius } => (box_blur(pixels, w, h, radius), w, h),
+            Compression::SaltPepper { per_mille } => {
+                (salt_pepper(pixels, image_index, per_mille), w, h)
+            }
         }
     }
+}
+
+fn contrast(pixels: &[u8], numerator: u16, denominator: u16) -> Vec<u8> {
+    let denominator = i64::from(denominator.max(1));
+    pixels
+        .iter()
+        .map(|&pixel| {
+            let centered = i64::from(pixel) - 128;
+            ((centered * i64::from(numerator) / denominator) + 128).clamp(0, 255) as u8
+        })
+        .collect()
+}
+
+fn brightness(pixels: &[u8], offset: i16) -> Vec<u8> {
+    pixels
+        .iter()
+        .map(|&pixel| (i32::from(pixel) + i32::from(offset)).clamp(0, 255) as u8)
+        .collect()
+}
+
+fn box_blur(pixels: &[u8], w: u32, h: u32, radius: u8) -> Vec<u8> {
+    let width = w as usize;
+    let height = h as usize;
+    let radius = usize::from(radius.min(4));
+    if radius == 0 {
+        return pixels.to_vec();
+    }
+    let mut out = Vec::with_capacity(pixels.len());
+    for y in 0..height {
+        for x in 0..width {
+            let x0 = x.saturating_sub(radius);
+            let y0 = y.saturating_sub(radius);
+            let x1 = (x + radius + 1).min(width);
+            let y1 = (y + radius + 1).min(height);
+            let mut sum = 0u64;
+            let mut count = 0u64;
+            for yy in y0..y1 {
+                for xx in x0..x1 {
+                    sum += u64::from(pixels[yy * width + xx]);
+                    count += 1;
+                }
+            }
+            out.push((sum / count.max(1)) as u8);
+        }
+    }
+    out
+}
+
+fn salt_pepper(pixels: &[u8], image_index: u64, per_mille: u16) -> Vec<u8> {
+    let mut rng = Xorshift64(mix64(image_index.wrapping_add(0xA4D3_7C91)) | 1);
+    let threshold = u64::from(per_mille.min(1000)) * 1000;
+    pixels
+        .iter()
+        .map(|&pixel| {
+            if rng.next_u64() % 1_000_000 < threshold {
+                if rng.next_u64() & 1 == 0 {
+                    0
+                } else {
+                    255
+                }
+            } else {
+                pixel
+            }
+        })
+        .collect()
 }
 
 /// Quantise each pixel to a coarse grid anchored on its 8x8 block mean.
@@ -260,8 +419,8 @@ fn crop(pixels: &[u8], w: u32, h: u32, fraction: f64) -> (Vec<u8>, u32, u32) {
 
 /// Deterministic PRNG perturbation within `+-amplitude`, keyed by image index
 /// so each image gets a distinct but reproducible noise pattern.
-fn add_noise(pixels: &[u8], image_index: usize, amplitude: i32) -> Vec<u8> {
-    let mut rng = Xorshift64(mix64((image_index as u64).wrapping_add(0x51_5E_2B)) | 1);
+fn add_noise(pixels: &[u8], image_index: u64, amplitude: i32) -> Vec<u8> {
+    let mut rng = Xorshift64(mix64(image_index.wrapping_add(0x51_5E_2B)) | 1);
     // Larger noise cannot produce a different clamped u8 result, and
     // clamping before arithmetic prevents overflow for adversarial inputs.
     let amplitude = amplitude.clamp(0, 255);
@@ -285,6 +444,10 @@ pub struct TransformResult {
     /// Mean over images of the maximum absolute pixel delta between the
     /// watermarked image and its transformed version.
     pub mean_max_delta: f64,
+    /// Valid source images measured for this transform.
+    pub samples: usize,
+    /// Exact-payload detections among `samples`.
+    pub hits: usize,
 }
 
 /// The reproducible robustness evaluation demanded by directive §9.
@@ -292,27 +455,42 @@ pub struct TransformResult {
 pub struct RobustnessReport {
     /// Number of corpus images evaluated.
     pub n_images: usize,
+    /// Well-shaped non-empty images actually evaluated.
+    pub n_valid_images: usize,
+    /// Malformed or empty public corpus entries skipped by the harness.
+    pub n_invalid_images: usize,
     /// One measurement per requested transformation, in order.
     pub transforms: Vec<TransformResult>,
     /// Fraction of UNMARKED corpus images on which detection reported a
     /// payload (false positives; target is 0).
     pub false_positive_rate: f64,
+    /// Number of (unmarked image, key) trials.
+    pub false_positive_controls: usize,
+    /// Number of control trials that yielded a payload.
+    pub false_positives: usize,
 }
 
 impl std::fmt::Display for RobustnessReport {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "robustness report: {} corpus images", self.n_images)?;
+        writeln!(
+            f,
+            "robustness report: {} corpus images ({} valid, {} invalid)",
+            self.n_images, self.n_valid_images, self.n_invalid_images
+        )?;
         for t in &self.transforms {
             writeln!(
                 f,
-                "  {:<16} detection_rate={:.3} mean_max_delta={:.1}",
-                t.label, t.detection_rate, t.mean_max_delta
+                "  {:<20} detection_rate={:.3} hits={}/{} mean_max_delta={:.1}",
+                t.label, t.detection_rate, t.hits, t.samples, t.mean_max_delta
             )?;
         }
         write!(
             f,
-            "  {:<16} false_positive_rate={:.3}",
-            "unmarked", self.false_positive_rate
+            "  {:<20} false_positive_rate={:.6} false_positives={}/{}",
+            "unmarked",
+            self.false_positive_rate,
+            self.false_positives,
+            self.false_positive_controls
         )
     }
 }
@@ -335,8 +513,22 @@ impl Benchmark {
         alpha: f64,
         transformations: &[Compression],
     ) -> RobustnessReport {
+        self.run_with_controls(corpus, key, alpha, transformations, &[key], 0)
+    }
+
+    /// Run with an explicit collection of keys for unmarked-image false
+    /// positive controls and a stable seed for stochastic surrogate attacks.
+    pub fn run_with_controls(
+        &self,
+        corpus: &[CorpusImage],
+        key: u64,
+        alpha: f64,
+        transformations: &[Compression],
+        control_keys: &[u64],
+        seed: u64,
+    ) -> RobustnessReport {
         // False positives: detection on unmarked images must report nothing.
-        let valid = |img: &&CorpusImage| {
+        let is_valid = |img: &CorpusImage| {
             usize::try_from(img.w)
                 .ok()
                 .and_then(|w| usize::try_from(img.h).ok().and_then(|h| w.checked_mul(h)))
@@ -344,25 +536,36 @@ impl Benchmark {
                 && img.w > 0
                 && img.h > 0
         };
+        let valid_images = corpus.iter().filter(|img| is_valid(img)).count();
+        let invalid_images = corpus.len().saturating_sub(valid_images);
+        let false_positive_controls = valid_images.saturating_mul(control_keys.len());
         let false_positives = corpus
             .iter()
-            .filter(valid)
-            .filter(|img| detect(&img.pixels, img.w, img.h, key).is_some())
+            .filter(|img| is_valid(img))
+            .flat_map(|img| {
+                control_keys
+                    .iter()
+                    .map(move |control_key| (img, control_key))
+            })
+            .filter(|(img, control_key)| detect(&img.pixels, img.w, img.h, **control_key).is_some())
             .count();
-        let false_positive_rate = rate(false_positives, corpus.len());
+        let false_positive_rate = rate(false_positives, false_positive_controls);
 
         let mut transforms = Vec::with_capacity(transformations.len());
         for (ti, t) in transformations.iter().enumerate() {
             let mut hits = 0usize;
             let mut delta_sum = 0.0f64;
             for (ii, img) in corpus.iter().enumerate() {
-                if !valid(&img) {
+                if !is_valid(img) {
                     // Malformed public CorpusImage values are treated as
                     // misses; a benchmark report must not panic on bad shape.
                     continue;
                 }
                 let marked = embed(&img.pixels, img.w, img.h, key, img.payload, alpha);
-                let (transformed, tw, th) = t.apply(&marked, img.w, img.h, ii + ti * 7);
+                let attack_seed = seed
+                    .wrapping_add(ii as u64)
+                    .wrapping_add((ti as u64).wrapping_mul(7));
+                let (transformed, tw, th) = t.apply(&marked, img.w, img.h, attack_seed);
                 if detect(&transformed, tw, th, key) == Some(img.payload) {
                     hits += 1;
                 }
@@ -370,21 +573,184 @@ impl Benchmark {
             }
             transforms.push(TransformResult {
                 label: t.label(),
-                detection_rate: rate(hits, corpus.len()),
-                mean_max_delta: if corpus.is_empty() {
+                detection_rate: rate(hits, valid_images),
+                mean_max_delta: if valid_images == 0 {
                     0.0
                 } else {
-                    delta_sum / corpus.len() as f64
+                    delta_sum / valid_images as f64
                 },
+                samples: valid_images,
+                hits,
             });
         }
 
         RobustnessReport {
             n_images: corpus.len(),
+            n_valid_images: valid_images,
+            n_invalid_images: invalid_images,
             transforms,
             false_positive_rate,
+            false_positive_controls,
+            false_positives,
         }
     }
+
+    /// Run the standard adversarial synthetic corpus and the complete bounded
+    /// transform suite. The return value includes enough metadata to recreate
+    /// the exact corpus and attacks, and its JSON is stable across runs.
+    pub fn run_adversarial(
+        &self,
+        seed: u64,
+        n_images: usize,
+        size: u32,
+        key: u64,
+        alpha: f64,
+    ) -> BenchmarkResult {
+        let corpus = Corpus::adversarial(seed, n_images, size);
+        let transformations = standard_adversarial_suite();
+        let mut control_keys = Vec::with_capacity(17);
+        control_keys.push(key);
+        for i in 1..=16u64 {
+            control_keys.push(mix64(key ^ i.wrapping_mul(0x9E37_79B9_7F4A_7C15)));
+        }
+        let report =
+            self.run_with_controls(&corpus, key, alpha, &transformations, &control_keys, seed);
+        let corpus_fingerprint = corpus_fingerprint(&corpus);
+        BenchmarkResult {
+            seed,
+            n_images,
+            width: size,
+            height: size,
+            key,
+            alpha,
+            corpus_fingerprint,
+            transformations,
+            report,
+        }
+    }
+}
+
+/// Reproducible run metadata plus all measured results.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BenchmarkResult {
+    pub seed: u64,
+    pub n_images: usize,
+    pub width: u32,
+    pub height: u32,
+    pub key: u64,
+    pub alpha: f64,
+    /// FNV-1a 64-bit corpus fingerprint (identity aid, not a security hash).
+    pub corpus_fingerprint: u64,
+    pub transformations: Vec<Compression>,
+    pub report: RobustnessReport,
+}
+
+impl BenchmarkResult {
+    /// Stable JSON report with the complete run configuration and exact
+    /// measurements. No pass threshold is implied by these measurements.
+    pub fn to_json(&self) -> String {
+        let mut json = format!(
+            "{{\n  \"schema\":\"GY-BENCH-REPORT/1\",\n  \"seed\":{},\n  \"images\":{},\n  \"width\":{},\n  \"height\":{},\n  \"key_hex\":\"{:016x}\",\n  \"alpha\":{},\n  \"corpus_fnv1a64\":\"{:016x}\",\n  \"threshold_policy\":\"measurements only; no general robustness threshold\",\n  \"transforms\":[",
+            self.seed,
+            self.n_images,
+            self.width,
+            self.height,
+            self.key,
+            self.alpha,
+            self.corpus_fingerprint
+        );
+        for (index, (transform, result)) in self
+            .transformations
+            .iter()
+            .zip(&self.report.transforms)
+            .enumerate()
+        {
+            if index > 0 {
+                json.push(',');
+            }
+            json.push_str(&format!(
+                "\n    {{\"name\":\"{}\",\"samples\":{},\"hits\":{},\"detection_rate\":{:.6},\"mean_max_delta\":{:.3}}}",
+                json_escape(&transform.label()),
+                result.samples,
+                result.hits,
+                result.detection_rate,
+                result.mean_max_delta
+            ));
+        }
+        json.push_str(&format!(
+            "\n  ],\n  \"false_positive_controls\":{},\n  \"false_positives\":{},\n  \"false_positive_rate\":{:.8},\n  \"valid_images\":{},\n  \"invalid_images\":{}\n}}\n",
+            self.report.false_positive_controls,
+            self.report.false_positives,
+            self.report.false_positive_rate,
+            self.report.n_valid_images,
+            self.report.n_invalid_images
+        ));
+        json
+    }
+}
+
+/// Standard deterministic transform suite. `JPEGish` is a block-quantisation
+/// surrogate, not an encoded JPEG round-trip; all rows in the report identify
+/// the exact operation and parameter actually measured.
+pub fn standard_adversarial_suite() -> Vec<Compression> {
+    vec![
+        Compression::JPEGish { quality: 80 },
+        Compression::JPEGish { quality: 55 },
+        Compression::Resize { factor: 2 },
+        Compression::Resize { factor: 3 },
+        Compression::Crop { fraction: 0.75 },
+        Compression::Crop { fraction: 0.50 },
+        Compression::Noise { amplitude: 2 },
+        Compression::Noise { amplitude: 12 },
+        Compression::Contrast {
+            numerator: 4,
+            denominator: 5,
+        },
+        Compression::Contrast {
+            numerator: 6,
+            denominator: 5,
+        },
+        Compression::Brightness { offset: -16 },
+        Compression::Brightness { offset: 16 },
+        Compression::BoxBlur { radius: 1 },
+        Compression::BoxBlur { radius: 2 },
+        Compression::SaltPepper { per_mille: 10 },
+    ]
+}
+
+fn corpus_fingerprint(corpus: &[CorpusImage]) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    let mut update = |bytes: &[u8]| {
+        for byte in bytes {
+            hash ^= u64::from(*byte);
+            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    };
+    for image in corpus {
+        update(&(image.name.len() as u64).to_le_bytes());
+        update(image.name.as_bytes());
+        update(&image.w.to_le_bytes());
+        update(&image.h.to_le_bytes());
+        update(&image.payload.to_le_bytes());
+        update(&image.pixels);
+    }
+    hash
+}
+
+fn json_escape(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            ch if ch.is_control() => out.push('?'),
+            ch => out.push(ch),
+        }
+    }
+    out
 }
 
 /// Fraction `hits / total`, defined as 0.0 when `total` is 0.
@@ -543,6 +909,69 @@ mod tests {
                 "payload collision at index {}",
                 i
             );
+        }
+    }
+
+    #[test]
+    fn adversarial_corpus_cycles_six_stable_patterns_and_bounds_allocations() {
+        let a = Corpus::adversarial(42, 12, 64);
+        let b = Corpus::adversarial(42, 12, 64);
+        assert_eq!(a, b);
+        let prefixes: std::collections::BTreeSet<_> = a
+            .iter()
+            .map(|image| image.name.split('_').next().unwrap_or(""))
+            .collect();
+        assert_eq!(
+            prefixes,
+            [
+                "checkerboard",
+                "gradient",
+                "low",
+                "noise",
+                "rings",
+                "stripes"
+            ]
+            .into_iter()
+            .collect()
+        );
+        assert!(Corpus::generate(0, usize::MAX, u32::MAX).is_empty());
+    }
+
+    #[test]
+    fn complete_suite_reports_seeded_controls_and_serializes_deterministically() {
+        let result = Benchmark.run_adversarial(42, 6, 64, KEY, ALPHA);
+        assert_eq!(result.report.n_valid_images, 6);
+        assert_eq!(result.report.n_invalid_images, 0);
+        assert_eq!(result.report.transforms.len(), 15);
+        assert_eq!(result.report.false_positive_controls, 6 * 17);
+        assert_eq!(result.report.false_positives, 0);
+        let json = result.to_json();
+        assert!(json.starts_with("{\n  \"schema\":\"GY-BENCH-REPORT/1\""));
+        assert!(json.contains(
+            "\"threshold_policy\":\"measurements only; no general robustness threshold\""
+        ));
+        assert_eq!(
+            json,
+            Benchmark.run_adversarial(42, 6, 64, KEY, ALPHA).to_json()
+        );
+    }
+
+    #[test]
+    fn added_surrogates_are_deterministic_and_shape_preserving() {
+        let pixels: Vec<u8> = (0..64 * 64).map(|i| (i % 251) as u8).collect();
+        for transform in [
+            Compression::Contrast {
+                numerator: 4,
+                denominator: 5,
+            },
+            Compression::Brightness { offset: -15 },
+            Compression::BoxBlur { radius: 2 },
+            Compression::SaltPepper { per_mille: 15 },
+        ] {
+            let a = transform.apply(&pixels, 64, 64, 99);
+            let b = transform.apply(&pixels, 64, 64, 99);
+            assert_eq!(a, b, "{} was not deterministic", transform.label());
+            assert_eq!((a.0.len(), a.1, a.2), (pixels.len(), 64, 64));
         }
     }
 

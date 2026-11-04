@@ -1,0 +1,9 @@
+[package]
+name = "goya-ecosystem"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Typed, capability-gated adapters for Goya companion systems"
+
+[dependencies]
+goya-lang = { path = "../goya-lang" }

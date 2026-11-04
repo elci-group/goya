@@ -20,6 +20,7 @@
 
 use goya_determinism::proofs::ExecutionProof;
 use goya_executable::{is_stale, validate_capability_escalation, Artifact};
+use std::collections::{BTreeMap, BTreeSet};
 
 /// The hot-swap contract identifier this crate implements.
 pub const HOTSWAP_CONTRACT: &str = "GY-HOTSWAP/1";
@@ -93,6 +94,8 @@ pub enum SwapStage {
     AppVersion,
     /// The supervisor revision counter cannot advance without overflowing.
     Revision,
+    /// The candidate changes or removes an interface relied on by the active unit.
+    Interface,
 }
 
 /// Why a swap proposal was rejected, and at which stage.
@@ -218,10 +221,13 @@ impl SwapSupervisor {
 
         // Resolve the next revision before mutating anything. A long-lived
         // supervisor must fail closed instead of wrapping its identity counter.
-        let rev = self.revision().checked_add(1).ok_or_else(|| SwapRejection {
-            stage: SwapStage::Revision,
-            reason: "supervisor revision counter is exhausted".into(),
-        })?;
+        let rev = self
+            .revision()
+            .checked_add(1)
+            .ok_or_else(|| SwapRejection {
+                stage: SwapStage::Revision,
+                reason: "supervisor revision counter is exhausted".into(),
+            })?;
 
         // All checks passed: commit the transaction.
         let from = self.active.take().map(|unit| unit.artifact);
@@ -278,6 +284,220 @@ pub fn units_compatible(a: &ExecutionProof, b: &ExecutionProof) -> bool {
         && a.target == b.target
 }
 
+/// Stable signature for one exported operation. Type names are canonical
+/// identifiers supplied by the producer (for example, `goya:text/v1`).
+/// Capability requirements may shrink during an upgrade but may not grow for
+/// an existing operation.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct OperationInterface {
+    /// Ordered input type identifiers.
+    pub inputs: Vec<String>,
+    /// Output type identifier.
+    pub output: String,
+    /// Capabilities required to invoke this operation.
+    pub required_capabilities: BTreeSet<String>,
+}
+
+/// Public interface exported by a compiled unit. A `BTreeMap` makes
+/// reconciliation output deterministic regardless of declaration order.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct InterfaceContract {
+    /// Export name to its callable signature.
+    pub exports: BTreeMap<String, OperationInterface>,
+}
+
+/// Deterministic summary of a successful interface reconciliation.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct InterfaceDiff {
+    /// Exports present in the candidate and absent from the previous unit.
+    pub added_exports: Vec<String>,
+    /// Existing exports whose input/output types remain compatible.
+    pub retained_exports: Vec<String>,
+}
+
+/// A breaking interface change. Ordering follows export-name order, then the
+/// fixed field comparison order documented by [`reconcile_interfaces`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InterfaceIssue {
+    /// Affected export name.
+    pub export: String,
+    /// Stable machine-readable issue kind.
+    pub kind: InterfaceIssueKind,
+}
+
+/// Categories reported by interface reconciliation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InterfaceIssueKind {
+    /// An export provided by the active unit is absent from the candidate.
+    RemovedExport,
+    /// The ordered input type list changed.
+    InputsChanged,
+    /// The output type changed.
+    OutputChanged,
+    /// An existing operation now requires additional authority.
+    CapabilityAdded,
+    /// A required type or capability identifier was empty.
+    EmptyIdentifier,
+}
+
+/// Compare a replacement's public interface with the active unit.
+///
+/// Removing an export, changing its input/output types, or requiring a new
+/// capability is rejected. New exports and reductions in required authority
+/// are compatible. The function is pure and returns results in stable order.
+pub fn reconcile_interfaces(
+    previous: &InterfaceContract,
+    candidate: &InterfaceContract,
+) -> Result<InterfaceDiff, Vec<InterfaceIssue>> {
+    let mut issues = Vec::new();
+
+    for (name, operation) in previous.exports.iter().chain(candidate.exports.iter()) {
+        let has_empty = name.trim().is_empty()
+            || operation.output.trim().is_empty()
+            || operation.inputs.iter().any(|ty| ty.trim().is_empty())
+            || operation
+                .required_capabilities
+                .iter()
+                .any(|capability| capability.trim().is_empty());
+        if has_empty {
+            issues.push(InterfaceIssue {
+                export: name.clone(),
+                kind: InterfaceIssueKind::EmptyIdentifier,
+            });
+        }
+    }
+    if !issues.is_empty() {
+        issues.sort_by(|a, b| (&a.export, a.kind as u8).cmp(&(&b.export, b.kind as u8)));
+        issues.dedup();
+        return Err(issues);
+    }
+
+    let mut diff = InterfaceDiff::default();
+    for (name, old) in &previous.exports {
+        let Some(new) = candidate.exports.get(name) else {
+            issues.push(InterfaceIssue {
+                export: name.clone(),
+                kind: InterfaceIssueKind::RemovedExport,
+            });
+            continue;
+        };
+        if old.inputs != new.inputs {
+            issues.push(InterfaceIssue {
+                export: name.clone(),
+                kind: InterfaceIssueKind::InputsChanged,
+            });
+        }
+        if old.output != new.output {
+            issues.push(InterfaceIssue {
+                export: name.clone(),
+                kind: InterfaceIssueKind::OutputChanged,
+            });
+        }
+        if !new
+            .required_capabilities
+            .is_subset(&old.required_capabilities)
+        {
+            issues.push(InterfaceIssue {
+                export: name.clone(),
+                kind: InterfaceIssueKind::CapabilityAdded,
+            });
+        }
+        if old.inputs == new.inputs && old.output == new.output {
+            diff.retained_exports.push(name.clone());
+        }
+    }
+    diff.added_exports.extend(
+        candidate
+            .exports
+            .keys()
+            .filter(|name| !previous.exports.contains_key(*name))
+            .cloned(),
+    );
+    if issues.is_empty() {
+        Ok(diff)
+    } else {
+        Err(issues)
+    }
+}
+
+/// Hot-swap supervisor that requires interface reconciliation on every
+/// replacement. The legacy [`SwapSupervisor`] remains available for clients
+/// that do not yet publish interface manifests.
+#[derive(Clone, Debug, Default)]
+pub struct ReconciledSupervisor {
+    swaps: SwapSupervisor,
+    interfaces: Vec<InterfaceContract>,
+}
+
+impl ReconciledSupervisor {
+    /// Create an empty reconciled supervisor.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Active executable state.
+    pub fn active(&self) -> Option<&ActiveUnit> {
+        self.swaps.active()
+    }
+
+    /// Active public interface.
+    pub fn active_interface(&self) -> Option<&InterfaceContract> {
+        self.interfaces.last()
+    }
+
+    /// Current successful swap revision.
+    pub fn revision(&self) -> u64 {
+        self.swaps.revision()
+    }
+
+    /// Swap only when the candidate's interface remains compatible with the
+    /// active unit. Both interface validation and executable validation occur
+    /// before committing either supervisor state or interface history.
+    pub fn propose_swap(
+        &mut self,
+        candidate: SwapCandidate,
+        candidate_interface: InterfaceContract,
+        origination: &[String],
+        current_schema: u64,
+        current_policy: u64,
+    ) -> Result<(u64, InterfaceDiff), SwapRejection> {
+        let diff = if let Some(active) = self.active_interface() {
+            reconcile_interfaces(active, &candidate_interface).map_err(|issues| SwapRejection {
+                stage: SwapStage::Interface,
+                reason: format!("interface incompatibility: {issues:?}"),
+            })?
+        } else {
+            let mut diff = InterfaceDiff::default();
+            diff.added_exports
+                .extend(candidate_interface.exports.keys().cloned());
+            // Validate the first manifest too; it has no predecessor to diff.
+            reconcile_interfaces(&InterfaceContract::default(), &candidate_interface).map_err(
+                |issues| SwapRejection {
+                    stage: SwapStage::Interface,
+                    reason: format!("invalid candidate interface: {issues:?}"),
+                },
+            )?;
+            diff
+        };
+
+        let mut staged = self.swaps.clone();
+        let revision =
+            staged.propose_swap(candidate, origination, current_schema, current_policy)?;
+        self.swaps = staged;
+        self.interfaces.push(candidate_interface);
+        Ok((revision, diff))
+    }
+
+    /// Roll back executable and interface state atomically.
+    pub fn rollback(&mut self) -> Result<u64, RollbackError> {
+        let mut staged = self.swaps.clone();
+        let revision = staged.rollback()?;
+        self.swaps = staged;
+        self.interfaces.pop();
+        Ok(revision)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -312,6 +532,19 @@ mod tests {
 
     fn origination() -> Vec<String> {
         ORIGIN.iter().map(|s| (*s).to_string()).collect()
+    }
+
+    fn interface(capability: &str) -> InterfaceContract {
+        InterfaceContract {
+            exports: BTreeMap::from([(
+                "compute".into(),
+                OperationInterface {
+                    inputs: vec!["goya:number/v1".into()],
+                    output: "goya:number/v1".into(),
+                    required_capabilities: BTreeSet::from([capability.into()]),
+                },
+            )]),
+        }
     }
 
     fn supervisor_with_first_swap() -> SwapSupervisor {
@@ -542,5 +775,135 @@ mod tests {
         assert!(!units_compatible(&same, &schema_drift));
         assert!(!units_compatible(&same, &policy_drift));
         assert!(!units_compatible(&same, &target_drift));
+    }
+
+    #[test]
+    fn interface_reconciliation_allows_additive_exports_and_less_authority() {
+        let previous = interface("clock");
+        let mut candidate = interface("clock");
+        candidate
+            .exports
+            .get_mut("compute")
+            .expect("compute")
+            .required_capabilities
+            .clear();
+        candidate.exports.insert(
+            "format".into(),
+            OperationInterface {
+                inputs: vec!["goya:number/v1".into()],
+                output: "goya:text/v1".into(),
+                required_capabilities: BTreeSet::new(),
+            },
+        );
+
+        let diff = reconcile_interfaces(&previous, &candidate).expect("compatible additive API");
+        assert_eq!(diff.retained_exports, vec!["compute"]);
+        assert_eq!(diff.added_exports, vec!["format"]);
+    }
+
+    #[test]
+    fn interface_reconciliation_rejects_removed_changed_and_privileged_exports() {
+        let previous = interface("clock");
+        let mut candidate = InterfaceContract::default();
+        candidate.exports.insert(
+            "compute".into(),
+            OperationInterface {
+                inputs: vec!["goya:text/v1".into()],
+                output: "goya:text/v1".into(),
+                required_capabilities: BTreeSet::from(["clock".into(), "network".into()]),
+            },
+        );
+        candidate.exports.insert(
+            "new_api".into(),
+            OperationInterface {
+                inputs: vec![],
+                output: "goya:void/v1".into(),
+                required_capabilities: BTreeSet::new(),
+            },
+        );
+        let errors = reconcile_interfaces(&previous, &candidate).expect_err("breaking API");
+        assert!(errors
+            .iter()
+            .any(|e| e.kind == InterfaceIssueKind::InputsChanged));
+        assert!(errors
+            .iter()
+            .any(|e| e.kind == InterfaceIssueKind::OutputChanged));
+        assert!(errors
+            .iter()
+            .any(|e| e.kind == InterfaceIssueKind::CapabilityAdded));
+
+        let mut removed = InterfaceContract::default();
+        removed.exports.insert(
+            "new_api".into(),
+            OperationInterface {
+                inputs: vec![],
+                output: "goya:void/v1".into(),
+                required_capabilities: BTreeSet::new(),
+            },
+        );
+        let errors = reconcile_interfaces(&previous, &removed).expect_err("removed API");
+        assert_eq!(errors[0].kind, InterfaceIssueKind::RemovedExport);
+    }
+
+    #[test]
+    fn reconciled_swap_rejection_preserves_active_artifact_and_interface() {
+        let mut supervisor = ReconciledSupervisor::new();
+        supervisor
+            .propose_swap(
+                candidate("v1", 1),
+                interface("clock"),
+                &origination(),
+                SCHEMA,
+                POLICY,
+            )
+            .expect("initial activation");
+        let active = supervisor.active().cloned();
+        let active_interface = supervisor.active_interface().cloned();
+        let revision = supervisor.revision();
+
+        let mut breaking = interface("clock");
+        breaking
+            .exports
+            .get_mut("compute")
+            .expect("compute")
+            .required_capabilities
+            .insert("network".into());
+        let error = supervisor
+            .propose_swap(candidate("v2", 1), breaking, &origination(), SCHEMA, POLICY)
+            .expect_err("new authority must be rejected");
+        assert_eq!(error.stage, SwapStage::Interface);
+        assert_eq!(supervisor.active(), active.as_ref());
+        assert_eq!(supervisor.active_interface(), active_interface.as_ref());
+        assert_eq!(supervisor.revision(), revision);
+    }
+
+    #[test]
+    fn reconciled_rollback_restores_matching_interface() {
+        let mut supervisor = ReconciledSupervisor::new();
+        let first = interface("clock");
+        let mut second = interface("clock");
+        second.exports.insert(
+            "format".into(),
+            OperationInterface {
+                inputs: vec![],
+                output: "goya:text/v1".into(),
+                required_capabilities: BTreeSet::new(),
+            },
+        );
+        supervisor
+            .propose_swap(
+                candidate("v1", 1),
+                first.clone(),
+                &origination(),
+                SCHEMA,
+                POLICY,
+            )
+            .expect("initial activation");
+        supervisor
+            .propose_swap(candidate("v2", 1), second, &origination(), SCHEMA, POLICY)
+            .expect("additive update");
+        supervisor.rollback().expect("rollback");
+        assert_eq!(supervisor.active_interface(), Some(&first));
+        assert_eq!(supervisor.active().unwrap().artifact.proof.process, "v1");
     }
 }

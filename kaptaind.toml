@@ -32,6 +32,9 @@ patch = 0.1    # score at or above this bumps Patch; below it, no commit
 enabled = true
 branch = "main"
 
+[capabilities]
+network_push = true
+
 [push.safety]
 protect_branches = []
 
