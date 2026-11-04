@@ -107,7 +107,7 @@ fn push_token(
             None
         }
         '+' => Some(TokenKind::Plus),
-        '.' if chars.get(*i + 1).map_or(true, |c| !c.is_ascii_digit()) => Some(TokenKind::Dot),
+        '.' if chars.get(*i + 1).is_none_or(|c| !c.is_ascii_digit()) => Some(TokenKind::Dot),
         '.' => None,
         '=' => Some(TokenKind::Equal),
         _ => None,

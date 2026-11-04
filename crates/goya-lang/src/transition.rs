@@ -44,6 +44,14 @@ pub struct CompiledInteraction {
 }
 
 impl CompiledInteraction {
+    /// Access the verified VM program for bridges such as VEE requests. The
+    /// VM enforces exact key schemas; source-level scalar types are enforced
+    /// only by [`Self::execute`], so bridges must preserve this wrapper check
+    /// when accepting authored snapshots.
+    pub fn program(&self) -> &D1Program {
+        &self.program
+    }
+
     /// Execute while enforcing the authored typed state/input contract before
     /// delegating to the lower-level D1 VM's exact-key schema checks.
     pub fn execute(
