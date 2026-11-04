@@ -20,6 +20,37 @@ cargo run -p goya-bench --bin goya-watermark-benchmark -- \
   --images 6 --size 64 --codec png
 ```
 
+To evaluate a caller-selected local corpus, put supported image files directly
+in a directory and pass `--image-dir`. The benchmark sorts paths
+lexicographically, probes source dimensions, and uses ffmpeg to take the first
+video frame, fit it into the requested square size while preserving aspect
+ratio, pad with neutral gray, and convert to 8-bit grayscale. Both the
+deterministic transform suite and optional MJPEG/PNG codec round-trips use
+those same normalized source pixels:
+
+```sh
+cargo run -p goya-bench --bin goya-watermark-benchmark -- \
+  --image-dir ./licensed-images --size 256 --codec mjpeg \
+  --output target/goya-local-image-report.json
+```
+
+The report records each input path, SHA-256 of the original file bytes, source
+dimensions, normalized dimensions, and the ffmpeg version used for decoding.
+Local inputs are limited to 512 files, 64 MiB per file, 256 MiB combined,
+8192 pixels per source edge, 8 million source pixels total, and 8 million
+normalized pixels total. Source dimensions are checked with ffprobe before
+ffmpeg decodes image pixels; decoded output is capped at the exact normalized
+frame size. The CLI reads supported image files in the named directory (not
+recursively); the library API accepts explicit paths and applies the same
+deterministic ordering and bounds.
+
+Callers are responsible for selecting and having rights to use their local
+datasets. Goya does not bundle or redistribute image data. A measurement only
+describes the listed files, normalization, watermark parameters, ffmpeg build,
+and transformations in that report; it does not establish general robustness
+or rights to publish source imagery. Check licensing and redact source paths
+before sharing reports where paths are sensitive.
+
 The optional section reports the ffmpeg version, three MJPEG encoder quality
 settings (`-q:v` 2, 5, and 8) or three PNG compression settings
 (`-compression_level` 1, 6, and 9), exact-payload hits, sample counts,
