@@ -1,0 +1,51 @@
+{
+  "work_package": "GY-WAVE2-INPUT-AUDIO-HOTSWAP",
+  "title": "Keyboard input, resize, audible PipeWire audio, transactional scene hot-swap",
+  "wave": 2,
+  "date": "2026-11-04",
+  "scope": {
+    "objective": "Execute the remaining immediately-executable Wave-2 packages: keyboard text input, window resize, real audible audio output, and transactional hot-swap \u2014 the Wave-2 gate criteria.",
+    "affected": [
+      "crates/goya-wayland",
+      "crates/goya-audio-linux",
+      "crates/goya-lang",
+      "crates/goya-runtime",
+      "crates/goya-hello (bins: scene, goya-hello)"
+    ],
+    "exclusions": [
+      "VEE adapter (needs live VEE instance)",
+      "GY-IR/2 unification (Wave 2c)",
+      "full xkb/IME keymap support (Wave 4)",
+      "multi-buffer presentation"
+    ]
+  },
+  "implementation_record": {
+    "notes": "wl_keyboard with evdev US subset (correct evdev codes: q..p 16-25, a..l 30-38, z..m 44-50 non-contiguous explicit table); resize reallocates shm pool; PwCatOutput streams float32 WAV to pw-cat/paplay/aplay child stdin with graceful degradation; SceneStore transactional swap unit-tested; runtime displays typed state."
+  },
+  "test_evidence": {
+    "commands": [
+      "cargo test --workspace --lib --tests",
+      "cargo run -p goya-audio-linux --example audio_smoke",
+      "cargo run --bin scene -- --live --sound",
+      "cargo run --bin scene -- --live --watch --frames 1800 --file <scene> (with live edits)",
+      "cargo clippy --workspace --all-targets -- -D warnings",
+      "cargo fmt --all -- --check",
+      "uni --fail-under 80 ."
+    ],
+    "results": {
+      "unit_tests": "181 passed, 0 failed (26 suites)",
+      "audio": "REAL audible output verified: 880 Hz tap, 12000/12000 samples, state=Available via pw-cat",
+      "hotswap_live": "good edit hot-swapped to generation 2; broken edit rejected with running scene retained \u2014 Wave-2 gate criterion met live",
+      "regressions": "fusion 10/10, buttons 9/9, hello headless proof pass",
+      "clippy": "pass",
+      "rustfmt": "pass",
+      "uni": "92/100 exit 0 (after fixing traci-flagged panic paths: parser unwrap-after-peek, IR root unwrap, example/example unwraps \u2014 all replaced with explicit error arms)"
+    },
+    "environment": "rustc 1.95.0 pinned, Wayland session, PipeWire running"
+  },
+  "notable_findings": {
+    "evdev_gaps": "Letter rows are not ASCII-contiguous across keyboard gaps (a..l then semicolon); the z-row is not contiguous at all \u2014 explicit tables required, caught by key-table unit tests.",
+    "traci_value": "traci flagged three genuine panic paths introduced this wave (production resolve().unwrap(), expect() in demo paths, test-only unwraps); all fixed with explicit error arms \u2014 the observability advisor caught real defects again."
+  },
+  "integration_decision": "accept"
+}

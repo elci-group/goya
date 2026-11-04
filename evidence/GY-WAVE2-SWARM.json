@@ -1,0 +1,108 @@
+{
+  "work_package": "GY-WAVE2-SWARM-001",
+  "title": "Concurrent 10-agent swarm: SON, NSB, RPI, EDC, X402, AIM",
+  "wave": 2,
+  "date": "2026-11-04",
+  "scope": {
+    "objective": "Execute six architecture amendments concurrently via 10 sub-agents with exclusive crate ownership and a central integration gate.",
+    "affected": [
+      "crates/goya-sonic",
+      "crates/goya-spatial-audio",
+      "crates/goya-audio-dsp",
+      "crates/goya-audio-linux",
+      "crates/goya-bridge",
+      "crates/goya-bridge-physics",
+      "crates/goya-rpi",
+      "crates/goya-speculation",
+      "crates/goya-determinism",
+      "crates/goya-executable",
+      "crates/goya-x402",
+      "crates/goya-economics",
+      "crates/goya-settlement",
+      "crates/goya-artifact",
+      "crates/goya-watermark"
+    ],
+    "exclusions": [
+      "PipeWire C binding (adapter when Wayland surface lands)",
+      "C2PA signing (investigation item)",
+      "HRTF/multichannel elevation",
+      "learned RPI Level-2 models"
+    ]
+  },
+  "swarm": {
+    "agents": 10,
+    "dispatch": "single concurrent wave, exclusive crate ownership, no agent ran cargo (contention-free)",
+    "assignments": {
+      "J1": "goya-sonic",
+      "J2": "goya-spatial-audio",
+      "J3": "goya-audio-dsp + goya-audio-linux",
+      "J4": "goya-bridge-physics + goya-bridge (NSB)",
+      "J5": "goya-rpi",
+      "J6": "goya-speculation",
+      "J7": "goya-determinism + goya-executable (EDC)",
+      "J8": "goya-x402 + goya-economics",
+      "J9": "goya-settlement",
+      "J10": "goya-artifact + goya-watermark"
+    }
+  },
+  "contracts": {
+    "provides": [
+      "GY-SONIC/1",
+      "GY-SPATIAL-AUDIO/1",
+      "GY-AUDIO-DSP/1",
+      "GY-AUDIO-LINUX/1",
+      "GY-BRIDGE-PHYSICS/1",
+      "GY-BRIDGE/1",
+      "GY-RPI/1",
+      "GY-SPECULATION/1",
+      "GY-DETERMINISM/1",
+      "GY-EXECUTABLE/1",
+      "GY-X402/1",
+      "GY-ECONOMICS/1",
+      "GY-SETTLEMENT/1",
+      "GY-ARTIFACT/1",
+      "GY-WATERMARK/1"
+    ]
+  },
+  "test_evidence": {
+    "commands": [
+      "cargo build --workspace",
+      "cargo test --workspace --lib --tests",
+      "cargo clippy --workspace --all-targets -- -D warnings",
+      "cargo fmt --all -- --check",
+      "cargo run --bin goya-hello",
+      "uni --fail-under 80 .",
+      "playbook mvp --journal evidence/goya-wave2-drive.jsonl"
+    ],
+    "results": {
+      "build": "pass",
+      "unit_tests": "169 passed, 0 failed across 23 suites",
+      "clippy_deny_warnings": "pass",
+      "rustfmt": "pass",
+      "goya_hello_regression": "pass (wave-1 proof unaffected)",
+      "uni": "94/100, exit 0",
+      "playbook": "drive played 6/6, journal replay clean; disposition punt recorded"
+    },
+    "integration_fixes_by_coordinator": [
+      "DeviceState missing Default derive (J3)",
+      "Mixer eviction semantics: test intended lower-numeric=more-urgent; implementation compared against lowest instead of highest active (J3)",
+      "Limiter mapped infinity to 0 instead of clamping to ceiling (J3)",
+      "Tap energy bound omitted the sample-rate factor (J3)",
+      "Bridge<T> move errors on non-Copy T (J4)",
+      "clamp_overshoot clamped the APPROACH side, snapping far states to the band edge \u2014 physics bug caught by the dt no-op test (J4)",
+      "Bridge::current() discarded the policy's bounded overshoot band (J4)",
+      "dt-splitting invariance test used dt values that were not FIXED_STEP multiples (J4)",
+      "settlement assert applied ! to an enum instead of assert_ne! (J9)",
+      "sonic rate-limiter burst test used 1 ms spacing where it claimed an instantaneous burst (J1)",
+      "spatial distance test asserted deep >= background, contradicting the inverse law it was verifying (J2)"
+    ],
+    "notable_agent_finding": "J10 found and fixed a real watermark security flaw: a naive key^position PRNG seed is GF(2)-linear under xorshift, making wrong-key keystream bits identical to the right key's \u2014 wrong keys detected payloads with full confidence. Fixed with nonlinear splitmix key mixing."
+  },
+  "risk_assessment": {
+    "determinism": "spring solver is fixed-step and dt-split invariant at FIXED_STEP multiples; verified by test",
+    "money": "all amounts u128 exact integers; timeout never maps to Failed; idempotency blocks duplicate charges",
+    "audio_callback": "DSP path is allocation-free and pure per contract; real-time callback wiring arrives with the PipeWire adapter",
+    "watermark": "research prototype: robustness beyond \u00b12 pixel perturbation is unproven; no robustness claim is made without a corpus (per directive)"
+  },
+  "integration_decision": "accept"
+}

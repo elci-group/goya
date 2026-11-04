@@ -1,0 +1,102 @@
+{
+  "work_package": "GY-WAVE1-001",
+  "title": "Goya native foundation and first integrated proof (goya-hello)",
+  "wave": 1,
+  "date": "2026-11-04",
+  "scope": {
+    "objective": "Deliver GY-001 through GY-005: reconnaissance, contract closure, workspace bootstrap, native foundation crates, and a tested reproducible native proof application.",
+    "affected": [
+      "Cargo.toml",
+      "crates/goya-ir",
+      "crates/goya-state",
+      "crates/goya-layout",
+      "crates/goya-runtime",
+      "crates/goya-hello",
+      "docs/contracts.md"
+    ],
+    "exclusions": [
+      "Wayland live surface (GY-WAYLAND-001, open)",
+      "Tov/RUGID/Mesut/Theosis adapters (Wave 2-3)",
+      "hot-swap supervisor (Wave 2)"
+    ]
+  },
+  "repository_evidence": {
+    "reconnaissance": {
+      "Tov": {
+        "path": "/Tov",
+        "head": "ba81eb0",
+        "maturity": "working TS-like language + Rust crate 'tov'",
+        "consumption": "Wave 2+ adapter"
+      },
+      "RUGID": {
+        "path": "/RUGID",
+        "head": "e0d1e7e",
+        "maturity": "working wgpu/winit physics+GUI crate",
+        "consumption": "Wave 3 adapter; GPU deps deferred"
+      },
+      "3form": {
+        "path": "/3form",
+        "head": "0a3d331",
+        "maturity": "working zero-dep crate 'form3' v0.1.1",
+        "consumption": "direct path dep when needed"
+      },
+      "Mesut": {
+        "path": "/mesut",
+        "head": "6299935",
+        "maturity": "10-crate concurrency/scheduling workspace, ~80 tests",
+        "consumption": "path dep, Wave 3"
+      },
+      "Theosis": {
+        "path": "/theosis",
+        "head": "monorepo Drowzy 93a90de",
+        "maturity": "bin-only updater CLI",
+        "consumption": "binary invocation, Wave 3+"
+      },
+      "Vico Vee": {
+        "correction_2026_11_04": "GY-001 recon was wrong. The directive-relevant Vico Vee is the ViCo Execution Environment at ~/vico-desktop/src-tauri/vico-vee (v0.2.20): sandboxed execution service with Ed25519 capability grants, Landlock+seccomp-bpf isolation, budgets/cancellation, artifact store, REST API, and a lib target with 26 modules. See docs/contracts.md correction section. The ~/vee-gui Tauri app is only a discovery dashboard for Vee instances."
+      }
+    }
+  },
+  "contracts": {
+    "provides": [
+      "GY-IR/1",
+      "GY-STATE/1",
+      "GY-LAYOUT/1",
+      "GY-RUNTIME/1"
+    ],
+    "consumes": []
+  },
+  "implementation_record": {
+    "crates": 5,
+    "external_dependencies": 0,
+    "notes": "std-only workspace; millipoint integer geometry for deterministic layout; single-writer revisioned state transactions with invariant-checked commits; synchronous event pipeline; headless software renderer emitting PPM frames."
+  },
+  "test_evidence": {
+    "commands": [
+      "cargo build --workspace",
+      "cargo test --workspace --lib --tests",
+      "cargo clippy --workspace --all-targets -- -D warnings",
+      "cargo fmt --all -- --check",
+      "cargo run --bin goya-hello"
+    ],
+    "results": {
+      "build": "pass (0 warnings)",
+      "unit_tests": "15 passed, 0 failed (ir:3, state:5, layout:3, runtime:4)",
+      "clippy_deny_warnings": "pass",
+      "rustfmt_check": "pass",
+      "goya_hello": "pass \u2014 4 frames rendered to target/*.ppm, count=2 after 3 increments, contracts GY-IR/1 GY-STATE/1 GY-LAYOUT/1 GY-RUNTIME/1",
+      "known_environment_defect": "doctests cannot execute: rustdoc fails to load libLLVM.so.22.1-rust-1.95.0-stable on this host (toolchain issue, not code); doctests contain no asserted examples."
+    },
+    "environment": "rustc 1.95.0, cargo 1.95.0, Linux 6.18.7, Wayland session (WAYLAND_DISPLAY=wayland-1), wayland-client pkg-config present"
+  },
+  "performance_record": {
+    "baseline": "none yet (first run)",
+    "observation": "cold debug build 0.96s for 5 crates; goya-hello run is instantaneous; formal baselines deferred to GY-WAYLAND-001 when frames reach a live surface"
+  },
+  "risk_assessment": {
+    "wayland": "Live surface not yet wired; proof renders headless PPM. Mitigated by contract boundary GY-RUNTIME/1 which the adapter consumes.",
+    "determinism": "Layout proven pure by unit test; renderer uses fixed tables. Text shaping is placeholder 5x7 glyphs \u2014 Wave 4 accessibility item.",
+    "state": "Single-writer transactions serialize; concurrent multi-store patterns arrive with Mesut integration (Wave 3)."
+  },
+  "integration_decision": "accept"
+}

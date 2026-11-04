@@ -1,0 +1,26 @@
+[package]
+name = "goya-hello"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+goya-ir.workspace = true
+goya-state.workspace = true
+goya-layout.workspace = true
+goya-runtime.workspace = true
+goya-wayland.workspace = true
+goya-sonic.workspace = true
+goya-speculation.workspace = true
+goya-rpi.workspace = true
+goya-chroma.workspace = true
+goya-bridge.workspace = true
+goya-bridge-physics.workspace = true
+goya-lang.workspace = true
+goya-hcar.workspace = true
+goya-csr.workspace = true
+goya-rars.workspace = true
+goya-change.workspace = true
+goya-spatial-audio.workspace = true
+goya-audio-dsp.workspace = true
+goya-audio-linux.workspace = true

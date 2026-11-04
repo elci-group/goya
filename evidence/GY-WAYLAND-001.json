@@ -1,0 +1,51 @@
+{
+  "work_package": "GY-WAYLAND-001 + GY-SON-001-milestone",
+  "title": "Live Wayland surface, ARSEM three-button acceptance, parser fuzzing, DAG assignment",
+  "wave": 1,
+  "date": "2026-11-04",
+  "scope": {
+    "objective": "Complete the 0.1 gate: real Wayland window with pointer events into goya-runtime; ARSEM three-button spatial acceptance proof; mutation fuzzing of the IR parser; explicit wave numbers for the deferred bucket.",
+    "affected": [
+      "crates/goya-wayland",
+      "crates/goya-layout (direction-aware spacer)",
+      "crates/goya-ir (root-integrity fix + fuzzer)",
+      "crates/goya-hello (live mode, buttons binary)",
+      "docs/contracts.md"
+    ],
+    "exclusions": [
+      "PipeWire backend (wave 2a)",
+      "keyboard events",
+      "resize handling",
+      "multi-window"
+    ]
+  },
+  "implementation_record": {
+    "notes": "goya-wayland binds wl_compositor/wl_shm/wl_seat/xdg_wm_base, renders via memfd+wl_shm ARGB8888, maps pointer presses to runtime hit_test. Policy shift recorded: host layer uses official Smithay bindings; zero-dep policy retained for foundation crates. goya-layout spacers are now direction-aware (invisible in rows before). goya-buttons implements the GY-SON-001 section 7 first deliverable with programmatic verification of the directive's acceptance table."
+  },
+  "test_evidence": {
+    "commands": [
+      "cargo test --workspace --lib --tests",
+      "cargo run --bin goya-hello -- --live (Wayland session)",
+      "cargo run --bin buttons (acceptance table)",
+      "cargo run --bin buttons -- --live"
+    ],
+    "results": {
+      "unit_tests": "171 passed, 0 failed (24 suites)",
+      "live_hello": "600 frames presented, no protocol errors after v1-safe damage fix",
+      "buttons_acceptance": "9/9 PASS: left pan -0.502 (<-0.5), centre +0.008, right +0.518 (>0.5), depth ordering, mono fold-down audible, rate limit 30/100, NullOutput sink 1440/1440 samples, drag trajectory smooth (max delta 0.142), live 900 frames",
+      "fuzzer": "20,000 deterministic mutation inputs; totality + determinism + root-integrity asserted; first run found root-N dangling acceptance bug \u2014 fixed",
+      "known_environment_defect": "doctests remain excluded (host rustdoc LLVM issue)"
+    },
+    "environment": "rustc 1.95.0, Wayland session wayland-1, real compositor"
+  },
+  "notable_findings": {
+    "spacer": "GY-LAYOUT/1 spacer was vertical-only \u2014 invisible inside rows. ARSEM acceptance geometry required direction-aware semantics; fixed with a contract-compatible refinement + regression test.",
+    "wayland_versioning": "damage_buffer requires wl_surface v4; bound compositor v1 made it a protocol error. Switched to v1-safe damage.",
+    "fuzz_first_catch": "The parser accepted 'root N' with an undeclared N, violating the registered invariant; unit tests missed it, the fuzzer caught it on run one."
+  },
+  "risk_assessment": {
+    "wayland": "Single fixed-size window; no resize/multi-buffer; acceptable for 0.1 scope and recorded as exclusions.",
+    "audio": "ARSEM output path verified through NullOutput sink; PipeWire adapter is wave 2a before any real-audio claim."
+  },
+  "integration_decision": "accept"
+}

@@ -1,0 +1,21 @@
+# lwoodz configuration -- licensing daemon
+[project]
+license = "MIT"
+copyright_holder = "Goya Programme"
+copyright_year = 2026
+project_name = "goya"
+dual_license = "Apache-2.0"
+
+[operation]
+mode = "observe"
+
+[watch]
+path = "crates"
+recursive = true
+
+[generate]
+license_file = "LICENSE-MIT"
+notice_file = "NOTICE"
+copyright_file = "COPYRIGHT"
+attribution_file = "THIRD_PARTY_NOTICES"
+overwrite = false

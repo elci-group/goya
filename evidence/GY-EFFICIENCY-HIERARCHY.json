@@ -1,0 +1,49 @@
+{
+  "work_package": "GY-LCPE-001 + GY-RARS-001 + GY-CSR-001 + GY-HCAR-001",
+  "title": "Efficiency hierarchy: LCPE, RARS, CSR scheduler, HCAR classifier",
+  "wave": 2,
+  "date": "2026-11-04",
+  "scope": {
+    "objective": "Implement the four-mechanism efficiency hierarchy: change envelopes with causality and resolution-aware quantised invalidation (LCPE), deterministic projection fidelity with hysteresis (RARS), topology-aware spatial scheduling with work stealing (CSR), and heterogeneous core classification with energy/deadline allocation (HCAR).",
+    "affected": [
+      "crates/goya-change",
+      "crates/goya-rars",
+      "crates/goya-csr",
+      "crates/goya-hcar",
+      "crates/goya-wayland (present_dirty)",
+      "crates/goya-hello/src/bin/calculator.rs"
+    ],
+    "exclusions": [
+      "tile-parallel raster execution (CSR scheduler contract only; backends are Wave-2c)",
+      "GPU backend",
+      "cgroup/affinity syscalls (HCAR is the classification contract)",
+      "power/thermal inputs to RARS (Mesut integration)"
+    ]
+  },
+  "implementation_record": {
+    "notes": "All four crates std-only and deterministic. LCPE: events rejected by default; quantisation conservative; persistence masks block forbidden dirty regions; cost model with union-first commit policy. RARS: n\u2248sqrt(1/eps) subdivision, raster scale from relative 4K area, temporal policy independent of spatial size, accessibility text protection. CSR: disjoint+complete territory partitioning proven by test, quad-corner worker mapping, greedy stealing from largest queue. HCAR: deadline-feasibility-first then energy-minimal, critical-path promotion, homogeneous degrade, migration residency seeded on first observation."
+  },
+  "test_evidence": {
+    "commands": [
+      "cargo test --workspace --lib --tests",
+      "cargo run --bin calculator (headless)",
+      "cargo run --bin calculator -- --live --sound (RARS decision printed)",
+      "cargo clippy --workspace --all-targets -- -D warnings",
+      "uni --fail-under 80 ."
+    ],
+    "results": {
+      "unit_tests": "210 passed, 0 failed (30 suites; +29 across the four new crates)",
+      "lcpe_live": "presses produce quantised local damage decisions; cost model switches to full-frame for large unions",
+      "rars_live": "glyph_px=4 (protected text), subdivisions=2, quality=balanced at 3.28% of 4K",
+      "regressions": "calculator exemplar checks pass, fusion 10/10",
+      "clippy": "pass",
+      "rustfmt": "pass",
+      "uni": "92/100 exit 0"
+    }
+  },
+  "notable_findings": {
+    "union_bug": "The cost-model union seeded from PixelRect::default() dragged the origin to (0,0), inflating small dirty regions to full-frame cost \u2014 caught by the small-dirty-region test.",
+    "residency_seed_bug": "Both hysteresis wrappers (RARS, HCAR) returned the incoming class immediately before residency was seeded; fixed by seeding on first observation \u2014 the RARS test suite's implicit default-0 semantics were updated to the corrected behaviour."
+  },
+  "integration_decision": "accept"
+}

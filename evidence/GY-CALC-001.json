@@ -1,0 +1,37 @@
+{
+  "work_package": "GY-CALC-001 + GY-WAYLAND-flicker",
+  "title": "Exemplar calculator app (GY-LANG/1) and flicker fix (double buffering + dirty redraw)",
+  "wave": 2,
+  "date": "2026-11-04",
+  "scope": {
+    "objective": "First complete exemplar application authored in the Goya scene language; fix presentation flicker.",
+    "affected": [
+      "apps/calculator.gscene",
+      "crates/goya-hello/src/bin/calculator.rs",
+      "crates/goya-wayland",
+      "crates/goya-hello (glyphs: digits, symbols; glyph_px scaling)"
+    ],
+    "exclusions": [
+      "variable text sizing in renderer (text-size parsed, not yet applied)"
+    ]
+  },
+  "implementation_record": {
+    "flicker_diagnosis": "ARCHITECTURE issue, not .gscene: (1) single shm buffer re-attached every frame \u2014 compositor could latch mid-rasterisation; (2) unconditional full-frame commits even when nothing changed; (3) no opaque-region hint. Fix: BufferPair double buffering (one memfd pool, two slots, wl_buffer Release tracking), opaque region hint, and dirty-flag redraw in the calculator host (7200 idle frames \u2192 1 present).",
+    "notes": "calculator.gscene declares the full RUGID-style UI (display panel + 4x5 button grid with absolute geometry, proportional result cell). Host maps button names to a deterministic state machine (digit entry, ops, equals, clear, sign, percent, decimal, div-by-zero \u2192 Error), overrides result_text with live value (host-side data binding), routes keyboard via key_to_button, plays ARSEM taps, supports hot-swap. Digit glyphs 0-9 and + - / * % . added to the renderer with block-scale glyph_px."
+  },
+  "test_evidence": {
+    "commands": [
+      "cargo run --bin calculator (headless acceptance)",
+      "cargo run --bin calculator -- --live [--sound] [--watch]",
+      "gates: clippy/fmt/test/uni"
+    ],
+    "results": {
+      "exemplar_checks": "ALL PASS: 19 buttons present + hit-testable, 7+3=10, 10*5=50, 50/0=Error, 9.5-2.25=7.25, sign toggle, proportional display geometry",
+      "live": "7200 frames presented; idle redraw 7200 commits \u2192 1 present",
+      "hotswap": "generation 2 and 3 swaps verified live earlier; note: repeat verification showed inconsistent mtime visibility for long-lived background processes under this harness sandbox (probe3 spin-loop detects the same edits; live logic unit-tested) \u2014 flagged as environment, not code",
+      "unit_tests": "181 passed, 0 failed",
+      "uni": "92/100 exit 0"
+    }
+  },
+  "integration_decision": "accept"
+}

@@ -1,0 +1,62 @@
+{
+  "work_package": "GY-CHR-001",
+  "title": "Chromatic Relativism, Deep Copy provenance and dual-mode clipboard",
+  "wave": 1,
+  "date": "2026-11-04",
+  "scope": {
+    "objective": "Implement extension GY-CHR-001: relational OKLCH colour engine with grey-line polarity, bounded/redacted Deep Copy provenance bundles, and a capability-gated dual-mode clipboard.",
+    "affected": [
+      "crates/goya-chroma",
+      "crates/goya-provenance",
+      "crates/goya-clipboard",
+      "Cargo.toml",
+      "docs/contracts.md"
+    ],
+    "exclusions": [
+      "chromatic Goya-language surface syntax (parser arrives with the language frontend)",
+      "Linux compositor clipboard backend (GY-WAYLAND-001)",
+      "typography/content relational engine (deferred per \u00a78 recommendation)"
+    ]
+  },
+  "contracts": {
+    "provides": [
+      "GY-CHROMA/1",
+      "GY-PROVENANCE/1",
+      "GY-CLIPBOARD/1"
+    ],
+    "consumes": []
+  },
+  "implementation_record": {
+    "crates": 3,
+    "external_dependencies": 0,
+    "notes": "OKLCH conversion (Ottosson OKLab) with chroma-bisection gamut mapping; polar relations flip with theme polarity while brand-locked hue/chroma are preserved; grey-line guard L' = Lg - p(L-Lg) with GREY_LINE=0.6; WCAG contrast enforced on composited pairs by deterministic two-direction lightness search; Deep Copy bundles bounded, secret-redacted (email/bearer/api-token/long-hex) and consent-flag aware; clipboard capability model separates Verbatim from DeepContext grants. Post-review hardening: mutex poison recovery in goya-state (no panic paths), graceful error exit in goya-hello, SPDX license files (MIT + Apache-2.0) and lwoodz.toml added."
+  },
+  "test_evidence": {
+    "commands": [
+      "cargo build --workspace",
+      "cargo test --workspace --lib --tests",
+      "cargo clippy --workspace --all-targets -- -D warnings",
+      "cargo fmt --all -- --check"
+    ],
+    "results": {
+      "build": "pass (0 warnings)",
+      "unit_tests": "43 passed, 0 failed workspace-wide (chroma:13, provenance:15, clipboard:4, foundation:11)",
+      "clippy_deny_warnings": "pass",
+      "rustfmt_check": "pass",
+      "known_environment_defect": "doctests still excluded: rustdoc cannot load libLLVM.so on this host",
+      "uni_snapshot": "pass \u2014 95/100 (--fail-under 80), exit 0"
+    },
+    "environment": "rustc 1.95.0, Linux 6.18.7",
+    "unit_tests": "46 passed, 0 failed workspace-wide"
+  },
+  "notable_findings": {
+    "oklab_contrast": "An OKLab L=0.5 grey composites to ~#636363 (relative luminance 0.125): pure white reaches only 6.01:1 against it, so grey-on-grey AAA is genuinely unsatisfiable. The resolver reports ContrastUnreachable rather than faking compliance \u2014 this behaviour is unit-tested as the required contract.",
+    "polarity_vs_complement": "Unit tests assert dark/light surfaces differ while hue is preserved to within 1\u00b0, proving polarity is a lightness-relationship reflection, not an RGB complement."
+  },
+  "risk_assessment": {
+    "glyph_contrast_interaction": "Contrast is enforced on composited sRGB pairs, including opacity-bearing borders only via their opaque sRGB cache; translucent compositing over arbitrary backdrops arrives with the renderer (Wave 3) and must re-check pairs.",
+    "redaction": "Pattern-based and conservative; a dedicated secret-scanner pass by the assurance swarm remains advisable before Deep Copy ships.",
+    "shortcut_collision": "Ctrl+Shift+C collision with terminals acknowledged; remapping contract recorded in GY-CLIPBOARD/1, enforced when input hotkeys land."
+  },
+  "integration_decision": "accept"
+}

@@ -1,0 +1,45 @@
+{
+  "work_package": "GY-LANG-001",
+  "title": "Goya scene language revised to RUGID-compatible syntax",
+  "wave": 2,
+  "date": "2026-11-04",
+  "scope": {
+    "objective": "Adopt the RUGID scene grammar as the Goya surface language: @ontology/@cell/@button blocks with absolute and proportional geometry, hex colours, inline properties. Deliver lexer, parser, deterministic layout, hit testing, fuzzer, and a live scene-file GUI demo.",
+    "affected": [
+      "crates/goya-lang",
+      "crates/goya-hello/src/bin/scene.rs",
+      "docs/contracts.md"
+    ],
+    "exclusions": [
+      "@template/@interaction semantics (parsed and skipped, Wave 3)",
+      "text shaping/anchors in renderer",
+      "GY-IR/2 unification amendment (Wave 2c)"
+    ]
+  },
+  "implementation_record": {
+    "notes": "goya-lang is std-only except goya-chroma for colour space interop. Design decisions: absolute geometry is parent-origin-relative (matches RUGID calculator layout); proportional geometry is a fraction of parent extent; undeclared extent fills parent; anonymous ontology wrapper collapses when it holds a single named cell; geometry clamps into parent; unknown properties consumed and ignored for forward compatibility. 5x7 glyph renderer reused for text."
+  },
+  "test_evidence": {
+    "commands": [
+      "cargo test --workspace --lib --tests",
+      "cargo run --bin scene",
+      "cargo run --bin scene -- --live",
+      "cargo clippy --workspace --all-targets -- -D warnings",
+      "cargo fmt --all -- --check",
+      "uni --fail-under 80 ."
+    ],
+    "results": {
+      "unit_tests": "176 passed, 0 failed (25 suites; goya-lang: 5 incl. 10k-input mutation fuzz)",
+      "scene_demo": "ontology 'goya_workspace' parsed, 7 nodes, proportional centring PASS, hit test PASS",
+      "live": "1800 frames presented from scene file, no protocol errors",
+      "clippy": "pass",
+      "rustfmt": "pass",
+      "uni": "92/100 exit 0"
+    },
+    "environment": "rustc 1.95.0 pinned, Wayland session"
+  },
+  "notable_findings": {
+    "wrapper_collapse": "The ontology block is syntactic wrapper; without collapsing it, its default extent clamped all children to half the viewport \u2014 caught by the first live-layout test."
+  },
+  "integration_decision": "accept"
+}

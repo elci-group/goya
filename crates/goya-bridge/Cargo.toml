@@ -1,0 +1,9 @@
+[package]
+name = "goya-bridge"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+goya-bridge-physics.workspace = true
+goya-chroma.workspace = true

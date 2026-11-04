@@ -1,0 +1,78 @@
+// ============================================================
+// calculator.gscene — the exemplar Goya GUI application.
+//
+// RUGID-style scene syntax (GY-LANG/1): @ontology / @cell /
+// @button with absolute + proportional geometry.
+//
+// Run it:
+//   cargo run --bin calculator -- --live [--sound] [--watch]
+// Hot-swap: edit this file while running with --watch; a good
+// edit swaps the UI live, a broken edit is rejected and the
+// running calculator is retained.
+// ============================================================
+
+@ontology calculator {
+
+    @cell window {
+        position: (0, 0, 0)
+        extent: (100, 170, 0)
+        fill: #1a1a1a
+
+        // ---- Display panel ------------------------------------
+        @cell display {
+            position: (5, 5, 0)
+            extent: (90, 30, 0)
+            fill: #2a2a2a
+            stroke: #444444
+            stroke-width: 2
+
+            @cell result_text {
+                // Proportional: right-aligned toward the panel edge,
+                // vertically centred — text is overridden by the host
+                // with the live result every frame.
+                position_p: (0.95, 0.5, 0)
+                text: "0"
+                text-size: 14
+                fill: #00ff88
+                text-anchor: end
+            }
+        }
+
+        // ---- Row 1: clear, sign, percent, divide --------------
+        @button btn_clear { position: (5, 45, 0);  extent: (21, 20, 0); text: "C"; fill: #ff4444 }
+        @button btn_sign  { position: (29, 45, 0); extent: (21, 20, 0); text: "+/-"; fill: #888888 }
+        @button btn_pct   { position: (53, 45, 0); extent: (21, 20, 0); text: "%"; fill: #888888 }
+        @button btn_div   { position: (77, 45, 0); extent: (21, 20, 0); text: "/"; fill: #ff8800 }
+
+        // ---- Row 2: 7 8 9 multiply ----------------------------
+        @button btn_7 { position: (5, 70, 0);  extent: (21, 20, 0); text: "7"; fill: #555555 }
+        @button btn_8 { position: (29, 70, 0); extent: (21, 20, 0); text: "8"; fill: #555555 }
+        @button btn_9 { position: (53, 70, 0); extent: (21, 20, 0); text: "9"; fill: #555555 }
+        @button btn_mul { position: (77, 70, 0); extent: (21, 20, 0); text: "*"; fill: #ff8800 }
+
+        // ---- Row 3: 4 5 6 minus -------------------------------
+        @button btn_4 { position: (5, 95, 0);  extent: (21, 20, 0); text: "4"; fill: #555555 }
+        @button btn_5 { position: (29, 95, 0); extent: (21, 20, 0); text: "5"; fill: #555555 }
+        @button btn_6 { position: (53, 95, 0); extent: (21, 20, 0); text: "6"; fill: #555555 }
+        @button btn_sub { position: (77, 95, 0); extent: (21, 20, 0); text: "-"; fill: #ff8800 }
+
+        // ---- Row 4: 1 2 3 plus --------------------------------
+        @button btn_1 { position: (5, 120, 0);  extent: (21, 20, 0); text: "1"; fill: #555555 }
+        @button btn_2 { position: (29, 120, 0); extent: (21, 20, 0); text: "2"; fill: #555555 }
+        @button btn_3 { position: (53, 120, 0); extent: (21, 20, 0); text: "3"; fill: #555555 }
+        @button btn_add { position: (77, 120, 0); extent: (21, 20, 0); text: "+"; fill: #ff8800 }
+
+        // ---- Row 5: 0 (wide), decimal, equals ------------------
+        @button btn_0 { position: (5, 145, 0);  extent: (45, 20, 0); text: "0"; fill: #555555 }
+        @button btn_dec { position: (53, 145, 0); extent: (21, 20, 0); text: "."; fill: #555555 }
+        @button btn_eq  { position: (77, 145, 0); extent: (21, 20, 0); text: "="; fill: #00cc66 }
+    }
+}
+
+// probe edit 1793792950831447701
+
+// probe edit
+
+// probe edit 2
+
+// probe edit 3

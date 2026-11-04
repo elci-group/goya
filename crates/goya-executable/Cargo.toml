@@ -1,0 +1,8 @@
+[package]
+name = "goya-executable"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+goya-determinism.workspace = true

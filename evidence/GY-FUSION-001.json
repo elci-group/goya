@@ -1,0 +1,49 @@
+{
+  "work_package": "GY-FUSION-001",
+  "title": "NSB section-10 fused milestone: movable, recolourable, sonically spatialised object",
+  "wave": 2,
+  "date": "2026-11-04",
+  "scope": {
+    "objective": "First integrated proof exercising four Goya ideas simultaneously and live: relativistic geometry (presented rect), chromatic polarity with brand lock, ARSEM pan following presentation, NSB retargetable bridges, plus RPI probability field and speculation commit gating.",
+    "affected": [
+      "crates/goya-hello/src/bin/fusion.rs",
+      "rust-toolchain.toml",
+      "kaptaind.toml (push config)"
+    ],
+    "exclusions": [
+      "PipeWire audio output (wave 2a) \u2014 sonic path verified through pan/gain maths only",
+      "variable-font bridging"
+    ]
+  },
+  "implementation_record": {
+    "notes": "fusion binary: click sends object across (retargetable spring bridge); drag moves continuously; theme chip flips polarity; pan derived from presented rect each frame. Programmatic checks: RPI conditional probability (0.70), retarget continuity (no snap), pan-tracks-presentation (delta 1.700 from target pan), brand hue preserved across polarity, surface changes, speculation commit/reject gating. Live: 1800 interactive frames on Wayland."
+  },
+  "test_evidence": {
+    "commands": [
+      "cargo run --bin fusion",
+      "cargo run --bin fusion -- --live",
+      "cargo test --workspace --lib --tests",
+      "cargo clippy --workspace --all-targets -- -D warnings (toolchain-pinned)",
+      "cargo fmt --all -- --check",
+      "uni --fail-under 80 ."
+    ],
+    "results": {
+      "fusion_checks": "10/10 PASS",
+      "live": "1800 frames, no protocol errors",
+      "unit_tests": "171 passed, 0 failed",
+      "clippy": "pass (pinned 1.95 toolchain)",
+      "rustfmt": "pass",
+      "uni": "92/100, exit 0"
+    },
+    "environment": "rustc 1.95.0 (pinned via rust-toolchain.toml), Wayland session"
+  },
+  "infrastructure": {
+    "push": "integration/goya-wave-01 pushed to origin via kaptaind push (status ok)",
+    "toolchain": "rust-toolchain.toml pins 1.95.0 \u2014 fixes silent clippy-driver/rustc version mismatch"
+  },
+  "risk_assessment": {
+    "audio": "real audible output still requires the PipeWire backend; ARSEM claims remain geometric, not acoustic",
+    "colour": "object tint currently uniform via present(); per-primitive accent colouring arrives with the renderer wave"
+  },
+  "integration_decision": "accept"
+}

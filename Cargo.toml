@@ -1,0 +1,73 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/goya-ir",
+    "crates/goya-state",
+    "crates/goya-layout",
+    "crates/goya-runtime",
+    "crates/goya-hello",
+    "crates/goya-chroma",
+    "crates/goya-provenance",
+    "crates/goya-clipboard",
+    "crates/goya-sonic",
+    "crates/goya-spatial-audio",
+    "crates/goya-audio-dsp",
+    "crates/goya-audio-linux",
+    "crates/goya-bridge",
+    "crates/goya-bridge-physics",
+    "crates/goya-rpi",
+    "crates/goya-speculation",
+    "crates/goya-determinism",
+    "crates/goya-executable",
+    "crates/goya-x402",
+    "crates/goya-economics",
+    "crates/goya-settlement",
+    "crates/goya-artifact",
+    "crates/goya-watermark",
+    "crates/goya-wayland",
+    "crates/goya-lang",
+    "crates/goya-change",
+    "crates/goya-rars",
+    "crates/goya-csr",
+    "crates/goya-hcar",
+    "crates/goya-fsc",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+goya-ir = { path = "crates/goya-ir" }
+goya-state = { path = "crates/goya-state" }
+goya-layout = { path = "crates/goya-layout" }
+goya-runtime = { path = "crates/goya-runtime" }
+goya-chroma = { path = "crates/goya-chroma" }
+goya-provenance = { path = "crates/goya-provenance" }
+goya-clipboard = { path = "crates/goya-clipboard" }
+goya-sonic = { path = "crates/goya-sonic" }
+goya-spatial-audio = { path = "crates/goya-spatial-audio" }
+goya-audio-dsp = { path = "crates/goya-audio-dsp" }
+goya-audio-linux = { path = "crates/goya-audio-linux" }
+goya-bridge = { path = "crates/goya-bridge" }
+goya-bridge-physics = { path = "crates/goya-bridge-physics" }
+goya-rpi = { path = "crates/goya-rpi" }
+goya-speculation = { path = "crates/goya-speculation" }
+goya-determinism = { path = "crates/goya-determinism" }
+goya-executable = { path = "crates/goya-executable" }
+goya-x402 = { path = "crates/goya-x402" }
+goya-economics = { path = "crates/goya-economics" }
+goya-settlement = { path = "crates/goya-settlement" }
+goya-artifact = { path = "crates/goya-artifact" }
+goya-watermark = { path = "crates/goya-watermark" }
+goya-wayland = { path = "crates/goya-wayland" }
+goya-lang = { path = "crates/goya-lang" }
+goya-change = { path = "crates/goya-change" }
+goya-rars = { path = "crates/goya-rars" }
+goya-csr = { path = "crates/goya-csr" }
+goya-hcar = { path = "crates/goya-hcar" }
+goya-fsc = { path = "crates/goya-fsc" }
+
+[profile.release]
+debug = true
