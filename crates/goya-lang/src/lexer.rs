@@ -18,6 +18,12 @@ pub enum TokenKind {
     Colon,
     Semicolon,
     Comma,
+    /// `+` in a supported arithmetic expression.
+    Plus,
+    /// `.` in qualified references such as `state.count`.
+    Dot,
+    /// `=` in interaction assignments.
+    Equal,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -94,6 +100,12 @@ fn push_token(
         ':' => Some(TokenKind::Colon),
         ';' => Some(TokenKind::Semicolon),
         ',' => Some(TokenKind::Comma),
+        '+' => Some(TokenKind::Plus),
+        '.' if chars.get(*i + 1).map_or(true, |c| !c.is_ascii_digit()) => {
+            Some(TokenKind::Dot)
+        }
+        '.' => None,
+        '=' => Some(TokenKind::Equal),
         _ => None,
     };
     if let Some(kind) = simple {
@@ -130,13 +142,12 @@ fn push_token(
         tokens.push(t(TokenKind::Str, &s, start_line));
         return Ok(());
     }
-    if c == '-' || c == '+' || c.is_ascii_digit() || c == '.' {
+    if c == '-' || c.is_ascii_digit() || c == '.' {
         let start = *i;
         while *i < chars.len()
             && (chars[*i].is_ascii_digit()
                 || chars[*i] == '.'
                 || chars[*i] == '-'
-                || chars[*i] == '+'
                 || chars[*i] == '_')
         {
             *i += 1;
