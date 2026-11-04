@@ -9,6 +9,8 @@
 //! (GOYA §13: Linux compositor fragmentation).
 
 use goya_layout::Rect;
+use goya_csr::{self, Policy as CsrPolicy};
+use goya_hcar::{AffinityMode, Classifier, CoreAssignment, WorkCost, WorkItem};
 use rustix::fd::OwnedFd;
 use rustix::fs::{ftruncate, memfd_create, MemfdFlags};
 use rustix::mm::{mmap, munmap, MapFlags, ProtFlags};
@@ -221,6 +223,9 @@ struct GoyaWindowInner {
     buffers: Option<BufferPair>,
     region: Option<WlRegion>,
     ack_serial: u32,
+    /// Explicitly opt into general-core parallel tile raster. No core
+    /// affinity is requested; Linux remains responsible for placement.
+    parallel_raster: bool,
 }
 
 impl GoyaWindowInner {
@@ -246,6 +251,7 @@ impl GoyaWindowInner {
             buffers: None,
             region: None,
             ack_serial: 0,
+            parallel_raster: false,
         }
     }
 }
@@ -332,6 +338,14 @@ impl GoyaWindow {
         Ok(GoyaWindow { state, queue })
     }
 
+    /// Enable general-core parallel tile raster for large frames. Workers
+    /// use CSR's deterministic tile schedule and ordinary OS-managed thread
+    /// placement; this does not pin work to performance/efficiency cores.
+    /// Small surfaces and workloads still use the serial path.
+    pub fn set_general_parallel_raster(&mut self, enabled: bool) {
+        self.state.parallel_raster = enabled;
+    }
+
     /// Map the runtime's render list into shared memory and present it.
     /// `glyph_px` is the glyph-pixel size in screen pixels (block scaling);
     /// 1 = tiny terminal-style text, 3–4 reads well at 4 px/pt geometry.
@@ -399,10 +413,11 @@ impl GoyaWindow {
             };
             dst.pixels_mut().copy_from_slice(src.pixels());
         }
+        let parallel_raster = self.state.parallel_raster;
+        let (width, height) = (self.state.width, self.state.height);
         let pixels = pair.slots[idx].pixels_mut();
         match damage {
             Some((dx, dy, dw, dh)) => {
-                let (w, h) = (self.state.width, self.state.height);
                 // Clear the damage area with the background first.
                 let drect = goya_layout::Rect {
                     x: i64::from(dx) * MP_PER_PX,
@@ -410,7 +425,7 @@ impl GoyaWindow {
                     width: i64::from(dw) * MP_PER_PX,
                     height: i64::from(dh) * MP_PER_PX,
                 };
-                fill_rect(pixels, w, h, &drect, bg);
+                fill_rect(pixels, width, height, &drect, bg);
             }
             None => {
                 pixels.fill(argb(bg));
@@ -422,58 +437,16 @@ impl GoyaWindow {
             x1: (dx + dw).min(self.state.width).max(0) as usize,
             y1: (dy + dh).min(self.state.height).max(0) as usize,
         });
-        for prim in primitives {
-            // Primitives wholly outside the damage rect cannot contribute
-            // pixels to it — skip their raster work entirely.
-            if let Some(clip) = &clip {
-                let r = prim_rect(prim);
-                let rx0 = (r.x / MP_PER_PX) as i32;
-                let ry0 = (r.y / MP_PER_PX) as i32;
-                let rx1 = ((r.x + r.width) / MP_PER_PX) as i32;
-                let ry1 = ((r.y + r.height) / MP_PER_PX) as i32;
-                if rx1 < clip.x0 as i32 || ry1 < clip.y0 as i32 {
-                    continue;
-                }
-                if rx0 >= clip.x1 as i32 || ry0 >= clip.y1 as i32 {
-                    continue;
-                }
-            }
-            match prim {
-                goya_runtime::Primitive::Panel(_) => {}
-                goya_runtime::Primitive::Text(r, s) => {
-                    fill_rect(pixels, self.state.width, self.state.height, r, [16, 16, 20]);
-                    draw_glyphs(
-                        pixels,
-                        self.state.width,
-                        self.state.height,
-                        r,
-                        s,
-                        fg,
-                        glyph_px,
-                        clip,
-                    );
-                }
-                goya_runtime::Primitive::Button(r, s) => {
-                    fill_rect(
-                        pixels,
-                        self.state.width,
-                        self.state.height,
-                        r,
-                        [80, 100, 180],
-                    );
-                    draw_glyphs(
-                        pixels,
-                        self.state.width,
-                        self.state.height,
-                        r,
-                        s,
-                        fg,
-                        glyph_px,
-                        clip,
-                    );
-                }
-            }
-        }
+        raster_primitives(
+            pixels,
+            width,
+            height,
+            primitives,
+            fg,
+            glyph_px,
+            clip,
+            parallel_raster,
+        );
         // Opaque hint: the window always fills its bounds — the compositor
         // can skip blending against undefined content (flicker source).
         {

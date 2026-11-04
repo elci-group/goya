@@ -65,7 +65,11 @@ fn run() -> Result<(), String> {
                 codec = match value(&mut args, "--codec")?.as_str() {
                     "mjpeg" => "mjpeg".to_string(),
                     "png" => "png".to_string(),
-                    other => return Err(format!("unsupported --codec `{other}` (choose mjpeg or png)")),
+                    other => {
+                        return Err(format!(
+                            "unsupported --codec `{other}` (choose mjpeg or png)"
+                        ))
+                    }
                 };
                 codec_roundtrip = true;
             }

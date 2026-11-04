@@ -769,7 +769,7 @@ fn measure_ffmpeg_codec(result: &mut BenchmarkResult, executable: &str, codec: &
                 result.codec_roundtrip = Some(codec_unavailable(
                     codec,
                     Some(version),
-            &format!("ffmpeg {codec} encode failed at setting {quality}"),
+                    &format!("ffmpeg {codec} encode failed at setting {quality}"),
                 ));
                 return;
             };
