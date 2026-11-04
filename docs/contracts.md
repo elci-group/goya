@@ -56,9 +56,10 @@ GY-LAYOUT-001 ✓ deterministic layout     GY-RUNTIME-001 ✓ event pipeline
 GY-HELLO-001 ✓ first integrated proof
 GY-WAYLAND-001 ✓ live Wayland surface + runtime pointer adapter
 GY-TEST-001 (partial): GY-IR/1 parser conformance and 20,000-input deterministic
-mutation fuzzing are present, along with an opt-in authored D1/D2-to-VEE
-loopback acceptance. A broader cross-crate/runtime conformance matrix remains
-open.
+mutation fuzzing are present, along with public SDK integration coverage for
+parse/lower, frame geometry, canonical action IDs, hit testing, and runtime
+dispatch, plus an opt-in authored D1/D2-to-VEE loopback acceptance. Broader
+platform/runtime conformance coverage remains open.
 ```
 
 ## Ownership registry (Wave 1)
