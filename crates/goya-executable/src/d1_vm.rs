@@ -617,7 +617,7 @@ impl<'a> D1Reader<'a> {
             if previous.as_ref().is_some_and(|last| last >= &value) {
                 return Err(D1Error::NonCanonicalProgram);
             }
-            validate_key(&value)?;
+            validate_keys([value.clone()])?;
             previous = Some(value.clone());
             values.insert(value);
         }
