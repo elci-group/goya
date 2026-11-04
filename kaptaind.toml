@@ -46,7 +46,7 @@ min_commit_interval = 10
 execution = "trusted"
 
 [test]
-command = "cargo test"
+command = "CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 cargo test --workspace --lib --tests -j 1"
 required = false
 
 # [staging]

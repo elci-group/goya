@@ -1,21 +1,22 @@
 # Local package installation
 
 Build a Linux package with `scripts/package-local.sh [output-directory]`.
-The output is a versioned `.tar.gz` file and a neighboring `.sha256` sidecar.
-Copy both files together to the offline machine. The installer does not
-download anything; it requires `tar`, `sha256sum`, `awk`, `mktemp`, and the
-usual POSIX file utilities to be available there.
+The output is a versioned `.tar.gz` file, a neighboring `.sha256` sidecar,
+and a versioned standalone installer script. Copy all three files together to
+the offline machine. The installer does not download anything; it requires
+`tar`, `sha256sum`, `awk`, `mktemp`, and the usual POSIX file utilities to be
+available there.
 
 Install the two commands into `~/.local/bin`:
 
 ```sh
-sh scripts/install-local.sh goya-VERSION-linux-ARCH.tar.gz
+sh goya-VERSION-linux-ARCH-install.sh goya-VERSION-linux-ARCH.tar.gz
 ```
 
 Choose another executable directory with `--dest`:
 
 ```sh
-sh scripts/install-local.sh --dest "$HOME/bin" goya-VERSION-linux-ARCH.tar.gz
+sh goya-VERSION-linux-ARCH-install.sh --dest "$HOME/bin" goya-VERSION-linux-ARCH.tar.gz
 ```
 
 The installer requires the archive's matching `.sha256` file and checks the
@@ -31,7 +32,7 @@ To inspect a package's checksum and archive paths without changing an install
 directory, run:
 
 ```sh
-sh scripts/install-local.sh --verify-only goya-VERSION-linux-ARCH.tar.gz
+sh goya-VERSION-linux-ARCH-install.sh --verify-only goya-VERSION-linux-ARCH.tar.gz
 ```
 
 The SHA-256 sidecar detects accidental corruption and mismatched files. It is

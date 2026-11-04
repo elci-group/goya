@@ -15,20 +15,22 @@ it returns an application rejection when `success` is explicitly `false`.
 
 `request_from_compiled_program` accepts only artifacts whose proof class is
 D0 and whose bytecode passes the reference VM's version, hash, and structure
-checks. It produces a deterministic `python` request containing a Python
-assignment to `GOYA_EDC_INSTRUCTIONS`: a tuple of inert instruction data.
-Strings are escaped as Python literals, and numeric values (including spacer
-IEEE-754 bits) are emitted as integers. The bridge caps the instruction count,
-aggregate text/label bytes, generated source size, and agent ID length. It sets
-an empty capability list and a small fixed budget.
+checks. It produces a deterministic `python` request containing a bounded
+instruction tuple and a small interpreter. The interpreter builds the same
+tree shape as the Rust reference VM and prints compact JSON to stdout, with
+spacer values represented by their IEEE-754 bit patterns. The bridge caps the
+instruction count, aggregate text/label bytes, generated source size, and
+agent ID length. It sets an empty capability list and a small fixed budget.
 
-This is a data export, not a Python implementation of Goya behavior. VEE's
-Python runner will receive data declarations only; this does not cause the
-Goya UI bytecode to execute or render. Goya bytecode is not WebAssembly, and
-the adapter never labels it as WASM. No shell, subprocess, or host capability
-is requested by the generated source. Callers may continue to use
-`SubmitRequest` directly for independently authored supported-language
-source.
+The generated source imports only Python's standard-library `json` module,
+and performs no file, network, subprocess, or shell operations. Goya bytecode
+is not WebAssembly, and the adapter never labels it as WASM. The local Python
+test compares its stdout with the Rust reference VM's tree serialization.
+The VEE submission path is prepared, but no live VEE server was used or
+confirmed for this change, and the interpretation of Python stdout/result
+fields by the remote VEE task API still needs confirmation. Callers may
+continue to use `SubmitRequest` directly for independently authored
+supported-language source.
 
 ## Verification scope
 

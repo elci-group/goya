@@ -30,7 +30,11 @@ cp "$repo_root/LICENSE-APACHE" "$stage/$package_name/share/doc/goya/"
 
 mkdir -p "$out_dir"
 archive="$out_dir/$package_name.tar.gz"
+installer="$out_dir/$package_name-install.sh"
 tar --sort=name --mtime="@$epoch" --owner=0 --group=0 --numeric-owner \
     -C "$stage" -cf - "$package_name" | gzip -n > "$archive"
 (cd "$out_dir" && sha256sum "$(basename "$archive")" > "$(basename "$archive").sha256")
-printf 'package: %s\nchecksum: %s.sha256\n' "$archive" "$archive"
+cp "$repo_root/scripts/install-local.sh" "$installer"
+chmod 755 "$installer"
+printf 'package: %s\nchecksum: %s.sha256\ninstaller: %s\n' \
+    "$archive" "$archive" "$installer"

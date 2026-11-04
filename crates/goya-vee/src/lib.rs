@@ -42,10 +42,10 @@ const MAX_EDC_SOURCE_BYTES: usize = 256 * 1024;
 
 /// Convert a verified D0 bytecode artifact to a VEE Python request.
 ///
-/// The generated Python contains only tuple and string/integer literals; it
-/// does not invoke a shell, import modules, or attempt to execute Goya
-/// bytecode. It is a deterministic data representation of the UI bytecode,
-/// not a Python implementation of Goya semantics.
+/// The generated Python interprets the validated UI instruction tuple and
+/// prints a JSON serialization of the resulting tree. It uses only the
+/// standard-library `json` module and stdout; it does not invoke a shell,
+/// access files/network, or run arbitrary Goya code.
 pub fn request_from_compiled_program(
     program: &CompiledProgram,
     agent_id: &str,
@@ -81,7 +81,7 @@ pub fn request_from_compiled_program(
     execute(&program.bytecode).map_err(VeeCompileError::InvalidBytecode)?;
 
     let mut source = String::from(
-        "# Goya EDC D0 data export; inert literals, not executable Goya semantics.\n\
+        "# Goya EDC D0 interpreter; bounded UI tree output.\n\
          GOYA_EDC_BYTECODE_VERSION = 1\nGOYA_EDC_INSTRUCTIONS = (\n",
     );
     for instruction in &program.bytecode.instructions {
@@ -118,6 +118,39 @@ pub fn request_from_compiled_program(
         }
     }
     source.push_str(")\n");
+    source.push_str(
+        r#"import json
+_frames = []
+_root = None
+for _ins in GOYA_EDC_INSTRUCTIONS:
+    _op = _ins[0]
+    if _op in ('column', 'row'):
+        _frames.append([_op, _ins[1], _ins[2], []])
+        continue
+    if _op == 'end':
+        _kind, _node, _expected, _children = _frames.pop()
+        if len(_children) != _expected:
+            raise ValueError('invalid child count')
+        _item = {'kind': _kind, 'node': _node, 'children': _children}
+    elif _op == 'text':
+        _item = {'kind': 'text', 'node': _ins[1], 'content': _ins[2]}
+    elif _op == 'button':
+        _item = {'kind': 'button', 'node': _ins[1], 'action': _ins[2], 'label': _ins[3]}
+    elif _op == 'spacer_bits':
+        _item = {'kind': 'spacer', 'node': _ins[1], 'size_bits': _ins[2]}
+    else:
+        raise ValueError('invalid instruction')
+    if _frames:
+        _frames[-1][3].append(_item)
+    elif _root is None:
+        _root = _item
+    else:
+        raise ValueError('multiple roots')
+if _frames or _root is None:
+    raise ValueError('incomplete instruction stream')
+print(json.dumps(_root, ensure_ascii=False, separators=(',', ':')))
+"#,
+    );
     if source.len() > MAX_EDC_SOURCE_BYTES {
         return Err(VeeCompileError::SourceTooLarge);
     }
@@ -562,7 +595,7 @@ mod tests {
     use super::*;
     use goya_determinism::proofs::ExecutionProof;
     use goya_determinism::ProcessDecl;
-    use goya_ir::{Module, Node, NodeId};
+    use goya_ir::{ActionId, Module, Node, NodeId};
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::thread;
@@ -583,18 +616,9 @@ mod tests {
         }
     }
 
-    fn compiled_text(content: &str) -> CompiledProgram {
-        let module = Module {
-            nodes: vec![(
-                NodeId(1),
-                Node::Text {
-                    content: content.into(),
-                },
-            )],
-            root: Some(NodeId(1)),
-        };
+    fn compiled_module(module: &Module) -> CompiledProgram {
         goya_executable::compile_verified(
-            &module,
+            module,
             &ProcessDecl::new("vee-export", DeterminismClass::Pure, vec![]),
             &ExecutionProof {
                 process: "vee-export".into(),
@@ -606,6 +630,77 @@ mod tests {
             },
         )
         .expect("compile test program")
+    }
+
+    fn compiled_text(content: &str) -> CompiledProgram {
+        compiled_module(&Module {
+            nodes: vec![(
+                NodeId(1),
+                Node::Text {
+                    content: content.into(),
+                },
+            )],
+            root: Some(NodeId(1)),
+        })
+    }
+
+    fn expected_execution_json(node: &goya_executable::ExecutionNode, out: &mut String) {
+        use goya_executable::ExecutionNode;
+        match node {
+            ExecutionNode::Column { node, children } => {
+                expected_container_json("column", node.0, children, out);
+            }
+            ExecutionNode::Row { node, children } => {
+                expected_container_json("row", node.0, children, out);
+            }
+            ExecutionNode::Text { node, content } => {
+                out.push_str("{\"kind\":\"text\",\"node\":");
+                out.push_str(&node.0.to_string());
+                out.push_str(",\"content\":");
+                push_json_string(out, content);
+                out.push('}');
+            }
+            ExecutionNode::Button {
+                node,
+                action,
+                label,
+            } => {
+                out.push_str("{\"kind\":\"button\",\"node\":");
+                out.push_str(&node.0.to_string());
+                out.push_str(",\"action\":");
+                out.push_str(&action.0.to_string());
+                out.push_str(",\"label\":");
+                push_json_string(out, label);
+                out.push('}');
+            }
+            ExecutionNode::Spacer { node, size } => {
+                out.push_str("{\"kind\":\"spacer\",\"node\":");
+                out.push_str(&node.0.to_string());
+                out.push_str(",\"size_bits\":");
+                out.push_str(&size.to_bits().to_string());
+                out.push('}');
+            }
+        }
+    }
+
+    fn expected_container_json(
+        kind: &str,
+        node: u64,
+        children: &[goya_executable::ExecutionNode],
+        out: &mut String,
+    ) {
+        out.push_str("{\"kind\":\"");
+        out.push_str(kind);
+        out.push_str("\",\"node\":");
+        out.push_str(&node.to_string());
+        out.push_str(",\"children\":[");
+        for (index, child) in children.iter().enumerate() {
+            if index != 0 {
+                out.push(',');
+            }
+            expected_execution_json(child, out);
+        }
+        out.push_str("]}");
     }
 
     /// Spawn a one-shot mock server: accepts one connection, optionally
@@ -679,13 +774,85 @@ mod tests {
         assert_eq!(first.budget.as_ref().unwrap().cpu_seconds, Some(3));
         assert!(first
             .source_code
-            .starts_with("# Goya EDC D0 data export; inert literals"));
+            .starts_with("# Goya EDC D0 interpreter; bounded UI tree output."));
         assert!(first
             .source_code
             .contains("('text', 1, 'hi \\'there\\'\\\\\\nworld'),"));
         assert!(first.source_code.contains("GOYA_EDC_BYTECODE_VERSION = 1"));
+        assert!(first.source_code.contains("print(json.dumps(_root"));
         assert!(!first.source_code.contains("exec("));
         assert!(!first.source_code.contains("subprocess"));
+    }
+
+    #[test]
+    fn generated_python_interpreter_matches_reference_vm_json() {
+        use std::io::Write as _;
+        use std::process::{Command, Stdio};
+
+        let program = compiled_module(&Module {
+            nodes: vec![
+                (
+                    NodeId(1),
+                    Node::Column {
+                        children: vec![NodeId(2), NodeId(5)],
+                    },
+                ),
+                (
+                    NodeId(2),
+                    Node::Row {
+                        children: vec![NodeId(3), NodeId(4)],
+                    },
+                ),
+                (
+                    NodeId(3),
+                    Node::Text {
+                        content: "hello 'VEE'\nλ".into(),
+                    },
+                ),
+                (
+                    NodeId(4),
+                    Node::Button {
+                        label: "activate\\now".into(),
+                        on_activate: ActionId(9),
+                    },
+                ),
+                (NodeId(5), Node::Spacer { size: 2.5 }),
+            ],
+            root: Some(NodeId(1)),
+        });
+        let reference = execute(&program.bytecode).expect("reference VM");
+        let mut expected = String::new();
+        expected_execution_json(&reference, &mut expected);
+
+        let probe = Command::new("python3").arg("--version").output();
+        match probe {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
+            Err(error) => panic!("failed to probe python3: {error}"),
+            Ok(output) => assert!(output.status.success(), "python3 --version failed"),
+        }
+
+        let request = request_from_compiled_program(&program, "goya-test").unwrap();
+        let mut child = Command::new("python3")
+            .arg("-")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawn python3");
+        child
+            .stdin
+            .take()
+            .expect("python stdin")
+            .write_all(request.source_code.as_bytes())
+            .expect("write generated source");
+        let output = child.wait_with_output().expect("wait for python3");
+        assert!(
+            output.status.success(),
+            "python interpreter failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let actual = String::from_utf8(output.stdout).expect("python output is UTF-8");
+        assert_eq!(actual.strip_suffix('\n').unwrap_or(&actual), expected);
     }
 
     #[test]

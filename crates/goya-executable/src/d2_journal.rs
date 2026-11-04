@@ -7,7 +7,7 @@ use std::collections::BTreeSet;
 use std::fmt;
 
 use goya_determinism::proofs::ExecutionProof;
-use goya_determinism::{classify, DeterminismClass, EffectKind, ProcessDecl};
+use goya_determinism::{classify, DeterminismClass, ProcessDecl};
 use sha2::{Digest, Sha256};
 
 /// Wire/chain format version.
@@ -411,6 +411,7 @@ fn encoded_len(entry: &JournalEntry) -> Result<usize, JournalError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use goya_determinism::EffectKind;
 
     fn d2() -> (
         ProcessDecl,
