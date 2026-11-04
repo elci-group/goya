@@ -262,7 +262,10 @@ both paths feed the same runtime/layout/render pipeline.
   `compile_d1_interactions` binds triggers to the same depth-first button
   `ActionId`s as scene lowering and emits only verified D1 VM programs. Its
   typed execution wrapper checks authored state/input types before calling
-  the VM. D2 effect/journal requests, branches, loops, comparisons, and other
+  the VM. The raw verified program is also available for VM/VEE bridges; those
+  consumers must preserve the authored type check because D1 itself verifies
+  key sets but does not encode scalar types. D2 effect/journal requests,
+  branches, loops, comparisons, and other
   expression forms are not yet source-language features.
 - Totality: parse + layout never panic on any input — 10,000-input
   deterministic mutation fuzzer enforces it.

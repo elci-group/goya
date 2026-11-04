@@ -121,6 +121,12 @@ mod tests {
     }
 
     #[test]
+    fn signed_positive_geometry_remains_valid() {
+        let scene = parse("@ontology s { @cell root { position: (+1, 2, 0); } }").unwrap();
+        assert_eq!(scene.root.position.unwrap().x, 1.0);
+    }
+
+    #[test]
     fn parse_errors_at_eof_report_a_useful_line() {
         let empty = parse("").unwrap_err();
         assert_eq!(empty.line, 1);
