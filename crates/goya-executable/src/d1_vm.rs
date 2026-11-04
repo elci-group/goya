@@ -551,6 +551,144 @@ impl fmt::Display for D1Error {
 
 impl std::error::Error for D1Error {}
 
+struct D1Reader<'a> {
+    bytes: &'a [u8],
+    offset: usize,
+}
+
+impl<'a> D1Reader<'a> {
+    fn new(bytes: &'a [u8]) -> Self {
+        Self { bytes, offset: 0 }
+    }
+
+    fn take(&mut self, size: usize) -> Result<&'a [u8], D1Error> {
+        let end = self
+            .offset
+            .checked_add(size)
+            .ok_or(D1Error::MalformedProgram)?;
+        let slice = self
+            .bytes
+            .get(self.offset..end)
+            .ok_or(D1Error::MalformedProgram)?;
+        self.offset = end;
+        Ok(slice)
+    }
+
+    fn byte(&mut self) -> Result<u8, D1Error> {
+        Ok(self.take(1)?[0])
+    }
+
+    fn u32(&mut self) -> Result<u32, D1Error> {
+        Ok(u32::from_le_bytes(
+            self.take(4)?
+                .try_into()
+                .map_err(|_| D1Error::MalformedProgram)?,
+        ))
+    }
+
+    fn u64(&mut self) -> Result<u64, D1Error> {
+        Ok(u64::from_le_bytes(
+            self.take(8)?
+                .try_into()
+                .map_err(|_| D1Error::MalformedProgram)?,
+        ))
+    }
+
+    fn count(&mut self, maximum: usize) -> Result<usize, D1Error> {
+        let count = usize::try_from(self.u64()?).map_err(|_| D1Error::MalformedProgram)?;
+        if count > maximum {
+            return Err(D1Error::MalformedProgram);
+        }
+        Ok(count)
+    }
+
+    fn string(&mut self, maximum: usize) -> Result<String, D1Error> {
+        let len = self.count(maximum)?;
+        let text = std::str::from_utf8(self.take(len)?).map_err(|_| D1Error::MalformedProgram)?;
+        Ok(text.to_string())
+    }
+
+    fn key_set(&mut self) -> Result<BTreeSet<String>, D1Error> {
+        let count = self.count(MAX_CONTRACT_KEYS)?;
+        let mut values = BTreeSet::new();
+        let mut previous: Option<String> = None;
+        for _ in 0..count {
+            let value = self.string(MAX_TEXT_BYTES)?;
+            if previous.as_ref().is_some_and(|last| last >= &value) {
+                return Err(D1Error::NonCanonicalProgram);
+            }
+            validate_key(&value)?;
+            previous = Some(value.clone());
+            values.insert(value);
+        }
+        Ok(values)
+    }
+
+    fn value(&mut self) -> Result<D1Value, D1Error> {
+        match self.byte()? {
+            0 => Ok(D1Value::Int(i64::from_le_bytes(
+                self.take(8)?
+                    .try_into()
+                    .map_err(|_| D1Error::MalformedProgram)?,
+            ))),
+            1 => Ok(D1Value::Text(self.string(MAX_TEXT_BYTES)?)),
+            2 => match self.byte()? {
+                0 => Ok(D1Value::Bool(false)),
+                1 => Ok(D1Value::Bool(true)),
+                _ => Err(D1Error::MalformedProgram),
+            },
+            _ => Err(D1Error::MalformedProgram),
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.offset == self.bytes.len()
+    }
+}
+
+fn decode_proof(bytes: &[u8]) -> Result<ExecutionProof, D1Error> {
+    let text = std::str::from_utf8(bytes).map_err(|_| D1Error::InvalidProgramProof)?;
+    let mut lines = text.split_terminator('\n');
+    let field = |line: Option<&str>, key: &str| -> Result<String, D1Error> {
+        line.and_then(|line| line.strip_prefix(key))
+            .map(str::to_string)
+            .ok_or(D1Error::InvalidProgramProof)
+    };
+    if lines.next() != Some("contract=GY-DETERMINISM/1") {
+        return Err(D1Error::InvalidProgramProof);
+    }
+    let process = field(lines.next(), "process=")?;
+    let class = field(lines.next(), "class=")?;
+    let compiler_version = field(lines.next(), "compiler=")?;
+    let schema = field(lines.next(), "schema=")?;
+    let policy = field(lines.next(), "policy=")?;
+    let target = field(lines.next(), "target=")?;
+    if lines.next().is_some() {
+        return Err(D1Error::InvalidProgramProof);
+    }
+    let schema_version = schema
+        .parse::<u64>()
+        .ok()
+        .filter(|value| value.to_string() == schema)
+        .ok_or(D1Error::InvalidProgramProof)?;
+    let policy_version = policy
+        .parse::<u64>()
+        .ok()
+        .filter(|value| value.to_string() == policy)
+        .ok_or(D1Error::InvalidProgramProof)?;
+    if class != DeterminismClass::StateDeterministic.as_str() {
+        return Err(D1Error::InvalidProgramProof);
+    }
+    Ok(ExecutionProof {
+        process,
+        class: DeterminismClass::StateDeterministic,
+        compiler_version,
+        schema_version,
+        policy_version,
+        target,
+    })
+}
+
 fn validate_program(contract: &StateContract, code: &[D1Instruction]) -> Result<(), D1Error> {
     let mut registers = BTreeSet::new();
     let mut written = BTreeSet::new();
