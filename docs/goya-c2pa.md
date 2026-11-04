@@ -87,3 +87,24 @@ certificate was not on a production trust list, so this demonstrates real
 format/signature interoperability but **does not establish a trusted
 production signing chain**. No test key or signed asset is stored in this
 repository.
+
+## Trusted-root interoperability smoke
+
+On 2026-11-04, a second smoke exercised actual trust-chain verification with
+the official `contentauth/c2patool` source checkout at commit
+`a7438f9e72a8ed1e109a1185930bf784347a7fa7` (`c2patool 0.29.0-dev`), installed
+through the available `baby` Cargo recipe into `/tmp`. OpenSSL generated a
+throwaway P-256 CA root and a leaf signing certificate with the
+`id-kp-documentSigning` EKU. The official tool signed its sample JPEG with
+that leaf and the Goya custom assertion `org.goya.provenance.claims`.
+
+Running `c2patool signed.jpg trust --trust_anchors root.pem` returned
+`validation_state: Trusted`, with `signingCredential.trusted`,
+`claimSignature.validated`, every assertion hash matched, and the asset data
+hash valid. The same signed asset initially reported
+`signingCredential.untrusted` without the supplied root, confirming that the
+trusted result came from the explicit ephemeral trust anchor. All keys,
+certificates, and signed media were test-only files under `/tmp`; none are
+committed or treated as production credentials. This confirms local C2PA
+certificate-chain trust evaluation, not C2PA conformance or production
+publisher trust.
