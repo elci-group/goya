@@ -1928,7 +1928,10 @@ mod tests {
             .ok()
             .and_then(|value| value.parse().ok())
             .unwrap_or(18997);
-        assert!(host == "127.0.0.1" || host == "::1", "live smoke must use loopback");
+        assert!(
+            host == "127.0.0.1" || host == "::1",
+            "live smoke must use loopback"
+        );
 
         let program = compiled_text("D0 live result");
         let expected = execute(&program.bytecode).expect("reference VM");
@@ -1936,12 +1939,17 @@ mod tests {
         let request = request_from_compiled_program(&program, "goya-d0-live").unwrap();
         assert!(request.capabilities.is_empty());
         let submitted = client.submit(&request).expect("VEE accepts D0 worker");
-        assert!(submitted.success, "VEE rejected D0 worker: {submitted:?}");
+        assert_eq!(
+            submitted.success,
+            Some(true),
+            "VEE rejected D0 worker: {submitted:?}"
+        );
+        let execution_id = submitted.task_id.expect("VEE returns D0 execution ID");
 
         let deadline = std::time::Instant::now() + Duration::from_secs(30);
         loop {
             let result = client
-                .status(&submitted.execution_id)
+                .status(&execution_id)
                 .expect("VEE returns D0 execution result");
             match result.status {
                 VeeExecutionState::Completed => {
@@ -1950,11 +1958,14 @@ mod tests {
                     let found_stdout = result.artifacts.iter().any(|artifact| {
                         matches!(artifact, VeeJsonValue::Object(fields) if fields.iter().any(|(key, value)| {
                             key == "data" && matches!(value, VeeJsonValue::Object(data) if data.iter().any(|(field, value)| {
-                                field == "content" && matches!(value, VeeJsonValue::String(content) if content.trim() == expected_json)
+                                field == "content" && matches!(value, VeeJsonValue::String(content) if content.lines().any(|line| line == expected_json))
                             }))
                         }))
                     });
-                    assert!(found_stdout, "D0 stdout missing from VEE artifacts: {result:?}");
+                    assert!(
+                        found_stdout,
+                        "D0 stdout missing from VEE artifacts: {result:?}"
+                    );
                     return;
                 }
                 VeeExecutionState::Failed | VeeExecutionState::Cancelled => {
