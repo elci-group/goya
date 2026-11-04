@@ -24,15 +24,18 @@ to IPv4 loopback only. The editor starts with the file's current source;
 in-memory rendering. The geometry inspector lets you select a scene node and
 edit its X/Y position and width/height in points or parent fractions. It
 updates only the selected node's geometry properties in the source editor;
-the scene is reparsed when you update the preview. **Download source** saves a
-copy through the browser.
+the scene is reparsed when you update the preview. You can also drag a node
+in the preview canvas; the drag updates its position fields and applies the
+same guarded in-memory source edit. The keyboard-operable inspector remains
+available for precise edits. **Download source** saves a copy through the
+browser.
 The Studio server never writes edits to the scene file. Preview requests are
 limited to 128 KiB and same-origin requests. Stop the server with Ctrl-C.
 
 The geometry inspector is an initial visual editing aid, not a full IDE. It
 supports selecting nodes from the scene list and editing their geometry; it
-does not provide canvas dragging, automatic file save, live reload,
-collaboration, or platform-native rendering. If a source construct cannot be
+does not provide automatic file save, live reload, collaboration, or
+platform-native rendering. If a source construct cannot be
 matched safely to the selected node, or the source text has been edited since
 the inspector loaded, it leaves the source unchanged and asks you to reload
 the editor before applying geometry.
