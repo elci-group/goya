@@ -97,12 +97,14 @@ fn run() -> Result<(), String> {
     if !(64..=1024).contains(&size) {
         return Err("--size must be between 64 and 1024 pixels".into());
     }
-    let total_pixels = u64::from(size)
-        .checked_mul(u64::from(size))
-        .and_then(|pixels| pixels.checked_mul(images as u64))
-        .ok_or_else(|| "requested corpus size overflows".to_string())?;
-    if total_pixels > 8 * 1024 * 1024 {
-        return Err("corpus exceeds the 8-million-pixel allocation bound".into());
+    if image_dir.is_none() {
+        let total_pixels = u64::from(size)
+            .checked_mul(u64::from(size))
+            .and_then(|pixels| pixels.checked_mul(images as u64))
+            .ok_or_else(|| "requested corpus size overflows".to_string())?;
+        if total_pixels > 8 * 1024 * 1024 {
+            return Err("corpus exceeds the 8-million-pixel allocation bound".into());
+        }
     }
     if !alpha.is_finite() || !(1.0..=64.0).contains(&alpha) {
         return Err("--alpha must be finite and between 1 and 64".into());
