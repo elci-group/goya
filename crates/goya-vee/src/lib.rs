@@ -226,7 +226,7 @@ fn push_py_value(source: &mut String, value: &D1Value) {
     }
 }
 fn push_py_map(source: &mut String, values: &std::collections::BTreeMap<String, D1Value>) {
-    source.push('(');
+    source.push_str("dict((");
     for (key, value) in values {
         source.push('(');
         push_python_string(source, key);
@@ -234,10 +234,24 @@ fn push_py_map(source: &mut String, values: &std::collections::BTreeMap<String, 
         push_py_value(source, value);
         source.push_str("),");
     }
-    source.push(')');
+    source.push_str("))");
 }
 fn hex_bytes(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn validate_agent_id(agent_id: &str) -> Result<(), VeeCompileError> {
+    if agent_id.is_empty() || agent_id.len() > 128 || agent_id.chars().any(char::is_control) {
+        Err(VeeCompileError::InvalidAgentId)
+    } else {
+        Ok(())
+    }
+}
+
+fn json_string(value: &str) -> String {
+    let mut output = String::new();
+    push_json_string(&mut output, value);
+    output
 }
 
 /// Convert a verified D0 bytecode artifact to a VEE Python request.
