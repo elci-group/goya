@@ -1,6 +1,7 @@
 //! Scene AST and deterministic absolute/proportional layout.
 
 use std::collections::BTreeMap;
+use goya_determinism::EffectKind;
 
 /// Contract millipoint scale: 1 point = 1000 mp (matches GY-LAYOUT/1).
 pub const MP: f64 = 1000.0;
@@ -66,6 +67,23 @@ pub enum InteractionType {
     Bool,
 }
 
+/// Authored execution class for a bounded interaction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InteractionClass { D1, D2 }
+
+/// Result type of a replayed static D2 effect request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EffectValueType { Int64, Text, Bool }
+
+/// Static request bytes and their explicit declared capability label.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EffectRequestDecl {
+    pub name: String,
+    pub capability: String,
+    pub request_utf8: String,
+    pub result_type: EffectValueType,
+}
+
 /// One explicitly declared contract key and its type.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypedKey {
@@ -87,6 +105,7 @@ pub enum InteractionExpr {
     Literal(InteractionValue),
     State(String),
     Input(String),
+    Effect(String),
     Add(Box<InteractionExpr>, Box<InteractionExpr>),
 }
 
@@ -102,6 +121,9 @@ pub struct StateAssignment {
 pub struct InteractionDecl {
     pub name: String,
     pub trigger_button: String,
+    pub class: InteractionClass,
+    pub declared_effects: Vec<EffectKind>,
+    pub requests: Vec<EffectRequestDecl>,
     pub state_reads: Vec<TypedKey>,
     pub state_writes: Vec<TypedKey>,
     pub inputs: Vec<TypedKey>,
