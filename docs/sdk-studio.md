@@ -35,13 +35,15 @@ geometry values, and inspector modes together.
 When validation fails, the editor announces the validation message and offers
 **Go to error line** for parser errors, selecting the reported source line in
 the editor.
-**Download source** saves a copy through the browser.
-The Studio server never writes edits to the scene file. Preview requests are
-limited to 128 KiB and same-origin requests. Stop the server with Ctrl-C.
+**Save scene** validates and atomically replaces the file opened by `serve`;
+the browser cannot choose a server-side save path. Save and preview requests
+are limited to 128 KiB and require the page's same-origin request headers.
+**Download source** remains available to export a separate copy. Stop the
+server with Ctrl-C.
 
 The geometry inspector is an initial visual editing aid, not a full IDE. It
 supports selecting nodes from the scene list and editing their geometry; it
-does not provide automatic file save, live reload, collaboration, or
+does not provide automatic file watching, collaboration, or
 platform-native rendering. If a source construct cannot be
 matched safely to the selected node, or the source text has been edited since
 the inspector loaded, it leaves the source unchanged and asks you to reload

@@ -159,7 +159,6 @@ impl CpuTopology {
             return None;
         };
         let parsed: Vec<u64> = values.iter().copied().collect::<Option<_>>()?;
-        let min = *parsed.iter().min()?;
         let max = *parsed.iter().max()?;
         let cpus: Vec<_> = ids
             .iter()
@@ -392,6 +391,24 @@ mod tests {
         assert_eq!(
             topo,
             CpuTopology {
+                cpus: vec![
+                    CpuClassAssignment {
+                        cpu_id: 0,
+                        class: CoreClass::Performance
+                    },
+                    CpuClassAssignment {
+                        cpu_id: 1,
+                        class: CoreClass::Performance
+                    },
+                    CpuClassAssignment {
+                        cpu_id: 2,
+                        class: CoreClass::Efficiency
+                    },
+                    CpuClassAssignment {
+                        cpu_id: 3,
+                        class: CoreClass::Efficiency
+                    },
+                ],
                 performance_cpus: 2,
                 efficiency_cpus: 2,
                 source: TopologySource::CpuCapacity
@@ -415,6 +432,46 @@ mod tests {
                 .is_none()
         );
         assert!(CpuTopology::from_sysfs_signals(&[None, Some(512)], &[Some(64), None]).is_none());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn injected_sysfs_root_uses_online_cpu_ids_and_fallback() {
+        use std::{
+            fs,
+            path::PathBuf,
+            sync::atomic::{AtomicU64, Ordering},
+        };
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "goya-hcar-fixture-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("online"), "2-3,7\n").unwrap();
+        for (cpu, cap, perf) in [(2, "1024", "64"), (3, "512", "32"), (7, "1024", "64")] {
+            let dir = root.join(format!("cpu{cpu}"));
+            fs::create_dir_all(dir.join("acpi_cppc")).unwrap();
+            fs::write(dir.join("cpu_capacity"), cap).unwrap();
+            fs::write(dir.join("acpi_cppc/highest_perf"), perf).unwrap();
+        }
+        let detected = CpuTopology::detect_linux_from(&root).unwrap();
+        assert_eq!(detected.source, TopologySource::CpuCapacity);
+        assert_eq!(
+            detected.cpus.iter().map(|c| c.cpu_id).collect::<Vec<_>>(),
+            vec![2, 3, 7]
+        );
+        // Make capacity uniform so the complete ACPI signal is selected.
+        for cpu in [2, 3, 7] {
+            fs::write(root.join(format!("cpu{cpu}/cpu_capacity")), "512").unwrap();
+        }
+        let fallback = CpuTopology::detect_linux_from(&root).unwrap();
+        assert_eq!(fallback.source, TopologySource::AcpiHighestPerformance);
+        assert_eq!(fallback.cpus[1].class, CoreClass::Efficiency);
+        fs::write(root.join("cpu3/acpi_cppc/highest_perf"), "broken").unwrap();
+        assert!(CpuTopology::detect_linux_from(&root).is_none());
+        let _ = fs::remove_dir_all(PathBuf::from(root));
     }
 
     fn cost(tp: f64, te: f64, ep: f64, ee: f64) -> WorkCost {
