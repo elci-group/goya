@@ -301,6 +301,16 @@ impl D1Program {
         self.program_hash
     }
 
+    /// Explicit state/input contract used to validate worker snapshots.
+    pub fn contract(&self) -> &StateContract {
+        &self.contract
+    }
+
+    /// Validated bounded instruction stream for portable interpreters.
+    pub fn instructions(&self) -> &[D1Instruction] {
+        &self.instructions
+    }
+
     pub fn canonical_bytes(&self) -> Vec<u8> {
         let mut out = Vec::new();
         out.extend_from_slice(DOMAIN_PROGRAM);
