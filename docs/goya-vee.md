@@ -48,10 +48,12 @@ The generated source imports only Python's standard-library `json` module,
 and performs no file, network, subprocess, or shell operations. Goya bytecode
 is not WebAssembly, and the adapter never labels it as WASM. The local Python
 test compares its stdout with the Rust reference VM's tree serialization.
-The D0 VEE submission path was not included in the live smoke recorded below;
-the interpretation of D0 Python stdout/result fields remains unverified.
-Callers may continue to use `SubmitRequest` directly for independently
-authored supported-language source.
+The D0 VEE path is also covered by the opt-in live smoke below. Its JSON is
+returned in the completed execution's text artifact; VEE may prefix sandbox
+diagnostics in that same stdout field, so consumers should locate/parse the
+worker output line rather than assume stdout contains only that JSON. Callers
+may continue to use `SubmitRequest` directly for independently authored
+supported-language source.
 
 `request_from_d1_program` accepts a `D1Program` handle produced by the bounded
 canonical decoder (or compiler), plus explicit `D1Snapshot` and
@@ -84,7 +86,20 @@ Unit tests verify request JSON, endpoint path, bearer header, success/error
 response handling, and the D0 conversion using a local one-shot HTTP fixture.
 The fixture is not represented as an end-to-end VEE integration.
 
-### Local D1/D2 live smoke
+### Local D0/D1/D2 live smoke
+
+The D0 live smoke is opt-in: run the unit test
+`d0_live_submit_status_and_result_when_enabled` with
+`GOYA_VEE_LIVE_SMOKE=1`. It defaults to `127.0.0.1:18997`; optional
+`GOYA_VEE_HOST` and `GOYA_VEE_PORT` overrides are accepted only when the host
+is a loopback literal. On 2026-11-04, a disposable local VEE instance accepted
+the generated capability-free D0 worker, returned `Completed`, and retained
+the reference-VM-equivalent JSON line
+`{"kind":"text","node":1,"content":"D0 live result"}` in its stdout
+text artifact. VEE prefixed Landlock warnings in that artifact and labeled it
+`Plain`, because the diagnostics preceded the JSON. D0 result semantics are
+now covered alongside D1/D2; sandbox isolation still fell back to rlimits
+only in this environment.
 
 On 2026-11-04, the locally checked out VEE source at
 `/home/sal/vico-desktop/src-tauri/vico-vee` was built with its validated
