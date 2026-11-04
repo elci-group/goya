@@ -352,7 +352,7 @@ fn wav_header(sample_rate: u32, channels: u16) -> [u8; 44] {
 
 impl AudioOutput for PwCatOutput {
     fn write(&mut self, samples: &[f32]) -> Result<usize, AudioError> {
-        if samples.len() % usize::from(self.channels) != 0 {
+        if !samples.len().is_multiple_of(usize::from(self.channels)) {
             return Err(AudioError::Backend(format!(
                 "interleaved sample count {} is not a complete {}-channel frame",
                 samples.len(),
