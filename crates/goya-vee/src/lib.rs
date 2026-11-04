@@ -1915,6 +1915,59 @@ mod tests {
         assert!(!first.source_code.contains("subprocess"));
     }
 
+    /// Optional real-service smoke. Set GOYA_VEE_LIVE_SMOKE=1 to submit a
+    /// generated D0 worker to a disposable loopback VEE instance and verify
+    /// that its stdout is retained in the completed execution result.
+    #[test]
+    fn d0_live_submit_status_and_result_when_enabled() {
+        if std::env::var("GOYA_VEE_LIVE_SMOKE").as_deref() != Ok("1") {
+            return;
+        }
+        let host = std::env::var("GOYA_VEE_HOST").unwrap_or_else(|_| "127.0.0.1".into());
+        let port = std::env::var("GOYA_VEE_PORT")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(18997);
+        assert!(host == "127.0.0.1" || host == "::1", "live smoke must use loopback");
+
+        let program = compiled_text("D0 live result");
+        let expected = execute(&program.bytecode).expect("reference VM");
+        let mut client = VeeClient::connect(&host, port);
+        let request = request_from_compiled_program(&program, "goya-d0-live").unwrap();
+        assert!(request.capabilities.is_empty());
+        let submitted = client.submit(&request).expect("VEE accepts D0 worker");
+        assert!(submitted.success, "VEE rejected D0 worker: {submitted:?}");
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(30);
+        loop {
+            let result = client
+                .status(&submitted.execution_id)
+                .expect("VEE returns D0 execution result");
+            match result.status {
+                VeeExecutionState::Completed => {
+                    let mut expected_json = String::new();
+                    expected_execution_json(&expected, &mut expected_json);
+                    let found_stdout = result.artifacts.iter().any(|artifact| {
+                        matches!(artifact, VeeJsonValue::Object(fields) if fields.iter().any(|(key, value)| {
+                            key == "data" && matches!(value, VeeJsonValue::Object(data) if data.iter().any(|(field, value)| {
+                                field == "content" && matches!(value, VeeJsonValue::String(content) if content.trim() == expected_json)
+                            }))
+                        }))
+                    });
+                    assert!(found_stdout, "D0 stdout missing from VEE artifacts: {result:?}");
+                    return;
+                }
+                VeeExecutionState::Failed | VeeExecutionState::Cancelled => {
+                    panic!("D0 worker did not complete: {result:?}");
+                }
+                _ if std::time::Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(250));
+                }
+                _ => panic!("D0 worker did not complete before timeout: {result:?}"),
+            }
+        }
+    }
+
     #[test]
     fn decoded_d1_worker_matches_reference_outcome_and_is_inert() {
         use std::io::Write as _;
