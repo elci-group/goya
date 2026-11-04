@@ -127,3 +127,22 @@ with `Operation not permitted` and continued with the rlimit sandbox layer
 only. This confirms the local submit/status/result path and worker behavior
 under that environment; it does not establish production Landlock or other
 production sandbox coverage, nor validate remote deployment configuration.
+
+The typed authored-source path has a separate opt-in acceptance in
+`goya-lang`:
+
+```sh
+GOYA_VEE_COMPILED_LIVE_SMOKE=1 \
+GOYA_VEE_HOST=127.0.0.1 GOYA_VEE_PORT=18997 \
+cargo test -p goya-lang compiled_source_live_vee_submit_when_enabled -- --nocapture
+```
+
+On 2026-11-04 this test compiled the authored D1 and static-journal D2 source
+fixtures, generated requests through the typed wrappers, submitted both to a
+disposable loopback VEE instance, and verified their stdout artifacts contained
+the expected next state (`count` 12 for D1, `count` 4 for D2). The D2 request
+used only the caller-provided journal and granted no VEE capabilities. The
+instance used isolated temporary data/config/pattern-store paths, disabled
+authentication only for loopback, and disabled mDNS. Landlock setup returned
+`Operation not permitted`, so this test verifies worker behavior under VEE's
+rlimit fallback only; it does not establish production sandbox coverage.
