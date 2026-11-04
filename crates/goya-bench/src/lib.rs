@@ -118,23 +118,8 @@ impl Corpus {
                 .filter(|total| *total <= MAX_LOCAL_TOTAL_FILE_BYTES)
                 .ok_or(LocalCorpusError::TotalFileBytesLimit)?;
             let (source_width, source_height) = probe_dimensions(ffprobe, path)?;
-            if source_width == 0
-                || source_height == 0
-                || source_width > MAX_LOCAL_EDGE
-                || source_height > MAX_LOCAL_EDGE
-            {
-                return Err(LocalCorpusError::SourceDimensionLimit {
-                    path: path.clone(),
-                    width: source_width,
-                    height: source_height,
-                });
-            }
-            let source_pixels = u64::from(source_width)
-                .checked_mul(u64::from(source_height))
-                .and_then(|pixels| source_pixels_total.checked_add(pixels))
-                .filter(|total| *total <= MAX_LOCAL_SOURCE_PIXELS)
-                .ok_or(LocalCorpusError::SourcePixelLimit)?;
-            source_pixels_total = source_pixels;
+            source_pixels_total =
+                add_source_dimensions(source_pixels_total, path, source_width, source_height)?;
 
             let pixels = decode_local_image(ffmpeg, path, size)?;
             let mut payload = mix64(seed ^ mix64(index as u64) ^ digest_u64(&file_hash)) | 1;
@@ -312,6 +297,26 @@ fn sort_local_paths(paths: &[PathBuf]) -> Vec<PathBuf> {
     let mut ordered = paths.to_vec();
     ordered.sort();
     ordered
+}
+
+fn add_source_dimensions(
+    current_total: u64,
+    path: &Path,
+    width: u32,
+    height: u32,
+) -> Result<u64, LocalCorpusError> {
+    if width == 0 || height == 0 || width > MAX_LOCAL_EDGE || height > MAX_LOCAL_EDGE {
+        return Err(LocalCorpusError::SourceDimensionLimit {
+            path: path.to_path_buf(),
+            width,
+            height,
+        });
+    }
+    u64::from(width)
+        .checked_mul(u64::from(height))
+        .and_then(|pixels| current_total.checked_add(pixels))
+        .filter(|total| *total <= MAX_LOCAL_SOURCE_PIXELS)
+        .ok_or(LocalCorpusError::SourcePixelLimit)
 }
 
 /// A successfully decoded caller-owned image corpus and source provenance.
@@ -1497,6 +1502,23 @@ mod tests {
         assert_eq!(
             sort_local_paths(&[PathBuf::from("z.png"), PathBuf::from("a.png")]),
             vec![PathBuf::from("a.png"), PathBuf::from("z.png")]
+        );
+    }
+
+    #[test]
+    fn local_source_dimensions_are_rejected_before_decode_allocation() {
+        let path = Path::new("bad.png");
+        assert!(matches!(
+            add_source_dimensions(0, path, 0, 64),
+            Err(LocalCorpusError::SourceDimensionLimit { .. })
+        ));
+        assert!(matches!(
+            add_source_dimensions(0, path, MAX_LOCAL_EDGE + 1, 64),
+            Err(LocalCorpusError::SourceDimensionLimit { .. })
+        ));
+        assert_eq!(
+            add_source_dimensions(MAX_LOCAL_SOURCE_PIXELS, path, 1, 1),
+            Err(LocalCorpusError::SourcePixelLimit)
         );
     }
 
