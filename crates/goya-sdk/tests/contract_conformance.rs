@@ -1,4 +1,3 @@
-
 use goya_ir::{ActionId, Node};
 use goya_runtime::Event;
 use goya_sdk::{SceneProject, Viewport};
@@ -36,7 +35,10 @@ fn public_sdk_scene_conforms_across_parse_lower_layout_and_runtime() {
     let increment = project.lowered().table.get("increment").unwrap();
     assert_eq!(first.role, goya_lang::Role::Button);
     assert_eq!(increment.role, goya_lang::Role::Button);
-    assert_eq!(project.lowered().rect_of("increment"), Some((110_000, 20_000, 80_000, 30_000)));
+    assert_eq!(
+        project.lowered().rect_of("increment"),
+        Some((110_000, 20_000, 80_000, 30_000))
+    );
 
     let first_action = match project.module().node(first.ir_node).unwrap() {
         Node::Button { on_activate, .. } => *on_activate,
