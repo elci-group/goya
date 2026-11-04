@@ -64,7 +64,7 @@ fn compile_one(i: &InteractionDecl) -> Result<D1Program, TransitionError> {
     let mut used_reads = BTreeSet::new();
     let mut used_inputs = BTreeSet::new();
     for assignment in &i.assignments {
-        let expected = *writes.get(&assignment.key).ok_or(TransitionError::AssignmentMismatch)?;
+        let expected = *writes.get(assignment.key.as_str()).ok_or(TransitionError::AssignmentMismatch)?;
         if !assigned.insert(assignment.key.as_str()) { return Err(TransitionError::AssignmentMismatch); }
         let (actual, src) = compile_expr(&assignment.value, &mut instructions, &mut register, &reads, &inputs, &mut used_reads, &mut used_inputs)?;
         if actual != expected { return Err(TransitionError::TypeMismatch); }
@@ -93,25 +93,24 @@ fn compile_expr(
     reads: &BTreeMap<&str, InteractionType>, inputs: &BTreeMap<&str, InteractionType>,
     used_reads: &mut BTreeSet<String>, used_inputs: &mut BTreeSet<String>,
 ) -> Result<(InteractionType, String), TransitionError> {
-    let dst = || format!("r{}", *next);
     match expr {
         InteractionExpr::Literal(value) => {
             let (ty, value) = match value { InteractionValue::Int(v) => (InteractionType::Int, D1Value::Int(*v)), InteractionValue::Text(v) => (InteractionType::Text, D1Value::Text(v.clone())), InteractionValue::Bool(v) => (InteractionType::Bool, D1Value::Bool(*v)) };
-            let reg = dst(); *next += 1; code.push(D1Instruction::Constant { dst: reg.clone(), value }); Ok((ty, reg))
+            let reg = format!("r{next}"); *next += 1; code.push(D1Instruction::Constant { dst: reg.clone(), value }); Ok((ty, reg))
         }
         InteractionExpr::State(key) => {
             let ty = *reads.get(key.as_str()).ok_or(TransitionError::UndeclaredRead)?;
-            used_reads.insert(key.clone()); let reg = dst(); *next += 1; code.push(D1Instruction::ReadState { dst: reg.clone(), key: key.clone() }); Ok((ty, reg))
+            used_reads.insert(key.clone()); let reg = format!("r{next}"); *next += 1; code.push(D1Instruction::ReadState { dst: reg.clone(), key: key.clone() }); Ok((ty, reg))
         }
         InteractionExpr::Input(key) => {
             let ty = *inputs.get(key.as_str()).ok_or(TransitionError::UndeclaredRead)?;
-            used_inputs.insert(key.clone()); let reg = dst(); *next += 1; code.push(D1Instruction::ReadInput { dst: reg.clone(), key: key.clone() }); Ok((ty, reg))
+            used_inputs.insert(key.clone()); let reg = format!("r{next}"); *next += 1; code.push(D1Instruction::ReadInput { dst: reg.clone(), key: key.clone() }); Ok((ty, reg))
         }
         InteractionExpr::Add(a, b) => {
             let (ta, ra) = compile_expr(a, code, next, reads, inputs, used_reads, used_inputs)?;
             let (tb, rb) = compile_expr(b, code, next, reads, inputs, used_reads, used_inputs)?;
             if ta != InteractionType::Int || tb != InteractionType::Int { return Err(TransitionError::TypeMismatch); }
-            let reg = dst(); *next += 1; code.push(D1Instruction::AddInt { dst: reg.clone(), left: ra, right: rb }); Ok((InteractionType::Int, reg))
+            let reg = format!("r{next}"); *next += 1; code.push(D1Instruction::AddInt { dst: reg.clone(), left: ra, right: rb }); Ok((InteractionType::Int, reg))
         }
     }
 }
