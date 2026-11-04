@@ -11,3 +11,4 @@ path = "src/main.rs"
 
 [dependencies]
 goya-sdk = { path = "../goya-sdk" }
+goya-lang = { path = "../goya-lang" }
