@@ -187,6 +187,6 @@ fn local_image_paths(directory: &std::path::Path) -> Result<Vec<PathBuf>, String
     Ok(paths)
 }
 
-fn value<'a>(args: &mut impl Iterator<Item = String>, flag: &str) -> Result<String, String> {
+fn value(args: &mut impl Iterator<Item = String>, flag: &str) -> Result<String, String> {
     args.next().ok_or_else(|| format!("{flag} needs a value"))
 }
