@@ -382,7 +382,11 @@ impl std::fmt::Display for LocalCorpusError {
             Self::FileTooLarge(path) => write!(f, "source file exceeds 64 MiB: {}", path.display()),
             Self::ReadSource(path) => write!(f, "could not read source image: {}", path.display()),
             Self::SourceChanged(path) => {
-                write!(f, "source image changed while being decoded: {}", path.display())
+                write!(
+                    f,
+                    "source image changed while being decoded: {}",
+                    path.display()
+                )
             }
             Self::ProbeFailed(path) => write!(f, "ffprobe failed for {}", path.display()),
             Self::MalformedProbe(path) => write!(

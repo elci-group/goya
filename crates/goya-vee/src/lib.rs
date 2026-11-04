@@ -19,9 +19,9 @@
 
 use goya_determinism::DeterminismClass;
 use goya_executable::{
-    execute, CompiledProgram, D1Error, D1Instruction, D1Program, D1Snapshot, D1Value,
-    D2Error, D2Instruction, D2Program, EffectJournal, EffectResultType, InputSnapshot,
-    Instruction, VmError, BYTECODE_VERSION,
+    execute, CompiledProgram, D1Error, D1Instruction, D1Program, D1Snapshot, D1Value, D2Error,
+    D2Instruction, D2Program, EffectJournal, EffectResultType, InputSnapshot, Instruction, VmError,
+    BYTECODE_VERSION,
 };
 use std::collections::HashSet;
 use std::io::{Read, Write};
