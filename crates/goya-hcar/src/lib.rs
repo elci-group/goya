@@ -21,7 +21,7 @@ pub const HCAR_CONTRACT: &str = "GY-HCAR/1";
 
 /// Detected Linux CPU class counts. Detection is advisory metadata only;
 /// callers must still choose an affinity policy separately.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CpuTopology {
     pub cpus: Vec<CpuClassAssignment>,
     pub performance_cpus: usize,
@@ -99,16 +99,47 @@ impl CpuTopology {
             })
         }
         if let Some((performance_cpus, efficiency_cpus)) = split(capacity) {
-            return Some(Self {
+            return Some(Self::from_values(
+                capacity,
+                TopologySource::CpuCapacity,
                 performance_cpus,
                 efficiency_cpus,
-                source: TopologySource::CpuCapacity,
-            });
+            )?);
         }
-        split(highest_perf).map(|(performance_cpus, efficiency_cpus)| Self {
+        let (performance_cpus, efficiency_cpus) = split(highest_perf)?;
+        Self::from_values(
+            highest_perf,
+            TopologySource::AcpiHighestPerformance,
             performance_cpus,
             efficiency_cpus,
-            source: TopologySource::AcpiHighestPerformance,
+        )
+    }
+
+    fn from_values(
+        values: &[Option<u64>],
+        source: TopologySource,
+        performance_cpus: usize,
+        efficiency_cpus: usize,
+    ) -> Option<Self> {
+        let parsed: Vec<u64> = values.iter().copied().collect::<Option<_>>()?;
+        let max = *parsed.iter().max()?;
+        let cpus = parsed
+            .iter()
+            .enumerate()
+            .map(|(cpu_id, value)| CpuClassAssignment {
+                cpu_id: cpu_id as u32,
+                class: if *value == max {
+                    CoreClass::Performance
+                } else {
+                    CoreClass::Efficiency
+                },
+            })
+            .collect();
+        Some(Self {
+            cpus,
+            performance_cpus,
+            efficiency_cpus,
+            source,
         })
     }
 

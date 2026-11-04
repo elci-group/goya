@@ -574,7 +574,7 @@ fn route_request_for_scene(
                 )
             }
         };
-        match SceneProject::from_source(source.clone(), Viewport::default()) {
+        return match SceneProject::from_source(source.clone(), Viewport::default()) {
             Ok(project) if project.frame().nodes.len() <= MAX_PREVIEW_NODES => {
                 match atomic_replace_scene(path, source.as_bytes()) {
                     Ok(()) => ("200 OK", "text/plain; charset=utf-8", "Scene saved".into()),
@@ -595,7 +595,7 @@ fn route_request_for_scene(
                 "text/html; charset=utf-8",
                 render_error_html(&error.to_string()),
             ),
-        }
+        };
     }
     if req.method != "GET" && req.method != "POST" {
         return (
@@ -1053,13 +1053,8 @@ mod tests {
         assert_eq!(saved.0, "200 OK");
         assert_eq!(fs::read_to_string(&canonical_path).unwrap(), edited);
 
-        let reloaded = route_request_for_scene(
-            &get("/"),
-            HOST,
-            SCENE,
-            &preview,
-            Some(&canonical_path),
-        );
+        let reloaded =
+            route_request_for_scene(&get("/"), HOST, SCENE, &preview, Some(&canonical_path));
         assert_eq!(reloaded.0, "200 OK");
         assert!(reloaded.2.contains("saved source"));
 
@@ -1073,9 +1068,10 @@ mod tests {
         assert_eq!(invalid.0, "422 Unprocessable Content");
         assert_eq!(fs::read_to_string(&canonical_path).unwrap(), edited);
 
-        let foreign = String::from_utf8(post("/save", SCENE))
-            .unwrap()
-            .replace("Origin: http://127.0.0.1:8765", "Origin: http://attacker.invalid");
+        let foreign = String::from_utf8(post("/save", SCENE)).unwrap().replace(
+            "Origin: http://127.0.0.1:8765",
+            "Origin: http://attacker.invalid",
+        );
         assert_eq!(
             route_request_for_scene(
                 foreign.as_bytes(),
