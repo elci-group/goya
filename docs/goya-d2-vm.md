@@ -43,6 +43,15 @@ adapter bounds the journal to 256 entries/64 KiB, combined embedded payload
 to 32 KiB, source to 256 KiB, and worker output to 2 MiB. Focused local Python
 tests compare the full output and hashes with the Rust D2 outcome.
 
+The typed source bridge is `goya-lang::CompiledD2Interaction::to_vee_request`.
+It verifies authored state/input/output scalar types and the caller-supplied
+journal through the Rust VM wrapper before delegating to the bounded VEE
+adapter. The wrapper exposes immutable declaration, proof, and capability
+labels so callers can build and record an `EffectJournal`; it does not expose
+the raw `D2Program`. The method only constructs a `SubmitRequest`. A caller
+must explicitly submit it through `VeeClient`, and the request carries no VEE
+capabilities or live effect path.
+
 On 2026-11-04, the generated D2 replay worker was submitted through Goya's
 `VeeClient` to the local VEE source on loopback with isolated temporary data,
 config, and pattern-store paths, authentication disabled only for that
