@@ -35,8 +35,37 @@ directory, run:
 sh goya-VERSION-linux-ARCH-install.sh --verify-only goya-VERSION-linux-ARCH.tar.gz
 ```
 
-The SHA-256 sidecar detects accidental corruption and mismatched files. It is
-not a publisher signature, so it does not establish who produced the package.
+The SHA-256 sidecar detects accidental corruption and mismatched files. By
+itself it does not establish who produced the package.
+
+## Optional Ed25519 publisher signature
+
+The builder can create a detached signature over the exact archive bytes.
+Pass the publisher's private key explicitly:
+
+```sh
+scripts/package-local.sh --out-dir dist --signing-key /secure/keys/goya-release-private.pem
+```
+
+This writes `ARCHIVE.tar.gz.sig` alongside the archive and checksum. The
+private key is read in place and is not copied into the package or output
+directory. Distribute the `.tar.gz`, `.sha256`, `.sig`, and installer together.
+The `.sha256` file is still only a corruption check; the detached signature
+authenticates the archive only relative to a public key the installer trusts.
+
+The installer verifies a signature only when the operator supplies a trusted
+public key separately:
+
+```sh
+sh goya-VERSION-linux-ARCH-install.sh --verify-only \
+  --trusted-key /secure/keys/goya-release-public.pem goya-VERSION-linux-ARCH.tar.gz
+```
+
+`--trusted-key` requires the matching `.tar.gz.sig` file and verifies Ed25519
+before inspecting or installing the archive. Without that option, the
+installer checks only SHA-256 integrity and explicitly reports that publisher
+authenticity was not checked. Key generation, public-key distribution,
+publisher identity, and release publication remain release-operator duties.
 
 ## Rollback and removal
 
