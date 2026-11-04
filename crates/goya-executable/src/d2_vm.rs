@@ -294,6 +294,16 @@ impl D2Program {
         self.program_hash
     }
 
+    /// Validated D2 instructions in canonical execution order.
+    pub fn instructions(&self) -> &[D2Instruction] {
+        &self.instructions
+    }
+
+    /// Explicit state and input schema used by this program.
+    pub fn contract(&self) -> &StateContract {
+        &self.contract
+    }
+
     /// Stable instruction encoding, with canonical sorted state-contract
     /// fields, fixed tags, and length-prefixed strings/requests.
     pub fn canonical_bytes(&self) -> Vec<u8> {
