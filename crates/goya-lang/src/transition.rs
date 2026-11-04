@@ -433,6 +433,14 @@ fn value_has_type(value: &D1Value, ty: InteractionType) -> bool {
     )
 }
 
+fn to_interaction_type(ty: EffectValueType) -> InteractionType {
+    match ty { EffectValueType::Int64 => InteractionType::Int, EffectValueType::Text => InteractionType::Text, EffectValueType::Bool => InteractionType::Bool }
+}
+
+fn to_vm_result_type(ty: EffectValueType) -> EffectResultType {
+    match ty { EffectValueType::Int64 => EffectResultType::Int64, EffectValueType::Text => EffectResultType::Text, EffectValueType::Bool => EffectResultType::Bool }
+}
+
 fn validate_output_types(
     writes: &[crate::scene::TypedKey],
     next_state: &BTreeMap<String, D1Value>,
