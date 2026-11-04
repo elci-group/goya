@@ -1085,6 +1085,9 @@ pub struct CodecRoundTripReport {
     /// `not_requested`, `measured`, or `unavailable`.
     pub status: String,
     pub codec: String,
+    /// Meaning of the `quality` values below, e.g. `-q:v`, `-crf` or
+    /// `-compression_level`.
+    pub quality_parameter: String,
     pub encoder_version: Option<String>,
     pub note: Option<String>,
     pub qualities: Vec<CodecQualityResult>,
@@ -1104,6 +1107,7 @@ impl CodecRoundTripReport {
         Self {
             status: "not_requested".into(),
             codec: "mjpeg".into(),
+            quality_parameter: "".into(),
             encoder_version: None,
             note: None,
             qualities: Vec::new(),
@@ -1123,15 +1127,43 @@ pub fn measure_ffmpeg_png(result: &mut BenchmarkResult, executable: &str) {
     measure_ffmpeg_codec(result, executable, "png");
 }
 
+/// Measure a lossy H.264/libx264 Matroska round-trip through installed ffmpeg.
+pub fn measure_ffmpeg_h264(result: &mut BenchmarkResult, executable: &str) {
+    measure_ffmpeg_codec(result, executable, "h264");
+}
+
+/// Measure a lossy MPEG-4 Part 2/AVI round-trip through installed ffmpeg.
+pub fn measure_ffmpeg_mpeg4(result: &mut BenchmarkResult, executable: &str) {
+    measure_ffmpeg_codec(result, executable, "mpeg4");
+}
+
 fn measure_ffmpeg_codec(result: &mut BenchmarkResult, executable: &str, codec: &str) {
-    let (encoder, quality_flag, settings): (&str, &str, &[u8]) = match codec {
-        "mjpeg" => ("mjpeg", "-q:v", &[2, 5, 8]),
-        "png" => ("png", "-compression_level", &[1, 6, 9]),
+    let (encoder, quality_flag, quality_parameter, settings, muxer, pixel_format):
+        (&str, &str, &str, &[u8], &str, Option<&str>) = match codec {
+        "mjpeg" => ("mjpeg", "-q:v", "q:v", &[2, 5, 8], "image2pipe", None),
+        "png" => (
+            "png",
+            "-compression_level",
+            "compression_level",
+            &[1, 6, 9],
+            "image2pipe",
+            None,
+        ),
+        "h264" => ("libx264", "-crf", "crf", &[18, 28, 38], "matroska", Some("yuv420p")),
+        "mpeg4" => ("mpeg4", "-q:v", "q:v", &[2, 5, 8], "avi", Some("yuv420p")),
         _ => {
             result.codec_roundtrip = Some(codec_unavailable(codec, None, "unsupported codec"));
             return;
         }
     };
+    if pixel_format.is_some() && (result.width % 2 != 0 || result.height % 2 != 0) {
+        result.codec_roundtrip = Some(codec_unavailable(
+            codec,
+            None,
+            "the selected yuv420p round-trip requires even frame dimensions",
+        ));
+        return;
+    }
     let version = match Command::new(executable).arg("-version").output() {
         Ok(output) if output.status.success() => String::from_utf8_lossy(&output.stdout)
             .lines()
@@ -1167,9 +1199,7 @@ fn measure_ffmpeg_codec(result: &mut BenchmarkResult, executable: &str, codec: &
             );
             let quality_arg = quality.to_string();
             let size_arg = format!("{}x{}", image.w, image.h);
-            let Some(encoded) = ffmpeg_pipe(
-                executable,
-                &[
+            let mut encode_args = vec![
                     "-v",
                     "error",
                     "-f",
@@ -1185,16 +1215,19 @@ fn measure_ffmpeg_codec(result: &mut BenchmarkResult, executable: &str, codec: &
                     "-an",
                     "-c:v",
                     encoder,
-                    quality_flag,
-                    &quality_arg,
-                    "-f",
-                    "image2pipe",
-                    "-vcodec",
-                    encoder,
-                    "pipe:1",
-                ],
-                &marked,
-            ) else {
+                ];
+            if let Some(pixel_format) = pixel_format {
+                if codec == "h264" {
+                    encode_args.extend_from_slice(&["-preset", "medium"]);
+                }
+                encode_args.extend_from_slice(&["-pix_fmt", pixel_format]);
+            }
+            encode_args.extend_from_slice(&[quality_flag, &quality_arg, "-f", muxer]);
+            if muxer == "image2pipe" {
+                encode_args.extend_from_slice(&["-vcodec", encoder]);
+            }
+            encode_args.push("pipe:1");
+            let Some(encoded) = ffmpeg_pipe(executable, &encode_args, &marked) else {
                 result.codec_roundtrip = Some(codec_unavailable(
                     codec,
                     Some(version),
@@ -1202,27 +1235,15 @@ fn measure_ffmpeg_codec(result: &mut BenchmarkResult, executable: &str, codec: &
                 ));
                 return;
             };
-            let Some(decoded) = ffmpeg_pipe(
-                executable,
-                &[
-                    "-v",
-                    "error",
-                    "-f",
-                    "image2pipe",
-                    "-vcodec",
-                    encoder,
-                    "-i",
-                    "pipe:0",
-                    "-frames:v",
-                    "1",
-                    "-f",
-                    "rawvideo",
-                    "-pix_fmt",
-                    "gray",
-                    "pipe:1",
-                ],
-                &encoded,
-            ) else {
+            let mut decode_args = vec!["-v", "error", "-f", muxer];
+            if muxer == "image2pipe" {
+                decode_args.extend_from_slice(&["-vcodec", encoder]);
+            }
+            decode_args.extend_from_slice(&[
+                "-i", "pipe:0", "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray",
+                "pipe:1",
+            ]);
+            let Some(decoded) = ffmpeg_pipe(executable, &decode_args, &encoded) else {
                 result.codec_roundtrip = Some(codec_unavailable(
                     codec,
                     Some(version),
@@ -1257,14 +1278,21 @@ fn measure_ffmpeg_codec(result: &mut BenchmarkResult, executable: &str, codec: &
             },
         });
     }
-    result.codec_roundtrip = Some(CodecRoundTripReport { status: "measured".into(), codec: codec.into(),
-        encoder_version: Some(version), note: Some(format!("Synthetic grayscale corpus; applies only to this ffmpeg {codec} round-trip and reported settings.")), qualities: measurements });
+    result.codec_roundtrip = Some(CodecRoundTripReport {
+        status: "measured".into(),
+        codec: codec.into(),
+        quality_parameter: quality_parameter.into(),
+        encoder_version: Some(version),
+        note: Some(format!("Synthetic grayscale corpus; applies only to this ffmpeg {codec} round-trip, encoder settings, and reported configuration.")),
+        qualities: measurements,
+    });
 }
 
 fn codec_unavailable(codec: &str, version: Option<String>, note: &str) -> CodecRoundTripReport {
     CodecRoundTripReport {
         status: "unavailable".into(),
         codec: codec.into(),
+        quality_parameter: String::new(),
         encoder_version: version,
         note: Some(note.into()),
         qualities: Vec::new(),
