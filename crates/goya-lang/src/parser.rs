@@ -25,20 +25,10 @@ pub fn parse(source: &str) -> Result<Scene, ParseError> {
         Err(e) => return Err(ParseError { line: e.line }),
     };
     let mut p = P { tokens, i: 0 };
-    if let Err(e) = p.expect_at_word("ontology") {
-        return Err(e);
-    }
-    let name = match p.expect_ident() {
-        Ok(n) => n,
-        Err(e) => return Err(e),
-    };
-    if let Err(e) = p.expect(TokenKind::LBrace) {
-        return Err(e);
-    }
-    let mut root = match p.parse_cell_body() {
-        Ok(r) => r,
-        Err(e) => return Err(e),
-    };
+    p.expect_at_word("ontology")?;
+    let name = p.expect_ident()?;
+    p.expect(TokenKind::LBrace)?;
+    let mut root = p.parse_cell_body()?;
     // A document is exactly one ontology block. Do not silently accept
     // trailing tokens, which can hide a malformed second root or typo.
     if p.peek().is_some() {
@@ -159,17 +149,9 @@ impl P {
                             } else {
                                 CellKind::Cell
                             };
-                            let name = match self.expect_ident() {
-                                Ok(n) => n,
-                                Err(e) => return Err(e),
-                            };
-                            if let Err(e) = self.expect(TokenKind::LBrace) {
-                                return Err(e);
-                            }
-                            let mut child = match self.parse_cell_body() {
-                                Ok(c) => c,
-                                Err(e) => return Err(e),
-                            };
+                            let name = self.expect_ident()?;
+                            self.expect(TokenKind::LBrace)?;
+                            let mut child = self.parse_cell_body()?;
                             child.name = name;
                             child.kind = kind;
                             cell.children.push(child);
@@ -177,12 +159,8 @@ impl P {
                         "interaction" | "template" => {
                             // Recognised and skipped with its block: visual
                             // state and templates are Wave-3 expression work.
-                            if let Err(e) = self.expect_ident() {
-                                return Err(e);
-                            }
-                            if let Err(e) = self.skip_block() {
-                                return Err(e);
-                            }
+                            self.expect_ident()?;
+                            self.skip_block()?;
                         }
                         _ => return Err(ParseError { line: self.line() }),
                     }
@@ -252,26 +230,17 @@ impl P {
     }
 
     fn parse_vec3(&mut self) -> Result<Vec3, ParseError> {
-        if let Err(e) = self.expect(TokenKind::LParen) {
-            return Err(e);
-        }
+        self.expect(TokenKind::LParen)?;
         let x = self.parse_number()?;
-        if let Err(e) = self.expect(TokenKind::Comma) {
-            return Err(e);
-        }
+        self.expect(TokenKind::Comma)?;
         let y = self.parse_number()?;
         let z = if matches!(self.peek().map(|t| t.kind), Some(TokenKind::Comma)) {
             self.bump();
-            match self.parse_number() {
-                Ok(v) => v,
-                Err(e) => return Err(e),
-            }
+            self.parse_number()?
         } else {
             0.0
         };
-        if let Err(e) = self.expect(TokenKind::RParen) {
-            return Err(e);
-        }
+        self.expect(TokenKind::RParen)?;
         Ok(Vec3 { x, y, z })
     }
 
