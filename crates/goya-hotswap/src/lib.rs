@@ -18,6 +18,9 @@
 //! neither the active unit nor the swap history is mutated, and the rejection
 //! names the [`SwapStage`] that failed.
 
+/// Explicit persisted-state migrations used to prepare state before a swap.
+pub mod state_migration;
+
 use goya_determinism::proofs::ExecutionProof;
 use goya_executable::{is_stale, validate_capability_escalation, Artifact};
 use std::collections::{BTreeMap, BTreeSet};

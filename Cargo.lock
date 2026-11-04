@@ -634,6 +634,7 @@ version = "0.1.8"
 dependencies = [
  "goya-determinism",
  "goya-executable",
+ "goya-state",
 ]
 
 [[package]]

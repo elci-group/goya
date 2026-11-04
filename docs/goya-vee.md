@@ -6,10 +6,32 @@ contract in `vico-vee/src/types/api.rs`. Requests carry `agent_id`, `language`,
 limits. Authentication is optional and uses `Authorization: Bearer <token>`.
 VEE requires the `submit` scope when authentication is enabled.
 
-The response contract provides `success`, `execution_id`, and `status`, with
-optional `message` and `error`. The std-only client retains permissive optional
-field scanning and the raw response body because it does not use a JSON parser;
-it returns an application rejection when `success` is explicitly `false`.
+Submit responses provide `success`, `execution_id`, and `status`, with
+optional `message` and `error`. The client parses JSON structure and escaping,
+rejects duplicate keys and malformed types, and maps `success: false` to an
+application rejection.
+
+## Execution status
+
+The local VEE implementation at
+`/home/sal/vico-desktop/src-tauri/vico-vee/src/server.rs` registers
+`POST /vee/status`. It accepts `{"execution_id":"..."}` and returns
+`{"success":true,"data":ExecutionResult}` or
+`{"success":false,"error":"Execution not found"}`. `ExecutionResult` is
+defined in `src/types/result.rs`; it contains the execution ID, project ID,
+status, phase, artifacts, validation, confidence and resource metrics, error
+log, and timestamps. Its status and phase enums are the exact PascalCase
+variants represented by `VeeExecutionState` and `VeeExecutionPhase` in this
+crate. Artifacts and validation remain typed JSON values because their schemas
+are polymorphic.
+
+`VeeClient::status` submits that request and returns a typed snapshot. Response
+parsing is dependency-free and bounded to the existing 4 MiB HTTP body limit,
+64 JSON nesting levels, and 100,000 JSON values. It rejects duplicate object
+keys, invalid escapes/surrogates, malformed numbers, and unknown status/phase
+names. The local HTTP fixture verifies the request and typed result mapping.
+No live server was used or confirmed; deployed API behavior should still be
+checked against the local source contract.
 
 ## Compiled Goya programs
 

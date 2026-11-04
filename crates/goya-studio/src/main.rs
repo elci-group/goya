@@ -23,40 +23,147 @@ const MAX_PREVIEW_NODES: usize = 512;
 struct HttpRequest {
     method: String,
     target: String,
+    host: String,
+    origin: Option<String>,
+    content_type: Option<String>,
+    body: Vec<u8>,
 }
 
-fn parse_request(bytes: &[u8]) -> Result<HttpRequest, &'static str> {
-    if bytes.len() > MAX_REQUEST_BYTES {
-        return Err("request too large");
+#[derive(Debug, PartialEq, Eq)]
+struct RequestError {
+    status: &'static str,
+    message: &'static str,
+}
+
+fn request_error(status: &'static str, message: &'static str) -> RequestError {
+    RequestError { status, message }
+}
+
+fn parse_request_head(
+    header: &[u8],
+) -> Result<
+    (
+        String,
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        usize,
+    ),
+    RequestError,
+> {
+    if header.len() > MAX_REQUEST_BYTES {
+        return Err(request_error(
+            "413 Payload Too Large",
+            "Request headers too large",
+        ));
+    }
+    let header = std::str::from_utf8(header)
+        .map_err(|_| request_error("400 Bad Request", "Invalid request headers"))?;
+    let mut lines = header.split("\r\n");
+    let mut request = lines
+        .next()
+        .ok_or(request_error("400 Bad Request", "Missing request line"))?
+        .split_ascii_whitespace();
+    let method = request
+        .next()
+        .ok_or(request_error("400 Bad Request", "Missing method"))?;
+    let target = request
+        .next()
+        .ok_or(request_error("400 Bad Request", "Missing target"))?;
+    let version = request
+        .next()
+        .ok_or(request_error("400 Bad Request", "Missing HTTP version"))?;
+    if request.next().is_some() || !matches!(version, "HTTP/1.0" | "HTTP/1.1") {
+        return Err(request_error("400 Bad Request", "Invalid request line"));
+    }
+    if lines.clone().count() > 16 {
+        return Err(request_error("400 Bad Request", "Too many headers"));
+    }
+    let (mut host, mut origin, mut content_type, mut content_length) = (None, None, None, None);
+    for line in lines {
+        let (name, value) = line
+            .split_once(':')
+            .ok_or(request_error("400 Bad Request", "Invalid header"))?;
+        let value = value.trim();
+        let slot = match name.to_ascii_lowercase().as_str() {
+            "host" => &mut host,
+            "origin" => &mut origin,
+            "content-type" => &mut content_type,
+            "content-length" => {
+                if content_length.is_some() {
+                    return Err(request_error("400 Bad Request", "Duplicate Content-Length"));
+                }
+                let length = value
+                    .parse::<usize>()
+                    .map_err(|_| request_error("400 Bad Request", "Invalid Content-Length"))?;
+                content_length = Some(length);
+                continue;
+            }
+            "transfer-encoding" => {
+                return Err(request_error(
+                    "400 Bad Request",
+                    "Transfer-Encoding is not supported",
+                ))
+            }
+            _ => continue,
+        };
+        if slot.is_some() {
+            return Err(request_error(
+                "400 Bad Request",
+                "Duplicate security header",
+            ));
+        }
+        *slot = Some(value.to_owned());
+    }
+    let host = host.ok_or(request_error("400 Bad Request", "Host header is required"))?;
+    let content_length = content_length.unwrap_or(0);
+    if content_length > MAX_SCENE_BYTES as usize {
+        return Err(request_error(
+            "413 Payload Too Large",
+            "Scene source exceeds the 128 KiB limit",
+        ));
+    }
+    Ok((
+        method.to_owned(),
+        target.to_owned(),
+        host,
+        origin,
+        content_type,
+        content_length,
+    ))
+}
+
+fn parse_request(bytes: &[u8]) -> Result<HttpRequest, RequestError> {
+    if bytes.len() > MAX_REQUEST_BYTES + MAX_SCENE_BYTES as usize {
+        return Err(request_error("413 Payload Too Large", "Request too large"));
     }
     let end = bytes
         .windows(4)
         .position(|window| window == b"\r\n\r\n")
-        .ok_or("incomplete request headers")?;
-    let header = std::str::from_utf8(&bytes[..end]).map_err(|_| "invalid request headers")?;
-    let mut lines = header.split("\r\n");
-    let mut request = lines
-        .next()
-        .ok_or("missing request line")?
-        .split_ascii_whitespace();
-    let method = request.next().ok_or("missing method")?;
-    let target = request.next().ok_or("missing target")?;
-    let version = request.next().ok_or("missing HTTP version")?;
-    if request.next().is_some() || !matches!(version, "HTTP/1.0" | "HTTP/1.1") {
-        return Err("invalid request line");
-    }
-    if lines.count() > 16 {
-        return Err("too many headers");
-    }
-    if bytes[end + 4..]
-        .iter()
-        .any(|byte| !byte.is_ascii_whitespace())
-    {
-        return Err("request bodies are not supported");
+        .ok_or_else(|| {
+            if bytes.len() > MAX_REQUEST_BYTES {
+                request_error("413 Payload Too Large", "Request headers too large")
+            } else {
+                request_error("400 Bad Request", "Incomplete request headers")
+            }
+        })?;
+    let (method, target, host, origin, content_type, content_length) =
+        parse_request_head(&bytes[..end])?;
+    let body = &bytes[end + 4..];
+    if body.len() != content_length {
+        return Err(request_error(
+            "400 Bad Request",
+            "Content-Length does not match request body",
+        ));
     }
     Ok(HttpRequest {
-        method: method.to_owned(),
-        target: target.to_owned(),
+        method,
+        target,
+        host,
+        origin,
+        content_type,
+        body: body.to_vec(),
     })
 }
 
@@ -94,30 +201,188 @@ fn render_html(project: &SceneProject) -> String {
     html
 }
 
-fn route_request(request: &[u8], html: &str) -> (&'static str, &'static str, String) {
-    match parse_request(request) {
-        Err(_) => (
-            "400 Bad Request",
-            "text/plain; charset=utf-8",
-            "Bad Request".to_owned(),
-        ),
-        Ok(req) if req.method != "GET" => (
-            "405 Method Not Allowed",
-            "text/plain; charset=utf-8",
-            "Method Not Allowed".to_owned(),
-        ),
-        Ok(req) if req.target != "/" => (
-            "404 Not Found",
-            "text/plain; charset=utf-8",
-            "Not Found".to_owned(),
-        ),
-        Ok(_) => ("200 OK", "text/html; charset=utf-8", html.to_owned()),
-    }
+fn render_error_html(message: &str) -> String {
+    let bounded = message.chars().take(1024).collect::<String>();
+    format!("<!doctype html><meta charset=\"utf-8\"><title>Scene validation failed</title><style>body{{background:#17171d;color:#eee;font:14px system-ui;padding:20px}}pre{{white-space:pre-wrap;color:#ffb8b8}}</style><h2>Scene validation failed</h2><pre>{}</pre>", escape_html(&bounded))
 }
 
-fn respond(stream: &mut TcpStream, request: &[u8], html: &str) -> std::io::Result<()> {
-    let (status, content_type, body) = route_request(request, html);
-    write!(stream, "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\nContent-Security-Policy: default-src 'none'; style-src 'unsafe-inline'\r\n\r\n{}", body.len(), body)
+fn render_editor(source: &str, preview: &str) -> String {
+    let mut html = String::from("<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Goya Studio</title><style>body{margin:0;background:#17171d;color:#eee;font:14px system-ui,sans-serif}header{padding:10px 16px;border-bottom:1px solid #444}main{display:grid;grid-template-columns:minmax(320px,1fr) minmax(320px,1fr);gap:12px;padding:12px;height:calc(100vh - 65px);box-sizing:border-box}section{display:flex;flex-direction:column;min-height:0}textarea{flex:1;resize:none;background:#101014;color:#e8e8f0;border:1px solid #555;padding:12px;font:13px/1.5 ui-monospace,monospace}button{margin-top:8px;padding:9px;background:#3267c8;color:white;border:0;border-radius:4px;cursor:pointer}iframe{width:100%;height:100%;border:1px solid #555;background:#111}output{min-height:1.4em;padding:5px}@media(max-width:760px){main{grid-template-columns:1fr;grid-template-rows:1fr 1fr;height:auto;min-height:calc(100vh - 65px)}}</style></head><body><header><strong>Goya Studio</strong> · local visual editor and preview</header><main><section><label for=\"source\">Scene source</label><textarea id=\"source\" spellcheck=\"false\">");
+    html.push_str(&escape_html(source));
+    html.push_str("</textarea><div><button id=\"update\">Update preview</button> <button id=\"download\" type=\"button\">Download source</button><output id=\"status\" aria-live=\"polite\"></output></div></section><section><label for=\"preview\">Preview</label><iframe id=\"preview\" sandbox></iframe></section></main><script>const source=document.querySelector('#source'),frame=document.querySelector('#preview'),status=document.querySelector('#status');frame.srcdoc='");
+    html.push_str(&escape_js_string(preview));
+    html.push_str("';document.querySelector('#update').onclick=async()=>{status.textContent='Validating…';try{const r=await fetch('/preview',{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:source.value});frame.srcdoc=await r.text();status.textContent=r.ok?'Preview updated':'Validation failed';}catch(e){status.textContent='Preview request failed';}};document.querySelector('#download').onclick=()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([source.value],{type:'text/plain'}));a.download='scene.gscene';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);};</script></body></html>");
+    html
+}
+
+fn escape_js_string(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '\'' => out.push_str("\\'"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\u{2028}' => out.push_str("\\u2028"),
+            '\u{2029}' => out.push_str("\\u2029"),
+            '<' => out.push_str("\\x3c"),
+            '>' => out.push_str("\\x3e"),
+            '&' => out.push_str("\\x26"),
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
+fn route_request(
+    request: &[u8],
+    expected_host: &str,
+    source: &str,
+    initial_preview: &str,
+) -> (&'static str, &'static str, String) {
+    let req = match parse_request(request) {
+        Ok(req) => req,
+        Err(error) => {
+            return (
+                error.status,
+                "text/html; charset=utf-8",
+                render_error_html(error.message),
+            )
+        }
+    };
+    if req.host != expected_host {
+        return (
+            "403 Forbidden",
+            "text/plain; charset=utf-8",
+            "Host rejected".into(),
+        );
+    }
+    if req.method == "GET" && req.target == "/" && req.body.is_empty() {
+        return (
+            "200 OK",
+            "text/html; charset=utf-8",
+            render_editor(source, initial_preview),
+        );
+    }
+    if req.method == "POST" && req.target == "/preview" {
+        let expected_origin = format!("http://{expected_host}");
+        if req.origin.as_deref() != Some(expected_origin.as_str()) {
+            return (
+                "403 Forbidden",
+                "text/plain; charset=utf-8",
+                "Origin rejected".into(),
+            );
+        }
+        if req.content_type.as_deref() != Some("text/plain;charset=utf-8") {
+            return (
+                "415 Unsupported Media Type",
+                "text/plain; charset=utf-8",
+                "Use text/plain;charset=utf-8".into(),
+            );
+        }
+        let source = match String::from_utf8(req.body) {
+            Ok(source) => source,
+            Err(_) => {
+                return (
+                    "400 Bad Request",
+                    "text/plain; charset=utf-8",
+                    "Scene source must be UTF-8".into(),
+                )
+            }
+        };
+        return match SceneProject::from_source(source, Viewport::default()) {
+            Ok(project) if project.frame().nodes.len() <= MAX_PREVIEW_NODES => {
+                ("200 OK", "text/html; charset=utf-8", render_html(&project))
+            }
+            Ok(_) => (
+                "422 Unprocessable Content",
+                "text/html; charset=utf-8",
+                render_error_html("Scene exceeds the 512-node preview limit"),
+            ),
+            Err(error) => (
+                "422 Unprocessable Content",
+                "text/html; charset=utf-8",
+                render_error_html(&error.to_string()),
+            ),
+        };
+    }
+    if req.method != "GET" && req.method != "POST" {
+        return (
+            "405 Method Not Allowed",
+            "text/plain; charset=utf-8",
+            "Method Not Allowed".into(),
+        );
+    }
+    (
+        "404 Not Found",
+        "text/plain; charset=utf-8",
+        "Not Found".into(),
+    )
+}
+
+fn read_http_request(stream: &mut TcpStream) -> Result<Vec<u8>, RequestError> {
+    let mut request = Vec::new();
+    let mut chunk = [0u8; 1024];
+    let (head_end, content_length);
+    loop {
+        let count = stream
+            .read(&mut chunk)
+            .map_err(|_| request_error("400 Bad Request", "Could not read request"))?;
+        if count == 0 {
+            return Err(request_error("400 Bad Request", "Incomplete request"));
+        }
+        request.extend_from_slice(&chunk[..count]);
+        if request.len() > MAX_REQUEST_BYTES + MAX_SCENE_BYTES as usize {
+            return Err(request_error("413 Payload Too Large", "Request too large"));
+        }
+        if let Some(end) = request.windows(4).position(|window| window == b"\r\n\r\n") {
+            let (_, _, _, _, _, length) = parse_request_head(&request[..end])?;
+            if length > MAX_SCENE_BYTES as usize {
+                return Err(request_error(
+                    "413 Payload Too Large",
+                    "Scene source exceeds the 128 KiB limit",
+                ));
+            }
+            head_end = end + 4;
+            content_length = length;
+            break;
+        }
+        if request.len() > MAX_REQUEST_BYTES {
+            return Err(request_error(
+                "413 Payload Too Large",
+                "Request headers too large",
+            ));
+        }
+    }
+    let expected = head_end + content_length;
+    while request.len() < expected {
+        let count = stream
+            .read(&mut chunk)
+            .map_err(|_| request_error("400 Bad Request", "Could not read request body"))?;
+        if count == 0 {
+            return Err(request_error("400 Bad Request", "Incomplete request body"));
+        }
+        request.extend_from_slice(&chunk[..count]);
+        if request.len() > expected {
+            return Err(request_error(
+                "400 Bad Request",
+                "Request body exceeds Content-Length",
+            ));
+        }
+    }
+    Ok(request)
+}
+
+fn respond(
+    stream: &mut TcpStream,
+    request: &[u8],
+    expected_host: &str,
+    source: &str,
+    initial_preview: &str,
+) -> std::io::Result<()> {
+    let (status, content_type, body) =
+        route_request(request, expected_host, source, initial_preview);
+    write!(stream, "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\nContent-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; frame-src 'self'\r\n\r\n{}", body.len(), body)
 }
 
 fn serve(path: &Path, port: u16) -> Result<(), String> {
@@ -135,14 +400,13 @@ fn serve(path: &Path, port: u16) -> Result<(), String> {
     }
     let source =
         String::from_utf8(source).map_err(|error| format!("scene is not UTF-8: {error}"))?;
-    let scene = SceneProject::from_source(source, Viewport::default())
+    let scene = SceneProject::from_source(source.clone(), Viewport::default())
         .map_err(|error| error.to_string())?;
     if scene.frame().nodes.len() > MAX_PREVIEW_NODES {
         return Err(format!(
             "scene exceeds the {MAX_PREVIEW_NODES}-node preview limit"
         ));
     }
-    let html = render_html(&scene);
     let listener = TcpListener::bind(("127.0.0.1", port))
         .map_err(|error| format!("cannot bind local preview: {error}"))?;
     println!(
@@ -153,22 +417,21 @@ fn serve(path: &Path, port: u16) -> Result<(), String> {
         let Ok(mut stream) = incoming else { continue };
         let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
         let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
-        let mut request = Vec::new();
-        let mut chunk = [0u8; 1024];
-        loop {
-            match stream.read(&mut chunk) {
-                Ok(0) | Err(_) => break,
-                Ok(count) => {
-                    request.extend_from_slice(&chunk[..count]);
-                    if request.len() > MAX_REQUEST_BYTES
-                        || request.windows(4).any(|window| window == b"\r\n\r\n")
-                    {
-                        break;
-                    }
-                }
+        match read_http_request(&mut stream) {
+            Ok(request) => {
+                let _ = respond(
+                    &mut stream,
+                    &request,
+                    &listener.local_addr().unwrap().to_string(),
+                    &source,
+                    &render_html(&scene),
+                );
+            }
+            Err(error) => {
+                let body = render_error_html(error.message);
+                let _ = write!(stream, "HTTP/1.1 {}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", error.status, body.len(), body);
             }
         }
-        let _ = respond(&mut stream, &request, &html);
     }
     Ok(())
 }
@@ -329,6 +592,18 @@ fn main() -> ExitCode {
 mod tests {
     use super::*;
 
+    const HOST: &str = "127.0.0.1:8765";
+    const SCENE: &str =
+        "@ontology demo { @button ok { position: (0, 0, 0) extent: (80, 40, 0) text: \"hello\" } }";
+
+    fn get(path: &str) -> Vec<u8> {
+        format!("GET {path} HTTP/1.1\r\nHost: {HOST}\r\n\r\n").into_bytes()
+    }
+
+    fn post(path: &str, body: &str) -> Vec<u8> {
+        format!("POST {path} HTTP/1.1\r\nHost: {HOST}\r\nOrigin: http://{HOST}\r\nContent-Type: text/plain;charset=utf-8\r\nContent-Length: {}\r\n\r\n{body}", body.len()).into_bytes()
+    }
+
     #[test]
     fn no_args_prints_usage_without_error() {
         assert!(run(&[]).is_ok());
@@ -340,22 +615,40 @@ mod tests {
     }
 
     #[test]
-    fn request_parser_accepts_only_bounded_header_only_http_requests() {
-        let parsed = parse_request(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n").unwrap();
+    fn request_parser_enforces_declared_and_bounded_bodies() {
+        let parsed = parse_request(&get("/")).unwrap();
         assert_eq!(
             parsed,
             HttpRequest {
                 method: "GET".into(),
-                target: "/".into()
+                target: "/".into(),
+                host: HOST.into(),
+                origin: None,
+                content_type: None,
+                body: Vec::new()
             }
         );
         assert_eq!(
-            parse_request(b"GET / HTTP/1.1\r\n\r\nbody"),
-            Err("request bodies are not supported")
+            parse_request(&post("/preview", "short")).unwrap().body,
+            b"short"
+        );
+        assert!(
+            parse_request(&post("/preview", "short")[..post("/preview", "short").len() - 1])
+                .is_err()
+        );
+        let huge_head = format!(
+            "POST /preview HTTP/1.1\r\nHost: {HOST}\r\nContent-Length: {}\r\n\r\n",
+            MAX_SCENE_BYTES + 1
         );
         assert_eq!(
-            parse_request(&vec![b'x'; MAX_REQUEST_BYTES + 1]),
-            Err("request too large")
+            parse_request(huge_head.as_bytes()).unwrap_err().status,
+            "413 Payload Too Large"
+        );
+        assert_eq!(
+            parse_request(&vec![b'x'; MAX_REQUEST_BYTES + 1])
+                .unwrap_err()
+                .status,
+            "413 Payload Too Large"
         );
     }
 
@@ -365,15 +658,56 @@ mod tests {
         let html = render_html(&project);
         assert!(html.contains("&lt;script&gt;"));
         assert!(!html.contains("<script>"));
-        assert_eq!(route_request(b"GET / HTTP/1.1\r\n\r\n", &html).0, "200 OK");
+        let initial = route_request(&get("/"), HOST, SCENE, &html);
+        assert_eq!(initial.0, "200 OK");
+        assert!(initial.2.contains("Scene source"));
+        assert!(initial.2.contains("textarea"));
+        assert!(initial.2.contains("Update preview"));
         assert_eq!(
-            route_request(b"GET /other HTTP/1.1\r\n\r\n", &html).0,
+            route_request(&get("/other"), HOST, SCENE, &html).0,
             "404 Not Found"
         );
         assert_eq!(
-            route_request(b"POST / HTTP/1.1\r\n\r\n", &html).0,
-            "405 Method Not Allowed"
+            route_request(&post("/preview", SCENE), HOST, SCENE, &html).0,
+            "200 OK"
         );
-        assert_eq!(route_request(b"broken", &html).0, "400 Bad Request");
+        let invalid = route_request(
+            &post("/preview", "<script>alert(1)</script>"),
+            HOST,
+            SCENE,
+            &html,
+        );
+        assert_eq!(invalid.0, "422 Unprocessable Content");
+        assert!(invalid.2.contains("Scene validation failed"));
+        assert!(!invalid.2.contains("<script>"));
+        let mut foreign = post("/preview", SCENE);
+        let foreign_text = String::from_utf8(foreign.clone()).unwrap().replace(
+            "Origin: http://127.0.0.1:8765",
+            "Origin: http://attacker.invalid",
+        );
+        foreign = foreign_text.into_bytes();
+        assert_eq!(
+            route_request(&foreign, HOST, SCENE, &html).0,
+            "403 Forbidden"
+        );
+        let wrong_type = String::from_utf8(post("/preview", SCENE))
+            .unwrap()
+            .replace("text/plain;charset=utf-8", "application/json");
+        assert_eq!(
+            route_request(wrong_type.as_bytes(), HOST, SCENE, &html).0,
+            "415 Unsupported Media Type"
+        );
+        assert_eq!(
+            route_request(&post("/preview", SCENE), "localhost:8765", SCENE, &html).0,
+            "403 Forbidden"
+        );
+        assert_eq!(
+            route_request(&post("/", SCENE), HOST, SCENE, &html).0,
+            "404 Not Found"
+        );
+        assert_eq!(
+            route_request(b"broken", HOST, SCENE, &html).0,
+            "400 Bad Request"
+        );
     }
 }

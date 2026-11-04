@@ -12,7 +12,7 @@
 //! robustness thresholds always trace back to a reproducible run.
 
 use goya_watermark::{detect, embed};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::process::{Command, Stdio};
 
 /// xorshift64 PRNG for deterministic corpus and noise generation.
@@ -829,9 +829,24 @@ fn ffmpeg_pipe(executable: &str, args: &[&str], input: &[u8]) -> Option<Vec<u8>>
         .stderr(Stdio::null())
         .spawn()
         .ok()?;
-    child.stdin.take()?.write_all(input).ok()?;
-    let output = child.wait_with_output().ok()?;
-    output.status.success().then_some(output.stdout)
+    let mut stdin = child.stdin.take()?;
+    let mut stdout = child.stdout.take()?;
+
+    // Drain stdout while feeding stdin. A synchronous write followed by
+    // wait_with_output can deadlock when the child fills its stdout pipe
+    // before consuming the complete input frame (common with large images).
+    let (status, write_result, read_result) = std::thread::scope(|scope| {
+        let writer = scope.spawn(move || stdin.write_all(input));
+        let reader = scope.spawn(move || {
+            let mut output = Vec::new();
+            stdout.read_to_end(&mut output).map(|_| output)
+        });
+        let status = child.wait().ok();
+        (status, writer.join().ok(), reader.join().ok())
+    });
+    write_result?.ok()?;
+    let output = read_result?.ok()?;
+    status?.success().then_some(output)
 }
 
 impl BenchmarkResult {
@@ -989,6 +1004,16 @@ mod tests {
 
     fn corpus() -> Vec<CorpusImage> {
         Corpus::generate(7, 6, 64)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn subprocess_pipe_drains_large_stdout_while_writing_stdin() {
+        // Larger than a typical OS pipe buffer. `cat` echoes stdin to stdout;
+        // the helper must drain output concurrently or the writer and child
+        // can block each other.
+        let input = vec![0xA5; 1024 * 1024];
+        assert_eq!(ffmpeg_pipe("sh", &["-c", "cat"], &input), Some(input));
     }
 
     /// The three test transformations shared by the rate tests.

@@ -82,7 +82,10 @@ impl P {
     }
 
     fn line(&self) -> usize {
-        self.peek().map(|t| t.line).unwrap_or(0)
+        self.peek()
+            .map(|t| t.line)
+            .or_else(|| self.tokens.last().map(|t| t.line))
+            .unwrap_or(1)
     }
 
     fn expect(&mut self, kind: TokenKind) -> Result<Token, ParseError> {

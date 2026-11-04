@@ -17,18 +17,21 @@ cargo run -p goya-studio -- preview apps/my_app.gscene --live
 cargo run -p goya-studio -- serve apps/my_app.gscene
 ```
 
-`serve` validates the scene, then serves a static visual preview at
-`http://127.0.0.1:8765` (or the optional port argument). It binds to IPv4
-loopback only, accepts a bounded header-only `GET /` request, and does not
-write or edit scene files. Stop it with Ctrl-C. The preview is a visual
-snapshot when the command starts; restart it to pick up file changes. This is
-an initial authoring tool, not a full IDE: it has no browser editing, live
-reload, or platform-native rendering.
+`serve` validates the scene, then opens a local browser editor and visual
+preview at `http://127.0.0.1:8765` (or the optional port argument). It binds
+to IPv4 loopback only. The editor starts with the file's current source;
+**Update preview** sends edits to the local process for validation and
+in-memory rendering. **Download source** saves a copy through the browser.
+The Studio server never writes edits to the scene file. Preview requests are
+limited to 128 KiB and same-origin requests. Stop the server with Ctrl-C.
+
+This remains an initial authoring tool, not a full IDE: there is no automatic
+file save, live reload, collaboration, or platform-native rendering.
 
 The live preview launches the packaged `goya-scene` host as a separate
 process. This keeps the editor workflow usable without embedding platform
-windowing code in the SDK. Editing is delegated to the user's configured text
-editor; `serve` adds a local visual preview to that workflow.
+windowing code in the SDK. The configured text editor remains available for
+direct file editing; `serve` provides a bounded browser editing session.
 
 ## Reproducible local distribution
 

@@ -61,11 +61,37 @@ headless unit test does not substitute for that check. Local availability of
 Orca and successful smoke navigation still do not establish WCAG conformance
 or replace release testing on each supported desktop and screen reader.
 
-The sample tree can be launched in a disposable X11 and D-Bus session with:
+For a manual Orca check, use an active graphical user session with its
+systemd user manager and AT-SPI bus, then start the sample in Xvfb:
 
 ```sh
-xvfb-run -a dbus-run-session -- cargo run -p goya-a11y --features atspi-gtk --example atspi_demo
+xvfb-run -a sh -c '
+  cargo run -p goya-a11y --features atspi-gtk --example atspi_demo &
+  app=$!
+  orca --replace &
+  screen_reader=$!
+  wait "$app"
+  kill "$screen_reader" 2>/dev/null || true
+'
 ```
 
-Close the sample window to exit. The example logs button and text-entry
-callbacks; it is a bridge smoke test, not a full Orca conformance report.
+The example logs button and text-entry callbacks; this is a bridge smoke test,
+not a full Orca conformance report.
+
+On a systemd-integrated Linux desktop, `dbus-run-session` alone may not be
+sufficient: `/usr/share/dbus-1/services/org.a11y.Bus.service` delegates to
+the `at-spi-dbus-bus.service` user unit. In an isolated session without the
+user systemd manager, activation can fail with `Could not activate remote
+peer: unit failed` and no AT-SPI desktop path. In the current Xvfb smoke, the
+existing desktop bus listed Orca and the sample application. A PID-matched,
+recursive AT-SPI traversal reported the application root as `atspi_demo` /
+`application`, the window as `Goya AT-SPI demo` / `frame`, and semantic
+children including `Search` / `text`, `Ready` / `label`, and `Submit` /
+`button`. An earlier query reported only `Close` because it queried a numeric
+AT-SPI object path directly; those paths are transient, and the traversal
+parser also missed later children because `gdbus` omits the repeated
+`objectpath` annotation in tuple output. The corrected query confirmed the
+semantic controls are present. This verifies registry exposure only; Orca
+navigation, focus behavior, action dispatch, and value announcements remain
+external gates, along with rendered contrast and evaluation on each supported
+screen reader. No WCAG conformance claim follows from this smoke.

@@ -216,6 +216,16 @@ three-button acceptance geometry depends on it.
 | SDK, Studio CLI/browser preview, reproducible package + offline installer | 4 (implemented, partial) | release 0.6–1.0; full visual IDE/published distribution remain |
 | Synthetic watermark corpus + optional MJPEG round-trip | 4 (implemented, limited claim) | reproducible measurements; broader photo/codec corpus remains |
 
+## GY-HOTSWAP/1 — Persisted-state migration
+
+`goya_hotswap::state_migration::migrate_state` applies explicit, ordered
+one-version steps to a cloned `goya_state::Map`. Steps can rename a key,
+remove a key, or add a default value. A chain must cover every version from
+the stored version to the candidate's target version; gaps, invalid version
+steps, missing rename sources, and rename collisions fail without returning
+partial state. Callers can stage the returned snapshot in their state
+transaction and activate the replacement only after that transaction succeeds.
+
 ## Assurance note
 
 `goya-ir::parse` is now under a deterministic 20 000-input mutation fuzzer

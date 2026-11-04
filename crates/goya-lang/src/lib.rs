@@ -115,6 +115,15 @@ mod tests {
         assert_eq!(b.fill, Some(0xFF4444));
     }
 
+    #[test]
+    fn parse_errors_at_eof_report_a_useful_line() {
+        let empty = parse("").unwrap_err();
+        assert_eq!(empty.line, 1);
+
+        let missing_close = parse("@ontology app {\n  @cell root {").unwrap_err();
+        assert_eq!(missing_close.line, 2);
+    }
+
     /// Deterministic mutation fuzzing: parse + layout must be total.
     #[test]
     fn fuzz_parse_never_panics() {

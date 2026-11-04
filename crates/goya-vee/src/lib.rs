@@ -9,11 +9,9 @@
 //!   [`SubmitRequest`], returning a [`VeeResponse`] or [`VeeError`].
 //! - [`SubmitRequest::to_json`] is a tiny deterministic JSON writer
 //!   (string/number fields only, quotes/backslashes escaped; no serde).
-//! - Response parsing is a hand-rolled scan for `success`, `execution_id`,
-//!   `status`, and `error`. This is deliberately NOT a full JSON parser: keys
-//!   nested in other objects with the same names, escaped quotes inside the
-//!   values, or key order changes may mis-extract. `VeeResponse::raw` always
-//!   carries the full body so callers can re-parse if needed.
+//! - Responses use a bounded JSON parser that checks object structure,
+//!   duplicate keys, escapes, nesting, and value types before mapping submit
+//!   and status responses into typed values.
 //! - Offline degradation: a refused connection surfaces as
 //!   [`VeeError::Connection`]; the adapter never panics. Use
 //!   [`VeeClient::available`] to probe before submitting so the application
@@ -21,6 +19,7 @@
 
 use goya_determinism::DeterminismClass;
 use goya_executable::{execute, CompiledProgram, Instruction, VmError, BYTECODE_VERSION};
+use std::collections::HashSet;
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::time::Duration;
@@ -33,6 +32,8 @@ const IO_TIMEOUT: Duration = Duration::from_secs(10);
 /// Bound untrusted VEE responses so a peer cannot exhaust the caller's memory.
 const MAX_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
 const MAX_HEADER_BYTES: usize = 32 * 1024;
+const MAX_JSON_DEPTH: usize = 64;
+const MAX_JSON_NODES: usize = 100_000;
 /// The EDC bridge accepts only small declarative programs. These bounds are
 /// checked before producing a source string, so untrusted artifacts cannot
 /// cause unbounded allocation in this adapter.
@@ -258,11 +259,30 @@ impl VeeClient {
     }
 
     /// Submit a task to VEE (`POST /vee/submit`).
-    ///
-    /// Opens a fresh TCP connection, writes a minimal HTTP/1.1 request with a
-    /// correct `Content-Length`, reads the response up to `Content-Length`
-    /// bytes or connection close, and extracts the VEE response fields by scan.
     pub fn submit(&mut self, req: &SubmitRequest) -> Result<VeeResponse, VeeError> {
+        let body = self.post_json("/vee/submit", &req.to_json())?;
+        parse_submit_response(&body)
+    }
+
+    /// Fetch a full execution snapshot from VEE (`POST /vee/status`).
+    ///
+    /// The VEE server returns `{success:true,data:ExecutionResult}` while the
+    /// execution exists, or a structured rejection when it does not.
+    pub fn status(&mut self, execution_id: &str) -> Result<VeeExecutionResult, VeeError> {
+        if execution_id.is_empty()
+            || execution_id.len() > 256
+            || execution_id.chars().any(char::is_control)
+        {
+            return Err(VeeError::InvalidRequest);
+        }
+        let mut body = String::from("{\"execution_id\":");
+        push_json_string(&mut body, execution_id);
+        body.push('}');
+        let response = self.post_json("/vee/status", &body)?;
+        parse_status_response(&response)
+    }
+
+    fn post_json(&mut self, path: &str, body: &str) -> Result<String, VeeError> {
         if self.host.chars().any(char::is_control)
             || self
                 .auth_token
@@ -271,7 +291,6 @@ impl VeeClient {
         {
             return Err(VeeError::InvalidRequest);
         }
-        let body = req.to_json();
         let mut stream = TcpStream::connect((self.host.as_str(), self.port))
             .map_err(|e| VeeError::Connection(e.to_string()))?;
         stream
@@ -287,7 +306,7 @@ impl VeeClient {
             .map(|token| format!("Authorization: Bearer {token}\r\n"))
             .unwrap_or_default();
         let http = format!(
-            "POST /vee/submit HTTP/1.1\r\n\
+            "POST {path} HTTP/1.1\r\n\
              Host: {}:{}\r\n\
              Content-Type: application/json\r\n\
              Content-Length: {}\r\n\
@@ -312,24 +331,7 @@ impl VeeClient {
         if !(200..300).contains(&status_code) {
             return Err(VeeError::Protocol);
         }
-        let body = extract_body(&raw).ok_or(VeeError::Protocol)?;
-
-        let success = scan_bool_field(&body, "success");
-        let error = scan_string_field(&body, "error");
-        if success == Some(false) {
-            return Err(VeeError::Rejected(
-                error.unwrap_or_else(|| "VEE rejected the task".to_string()),
-            ));
-        }
-        let task_id =
-            scan_string_field(&body, "execution_id").or_else(|| scan_string_field(&body, "id"));
-        Ok(VeeResponse {
-            success,
-            task_id,
-            status: scan_string_field(&body, "status"),
-            error,
-            raw: body,
-        })
+        extract_body(&raw).ok_or(VeeError::Protocol)
     }
 }
 
@@ -430,6 +432,62 @@ pub struct VeeResponse {
     /// Full response body, kept so callers can re-parse if the naive scan
     /// extracted the wrong field (see module docs).
     pub raw: String,
+}
+
+/// VEE execution lifecycle states returned by `/vee/status`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VeeExecutionState {
+    Pending,
+    Queued,
+    Simulating,
+    Executing,
+    Validating,
+    Completed,
+    Failed,
+    Recovered,
+    Cancelled,
+}
+
+/// VEE execution phases returned by `/vee/status`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VeeExecutionPhase {
+    Hypothesis,
+    Simulation,
+    Execution,
+    Validation,
+    Feedback,
+}
+
+/// JSON data retained for result fields whose schema varies by artifact type.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VeeJsonValue {
+    Null,
+    Bool(bool),
+    Number(String),
+    String(String),
+    Array(Vec<VeeJsonValue>),
+    Object(Vec<(String, VeeJsonValue)>),
+}
+
+/// Typed `/vee/status` execution snapshot. Artifact and validation payloads
+/// remain bounded structured JSON because their sub-schemas are polymorphic.
+#[derive(Debug, Clone, PartialEq)]
+pub struct VeeExecutionResult {
+    pub execution_id: String,
+    pub project_id: Option<String>,
+    pub status: VeeExecutionState,
+    pub phase: VeeExecutionPhase,
+    pub artifacts: Vec<VeeJsonValue>,
+    pub validation: Option<VeeJsonValue>,
+    pub confidence: f64,
+    pub tokens_consumed: u64,
+    pub cpu_seconds_used: f64,
+    pub memory_peak_mb: f64,
+    pub latency_ms: u64,
+    pub error_log: Option<String>,
+    pub created_at: String,
+    pub started_at: Option<String>,
+    pub completed_at: Option<String>,
 }
 
 /// Errors from the adapter. The adapter never panics; all failures map here.
@@ -538,55 +596,415 @@ fn extract_body(raw: &str) -> Option<String> {
     Some(raw[idx + 4..].to_string())
 }
 
-/// Hand-rolled scan for `"key":"value"` anywhere in the JSON body.
-///
-/// Limitation (documented by design): this is not a JSON parser. It matches
-/// the first occurrence of the key, does not understand nesting, and does not
-/// unescape the value. VEE's submit response is flat enough for this; the
-/// full body is available in `VeeResponse::raw` otherwise.
-fn scan_string_field(body: &str, key: &str) -> Option<String> {
-    let needle = format!("\"{}\":", key);
-    let start = body.find(&needle)? + needle.len();
-    let rest = body[start..].trim_start();
-    let mut chars = rest.chars();
-    if chars.next()? != '"' {
-        return None;
+fn parse_submit_response(body: &str) -> Result<VeeResponse, VeeError> {
+    let value = parse_json(body).ok_or(VeeError::Protocol)?;
+    let success = object_get(&value, "success")
+        .and_then(as_bool)
+        .ok_or(VeeError::Protocol)?;
+    let error = optional_string_field(&value, "error").map_err(|_| VeeError::Protocol)?;
+    if !success {
+        return Err(VeeError::Rejected(
+            error.unwrap_or_else(|| "VEE rejected the task".to_string()),
+        ));
     }
-    let mut value = String::new();
-    while let Some(c) = chars.next() {
-        match c {
-            '"' => return Some(value),
-            '\\' => {
-                // Minimal unescape of the common pairs so values round-trip.
-                match chars.next()? {
-                    'n' => value.push('\n'),
-                    't' => value.push('\t'),
-                    'r' => value.push('\r'),
-                    '\\' => value.push('\\'),
-                    '"' => value.push('"'),
-                    other => {
-                        value.push('\\');
-                        value.push(other);
-                    }
-                }
-            }
-            c => value.push(c),
-        }
-    }
-    None
+    let task_id = optional_string_field(&value, "execution_id")
+        .map_err(|_| VeeError::Protocol)?
+        .or(optional_string_field(&value, "id").map_err(|_| VeeError::Protocol)?);
+    let status = optional_string_field(&value, "status").map_err(|_| VeeError::Protocol)?;
+    Ok(VeeResponse {
+        success: Some(true),
+        task_id,
+        status,
+        error,
+        raw: body.to_string(),
+    })
 }
 
-/// Scan a top-level boolean field from the small flat VEE response object.
-fn scan_bool_field(body: &str, key: &str) -> Option<bool> {
-    let needle = format!("\"{}\":", key);
-    let start = body.find(&needle)? + needle.len();
-    let rest = body[start..].trim_start();
-    if rest.starts_with("true") {
-        Some(true)
-    } else if rest.starts_with("false") {
-        Some(false)
-    } else {
-        None
+fn parse_status_response(body: &str) -> Result<VeeExecutionResult, VeeError> {
+    let value = parse_json(body).ok_or(VeeError::Protocol)?;
+    let success = object_get(&value, "success")
+        .and_then(as_bool)
+        .ok_or(VeeError::Protocol)?;
+    if !success {
+        let error = optional_string_field(&value, "error")
+            .map_err(|_| VeeError::Protocol)?
+            .unwrap_or_else(|| "VEE rejected the status request".to_string());
+        return Err(VeeError::Rejected(error));
+    }
+    let data = object_get(&value, "data").ok_or(VeeError::Protocol)?;
+    parse_execution_result(data).ok_or(VeeError::Protocol)
+}
+
+fn parse_execution_result(value: &VeeJsonValue) -> Option<VeeExecutionResult> {
+    Some(VeeExecutionResult {
+        execution_id: string_field(value, "execution_id")?.to_string(),
+        project_id: optional_string_field(value, "project_id").ok()?,
+        status: parse_execution_state(string_field(value, "status")?)?,
+        phase: parse_execution_phase(string_field(value, "phase")?)?,
+        artifacts: match object_get(value, "artifacts")? {
+            VeeJsonValue::Array(items) => items.clone(),
+            _ => return None,
+        },
+        validation: match object_get(value, "validation")? {
+            VeeJsonValue::Null => None,
+            value => Some(value.clone()),
+        },
+        confidence: number_field(value, "confidence")?,
+        tokens_consumed: unsigned_field(value, "tokens_consumed")?,
+        cpu_seconds_used: number_field(value, "cpu_seconds_used")?,
+        memory_peak_mb: number_field(value, "memory_peak_mb")?,
+        latency_ms: unsigned_field(value, "latency_ms")?,
+        error_log: optional_string_field(value, "error_log").ok()?,
+        created_at: string_field(value, "created_at")?.to_string(),
+        started_at: optional_string_field(value, "started_at").ok()?,
+        completed_at: optional_string_field(value, "completed_at").ok()?,
+    })
+}
+
+fn parse_execution_state(value: &str) -> Option<VeeExecutionState> {
+    Some(match value {
+        "Pending" => VeeExecutionState::Pending,
+        "Queued" => VeeExecutionState::Queued,
+        "Simulating" => VeeExecutionState::Simulating,
+        "Executing" => VeeExecutionState::Executing,
+        "Validating" => VeeExecutionState::Validating,
+        "Completed" => VeeExecutionState::Completed,
+        "Failed" => VeeExecutionState::Failed,
+        "Recovered" => VeeExecutionState::Recovered,
+        "Cancelled" => VeeExecutionState::Cancelled,
+        _ => return None,
+    })
+}
+
+fn parse_execution_phase(value: &str) -> Option<VeeExecutionPhase> {
+    Some(match value {
+        "Hypothesis" => VeeExecutionPhase::Hypothesis,
+        "Simulation" => VeeExecutionPhase::Simulation,
+        "Execution" => VeeExecutionPhase::Execution,
+        "Validation" => VeeExecutionPhase::Validation,
+        "Feedback" => VeeExecutionPhase::Feedback,
+        _ => return None,
+    })
+}
+
+fn object_get<'a>(value: &'a VeeJsonValue, key: &str) -> Option<&'a VeeJsonValue> {
+    match value {
+        VeeJsonValue::Object(fields) => fields.iter().find(|(name, _)| name == key).map(|(_, v)| v),
+        _ => None,
+    }
+}
+
+fn as_bool(value: &VeeJsonValue) -> Option<bool> {
+    match value {
+        VeeJsonValue::Bool(value) => Some(*value),
+        _ => None,
+    }
+}
+
+fn string_field<'a>(value: &'a VeeJsonValue, key: &str) -> Option<&'a str> {
+    match object_get(value, key)? {
+        VeeJsonValue::String(value) => Some(value),
+        _ => None,
+    }
+}
+
+fn optional_string_field(value: &VeeJsonValue, key: &str) -> Result<Option<String>, ()> {
+    match object_get(value, key) {
+        None | Some(VeeJsonValue::Null) => Ok(None),
+        Some(VeeJsonValue::String(value)) => Ok(Some(value.clone())),
+        _ => Err(()),
+    }
+}
+
+fn number_field(value: &VeeJsonValue, key: &str) -> Option<f64> {
+    let VeeJsonValue::Number(number) = object_get(value, key)? else {
+        return None;
+    };
+    let value = number.parse::<f64>().ok()?;
+    value.is_finite().then_some(value)
+}
+
+fn unsigned_field(value: &VeeJsonValue, key: &str) -> Option<u64> {
+    let VeeJsonValue::Number(number) = object_get(value, key)? else {
+        return None;
+    };
+    number.parse::<u64>().ok()
+}
+
+fn parse_json(input: &str) -> Option<VeeJsonValue> {
+    let mut parser = JsonParser {
+        input,
+        pos: 0,
+        nodes: 0,
+    };
+    let value = parser.value(0)?;
+    parser.whitespace();
+    (parser.pos == input.len()).then_some(value)
+}
+
+struct JsonParser<'a> {
+    input: &'a str,
+    pos: usize,
+    nodes: usize,
+}
+
+impl JsonParser<'_> {
+    fn whitespace(&mut self) {
+        while self.pos < self.input.len()
+            && matches!(
+                self.input.as_bytes()[self.pos],
+                b' ' | b'\n' | b'\r' | b'\t'
+            )
+        {
+            self.pos += 1;
+        }
+    }
+
+    fn value(&mut self, depth: usize) -> Option<VeeJsonValue> {
+        if depth > MAX_JSON_DEPTH || self.nodes >= MAX_JSON_NODES {
+            return None;
+        }
+        self.nodes += 1;
+        self.whitespace();
+        match *self.input.as_bytes().get(self.pos)? {
+            b'n' => {
+                self.literal("null")?;
+                Some(VeeJsonValue::Null)
+            }
+            b't' => {
+                self.literal("true")?;
+                Some(VeeJsonValue::Bool(true))
+            }
+            b'f' => {
+                self.literal("false")?;
+                Some(VeeJsonValue::Bool(false))
+            }
+            b'"' => Some(VeeJsonValue::String(self.string()?)),
+            b'[' => self.array(depth + 1),
+            b'{' => self.object(depth + 1),
+            b'-' | b'0'..=b'9' => Some(VeeJsonValue::Number(self.number()?)),
+            _ => None,
+        }
+    }
+
+    fn literal(&mut self, expected: &str) -> Option<()> {
+        let end = self.pos.checked_add(expected.len())?;
+        if self.input.get(self.pos..end)? != expected {
+            return None;
+        }
+        self.pos = end;
+        Some(())
+    }
+
+    fn array(&mut self, depth: usize) -> Option<VeeJsonValue> {
+        self.pos += 1;
+        self.whitespace();
+        let mut values = Vec::new();
+        if self.input.as_bytes().get(self.pos) == Some(&b']') {
+            self.pos += 1;
+            return Some(VeeJsonValue::Array(values));
+        }
+        loop {
+            values.push(self.value(depth)?);
+            self.whitespace();
+            match self.input.as_bytes().get(self.pos)? {
+                b',' => {
+                    self.pos += 1;
+                }
+                b']' => {
+                    self.pos += 1;
+                    break;
+                }
+                _ => return None,
+            }
+        }
+        Some(VeeJsonValue::Array(values))
+    }
+
+    fn object(&mut self, depth: usize) -> Option<VeeJsonValue> {
+        self.pos += 1;
+        self.whitespace();
+        let mut fields = Vec::new();
+        let mut keys = HashSet::new();
+        if self.input.as_bytes().get(self.pos) == Some(&b'}') {
+            self.pos += 1;
+            return Some(VeeJsonValue::Object(fields));
+        }
+        loop {
+            self.whitespace();
+            let key = self.string()?;
+            if !keys.insert(key.clone()) {
+                return None;
+            }
+            self.whitespace();
+            if self.input.as_bytes().get(self.pos) != Some(&b':') {
+                return None;
+            }
+            self.pos += 1;
+            let value = self.value(depth)?;
+            fields.push((key, value));
+            self.whitespace();
+            match self.input.as_bytes().get(self.pos)? {
+                b',' => {
+                    self.pos += 1;
+                }
+                b'}' => {
+                    self.pos += 1;
+                    break;
+                }
+                _ => return None,
+            }
+        }
+        Some(VeeJsonValue::Object(fields))
+    }
+
+    fn string(&mut self) -> Option<String> {
+        if self.input.as_bytes().get(self.pos) != Some(&b'"') {
+            return None;
+        }
+        self.pos += 1;
+        let mut out = String::new();
+        loop {
+            let byte = *self.input.as_bytes().get(self.pos)?;
+            match byte {
+                b'"' => {
+                    self.pos += 1;
+                    return Some(out);
+                }
+                b'\\' => {
+                    self.pos += 1;
+                    match *self.input.as_bytes().get(self.pos)? {
+                        b'"' => {
+                            out.push('"');
+                            self.pos += 1;
+                        }
+                        b'\\' => {
+                            out.push('\\');
+                            self.pos += 1;
+                        }
+                        b'/' => {
+                            out.push('/');
+                            self.pos += 1;
+                        }
+                        b'b' => {
+                            out.push('\u{0008}');
+                            self.pos += 1;
+                        }
+                        b'f' => {
+                            out.push('\u{000c}');
+                            self.pos += 1;
+                        }
+                        b'n' => {
+                            out.push('\n');
+                            self.pos += 1;
+                        }
+                        b'r' => {
+                            out.push('\r');
+                            self.pos += 1;
+                        }
+                        b't' => {
+                            out.push('\t');
+                            self.pos += 1;
+                        }
+                        b'u' => {
+                            self.pos += 1;
+                            let first = self.hex4()?;
+                            let scalar = if (0xd800..=0xdbff).contains(&first) {
+                                if self.input.as_bytes().get(self.pos..self.pos + 2)? != b"\\u" {
+                                    return None;
+                                }
+                                self.pos += 2;
+                                let second = self.hex4()?;
+                                if !(0xdc00..=0xdfff).contains(&second) {
+                                    return None;
+                                }
+                                0x10000
+                                    + ((u32::from(first) - 0xd800) << 10)
+                                    + (u32::from(second) - 0xdc00)
+                            } else if (0xdc00..=0xdfff).contains(&first) {
+                                return None;
+                            } else {
+                                u32::from(first)
+                            };
+                            out.push(char::from_u32(scalar)?);
+                        }
+                        _ => return None,
+                    }
+                }
+                0x00..=0x1f => return None,
+                _ => {
+                    let ch = self.input.get(self.pos..)?.chars().next()?;
+                    self.pos += ch.len_utf8();
+                    out.push(ch);
+                }
+            }
+        }
+    }
+
+    fn hex4(&mut self) -> Option<u16> {
+        let end = self.pos.checked_add(4)?;
+        let digits = self.input.get(self.pos..end)?;
+        if !digits.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return None;
+        }
+        self.pos = end;
+        u16::from_str_radix(digits, 16).ok()
+    }
+
+    fn number(&mut self) -> Option<String> {
+        let start = self.pos;
+        if self.input.as_bytes().get(self.pos) == Some(&b'-') {
+            self.pos += 1;
+        }
+        match self.input.as_bytes().get(self.pos)? {
+            b'0' => self.pos += 1,
+            b'1'..=b'9' => {
+                self.pos += 1;
+                while self
+                    .input
+                    .as_bytes()
+                    .get(self.pos)
+                    .is_some_and(u8::is_ascii_digit)
+                {
+                    self.pos += 1;
+                }
+            }
+            _ => return None,
+        }
+        if self.input.as_bytes().get(self.pos) == Some(&b'.') {
+            self.pos += 1;
+            let fraction_start = self.pos;
+            while self
+                .input
+                .as_bytes()
+                .get(self.pos)
+                .is_some_and(u8::is_ascii_digit)
+            {
+                self.pos += 1;
+            }
+            if self.pos == fraction_start {
+                return None;
+            }
+        }
+        if matches!(self.input.as_bytes().get(self.pos), Some(b'e' | b'E')) {
+            self.pos += 1;
+            if matches!(self.input.as_bytes().get(self.pos), Some(b'+' | b'-')) {
+                self.pos += 1;
+            }
+            let exponent_start = self.pos;
+            while self
+                .input
+                .as_bytes()
+                .get(self.pos)
+                .is_some_and(u8::is_ascii_digit)
+            {
+                self.pos += 1;
+            }
+            if self.pos == exponent_start {
+                return None;
+            }
+        }
+        Some(self.input.get(start..self.pos)?.to_string())
     }
 }
 
@@ -897,10 +1315,10 @@ mod tests {
         let req = test_request("say \"hi\"\\end\nline");
         let json = req.to_json();
         assert!(json.contains("\"source_code\":\"say \\\"hi\\\"\\\\end\\nline\""));
-        // Must still contain the literal characters once unescaped by the scan.
+        // Must still contain the literal characters after structured parsing.
         assert_eq!(
-            scan_string_field(&json, "source_code"),
-            Some("say \"hi\"\\end\nline".to_string())
+            string_field(&parse_json(&json).unwrap(), "source_code"),
+            Some("say \"hi\"\\end\nline")
         );
     }
 
@@ -1036,12 +1454,13 @@ mod tests {
     }
 
     #[test]
-    fn missing_fields_scan_returns_none() {
+    fn malformed_submit_response_is_protocol_error() {
         let port = spawn_mock("HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\n{\"other\":1}");
         let mut client = VeeClient::connect("127.0.0.1", port);
-        let resp = client.submit(&test_request("HALT")).expect("submit ok");
-        assert_eq!(resp.task_id, None);
-        assert_eq!(resp.status, None);
+        assert_eq!(
+            client.submit(&test_request("HALT")),
+            Err(VeeError::Protocol)
+        );
     }
 
     #[test]
@@ -1060,18 +1479,66 @@ mod tests {
     }
 
     #[test]
-    fn scan_string_field_handles_escapes_and_nesting_limitation() {
-        // Documents the known limitation: first key occurrence wins.
-        let body = "{\"id\":\"a\\\"b\",\"nested\":{\"id\":\"c\"},\"status\":\"ok\"}";
-        assert_eq!(scan_string_field(body, "id"), Some("a\"b".to_string()));
-        assert_eq!(scan_string_field(body, "status"), Some("ok".to_string()));
-        assert_eq!(scan_string_field(body, "missing"), None);
+    fn structured_json_parser_handles_escapes_nesting_and_duplicate_rejection() {
+        let value =
+            parse_json("{\"id\":\"a\\\"b\\u03bb\",\"nested\":{\"id\":\"c\"},\"status\":\"ok\"}")
+                .unwrap();
+        assert_eq!(string_field(&value, "id"), Some("a\"bλ"));
+        assert_eq!(string_field(&value, "status"), Some("ok"));
+        assert!(parse_json("{\"success\":true,\"success\":false}").is_none());
+        assert!(parse_json("[1,]").is_none());
+        assert!(parse_json("\"\\uD800\"").is_none());
+    }
+
+    #[test]
+    fn status_roundtrip_via_mock_returns_typed_execution_snapshot() {
+        const STATUS_OK: &str = "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n{\"success\":true,\"data\":{\"execution_id\":\"exec-7\",\"project_id\":\"project-a\",\"status\":\"Completed\",\"phase\":\"Validation\",\"artifacts\":[{\"type\":\"Text\",\"data\":{\"content\":\"done\"}}],\"validation\":null,\"confidence\":0.9,\"tokens_consumed\":12,\"cpu_seconds_used\":0.25,\"memory_peak_mb\":8.0,\"latency_ms\":251,\"error_log\":null,\"created_at\":\"2026-11-04T12:00:00Z\",\"started_at\":null,\"completed_at\":\"2026-11-04T12:00:01Z\"}}";
+        let captured = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+        let sink = captured.clone();
+        let port = spawn_mock_with(STATUS_OK, move |req| *sink.lock().unwrap() = req);
+        let mut client = VeeClient::connect("127.0.0.1", port);
+        let status = client.status("exec-7").expect("status ok");
+        let req = captured.lock().unwrap().clone();
+        assert!(req.starts_with("POST /vee/status HTTP/1.1\r\n"));
+        assert!(req.ends_with("{\"execution_id\":\"exec-7\"}"));
+        assert_eq!(status.execution_id, "exec-7");
+        assert_eq!(status.status, VeeExecutionState::Completed);
+        assert_eq!(status.phase, VeeExecutionPhase::Validation);
+        assert_eq!(status.artifacts.len(), 1);
+        assert_eq!(status.confidence, 0.9);
+        assert_eq!(status.tokens_consumed, 12);
+        assert_eq!(status.latency_ms, 251);
+        assert_eq!(status.started_at, None);
+        assert_eq!(status.completed_at.as_deref(), Some("2026-11-04T12:00:01Z"));
+    }
+
+    #[test]
+    fn status_errors_and_unknown_states_are_rejected() {
+        let missing = spawn_mock("HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n{\"success\":false,\"error\":\"Execution not found\"}");
+        let mut client = VeeClient::connect("127.0.0.1", missing);
+        assert_eq!(
+            client.status("nope"),
+            Err(VeeError::Rejected("Execution not found".into()))
+        );
+
+        let unknown = spawn_mock("HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n{\"success\":true,\"data\":{\"execution_id\":\"x\",\"status\":\"future-status\"}}");
+        let mut client = VeeClient::connect("127.0.0.1", unknown);
+        assert_eq!(client.status("x"), Err(VeeError::Protocol));
+    }
+
+    #[test]
+    fn status_validates_execution_id_before_connecting() {
+        let mut client = VeeClient::connect("127.0.0.1", 1);
+        assert_eq!(client.status("bad\nid"), Err(VeeError::InvalidRequest));
+        assert_eq!(client.status(""), Err(VeeError::InvalidRequest));
     }
 
     #[test]
     fn response_read_respects_content_length_or_close() {
         // Response without Content-Length: adapter reads to connection close.
-        let port = spawn_mock("HTTP/1.1 200 OK\r\n\r\n{\"id\":\"t-2\",\"status\":\"queued\"}");
+        let port = spawn_mock(
+            "HTTP/1.1 200 OK\r\n\r\n{\"success\":true,\"id\":\"t-2\",\"status\":\"queued\"}",
+        );
         let mut client = VeeClient::connect("127.0.0.1", port);
         let resp = client.submit(&test_request("HALT")).expect("submit ok");
         assert_eq!(resp.task_id.as_deref(), Some("t-2"));
