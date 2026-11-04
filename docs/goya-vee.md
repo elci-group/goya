@@ -64,7 +64,20 @@ values and the same program/input/outcome hashes as the Rust VM, and requests
 no VEE capabilities. A local Python execution test compares its complete JSON
 output against the Rust outcome. This uses the existing VEE `language=python`
 submit contract; acceptance and result-field retention by a running VEE
-service remain unverified. D2 stays journal-replay-only and has no VEE worker.
+service remain unverified.
+
+`request_from_d2_program` accepts a validated `D2Program`, explicit state and
+input snapshots, and the caller-supplied `EffectJournal`. Rust executes the
+reference VM first, requiring exact ordered capability/request matches and
+complete journal consumption. The generated Python worker independently
+checks the journal's sequence and SHA-256 chain, replays only those exact
+recorded results, checks typed result encodings, and rejects unused entries.
+It imports only `hashlib` and `json`, has no host effect path, and requests no
+VEE capabilities. The adapter caps the journal at 256 entries/64 KiB, the
+combined data payload at 32 KiB, and the generated source at 256 KiB. A local
+Python execution test compares the complete typed output and hashes with the
+Rust D2 outcome. A live VEE service and its output-field retention remain
+unverified.
 
 ## Verification scope
 
