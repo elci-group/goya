@@ -1,0 +1,39 @@
+{
+  "contract": "GY-CSR-RASTER/1",
+  "date": "2026-11-04",
+  "host": {
+    "os": "Linux 6.18.7-76061807-generic",
+    "arch": "x86_64",
+    "reported_logical_cpus": 12,
+    "worker_budget": 4,
+    "profile": "cargo test --release"
+  },
+  "correctness": {
+    "test": "parallel_tiles_match_serial_with_overlaps_and_damage",
+    "result": "passed",
+    "assertions": [
+      "full-frame output is byte-identical to serial raster",
+      "damage-scoped output is byte-identical to serial raster",
+      "overlapping primitives retain original order within every tile",
+      "CSR assigns disjoint tile ownership"
+    ]
+  },
+  "timing": {
+    "harness": "benchmark_serial_and_parallel_tile_raster",
+    "ignored_test_command": "cargo test --release -p goya-wayland benchmark_serial_and_parallel_tile_raster -- --ignored --nocapture",
+    "frame_pixels": [768, 512],
+    "text_primitives": 240,
+    "glyph_scale": 2,
+    "iterations": 5,
+    "serial_elapsed_ns": 13505078,
+    "parallel_elapsed_ns": 44143658,
+    "parallel_over_serial": 3.27,
+    "decision": "parallel path remains explicitly opt-in and disabled by default; this synthetic workload is slower with current scratch-buffer and thread setup costs"
+  },
+  "topology_and_affinity": {
+    "hcar_classification": "each tile is classified as General because heterogeneous topology is not detected",
+    "affinity": "none; worker placement remains OS-managed",
+    "p_e_claim": false
+  },
+  "caveat": "Single local run; timing is diagnostic, not a general performance claim. Re-evaluate before enabling by default or claiming a speedup."
+}
