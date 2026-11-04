@@ -19,6 +19,61 @@
 /// Contract identifier implemented by this crate.
 pub const HCAR_CONTRACT: &str = "GY-HCAR/1";
 
+/// Detected Linux CPU class counts. Detection is advisory metadata only;
+/// callers must still choose an affinity policy separately.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CpuTopology {
+    pub performance_cpus: usize,
+    pub efficiency_cpus: usize,
+    pub source: TopologySource,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TopologySource {
+    CpuCapacity,
+    AcpiHighestPerformance,
+}
+
+impl CpuTopology {
+    /// Classify complete per-CPU sysfs signal sets. Missing, malformed,
+    /// non-positive, or uniform signals conservatively return `None`.
+    /// `cpu_capacity` is preferred; ACPI highest_perf is fallback only.
+    pub fn from_sysfs_signals(
+        capacity: &[Option<u64>],
+        highest_perf: &[Option<u64>],
+    ) -> Option<Self> {
+        fn split(values: &[Option<u64>]) -> Option<(usize, usize)> {
+            if values.is_empty() {
+                return None;
+            }
+            let parsed: Vec<u64> = values.iter().copied().collect::<Option<_>>()?;
+            if parsed.iter().any(|value| *value == 0) {
+                return None;
+            }
+            let min = *parsed.iter().min()?;
+            let max = *parsed.iter().max()?;
+            (min < max).then(|| {
+                (
+                    parsed.iter().filter(|v| **v == max).count(),
+                    parsed.iter().filter(|v| **v == min).count(),
+                )
+            })
+        }
+        if let Some((performance_cpus, efficiency_cpus)) = split(capacity) {
+            return Some(Self {
+                performance_cpus,
+                efficiency_cpus,
+                source: TopologySource::CpuCapacity,
+            });
+        }
+        split(highest_perf).map(|(performance_cpus, efficiency_cpus)| Self {
+            performance_cpus,
+            efficiency_cpus,
+            source: TopologySource::AcpiHighestPerformance,
+        })
+    }
+}
+
 /// CPU core classes (GY-HCAR-001 §8).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CoreClass {
@@ -190,6 +245,41 @@ pub fn assign_frame(items: &[WorkItem], classifier: &Classifier) -> FrameQueues 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn topology_prefers_capacity_and_falls_back_conservatively() {
+        let topo = CpuTopology::from_sysfs_signals(
+            &[Some(1024), Some(1024), Some(512), Some(512)],
+            &[Some(64), Some(64), Some(32), Some(32)],
+        )
+        .unwrap();
+        assert_eq!(
+            topo,
+            CpuTopology {
+                performance_cpus: 2,
+                efficiency_cpus: 2,
+                source: TopologySource::CpuCapacity
+            }
+        );
+        let fallback = CpuTopology::from_sysfs_signals(
+            &[Some(1024), Some(1024), Some(1024)],
+            &[Some(64), Some(64), Some(32)],
+        )
+        .unwrap();
+        assert_eq!(fallback.source, TopologySource::AcpiHighestPerformance);
+        assert_eq!(
+            (fallback.performance_cpus, fallback.efficiency_cpus),
+            (2, 1)
+        );
+        assert!(
+            CpuTopology::from_sysfs_signals(&[Some(0), Some(512)], &[Some(0), Some(64)]).is_none()
+        );
+        assert!(
+            CpuTopology::from_sysfs_signals(&[Some(512), Some(512)], &[Some(64), Some(64)])
+                .is_none()
+        );
+        assert!(CpuTopology::from_sysfs_signals(&[None, Some(512)], &[Some(64), None]).is_none());
+    }
 
     fn cost(tp: f64, te: f64, ep: f64, ee: f64) -> WorkCost {
         WorkCost {
