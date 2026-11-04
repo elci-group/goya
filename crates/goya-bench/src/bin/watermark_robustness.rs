@@ -2,7 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use goya_bench::{measure_ffmpeg_mjpeg, measure_ffmpeg_png, Benchmark, BenchmarkResult};
+use goya_bench::{measure_ffmpeg_mjpeg, measure_ffmpeg_png, Benchmark, BenchmarkResult, Corpus};
 
 fn main() -> ExitCode {
     match run() {
@@ -21,6 +21,10 @@ fn run() -> Result<(), String> {
     let mut key = 0x0A11_CEC0_FFEEu64;
     let mut alpha = 24.0f64;
     let mut output: Option<PathBuf> = None;
+    let mut image_dir: Option<PathBuf> = None;
+    let mut images_explicit = false;
+    let mut ffmpeg = "ffmpeg".to_string();
+    let mut ffprobe = "ffprobe".to_string();
     let mut codec_roundtrip = false;
     let mut codec = "mjpeg".to_string();
     let mut args = std::env::args().skip(1);
@@ -28,9 +32,10 @@ fn run() -> Result<(), String> {
         match arg.as_str() {
             "--help" | "-h" => {
                 println!(
-                    "Usage: goya-watermark-benchmark [--seed N] [--images N] [--size PX] [--key HEX] [--alpha N] [--codec-roundtrip] [--codec mjpeg|png] [--output PATH]\n\
+                    "Usage: goya-watermark-benchmark [--seed N] [--images N | --image-dir DIR] [--size PX] [--key HEX] [--alpha N] [--codec-roundtrip] [--codec mjpeg|png] [--ffmpeg PATH] [--ffprobe PATH] [--output PATH]\n\
                      Defaults: seed={seed}, images={images}, size={size}, key={key:016x}, alpha={alpha}.\n\
-                     Reports deterministic pixel-surrogate measurements; --codec-roundtrip optionally measures installed ffmpeg MJPEG. Select --codec png for a lossless PNG round-trip (compression levels 1, 6, 9). Results cover only this synthetic grayscale corpus and selected local ffmpeg build."
+                     --image-dir loads sorted local image files, normalizes to square grayscale, and records SHA-256 source hashes.\n\
+                     Reports deterministic pixel-surrogate measurements; --codec-roundtrip optionally measures ffmpeg MJPEG. Select --codec png for PNG round-trip (levels 1, 6, 9)."
                 );
                 return Ok(());
             }
@@ -40,6 +45,7 @@ fn run() -> Result<(), String> {
                     .map_err(|_| "--seed must be an unsigned decimal integer".to_string())?;
             }
             "--images" => {
+                images_explicit = true;
                 images = value(&mut args, "--images")?
                     .parse()
                     .map_err(|_| "--images must be an unsigned integer".to_string())?;
@@ -60,6 +66,9 @@ fn run() -> Result<(), String> {
                     .map_err(|_| "--alpha must be a finite number in 1..=64".to_string())?;
             }
             "--output" => output = Some(PathBuf::from(value(&mut args, "--output")?)),
+            "--image-dir" => image_dir = Some(PathBuf::from(value(&mut args, "--image-dir")?)),
+            "--ffmpeg" => ffmpeg = value(&mut args, "--ffmpeg")?,
+            "--ffprobe" => ffprobe = value(&mut args, "--ffprobe")?,
             "--codec-roundtrip" => codec_roundtrip = true,
             "--codec" => {
                 codec = match value(&mut args, "--codec")?.as_str() {
@@ -76,8 +85,11 @@ fn run() -> Result<(), String> {
             unknown => return Err(format!("unknown argument `{unknown}` (use --help)")),
         }
     }
-    if !(1..=512).contains(&images) {
+    if image_dir.is_none() && !(1..=512).contains(&images) {
         return Err("--images must be between 1 and 512".into());
+    }
+    if image_dir.is_some() && images_explicit {
+        return Err("--images cannot be combined with --image-dir; the directory determines image count".into());
     }
     if !(64..=1024).contains(&size) {
         return Err("--size must be between 64 and 1024 pixels".into());
@@ -93,12 +105,19 @@ fn run() -> Result<(), String> {
         return Err("--alpha must be finite and between 1 and 64".into());
     }
 
-    let mut result: BenchmarkResult = Benchmark.run_adversarial(seed, images, size, key, alpha);
+    let mut result: BenchmarkResult = if let Some(directory) = image_dir {
+        let paths = local_image_paths(&directory)?;
+        let corpus = Corpus::from_local_paths(&paths, seed, size, &ffmpeg, &ffprobe)
+            .map_err(|error| error.to_string())?;
+        Benchmark.run_local(seed, size, key, alpha, corpus)
+    } else {
+        Benchmark.run_adversarial(seed, images, size, key, alpha)
+    };
     if codec_roundtrip {
         if codec == "png" {
-            measure_ffmpeg_png(&mut result, "ffmpeg");
+            measure_ffmpeg_png(&mut result, &ffmpeg);
         } else {
-            measure_ffmpeg_mjpeg(&mut result, "ffmpeg");
+            measure_ffmpeg_mjpeg(&mut result, &ffmpeg);
         }
     }
     let json = result.to_json();
@@ -110,6 +129,37 @@ fn run() -> Result<(), String> {
         print!("{json}");
     }
     Ok(())
+}
+
+fn local_image_paths(directory: &std::path::Path) -> Result<Vec<PathBuf>, String> {
+    let entries = fs::read_dir(directory)
+        .map_err(|error| format!("could not read image directory {}: {error}", directory.display()))?;
+    let mut paths = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|error| format!("could not read directory entry: {error}"))?;
+        let path = entry.path();
+        let supported = path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .map(|extension| {
+                matches!(
+                    extension.to_ascii_lowercase().as_str(),
+                    "png" | "jpg" | "jpeg" | "webp" | "bmp" | "tif" | "tiff" | "avif"
+                )
+            })
+            .unwrap_or(false);
+        if supported && path.is_file() {
+            paths.push(path);
+        }
+    }
+    paths.sort();
+    if paths.is_empty() {
+        return Err(format!("no supported image files found in {}", directory.display()));
+    }
+    if paths.len() > 512 {
+        return Err("local image directory contains more than 512 supported images".into());
+    }
+    Ok(paths)
 }
 
 fn value<'a>(args: &mut impl Iterator<Item = String>, flag: &str) -> Result<String, String> {
