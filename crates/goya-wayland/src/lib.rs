@@ -515,6 +515,237 @@ fn argb(rgb: [u8; 3]) -> u32 {
     0xFF00_0000 | ((rgb[2] as u32) << 16) | ((rgb[1] as u32) << 8) | rgb[0] as u32
 }
 
+const RASTER_TILE_SIZE: u32 = 32;
+const MAX_RASTER_WORKERS: u32 = 4;
+
+fn raster_primitives(
+    pixels: &mut [u32],
+    width: i32,
+    height: i32,
+    primitives: &[goya_runtime::Primitive],
+    fg: [u8; 3],
+    glyph_px: u32,
+    clip: Option<PixelClip>,
+    allow_parallel: bool,
+) {
+    let roi = clip.unwrap_or(PixelClip {
+        x0: 0,
+        y0: 0,
+        x1: width.max(0) as usize,
+        y1: height.max(0) as usize,
+    });
+    let dirty = goya_change::PixelRect {
+        x: roi.x0 as i32,
+        y: roi.y0 as i32,
+        width: roi.x1.saturating_sub(roi.x0) as i32,
+        height: roi.y1.saturating_sub(roi.y0) as i32,
+    };
+    let workers = std::thread::available_parallelism()
+        .map(|n| n.get().min(MAX_RASTER_WORKERS as usize) as u32)
+        .unwrap_or(1);
+    let policy = goya_csr::select_policy(
+        u64::from(dirty.width.max(0) as u32) * u64::from(dirty.height.max(0) as u32),
+        RASTER_TILE_SIZE,
+        workers,
+    );
+    if allow_parallel && policy != CsrPolicy::Serial && workers > 1 {
+        if raster_parallel_tiles(
+            pixels,
+            width,
+            height,
+            primitives,
+            fg,
+            glyph_px,
+            roi,
+            dirty,
+            policy,
+            workers,
+        ) {
+            return;
+        }
+    }
+    raster_serial(pixels, width, height, primitives, fg, glyph_px, Some(roi));
+}
+
+fn raster_serial(
+    pixels: &mut [u32],
+    width: i32,
+    height: i32,
+    primitives: &[goya_runtime::Primitive],
+    fg: [u8; 3],
+    glyph_px: u32,
+    clip: Option<PixelClip>,
+) {
+    for prim in primitives {
+        raster_primitive(pixels, width, height, prim, fg, glyph_px, clip);
+    }
+}
+
+fn raster_parallel_tiles(
+    pixels: &mut [u32],
+    width: i32,
+    height: i32,
+    primitives: &[goya_runtime::Primitive],
+    fg: [u8; 3],
+    glyph_px: u32,
+    roi: PixelClip,
+    dirty: goya_change::PixelRect,
+    policy: CsrPolicy,
+    worker_budget: u32,
+) -> bool {
+    let territories = goya_csr::partition(dirty, RASTER_TILE_SIZE, policy, worker_budget);
+    let plan = goya_csr::schedule(&territories);
+    if plan.len() <= 4 {
+        return false;
+    }
+
+    // No P/E topology is detected or affinity applied here. HCAR classifies
+    // each tile as General, so explicitly enabled workers remain OS-managed.
+    let classifier = Classifier {
+        heterogeneous: false,
+        affinity_mode: AffinityMode::OsManaged,
+    };
+    let mut by_worker: Vec<Vec<PixelClip>> = vec![Vec::new(); worker_budget as usize];
+    for (tile, worker) in plan {
+        let x0 = (tile.x.max(roi.x0 as i32)) as usize;
+        let y0 = (tile.y.max(roi.y0 as i32)) as usize;
+        let x1 = (tile.x.saturating_add(tile.size as i32).min(roi.x1 as i32).min(width))
+            .max(0) as usize;
+        let y1 = (tile.y.saturating_add(tile.size as i32).min(roi.y1 as i32).min(height))
+            .max(0) as usize;
+        if x0 >= x1 || y0 >= y1 || worker as usize >= by_worker.len() {
+            continue;
+        }
+        let item = WorkItem {
+            deadline_ms: 16.67,
+            critical: false,
+            cost: WorkCost {
+                time_p: (primitives.len().max(1) as f64) * 0.01,
+                time_e: (primitives.len().max(1) as f64) * 0.02,
+                energy_p: 1.0,
+                energy_e: 0.7,
+            },
+        };
+        if classifier.classify(&item) != CoreAssignment::General {
+            return false;
+        }
+        by_worker[worker as usize].push(PixelClip { x0, y0, x1, y1 });
+    }
+
+    let base: &[u32] = pixels;
+    let rendered = std::thread::scope(|scope| {
+        let handles = by_worker
+            .into_iter()
+            .map(|tiles| {
+                scope.spawn(move || {
+                    tiles
+                        .into_iter()
+                        .map(|tile| {
+                            let tile_w = tile.x1 - tile.x0;
+                            let tile_h = tile.y1 - tile.y0;
+                            let mut output = Vec::with_capacity(tile_w * tile_h);
+                            for y in tile.y0..tile.y1 {
+                                let start = y * width as usize + tile.x0;
+                                output.extend_from_slice(&base[start..start + tile_w]);
+                            }
+                            let local_clip = PixelClip {
+                                x0: 0,
+                                y0: 0,
+                                x1: tile_w,
+                                y1: tile_h,
+                            };
+                            for prim in primitives {
+                                raster_primitive_offset(
+                                    &mut output,
+                                    tile_w as i32,
+                                    tile_h as i32,
+                                    prim,
+                                    fg,
+                                    glyph_px,
+                                    local_clip,
+                                    tile.x0,
+                                    tile.y0,
+                                );
+                            }
+                            (tile, output)
+                        })
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect::<Vec<_>>();
+        handles
+            .into_iter()
+            .filter_map(|handle| handle.join().ok())
+            .flatten()
+            .collect::<Vec<_>>()
+    });
+
+    // Merge complete, disjoint tile results in a fixed order. Each tile has
+    // replayed the full primitive list in original draw order.
+    for (tile, output) in rendered {
+        let tile_w = tile.x1 - tile.x0;
+        for row in 0..(tile.y1 - tile.y0) {
+            let dst = (tile.y0 + row) * width as usize + tile.x0;
+            let src = row * tile_w;
+            pixels[dst..dst + tile_w].copy_from_slice(&output[src..src + tile_w]);
+        }
+    }
+    true
+}
+
+fn raster_primitive(
+    pixels: &mut [u32],
+    width: i32,
+    height: i32,
+    prim: &goya_runtime::Primitive,
+    fg: [u8; 3],
+    glyph_px: u32,
+    clip: Option<PixelClip>,
+) {
+    match prim {
+        goya_runtime::Primitive::Panel(_) => {}
+        goya_runtime::Primitive::Text(rect, text) => {
+            fill_rect_clipped(pixels, width, height, rect, [16, 16, 20], clip);
+            draw_glyphs(pixels, width, height, rect, text, fg, glyph_px, clip);
+        }
+        goya_runtime::Primitive::Button(rect, text) => {
+            fill_rect_clipped(pixels, width, height, rect, [80, 100, 180], clip);
+            draw_glyphs(pixels, width, height, rect, text, fg, glyph_px, clip);
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn raster_primitive_offset(
+    pixels: &mut [u32],
+    width: i32,
+    height: i32,
+    prim: &goya_runtime::Primitive,
+    fg: [u8; 3],
+    glyph_px: u32,
+    clip: PixelClip,
+    origin_x: usize,
+    origin_y: usize,
+) {
+    let rect = prim_rect(prim);
+    let shifted = Rect {
+        x: rect.x - origin_x as i64 * MP_PER_PX,
+        y: rect.y - origin_y as i64 * MP_PER_PX,
+        width: rect.width,
+        height: rect.height,
+    };
+    let shifted_prim = match prim {
+        goya_runtime::Primitive::Panel(_) => goya_runtime::Primitive::Panel(shifted),
+        goya_runtime::Primitive::Text(_, text) => {
+            goya_runtime::Primitive::Text(shifted, text.clone())
+        }
+        goya_runtime::Primitive::Button(_, text) => {
+            goya_runtime::Primitive::Button(shifted, text.clone())
+        }
+    };
+    raster_primitive(pixels, width, height, &shifted_prim, fg, glyph_px, Some(clip));
+}
+
 fn fill_rect(pixels: &mut [u32], win_w: i32, win_h: i32, r: &Rect, rgb: [u8; 3]) {
     fill_rect_clipped(pixels, win_w, win_h, r, rgb, None)
 }
