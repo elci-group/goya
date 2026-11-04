@@ -19,6 +19,7 @@ use goya_change::{
     decide, CausalResolver, ChangeEnvelope, CostModel, EventRule, Invalidation, PixelRect,
     PropertyMask,
 };
+
 use goya_lang::{hit_test, layout, Anchor, DrawNode, RectMp, SceneStore};
 use goya_rars::{
     AccessibilityPolicy, DevicePixelSize, ErrorBudget, FidelityResolver, MotionProfile,
@@ -305,6 +306,7 @@ fn modified(m: &std::fs::Metadata) -> u64 {
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let live = args.iter().any(|a| a == "--live");
+    let ddh = args.iter().any(|a| a == "--ddh");
     let watch = args.iter().any(|a| a == "--watch");
     let sound = args.iter().any(|a| a == "--sound");
     let scene_path = args
@@ -340,8 +342,16 @@ fn main() {
         );
     }
 
-    if !live {
+    if !live && !ddh {
         self_test(&mut store);
+        return;
+    }
+
+    if ddh {
+        if let Err(e) = ddh_acceptance(&mut store) {
+            eprintln!("goya-calculator ddh: {e}");
+            std::process::exit(1);
+        }
         return;
     }
 
@@ -667,4 +677,156 @@ fn self_test(store: &mut SceneStore) {
 #[allow(unused)]
 fn _anchor_check(a: Anchor) -> bool {
     matches!(a, Anchor::Start | Anchor::Middle | Anchor::End)
+}
+
+/// GY-DDH-001 acceptance experiment (directive section 7): a text-only
+/// agent computes 87 x 42 through GOYA's semantic interface — discover
+/// buttons, invoke presses, observe state, verify 3654 — consuming zero
+/// screenshots. Mode B (direct semantic invocation) with Mode A lease
+/// checks.
+fn ddh_acceptance(store: &mut SceneStore) -> Result<(), String> {
+    use goya_ddh::{DdhNode, Dig, InteractionState, InvocationResult, SemanticRole};
+
+    // Build the DIG from the resolved scene: buttons + display.
+    let frame = layout(store.get(), 100.0, 170.0);
+    let mut dig = Dig::new();
+    let mut semantic_bytes = 0usize;
+    for (name, label) in [
+        ("btn_7", "7"),
+        ("btn_8", "8"),
+        ("btn_9", "9"),
+        ("btn_4", "4"),
+        ("btn_5", "5"),
+        ("btn_6", "6"),
+        ("btn_1", "1"),
+        ("btn_2", "2"),
+        ("btn_3", "3"),
+        ("btn_0", "0"),
+        ("btn_mul", "*"),
+        ("btn_eq", "="),
+        ("btn_clear", "C"),
+        ("btn_add", "+"),
+        ("btn_sub", "-"),
+        ("btn_div", "/"),
+        ("btn_dec", "."),
+        ("btn_sign", "+/-"),
+        ("btn_pct", "%"),
+    ] {
+        let id = format!("calc.{name}");
+        let node_rect = frame
+            .find(name)
+            .map(|n| n.rect)
+            .ok_or_else(|| format!("scene node {name} missing"))?;
+        let n = DdhNode {
+            id: id.clone(),
+            revision: 1,
+            role: SemanticRole::Button,
+            label: label.to_string(),
+            hit_region: goya_change::PixelRect {
+                x: (node_rect.x / goya_wayland::MP_PER_PX) as i32,
+                y: (node_rect.y / goya_wayland::MP_PER_PX) as i32,
+                width: (node_rect.width / goya_wayland::MP_PER_PX) as i32,
+                height: (node_rect.height / goya_wayland::MP_PER_PX) as i32,
+            },
+            state: InteractionState {
+                enabled: true,
+                visible: true,
+                focused: false,
+            },
+            actions: vec!["press".into()],
+            exposed: true,
+            parent: Some("calc.window".into()),
+        };
+        // Semantic descriptor cost: what an agent reads to operate.
+        semantic_bytes += format!(
+            "{}|{}|{},{},{},{}",
+            n.id, n.label, n.hit_region.x, n.hit_region.y, n.hit_region.width, n.hit_region.height
+        )
+        .len();
+        dig.put(n, 1);
+    }
+
+    // Authority: the agent may press calculator buttons only.
+    let authority = |_caller: &str, object: &str, action: &str| {
+        object.starts_with("calc.btn_") && action == "press"
+    };
+
+    // Task: 87 x 42 — find(), invoke(), observe(); no screenshots.
+    let script = ["btn_8", "btn_7", "btn_mul", "btn_4", "btn_2", "btn_eq"];
+    let mut calc = Calc::default();
+    let mut stale_leases = 0usize;
+    for step in script {
+        let id = format!("calc.{step}");
+        // Mode A sanity: lease the pointer target, verify freshness.
+        let lease = dig.resolve_target(&id).ok_or("target unresolvable")?;
+        if !dig.lease_valid(&lease) {
+            stale_leases += 1;
+        }
+        // Mode B: direct semantic invocation (authoritative path).
+        match dig.validate_invoke(&id, "press", "agent", &authority) {
+            InvocationResult::Dispatched { .. } => calc.press(step),
+            other => return Err(format!("ddh invoke rejected: {other}")),
+        }
+    }
+    let result = calc.shown();
+    let ok = result == "3654";
+
+    // Observe: the display's state propagates into the DIG (state → DIG
+    // projection), so the agent reads the value without pixels.
+    dig.put(
+        DdhNode {
+            id: "calc.result_text".into(),
+            revision: 2,
+            role: SemanticRole::Label,
+            label: result.clone(),
+            hit_region: goya_change::PixelRect {
+                x: 5,
+                y: 5,
+                width: 90,
+                height: 30,
+            },
+            state: InteractionState {
+                enabled: true,
+                visible: true,
+                focused: false,
+            },
+            actions: vec!["read".into()],
+            exposed: true,
+            parent: Some("calc.window".into()),
+        },
+        2,
+    );
+    let observed = dig
+        .get("calc.result_text")
+        .map(|n| n.label.clone())
+        .unwrap_or_default();
+    let changes = dig.observe_changes(2);
+    assert_eq!(changes, vec!["calc.result_text"]);
+
+    let screenshot_bytes = 400 * 680 * 4; // one ARGB frame
+    println!(
+        "goya-calculator DDH: 87*42 = {observed} (expected 3654) [{}]",
+        if ok { "PASS" } else { "FAIL" }
+    );
+    println!(
+        "goya-calculator DDH: semantic bytes = {semantic_bytes} vs screenshot = {screenshot_bytes} ({}x smaller) [{}]",
+        screenshot_bytes / semantic_bytes.max(1),
+        if semantic_bytes < screenshot_bytes { "PASS" } else { "FAIL" }
+    );
+    println!(
+        "goya-calculator DDH: stale leases = {stale_leases} [{}]",
+        if stale_leases == 0 { "PASS" } else { "FAIL" }
+    );
+    let denied = dig.validate_invoke("calc.result_text", "press", "agent", &authority);
+    let denied_ok = matches!(denied, InvocationResult::ActionNotPermitted);
+    println!(
+        "goya-calculator DDH: display 'press' rejected [{}]",
+        if denied_ok { "PASS" } else { "FAIL" }
+    );
+    if ok && semantic_bytes < screenshot_bytes && denied_ok {
+        println!("goya-calculator: DDH ACCEPTANCE PASS — 87*42=3654 without visual inference");
+        Ok(())
+    } else {
+        Err("ddh acceptance failed".into())
+    }
 }

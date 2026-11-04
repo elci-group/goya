@@ -47,6 +47,9 @@ doctests are excluded (`--lib --tests`); they assert nothing.
 - ✅ Wave 2 (10-agent swarm): ARSEM spatial audio, NSB bridges, RPI + speculation, EDC determinism, native x402, artifact identity & DCT watermarking — 15 new crates, contracts GY-SONIC/1 … GY-WATERMARK/1
 - ✅ GY-WAYLAND-001: live Wayland surface (release 0.1 gate met); ARSEM 9/9 acceptance; parser under 20k-input mutation fuzz
 - ✅ GY-FUSION-001: fused milestone live — NSB retargetable bridges + ARSEM presentation-tracked pan + chromatic polarity + RPI/speculation gating in one interactive object (10/10 checks)
+- ✅ **GY-DDH-001 Deterministic Dehumanisation**: semantic UI traversal — text-only agent computes 87×42=3654 through the calculator's DIG with **2125× fewer bytes than a screenshot**; leases, authority gates, exposure policies (`cargo run --bin calculator -- --ddh`)
+- ✅ **Audit remediation**: triple-buffered presentation (never write unreleased slots), incremental damage-scoped raster, GitHub Actions CI
+- ✅ **GY-TYP-002 Formatting Similarity Compression** (`goya-fsc`): shared immutable formatting profiles with inheritance-aware identity, typed in-object deltas with stable anchors, run-based resolution, directive-table invalidation scopes, 100k-char acceptance test
 - ✅ **Efficiency hierarchy (GY-LCPE/RARS/CSR/HCAR-001)**: change envelopes + causal invalidation + quantised damage (LCPE), deterministic projection fidelity with hysteresis (RARS), spatial partition scheduling with work stealing (CSR), heterogeneous core classification (HCAR) — wired into the calculator: presses emit quantised local damage; glyph fidelity resolved from projected area
 - ✅ **Exemplar app: `apps/calculator.gscene`** — a full calculator authored in Goya scene syntax (`cargo run --bin calculator -- --live --sound`); headless acceptance: 7+3=10, 10*5=50, 50/0=Error, decimals, sign
 - ✅ Flicker fix: double buffering (buffer pair + Release sync), opaque region, dirty-flag redraw (idle 7200 commits → 1)

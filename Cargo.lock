@@ -90,6 +90,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "goya-ddh"
+version = "0.1.0"
+dependencies = [
+ "goya-change",
+ "goya-lang",
+]
+
+[[package]]
 name = "goya-determinism"
 version = "0.1.0"
 
@@ -126,6 +134,7 @@ dependencies = [
  "goya-change",
  "goya-chroma",
  "goya-csr",
+ "goya-ddh",
  "goya-hcar",
  "goya-ir",
  "goya-lang",

@@ -52,6 +52,23 @@ pub enum PlatformEvent {
     CloseRequested,
 }
 
+/// Raster clip region in pixels.
+#[derive(Debug, Clone, Copy)]
+struct PixelClip {
+    x0: usize,
+    y0: usize,
+    x1: usize,
+    y1: usize,
+}
+
+fn prim_rect(prim: &goya_runtime::Primitive) -> goya_layout::Rect {
+    match prim {
+        goya_runtime::Primitive::Panel(r) => *r,
+        goya_runtime::Primitive::Text(r, _) => *r,
+        goya_runtime::Primitive::Button(r, _) => *r,
+    }
+}
+
 /// Wayland failures surfaced as data, never panics.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WaylandError {
@@ -88,6 +105,10 @@ impl ShmFrame {
     fn pixels_mut(&mut self) -> &mut [u32] {
         unsafe { std::slice::from_raw_parts_mut(self.map.cast::<u32>(), self.len / 4) }
     }
+
+    fn pixels(&self) -> &[u32] {
+        unsafe { std::slice::from_raw_parts(self.map.cast::<u32>(), self.len / 4) }
+    }
 }
 
 impl Drop for ShmFrame {
@@ -99,9 +120,11 @@ impl Drop for ShmFrame {
     }
 }
 
-/// Double-buffered surface memory: one memfd-backed pool, two slots.
-/// The compositor reads one slot while we rasterise the other — the
-/// flicker fix (GY-WAYLAND/1 amendment).
+/// Triple-buffered surface memory: one memfd-backed pool, three slots.
+/// The compositor reads one slot while we rasterise another; the third
+/// absorbs latency so we NEVER write an unreleased buffer (audit P0):
+/// if no slot is released, presentation is skipped for this frame and
+/// retried after the next pump processes wl_buffer releases.
 struct BufferPair {
     /// Kept alive so the mapped memory's backing file persists; the pool
     /// holds its own fd reference, so this field is never read directly.
@@ -109,9 +132,9 @@ struct BufferPair {
     fd: OwnedFd,
     map: *mut u8,
     len_per_slot: usize,
-    slots: [ShmFrame; 2],
-    /// Index of the slot to draw into next.
-    next: usize,
+    slots: [ShmFrame; 3],
+    /// Index of the slot presented most recently (the compositor's front).
+    front: usize,
 }
 
 impl BufferPair {
@@ -125,11 +148,11 @@ impl BufferPair {
         let len = (stride * height) as usize;
         let fd = memfd_create("goya-frame", MemfdFlags::CLOEXEC)
             .map_err(|_| WaylandError::ShmSetup("memfd"))?;
-        ftruncate(&fd, (len * 2) as u64).map_err(|_| WaylandError::ShmSetup("ftruncate"))?;
+        ftruncate(&fd, (len * 3) as u64).map_err(|_| WaylandError::ShmSetup("ftruncate"))?;
         let map = unsafe {
             mmap(
                 std::ptr::null_mut(),
-                len * 2,
+                len * 3,
                 ProtFlags::READ | ProtFlags::WRITE,
                 MapFlags::SHARED,
                 &fd,
@@ -137,12 +160,12 @@ impl BufferPair {
             )
         }
         .map_err(|_| WaylandError::ShmSetup("mmap"))? as *mut u8;
-        let pool = shm.create_pool(fd.as_fd(), (len * 2) as i32, qh, ());
-        let mk = |offset: i32, released: bool| ShmFrame {
-            map: unsafe { map.byte_add(offset as usize) },
+        let pool = shm.create_pool(fd.as_fd(), (len * 3) as i32, qh, ());
+        let mk = |offset: usize| ShmFrame {
+            map: unsafe { map.byte_add(offset) },
             len,
             buffer: pool.create_buffer(
-                offset,
+                offset as i32,
                 width,
                 height,
                 stride,
@@ -150,16 +173,16 @@ impl BufferPair {
                 qh,
                 (),
             ),
-            released,
+            released: true,
         };
-        // Slot 0 starts "released" so the very first present draws into it.
-        let slots = [mk(0, true), mk(len as i32, true)];
+        // All slots start "released": the compositor owns nothing yet.
+        let slots = [mk(0), mk(len), mk(len * 2)];
         Ok(BufferPair {
             fd,
             map,
             len_per_slot: len,
             slots,
-            next: 0,
+            front: 0,
         })
     }
 }
@@ -172,7 +195,7 @@ impl Drop for BufferPair {
             slot.len = 0;
             slot.buffer.destroy();
         }
-        let _ = unsafe { munmap(self.map.cast(), self.len_per_slot * 2) };
+        let _ = unsafe { munmap(self.map.cast(), self.len_per_slot * 3) };
     }
 }
 
@@ -348,19 +371,73 @@ impl GoyaWindow {
                 self.state.height,
             )?);
         }
-        // Double buffering: prefer a slot the compositor has released. If
-        // both are pending, take the alternate anyway (common client
-        // practice; pump() processes the Release before the next frame).
+        // P0 (audit): NEVER write an unreleased slot. Pick any released
+        // slot (preferring not-the-front); if all three are still owned by
+        // the compositor, skip this presentation entirely — pump() will
+        // process releases and the caller retries next frame.
         let pair = self.state.buffers.as_mut().unwrap();
-        let idx = if pair.slots[pair.next].released {
-            pair.next
-        } else {
-            1 - pair.next
+        let idx = (0..3)
+            .find(|&i| i != pair.front && pair.slots[i].released)
+            .or_else(|| {
+                // Fall back to the front slot itself if it was released
+                // (compositor already swapped away from it).
+                pair.slots[pair.front].released.then_some(pair.front)
+            });
+        let Some(idx) = idx else {
+            return Ok(()); // all slots owned; nothing safe to write
         };
-        pair.next = 1 - idx;
+        // Incremental raster (audit P1): with a resolved damage rect, the
+        // undamaged area is preserved by copying the front slot wholesale
+        // (compositor-safe read), then repainting only the damage area.
+        if damage.is_some() && idx != pair.front {
+            // Distinct slots in one allocation; split borrows via indices.
+            let (front, mid) = pair.slots.split_at_mut(pair.front.max(idx));
+            let (src, dst) = if pair.front > idx {
+                (&mid[0], &mut front[idx])
+            } else {
+                (&front[pair.front], &mut mid[0])
+            };
+            dst.pixels_mut().copy_from_slice(src.pixels());
+        }
         let pixels = pair.slots[idx].pixels_mut();
-        pixels.fill(argb(bg));
+        match damage {
+            Some((dx, dy, dw, dh)) => {
+                let (w, h) = (self.state.width, self.state.height);
+                // Clear the damage area with the background first.
+                let drect = goya_layout::Rect {
+                    x: i64::from(dx) * MP_PER_PX,
+                    y: i64::from(dy) * MP_PER_PX,
+                    width: i64::from(dw) * MP_PER_PX,
+                    height: i64::from(dh) * MP_PER_PX,
+                };
+                fill_rect(pixels, w, h, &drect, bg);
+            }
+            None => {
+                pixels.fill(argb(bg));
+            }
+        }
+        let clip = damage.map(|(dx, dy, dw, dh)| PixelClip {
+            x0: dx.max(0) as usize,
+            y0: dy.max(0) as usize,
+            x1: (dx + dw).min(self.state.width).max(0) as usize,
+            y1: (dy + dh).min(self.state.height).max(0) as usize,
+        });
         for prim in primitives {
+            // Primitives wholly outside the damage rect cannot contribute
+            // pixels to it — skip their raster work entirely.
+            if let Some(clip) = &clip {
+                let r = prim_rect(prim);
+                let rx0 = (r.x / MP_PER_PX) as i32;
+                let ry0 = (r.y / MP_PER_PX) as i32;
+                let rx1 = ((r.x + r.width) / MP_PER_PX) as i32;
+                let ry1 = ((r.y + r.height) / MP_PER_PX) as i32;
+                if rx1 < clip.x0 as i32 || ry1 < clip.y0 as i32 {
+                    continue;
+                }
+                if rx0 >= clip.x1 as i32 || ry0 >= clip.y1 as i32 {
+                    continue;
+                }
+            }
             match prim {
                 goya_runtime::Primitive::Panel(_) => {}
                 goya_runtime::Primitive::Text(r, s) => {
@@ -373,6 +450,7 @@ impl GoyaWindow {
                         s,
                         fg,
                         glyph_px,
+                        clip,
                     );
                 }
                 goya_runtime::Primitive::Button(r, s) => {
@@ -391,6 +469,7 @@ impl GoyaWindow {
                         s,
                         fg,
                         glyph_px,
+                        clip,
                     );
                 }
             }
@@ -426,6 +505,7 @@ impl GoyaWindow {
         }
         surface.commit();
         pair.slots[idx].released = false;
+        pair.front = idx;
         Ok(())
     }
 
@@ -463,11 +543,30 @@ fn argb(rgb: [u8; 3]) -> u32 {
 }
 
 fn fill_rect(pixels: &mut [u32], win_w: i32, win_h: i32, r: &Rect, rgb: [u8; 3]) {
+    fill_rect_clipped(pixels, win_w, win_h, r, rgb, None)
+}
+
+fn fill_rect_clipped(
+    pixels: &mut [u32],
+    win_w: i32,
+    win_h: i32,
+    r: &Rect,
+    rgb: [u8; 3],
+    clip: Option<PixelClip>,
+) {
     let a = argb(rgb);
     let x0 = (r.x / MP_PER_PX).max(0);
     let y0 = (r.y / MP_PER_PX).max(0);
     let x1 = ((r.x + r.width) / MP_PER_PX).min(i64::from(win_w));
     let y1 = ((r.y + r.height) / MP_PER_PX).min(i64::from(win_h));
+    let (cx0, cy0, cx1, cy1) = match clip {
+        Some(c) => (c.x0 as i64, c.y0 as i64, c.x1 as i64, c.y1 as i64),
+        None => (0, 0, i64::from(win_w), i64::from(win_h)),
+    };
+    let x0 = x0.max(cx0);
+    let y0 = y0.max(cy0);
+    let x1 = x1.min(cx1);
+    let y1 = y1.min(cy1);
     for y in y0..y1 {
         for x in x0..x1 {
             let idx = (y as usize) * (win_w as usize) + (x as usize);
@@ -478,6 +577,7 @@ fn fill_rect(pixels: &mut [u32], win_w: i32, win_h: i32, r: &Rect, rgb: [u8; 3])
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_glyphs(
     pixels: &mut [u32],
     win_w: i32,
@@ -486,9 +586,14 @@ fn draw_glyphs(
     s: &str,
     rgb: [u8; 3],
     glyph_px: u32,
+    clip: Option<PixelClip>,
 ) {
     let a = argb(rgb);
     let g = glyph_px.max(1) as usize;
+    let (cx0, cy0, cx1, cy1) = match clip {
+        Some(c) => (c.x0, c.y0, c.x1, c.y1),
+        None => (0, 0, win_w as usize, win_h as usize),
+    };
     let ox = (r.x / MP_PER_PX + 2).max(0) as usize;
     let oy = (r.y / MP_PER_PX + 2).max(0) as usize;
     for (ci, ch) in s.chars().enumerate() {
@@ -498,14 +603,18 @@ fn draw_glyphs(
                 if row & (1 << (4 - gx)) != 0 {
                     // Block-scale: each glyph pixel is g×g screen pixels.
                     for dy in 0..g {
+                        let y = oy + gy * g + dy;
+                        if y >= cy1 || y < cy0 || y >= win_h as usize {
+                            continue;
+                        }
                         for dx in 0..g {
                             let x = ox + (ci * 6 + gx) * g + dx;
-                            let y = oy + gy * g + dy;
-                            if x < win_w as usize && y < win_h as usize {
-                                let idx = y * (win_w as usize) + x;
-                                if idx < pixels.len() {
-                                    pixels[idx] = a;
-                                }
+                            if x >= cx1 || x < cx0 || x >= win_w as usize {
+                                continue;
+                            }
+                            let idx = y * (win_w as usize) + x;
+                            if idx < pixels.len() {
+                                pixels[idx] = a;
                             }
                         }
                     }

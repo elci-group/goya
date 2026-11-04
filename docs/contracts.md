@@ -407,3 +407,113 @@ Implemented as four new crates (all std-only, Candidate status):
 | crates/goya-rars | Efficiency Swarm M2 (RARS) |
 | crates/goya-csr | Efficiency Swarm M3 (CSR) |
 | crates/goya-hcar | Efficiency Swarm M4 (HCAR) |
+
+---
+
+## GY-FSC/1 — Formatting Similarity Compression (`crates/goya-fsc`)
+
+Status: Candidate. Implements GY-TYP-002 (supersedes the DSC portions of
+GY-TYP-001): compression operates on FORMATTING similarity, never glyph
+shapes.
+
+- `ProfileStore`/`FormattingProfile`: shared immutable profiles with
+  parent inheritance. Resolution walks root→leaf, deeper overrides win;
+  cycles and missing parents return errors, never loop or panic.
+- **Inheritance-aware identity** (§3, the crucial distinction): profile
+  identity = resolved values + LEAF-explicit property set + ancestry
+  depth. Two objects that look identical today but override at different
+  levels are distinct — a theme/parent change affects them differently.
+- `FormattedText` in-object variance (§4): base profile + `Vec` of typed
+  range deltas; `effective_at(pos) = F₀ ⊕ Δ(pos)`.
+- Stable anchors (§4): insertion inside (or at start of) a delta extends
+  it — typing at a styled boundary adopts the style; insertion before
+  shifts; deletion intersects/clamps. Content edits are materialised with
+  char-boundary snapping; all offsets clamp; never panics.
+- Canonicalisation (§7): sort, drop empties, dedupe, merge adjacent
+  equal-override ranges.
+- Run-based rendering input (§7): `runs()` computes formatting runs from
+  the delta boundary set — O(d log d + d·r), not per-character resolution.
+- Invalidation table (§6): property → (reshape, relayout, reraster,
+  recompose). Colour/opacity/underline = compose-only; family/size/weight
+  = full; spacing/line-height/align = relayout+recompose with mask reuse.
+  LCPE bridge: `lcpe_property_mask` feeds goya-change PropertyMask bits.
+- Acceptance (§10, unit-tested): 100,000 chars, 1,000 variations, one base
+  style — global recolour leaves run structure identical (compose-only);
+  one-word weight change is local reshape scope; insertion inside a
+  formatted range preserves anchors (delta extends 100..120 → 100..123).
+- 11 tests incl. a bounded 800-iteration totality fuzz.
+
+## Ownership
+| Path | Owner |
+|---|---|
+| crates/goya-fsc | Typography Swarm T1 (FSC) |
+
+---
+
+## Audit remediation (2026-11-04, external source audit of main @ 56b4d15)
+
+### P0 — Buffer ownership (FIXED)
+`goya-wayland` now uses a **triple-buffered** pool and **never writes an
+unreleased slot**: presentation picks any released non-front slot; if all
+three are compositor-owned the frame is **skipped** (`present_dirty`
+returns without committing) and retried after pump() processes
+wl_buffer releases. Front slot tracking updated on commit.
+
+### P1 — Incremental rasterisation (IMPLEMENTED)
+`present_dirty` copies the front slot's undamaged content into the target
+slot (compositor-safe read), clears only the damage rect, rasterises only
+primitives intersecting it (clip-scoped fill/glyph paths), and damages
+only that rect. Full-frame path unchanged when no damage resolved.
+Note: raster clipping is rectangle-level; per-tile multithreaded
+rasterisation (CSR execution) remains the Wave-2c item.
+
+### P1 — FSC content mutation (VERIFIED ALREADY FIXED)
+The audit inspected HEAD 56b4d15 (pre-fix). Current `apply_edit`
+materialises content changes with char-boundary snapping; three new
+tests prove UTF-8 validity, boundary snapping and atomic
+content+anchor mutation.
+
+### P1 — CI (ESTABLISHED)
+`.github/workflows/ci.yml`: build, tests, clippy -D warnings, rustfmt
+check, uni snapshot on every push/PR. Branch protection is a GitHub
+settings action (owner-side).
+
+### Deferred (recorded, not forgotten)
+- P1 typography stack (shaping/rasterisation) — Wave 4-scale dependency decision.
+- GY-IR/2 model unification — Wave 2c.
+- HCAR hardware topology/dispatch — needs real P/E hardware profiling.
+
+---
+
+## GY-DDH/1 — Deterministic Dehumanisation (`crates/goya-ddh`)
+
+Status: Candidate. "Every user-operable GOYA object SHALL be discoverable,
+locatable and actionable through a deterministic, permission-governed
+semantic interface, without requiring visual interpretation of its
+rendered projection."
+
+- **DIG** (Deterministic Interaction Graph, directive §7): semantic nodes
+  with roles, labels, hit regions, interaction state, permitted actions,
+  exposure policy and typed parent edges. Not a DOM — executable,
+  spatially aware objects.
+- **Mode A**: `resolve_target` → `TargetLease` (centre of hit region +
+  revision); leases invalidate on any node revision change — a prediction
+  is never a guaranteed click target.
+- **Mode B**: `validate_invoke` — authority + exposure + enabled + action
+  permit checked before dispatch; the caller performs the transition.
+  Order of checks: NoSuchObject → NotExposed → Disabled →
+  ActionNotPermitted → AuthorityDenied → Dispatched.
+- Information hygiene: `exposed: false` nodes are never exported via
+  `find`/`exported` and return NotExposed on invoke.
+- `observe_changes(since)`: LCPE-fed incremental semantic updates.
+- **Acceptance experiment (directive §7), unit+binary verified**: a
+  text-only agent computes 87 × 42 through the calculator's DIG —
+  `find` → `invoke` ×6 → observe — verifying 3654 with **512 semantic
+  bytes vs 1,088,000 screenshot bytes (2125× smaller)**, zero stale
+  leases, and an unauthorised display-press correctly rejected.
+  Run: `cargo run --bin calculator -- --ddh`.
+
+## Ownership
+| Path | Owner |
+|---|---|
+| crates/goya-ddh | Agent-Interface Swarm N1 (DDH/DIG) |

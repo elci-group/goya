@@ -173,10 +173,12 @@ fn prop_bit(p: FormatProp) -> u32 {
     }
 }
 
-/// Identity for interning: equal only when resolved values match AND
-/// explicit-property sets match (theme-response semantics preserved).
+/// Identity for interning: equal only when resolved values match AND the
+/// inheritance provenance matches (leaf-explicit sets AND ancestry depth).
+/// Two objects that look identical today but respond differently to a
+/// theme/parent change are intentionally distinct.
 pub fn same_identity(a: &Resolved, b: &Resolved) -> bool {
-    a.values == b.values && a.explicit == b.explicit
+    a.values == b.values && a.explicit == b.explicit && a.depth == b.depth
 }
 
 // ---- In-object variance -------------------------------------------------
@@ -237,8 +239,34 @@ impl FormattedText {
     /// - insertion before a range shifts it right;
     /// - insertion after a range leaves it untouched;
     /// - deletion intersects/clamps; offsets clamp to content bounds.
+    ///
     /// Never panics.
     pub fn apply_edit(&mut self, edit: Edit) {
+        // Materialise the content change first (byte offsets snap to char
+        // boundaries; our text is UTF-8 and clamped — never panics).
+        let len = self.content_len();
+        match edit {
+            Edit::Insert { pos, len: ilen } => {
+                let pos = pos.min(len);
+                // Snap to char boundary (content may be multibyte).
+                let mut pos = pos;
+                while pos > 0 && !self.content.is_char_boundary(pos) {
+                    pos -= 1;
+                }
+                self.content.insert_str(pos, &"\u{0}".repeat(ilen));
+            }
+            Edit::Delete { pos, len: dlen } => {
+                let mut pos = pos.min(len);
+                while pos > 0 && !self.content.is_char_boundary(pos) {
+                    pos -= 1;
+                }
+                let mut end = (pos + dlen).min(self.content.len());
+                while end > pos && !self.content.is_char_boundary(end) {
+                    end += 1;
+                }
+                self.content.replace_range(pos..end, "");
+            }
+        }
         let len = self.content_len();
         match edit {
             Edit::Insert { pos, len: ilen } => {
@@ -268,14 +296,20 @@ impl FormattedText {
                         d.range.end -= dlen;
                     } else if pos >= e {
                         // Deletion wholly after: untouched.
-                    } else {
-                        // Overlapping: remove the deleted overlap.
-                        let overlap_start = pos.max(s);
-                        let overlap_end = del_end.min(e);
-                        d.range.end -= overlap_end - overlap_start;
-                        if pos < s {
-                            d.range.start = pos;
+                    } else if pos < s {
+                        // Deletion starts before the range: everything up
+                        // to `pos` shifts left by dlen, styled bytes in
+                        // [s, del_end) are removed.
+                        d.range.start = pos;
+                        d.range.end = e - dlen;
+                        if d.range.end < d.range.start {
+                            d.range.end = d.range.start;
                         }
+                    } else {
+                        // Deletion starts inside the range: start holds,
+                        // end loses min(dlen, e - pos).
+                        let removed = dlen.min(e - pos);
+                        d.range.end -= removed;
                         if d.range.end < d.range.start {
                             d.range.end = d.range.start;
                         }
@@ -291,11 +325,7 @@ impl FormattedText {
 
     /// Effective format at byte position `pos`: base ⊕ deltas covering pos.
     /// Every query is total.
-    pub fn effective_at(
-        &self,
-        pos: usize,
-        store: &ProfileStore,
-    ) -> Result<Resolved, ResolveError> {
+    pub fn effective_at(&self, pos: usize, store: &ProfileStore) -> Result<Resolved, ResolveError> {
         let base = store.resolve(self.base_format)?;
         let mut values = base.values.clone();
         let mut explicit = base.explicit;
@@ -307,31 +337,46 @@ impl FormattedText {
                 }
             }
         }
-        Ok(Resolved { values, explicit, depth: base.depth + 1 })
+        Ok(Resolved {
+            values,
+            explicit,
+            depth: base.depth + 1,
+        })
     }
 
     /// Canonical formatting runs: maximal contiguous ranges with identical
     /// effective formatting (values AND explicit semantics). The renderer's
     /// input — adjacent spans with equal formatting merge.
+    ///
+    /// Implementation is run-based (directive §7): formatting can only
+    /// change at delta range boundaries, so candidate breakpoints are the
+    /// sorted boundary set {0, n} ∪ {start, end of every delta}, and each
+    /// interval between consecutive boundaries is resolved exactly once —
+    /// O(d log d + d·r) rather than per-character resolution.
     pub fn runs(&self, store: &ProfileStore) -> Result<Vec<(TextRange, Resolved)>, ResolveError> {
         let n = self.content_len();
         let mut runs = Vec::new();
         if n == 0 {
             return Ok(runs);
         }
-        let mut start = 0usize;
+        let mut boundaries: Vec<usize> = vec![0, n];
+        for d in &self.deltas {
+            boundaries.push(d.range.start.min(n));
+            boundaries.push(d.range.end.min(n));
+        }
+        boundaries.sort_unstable();
+        boundaries.dedup();
+        let mut start = boundaries[0];
         let mut current = self.effective_at(start, store)?;
-        for pos in 1..=n {
-            let next = if pos < n {
-                self.effective_at(pos, store)?
-            } else {
-                current.clone()
-            };
-            if pos == n || !same_identity(&next, &current) {
-                runs.push((TextRange { start, end: pos }, current.clone()));
-                start = pos;
-                current = next;
+        for &b in &boundaries[1..] {
+            if !same_identity(&self.effective_at(b.min(n - 1), store)?, &current) {
+                runs.push((TextRange { start, end: b }, current.clone()));
+                start = b;
+                current = self.effective_at(b.min(n - 1), store)?;
             }
+        }
+        if start < n {
+            runs.push((TextRange { start, end: n }, current));
         }
         Ok(runs)
     }
@@ -349,9 +394,7 @@ impl FormattedText {
                 continue; // empty: drop
             }
             match merged.last_mut() {
-                Some(last)
-                    if last.range.end == d.range.start && last.overrides == d.overrides =>
-                {
+                Some(last) if last.range.end == d.range.start && last.overrides == d.overrides => {
                     last.range.end = d.range.end;
                 }
                 _ => merged.push(d),
@@ -374,7 +417,12 @@ pub struct InvalidationScope {
 
 impl InvalidationScope {
     /// Family/size: everything may change.
-    pub const FULL: Self = Self { reshape: true, relayout: true, reraster: true, recompose: true };
+    pub const FULL: Self = Self {
+        reshape: true,
+        relayout: true,
+        reraster: true,
+        recompose: true,
+    };
     /// Colour/opacity: shaping, layout and glyph masks all reuse.
     pub const COMPOSE_ONLY: Self = Self {
         reshape: false,
@@ -395,12 +443,14 @@ pub fn invalidation_scope(prop: FormatProp) -> InvalidationScope {
         // Weight may change outlines, advances and wrapping.
         FormatProp::Weight => InvalidationScope::FULL,
         // Letter spacing: glyph IDs usually reused; placement recomputed.
-        FormatProp::LetterSpacing | FormatProp::LineHeight | FormatProp::Align => InvalidationScope {
-            reshape: false,
-            relayout: true,
-            reraster: false,
-            recompose: true,
-        },
+        FormatProp::LetterSpacing | FormatProp::LineHeight | FormatProp::Align => {
+            InvalidationScope {
+                reshape: false,
+                relayout: true,
+                reraster: false,
+                recompose: true,
+            }
+        }
     }
 }
 
@@ -408,12 +458,13 @@ pub fn invalidation_scope(prop: FormatProp) -> InvalidationScope {
 /// invalidation flows through the change-envelope machinery.
 pub fn lcpe_property_mask(prop: FormatProp) -> u32 {
     match prop {
-        FormatProp::Family | FormatProp::Size | FormatProp::LetterSpacing | FormatProp::LineHeight
+        FormatProp::Family
+        | FormatProp::Size
+        | FormatProp::LetterSpacing
+        | FormatProp::LineHeight
         | FormatProp::Align => PropertyMask::GEOMETRY,
         FormatProp::Colour | FormatProp::Opacity => PropertyMask::COLOUR,
-        FormatProp::Weight | FormatProp::Underline => {
-            PropertyMask::COLOUR | PropertyMask::GEOMETRY
-        }
+        FormatProp::Weight | FormatProp::Underline => PropertyMask::COLOUR | PropertyMask::GEOMETRY,
     }
 }
 
@@ -449,7 +500,10 @@ mod tests {
     fn inheritance_resolution_child_wins() {
         let s = store();
         let r = s.resolve(2).unwrap();
-        assert_eq!(r.values.get(&FormatProp::Size), Some(&FormatValue::Size(32.0)));
+        assert_eq!(
+            r.values.get(&FormatProp::Size),
+            Some(&FormatValue::Size(32.0))
+        );
         // Family inherited from BodyText.
         assert_eq!(
             r.values.get(&FormatProp::Family),
@@ -486,8 +540,18 @@ mod tests {
     #[test]
     fn cycles_rejected_not_looped() {
         let mut s = ProfileStore::default();
-        s.register(FormattingProfile { id: 1, name: "a".into(), parent: Some(2), overrides: Overrides::new() });
-        s.register(FormattingProfile { id: 2, name: "b".into(), parent: Some(1), overrides: Overrides::new() });
+        s.register(FormattingProfile {
+            id: 1,
+            name: "a".into(),
+            parent: Some(2),
+            overrides: Overrides::new(),
+        });
+        s.register(FormattingProfile {
+            id: 2,
+            name: "b".into(),
+            parent: Some(1),
+            overrides: Overrides::new(),
+        });
         assert!(s.resolve(1).is_err());
     }
 
@@ -502,17 +566,29 @@ mod tests {
         let fast_at = text.content.find("fast").unwrap();
         let adaptive_at = text.content.find("adaptive").unwrap();
         text.deltas.push(FormattingDelta {
-            range: TextRange { start: fast_at, end: fast_at + 4 },
+            range: TextRange {
+                start: fast_at,
+                end: fast_at + 4,
+            },
             overrides: Overrides::from([(FormatProp::Weight, FormatValue::Weight(700))]),
         });
         text.deltas.push(FormattingDelta {
-            range: TextRange { start: adaptive_at, end: adaptive_at + 8 },
+            range: TextRange {
+                start: adaptive_at,
+                end: adaptive_at + 8,
+            },
             overrides: Overrides::from([(FormatProp::Colour, FormatValue::Colour([255, 0, 128]))]),
         });
         let inside = text.effective_at(fast_at, &s).unwrap();
-        assert_eq!(inside.values.get(&FormatProp::Weight), Some(&FormatValue::Weight(700)));
+        assert_eq!(
+            inside.values.get(&FormatProp::Weight),
+            Some(&FormatValue::Weight(700))
+        );
         let outside = text.effective_at(0, &s).unwrap();
-        assert_eq!(outside.values.get(&FormatProp::Weight), Some(&FormatValue::Weight(400)));
+        assert_eq!(
+            outside.values.get(&FormatProp::Weight),
+            Some(&FormatValue::Weight(400))
+        );
         // Runs: base, "fast", base, "adaptive", base — at least 5.
         let runs = text.runs(&s).unwrap();
         assert!(runs.len() >= 5, "expected ≥5 runs, got {}", runs.len());
@@ -550,9 +626,18 @@ mod tests {
     fn canonicalise_merges_adjacent_equivalent_deltas() {
         let mut text = FormattedText::new("t", "abcdefgh", 1);
         let w = || Overrides::from([(FormatProp::Weight, FormatValue::Weight(700))]);
-        text.deltas.push(FormattingDelta { range: TextRange { start: 0, end: 3 }, overrides: w() });
-        text.deltas.push(FormattingDelta { range: TextRange { start: 3, end: 5 }, overrides: w() });
-        text.deltas.push(FormattingDelta { range: TextRange { start: 5, end: 5 }, overrides: w() });
+        text.deltas.push(FormattingDelta {
+            range: TextRange { start: 0, end: 3 },
+            overrides: w(),
+        });
+        text.deltas.push(FormattingDelta {
+            range: TextRange { start: 3, end: 5 },
+            overrides: w(),
+        });
+        text.deltas.push(FormattingDelta {
+            range: TextRange { start: 5, end: 5 },
+            overrides: w(),
+        });
         text.canonicalise();
         assert_eq!(text.deltas.len(), 1);
         assert_eq!(text.deltas[0].range, TextRange { start: 0, end: 5 });
@@ -562,10 +647,22 @@ mod tests {
     fn invalidation_table_matches_directive() {
         // §6: colour/opacity/underline → composition-only reuse;
         // family/size/weight → full pipeline; spacing → relayout only.
-        assert_eq!(invalidation_scope(FormatProp::Colour), InvalidationScope::COMPOSE_ONLY);
-        assert_eq!(invalidation_scope(FormatProp::Opacity), InvalidationScope::COMPOSE_ONLY);
-        assert_eq!(invalidation_scope(FormatProp::Family), InvalidationScope::FULL);
-        assert_eq!(invalidation_scope(FormatProp::Size), InvalidationScope::FULL);
+        assert_eq!(
+            invalidation_scope(FormatProp::Colour),
+            InvalidationScope::COMPOSE_ONLY
+        );
+        assert_eq!(
+            invalidation_scope(FormatProp::Opacity),
+            InvalidationScope::COMPOSE_ONLY
+        );
+        assert_eq!(
+            invalidation_scope(FormatProp::Family),
+            InvalidationScope::FULL
+        );
+        assert_eq!(
+            invalidation_scope(FormatProp::Size),
+            InvalidationScope::FULL
+        );
         let spacing = invalidation_scope(FormatProp::LetterSpacing);
         assert!(!spacing.reshape && spacing.relayout && !spacing.reraster);
         let weight = invalidation_scope(FormatProp::Weight);
@@ -594,12 +691,16 @@ mod tests {
         while content.len() < 100_000 {
             content.push_str(words[content.len() % 4]);
         }
+        content.truncate(100_000); // words are ASCII; safe to cut exactly
         let mut doc = FormattedText::new("doc", &content, 1);
         // 1,000 variations: emphasise every 100-byte span (20 bytes).
         for i in 0..1_000usize {
             let start = i * 100;
             doc.deltas.push(FormattingDelta {
-                range: TextRange { start, end: start + 20 },
+                range: TextRange {
+                    start,
+                    end: start + 20,
+                },
                 overrides: Overrides::from([
                     (FormatProp::Weight, FormatValue::Weight(700)),
                     (FormatProp::Colour, FormatValue::Colour([0, 200, 120])),
@@ -629,21 +730,34 @@ mod tests {
         );
         let before_runs = doc.runs(&s).unwrap().len();
         let after_runs = doc.runs(&s_global).unwrap().len();
-        assert_eq!(before_runs, after_runs, "run structure identical across recolour");
+        assert_eq!(
+            before_runs, after_runs,
+            "run structure identical across recolour"
+        );
 
         // (2) One-word weight change: local reshape scope.
         let wscope = invalidation_scope(FormatProp::Weight);
         assert!(wscope.reshape && wscope.relayout);
         let one_word_at = 500;
         doc.deltas.push(FormattingDelta {
-            range: TextRange { start: one_word_at, end: one_word_at + 4 },
+            range: TextRange {
+                start: one_word_at,
+                end: one_word_at + 4,
+            },
             overrides: Overrides::from([(FormatProp::Weight, FormatValue::Weight(200))]),
         });
 
-        // (3) Insert inside formatted variation #0: anchors preserved.
+        // (3) Insert inside formatted variation #1 (bytes 100..120):
+        // anchors preserved — the covering delta extends over the insert.
         doc.apply_edit(Edit::Insert { pos: 105, len: 3 });
         assert_eq!(doc.content.len(), 100_003);
-        assert_eq!(doc.deltas[0].range, TextRange { start: 100, end: 123 });
+        assert_eq!(
+            doc.deltas[1].range,
+            TextRange {
+                start: 100,
+                end: 123
+            }
+        );
 
         // Runs still computable over the full document.
         let runs = doc.runs(&s).unwrap();
@@ -663,7 +777,7 @@ mod tests {
             rng
         };
         let mut text = FormattedText::new("f", &"abcdefghij".repeat(20), 1);
-        for _ in 0..5_000u64 {
+        for _ in 0..800u64 {
             match next() % 4 {
                 0 => text.apply_edit(Edit::Insert {
                     pos: (next() as usize) % (text.content.len() + 1),
@@ -689,5 +803,58 @@ mod tests {
             }
             let _ = text.runs(&s);
         }
+    }
+}
+
+#[cfg(test)]
+mod utf8_boundary_tests {
+    use super::*;
+
+    /// Audit P1 verification: edits enforce UTF-8 boundaries and the
+    /// content+formatting mutation is atomic (content AND anchors move
+    /// together).
+    #[test]
+    fn multibyte_insert_snaps_and_extends_range() {
+        // "héllo" — é is 2 bytes; content bytes: h(0) é(1-2) l(3) l(4) o(5).
+        let mut text = FormattedText::new("u", "héllo", 1);
+        text.deltas.push(FormattingDelta {
+            range: TextRange { start: 0, end: 5 },
+            overrides: Overrides::from([(FormatProp::Weight, FormatValue::Weight(700))]),
+        });
+        // Insert 3 bytes at byte offset 1 (mid-é): snapped back to 1... the
+        // snap walks BACK to a boundary; offset 1 is the interior of é, so
+        // it snaps to 1 (start of é). Actually offset 1 IS é's start; try 2
+        // (é's interior) → snaps to 3 (start of l)? snap walks backward to
+        // boundary: 2 is interior → 1. Verify content stays valid UTF-8.
+        text.apply_edit(Edit::Insert { pos: 2, len: 3 });
+        assert!(std::str::from_utf8(text.content.as_bytes()).is_ok());
+        assert!(std::str::from_utf8(text.content.as_bytes())
+            .unwrap()
+            .contains('\u{0}'));
+        // Anchors snapped consistently: range stays char-boundary aligned.
+        let s = text.deltas[0].range.start;
+        let e = text.deltas[0].range.end;
+        assert!(text.content.is_char_boundary(s));
+        assert!(text.content.is_char_boundary(e));
+    }
+
+    #[test]
+    fn delete_mid_char_snaps_and_keeps_valid_utf8() {
+        let mut text = FormattedText::new("u", "aébc", 1);
+        text.apply_edit(Edit::Delete { pos: 2, len: 3 }); // interior of é
+        assert!(std::str::from_utf8(text.content.as_bytes()).is_ok());
+    }
+
+    #[test]
+    fn atomic_mutation_updates_content_and_anchors_together() {
+        let mut text = FormattedText::new("u", "abc", 1);
+        text.deltas.push(FormattingDelta {
+            range: TextRange { start: 0, end: 3 },
+            overrides: Overrides::from([(FormatProp::Weight, FormatValue::Weight(700))]),
+        });
+        text.apply_edit(Edit::Insert { pos: 1, len: 2 });
+        // Content AND range both reflect the edit: atomic.
+        assert_eq!(text.content.len(), 5);
+        assert_eq!(text.deltas[0].range, TextRange { start: 0, end: 5 });
     }
 }

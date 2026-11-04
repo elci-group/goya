@@ -1,0 +1,42 @@
+{
+  "work_package": "GY-TYP-002",
+  "title": "Formatting Similarity Compression & In-Object Variance (FSC)",
+  "wave": 2,
+  "date": "2026-11-04",
+  "scope": {
+    "objective": "Implement revised directive GY-TYP-002: formatting-similarity compression via shared immutable profiles with inheritance-aware identity, typed in-object delta variance with stable anchors, run-based resolution, directive-table invalidation classification, and the 100k-character acceptance test.",
+    "affected": [
+      "crates/goya-fsc",
+      "Cargo.toml",
+      "docs/contracts.md"
+    ],
+    "exclusions": [
+      "interval-tree delta storage (Vec + boundary runs sufficient at current scale; upgrade path documented)",
+      "renderer integration (no glyph pipeline yet \u2014 FSC output is the renderer's future input)",
+      "LCPE live wiring beyond the property-mask bridge"
+    ]
+  },
+  "implementation_record": {
+    "notes": "Identity semantics per directive \u00a73: resolved values + leaf-explicit set + ancestry depth. Theme-response preserved: profiles with equal rendering but different override provenance are distinct. Stable anchors: insert-at-start adopts style, insert-inside extends, insert-before shifts, delete intersects/clamps. runs() is boundary-based (formatting can only change at delta boundaries) \u2014 algorithmic fix applied after the per-position scan hung the fuzz test."
+  },
+  "test_evidence": {
+    "commands": [
+      "cargo test --workspace --lib --tests",
+      "cargo clippy --workspace --all-targets -- -D warnings",
+      "cargo fmt --all -- --check",
+      "uni --fail-under 80 ."
+    ],
+    "results": {
+      "unit_tests": "221 passed, 0 failed (31 suites; fsc: 11 incl. 100k acceptance + 800-iter fuzz)",
+      "acceptance_100k": "global recolour \u2192 run structure identical across base-profile change (compose-only); one-word weight \u2192 local reshape scope; insert inside variation #1 preserved anchors (100..120 \u2192 100..123); 1000+ runs computable over 100k chars",
+      "clippy": "pass",
+      "rustfmt": "pass",
+      "uni": "91/100 exit 0"
+    }
+  },
+  "notable_findings": {
+    "runs_algorithm": "Per-position format resolution (n queries \u00d7 d deltas) hung the fuzz test on a 20KB object \u2014 replaced with boundary-based run computation per directive \u00a77, which is the production design.",
+    "provenance_model": "Explicit-property provenance is LEAF-local (a property set at an ancestor is inherited by descendants). Combined with ancestry depth this distinguishes the directive's 'explicitly assigned vs inherited' semantics without over-rejecting equivalent profiles."
+  },
+  "integration_decision": "accept"
+}

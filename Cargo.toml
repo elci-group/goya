@@ -31,6 +31,7 @@ members = [
     "crates/goya-csr",
     "crates/goya-hcar",
     "crates/goya-fsc",
+    "crates/goya-ddh",
 ]
 
 [workspace.package]
@@ -68,6 +69,7 @@ goya-rars = { path = "crates/goya-rars" }
 goya-csr = { path = "crates/goya-csr" }
 goya-hcar = { path = "crates/goya-hcar" }
 goya-fsc = { path = "crates/goya-fsc" }
+goya-ddh = { path = "crates/goya-ddh" }
 
 [profile.release]
 debug = true

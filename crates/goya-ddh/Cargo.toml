@@ -1,0 +1,9 @@
+[package]
+name = "goya-ddh"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+goya-lang.workspace = true
+goya-change.workspace = true

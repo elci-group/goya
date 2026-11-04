@@ -24,3 +24,4 @@ goya-change.workspace = true
 goya-spatial-audio.workspace = true
 goya-audio-dsp.workspace = true
 goya-audio-linux.workspace = true
+goya-ddh.workspace = true

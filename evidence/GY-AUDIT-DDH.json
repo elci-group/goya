@@ -1,0 +1,50 @@
+{
+  "work_package": "GY-AUDIT-REMEDIATION + GY-DDH-001",
+  "title": "Audit P0/P1 fixes and Deterministic Dehumanisation semantic traversal",
+  "wave": 2,
+  "date": "2026-11-04",
+  "scope": {
+    "objective": "Remediate the external audit findings (P0 buffer ownership, P1 incremental raster, P1 CI, P1 FSC verification) and implement GY-DDH-001: semantic UI traversal without visual inference, with the directive's calculator acceptance experiment.",
+    "affected": [
+      "crates/goya-wayland",
+      "crates/goya-ddh",
+      "crates/goya-fsc (tests)",
+      "crates/goya-hello/src/bin/calculator.rs",
+      ".github/workflows/ci.yml",
+      "docs/contracts.md"
+    ],
+    "exclusions": [
+      "tile-parallel raster (Wave 2c)",
+      "typography stack (Wave 4 dependency decision)",
+      "GY-IR/2 unification (Wave 2c)",
+      "HCAR hardware dispatch (needs P/E hardware)",
+      "branch protection (GitHub settings, owner-side)"
+    ]
+  },
+  "implementation_record": {
+    "p0": "Triple-buffered pool; never write unreleased slots; skip-and-retry presentation when all slots compositor-owned.",
+    "p1_raster": "present_dirty copies front's undamaged content, clears and rasterises only the damage rect (clip-scoped fills/glyphs, primitives outside damage skipped), damages only the rect. Raster is rect-clipped; per-tile multithreading is Wave-2c.",
+    "p1_fsc": "Audit inspected pre-fix HEAD; apply_edit already materialises content with char-boundary snapping. Three new tests prove UTF-8 validity, boundary snapping, atomic content+anchor mutation.",
+    "p1_ci": "GitHub Actions: build/test/clippy/fmt/uni on push and PR, toolchain 1.95.0.",
+    "ddh": "goya-ddh: DIG with roles/labels/hit-regions/states/actions/exposure; Mode A TargetLease (revision-invalidated); Mode B validate_invoke with ordered checks (NoSuchObject\u2192NotExposed\u2192Disabled\u2192ActionNotPermitted\u2192AuthorityDenied\u2192Dispatched); observe_changes for LCPE-fed incremental updates. Calculator acceptance: text-only agent computes 87*42=3654 via find/invoke/observe \u2014 512 semantic bytes vs 1,088,000 screenshot bytes (2125x smaller), 0 stale leases, unauthorised display-press rejected."
+  },
+  "test_evidence": {
+    "commands": [
+      "cargo test --workspace --lib --tests",
+      "cargo run --bin calculator -- --ddh",
+      "cargo run --bin calculator -- --live (idle 1 present)",
+      "cargo run --bin scene -- --live",
+      "gates: clippy/fmt/uni"
+    ],
+    "results": {
+      "unit_tests": "231 passed, 0 failed (32 suites; ddh: 7, fsc: +3 UTF-8/atomic)",
+      "ddh_acceptance": "PASS: 87*42=3654, 2125x fewer bytes than screenshot, unauthorised action rejected",
+      "p0_live": "calculator and scene live runs clean on triple-buffered presentation",
+      "clippy": "pass",
+      "rustfmt": "pass",
+      "uni": "91/100 exit 0"
+    },
+    "environment": "rustc 1.95.0 pinned, Wayland session, standalone goya repo (origin elci-group/goya)"
+  },
+  "integration_decision": "accept"
+}
