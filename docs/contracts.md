@@ -55,8 +55,9 @@ GY-IR-001 ✓ typed IR + parser            GY-STATE-001 ✓ transaction engine
 GY-LAYOUT-001 ✓ deterministic layout     GY-RUNTIME-001 ✓ event pipeline
 GY-HELLO-001 ✓ first integrated proof
 GY-WAYLAND-001 ✓ live Wayland surface + runtime pointer adapter
-GY-TEST-001 (partial): Wave 1 IR parser conformance cases and deterministic
-mutation fuzzing are present; cross-crate/runtime conformance coverage remains
+GY-TEST-001 (partial): GY-IR/1 parser conformance and 20,000-input deterministic
+mutation fuzzing are present, along with an opt-in authored D1/D2-to-VEE
+loopback acceptance. A broader cross-crate/runtime conformance matrix remains
 open.
 ```
 
