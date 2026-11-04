@@ -48,9 +48,9 @@ The generated source imports only Python's standard-library `json` module,
 and performs no file, network, subprocess, or shell operations. Goya bytecode
 is not WebAssembly, and the adapter never labels it as WASM. The local Python
 test compares its stdout with the Rust reference VM's tree serialization.
-The VEE submission path is prepared, but no live VEE server was used or
-confirmed for this change, and the interpretation of Python stdout/result
-fields by the remote VEE task API still needs confirmation. Callers may
+The D0 VEE submission path was not included in the live smoke recorded below;
+the interpretation of D0 Python stdout/result fields remains unverified.
+Callers may
 continue to use `SubmitRequest` directly for independently authored
 supported-language source.
 
@@ -63,8 +63,8 @@ The worker repeats exact schema and size checks, emits typed state/register
 values and the same program/input/outcome hashes as the Rust VM, and requests
 no VEE capabilities. A local Python execution test compares its complete JSON
 output against the Rust outcome. This uses the existing VEE `language=python`
-submit contract; acceptance and result-field retention by a running VEE
-service remain unverified.
+submit contract; a local live service accepted the worker and retained its
+output as recorded below.
 
 `request_from_d2_program` accepts a validated `D2Program`, explicit state and
 input snapshots, and the caller-supplied `EffectJournal`. Rust executes the
@@ -76,13 +76,40 @@ It imports only `hashlib` and `json`, has no host effect path, and requests no
 VEE capabilities. The adapter caps the journal at 256 entries/64 KiB, the
 combined data payload at 32 KiB, and the generated source at 256 KiB. A local
 Python execution test compares the complete typed output and hashes with the
-Rust D2 outcome. A live VEE service and its output-field retention remain
-unverified.
+Rust D2 outcome; a local live service accepted the worker and retained its
+output as recorded below.
 
 ## Verification scope
 
 Unit tests verify request JSON, endpoint path, bearer header, success/error
 response handling, and the D0 conversion using a local one-shot HTTP fixture.
-They do not exercise a running VEE server; no live server was used or
-confirmed for this change. The fixture is not represented as an end-to-end
-VEE integration.
+The fixture is not represented as an end-to-end VEE integration.
+
+### Local D1/D2 live smoke
+
+On 2026-11-04, the locally checked out VEE source at
+`/home/sal/vico-desktop/src-tauri/vico-vee` was built with its validated
+`baby` recipe and run on `127.0.0.1:18997`. The smoke used fresh temporary
+data, config, and pattern-store paths; disabled authentication only for this
+disposable loopback server; and disabled mDNS. Goya's `VeeClient` submitted
+the generated D1 and D2 Python worker sources and polled each status to
+`Completed`.
+
+- D1 task `vee-551a9da9-cae1-4d08-a43f-e8b2acd44a73`: state `count` changed
+  from 7 to 10, revision 4 to 5. Worker hashes: program
+  `1cde920996ab175d27f8f5b777a934338e1c88ae8f429d529f4dece1eb4a72a6`, input
+  `1abb9ca811942180a3acc28e8b09f6abca7c41f7737bd6f65bf5a4fdbc3a21c3`,
+  outcome `161fa724289ac51ce02ff074425d037562fff3d7e178bb3ebe7a7136ecfea495`.
+- D2 task `vee-5a88e05d-8fff-4b5e-8ea6-dee35b999b7a`: replayed its supplied
+  journal result (4), changing `count` from 8 to 12, revision 5 to 6. The
+  request had an empty VEE capability list. Worker hashes: program
+  `334527df00d3bd99771c6b7d59cbb87efbee989a4569c7331f47cdc6d5cd185a`, input
+  `d9914bb941607e8e603de0ecc9169b7ff46170d007a2ad8f5b2219e5b163904c`,
+  outcome `ed8fe5c14d5e53adbf968467dccf6babb90c013feb7f7bd16e9ff929662db2ea`.
+
+Both returned worker payloads contained the expected typed state/register
+values and hashes. In this environment VEE logged that Landlock setup failed
+with `Operation not permitted` and continued with the rlimit sandbox layer
+only. This confirms the local submit/status/result path and worker behavior
+under that environment; it does not establish production Landlock or other
+production sandbox coverage, nor validate remote deployment configuration.
