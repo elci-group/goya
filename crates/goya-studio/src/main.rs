@@ -320,7 +320,6 @@ fn render_editor(project: &SceneProject, preview: &str) -> String {
             "frame.srcdoc=await r.text();status.textContent=r.ok?'Preview updated':'Validation failed';",
             "const body=await r.text();frame.srcdoc=body;if(r.ok){status.textContent='Preview updated';errorLine.hidden=true;}else{const msg=new DOMParser().parseFromString(body,'text/html').body.textContent.trim();status.textContent='Validation failed: '+msg;const match=/line (\\d+)/i.exec(msg);errorLine.hidden=!match;if(match)errorLine.dataset.line=match[1];}",
         );
-    let mut html = html;
     html = html.replace(
         "</body></html>",
         r#"<script>

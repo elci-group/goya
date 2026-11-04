@@ -68,7 +68,7 @@ pub fn migrate_state(
     let mut staged = state.clone();
     let mut version = from;
     for migration in migrations {
-        let expected_to = version.checked_add(1).unwrap_or(u64::MAX);
+        let expected_to = version.saturating_add(1);
         if migration.from_version != version {
             return Err(MigrationError::MissingStep {
                 expected_from: version,
