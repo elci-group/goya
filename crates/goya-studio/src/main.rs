@@ -320,6 +320,24 @@ fn render_editor(project: &SceneProject, preview: &str) -> String {
             "frame.srcdoc=await r.text();status.textContent=r.ok?'Preview updated':'Validation failed';",
             "const body=await r.text();frame.srcdoc=body;if(r.ok){status.textContent='Preview updated';errorLine.hidden=true;}else{const msg=new DOMParser().parseFromString(body,'text/html').body.textContent.trim();status.textContent='Validation failed: '+msg;const match=/line (\\d+)/i.exec(msg);errorLine.hidden=!match;if(match)errorLine.dataset.line=match[1];}",
         );
+    let html = html;
+    html = html.replace(
+        "</body></html>",
+        r#"<script>
+const undoButton=document.querySelector('#undo'),redoButton=document.querySelector('#redo'),applyButton=document.querySelector('#apply');
+const historyLimit=64,history=[];let historyIndex=-1,historyTimer=0;
+function editorState(){return {text:source.value,inspector:inspectorSource,fields:fields.map(f=>f.value),positionMode:document.querySelector('#pos-mode').value,extentMode:document.querySelector('#extent-mode').value,node:node.value};}
+function updateHistoryButtons(){undoButton.disabled=historyIndex<=0;redoButton.disabled=historyIndex<0||historyIndex>=history.length-1;}
+function commitHistory(){clearTimeout(historyTimer);historyTimer=0;const state=editorState();if(new TextEncoder().encode(state.text).length>131072){status.textContent='Undo history is limited to scenes of 128 KiB or less';return false;}if(historyIndex>=0&&JSON.stringify(history[historyIndex])===JSON.stringify(state))return true;history.splice(historyIndex+1);history.push(state);if(history.length>historyLimit)history.shift();historyIndex=history.length-1;updateHistoryButtons();return true;}
+function restoreHistory(index){const state=history[index];historyIndex=index;source.value=state.text;inspectorSource=state.inspector;fields.forEach((f,i)=>f.value=state.fields[i]||'');document.querySelector('#pos-mode').value=state.positionMode;document.querySelector('#extent-mode').value=state.extentMode;node.value=state.node;updateHistoryButtons();status.textContent=index===history.length-1?'Restored latest edit':'Edit restored';}
+function moveHistory(delta){const valid=commitHistory();if(!valid){if(historyIndex>=0)restoreHistory(historyIndex);return;}const next=historyIndex+delta;if(next<0||next>=history.length)return;restoreHistory(next);source.focus();}
+const originalApplyGeometry=applyButton.onclick;applyButton.onclick=event=>{const before=source.value;originalApplyGeometry.call(applyButton,event);if(source.value!==before)commitHistory();};
+source.addEventListener('input',()=>{clearTimeout(historyTimer);historyTimer=setTimeout(commitHistory,250);});
+undoButton.addEventListener('click',()=>moveHistory(-1));redoButton.addEventListener('click',()=>moveHistory(1));
+document.addEventListener('keydown',event=>{if((!event.ctrlKey&&!event.metaKey)||event.altKey||event.target!==source)return;const key=event.key.toLowerCase();if(key==='z'){event.preventDefault();moveHistory(event.shiftKey?1:-1);}else if(event.ctrlKey&&key==='y'){event.preventDefault();moveHistory(1);}});
+commitHistory();
+</script></body></html>"#,
+    );
     html
 }
 
