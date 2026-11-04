@@ -969,7 +969,6 @@ mod tests {
     #[test]
     fn d2_journal_order_is_request_declaration_order() {
         let src = D2_SOURCE
-            .replace("effects { network; }", "effects { network; }")
             .replace(
                 "lookup: effect network capability \"network\" request \"static request\" result int64;",
                 "first: effect network capability \"network\" request \"one\" result int64; second: effect network capability \"network\" request \"two\" result int64;",
