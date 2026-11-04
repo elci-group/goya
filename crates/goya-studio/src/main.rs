@@ -967,6 +967,8 @@ mod tests {
         assert!(initial.2.contains("source.setSelectionRange(start"));
         assert!(initial.2.contains("id=\"undo\""));
         assert!(initial.2.contains("id=\"redo\""));
+        assert!(initial.2.contains("id=\"save\""));
+        assert!(initial.2.contains("fetch('/save'"));
         assert!(initial.2.contains("historyLimit=64"));
         assert!(initial.2.contains("source.addEventListener('input'"));
         assert!(initial.2.contains("event.shiftKey?1:-1"));
@@ -1018,8 +1020,77 @@ mod tests {
             "404 Not Found"
         );
         assert_eq!(
+            route_request(&post("/save", SCENE), HOST, SCENE, &html).0,
+            "404 Not Found"
+        );
+        assert_eq!(
             route_request(b"broken", HOST, SCENE, &html).0,
             "400 Bad Request"
         );
+    }
+
+    #[test]
+    fn save_route_validates_and_atomically_updates_only_the_open_scene() {
+        let directory = std::env::temp_dir().join(format!(
+            "goya-studio-save-{}-{}",
+            std::process::id(),
+            SAVE_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&directory).unwrap();
+        let opened_path = directory.join("scene.gscene");
+        fs::write(&opened_path, SCENE).unwrap();
+        let canonical_path = fs::canonicalize(&opened_path).unwrap();
+        let preview = render_html(&SceneProject::from_source(SCENE, Viewport::default()).unwrap());
+        let edited = SCENE.replace("hello", "saved source");
+
+        let saved = route_request_for_scene(
+            &post("/save", &edited),
+            HOST,
+            SCENE,
+            &preview,
+            Some(&canonical_path),
+        );
+        assert_eq!(saved.0, "200 OK");
+        assert_eq!(fs::read_to_string(&canonical_path).unwrap(), edited);
+
+        let reloaded = route_request_for_scene(
+            &get("/"),
+            HOST,
+            SCENE,
+            &preview,
+            Some(&canonical_path),
+        );
+        assert_eq!(reloaded.0, "200 OK");
+        assert!(reloaded.2.contains("saved source"));
+
+        let invalid = route_request_for_scene(
+            &post("/save", "@ontology broken {"),
+            HOST,
+            SCENE,
+            &preview,
+            Some(&canonical_path),
+        );
+        assert_eq!(invalid.0, "422 Unprocessable Content");
+        assert_eq!(fs::read_to_string(&canonical_path).unwrap(), edited);
+
+        let foreign = String::from_utf8(post("/save", SCENE))
+            .unwrap()
+            .replace("Origin: http://127.0.0.1:8765", "Origin: http://attacker.invalid");
+        assert_eq!(
+            route_request_for_scene(
+                foreign.as_bytes(),
+                HOST,
+                SCENE,
+                &preview,
+                Some(&canonical_path),
+            )
+            .0,
+            "403 Forbidden"
+        );
+        assert_eq!(fs::read_to_string(&canonical_path).unwrap(), edited);
+
+        assert_eq!(fs::read_dir(&directory).unwrap().count(), 1);
+        fs::remove_file(&canonical_path).unwrap();
+        fs::remove_dir(&directory).unwrap();
     }
 }
