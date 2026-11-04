@@ -386,9 +386,6 @@ fn compile_one_d2(
     let mut instructions = Vec::new();
     let mut register = 0usize;
     let mut assigned = BTreeSet::new();
-    let mut used_reads = BTreeSet::new();
-    let mut used_inputs = BTreeSet::new();
-    let mut used_requests = BTreeSet::new();
     let mut request_registers = BTreeMap::new();
     // Effect replay order is fixed by the source `requests` block, independent
     // of assignment order or expression structure.
@@ -407,6 +404,16 @@ fn compile_one_d2(
         });
         request_registers.insert(request.name.as_str(), (value_type, reg));
     }
+    let mut expr_compiler = D2ExpressionCompiler {
+        code: &mut instructions,
+        next: &mut register,
+        request_registers: &request_registers,
+        reads: &reads,
+        inputs: &inputs,
+        used_reads: BTreeSet::new(),
+        used_inputs: BTreeSet::new(),
+        used_requests: BTreeSet::new(),
+    };
     for assignment in &i.assignments {
         let expected = *writes
             .get(assignment.key.as_str())
@@ -414,32 +421,23 @@ fn compile_one_d2(
         if !assigned.insert(assignment.key.as_str()) {
             return Err(TransitionError::AssignmentMismatch);
         }
-        let (actual, src) = compile_expr_d2(
-            &assignment.value,
-            &mut instructions,
-            &mut register,
-            &request_registers,
-            &reads,
-            &inputs,
-            &mut used_reads,
-            &mut used_inputs,
-            &mut used_requests,
-        )?;
+        let (actual, src) = expr_compiler.compile(&assignment.value)?;
         if actual != expected {
             return Err(TransitionError::TypeMismatch);
         }
-        instructions.push(D2Instruction::WriteState {
+        expr_compiler.code.push(D2Instruction::WriteState {
             key: assignment.key.clone(),
             src,
         });
     }
     if assigned.len() != writes.len()
-        || used_reads.len() != reads.len()
-        || used_inputs.len() != inputs.len()
-        || used_requests.len() != requests.len()
+        || expr_compiler.used_reads.len() != reads.len()
+        || expr_compiler.used_inputs.len() != inputs.len()
+        || expr_compiler.used_requests.len() != requests.len()
     {
         return Err(TransitionError::InvalidSchema);
     }
+    drop(expr_compiler);
     let contract = StateContract::new(
         reads.keys().map(|k| (*k).to_string()),
         writes.keys().map(|k| (*k).to_string()),
@@ -472,101 +470,90 @@ fn compile_one_d2(
     Ok((declaration, proof, program, capability_labels))
 }
 
-fn compile_expr_d2(
-    expr: &InteractionExpr,
-    code: &mut Vec<D2Instruction>,
-    next: &mut usize,
-    request_registers: &BTreeMap<&str, (InteractionType, String)>,
-    reads: &BTreeMap<&str, InteractionType>,
-    inputs: &BTreeMap<&str, InteractionType>,
-    used_reads: &mut BTreeSet<String>,
-    used_inputs: &mut BTreeSet<String>,
-    used_requests: &mut BTreeSet<String>,
-) -> Result<(InteractionType, String), TransitionError> {
-    match expr {
-        InteractionExpr::Literal(value) => {
-            let (ty, value) = match value {
-                InteractionValue::Int(v) => (InteractionType::Int, D1Value::Int(*v)),
-                InteractionValue::Text(v) => (InteractionType::Text, D1Value::Text(v.clone())),
-                InteractionValue::Bool(v) => (InteractionType::Bool, D1Value::Bool(*v)),
-            };
-            let reg = format!("r{next}");
-            *next += 1;
-            code.push(D2Instruction::Constant {
-                dst: reg.clone(),
-                value,
-            });
-            Ok((ty, reg))
-        }
-        InteractionExpr::State(key) => {
-            let ty = *reads
-                .get(key.as_str())
-                .ok_or(TransitionError::UndeclaredRead)?;
-            used_reads.insert(key.clone());
-            let reg = format!("r{next}");
-            *next += 1;
-            code.push(D2Instruction::ReadState {
-                dst: reg.clone(),
-                key: key.clone(),
-            });
-            Ok((ty, reg))
-        }
-        InteractionExpr::Input(key) => {
-            let ty = *inputs
-                .get(key.as_str())
-                .ok_or(TransitionError::UndeclaredRead)?;
-            used_inputs.insert(key.clone());
-            let reg = format!("r{next}");
-            *next += 1;
-            code.push(D2Instruction::ReadInput {
-                dst: reg.clone(),
-                key: key.clone(),
-            });
-            Ok((ty, reg))
-        }
-        InteractionExpr::Effect(name) => {
-            let (value_type, reg) = request_registers
-                .get(name.as_str())
-                .ok_or(TransitionError::UndeclaredEffect)?;
-            if !used_requests.insert(name.clone()) {
-                return Err(TransitionError::DuplicateRequest);
+struct D2ExpressionCompiler<'a> {
+    code: &'a mut Vec<D2Instruction>,
+    next: &'a mut usize,
+    request_registers: &'a BTreeMap<&'a str, (InteractionType, String)>,
+    reads: &'a BTreeMap<&'a str, InteractionType>,
+    inputs: &'a BTreeMap<&'a str, InteractionType>,
+    used_reads: BTreeSet<String>,
+    used_inputs: BTreeSet<String>,
+    used_requests: BTreeSet<String>,
+}
+
+impl D2ExpressionCompiler<'_> {
+    fn compile(
+        &mut self,
+        expr: &InteractionExpr,
+    ) -> Result<(InteractionType, String), TransitionError> {
+        match expr {
+            InteractionExpr::Literal(value) => {
+                let (ty, value) = match value {
+                    InteractionValue::Int(v) => (InteractionType::Int, D1Value::Int(*v)),
+                    InteractionValue::Text(v) => (InteractionType::Text, D1Value::Text(v.clone())),
+                    InteractionValue::Bool(v) => (InteractionType::Bool, D1Value::Bool(*v)),
+                };
+                let reg = format!("r{}", *self.next);
+                *self.next += 1;
+                self.code.push(D2Instruction::Constant {
+                    dst: reg.clone(),
+                    value,
+                });
+                Ok((ty, reg))
             }
-            Ok((*value_type, reg.clone()))
-        }
-        InteractionExpr::Add(a, b) => {
-            let (ta, ra) = compile_expr_d2(
-                a,
-                code,
-                next,
-                request_registers,
-                reads,
-                inputs,
-                used_reads,
-                used_inputs,
-                used_requests,
-            )?;
-            let (tb, rb) = compile_expr_d2(
-                b,
-                code,
-                next,
-                request_registers,
-                reads,
-                inputs,
-                used_reads,
-                used_inputs,
-                used_requests,
-            )?;
-            if ta != InteractionType::Int || tb != InteractionType::Int {
-                return Err(TransitionError::TypeMismatch);
+            InteractionExpr::State(key) => {
+                let ty = *self
+                    .reads
+                    .get(key.as_str())
+                    .ok_or(TransitionError::UndeclaredRead)?;
+                self.used_reads.insert(key.clone());
+                let reg = format!("r{}", *self.next);
+                *self.next += 1;
+                self.code.push(D2Instruction::ReadState {
+                    dst: reg.clone(),
+                    key: key.clone(),
+                });
+                Ok((ty, reg))
             }
-            let reg = format!("r{next}");
-            *next += 1;
-            code.push(D2Instruction::AddInt {
-                dst: reg.clone(),
-                left: ra,
-                right: rb,
-            });
-            Ok((InteractionType::Int, reg))
+            InteractionExpr::Input(key) => {
+                let ty = *self
+                    .inputs
+                    .get(key.as_str())
+                    .ok_or(TransitionError::UndeclaredRead)?;
+                self.used_inputs.insert(key.clone());
+                let reg = format!("r{}", *self.next);
+                *self.next += 1;
+                self.code.push(D2Instruction::ReadInput {
+                    dst: reg.clone(),
+                    key: key.clone(),
+                });
+                Ok((ty, reg))
+            }
+            InteractionExpr::Effect(name) => {
+                let (value_type, reg) = self
+                    .request_registers
+                    .get(name.as_str())
+                    .ok_or(TransitionError::UndeclaredEffect)?;
+                if !self.used_requests.insert(name.clone()) {
+                    return Err(TransitionError::DuplicateRequest);
+                }
+                Ok((*value_type, reg.clone()))
+            }
+            InteractionExpr::Add(a, b) => {
+                let (ta, ra) = self.compile(a)?;
+                let (tb, rb) = self.compile(b)?;
+                if ta != InteractionType::Int || tb != InteractionType::Int {
+                    return Err(TransitionError::TypeMismatch);
+                }
+                let reg = format!("r{}", *self.next);
+                *self.next += 1;
+                self.code.push(D2Instruction::AddInt {
+                    dst: reg.clone(),
+                    left: ra,
+                    right: rb,
+                });
+                Ok((InteractionType::Int, reg))
+            }
         }
     }
 }
