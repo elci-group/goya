@@ -50,9 +50,8 @@ is not WebAssembly, and the adapter never labels it as WASM. The local Python
 test compares its stdout with the Rust reference VM's tree serialization.
 The D0 VEE submission path was not included in the live smoke recorded below;
 the interpretation of D0 Python stdout/result fields remains unverified.
-Callers may
-continue to use `SubmitRequest` directly for independently authored
-supported-language source.
+Callers may continue to use `SubmitRequest` directly for independently
+authored supported-language source.
 
 `request_from_d1_program` accepts a `D1Program` handle produced by the bounded
 canonical decoder (or compiler), plus explicit `D1Snapshot` and
