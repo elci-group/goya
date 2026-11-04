@@ -1994,7 +1994,9 @@ mod tests {
         assert!(request.capabilities.is_empty());
         assert_eq!(expected.next_state["count"], D1Value::Int(12));
         assert!(request.source_code.contains("GOYA_D2_VERSION = 1"));
-        assert!(request.source_code.contains("journal request or capability mismatch"));
+        assert!(request
+            .source_code
+            .contains("journal request or capability mismatch"));
         assert!(request.source_code.contains("GOYA-D2-EFFECT-JOURNAL/1"));
         assert!(!request.source_code.contains("subprocess"));
         assert!(!request.source_code.contains("socket"));
