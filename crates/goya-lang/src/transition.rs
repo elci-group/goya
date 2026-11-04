@@ -3,10 +3,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use goya_determinism::proofs::ExecutionProof;
-use goya_determinism::{DeterminismClass, EffectKind, ProcessDecl};
+use goya_determinism::{DeterminismClass, ProcessDecl};
 use goya_executable::{
     CapabilityLabel, D1Instruction, D1Outcome, D1Program, D1Snapshot, D1Value, D2Instruction,
-    D2Error, D2Outcome, D2Program, EffectJournal, EffectResultType, InputSnapshot, StateContract,
+    D2Outcome, D2Program, EffectJournal, EffectResultType, InputSnapshot, StateContract,
 };
 use goya_ir::ActionId;
 
@@ -498,6 +498,7 @@ fn compile_expr(
             });
             Ok((InteractionType::Int, reg))
         }
+        InteractionExpr::Effect(_) => Err(TransitionError::UndeclaredEffect),
     }
 }
 
