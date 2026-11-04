@@ -23,9 +23,16 @@ pub const HCAR_CONTRACT: &str = "GY-HCAR/1";
 /// callers must still choose an affinity policy separately.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CpuTopology {
+    pub cpus: Vec<CpuClassAssignment>,
     pub performance_cpus: usize,
     pub efficiency_cpus: usize,
     pub source: TopologySource,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CpuClassAssignment {
+    pub cpu_id: u32,
+    pub class: CoreClass,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,6 +42,38 @@ pub enum TopologySource {
 }
 
 impl CpuTopology {
+    /// Detect online Linux CPUs below `/sys/devices/system/cpu`.
+    /// Returns `None` when the online set or all usable class signals are
+    /// unavailable/incomplete. This does not set affinity or alter scheduling.
+    #[cfg(target_os = "linux")]
+    pub fn detect_linux() -> Option<Self> {
+        Self::detect_linux_from("/sys/devices/system/cpu")
+    }
+
+    /// Testable Linux sysfs reader. `root` contains `online` and `cpuN/`
+    /// directories with `cpu_capacity` or `acpi_cppc/highest_perf` files.
+    #[cfg(target_os = "linux")]
+    pub fn detect_linux_from(root: impl AsRef<std::path::Path>) -> Option<Self> {
+        use std::fs;
+        let root = root.as_ref();
+        let online = fs::read_to_string(root.join("online")).ok()?;
+        let ids = parse_cpu_list(&online)?;
+        let read_signal = |relative: &str| {
+            ids.iter()
+                .map(|id| {
+                    fs::read_to_string(root.join(format!("cpu{id}")).join(relative))
+                        .ok()?
+                        .trim()
+                        .parse::<u64>()
+                        .ok()
+                })
+                .collect::<Vec<Option<u64>>>()
+        };
+        let capacity = read_signal("cpu_capacity");
+        let highest_perf = read_signal("acpi_cppc/highest_perf");
+        Self::from_cpu_ids_and_signals(&ids, &capacity, &highest_perf)
+    }
+
     /// Classify complete per-CPU sysfs signal sets. Missing, malformed,
     /// non-positive, or uniform signals conservatively return `None`.
     /// `cpu_capacity` is preferred; ACPI highest_perf is fallback only.
@@ -52,7 +91,7 @@ impl CpuTopology {
             }
             let min = *parsed.iter().min()?;
             let max = *parsed.iter().max()?;
-            (min < max).then(|| {
+            (min < max && parsed.iter().all(|v| *v == min || *v == max)).then(|| {
                 (
                     parsed.iter().filter(|v| **v == max).count(),
                     parsed.iter().filter(|v| **v == min).count(),
@@ -72,6 +111,72 @@ impl CpuTopology {
             source: TopologySource::AcpiHighestPerformance,
         })
     }
+
+    fn from_cpu_ids_and_signals(
+        ids: &[u32],
+        capacity: &[Option<u64>],
+        highest_perf: &[Option<u64>],
+    ) -> Option<Self> {
+        if ids.is_empty() || ids.len() != capacity.len() || ids.len() != highest_perf.len() {
+            return None;
+        }
+        let (source, values) = if Self::from_sysfs_signals(capacity, &[]).is_some() {
+            (TopologySource::CpuCapacity, capacity)
+        } else if Self::from_sysfs_signals(&[], highest_perf).is_some() {
+            (TopologySource::AcpiHighestPerformance, highest_perf)
+        } else {
+            return None;
+        };
+        let parsed: Vec<u64> = values.iter().copied().collect::<Option<_>>()?;
+        let min = *parsed.iter().min()?;
+        let max = *parsed.iter().max()?;
+        let cpus: Vec<_> = ids
+            .iter()
+            .zip(parsed)
+            .map(|(cpu_id, value)| CpuClassAssignment {
+                cpu_id: *cpu_id,
+                class: if value == max {
+                    CoreClass::Performance
+                } else {
+                    CoreClass::Efficiency
+                },
+            })
+            .collect();
+        Some(Self {
+            performance_cpus: cpus
+                .iter()
+                .filter(|c| c.class == CoreClass::Performance)
+                .count(),
+            efficiency_cpus: cpus
+                .iter()
+                .filter(|c| c.class == CoreClass::Efficiency)
+                .count(),
+            cpus,
+            source,
+        })
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn parse_cpu_list(value: &str) -> Option<Vec<u32>> {
+    let mut ids = Vec::new();
+    for part in value.trim().split(',') {
+        let mut ends = part.split('-');
+        let start = ends.next()?.parse::<u32>().ok()?;
+        let end = ends
+            .next()
+            .map(str::parse::<u32>)
+            .transpose()
+            .ok()?
+            .unwrap_or(start);
+        if ends.next().is_some() || end < start || end - start > 4096 {
+            return None;
+        }
+        ids.extend(start..=end);
+    }
+    ids.sort_unstable();
+    ids.dedup();
+    (!ids.is_empty()).then_some(ids)
 }
 
 /// CPU core classes (GY-HCAR-001 §8).
