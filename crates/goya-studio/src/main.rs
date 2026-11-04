@@ -673,27 +673,16 @@ fn respond(
     expected_host: &str,
     source: &str,
     initial_preview: &str,
+    save_path: Option<&Path>,
 ) -> std::io::Result<()> {
     let (status, content_type, body) =
-        route_request(request, expected_host, source, initial_preview);
+        route_request_for_scene(request, expected_host, source, initial_preview, save_path);
     write!(stream, "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\nContent-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; frame-src 'self'\r\n\r\n{}", body.len(), body)
 }
 
 fn serve(path: &Path, port: u16) -> Result<(), String> {
-    let mut source = Vec::with_capacity(MAX_SCENE_BYTES as usize + 1);
-    File::open(path)
-        .map_err(|error| format!("cannot open scene: {error}"))?
-        .take(MAX_SCENE_BYTES + 1)
-        .read_to_end(&mut source)
-        .map_err(|error| format!("cannot read scene: {error}"))?;
-    if source.len() as u64 > MAX_SCENE_BYTES {
-        return Err(format!(
-            "scene exceeds the {} KiB preview limit",
-            MAX_SCENE_BYTES / 1024
-        ));
-    }
-    let source =
-        String::from_utf8(source).map_err(|error| format!("scene is not UTF-8: {error}"))?;
+    let save_path = fs::canonicalize(path).map_err(|error| format!("cannot resolve scene path: {error}"))?;
+    let source = read_scene_source(&save_path)?;
     let scene = SceneProject::from_source(source.clone(), Viewport::default())
         .map_err(|error| error.to_string())?;
     if scene.frame().nodes.len() > MAX_PREVIEW_NODES {
@@ -719,6 +708,7 @@ fn serve(path: &Path, port: u16) -> Result<(), String> {
                     &listener.local_addr().unwrap().to_string(),
                     &source,
                     &render_html(&scene),
+                    Some(&save_path),
                 );
             }
             Err(error) => {
