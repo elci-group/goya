@@ -47,11 +47,21 @@ pub struct CompiledInteraction {
 }
 
 impl CompiledInteraction {
-    pub fn name(&self) -> &str { &self.name }
-    pub fn trigger(&self) -> ActionId { self.trigger }
-    pub fn state_reads(&self) -> &[crate::scene::TypedKey] { &self.state_reads }
-    pub fn state_writes(&self) -> &[crate::scene::TypedKey] { &self.state_writes }
-    pub fn inputs(&self) -> &[crate::scene::TypedKey] { &self.inputs }
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+    pub fn trigger(&self) -> ActionId {
+        self.trigger
+    }
+    pub fn state_reads(&self) -> &[crate::scene::TypedKey] {
+        &self.state_reads
+    }
+    pub fn state_writes(&self) -> &[crate::scene::TypedKey] {
+        &self.state_writes
+    }
+    pub fn inputs(&self) -> &[crate::scene::TypedKey] {
+        &self.inputs
+    }
 
     /// Execute the transition while enforcing its immutable authored schema.
     /// The lower-level VM program is intentionally not exposed until a typed
@@ -81,7 +91,9 @@ impl CompiledInteraction {
         {
             return Err(TransitionError::InputTypeMismatch);
         }
-        let outcome = self.program.execute(state, inputs)
+        let outcome = self
+            .program
+            .execute(state, inputs)
             .map_err(|e| TransitionError::VmRejected(e.to_string()))?;
         validate_output_types(&self.state_writes, &outcome.next_state)?;
         Ok(outcome)
@@ -95,8 +107,13 @@ pub fn compile_d1_interactions(scene: &Scene) -> Result<Vec<CompiledInteraction>
     collect_buttons(&scene.root, &mut 0, &mut buttons);
     let mut names = BTreeSet::new();
     let mut bound_triggers = BTreeSet::new();
-    scene.interactions.iter().map(|i| {
-            if !names.insert(i.name.as_str()) { return Err(TransitionError::DuplicateInteractionName); }
+    scene
+        .interactions
+        .iter()
+        .map(|i| {
+            if !names.insert(i.name.as_str()) {
+                return Err(TransitionError::DuplicateInteractionName);
+            }
             let matches: Vec<_> = buttons
                 .iter()
                 .filter(|(name, _)| name == &i.trigger_button)
@@ -106,7 +123,9 @@ pub fn compile_d1_interactions(scene: &Scene) -> Result<Vec<CompiledInteraction>
                 [(_, id)] => *id,
                 _ => return Err(TransitionError::TriggerAmbiguous),
             };
-            if !bound_triggers.insert(trigger) { return Err(TransitionError::TriggerAlreadyBound); }
+            if !bound_triggers.insert(trigger.0) {
+                return Err(TransitionError::TriggerAlreadyBound);
+            }
             Ok(CompiledInteraction {
                 name: i.name.clone(),
                 trigger,
@@ -248,8 +267,12 @@ fn validate_output_types(
     next_state: &BTreeMap<String, D1Value>,
 ) -> Result<(), TransitionError> {
     if writes.iter().any(|key| {
-        next_state.get(&key.name).is_none_or(|value| !value_has_type(value, key.value_type))
-    }) { return Err(TransitionError::OutputTypeMismatch); }
+        next_state
+            .get(&key.name)
+            .is_none_or(|value| !value_has_type(value, key.value_type))
+    }) {
+        return Err(TransitionError::OutputTypeMismatch);
+    }
     Ok(())
 }
 
@@ -325,6 +348,7 @@ fn compile_expr(
 mod tests {
     use std::collections::BTreeMap;
 
+    use super::{validate_output_types, InteractionType};
     use crate::{compile_d1_interactions, parse, TransitionError};
     use goya_executable::{D1Snapshot, D1Value, InputSnapshot};
     use goya_ir::ActionId;
@@ -405,22 +429,37 @@ mod tests {
     fn duplicate_interaction_names_and_button_bindings_are_rejected() {
         let mut scene = parse(SOURCE).unwrap();
         scene.interactions.push(scene.interactions[0].clone());
-        assert_eq!(compile_d1_interactions(&scene), Err(TransitionError::DuplicateInteractionName));
+        assert_eq!(
+            compile_d1_interactions(&scene),
+            Err(TransitionError::DuplicateInteractionName)
+        );
         scene.interactions[1].name = "another".into();
-        assert_eq!(compile_d1_interactions(&scene), Err(TransitionError::TriggerAlreadyBound));
+        assert_eq!(
+            compile_d1_interactions(&scene),
+            Err(TransitionError::TriggerAlreadyBound)
+        );
     }
 
     #[test]
     fn duplicate_button_names_are_ambiguous() {
         let src = SOURCE.replace("@button plus {}", "@button plus {} @button plus {}");
         let scene = parse(&src).unwrap();
-        assert_eq!(compile_d1_interactions(&scene), Err(TransitionError::TriggerAmbiguous));
+        assert_eq!(
+            compile_d1_interactions(&scene),
+            Err(TransitionError::TriggerAmbiguous)
+        );
     }
 
     #[test]
     fn output_types_are_checked() {
-        let writes = [crate::scene::TypedKey { name: "count".into(), value_type: InteractionType::Int }];
+        let writes = [crate::scene::TypedKey {
+            name: "count".into(),
+            value_type: InteractionType::Int,
+        }];
         let output = BTreeMap::from([("count".into(), D1Value::Text("wrong".into()))]);
-        assert_eq!(validate_output_types(&writes, &output), Err(TransitionError::OutputTypeMismatch));
+        assert_eq!(
+            validate_output_types(&writes, &output),
+            Err(TransitionError::OutputTypeMismatch)
+        );
     }
 }
