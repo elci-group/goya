@@ -206,15 +206,15 @@ three-button acceptance geometry depends on it.
 | ~~GY-WAYLAND-001 live surface~~ | 1 (done) | 0.1 release gate |
 | PipeWire audio adapter (`goya-audio-linux` backend) | 2a (implemented) | real ARSEM output; host/device smoke recorded |
 | Hot-swap interface reconciliation + Tov CLI adapter | 2b (implemented) | release 0.2; CLI and compatibility tests |
-| EDC canonical lowering + D0 bytecode/reference VM | 2c (implemented, D0 scope) | deterministic compiled pure modules; D1/D2 effects deferred |
-| VEE submission API client | 3a (implemented, partial) | agent tool calls; no Goya bytecode worker or live VEE E2E |
+| EDC canonical lowering + D0 bytecode/reference VM + D1/D2 journals | 2c (implemented, partial) | D1 replay and D2 effect records exist; no general D1/D2 bytecode execution |
+| VEE submission API + bounded D0 data bridge | 3a (implemented, partial) | source/data submission; no Goya bytecode worker or live VEE E2E |
 | RUGID / 3form / Mesut / Theosis adapters | 3b (implemented) | release 0.3–0.4; local companion-tool smokes |
-| C2PA manifest tool integration | 3c (implemented) | artifact provenance; signer/trust policy external |
-| HRTF profile interface + multichannel output | 3d (implemented, partial) | beyond-stereo ARSEM; measured profiles remain external |
+| C2PA signing + explicit trust-aware verification | 3c (implemented, partial) | artifact provenance; deployment trust policy remains external |
+| HRTF profile loader + multichannel output | 3d (implemented, partial) | beyond-stereo ARSEM; measured profiles remain external |
 | RPI Level-2 learned anticipation (opt-in) | 3e (implemented) | anticipatory runtime |
-| GTK/AT-SPI bridge + accessibility conformance | 4 (bridge implemented, conformance open) | release 0.6; Orca/WCAG evidence remains |
-| SDK, Studio CLI, reproducible local package | 4 (implemented, partial) | release 0.6–1.0; full visual IDE/distribution remain |
-| Synthetic adversarial watermark benchmark | 4 (implemented, limited claim) | reproducible measurements; real codec/photo corpus remains |
+| GTK/AT-SPI live-refresh bridge + accessibility conformance | 4 (bridge implemented, conformance open) | release 0.6; Orca/WCAG evidence remains |
+| SDK, Studio CLI/browser preview, reproducible package + offline installer | 4 (implemented, partial) | release 0.6–1.0; full visual IDE/published distribution remain |
+| Synthetic watermark corpus + optional MJPEG round-trip | 4 (implemented, limited claim) | reproducible measurements; broader photo/codec corpus remains |
 
 ## Assurance note
 

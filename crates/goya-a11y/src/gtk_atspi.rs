@@ -11,6 +11,8 @@ use gtk::{
     Widget,
 };
 use std::fmt;
+use std::sync::mpsc;
+use std::time::Duration;
 
 /// User action dispatched from the accessible mirror to the host runtime.
 #[derive(Debug, Clone, PartialEq)]
@@ -53,13 +55,35 @@ impl GtkAtspiBridge {
     /// Run a GTK main loop and expose the semantic tree over AT-SPI.
     ///
     /// This call blocks until the accessible window closes. The supplied
-    /// callback routes keyboard/screen-reader actions back to the host; the
-    /// host should rebuild the bridge from the current DIG after state
-    /// changes so names and enabled/focused states stay synchronized.
+    /// callback routes keyboard/screen-reader actions back to the host. Use
+    /// [`run_with_updates`](Self::run_with_updates) to propagate later state
+    /// changes without closing and reopening the accessible window.
     pub fn run(&self, on_action: impl Fn(String, AtAction) + 'static) -> Result<(), GtkAtspiError> {
+        self.run_inner(None, on_action)
+    }
+
+    /// Run the bridge while accepting replacement snapshots from another
+    /// thread. Each received tree is projected into the existing window;
+    /// callers should send a fresh `A11yTree::from_dig` after state changes.
+    /// A bounded sync channel is recommended so stale snapshots cannot build
+    /// up when the GTK main loop is busy.
+    pub fn run_with_updates(
+        &self,
+        updates: mpsc::Receiver<A11yTree>,
+        on_action: impl Fn(String, AtAction) + 'static,
+    ) -> Result<(), GtkAtspiError> {
+        self.run_inner(Some(updates), on_action)
+    }
+
+    fn run_inner(
+        &self,
+        updates: Option<mpsc::Receiver<A11yTree>>,
+        on_action: impl Fn(String, AtAction) + 'static,
+    ) -> Result<(), GtkAtspiError> {
         let app_id = format!("org.goya.a11y.p{}", std::process::id());
         let app = Application::new(Some(&app_id), Default::default());
-        let tree = self.tree.clone();
+        let tree = std::rc::Rc::new(std::cell::RefCell::new(self.tree.clone()));
+        let updates = std::rc::Rc::new(std::cell::RefCell::new(updates));
         let title = self.title.clone();
         let on_action: std::rc::Rc<dyn Fn(String, AtAction)> = std::rc::Rc::new(on_action);
 
@@ -72,21 +96,104 @@ impl GtkAtspiBridge {
             content.set_margin_bottom(12);
             content.set_margin_start(12);
             content.set_margin_end(12);
-            let mut focused = None;
-
-            for root in tree.nodes.values().filter(|node| node.parent.is_none()) {
-                let widget = make_node(&tree, root, &on_action, &mut focused);
-                content.pack_start(&widget, false, false, 0);
-            }
+            populate(&content, &tree.borrow(), &on_action);
             window.add(&content);
             window.show_all();
-            if let Some(widget) = focused {
-                widget.grab_focus();
+
+            if let Some(updates) = updates.borrow_mut().take() {
+                let tree = tree.clone();
+                let content = content.clone();
+                let on_action = on_action.clone();
+                gtk::glib::timeout_add_local(Duration::from_millis(40), move || {
+                    let latest = match take_latest(&updates) {
+                        Ok(snapshot) => snapshot,
+                        Err(()) => return gtk::glib::ControlFlow::Break,
+                    };
+                    if let Some(snapshot) = latest {
+                        *tree.borrow_mut() = snapshot;
+                        while let Some(child) = content.children().first() {
+                            content.remove(child);
+                        }
+                        populate(&content, &tree.borrow(), &on_action);
+                        content.show_all();
+                    }
+                    gtk::glib::ControlFlow::Continue
+                });
             }
         });
 
         app.run();
         Ok(())
+    }
+}
+
+fn take_latest(updates: &mpsc::Receiver<A11yTree>) -> Result<Option<A11yTree>, ()> {
+    let mut latest = None;
+    loop {
+        match updates.try_recv() {
+            Ok(snapshot) => latest = Some(snapshot),
+            Err(mpsc::TryRecvError::Empty) => return Ok(latest),
+            Err(mpsc::TryRecvError::Disconnected) => return Err(()),
+        }
+    }
+}
+
+fn populate(content: &GtkBox, tree: &A11yTree, on_action: &std::rc::Rc<dyn Fn(String, AtAction)>) {
+    let mut focused = None;
+    for root in tree.nodes.values().filter(|node| node.parent.is_none()) {
+        let widget = make_node(tree, root, on_action, &mut focused);
+        content.pack_start(&widget, false, false, 0);
+    }
+    if let Some(widget) = focused {
+        widget.grab_focus();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use goya_ddh::{DdhNode, Dig, InteractionState, SemanticRole};
+
+    fn snapshot(label: &str) -> A11yTree {
+        let mut dig = Dig::new();
+        dig.put(
+            DdhNode {
+                id: "root".into(),
+                revision: 1,
+                role: SemanticRole::Window,
+                label: label.into(),
+                hit_region: goya_change::PixelRect::default(),
+                state: InteractionState {
+                    enabled: true,
+                    visible: true,
+                    focused: false,
+                },
+                actions: vec![],
+                exposed: true,
+                parent: None,
+            },
+            1,
+        );
+        A11yTree::from_dig(&dig)
+    }
+
+    #[test]
+    fn update_poll_coalesces_to_latest_snapshot_and_stops_when_sender_drops() {
+        let (tx, rx) = mpsc::channel();
+        tx.send(snapshot("old")).unwrap();
+        tx.send(snapshot("new")).unwrap();
+        assert_eq!(
+            take_latest(&rx)
+                .unwrap()
+                .unwrap()
+                .get("root")
+                .unwrap()
+                .accessible_name,
+            "new"
+        );
+        assert!(take_latest(&rx).unwrap().is_none());
+        drop(tx);
+        assert!(take_latest(&rx).is_err());
     }
 }
 

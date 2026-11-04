@@ -477,7 +477,7 @@ dependencies = [
 
 [[package]]
 name = "goya-a11y"
-version = "0.1.4"
+version = "0.1.6"
 dependencies = [
  "goya-change",
  "goya-chroma",
@@ -487,22 +487,22 @@ dependencies = [
 
 [[package]]
 name = "goya-artifact"
-version = "0.1.4"
+version = "0.1.6"
 
 [[package]]
 name = "goya-audio-dsp"
-version = "0.1.4"
+version = "0.1.6"
 
 [[package]]
 name = "goya-audio-linux"
-version = "0.1.4"
+version = "0.1.6"
 dependencies = [
  "goya-audio-dsp",
 ]
 
 [[package]]
 name = "goya-bench"
-version = "0.1.4"
+version = "0.1.6"
 dependencies = [
  "goya-artifact",
  "goya-watermark",
@@ -510,7 +510,7 @@ dependencies = [
 
 [[package]]
 name = "goya-bridge"
-version = "0.1.4"
+version = "0.1.6"
 dependencies = [
  "goya-bridge-physics",
  "goya-chroma",
@@ -518,33 +518,33 @@ dependencies = [
 
 [[package]]
 name = "goya-bridge-physics"
-version = "0.1.4"
+version = "0.1.6"
 
 [[package]]
 name = "goya-change"
-version = "0.1.4"
+version = "0.1.6"
 
 [[package]]
 name = "goya-chroma"
-version = "0.1.4"
+version = "0.1.6"
 
 [[package]]
 name = "goya-clipboard"
-version = "0.1.4"
+version = "0.1.6"
 dependencies = [
  "goya-provenance",
 ]
 
 [[package]]
 name = "goya-csr"
-version = "0.1.4"
+version = "0.1.6"
 dependencies = [
  "goya-change",
 ]
 
 [[package]]
 name = "goya-csr-cpu"
-version = "0.1.4"
+version = "0.1.6"
 dependencies = [
  "goya-change",
  "goya-csr",
@@ -554,7 +554,7 @@ dependencies = [
 
 [[package]]
 name = "goya-ddh"
-version = "0.1.4"
+version = "0.1.6"
 dependencies = [
  "goya-change",
  "goya-lang",
@@ -562,48 +562,49 @@ dependencies = [
 
 [[package]]
 name = "goya-determinism"
-version = "0.1.4"
+version = "0.1.6"
 
 [[package]]
 name = "goya-dgpm"
-version = "0.1.4"
+version = "0.1.6"
 dependencies = [
  "goya-change",
 ]
 
 [[package]]
 name = "goya-economics"
-version = "0.1.4"
+version = "0.1.6"
 
 [[package]]
 name = "goya-ecosystem"
-version = "0.1.4"
+version = "0.1.6"
 dependencies = [
  "goya-lang",
 ]
 
 [[package]]
 name = "goya-executable"
-version = "0.1.4"
+version = "0.1.6"
 dependencies = [
  "goya-determinism",
  "goya-ir",
+ "sha2",
 ]
 
 [[package]]
 name = "goya-fsc"
-version = "0.1.4"
+version = "0.1.6"
 dependencies = [
  "goya-change",
 ]
 
 [[package]]
 name = "goya-hcar"
-version = "0.1.4"
+version = "0.1.6"
 
 [[package]]
 name = "goya-hello"
-version = "0.1.4"
+version = "0.1.6"
 dependencies = [
  "goya-audio-dsp",
  "goya-audio-linux",
@@ -629,7 +630,7 @@ dependencies = [
 
 [[package]]
 name = "goya-hotswap"
-version = "0.1.4"
+version = "0.1.6"
 dependencies = [
  "goya-determinism",
  "goya-executable",
@@ -637,11 +638,11 @@ dependencies = [
 
 [[package]]
 name = "goya-ir"
-version = "0.1.4"
+version = "0.1.6"
 
 [[package]]
 name = "goya-lang"
-version = "0.1.4"
+version = "0.1.6"
 dependencies = [
  "goya-chroma",
  "goya-ir",
@@ -649,14 +650,14 @@ dependencies = [
 
 [[package]]
 name = "goya-layout"
-version = "0.1.4"
+version = "0.1.6"
 dependencies = [
  "goya-ir",
 ]
 
 [[package]]
 name = "goya-provenance"
-version = "0.1.4"
+version = "0.1.6"
 dependencies = [
  "ed25519-dalek",
  "rand_core",
@@ -664,19 +665,19 @@ dependencies = [
 
 [[package]]
 name = "goya-rars"
-version = "0.1.4"
+version = "0.1.6"
 
 [[package]]
 name = "goya-rpi"
-version = "0.1.4"
+version = "0.1.6"
 
 [[package]]
 name = "goya-rpi2"
-version = "0.1.4"
+version = "0.1.6"
 
 [[package]]
 name = "goya-runtime"
-version = "0.1.4"
+version = "0.1.6"
 dependencies = [
  "goya-ir",
  "goya-layout",
@@ -687,7 +688,7 @@ dependencies = [
 
 [[package]]
 name = "goya-sdk"
-version = "0.1.4"
+version = "0.1.6"
 dependencies = [
  "goya-ir",
  "goya-lang",
@@ -698,25 +699,25 @@ dependencies = [
 
 [[package]]
 name = "goya-settlement"
-version = "0.1.4"
+version = "0.1.6"
 dependencies = [
  "goya-x402",
 ]
 
 [[package]]
 name = "goya-sonic"
-version = "0.1.4"
+version = "0.1.6"
 
 [[package]]
 name = "goya-spatial-audio"
-version = "0.1.4"
+version = "0.1.6"
 dependencies = [
  "goya-layout",
 ]
 
 [[package]]
 name = "goya-speculation"
-version = "0.1.4"
+version = "0.1.6"
 dependencies = [
  "goya-ir",
  "goya-rpi",
@@ -725,30 +726,35 @@ dependencies = [
 
 [[package]]
 name = "goya-state"
-version = "0.1.4"
+version = "0.1.6"
 
 [[package]]
 name = "goya-studio"
-version = "0.1.4"
+version = "0.1.6"
 dependencies = [
  "goya-sdk",
 ]
 
 [[package]]
 name = "goya-tov"
-version = "0.1.4"
+version = "0.1.6"
 
 [[package]]
 name = "goya-vee"
-version = "0.1.4"
+version = "0.1.6"
+dependencies = [
+ "goya-determinism",
+ "goya-executable",
+ "goya-ir",
+]
 
 [[package]]
 name = "goya-watermark"
-version = "0.1.4"
+version = "0.1.6"
 
 [[package]]
 name = "goya-wayland"
-version = "0.1.4"
+version = "0.1.6"
 dependencies = [
  "goya-layout",
  "goya-runtime",
@@ -759,7 +765,7 @@ dependencies = [
 
 [[package]]
 name = "goya-x402"
-version = "0.1.4"
+version = "0.1.6"
 
 [[package]]
 name = "gtk"

@@ -9,7 +9,10 @@ mod redaction;
 
 pub mod signing;
 
-pub use c2pa_tool::{C2paSigningAlgorithm, C2paTool, C2paToolError, C2paToolReport};
+pub use c2pa_tool::{
+    C2paSigningAlgorithm, C2paTool, C2paToolError, C2paToolReport, C2paTrustOptions,
+    C2paVerificationReport,
+};
 pub use redaction::{redact, RedactionRecord};
 pub use signing::*;
 

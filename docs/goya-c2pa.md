@@ -38,11 +38,33 @@ let report = C2paTool::new().sign_asset(
 assert!(report.output_bytes.unwrap_or(0) > 0);
 ```
 
-`inspect_asset` returns c2patool's raw manifest report. Reading an asset is
-not equivalent to trusting its signer: configure and apply the official
-C2PA trust anchors/allow-list policy in the c2patool environment or invocation
-before treating a signature as trusted. The adapter does not infer trust from
-the Goya `key_role` metadata.
+`inspect_asset` returns c2patool's raw manifest report without trust inputs.
+For explicit trust evaluation, `verify_asset` invokes c2patool's `trust`
+subcommand with optional local PEM files:
+
+```rust,ignore
+use goya_provenance::{C2paTool, C2paTrustOptions};
+
+let result = C2paTool::new().verify_asset(
+    "signed.jpg",
+    &C2paTrustOptions {
+        trust_anchors: Some("/etc/goya/c2pa-roots.pem".into()),
+        allowed_list: Some("/etc/goya/c2pa-allowed-signers.pem".into()),
+    },
+)?;
+println!("{}", result.report.stdout);
+```
+
+Both files are optional. The trust-anchor file is PEM, and the allowed-list
+file contains specific manifest signing certificates that c2patool may
+implicitly trust. This API clears c2patool's trust-related environment
+overrides so only the supplied paths affect the invocation. Its result keeps
+the raw validation report and the policy inputs separate; a successful
+process exit is not reduced to either “signature valid” or “signer trusted.”
+Callers must interpret c2patool's individual validation results according to
+their policy. The adapter does not infer trust from Goya's `key_role`
+metadata. Tool runs are limited to 30 seconds, and captured stdout and stderr
+are each capped at 1 MiB.
 
 The integration follows the C2PA requirement that a standard manifest contain
 an assertion store, claim, claim signature, and one asset hard-binding

@@ -19,6 +19,8 @@
 //!   [`VeeClient::available`] to probe before submitting so the application
 //!   can continue without VEE.
 
+use goya_determinism::DeterminismClass;
+use goya_executable::{execute, CompiledProgram, Instruction, VmError, BYTECODE_VERSION};
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::time::Duration;
@@ -31,6 +33,166 @@ const IO_TIMEOUT: Duration = Duration::from_secs(10);
 /// Bound untrusted VEE responses so a peer cannot exhaust the caller's memory.
 const MAX_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
 const MAX_HEADER_BYTES: usize = 32 * 1024;
+/// The EDC bridge accepts only small declarative programs. These bounds are
+/// checked before producing a source string, so untrusted artifacts cannot
+/// cause unbounded allocation in this adapter.
+const MAX_EDC_INSTRUCTIONS: usize = 2_048;
+const MAX_EDC_STRING_BYTES: usize = 32 * 1024;
+const MAX_EDC_SOURCE_BYTES: usize = 256 * 1024;
+
+/// Convert a verified D0 bytecode artifact to a VEE Python request.
+///
+/// The generated Python contains only tuple and string/integer literals; it
+/// does not invoke a shell, import modules, or attempt to execute Goya
+/// bytecode. It is a deterministic data representation of the UI bytecode,
+/// not a Python implementation of Goya semantics.
+pub fn request_from_compiled_program(
+    program: &CompiledProgram,
+    agent_id: &str,
+) -> Result<SubmitRequest, VeeCompileError> {
+    if program.artifact.proof.class != DeterminismClass::Pure {
+        return Err(VeeCompileError::UnsupportedClass);
+    }
+    if agent_id.is_empty() || agent_id.len() > 128 || agent_id.chars().any(char::is_control) {
+        return Err(VeeCompileError::InvalidAgentId);
+    }
+    if program.bytecode.version != BYTECODE_VERSION {
+        return Err(VeeCompileError::UnsupportedBytecodeVersion(
+            program.bytecode.version,
+        ));
+    }
+    if program.bytecode.instructions.len() > MAX_EDC_INSTRUCTIONS {
+        return Err(VeeCompileError::TooManyInstructions);
+    }
+    let mut string_bytes = 0usize;
+    for instruction in &program.bytecode.instructions {
+        let added = match instruction {
+            Instruction::Text { content, .. } => content.len(),
+            Instruction::Button { label, .. } => label.len(),
+            _ => 0,
+        };
+        string_bytes = string_bytes
+            .checked_add(added)
+            .ok_or(VeeCompileError::StringDataTooLarge)?;
+        if string_bytes > MAX_EDC_STRING_BYTES {
+            return Err(VeeCompileError::StringDataTooLarge);
+        }
+    }
+    execute(&program.bytecode).map_err(VeeCompileError::InvalidBytecode)?;
+
+    let mut source = String::from(
+        "# Goya EDC D0 data export; inert literals, not executable Goya semantics.\n\
+         GOYA_EDC_BYTECODE_VERSION = 1\nGOYA_EDC_INSTRUCTIONS = (\n",
+    );
+    for instruction in &program.bytecode.instructions {
+        source.push_str("    ");
+        match instruction {
+            Instruction::BeginColumn { node, child_count } => {
+                source.push_str(&format!("('column', {}, {}),", node.0, child_count));
+            }
+            Instruction::BeginRow { node, child_count } => {
+                source.push_str(&format!("('row', {}, {}),", node.0, child_count));
+            }
+            Instruction::EndContainer => source.push_str("('end',),"),
+            Instruction::Text { node, content } => {
+                source.push_str(&format!("('text', {}, ", node.0));
+                push_python_string(&mut source, content);
+                source.push_str("),");
+            }
+            Instruction::Button {
+                node,
+                action,
+                label,
+            } => {
+                source.push_str(&format!("('button', {}, {}, ", node.0, action.0));
+                push_python_string(&mut source, label);
+                source.push_str("),");
+            }
+            Instruction::Spacer { node, size_bits } => {
+                source.push_str(&format!("('spacer_bits', {}, {}),", node.0, size_bits));
+            }
+        }
+        source.push('\n');
+        if source.len() > MAX_EDC_SOURCE_BYTES {
+            return Err(VeeCompileError::SourceTooLarge);
+        }
+    }
+    source.push_str(")\n");
+    if source.len() > MAX_EDC_SOURCE_BYTES {
+        return Err(VeeCompileError::SourceTooLarge);
+    }
+    Ok(SubmitRequest {
+        agent_id: agent_id.to_string(),
+        language: "python".to_string(),
+        source_code: source,
+        capabilities: Vec::new(),
+        budget: Some(VeeBudgetRequest {
+            cpu_seconds: Some(3),
+            memory_mb: Some(128),
+            disk_mb: Some(64),
+            token_budget: Some(1_024),
+            wall_clock_seconds: Some(5),
+        }),
+    })
+}
+
+/// Why a compiled program could not be represented as a bounded VEE request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VeeCompileError {
+    UnsupportedClass,
+    UnsupportedBytecodeVersion(u32),
+    InvalidAgentId,
+    TooManyInstructions,
+    StringDataTooLarge,
+    SourceTooLarge,
+    InvalidBytecode(VmError),
+}
+
+impl std::fmt::Display for VeeCompileError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnsupportedClass => f.write_str("VEE bridge accepts D0 programs only"),
+            Self::UnsupportedBytecodeVersion(version) => {
+                write!(f, "unsupported bytecode version {version}")
+            }
+            Self::InvalidAgentId => {
+                f.write_str("agent id must be 1-128 bytes without control characters")
+            }
+            Self::TooManyInstructions => {
+                f.write_str("program exceeds the VEE bridge instruction limit")
+            }
+            Self::StringDataTooLarge => {
+                f.write_str("program exceeds the VEE bridge string-data limit")
+            }
+            Self::SourceTooLarge => {
+                f.write_str("generated Python exceeds the VEE bridge source limit")
+            }
+            Self::InvalidBytecode(error) => write!(f, "invalid bytecode: {error}"),
+        }
+    }
+}
+
+impl std::error::Error for VeeCompileError {}
+
+/// Append a Python single-quoted string literal without relying on `repr` or
+/// external serializers. Non-ASCII characters are preserved as UTF-8.
+fn push_python_string(out: &mut String, value: &str) {
+    out.push('\'');
+    for ch in value.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '\'' => out.push_str("\\'"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            ch if (ch as u32) < 0x20 || (0x7f..=0x9f).contains(&(ch as u32)) => {
+                out.push_str(&format!("\\u{:04x}", ch as u32));
+            }
+            ch => out.push(ch),
+        }
+    }
+    out.push('\'');
+}
 
 /// Connection parameters for a VEE instance.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -398,6 +560,9 @@ fn scan_bool_field(body: &str, key: &str) -> Option<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use goya_determinism::proofs::ExecutionProof;
+    use goya_determinism::ProcessDecl;
+    use goya_ir::{Module, Node, NodeId};
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::thread;
@@ -416,6 +581,31 @@ mod tests {
                 wall_clock_seconds: Some(5),
             }),
         }
+    }
+
+    fn compiled_text(content: &str) -> CompiledProgram {
+        let module = Module {
+            nodes: vec![(
+                NodeId(1),
+                Node::Text {
+                    content: content.into(),
+                },
+            )],
+            root: Some(NodeId(1)),
+        };
+        goya_executable::compile_verified(
+            &module,
+            &ProcessDecl::new("vee-export", DeterminismClass::Pure, vec![]),
+            &ExecutionProof {
+                process: "vee-export".into(),
+                class: DeterminismClass::Pure,
+                compiler_version: "test".into(),
+                schema_version: 1,
+                policy_version: 1,
+                target: "test".into(),
+            },
+        )
+        .expect("compile test program")
     }
 
     /// Spawn a one-shot mock server: accepts one connection, optionally
@@ -475,6 +665,63 @@ mod tests {
         assert_eq!(
             json,
             "{\"agent_id\":\"goya-test\",\"language\":\"python\",\"source_code\":\"HALT\",\"capabilities\":[\"process_spawn\",\"network_read\"],\"budget\":{\"cpu_seconds\":3,\"memory_mb\":128,\"disk_mb\":64,\"token_budget\":800,\"wall_clock_seconds\":5}}"
+        );
+    }
+
+    #[test]
+    fn d0_program_becomes_deterministic_inert_python_request() {
+        let program = compiled_text("hi 'there'\\\nworld");
+        let first = request_from_compiled_program(&program, "goya-test").unwrap();
+        let second = request_from_compiled_program(&program, "goya-test").unwrap();
+        assert_eq!(first, second);
+        assert_eq!(first.language, "python");
+        assert!(first.capabilities.is_empty());
+        assert_eq!(first.budget.as_ref().unwrap().cpu_seconds, Some(3));
+        assert!(first
+            .source_code
+            .starts_with("# Goya EDC D0 data export; inert literals"));
+        assert!(first
+            .source_code
+            .contains("('text', 1, 'hi \\'there\\'\\\\\\nworld'),"));
+        assert!(first.source_code.contains("GOYA_EDC_BYTECODE_VERSION = 1"));
+        assert!(!first.source_code.contains("exec("));
+        assert!(!first.source_code.contains("subprocess"));
+    }
+
+    #[test]
+    fn d0_bridge_rejects_non_d0_bad_bytecode_and_oversized_strings() {
+        let mut non_d0 = compiled_text("small");
+        non_d0.artifact.proof.class = DeterminismClass::StateDeterministic;
+        assert_eq!(
+            request_from_compiled_program(&non_d0, "agent"),
+            Err(VeeCompileError::UnsupportedClass)
+        );
+
+        let mut tampered = compiled_text("small");
+        tampered.bytecode.content_hash ^= 1;
+        assert_eq!(
+            request_from_compiled_program(&tampered, "agent"),
+            Err(VeeCompileError::InvalidBytecode(VmError::HashMismatch))
+        );
+        assert_eq!(
+            request_from_compiled_program(
+                &compiled_text(&"x".repeat(MAX_EDC_STRING_BYTES + 1)),
+                "agent"
+            ),
+            Err(VeeCompileError::StringDataTooLarge)
+        );
+    }
+
+    #[test]
+    fn d0_bridge_validates_agent_id() {
+        let program = compiled_text("small");
+        assert_eq!(
+            request_from_compiled_program(&program, "bad\nid"),
+            Err(VeeCompileError::InvalidAgentId)
+        );
+        assert_eq!(
+            request_from_compiled_program(&program, ""),
+            Err(VeeCompileError::InvalidAgentId)
         );
     }
 

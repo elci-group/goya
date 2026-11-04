@@ -15,6 +15,10 @@ use goya_layout::Rect;
 
 /// Maximum number of taps accepted from a host HRTF profile.
 pub const MAX_HRTF_TAPS: usize = 1024;
+/// Maximum number of directional responses accepted by the text profile loader.
+pub const MAX_HRTF_RESPONSES: usize = 4096;
+/// Absolute coefficient limit for profile data, preventing pathological gains.
+pub const MAX_HRTF_TAP_MAGNITUDE: f32 = 16.0;
 
 /// Deterministic contract identifier for this crate.
 pub const SPATIAL_CONTRACT: &str = "GY-SPATIAL-AUDIO/1";
@@ -295,6 +299,172 @@ pub trait HrtfProfile {
     fn response(&self, direction: Direction) -> Option<HrtfResponse<'_>>;
 }
 
+/// Errors returned while loading the bounded `GY-HRTF/1` interchange format.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HrtfProfileError {
+    MissingHeader,
+    MissingSampleRate,
+    InvalidSampleRate,
+    InvalidDirection,
+    InvalidTaps,
+    DuplicateDirection,
+    TooManyResponses,
+}
+
+impl core::fmt::Display for HrtfProfileError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let message = match self {
+            Self::MissingHeader => "profile must start with GY-HRTF/1",
+            Self::MissingSampleRate => "profile is missing sample_rate_hz",
+            Self::InvalidSampleRate => "sample rate must be a positive integer",
+            Self::InvalidDirection => "profile contains an invalid direction",
+            Self::InvalidTaps => "profile taps must be finite and within supported bounds",
+            Self::DuplicateDirection => "profile contains duplicate directions",
+            Self::TooManyResponses => "profile exceeds the response count limit",
+        };
+        f.write_str(message)
+    }
+}
+
+impl std::error::Error for HrtfProfileError {}
+
+#[derive(Debug, Clone)]
+struct OwnedHrtfResponse {
+    direction: Direction,
+    left: Vec<f32>,
+    right: Vec<f32>,
+}
+
+/// An owned measured-filter profile loaded from the small deterministic
+/// `GY-HRTF/1` text interchange format. Lookup chooses the nearest measured
+/// direction by spherical angular distance; ties keep the earlier file row.
+/// No resampling or filter interpolation is performed.
+#[derive(Debug, Clone)]
+pub struct MeasuredHrtfProfile {
+    sample_rate_hz: u32,
+    responses: Vec<OwnedHrtfResponse>,
+}
+
+impl MeasuredHrtfProfile {
+    /// Parse a profile. Each data row is
+    /// `azimuth_deg,elevation_deg,left_taps,right_taps`; taps are
+    /// semicolon-separated decimal f32 values. Blank lines and `#` comments
+    /// are ignored after the required first-line header.
+    pub fn from_text(text: &str) -> Result<Self, HrtfProfileError> {
+        let mut lines = text.lines();
+        if lines.next().map(str::trim) != Some("GY-HRTF/1") {
+            return Err(HrtfProfileError::MissingHeader);
+        }
+        let mut sample_rate_hz = None;
+        let mut responses = Vec::new();
+        for raw_line in lines {
+            let line = raw_line.split('#').next().unwrap_or("").trim();
+            if line.is_empty() {
+                continue;
+            }
+            if let Some(value) = line.strip_prefix("sample_rate_hz=") {
+                let rate = value
+                    .trim()
+                    .parse::<u32>()
+                    .ok()
+                    .filter(|rate| *rate > 0)
+                    .ok_or(HrtfProfileError::InvalidSampleRate)?;
+                if sample_rate_hz.replace(rate).is_some() {
+                    return Err(HrtfProfileError::InvalidSampleRate);
+                }
+                continue;
+            }
+            if sample_rate_hz.is_none() {
+                return Err(HrtfProfileError::MissingSampleRate);
+            }
+            if responses.len() == MAX_HRTF_RESPONSES {
+                return Err(HrtfProfileError::TooManyResponses);
+            }
+            let fields: Vec<_> = line.split(',').map(str::trim).collect();
+            if fields.len() != 4 {
+                return Err(HrtfProfileError::InvalidTaps);
+            }
+            let azimuth = fields[0]
+                .parse::<f32>()
+                .map_err(|_| HrtfProfileError::InvalidDirection)?;
+            let elevation = fields[1]
+                .parse::<f32>()
+                .map_err(|_| HrtfProfileError::InvalidDirection)?;
+            let direction = Direction::new(azimuth, elevation)
+                .map_err(|_| HrtfProfileError::InvalidDirection)?;
+            if responses.iter().any(|entry: &OwnedHrtfResponse| {
+                let a = entry.direction.vector();
+                let b = direction.vector();
+                a[0] * b[0] + a[1] * b[1] + a[2] * b[2] > 1.0 - 1e-6
+            }) {
+                return Err(HrtfProfileError::DuplicateDirection);
+            }
+            let left = parse_hrtf_taps(fields[2])?;
+            let right = parse_hrtf_taps(fields[3])?;
+            responses.push(OwnedHrtfResponse {
+                direction,
+                left,
+                right,
+            });
+        }
+        let sample_rate_hz = sample_rate_hz.ok_or(HrtfProfileError::MissingSampleRate)?;
+        if responses.is_empty() {
+            return Err(HrtfProfileError::InvalidTaps);
+        }
+        Ok(Self {
+            sample_rate_hz,
+            responses,
+        })
+    }
+
+    /// Sample rate declared by the source data; callers must match or resample
+    /// the host stream themselves.
+    pub fn sample_rate_hz(&self) -> u32 {
+        self.sample_rate_hz
+    }
+}
+
+fn parse_hrtf_taps(field: &str) -> Result<Vec<f32>, HrtfProfileError> {
+    let mut taps = Vec::new();
+    for value in field.split(';') {
+        if taps.len() == MAX_HRTF_TAPS {
+            return Err(HrtfProfileError::InvalidTaps);
+        }
+        let tap = value
+            .trim()
+            .parse::<f32>()
+            .map_err(|_| HrtfProfileError::InvalidTaps)?;
+        if !tap.is_finite() || tap.abs() > MAX_HRTF_TAP_MAGNITUDE {
+            return Err(HrtfProfileError::InvalidTaps);
+        }
+        taps.push(tap);
+    }
+    if taps.is_empty() {
+        return Err(HrtfProfileError::InvalidTaps);
+    }
+    Ok(taps)
+}
+
+impl HrtfProfile for MeasuredHrtfProfile {
+    fn response(&self, direction: Direction) -> Option<HrtfResponse<'_>> {
+        let source = Direction::new(direction.azimuth_deg, direction.elevation_deg)
+            .ok()?
+            .vector();
+        let mut closest: Option<(&OwnedHrtfResponse, f32)> = None;
+        for entry in &self.responses {
+            let vector = entry.direction.vector();
+            let dot = source[0] * vector[0] + source[1] * vector[1] + source[2] * vector[2];
+            if closest.map_or(true, |(_, best)| dot > best) {
+                closest = Some((entry, dot));
+            }
+        }
+        closest.map(|(entry, _)| HrtfResponse {
+            left: &entry.left,
+            right: &entry.right,
+        })
+    }
+}
+
 /// Deterministic binaural FIR renderer backed by a host HRTF profile.
 ///
 /// Processing uses fixed-size history storage and writes interleaved L/R
@@ -335,7 +505,7 @@ impl<P: HrtfProfile> HrtfRenderer<P> {
                 .left
                 .iter()
                 .chain(response.right)
-                .any(|tap| !tap.is_finite())
+                .any(|tap| !tap.is_finite() || tap.abs() > MAX_HRTF_TAP_MAGNITUDE)
         {
             return Err(SpatialError::InvalidHrtf);
         }
@@ -603,5 +773,45 @@ mod tests {
             renderer.process(&[1.0], &mut [0.0; 1]),
             Err(SpatialError::ChannelCountMismatch)
         );
+    }
+
+    #[test]
+    fn measured_profile_parses_and_selects_nearest_direction() {
+        let profile = MeasuredHrtfProfile::from_text(
+            "GY-HRTF/1\nsample_rate_hz=48000\n# azimuth,elevation,left,right\n-90,0,1;0.5,0.25;0\n90,0,0.5,1;0.5\n",
+        ).unwrap();
+        assert_eq!(profile.sample_rate_hz(), 48_000);
+        let response = profile
+            .response(Direction::new(-80.0, 0.0).unwrap())
+            .unwrap();
+        assert_eq!(response.left, [1.0, 0.5]);
+        assert_eq!(response.right, [0.25, 0.0]);
+        // Equal-distance ties resolve to the first row, independent of hash order.
+        let tie = profile.response(Direction::new(0.0, 0.0).unwrap()).unwrap();
+        assert_eq!(tie.left, [1.0, 0.5]);
+    }
+
+    #[test]
+    fn measured_profile_rejects_malformed_and_unbounded_data() {
+        assert!(matches!(
+            MeasuredHrtfProfile::from_text("sample_rate_hz=48000"),
+            Err(HrtfProfileError::MissingHeader)
+        ));
+        assert!(matches!(
+            MeasuredHrtfProfile::from_text("GY-HRTF/1\n0,0,1,1"),
+            Err(HrtfProfileError::MissingSampleRate)
+        ));
+        assert!(matches!(
+            MeasuredHrtfProfile::from_text("GY-HRTF/1\nsample_rate_hz=48000\n0,0,1,1\n0,0,1,1"),
+            Err(HrtfProfileError::DuplicateDirection)
+        ));
+        assert!(matches!(
+            MeasuredHrtfProfile::from_text("GY-HRTF/1\nsample_rate_hz=48000\n0,0,NaN,1"),
+            Err(HrtfProfileError::InvalidTaps)
+        ));
+        assert!(matches!(
+            MeasuredHrtfProfile::from_text("GY-HRTF/1\nsample_rate_hz=48000\n0,0,17,1"),
+            Err(HrtfProfileError::InvalidTaps)
+        ));
     }
 }

@@ -2,7 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use goya_bench::{Benchmark, BenchmarkResult};
+use goya_bench::{measure_ffmpeg_mjpeg, Benchmark, BenchmarkResult};
 
 fn main() -> ExitCode {
     match run() {
@@ -21,14 +21,15 @@ fn run() -> Result<(), String> {
     let mut key = 0x0A11_CEC0_FFEEu64;
     let mut alpha = 24.0f64;
     let mut output: Option<PathBuf> = None;
+    let mut codec_roundtrip = false;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--help" | "-h" => {
                 println!(
-                    "Usage: goya-watermark-benchmark [--seed N] [--images N] [--size PX] [--key HEX] [--alpha N] [--output PATH]\n\
+                    "Usage: goya-watermark-benchmark [--seed N] [--images N] [--size PX] [--key HEX] [--alpha N] [--codec-roundtrip] [--output PATH]\n\
                      Defaults: seed={seed}, images={images}, size={size}, key={key:016x}, alpha={alpha}.\n\
-                     Reports exact measurements for deterministic image-edit surrogates; no general codec robustness is implied."
+                     Reports deterministic pixel-surrogate measurements; --codec-roundtrip optionally measures installed ffmpeg MJPEG. No general codec robustness is implied."
                 );
                 return Ok(());
             }
@@ -58,6 +59,7 @@ fn run() -> Result<(), String> {
                     .map_err(|_| "--alpha must be a finite number in 1..=64".to_string())?;
             }
             "--output" => output = Some(PathBuf::from(value(&mut args, "--output")?)),
+            "--codec-roundtrip" => codec_roundtrip = true,
             unknown => return Err(format!("unknown argument `{unknown}` (use --help)")),
         }
     }
@@ -78,7 +80,10 @@ fn run() -> Result<(), String> {
         return Err("--alpha must be finite and between 1 and 64".into());
     }
 
-    let result: BenchmarkResult = Benchmark.run_adversarial(seed, images, size, key, alpha);
+    let mut result: BenchmarkResult = Benchmark.run_adversarial(seed, images, size, key, alpha);
+    if codec_roundtrip {
+        measure_ffmpeg_mjpeg(&mut result, "ffmpeg");
+    }
     let json = result.to_json();
     if let Some(path) = output {
         fs::write(&path, json)

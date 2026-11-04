@@ -9,14 +9,18 @@
 
 use std::fmt;
 use std::fs::{self, OpenOptions};
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use crate::{KeyRole, ManifestClaims};
 
 const GOYA_ASSERTION_LABEL: &str = "org.goya.provenance.claims.v1";
+const TOOL_TIMEOUT: Duration = Duration::from_secs(30);
+const MAX_TOOL_OUTPUT: usize = 1024 * 1024;
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 /// Signing algorithms accepted by official c2patool releases.
@@ -57,6 +61,31 @@ pub struct C2paToolReport {
     pub output_bytes: Option<u64>,
 }
 
+/// Optional local trust inputs passed to c2patool's `trust` subcommand.
+///
+/// These paths are supplied explicitly and are never inherited from the
+/// `C2PATOOL_*` environment variables.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct C2paTrustOptions {
+    /// PEM file containing trust anchors.
+    pub trust_anchors: Option<PathBuf>,
+    /// PEM file containing manifest signing certificates to implicitly trust.
+    pub allowed_list: Option<PathBuf>,
+}
+
+/// Raw result of a trust-policy verification run.
+///
+/// c2patool's output contains the individual validation results. This type
+/// intentionally does not reduce them to a single `trusted` or
+/// `signature_valid` boolean.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct C2paVerificationReport {
+    /// Tool output with its individual C2PA validation results.
+    pub report: C2paToolReport,
+    /// Trust inputs explicitly applied to this invocation.
+    pub trust_options: C2paTrustOptions,
+}
+
 /// Errors from the official C2PA command adapter.
 #[derive(Debug)]
 pub enum C2paToolError {
@@ -64,6 +93,7 @@ pub enum C2paToolError {
     InvalidOutput(PathBuf),
     InvalidSigner(PathBuf),
     InvalidCertificate(PathBuf),
+    InvalidTrustFile(PathBuf),
     ToolUnavailable(PathBuf),
     Launch(io::Error),
     ToolFailed {
@@ -73,6 +103,7 @@ pub enum C2paToolError {
     },
     MissingOutput(PathBuf),
     TemporaryManifest(io::Error),
+    TimedOut(Duration),
 }
 
 impl fmt::Display for C2paToolError {
@@ -92,6 +123,9 @@ impl fmt::Display for C2paToolError {
                     path.display()
                 )
             }
+            Self::InvalidTrustFile(path) => {
+                write!(f, "trust input is not a readable file: {}", path.display())
+            }
             Self::ToolUnavailable(path) => {
                 write!(f, "C2PA tool is unavailable: {}", path.display())
             }
@@ -108,6 +142,7 @@ impl fmt::Display for C2paToolError {
                 f,
                 "could not create temporary C2PA manifest definition: {error}"
             ),
+            Self::TimedOut(timeout) => write!(f, "c2patool exceeded its {timeout:?} time limit"),
         }
     }
 }
@@ -219,14 +254,92 @@ impl C2paTool {
         Ok(report(output, None, None))
     }
 
-    fn run(&self, mut command: Command) -> Result<Output, C2paToolError> {
-        let output = command.output().map_err(|error| {
+    /// Verify an asset using c2patool's configured trust evaluation.
+    ///
+    /// An empty `trust_options` still runs the tool's verification command but
+    /// does not establish trust in any particular signer. The result retains
+    /// c2patool's separate validation details; process success is not collapsed
+    /// into either signature validity or signer trust.
+    pub fn verify_asset(
+        &self,
+        asset: impl AsRef<Path>,
+        trust_options: &C2paTrustOptions,
+    ) -> Result<C2paVerificationReport, C2paToolError> {
+        let asset = asset.as_ref();
+        validate_asset(asset)?;
+        validate_trust_options(trust_options)?;
+        let mut command = Command::new(&self.executable);
+        command.arg(asset).arg("trust");
+        if let Some(path) = &trust_options.trust_anchors {
+            command.arg("--trust_anchors").arg(path);
+        }
+        if let Some(path) = &trust_options.allowed_list {
+            command.arg("--allowed_list").arg(path);
+        }
+        command
+            .env_remove("C2PATOOL_TRUST_ANCHORS")
+            .env_remove("C2PATOOL_ALLOWED_LIST")
+            .env_remove("C2PATOOL_TRUST_CONFIG");
+        let output = self.run(command)?;
+        Ok(C2paVerificationReport {
+            report: report(output, None, None),
+            trust_options: trust_options.clone(),
+        })
+    }
+
+    fn run(&self, mut command: Command) -> Result<CapturedOutput, C2paToolError> {
+        command.stdout(Stdio::piped()).stderr(Stdio::piped());
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            // Put c2patool and any signer it starts in one process group so a
+            // timeout cannot leave a child holding our captured output pipes.
+            command.process_group(0);
+        }
+        let mut child = command.spawn().map_err(|error| {
             if error.kind() == io::ErrorKind::NotFound {
                 C2paToolError::ToolUnavailable(self.executable.clone())
             } else {
                 C2paToolError::Launch(error)
             }
         })?;
+        let stdout = child.stdout.take().expect("stdout was piped");
+        let stderr = child.stderr.take().expect("stderr was piped");
+        let stdout_reader = thread::spawn(move || read_capped(stdout));
+        let stderr_reader = thread::spawn(move || read_capped(stderr));
+        let deadline = Instant::now() + TOOL_TIMEOUT;
+        let status = loop {
+            match child.try_wait() {
+                Ok(Some(status)) => break status,
+                Ok(None) => {}
+                Err(error) => {
+                    kill_process_tree(&mut child);
+                    let _ = child.wait();
+                    let _ = stdout_reader.join();
+                    let _ = stderr_reader.join();
+                    return Err(C2paToolError::Launch(error));
+                }
+            }
+            if Instant::now() >= deadline {
+                kill_process_tree(&mut child);
+                let _ = child.wait();
+                let _ = stdout_reader.join();
+                let _ = stderr_reader.join();
+                return Err(C2paToolError::TimedOut(TOOL_TIMEOUT));
+            }
+            thread::sleep(Duration::from_millis(10));
+        };
+        let (stdout, stdout_truncated) = stdout_reader
+            .join()
+            .unwrap_or_else(|_| (b"<output capture failed>".to_vec(), false));
+        let (stderr, stderr_truncated) = stderr_reader
+            .join()
+            .unwrap_or_else(|_| (b"<output capture failed>".to_vec(), false));
+        let output = CapturedOutput {
+            status,
+            stdout: append_truncation_marker(stdout, stdout_truncated),
+            stderr: append_truncation_marker(stderr, stderr_truncated),
+        };
         if !output.status.success() {
             return Err(C2paToolError::ToolFailed {
                 status: output.status.code(),
@@ -236,6 +349,70 @@ impl C2paTool {
         }
         Ok(output)
     }
+}
+
+fn kill_process_tree(child: &mut std::process::Child) {
+    #[cfg(unix)]
+    {
+        // SAFETY: child.id() is the process group id assigned by process_group(0).
+        unsafe extern "C" {
+            fn kill(pid: i32, signal: i32) -> i32;
+        }
+        const SIGKILL: i32 = 9;
+        // Negative pid targets the process group. Ignore ESRCH and other
+        // errors; child.wait() below still reaps the direct child.
+        let _ = unsafe { kill(-(child.id() as i32), SIGKILL) };
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = child.kill();
+    }
+}
+
+struct CapturedOutput {
+    status: ExitStatus,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+}
+
+fn read_capped(mut reader: impl Read) -> (Vec<u8>, bool) {
+    let mut captured = Vec::with_capacity(MAX_TOOL_OUTPUT.min(8192));
+    let mut buffer = [0u8; 8192];
+    let mut truncated = false;
+    loop {
+        match reader.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(count) => {
+                let remaining = MAX_TOOL_OUTPUT.saturating_sub(captured.len());
+                let keep = count.min(remaining);
+                captured.extend_from_slice(&buffer[..keep]);
+                truncated |= keep < count;
+            }
+            Err(_) => break,
+        }
+    }
+    (captured, truncated)
+}
+
+fn append_truncation_marker(mut bytes: Vec<u8>, truncated: bool) -> Vec<u8> {
+    if truncated {
+        bytes.extend_from_slice(b"\n<output truncated at 1048576 bytes>\n");
+    }
+    bytes
+}
+
+fn validate_trust_options(options: &C2paTrustOptions) -> Result<(), C2paToolError> {
+    for path in [&options.trust_anchors, &options.allowed_list]
+        .into_iter()
+        .flatten()
+    {
+        match fs::metadata(path) {
+            Ok(metadata) if metadata.is_file() && metadata.len() > 0 && path.to_str().is_some() => {
+            }
+            _ => return Err(C2paToolError::InvalidTrustFile(path.clone())),
+        }
+    }
+    Ok(())
 }
 
 fn validate_asset(path: &Path) -> Result<(), C2paToolError> {
@@ -288,7 +465,7 @@ fn validate_output(asset: &Path, output: &Path, overwrite: bool) -> Result<(), C
     Ok(())
 }
 
-fn report(output: Output, path: Option<PathBuf>, bytes: Option<u64>) -> C2paToolReport {
+fn report(output: CapturedOutput, path: Option<PathBuf>, bytes: Option<u64>) -> C2paToolReport {
     C2paToolReport {
         stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
         stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
@@ -550,6 +727,68 @@ mod tests {
             tool.inspect_asset(&asset),
             Err(C2paToolError::ToolUnavailable(_))
         ));
+        fs::remove_file(asset).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn verifies_with_explicit_trust_inputs_without_interpreting_them_as_signature_status() {
+        let dir = unique_temp("verify");
+        fs::create_dir(&dir).unwrap();
+        let asset = dir.join("asset with spaces.jpg");
+        let anchors = dir.join("anchors with spaces.pem");
+        let allowed = dir.join("allowed.pem");
+        fs::write(&asset, b"asset").unwrap();
+        fs::write(&anchors, b"anchor cert").unwrap();
+        fs::write(&allowed, b"allowed cert").unwrap();
+        let tool = FakeTool::new("printf '%s\\n' \"$@\"");
+        let options = C2paTrustOptions {
+            trust_anchors: Some(anchors.clone()),
+            allowed_list: Some(allowed.clone()),
+        };
+        let result = C2paTool::with_executable(&tool.0)
+            .verify_asset(&asset, &options)
+            .unwrap();
+        let args: Vec<_> = result.report.stdout.lines().collect();
+        assert_eq!(args[0], asset.to_str().unwrap());
+        assert_eq!(args[1], "trust");
+        assert_eq!(args[2], "--trust_anchors");
+        assert_eq!(args[3], anchors.to_str().unwrap());
+        assert_eq!(args[4], "--allowed_list");
+        assert_eq!(args[5], allowed.to_str().unwrap());
+        assert_eq!(result.trust_options, options);
+        // The API returns c2patool's distinct validation text and policy; it
+        // deliberately provides no aggregate trust/signature boolean.
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_missing_trust_input_before_launching_the_tool() {
+        let asset = unique_temp("verify-input");
+        fs::write(&asset, b"asset").unwrap();
+        let result = C2paTool::with_executable(unique_temp("should-not-run")).verify_asset(
+            &asset,
+            &C2paTrustOptions {
+                trust_anchors: Some(unique_temp("missing-anchor")),
+                allowed_list: None,
+            },
+        );
+        assert!(matches!(result, Err(C2paToolError::InvalidTrustFile(_))));
+        fs::remove_file(asset).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn caps_captured_tool_output() {
+        let asset = unique_temp("large-output-asset");
+        fs::write(&asset, b"asset").unwrap();
+        let tool = FakeTool::new("yes x | head -c 1100000");
+        let result = C2paTool::with_executable(&tool.0)
+            .inspect_asset(&asset)
+            .unwrap();
+        assert!(result.stdout.len() < MAX_TOOL_OUTPUT + 128);
+        assert!(result.stdout.contains("output truncated"));
         fs::remove_file(asset).unwrap();
     }
 }

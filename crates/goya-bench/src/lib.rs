@@ -12,6 +12,8 @@
 //! robustness thresholds always trace back to a reproducible run.
 
 use goya_watermark::{detect, embed};
+use std::io::Write;
+use std::process::{Command, Stdio};
 
 /// xorshift64 PRNG for deterministic corpus and noise generation.
 struct Xorshift64(u64);
@@ -626,6 +628,7 @@ impl Benchmark {
             corpus_fingerprint,
             transformations,
             report,
+            codec_roundtrip: Some(CodecRoundTripReport::not_requested()),
         }
     }
 }
@@ -643,6 +646,192 @@ pub struct BenchmarkResult {
     pub corpus_fingerprint: u64,
     pub transformations: Vec<Compression>,
     pub report: RobustnessReport,
+    /// Optional measurement through an installed external image codec.
+    pub codec_roundtrip: Option<CodecRoundTripReport>,
+}
+
+/// Result of an optional real encoder/decoder measurement.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CodecRoundTripReport {
+    /// `not_requested`, `measured`, or `unavailable`.
+    pub status: String,
+    pub codec: String,
+    pub encoder_version: Option<String>,
+    pub note: Option<String>,
+    pub qualities: Vec<CodecQualityResult>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CodecQualityResult {
+    pub quality: u8,
+    pub samples: usize,
+    pub hits: usize,
+    pub detection_rate: f64,
+    pub mean_max_delta: f64,
+}
+
+impl CodecRoundTripReport {
+    fn not_requested() -> Self {
+        Self {
+            status: "not_requested".into(),
+            codec: "mjpeg".into(),
+            encoder_version: None,
+            note: None,
+            qualities: Vec::new(),
+        }
+    }
+}
+
+/// Measure an MJPEG encode/decode round-trip using an installed `ffmpeg`.
+/// Failures are reported as unavailable so optional codec support cannot
+/// prevent the deterministic surrogate benchmark from completing.
+pub fn measure_ffmpeg_mjpeg(result: &mut BenchmarkResult, executable: &str) {
+    let version = match Command::new(executable).arg("-version").output() {
+        Ok(output) if output.status.success() => String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .next()
+            .unwrap_or("ffmpeg version unavailable")
+            .to_string(),
+        Ok(_) => {
+            result.codec_roundtrip = Some(codec_unavailable(None, "ffmpeg -version failed"));
+            return;
+        }
+        Err(error) => {
+            result.codec_roundtrip = Some(codec_unavailable(
+                None,
+                &format!("could not start ffmpeg: {error}"),
+            ));
+            return;
+        }
+    };
+    let corpus = Corpus::adversarial(result.seed, result.n_images, result.width);
+    let mut qualities = Vec::new();
+    for quality in [2u8, 5, 8] {
+        let mut hits = 0usize;
+        let mut delta_sum = 0.0;
+        for image in &corpus {
+            let marked = embed(
+                &image.pixels,
+                image.w,
+                image.h,
+                result.key,
+                image.payload,
+                result.alpha,
+            );
+            let quality_arg = quality.to_string();
+            let size_arg = format!("{}x{}", image.w, image.h);
+            let Some(encoded) = ffmpeg_pipe(
+                executable,
+                &[
+                    "-v",
+                    "error",
+                    "-f",
+                    "rawvideo",
+                    "-pix_fmt",
+                    "gray",
+                    "-s:v",
+                    &size_arg,
+                    "-i",
+                    "pipe:0",
+                    "-frames:v",
+                    "1",
+                    "-an",
+                    "-c:v",
+                    "mjpeg",
+                    "-q:v",
+                    &quality_arg,
+                    "-f",
+                    "image2pipe",
+                    "-vcodec",
+                    "mjpeg",
+                    "pipe:1",
+                ],
+                &marked,
+            ) else {
+                result.codec_roundtrip = Some(codec_unavailable(
+                    Some(version),
+                    &format!("ffmpeg MJPEG encode failed at quality {quality}"),
+                ));
+                return;
+            };
+            let Some(decoded) = ffmpeg_pipe(
+                executable,
+                &[
+                    "-v",
+                    "error",
+                    "-f",
+                    "image2pipe",
+                    "-vcodec",
+                    "mjpeg",
+                    "-i",
+                    "pipe:0",
+                    "-frames:v",
+                    "1",
+                    "-f",
+                    "rawvideo",
+                    "-pix_fmt",
+                    "gray",
+                    "pipe:1",
+                ],
+                &encoded,
+            ) else {
+                result.codec_roundtrip = Some(codec_unavailable(
+                    Some(version),
+                    &format!("ffmpeg MJPEG decode failed at quality {quality}"),
+                ));
+                return;
+            };
+            if decoded.len() != marked.len() {
+                result.codec_roundtrip = Some(codec_unavailable(
+                    Some(version),
+                    &format!("decoded frame size mismatch at quality {quality}"),
+                ));
+                return;
+            }
+            if detect(&decoded, image.w, image.h, result.key) == Some(image.payload) {
+                hits += 1;
+            }
+            delta_sum += f64::from(max_delta(
+                &marked, image.w, image.h, &decoded, image.w, image.h,
+            ));
+        }
+        qualities.push(CodecQualityResult {
+            quality,
+            samples: corpus.len(),
+            hits,
+            detection_rate: rate(hits, corpus.len()),
+            mean_max_delta: if corpus.is_empty() {
+                0.0
+            } else {
+                delta_sum / corpus.len() as f64
+            },
+        });
+    }
+    result.codec_roundtrip = Some(CodecRoundTripReport { status: "measured".into(), codec: "mjpeg".into(),
+        encoder_version: Some(version), note: Some("Synthetic grayscale corpus; applies only to this ffmpeg MJPEG round-trip and these qualities.".into()), qualities });
+}
+
+fn codec_unavailable(version: Option<String>, note: &str) -> CodecRoundTripReport {
+    CodecRoundTripReport {
+        status: "unavailable".into(),
+        codec: "mjpeg".into(),
+        encoder_version: version,
+        note: Some(note.into()),
+        qualities: Vec::new(),
+    }
+}
+
+fn ffmpeg_pipe(executable: &str, args: &[&str], input: &[u8]) -> Option<Vec<u8>> {
+    let mut child = Command::new(executable)
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    child.stdin.take()?.write_all(input).ok()?;
+    let output = child.wait_with_output().ok()?;
+    output.status.success().then_some(output.stdout)
 }
 
 impl BenchmarkResult {
@@ -678,13 +867,28 @@ impl BenchmarkResult {
             ));
         }
         json.push_str(&format!(
-            "\n  ],\n  \"false_positive_controls\":{},\n  \"false_positives\":{},\n  \"false_positive_rate\":{:.8},\n  \"valid_images\":{},\n  \"invalid_images\":{}\n}}\n",
+            "\n  ],\n  \"false_positive_controls\":{},\n  \"false_positives\":{},\n  \"false_positive_rate\":{:.8},\n  \"valid_images\":{},\n  \"invalid_images\":{}",
             self.report.false_positive_controls,
             self.report.false_positives,
             self.report.false_positive_rate,
             self.report.n_valid_images,
             self.report.n_invalid_images
         ));
+        if let Some(codec) = &self.codec_roundtrip {
+            json.push_str(&format!(",\n  \"codec_roundtrip\":{{\"status\":\"{}\",\"codec\":\"{}\",\"encoder_version\":{},\"note\":{},\"qualities\":[",
+                json_escape(&codec.status), json_escape(&codec.codec),
+                codec.encoder_version.as_ref().map(|v| format!("\"{}\"", json_escape(v))).unwrap_or_else(|| "null".into()),
+                codec.note.as_ref().map(|v| format!("\"{}\"", json_escape(v))).unwrap_or_else(|| "null".into())));
+            for (index, quality) in codec.qualities.iter().enumerate() {
+                if index > 0 {
+                    json.push(',');
+                }
+                json.push_str(&format!("{{\"quality\":{},\"samples\":{},\"hits\":{},\"detection_rate\":{:.6},\"mean_max_delta\":{:.3}}}",
+                    quality.quality, quality.samples, quality.hits, quality.detection_rate, quality.mean_max_delta));
+            }
+            json.push_str("]}");
+        }
+        json.push_str("\n}\n");
         json
     }
 }
@@ -950,10 +1154,24 @@ mod tests {
         assert!(json.contains(
             "\"threshold_policy\":\"measurements only; no general robustness threshold\""
         ));
+        assert!(json.contains("\"codec_roundtrip\":{\"status\":\"not_requested\""));
         assert_eq!(
             json,
             Benchmark.run_adversarial(42, 6, 64, KEY, ALPHA).to_json()
         );
+    }
+
+    #[test]
+    fn unavailable_optional_codec_is_explicit_and_keeps_surrogate_results() {
+        let mut result = Benchmark.run_adversarial(42, 1, 64, KEY, ALPHA);
+        measure_ffmpeg_mjpeg(&mut result, "/definitely/missing/ffmpeg");
+        let codec = result.codec_roundtrip.as_ref().unwrap();
+        assert_eq!(codec.status, "unavailable");
+        assert!(codec.note.as_deref().unwrap().contains("could not start"));
+        assert_eq!(result.report.transforms.len(), 15);
+        let json = result.to_json();
+        assert!(json.contains("\"status\":\"unavailable\""));
+        assert!(json.ends_with("}\n"));
     }
 
     #[test]

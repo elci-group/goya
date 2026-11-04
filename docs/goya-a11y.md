@@ -28,12 +28,22 @@ activation/value callbacks carry the stable Goya node id back to the host.
 Only nodes in the exported A11yTree are exposed, so hidden DIG nodes remain
 hidden from assistive technology.
 
-The bridge currently publishes a snapshot. After a state change, the host
-must rebuild the tree and reopen/update the bridge to refresh enabled and
-focused state. The semantic projection and contrast helpers do not by
-themselves establish WCAG conformance. A release conformance run must also
-exercise each supported screen reader, keyboard traversal, focus changes,
-announced values, and contrast against actual rendered colors.
+`run` publishes the initial snapshot. For live state propagation, create a
+channel and call `run_with_updates`; send a newly projected tree after a DIG
+change. The GTK main loop coalesces queued snapshots and applies the latest
+one to the existing window, including changed names, enabled state, tree
+structure, and focus. Focus is restored to the node marked focused in each
+snapshot. Dropping the sender stops the refresh source cleanly. Use a bounded
+channel if updates can arrive faster than GTK can render them.
+
+Action callbacks continue to carry stable node ids. Buttons and menu items
+emit `Press`; entries and sliders emit `SetValue` as their values change. The
+host remains responsible for applying these actions to its runtime and
+publishing a new snapshot when resulting state changes. The semantic
+projection and contrast helpers do not by themselves establish WCAG
+conformance. A release conformance run must also exercise each supported
+screen reader, keyboard traversal, focus changes, announced values, and
+contrast against actual rendered colors.
 
 ## Local verification
 
@@ -47,7 +57,9 @@ cargo check -p goya-a11y --features atspi-gtk
 For an interactive Linux check, launch a host that constructs
 `GtkAtspiBridge` inside a desktop session, then navigate its controls using
 Orca. A D-Bus/AT-SPI registry and accessible GTK session are required; a
-headless unit test does not substitute for that check.
+headless unit test does not substitute for that check. Local availability of
+Orca and successful smoke navigation still do not establish WCAG conformance
+or replace release testing on each supported desktop and screen reader.
 
 The sample tree can be launched in a disposable X11 and D-Bus session with:
 

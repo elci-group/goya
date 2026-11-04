@@ -17,9 +17,14 @@ use std::collections::HashMap;
 use goya_determinism::proofs::ExecutionProof;
 
 mod bytecode;
+mod d2_journal;
 pub use bytecode::{
     compile_module, compile_verified, execute, Bytecode, CompileError, CompiledProgram,
     ExecutionNode, Instruction, VerifiedCompileError, VmError, BYTECODE_VERSION,
+};
+pub use d2_journal::{
+    CapabilityLabel, EffectJournal, JournalEntry, JournalError, JournalLimits, JournalReplay,
+    D2_JOURNAL_VERSION,
 };
 
 /// The executable contract identifier this crate implements.
