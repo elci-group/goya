@@ -265,6 +265,102 @@ fn compile_one(i: &InteractionDecl) -> Result<D1Program, TransitionError> {
         .map_err(|e| TransitionError::VmRejected(e.to_string()))
 }
 
+fn compile_one_d2(i: &InteractionDecl) -> Result<(ProcessDecl, ExecutionProof, D2Program), TransitionError> {
+    if i.class != InteractionClass::D2 || i.name.is_empty() || i.name.len() > 128
+        || i.assignments.is_empty() || i.requests.is_empty() || i.declared_effects.is_empty() {
+        return Err(TransitionError::InvalidDeclaration);
+    }
+    let reads = key_types(&i.state_reads)?;
+    let writes = key_types(&i.state_writes)?;
+    let inputs = key_types(&i.inputs)?;
+    for (key, ty) in &reads {
+        if writes.get(key).is_some_and(|write_ty| write_ty != ty) { return Err(TransitionError::StateTypeMismatch); }
+    }
+    let mut declared = BTreeSet::new();
+    for effect in &i.declared_effects {
+        if !declared.insert(effect.as_str()) { return Err(TransitionError::InvalidSchema); }
+    }
+    let mut requests = BTreeMap::new();
+    let mut requested_effects = BTreeSet::new();
+    for request in &i.requests {
+        if request.name.is_empty() || request.name.len() > 128 || requests.insert(request.name.as_str(), request).is_some() {
+            return Err(TransitionError::DuplicateRequest);
+        }
+        let label = CapabilityLabel::new(request.capability.clone()).map_err(|_| TransitionError::CapabilityMismatch)?;
+        let kind = i.declared_effects.iter().find(|effect| effect.as_str() == label.as_str())
+            .ok_or(TransitionError::UndeclaredEffect)?;
+        if request.capability != kind.as_str() { return Err(TransitionError::CapabilityMismatch); }
+        requested_effects.insert(kind.as_str());
+    }
+    if requested_effects.len() != declared.len() { return Err(TransitionError::InvalidSchema); }
+
+    let mut instructions = Vec::new();
+    let mut register = 0usize;
+    let mut assigned = BTreeSet::new();
+    let mut used_reads = BTreeSet::new();
+    let mut used_inputs = BTreeSet::new();
+    let mut used_requests = BTreeSet::new();
+    for assignment in &i.assignments {
+        let expected = *writes.get(assignment.key.as_str()).ok_or(TransitionError::AssignmentMismatch)?;
+        if !assigned.insert(assignment.key.as_str()) { return Err(TransitionError::AssignmentMismatch); }
+        let (actual, src) = compile_expr_d2(&assignment.value, &mut instructions, &mut register,
+            &reads, &inputs, &requests, &mut used_reads, &mut used_inputs, &mut used_requests)?;
+        if actual != expected { return Err(TransitionError::TypeMismatch); }
+        instructions.push(D2Instruction::WriteState { key: assignment.key.clone(), src });
+    }
+    if assigned.len() != writes.len() || used_reads.len() != reads.len()
+        || used_inputs.len() != inputs.len() || used_requests.len() != requests.len() {
+        return Err(TransitionError::InvalidSchema);
+    }
+    let contract = StateContract::new(reads.keys().map(|k| (*k).to_string()), writes.keys().map(|k| (*k).to_string()), inputs.keys().map(|k| (*k).to_string()))
+        .map_err(|e| TransitionError::VmRejected(e.to_string()))?;
+    let declaration = ProcessDecl { name: i.name.clone(), claims: DeterminismClass::EffectDeterministic, declared_effects: i.declared_effects.clone(), state_contract: false };
+    let proof = ExecutionProof { process: i.name.clone(), class: DeterminismClass::EffectDeterministic,
+        compiler_version: env!("CARGO_PKG_VERSION").to_string(), schema_version: 1, policy_version: 1,
+        target: "goya-d2-vm-v1".to_string() };
+    let program = D2Program::compile(&declaration, &proof, contract, instructions)
+        .map_err(|e| TransitionError::VmRejected(e.to_string()))?;
+    Ok((declaration, proof, program))
+}
+
+fn compile_expr_d2(
+    expr: &InteractionExpr, code: &mut Vec<D2Instruction>, next: &mut usize,
+    reads: &BTreeMap<&str, InteractionType>, inputs: &BTreeMap<&str, InteractionType>,
+    requests: &BTreeMap<&str, &EffectRequestDecl>, used_reads: &mut BTreeSet<String>,
+    used_inputs: &mut BTreeSet<String>, used_requests: &mut BTreeSet<String>,
+) -> Result<(InteractionType, String), TransitionError> {
+    match expr {
+        InteractionExpr::Literal(value) => {
+            let (ty, value) = match value { InteractionValue::Int(v) => (InteractionType::Int, D1Value::Int(*v)), InteractionValue::Text(v) => (InteractionType::Text, D1Value::Text(v.clone())), InteractionValue::Bool(v) => (InteractionType::Bool, D1Value::Bool(*v)) };
+            let reg = format!("r{next}"); *next += 1; code.push(D2Instruction::Constant { dst: reg.clone(), value }); Ok((ty, reg))
+        }
+        InteractionExpr::State(key) => {
+            let ty = *reads.get(key.as_str()).ok_or(TransitionError::UndeclaredRead)?; used_reads.insert(key.clone());
+            let reg = format!("r{next}"); *next += 1; code.push(D2Instruction::ReadState { dst: reg.clone(), key: key.clone() }); Ok((ty, reg))
+        }
+        InteractionExpr::Input(key) => {
+            let ty = *inputs.get(key.as_str()).ok_or(TransitionError::UndeclaredRead)?; used_inputs.insert(key.clone());
+            let reg = format!("r{next}"); *next += 1; code.push(D2Instruction::ReadInput { dst: reg.clone(), key: key.clone() }); Ok((ty, reg))
+        }
+        InteractionExpr::Effect(name) => {
+            let request = requests.get(name.as_str()).ok_or(TransitionError::UndeclaredEffect)?;
+            if !used_requests.insert(name.clone()) { return Err(TransitionError::DuplicateRequest); }
+            let result_type = match request.result_type { EffectValueType::Int64 => EffectResultType::Int64, EffectValueType::Text => EffectResultType::Text, EffectValueType::Bool => EffectResultType::Bool };
+            let value_type = match request.result_type { EffectValueType::Int64 => InteractionType::Int, EffectValueType::Text => InteractionType::Text, EffectValueType::Bool => InteractionType::Bool };
+            let capability = CapabilityLabel::new(request.capability.clone()).map_err(|_| TransitionError::CapabilityMismatch)?;
+            let reg = format!("r{next}"); *next += 1;
+            code.push(D2Instruction::RequestEffect { dst: reg.clone(), capability, request: request.request_utf8.as_bytes().to_vec(), result_type });
+            Ok((value_type, reg))
+        }
+        InteractionExpr::Add(a, b) => {
+            let (ta, ra) = compile_expr_d2(a, code, next, reads, inputs, requests, used_reads, used_inputs, used_requests)?;
+            let (tb, rb) = compile_expr_d2(b, code, next, reads, inputs, requests, used_reads, used_inputs, used_requests)?;
+            if ta != InteractionType::Int || tb != InteractionType::Int { return Err(TransitionError::TypeMismatch); }
+            let reg = format!("r{next}"); *next += 1; code.push(D2Instruction::AddInt { dst: reg.clone(), left: ra, right: rb }); Ok((InteractionType::Int, reg))
+        }
+    }
+}
+
 fn key_types(
     keys: &[crate::scene::TypedKey],
 ) -> Result<BTreeMap<&str, InteractionType>, TransitionError> {
