@@ -686,6 +686,23 @@ impl CodecRoundTripReport {
 /// Failures are reported as unavailable so optional codec support cannot
 /// prevent the deterministic surrogate benchmark from completing.
 pub fn measure_ffmpeg_mjpeg(result: &mut BenchmarkResult, executable: &str) {
+    measure_ffmpeg_codec(result, executable, "mjpeg");
+}
+
+/// Measure a lossless PNG encode/decode round-trip through installed ffmpeg.
+pub fn measure_ffmpeg_png(result: &mut BenchmarkResult, executable: &str) {
+    measure_ffmpeg_codec(result, executable, "png");
+}
+
+fn measure_ffmpeg_codec(result: &mut BenchmarkResult, executable: &str, codec: &str) {
+    let (encoder, quality_flag, settings): (&str, &str, &[u8]) = match codec {
+        "mjpeg" => ("mjpeg", "-q:v", &[2, 5, 8]),
+        "png" => ("png", "-compression_level", &[1, 6, 9]),
+        _ => {
+            result.codec_roundtrip = Some(codec_unavailable(codec, None, "unsupported codec"));
+            return;
+        }
+    };
     let version = match Command::new(executable).arg("-version").output() {
         Ok(output) if output.status.success() => String::from_utf8_lossy(&output.stdout)
             .lines()
@@ -693,11 +710,12 @@ pub fn measure_ffmpeg_mjpeg(result: &mut BenchmarkResult, executable: &str) {
             .unwrap_or("ffmpeg version unavailable")
             .to_string(),
         Ok(_) => {
-            result.codec_roundtrip = Some(codec_unavailable(None, "ffmpeg -version failed"));
+            result.codec_roundtrip = Some(codec_unavailable(codec, None, "ffmpeg -version failed"));
             return;
         }
         Err(error) => {
             result.codec_roundtrip = Some(codec_unavailable(
+                codec,
                 None,
                 &format!("could not start ffmpeg: {error}"),
             ));
@@ -705,8 +723,8 @@ pub fn measure_ffmpeg_mjpeg(result: &mut BenchmarkResult, executable: &str) {
         }
     };
     let corpus = Corpus::adversarial(result.seed, result.n_images, result.width);
-    let mut qualities = Vec::new();
-    for quality in [2u8, 5, 8] {
+    let mut measurements = Vec::new();
+    for quality in settings {
         let mut hits = 0usize;
         let mut delta_sum = 0.0;
         for image in &corpus {
@@ -737,20 +755,21 @@ pub fn measure_ffmpeg_mjpeg(result: &mut BenchmarkResult, executable: &str) {
                     "1",
                     "-an",
                     "-c:v",
-                    "mjpeg",
-                    "-q:v",
+                    encoder,
+                    quality_flag,
                     &quality_arg,
                     "-f",
                     "image2pipe",
                     "-vcodec",
-                    "mjpeg",
+                    encoder,
                     "pipe:1",
                 ],
                 &marked,
             ) else {
                 result.codec_roundtrip = Some(codec_unavailable(
+                    codec,
                     Some(version),
-                    &format!("ffmpeg MJPEG encode failed at quality {quality}"),
+            &format!("ffmpeg {codec} encode failed at setting {quality}"),
                 ));
                 return;
             };
@@ -762,7 +781,7 @@ pub fn measure_ffmpeg_mjpeg(result: &mut BenchmarkResult, executable: &str) {
                     "-f",
                     "image2pipe",
                     "-vcodec",
-                    "mjpeg",
+                    encoder,
                     "-i",
                     "pipe:0",
                     "-frames:v",
@@ -776,13 +795,15 @@ pub fn measure_ffmpeg_mjpeg(result: &mut BenchmarkResult, executable: &str) {
                 &encoded,
             ) else {
                 result.codec_roundtrip = Some(codec_unavailable(
+                    codec,
                     Some(version),
-                    &format!("ffmpeg MJPEG decode failed at quality {quality}"),
+                    &format!("ffmpeg {codec} decode failed at setting {quality}"),
                 ));
                 return;
             };
             if decoded.len() != marked.len() {
                 result.codec_roundtrip = Some(codec_unavailable(
+                    codec,
                     Some(version),
                     &format!("decoded frame size mismatch at quality {quality}"),
                 ));
@@ -795,8 +816,8 @@ pub fn measure_ffmpeg_mjpeg(result: &mut BenchmarkResult, executable: &str) {
                 &marked, image.w, image.h, &decoded, image.w, image.h,
             ));
         }
-        qualities.push(CodecQualityResult {
-            quality,
+        measurements.push(CodecQualityResult {
+            quality: *quality,
             samples: corpus.len(),
             hits,
             detection_rate: rate(hits, corpus.len()),
@@ -807,14 +828,14 @@ pub fn measure_ffmpeg_mjpeg(result: &mut BenchmarkResult, executable: &str) {
             },
         });
     }
-    result.codec_roundtrip = Some(CodecRoundTripReport { status: "measured".into(), codec: "mjpeg".into(),
-        encoder_version: Some(version), note: Some("Synthetic grayscale corpus; applies only to this ffmpeg MJPEG round-trip and these qualities.".into()), qualities });
+    result.codec_roundtrip = Some(CodecRoundTripReport { status: "measured".into(), codec: codec.into(),
+        encoder_version: Some(version), note: Some(format!("Synthetic grayscale corpus; applies only to this ffmpeg {codec} round-trip and reported settings.")), qualities: measurements });
 }
 
-fn codec_unavailable(version: Option<String>, note: &str) -> CodecRoundTripReport {
+fn codec_unavailable(codec: &str, version: Option<String>, note: &str) -> CodecRoundTripReport {
     CodecRoundTripReport {
         status: "unavailable".into(),
-        codec: "mjpeg".into(),
+        codec: codec.into(),
         encoder_version: version,
         note: Some(note.into()),
         qualities: Vec::new(),
