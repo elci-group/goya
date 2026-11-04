@@ -213,7 +213,7 @@ three-button acceptance geometry depends on it.
 | HRTF profile loader + multichannel output | 3d (implemented, partial) | beyond-stereo ARSEM; measured profiles remain external |
 | RPI Level-2 learned anticipation (opt-in) | 3e (implemented) | anticipatory runtime |
 | GTK/AT-SPI live-refresh bridge + accessibility conformance | 4 (bridge implemented, conformance open) | release 0.6; Orca/WCAG evidence remains |
-| SDK, Studio CLI/browser preview, reproducible package + offline installer | 4 (implemented, partial) | release 0.6–1.0; full visual IDE/published distribution remain |
+| SDK, Studio CLI/browser preview, reproducible package + offline installer | 4 (implemented, partial) | optional Ed25519 archive-signing and trusted-key verification are implemented; publisher key custody/distribution and publication, full visual IDE remain external/open |
 | Synthetic watermark corpus + optional MJPEG round-trip | 4 (implemented, limited claim) | reproducible measurements; broader photo/codec corpus remains |
 
 ## GY-HOTSWAP/1 — Persisted-state migration

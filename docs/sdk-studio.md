@@ -39,8 +39,13 @@ Run `scripts/package-local.sh [output-directory]` on Linux. It builds release
 binaries, stages the Studio starter, scene host, docs, and licenses, then
 creates a sorted tar archive with fixed ownership and timestamp metadata and
 a SHA-256 sidecar. Set `SOURCE_DATE_EPOCH` to choose another fixed timestamp.
-The script does not publish or upload artifacts.
+Pass `--signing-key ED25519_PRIVATE_KEY.pem` to create a detached signature
+over the archive. At install time, `--trusted-key ED25519_PUBLIC_KEY.pem`
+verifies that signature against a public key supplied independently by the
+operator. SHA-256 alone checks corruption, not publisher authenticity. The
+script does not publish or upload artifacts.
 
 The SDK is local workspace source; the tar package is a runnable native
-bundle, not a crates.io publication. External release signing and distribution
-remain release-operator actions.
+bundle, not a crates.io publication. The local detached-signature mechanism
+is implemented; publisher key custody, trusted-key distribution, publisher
+identity, and release publication remain release-operator actions.
