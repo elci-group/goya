@@ -654,7 +654,7 @@ fn raster_parallel_tiles(
                                 y1: tile_h,
                             };
                             for prim in primitives.iter().filter(|prim| {
-                                intersects_tile(prim, tile.x0, tile.y0, tile.x1, tile.y1)
+                                intersects_tile(prim, tile.x0, tile.y0, tile.x1, tile.y1, glyph_px)
                             }) {
                                 raster_primitive_offset(
                                     &mut output,
@@ -755,12 +755,24 @@ fn intersects_tile(
     y0: usize,
     x1: usize,
     y1: usize,
+    glyph_px: u32,
 ) -> bool {
     let rect = prim_rect(prim);
-    let rx0 = rect.x / MP_PER_PX;
-    let ry0 = rect.y / MP_PER_PX;
-    let rx1 = (rect.x + rect.width + MP_PER_PX - 1) / MP_PER_PX;
-    let ry1 = (rect.y + rect.height + MP_PER_PX - 1) / MP_PER_PX;
+    let (mut rx0, mut ry0) = (rect.x, rect.y);
+    let (mut rx1, mut ry1) = (rect.x + rect.width, rect.y + rect.height);
+    if let goya_runtime::Primitive::Text(_, text) | goya_runtime::Primitive::Button(_, text) = prim
+    {
+        let glyph = i64::from(glyph_px.max(1));
+        rx0 = rx0.min(rect.x + 2 * MP_PER_PX);
+        ry0 = ry0.min(rect.y + 2 * MP_PER_PX);
+        rx1 =
+            rx1.max((rect.x / MP_PER_PX + 2 + text.chars().count() as i64 * 6 * glyph) * MP_PER_PX);
+        ry1 = ry1.max((rect.y / MP_PER_PX + 2 + 7 * glyph) * MP_PER_PX);
+    }
+    let rx0 = rx0 / MP_PER_PX;
+    let ry0 = ry0 / MP_PER_PX;
+    let rx1 = (rx1 + MP_PER_PX - 1) / MP_PER_PX;
+    let ry1 = (ry1 + MP_PER_PX - 1) / MP_PER_PX;
     rx0 < x1 as i64 && ry0 < y1 as i64 && rx1 > x0 as i64 && ry1 > y0 as i64
 }
 
