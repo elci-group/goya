@@ -1978,6 +1978,98 @@ mod tests {
     }
 
     #[test]
+    fn d2_worker_replays_only_supplied_journal_and_matches_reference_hashes() {
+        use std::io::Write as _;
+        use std::process::{Command, Stdio};
+
+        let program = d2_program();
+        let (state, inputs) = d2_snapshot();
+        let result = goya_executable::EffectResult::Int64(4).encode().unwrap();
+        let journal = d2_journal(b"GET /increment", &result, 1);
+        let expected = program.execute(&state, &inputs, &journal).unwrap();
+        let request =
+            request_from_d2_program(&program, &state, &inputs, &journal, "goya-d2-test").unwrap();
+
+        assert_eq!(request.language, "python");
+        assert!(request.capabilities.is_empty());
+        assert_eq!(expected.next_state["count"], D1Value::Int(12));
+        assert!(request.source_code.contains("GOYA_D2_VERSION = 1"));
+        assert!(request.source_code.contains("journal request or capability mismatch"));
+        assert!(request.source_code.contains("GOYA-D2-EFFECT-JOURNAL/1"));
+        assert!(!request.source_code.contains("subprocess"));
+        assert!(!request.source_code.contains("socket"));
+        assert!(!request.source_code.contains("open("));
+        assert!(!request.source_code.contains("urllib"));
+
+        let probe = Command::new("python3").arg("--version").output();
+        match probe {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
+            Err(error) => panic!("failed to probe python3: {error}"),
+            Ok(output) => assert!(output.status.success()),
+        }
+        let mut child = Command::new("python3")
+            .arg("-")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(request.source_code.as_bytes())
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(
+            output.status.success(),
+            "D2 worker failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let actual = String::from_utf8(output.stdout).unwrap();
+        let typed = |values: &std::collections::BTreeMap<String, D1Value>| -> String {
+            values
+                .iter()
+                .map(|(key, value)| {
+                    let val = match value {
+                        D1Value::Int(n) => format!("{{\"type\":\"int\",\"value\":\"{n}\"}}"),
+                        D1Value::Text(s) => {
+                            format!("{{\"type\":\"text\",\"value\":{}}}", json_string(s))
+                        }
+                        D1Value::Bool(b) => format!("{{\"type\":\"bool\",\"value\":{b}}}"),
+                    };
+                    format!("{}:{val}", json_string(key))
+                })
+                .collect::<Vec<_>>()
+                .join(",")
+        };
+        let expected_json = format!("{{\"program_hash\":\"{}\",\"input_hash\":\"{}\",\"revision_before\":\"{}\",\"revision_after\":\"{}\",\"next_state\":{{{}}},\"registers\":{{{}}},\"outcome_hash\":\"{}\"}}",
+            hex_bytes(&expected.program_hash), hex_bytes(&expected.input_hash), expected.revision_before, expected.revision_after,
+            typed(&expected.next_state), typed(&expected.registers), hex_bytes(&expected.outcome_hash));
+        assert_eq!(actual.trim_end(), expected_json);
+    }
+
+    #[test]
+    fn d2_worker_rejects_nonmatching_or_excess_journals_before_submission() {
+        let program = d2_program();
+        let (state, inputs) = d2_snapshot();
+        let result = goya_executable::EffectResult::Int64(4).encode().unwrap();
+        let wrong = d2_journal(b"GET /other", &result, 1);
+        assert!(matches!(
+            request_from_d2_program(&program, &state, &inputs, &wrong, "goya-d2-test"),
+            Err(VeeCompileError::InvalidD2Program(D2Error::Journal(
+                goya_executable::JournalError::RequestMismatch { sequence: 0 }
+            )))
+        ));
+
+        let excess = d2_journal(b"GET /increment", &result, MAX_D2_JOURNAL_ENTRIES + 1);
+        assert_eq!(
+            request_from_d2_program(&program, &state, &inputs, &excess, "goya-d2-test"),
+            Err(VeeCompileError::D2JournalTooLarge)
+        );
+    }
+
+    #[test]
     fn generated_python_interpreter_matches_reference_vm_json() {
         use std::io::Write as _;
         use std::process::{Command, Stdio};
