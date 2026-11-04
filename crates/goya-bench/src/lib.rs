@@ -1440,8 +1440,12 @@ impl BenchmarkResult {
             ));
         }
         json.push(']');
-        if let Some(codec) = &self.codec_roundtrip {
-            json.push_str(&format!(",\n  \"codec_roundtrip\":{{\"status\":\"{}\",\"codec\":\"{}\",\"quality_parameter\":\"{}\",\"encoder_version\":{},\"note\":{},\"qualities\":[",
+        json.push_str(",\n  \"codec_roundtrips\":[");
+        for (codec_index, codec) in self.codec_roundtrips.iter().enumerate() {
+            if codec_index > 0 {
+                json.push(',');
+            }
+            json.push_str(&format!("{{\"status\":\"{}\",\"codec\":\"{}\",\"quality_parameter\":\"{}\",\"encoder_version\":{},\"note\":{},\"qualities\":[",
                 json_escape(&codec.status), json_escape(&codec.codec),
                 json_escape(&codec.quality_parameter),
                 codec.encoder_version.as_ref().map(|v| format!("\"{}\"", json_escape(v))).unwrap_or_else(|| "null".into()),
@@ -1455,6 +1459,7 @@ impl BenchmarkResult {
             }
             json.push_str("]}");
         }
+        json.push(']');
         json.push_str("\n}\n");
         json
     }
