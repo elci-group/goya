@@ -384,8 +384,9 @@ Implemented as four new crates (all std-only, Candidate status):
   (§5) — unit-tested rebalancing under uneven territories.
 - Policy selection avoids parallel overhead for small workloads (§3):
   ≤4 tiles → serial. Worker budget, never raw CPU count (§2).
-- 6 tests. (Tile-parallel raster execution lands with the GPU/tile
-  renderer backends; this crate is the deterministic scheduler contract.)
+- 6 tests. `goya-wayland` now consumes `partition`/`schedule` for an
+  experimental CPU tile raster path; each tile replays the primitive list in
+  original order and writes a disjoint buffer rectangle.
 
 ## GY-HCAR/1 — Heterogeneous core classification (`crates/goya-hcar`)
 - Per-work-item classification (never per quadrant permanently, §2):
@@ -406,9 +407,12 @@ Implemented as four new crates (all std-only, Candidate status):
   `present_dirty` partial damage to the compositor.
 - RARS: glyph fidelity resolved from the projected window vs 4K
   (3.28% → balanced quality, protected-text glyph 4px).
-- Pipeline status: LCPE ✓ RARS ✓ CSR scheduler ✓ HCAR classifier ✓ —
-  the remaining integration (tile-parallel raster with HCAR affinity)
-  is Wave-2c work alongside the GPU backend decision.
+- Pipeline status: LCPE ✓ RARS ✓ CSR scheduler ✓ HCAR classifier ✓; tile
+  raster integration is correctness-tested, but remains opt-in because the
+  current synthetic benchmark is slower than serial. The available path uses
+  ordinary OS-managed threads and HCAR `General` classifications. It does not
+  detect P/E topology or implement core affinity; those remain external work.
+  See `evidence/GY-CSR-RASTER-INTEGRATION.json` for the local measurement.
 
 ## Ownership
 | Path | Owner |
@@ -474,8 +478,10 @@ wl_buffer releases. Front slot tracking updated on commit.
 slot (compositor-safe read), clears only the damage rect, rasterises only
 primitives intersecting it (clip-scoped fill/glyph paths), and damages
 only that rect. Full-frame path unchanged when no damage resolved.
-Note: raster clipping is rectangle-level; per-tile multithreaded
-rasterisation (CSR execution) remains the Wave-2c item.
+Note: raster clipping is rectangle-level. An opt-in CSR CPU tile path is now
+implemented and covered by serial-equivalence tests, but its current measured
+regression keeps it disabled by default. HCAR supplies per-tile `General`
+classification only; P/E detection and affinity remain deferred.
 
 ### P1 — FSC content mutation (VERIFIED ALREADY FIXED)
 The audit inspected HEAD 56b4d15 (pre-fix). Current `apply_edit`
