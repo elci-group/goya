@@ -46,6 +46,7 @@ pub struct CompiledD2Interaction {
     declaration: ProcessDecl,
     proof: ExecutionProof,
     program: D2Program,
+    capability_labels: Vec<CapabilityLabel>,
 }
 
 impl CompiledD2Interaction {
@@ -53,6 +54,7 @@ impl CompiledD2Interaction {
     pub fn trigger(&self) -> ActionId { self.trigger }
     pub fn declaration(&self) -> &ProcessDecl { &self.declaration }
     pub fn proof(&self) -> &ExecutionProof { &self.proof }
+    pub fn capability_labels(&self) -> &[CapabilityLabel] { &self.capability_labels }
     pub fn program_hash(&self) -> [u8; 32] { self.program.program_hash() }
     pub fn state_reads(&self) -> &[crate::scene::TypedKey] { &self.state_reads }
     pub fn state_writes(&self) -> &[crate::scene::TypedKey] { &self.state_writes }
@@ -148,8 +150,8 @@ pub fn compile_d1_interactions(scene: &Scene) -> Result<Vec<CompiledInteraction>
 pub fn compile_d2_interactions(scene: &Scene) -> Result<Vec<CompiledD2Interaction>, TransitionError> {
     let triggers = validate_bindings(scene)?;
     scene.interactions.iter().zip(triggers).filter(|(decl, _)| decl.class == InteractionClass::D2).map(|(i, trigger)| {
-        let (declaration, proof, program) = compile_one_d2(i)?;
-        Ok(CompiledD2Interaction { name: i.name.clone(), trigger, state_reads: i.state_reads.clone(), state_writes: i.state_writes.clone(), inputs: i.inputs.clone(), declaration, proof, program })
+        let (declaration, proof, program, capability_labels) = compile_one_d2(i)?;
+        Ok(CompiledD2Interaction { name: i.name.clone(), trigger, state_reads: i.state_reads.clone(), state_writes: i.state_writes.clone(), inputs: i.inputs.clone(), declaration, proof, program, capability_labels })
     }).collect()
 }
 
@@ -265,7 +267,7 @@ fn compile_one(i: &InteractionDecl) -> Result<D1Program, TransitionError> {
         .map_err(|e| TransitionError::VmRejected(e.to_string()))
 }
 
-fn compile_one_d2(i: &InteractionDecl) -> Result<(ProcessDecl, ExecutionProof, D2Program), TransitionError> {
+fn compile_one_d2(i: &InteractionDecl) -> Result<(ProcessDecl, ExecutionProof, D2Program, Vec<CapabilityLabel>), TransitionError> {
     if i.class != InteractionClass::D2 || i.name.is_empty() || i.name.len() > 128
         || i.assignments.is_empty() || i.requests.is_empty() || i.declared_effects.is_empty() {
         return Err(TransitionError::InvalidDeclaration);
@@ -300,11 +302,24 @@ fn compile_one_d2(i: &InteractionDecl) -> Result<(ProcessDecl, ExecutionProof, D
     let mut used_reads = BTreeSet::new();
     let mut used_inputs = BTreeSet::new();
     let mut used_requests = BTreeSet::new();
+    let mut request_registers = BTreeMap::new();
+    // Effect replay order is fixed by the source `requests` block, independent
+    // of assignment order or expression structure.
+    for request in &i.requests {
+        let capability = CapabilityLabel::new(request.capability.clone()).map_err(|_| TransitionError::CapabilityMismatch)?;
+        let result_type = to_vm_result_type(request.result_type);
+        let value_type = to_interaction_type(request.result_type);
+        let reg = format!("r{register}"); register += 1;
+        instructions.push(D2Instruction::RequestEffect {
+            dst: reg.clone(), capability, request: request.request_utf8.as_bytes().to_vec(), result_type,
+        });
+        request_registers.insert(request.name.as_str(), (value_type, reg));
+    }
     for assignment in &i.assignments {
         let expected = *writes.get(assignment.key.as_str()).ok_or(TransitionError::AssignmentMismatch)?;
         if !assigned.insert(assignment.key.as_str()) { return Err(TransitionError::AssignmentMismatch); }
-        let (actual, src) = compile_expr_d2(&assignment.value, &mut instructions, &mut register,
-            &reads, &inputs, &requests, &mut used_reads, &mut used_inputs, &mut used_requests)?;
+        let (actual, src) = compile_expr_d2(&assignment.value, &request_registers,
+            &reads, &inputs, &mut used_reads, &mut used_inputs, &mut used_requests)?;
         if actual != expected { return Err(TransitionError::TypeMismatch); }
         instructions.push(D2Instruction::WriteState { key: assignment.key.clone(), src });
     }
@@ -320,11 +335,14 @@ fn compile_one_d2(i: &InteractionDecl) -> Result<(ProcessDecl, ExecutionProof, D
         target: "goya-d2-vm-v1".to_string() };
     let program = D2Program::compile(&declaration, &proof, contract, instructions)
         .map_err(|e| TransitionError::VmRejected(e.to_string()))?;
-    Ok((declaration, proof, program))
+    let capability_labels = i.declared_effects.iter().map(|effect|
+        CapabilityLabel::new(effect.as_str()).map_err(|_| TransitionError::CapabilityMismatch)
+    ).collect::<Result<Vec<_>, _>>()?;
+    Ok((declaration, proof, program, capability_labels))
 }
 
 fn compile_expr_d2(
-    expr: &InteractionExpr, code: &mut Vec<D2Instruction>, next: &mut usize,
+    expr: &InteractionExpr, request_registers: &BTreeMap<&str, (InteractionType, String)>,
     reads: &BTreeMap<&str, InteractionType>, inputs: &BTreeMap<&str, InteractionType>,
     requests: &BTreeMap<&str, &EffectRequestDecl>, used_reads: &mut BTreeSet<String>,
     used_inputs: &mut BTreeSet<String>, used_requests: &mut BTreeSet<String>,
@@ -343,20 +361,16 @@ fn compile_expr_d2(
             let reg = format!("r{next}"); *next += 1; code.push(D2Instruction::ReadInput { dst: reg.clone(), key: key.clone() }); Ok((ty, reg))
         }
         InteractionExpr::Effect(name) => {
-            let request = requests.get(name.as_str()).ok_or(TransitionError::UndeclaredEffect)?;
+            let (value_type, reg) = request_registers.get(name.as_str()).ok_or(TransitionError::UndeclaredEffect)?;
             if !used_requests.insert(name.clone()) { return Err(TransitionError::DuplicateRequest); }
-            let result_type = match request.result_type { EffectValueType::Int64 => EffectResultType::Int64, EffectValueType::Text => EffectResultType::Text, EffectValueType::Bool => EffectResultType::Bool };
-            let value_type = match request.result_type { EffectValueType::Int64 => InteractionType::Int, EffectValueType::Text => InteractionType::Text, EffectValueType::Bool => InteractionType::Bool };
-            let capability = CapabilityLabel::new(request.capability.clone()).map_err(|_| TransitionError::CapabilityMismatch)?;
-            let reg = format!("r{next}"); *next += 1;
-            code.push(D2Instruction::RequestEffect { dst: reg.clone(), capability, request: request.request_utf8.as_bytes().to_vec(), result_type });
-            Ok((value_type, reg))
+            Ok((*value_type, reg.clone()))
         }
         InteractionExpr::Add(a, b) => {
-            let (ta, ra) = compile_expr_d2(a, code, next, reads, inputs, requests, used_reads, used_inputs, used_requests)?;
-            let (tb, rb) = compile_expr_d2(b, code, next, reads, inputs, requests, used_reads, used_inputs, used_requests)?;
+            let (ta, ra) = compile_expr_d2(a, request_registers, reads, inputs, used_reads, used_inputs, used_requests)?;
+            let (tb, rb) = compile_expr_d2(b, request_registers, reads, inputs, used_reads, used_inputs, used_requests)?;
             if ta != InteractionType::Int || tb != InteractionType::Int { return Err(TransitionError::TypeMismatch); }
-            let reg = format!("r{next}"); *next += 1; code.push(D2Instruction::AddInt { dst: reg.clone(), left: ra, right: rb }); Ok((InteractionType::Int, reg))
+            let _ = (ra, rb);
+            Err(TransitionError::InvalidDeclaration)
         }
     }
 }
