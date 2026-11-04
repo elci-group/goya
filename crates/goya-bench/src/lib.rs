@@ -332,6 +332,17 @@ pub struct LocalCorpus {
     pub ffmpeg_version: String,
 }
 
+struct CorpusRun {
+    seed: u64,
+    size: u32,
+    key: u64,
+    alpha: f64,
+    corpus: Vec<CorpusImage>,
+    source_images: Vec<SourceImageMetadata>,
+    decode_tool_version: Option<String>,
+    corpus_kind: &'static str,
+}
+
 /// Per-image source identity and deterministic decode geometry.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceImageMetadata {
@@ -980,16 +991,16 @@ impl Benchmark {
         alpha: f64,
     ) -> BenchmarkResult {
         let corpus = Corpus::adversarial(seed, n_images, size);
-        self.run_corpus(
+        self.run_corpus(CorpusRun {
             seed,
             size,
             key,
             alpha,
             corpus,
-            Vec::new(),
-            None,
-            "synthetic_adversarial",
-        )
+            source_images: Vec::new(),
+            decode_tool_version: None,
+            corpus_kind: "synthetic_adversarial",
+        })
     }
 
     /// Run the full transform suite and false-positive controls on a
@@ -1003,29 +1014,29 @@ impl Benchmark {
         corpus: LocalCorpus,
     ) -> BenchmarkResult {
         let decode_tool_version = Some(corpus.ffmpeg_version.clone());
-        self.run_corpus(
+        self.run_corpus(CorpusRun {
             seed,
             size,
             key,
             alpha,
-            corpus.images,
-            corpus.sources,
+            corpus: corpus.images,
+            source_images: corpus.sources,
             decode_tool_version,
-            "local_files",
-        )
+            corpus_kind: "local_files",
+        })
     }
 
-    fn run_corpus(
-        &self,
-        seed: u64,
-        size: u32,
-        key: u64,
-        alpha: f64,
-        corpus: Vec<CorpusImage>,
-        source_images: Vec<SourceImageMetadata>,
-        decode_tool_version: Option<String>,
-        corpus_kind: &str,
-    ) -> BenchmarkResult {
+    fn run_corpus(&self, run: CorpusRun) -> BenchmarkResult {
+        let CorpusRun {
+            seed,
+            size,
+            key,
+            alpha,
+            corpus,
+            source_images,
+            decode_tool_version,
+            corpus_kind,
+        } = run;
         let transformations = standard_adversarial_suite();
         let mut control_keys = Vec::with_capacity(17);
         control_keys.push(key);
@@ -1193,7 +1204,9 @@ fn measure_ffmpeg_codec(result: &mut BenchmarkResult, executable: &str, codec: &
             return;
         }
     };
-    if pixel_format.is_some() && (result.width % 2 != 0 || result.height % 2 != 0) {
+    if pixel_format.is_some()
+        && (!result.width.is_multiple_of(2) || !result.height.is_multiple_of(2))
+    {
         result.codec_roundtrips.push(codec_unavailable(
             codec,
             None,
