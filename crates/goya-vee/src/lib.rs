@@ -18,7 +18,10 @@
 //!   can continue without VEE.
 
 use goya_determinism::DeterminismClass;
-use goya_executable::{execute, CompiledProgram, Instruction, VmError, BYTECODE_VERSION};
+use goya_executable::{
+    execute, CompiledProgram, D1Error, D1Instruction, D1Program, D1Snapshot, D1Value,
+    InputSnapshot, Instruction, VmError, BYTECODE_VERSION,
+};
 use std::collections::HashSet;
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -40,6 +43,127 @@ const MAX_JSON_NODES: usize = 100_000;
 const MAX_EDC_INSTRUCTIONS: usize = 2_048;
 const MAX_EDC_STRING_BYTES: usize = 32 * 1024;
 const MAX_EDC_SOURCE_BYTES: usize = 256 * 1024;
+const MAX_D1_DATA_BYTES: usize = 32 * 1024;
+
+/// Convert an already decoded and verified D1 program plus explicit snapshots
+/// into a bounded VEE Python worker. The worker implements only D1's scalar
+/// state/input instruction set and prints a typed, hash-bound outcome.
+pub fn request_from_d1_program(
+    program: &D1Program,
+    state: &D1Snapshot,
+    inputs: &InputSnapshot,
+    agent_id: &str,
+) -> Result<SubmitRequest, VeeCompileError> {
+    validate_agent_id(agent_id)?;
+    let expected = program.execute(state, inputs).map_err(VeeCompileError::InvalidD1Program)?;
+    if program.instructions().len() > MAX_EDC_INSTRUCTIONS {
+        return Err(VeeCompileError::TooManyInstructions);
+    }
+    let mut data_bytes = 0usize;
+    for map in [state.values(), inputs.values()] {
+        for (key, value) in map {
+            data_bytes = data_bytes.checked_add(key.len()).and_then(|n| n.checked_add(d1_value_size(value)))
+                .ok_or(VeeCompileError::StringDataTooLarge)?;
+        }
+    }
+    for instruction in program.instructions() {
+        let strings = match instruction {
+            D1Instruction::Constant { dst, value } => dst.len() + d1_value_size(value),
+            D1Instruction::ReadState { dst, key } | D1Instruction::ReadInput { dst, key } => dst.len() + key.len(),
+            D1Instruction::AddInt { dst, left, right } => dst.len() + left.len() + right.len(),
+            D1Instruction::WriteState { key, src } => key.len() + src.len(),
+        };
+        data_bytes = data_bytes.checked_add(strings).ok_or(VeeCompileError::StringDataTooLarge)?;
+        if data_bytes > MAX_D1_DATA_BYTES { return Err(VeeCompileError::StringDataTooLarge); }
+    }
+
+    let mut source = String::from("# Goya EDC D1 worker; deterministic snapshot transition.\nimport hashlib\nimport json\nGOYA_D1_VERSION = 1\nGOYA_D1_REVISION = ");
+    source.push_str(&state.revision.to_string());
+    source.push_str("\nGOYA_D1_PROGRAM_HASH = '");
+    source.push_str(&hex_bytes(&program.program_hash()));
+    source.push_str("'\nGOYA_D1_STATE = ");
+    push_py_map(&mut source, state.values());
+    source.push_str("\nGOYA_D1_INPUTS = ");
+    push_py_map(&mut source, inputs.values());
+    source.push_str("\nGOYA_D1_CODE = (\n");
+    for instruction in program.instructions() {
+        source.push_str("    ");
+        match instruction {
+            D1Instruction::Constant { dst, value } => { source.push_str("('const', "); push_python_string(&mut source, dst); source.push_str(", "); push_py_value(&mut source, value); source.push_str("),"); }
+            D1Instruction::ReadState { dst, key } => { source.push_str("('state', "); push_python_string(&mut source, dst); source.push_str(", "); push_python_string(&mut source, key); source.push_str("),"); }
+            D1Instruction::ReadInput { dst, key } => { source.push_str("('input', "); push_python_string(&mut source, dst); source.push_str(", "); push_python_string(&mut source, key); source.push_str("),"); }
+            D1Instruction::AddInt { dst, left, right } => { source.push_str("('add', "); push_python_string(&mut source, dst); source.push_str(", "); push_python_string(&mut source, left); source.push_str(", "); push_python_string(&mut source, right); source.push_str("),"); }
+            D1Instruction::WriteState { key, src } => { source.push_str("('write', "); push_python_string(&mut source, key); source.push_str(", "); push_python_string(&mut source, src); source.push_str("),"); }
+        }
+        source.push('\n');
+        if source.len() > MAX_EDC_SOURCE_BYTES { return Err(VeeCompileError::SourceTooLarge); }
+    }
+    source.push_str(")\n");
+    source.push_str(D1_WORKER_PYTHON);
+    if source.len() > MAX_EDC_SOURCE_BYTES { return Err(VeeCompileError::SourceTooLarge); }
+    // Keep generation and Rust reference semantics coupled: the expected
+    // outcome is not embedded in the worker; tests compare actual execution.
+    let _ = expected;
+    Ok(SubmitRequest { agent_id: agent_id.to_string(), language: "python".into(), source_code: source,
+        capabilities: Vec::new(), budget: Some(VeeBudgetRequest { cpu_seconds: Some(3), memory_mb: Some(128), disk_mb: Some(64), token_budget: Some(1_024), wall_clock_seconds: Some(5) }) })
+}
+
+const D1_WORKER_PYTHON: &str = r#"
+def _u64(n): return int(n).to_bytes(8, 'little', signed=False)
+def _str(s):
+    b = s.encode('utf-8')
+    return _u64(len(b)) + b
+def _val(v):
+    t, x = v
+    if t == 'i': return b'\x00' + int(x).to_bytes(8, 'little', signed=True)
+    if t == 's': return b'\x01' + _str(x)
+    if t == 'b': return b'\x02' + bytes((1 if x else 0,))
+    raise ValueError('invalid value tag')
+def _map(m):
+    return _u64(len(m)) + b''.join(_str(k) + _val(m[k]) for k in sorted(m))
+def _outval(v):
+    t, x = v
+    if t == 'i': return {'type':'int','value':str(x)}
+    if t == 's': return {'type':'text','value':x}
+    if t == 'b': return {'type':'bool','value':x}
+    raise ValueError('invalid value tag')
+_regs = {}
+_next = dict(GOYA_D1_STATE)
+for _ins in GOYA_D1_CODE:
+    _op = _ins[0]
+    if _op == 'const': _regs[_ins[1]] = _ins[2]
+    elif _op == 'state': _regs[_ins[1]] = GOYA_D1_STATE[_ins[2]]
+    elif _op == 'input': _regs[_ins[1]] = GOYA_D1_INPUTS[_ins[2]]
+    elif _op == 'add':
+        _a, _b = _regs[_ins[2]], _regs[_ins[3]]
+        if _a[0] != 'i' or _b[0] != 'i': raise TypeError('integer operands required')
+        _n = _a[1] + _b[1]
+        if _n < -(1 << 63) or _n >= (1 << 63): raise OverflowError('i64 addition overflow')
+        _regs[_ins[1]] = ('i', _n)
+    elif _op == 'write': _next[_ins[1]] = _regs[_ins[2]]
+    else: raise ValueError('unknown verified D1 opcode')
+_rev_after = GOYA_D1_REVISION + 1
+if _rev_after >= (1 << 64): raise OverflowError('revision overflow')
+_input_hash = hashlib.sha256(b'GOYA-D1-SNAPSHOT/1\x00' + _u64(GOYA_D1_REVISION) + _map(GOYA_D1_STATE) + _map(GOYA_D1_INPUTS)).digest()
+_outcome = hashlib.sha256(b'GOYA-D1-OUTCOME/1\x00' + bytes.fromhex(GOYA_D1_PROGRAM_HASH) + _input_hash + _u64(GOYA_D1_REVISION) + _u64(_rev_after) + _map(_next) + _map(_regs)).hexdigest()
+_result = {'program_hash':GOYA_D1_PROGRAM_HASH, 'input_hash':_input_hash.hex(), 'revision_before':str(GOYA_D1_REVISION), 'revision_after':str(_rev_after), 'next_state':{k:_outval(_next[k]) for k in sorted(_next)}, 'registers':{k:_outval(_regs[k]) for k in sorted(_regs)}, 'outcome_hash':_outcome}
+print(json.dumps(_result, ensure_ascii=False, separators=(',', ':')))
+"#;
+
+fn d1_value_size(value: &D1Value) -> usize { match value { D1Value::Int(_) => 9, D1Value::Text(v) => 9 + v.len(), D1Value::Bool(_) => 2 } }
+fn push_py_value(source: &mut String, value: &D1Value) {
+    match value {
+        D1Value::Int(n) => source.push_str(&format!("('i', {n})")),
+        D1Value::Text(s) => { source.push_str("('s', "); push_python_string(source, s); source.push(')'); }
+        D1Value::Bool(b) => source.push_str(if *b { "('b', True)" } else { "('b', False)" }),
+    }
+}
+fn push_py_map(source: &mut String, values: &std::collections::BTreeMap<String, D1Value>) {
+    source.push('(');
+    for (key, value) in values { source.push('('); push_python_string(source, key); source.push_str(", "); push_py_value(source, value); source.push_str("),"); }
+    source.push(')');
+}
+fn hex_bytes(bytes: &[u8]) -> String { bytes.iter().map(|byte| format!("{byte:02x}")).collect() }
 
 /// Convert a verified D0 bytecode artifact to a VEE Python request.
 ///
@@ -180,6 +304,7 @@ pub enum VeeCompileError {
     StringDataTooLarge,
     SourceTooLarge,
     InvalidBytecode(VmError),
+    InvalidD1Program(D1Error),
 }
 
 impl std::fmt::Display for VeeCompileError {
@@ -202,6 +327,7 @@ impl std::fmt::Display for VeeCompileError {
                 f.write_str("generated Python exceeds the VEE bridge source limit")
             }
             Self::InvalidBytecode(error) => write!(f, "invalid bytecode: {error}"),
+            Self::InvalidD1Program(error) => write!(f, "invalid D1 program or snapshots: {error}"),
         }
     }
 }
@@ -1060,6 +1186,25 @@ mod tests {
             )],
             root: Some(NodeId(1)),
         })
+    }
+
+    fn d1_program() -> D1Program {
+        let declaration = ProcessDecl { name: "counter".into(), claims: DeterminismClass::StateDeterministic, declared_effects: vec![], state_contract: true };
+        let proof = ExecutionProof { process: "counter".into(), class: DeterminismClass::StateDeterministic, compiler_version: "test".into(), schema_version: 1, policy_version: 1, target: "vee-d1-v1".into() };
+        let contract = goya_executable::StateContract::new(["count".into()], ["count".into()], ["increment".into()]).unwrap();
+        let code = vec![
+            D1Instruction::ReadState { dst: "current".into(), key: "count".into() },
+            D1Instruction::ReadInput { dst: "delta".into(), key: "increment".into() },
+            D1Instruction::AddInt { dst: "next".into(), left: "current".into(), right: "delta".into() },
+            D1Instruction::WriteState { key: "count".into(), src: "next".into() },
+        ];
+        let compiled = D1Program::compile(&declaration, &proof, contract, code).unwrap();
+        D1Program::decode(&compiled.canonical_bytes(), compiled.program_hash()).unwrap()
+    }
+
+    fn d1_snapshot() -> (D1Snapshot, InputSnapshot) {
+        (D1Snapshot::new(4, std::collections::BTreeMap::from([("count".into(), D1Value::Int(7))])).unwrap(),
+         InputSnapshot::new(std::collections::BTreeMap::from([("increment".into(), D1Value::Int(3))])).unwrap())
     }
 
     fn expected_execution_json(node: &goya_executable::ExecutionNode, out: &mut String) {
