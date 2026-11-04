@@ -55,26 +55,36 @@ pub fn request_from_d1_program(
     agent_id: &str,
 ) -> Result<SubmitRequest, VeeCompileError> {
     validate_agent_id(agent_id)?;
-    let expected = program.execute(state, inputs).map_err(VeeCompileError::InvalidD1Program)?;
+    let expected = program
+        .execute(state, inputs)
+        .map_err(VeeCompileError::InvalidD1Program)?;
     if program.instructions().len() > MAX_EDC_INSTRUCTIONS {
         return Err(VeeCompileError::TooManyInstructions);
     }
     let mut data_bytes = 0usize;
     for map in [state.values(), inputs.values()] {
         for (key, value) in map {
-            data_bytes = data_bytes.checked_add(key.len()).and_then(|n| n.checked_add(d1_value_size(value)))
+            data_bytes = data_bytes
+                .checked_add(key.len())
+                .and_then(|n| n.checked_add(d1_value_size(value)))
                 .ok_or(VeeCompileError::StringDataTooLarge)?;
         }
     }
     for instruction in program.instructions() {
         let strings = match instruction {
             D1Instruction::Constant { dst, value } => dst.len() + d1_value_size(value),
-            D1Instruction::ReadState { dst, key } | D1Instruction::ReadInput { dst, key } => dst.len() + key.len(),
+            D1Instruction::ReadState { dst, key } | D1Instruction::ReadInput { dst, key } => {
+                dst.len() + key.len()
+            }
             D1Instruction::AddInt { dst, left, right } => dst.len() + left.len() + right.len(),
             D1Instruction::WriteState { key, src } => key.len() + src.len(),
         };
-        data_bytes = data_bytes.checked_add(strings).ok_or(VeeCompileError::StringDataTooLarge)?;
-        if data_bytes > MAX_D1_DATA_BYTES { return Err(VeeCompileError::StringDataTooLarge); }
+        data_bytes = data_bytes
+            .checked_add(strings)
+            .ok_or(VeeCompileError::StringDataTooLarge)?;
+        if data_bytes > MAX_D1_DATA_BYTES {
+            return Err(VeeCompileError::StringDataTooLarge);
+        }
     }
 
     let mut source = String::from("# Goya EDC D1 worker; deterministic snapshot transition.\nimport hashlib\nimport json\nGOYA_D1_VERSION = 1\nGOYA_D1_REVISION = ");
@@ -89,23 +99,70 @@ pub fn request_from_d1_program(
     for instruction in program.instructions() {
         source.push_str("    ");
         match instruction {
-            D1Instruction::Constant { dst, value } => { source.push_str("('const', "); push_python_string(&mut source, dst); source.push_str(", "); push_py_value(&mut source, value); source.push_str("),"); }
-            D1Instruction::ReadState { dst, key } => { source.push_str("('state', "); push_python_string(&mut source, dst); source.push_str(", "); push_python_string(&mut source, key); source.push_str("),"); }
-            D1Instruction::ReadInput { dst, key } => { source.push_str("('input', "); push_python_string(&mut source, dst); source.push_str(", "); push_python_string(&mut source, key); source.push_str("),"); }
-            D1Instruction::AddInt { dst, left, right } => { source.push_str("('add', "); push_python_string(&mut source, dst); source.push_str(", "); push_python_string(&mut source, left); source.push_str(", "); push_python_string(&mut source, right); source.push_str("),"); }
-            D1Instruction::WriteState { key, src } => { source.push_str("('write', "); push_python_string(&mut source, key); source.push_str(", "); push_python_string(&mut source, src); source.push_str("),"); }
+            D1Instruction::Constant { dst, value } => {
+                source.push_str("('const', ");
+                push_python_string(&mut source, dst);
+                source.push_str(", ");
+                push_py_value(&mut source, value);
+                source.push_str("),");
+            }
+            D1Instruction::ReadState { dst, key } => {
+                source.push_str("('state', ");
+                push_python_string(&mut source, dst);
+                source.push_str(", ");
+                push_python_string(&mut source, key);
+                source.push_str("),");
+            }
+            D1Instruction::ReadInput { dst, key } => {
+                source.push_str("('input', ");
+                push_python_string(&mut source, dst);
+                source.push_str(", ");
+                push_python_string(&mut source, key);
+                source.push_str("),");
+            }
+            D1Instruction::AddInt { dst, left, right } => {
+                source.push_str("('add', ");
+                push_python_string(&mut source, dst);
+                source.push_str(", ");
+                push_python_string(&mut source, left);
+                source.push_str(", ");
+                push_python_string(&mut source, right);
+                source.push_str("),");
+            }
+            D1Instruction::WriteState { key, src } => {
+                source.push_str("('write', ");
+                push_python_string(&mut source, key);
+                source.push_str(", ");
+                push_python_string(&mut source, src);
+                source.push_str("),");
+            }
         }
         source.push('\n');
-        if source.len() > MAX_EDC_SOURCE_BYTES { return Err(VeeCompileError::SourceTooLarge); }
+        if source.len() > MAX_EDC_SOURCE_BYTES {
+            return Err(VeeCompileError::SourceTooLarge);
+        }
     }
     source.push_str(")\n");
     source.push_str(D1_WORKER_PYTHON);
-    if source.len() > MAX_EDC_SOURCE_BYTES { return Err(VeeCompileError::SourceTooLarge); }
+    if source.len() > MAX_EDC_SOURCE_BYTES {
+        return Err(VeeCompileError::SourceTooLarge);
+    }
     // Keep generation and Rust reference semantics coupled: the expected
     // outcome is not embedded in the worker; tests compare actual execution.
     let _ = expected;
-    Ok(SubmitRequest { agent_id: agent_id.to_string(), language: "python".into(), source_code: source,
-        capabilities: Vec::new(), budget: Some(VeeBudgetRequest { cpu_seconds: Some(3), memory_mb: Some(128), disk_mb: Some(64), token_budget: Some(1_024), wall_clock_seconds: Some(5) }) })
+    Ok(SubmitRequest {
+        agent_id: agent_id.to_string(),
+        language: "python".into(),
+        source_code: source,
+        capabilities: Vec::new(),
+        budget: Some(VeeBudgetRequest {
+            cpu_seconds: Some(3),
+            memory_mb: Some(128),
+            disk_mb: Some(64),
+            token_budget: Some(1_024),
+            wall_clock_seconds: Some(5),
+        }),
+    })
 }
 
 const D1_WORKER_PYTHON: &str = r#"
@@ -150,20 +207,38 @@ _result = {'program_hash':GOYA_D1_PROGRAM_HASH, 'input_hash':_input_hash.hex(), 
 print(json.dumps(_result, ensure_ascii=False, separators=(',', ':')))
 "#;
 
-fn d1_value_size(value: &D1Value) -> usize { match value { D1Value::Int(_) => 9, D1Value::Text(v) => 9 + v.len(), D1Value::Bool(_) => 2 } }
+fn d1_value_size(value: &D1Value) -> usize {
+    match value {
+        D1Value::Int(_) => 9,
+        D1Value::Text(v) => 9 + v.len(),
+        D1Value::Bool(_) => 2,
+    }
+}
 fn push_py_value(source: &mut String, value: &D1Value) {
     match value {
         D1Value::Int(n) => source.push_str(&format!("('i', {n})")),
-        D1Value::Text(s) => { source.push_str("('s', "); push_python_string(source, s); source.push(')'); }
+        D1Value::Text(s) => {
+            source.push_str("('s', ");
+            push_python_string(source, s);
+            source.push(')');
+        }
         D1Value::Bool(b) => source.push_str(if *b { "('b', True)" } else { "('b', False)" }),
     }
 }
 fn push_py_map(source: &mut String, values: &std::collections::BTreeMap<String, D1Value>) {
     source.push('(');
-    for (key, value) in values { source.push('('); push_python_string(source, key); source.push_str(", "); push_py_value(source, value); source.push_str("),"); }
+    for (key, value) in values {
+        source.push('(');
+        push_python_string(source, key);
+        source.push_str(", ");
+        push_py_value(source, value);
+        source.push_str("),");
+    }
     source.push(')');
 }
-fn hex_bytes(bytes: &[u8]) -> String { bytes.iter().map(|byte| format!("{byte:02x}")).collect() }
+fn hex_bytes(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
 
 /// Convert a verified D0 bytecode artifact to a VEE Python request.
 ///
@@ -1189,22 +1264,62 @@ mod tests {
     }
 
     fn d1_program() -> D1Program {
-        let declaration = ProcessDecl { name: "counter".into(), claims: DeterminismClass::StateDeterministic, declared_effects: vec![], state_contract: true };
-        let proof = ExecutionProof { process: "counter".into(), class: DeterminismClass::StateDeterministic, compiler_version: "test".into(), schema_version: 1, policy_version: 1, target: "vee-d1-v1".into() };
-        let contract = goya_executable::StateContract::new(["count".into()], ["count".into()], ["increment".into()]).unwrap();
+        let declaration = ProcessDecl {
+            name: "counter".into(),
+            claims: DeterminismClass::StateDeterministic,
+            declared_effects: vec![],
+            state_contract: true,
+        };
+        let proof = ExecutionProof {
+            process: "counter".into(),
+            class: DeterminismClass::StateDeterministic,
+            compiler_version: "test".into(),
+            schema_version: 1,
+            policy_version: 1,
+            target: "vee-d1-v1".into(),
+        };
+        let contract = goya_executable::StateContract::new(
+            ["count".into()],
+            ["count".into()],
+            ["increment".into()],
+        )
+        .unwrap();
         let code = vec![
-            D1Instruction::ReadState { dst: "current".into(), key: "count".into() },
-            D1Instruction::ReadInput { dst: "delta".into(), key: "increment".into() },
-            D1Instruction::AddInt { dst: "next".into(), left: "current".into(), right: "delta".into() },
-            D1Instruction::WriteState { key: "count".into(), src: "next".into() },
+            D1Instruction::ReadState {
+                dst: "current".into(),
+                key: "count".into(),
+            },
+            D1Instruction::ReadInput {
+                dst: "delta".into(),
+                key: "increment".into(),
+            },
+            D1Instruction::AddInt {
+                dst: "next".into(),
+                left: "current".into(),
+                right: "delta".into(),
+            },
+            D1Instruction::WriteState {
+                key: "count".into(),
+                src: "next".into(),
+            },
         ];
         let compiled = D1Program::compile(&declaration, &proof, contract, code).unwrap();
         D1Program::decode(&compiled.canonical_bytes(), compiled.program_hash()).unwrap()
     }
 
     fn d1_snapshot() -> (D1Snapshot, InputSnapshot) {
-        (D1Snapshot::new(4, std::collections::BTreeMap::from([("count".into(), D1Value::Int(7))])).unwrap(),
-         InputSnapshot::new(std::collections::BTreeMap::from([("increment".into(), D1Value::Int(3))])).unwrap())
+        (
+            D1Snapshot::new(
+                4,
+                std::collections::BTreeMap::from([("count".into(), D1Value::Int(7))]),
+            )
+            .unwrap(),
+            InputSnapshot::new(std::collections::BTreeMap::from([(
+                "increment".into(),
+                D1Value::Int(3),
+            )]))
+            .unwrap(),
+        )
     }
 
     fn expected_execution_json(node: &goya_executable::ExecutionNode, out: &mut String) {
@@ -1345,6 +1460,68 @@ mod tests {
         assert!(first.source_code.contains("print(json.dumps(_root"));
         assert!(!first.source_code.contains("exec("));
         assert!(!first.source_code.contains("subprocess"));
+    }
+
+    #[test]
+    fn decoded_d1_worker_matches_reference_outcome_and_is_inert() {
+        use std::io::Write as _;
+        use std::process::{Command, Stdio};
+
+        let program = d1_program();
+        let (state, inputs) = d1_snapshot();
+        let expected = program.execute(&state, &inputs).unwrap();
+        let request = request_from_d1_program(&program, &state, &inputs, "goya-d1-test").unwrap();
+        assert_eq!(request.language, "python");
+        assert!(request.capabilities.is_empty());
+        assert!(request.source_code.contains("GOYA_D1_VERSION = 1"));
+        assert!(!request.source_code.contains("subprocess"));
+        assert!(!request.source_code.contains("open("));
+        let probe = Command::new("python3").arg("--version").output();
+        match probe {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
+            Err(error) => panic!("failed to probe python3: {error}"),
+            Ok(output) => assert!(output.status.success()),
+        }
+        let mut child = Command::new("python3")
+            .arg("-")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(request.source_code.as_bytes())
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(
+            output.status.success(),
+            "worker failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let actual = String::from_utf8(output.stdout).unwrap();
+        let typed = |values: &std::collections::BTreeMap<String, D1Value>| -> String {
+            values
+                .iter()
+                .map(|(key, value)| {
+                    let val = match value {
+                        D1Value::Int(n) => format!("{{\"type\":\"int\",\"value\":\"{n}\"}}"),
+                        D1Value::Text(s) => {
+                            format!("{{\"type\":\"text\",\"value\":{}}}", json_string(s))
+                        }
+                        D1Value::Bool(b) => format!("{{\"type\":\"bool\",\"value\":{b}}}"),
+                    };
+                    format!("{}:{val}", json_string(key))
+                })
+                .collect::<Vec<_>>()
+                .join(",")
+        };
+        let expected_json = format!("{{\"program_hash\":\"{}\",\"input_hash\":\"{}\",\"revision_before\":\"{}\",\"revision_after\":\"{}\",\"next_state\":{{{}}},\"registers\":{{{}}},\"outcome_hash\":\"{}\"}}",
+            hex_bytes(&expected.program_hash), hex_bytes(&expected.input_hash), expected.revision_before, expected.revision_after,
+            typed(&expected.next_state), typed(&expected.registers), hex_bytes(&expected.outcome_hash));
+        assert_eq!(actual.trim_end(), expected_json);
     }
 
     #[test]
