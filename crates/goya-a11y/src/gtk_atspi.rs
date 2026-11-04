@@ -207,6 +207,29 @@ mod tests {
         drop(tx);
         assert!(take_latest(&rx).is_err());
     }
+
+    #[test]
+    fn projected_focus_skips_disabled_and_noninteractive_nodes() {
+        let mut node = A11yNode {
+            id: "submit".into(),
+            role: A11yRole::Button,
+            accessible_name: "Submit".into(),
+            enabled: true,
+            focused: true,
+            hit_region: super::super::A11yRect::default(),
+            parent: None,
+        };
+        assert!(should_restore_focus(&node));
+
+        node.enabled = false;
+        assert!(!should_restore_focus(&node));
+        node.enabled = true;
+        node.role = A11yRole::StaticText;
+        assert!(!should_restore_focus(&node));
+        node.role = A11yRole::Button;
+        node.focused = false;
+        assert!(!should_restore_focus(&node));
+    }
 }
 
 fn make_node(
@@ -284,8 +307,12 @@ fn make_node(
     if let Some(accessible) = widget.accessible() {
         accessible.set_name(&node.accessible_name);
     }
-    if node.focused && node.enabled && node.role.is_interactive() {
+    if should_restore_focus(node) {
         *focused = Some(widget.clone());
     }
     widget
+}
+
+fn should_restore_focus(node: &A11yNode) -> bool {
+    node.focused && node.enabled && node.role.is_interactive()
 }
