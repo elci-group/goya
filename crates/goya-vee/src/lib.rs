@@ -187,9 +187,6 @@ pub fn request_from_d2_program(
     agent_id: &str,
 ) -> Result<SubmitRequest, VeeCompileError> {
     validate_agent_id(agent_id)?;
-    let expected = program
-        .execute(state, inputs, journal)
-        .map_err(VeeCompileError::InvalidD2Program)?;
     if program.instructions().len() > MAX_EDC_INSTRUCTIONS {
         return Err(VeeCompileError::TooManyInstructions);
     }
@@ -198,6 +195,9 @@ pub fn request_from_d2_program(
     {
         return Err(VeeCompileError::D2JournalTooLarge);
     }
+    let expected = program
+        .execute(state, inputs, journal)
+        .map_err(VeeCompileError::InvalidD2Program)?;
 
     let mut payload_bytes = 0usize;
     for map in [state.values(), inputs.values()] {
@@ -460,7 +460,7 @@ def _verify_journal():
         seq, capability, request, result, prev_hex, hash_hex = entry
         if seq != i or bytes.fromhex(prev_hex) != previous: raise ValueError('journal chain sequence')
         cap = capability.encode('utf-8')
-        total += 80 + len(cap) + len(request) + len(result)
+        total += 96 + len(cap) + len(request) + len(result)
         if total > MAX_JOURNAL_BYTES: raise ValueError('journal byte limit')
         calculated = hashlib.sha256(b'GOYA-D2-EFFECT-JOURNAL/1\x00' + previous + _u64(seq) + _field(cap) + _field(request) + _field(result)).digest()
         if calculated.hex() != hash_hex: raise ValueError('journal hash mismatch')
@@ -1578,7 +1578,7 @@ impl JsonParser<'_> {
 mod tests {
     use super::*;
     use goya_determinism::proofs::ExecutionProof;
-    use goya_determinism::ProcessDecl;
+    use goya_determinism::{EffectKind, ProcessDecl};
     use goya_ir::{ActionId, Module, Node, NodeId};
     use std::io::{Read, Write};
     use std::net::TcpListener;
@@ -1685,6 +1685,94 @@ mod tests {
             )]))
             .unwrap(),
         )
+    }
+
+    fn d2_declaration() -> ProcessDecl {
+        ProcessDecl::new(
+            "remote-counter",
+            DeterminismClass::EffectDeterministic,
+            vec![EffectKind::Network],
+        )
+    }
+
+    fn d2_proof() -> ExecutionProof {
+        ExecutionProof {
+            process: "remote-counter".into(),
+            class: DeterminismClass::EffectDeterministic,
+            compiler_version: "test".into(),
+            schema_version: 1,
+            policy_version: 1,
+            target: "vee-d2-v1".into(),
+        }
+    }
+
+    fn d2_program() -> D2Program {
+        let contract = goya_executable::StateContract::new(
+            ["count".into()],
+            ["count".into()],
+            std::iter::empty(),
+        )
+        .unwrap();
+        let compiled = D2Program::compile(
+            &d2_declaration(),
+            &d2_proof(),
+            contract,
+            vec![
+                D2Instruction::RequestEffect {
+                    dst: "remote".into(),
+                    capability: goya_executable::CapabilityLabel::new("network").unwrap(),
+                    request: b"GET /increment".to_vec(),
+                    result_type: EffectResultType::Int64,
+                },
+                D2Instruction::ReadState {
+                    dst: "old".into(),
+                    key: "count".into(),
+                },
+                D2Instruction::AddInt {
+                    dst: "next".into(),
+                    left: "old".into(),
+                    right: "remote".into(),
+                },
+                D2Instruction::WriteState {
+                    key: "count".into(),
+                    src: "next".into(),
+                },
+            ],
+        )
+        .unwrap();
+        D2Program::decode(
+            &compiled.canonical_bytes(),
+            compiled.program_hash(),
+            &d2_declaration(),
+            &d2_proof(),
+        )
+        .unwrap()
+    }
+
+    fn d2_snapshot() -> (D1Snapshot, InputSnapshot) {
+        (
+            D1Snapshot::new(
+                5,
+                std::collections::BTreeMap::from([("count".into(), D1Value::Int(8))]),
+            )
+            .unwrap(),
+            InputSnapshot::default(),
+        )
+    }
+
+    fn d2_journal(request: &[u8], result: &[u8], entries: usize) -> EffectJournal {
+        let capability = goya_executable::CapabilityLabel::new("network").unwrap();
+        let mut journal = EffectJournal::new_d2(
+            &d2_declaration(),
+            &d2_proof(),
+            [capability.clone()],
+            goya_executable::JournalLimits::default(),
+        )
+        .unwrap();
+        for _ in 0..entries {
+            journal.record(&capability, request, result).unwrap();
+        }
+        journal
     }
 
     fn expected_execution_json(node: &goya_executable::ExecutionNode, out: &mut String) {
