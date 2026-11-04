@@ -264,7 +264,9 @@ both paths feed the same runtime/layout/render pipeline.
   declared EffectKind name. Each declared effect must be used by a request;
   each request must be referenced exactly once. Requests are emitted in their
   declaration order and replayed only from a caller-supplied `EffectJournal`;
-  the compiler and wrapper perform no host effects. Every declared write must
+  each request string literal's contents are encoded verbatim as UTF-8 bytes;
+  requests have no dynamic interpolation. The compiler and wrapper perform no
+  host effects. Every declared write must
   be assigned exactly once; every declared read/input must be used. A trigger
   that resolves to no button or to multiple same-named buttons is rejected;
   unrelated duplicate button names do not by themselves block compilation.
