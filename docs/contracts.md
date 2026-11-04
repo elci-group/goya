@@ -350,9 +350,10 @@ Tauri discovery GUI at `~/vee-gui`. The directive-relevant component is the
 Consequences for the DAG:
 - Wave 3a was reframed as **"VEE adapter: route Goya EDC executable units
   and agent tool calls through VEE's capability/budget/artifact machinery."**
-  The HTTP client now matches VEE's submit API for caller-supplied source,
-  but compiled Goya EDC execution is still open: Goya bytecode is not a
-  supported VEE language and no Goya worker/conversion exists yet.
+  The HTTP client matches VEE's submit API for caller-supplied source, and
+  bounded D0/D1/D2 workers are available. Compiled authored Goya execution is
+  still open: the typed source compiler has no bridge into its VM bytecode or
+  VEE worker format, and Goya bytecode is not a supported VEE language.
 - The Wave-1 evidence table row for Vico Vee is superseded by this section.
 
 ---
