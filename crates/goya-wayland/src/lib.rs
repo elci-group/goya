@@ -1827,7 +1827,6 @@ mod key_special_tests {
         assert_eq!(scroll_lines(0.0), None);
     }
 }
-}
 
 #[cfg(test)]
 mod fill_tests {

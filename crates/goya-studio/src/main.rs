@@ -1237,9 +1237,10 @@ mod tests {
             "403 Forbidden"
         );
 
-        let missing_revision = String::from_utf8(post("/save", SCENE))
-            .unwrap()
-            .replace(&format!("If-Match: {}\r\n", scene_revision(SCENE.as_bytes())), "");
+        let missing_revision = String::from_utf8(post("/save", SCENE)).unwrap().replace(
+            &format!("If-Match: {}\r\n", scene_revision(SCENE.as_bytes())),
+            "",
+        );
         assert_eq!(
             route_request_for_scene(
                 missing_revision.as_bytes(),
