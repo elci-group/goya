@@ -789,6 +789,7 @@ dependencies = [
  "goya-wayland",
  "serde",
  "serde_json",
+ "unicode-segmentation",
 ]
 
 [[package]]

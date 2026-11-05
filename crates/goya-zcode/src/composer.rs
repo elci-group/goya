@@ -12,6 +12,8 @@
 //! `End => "end"`, `Delete => "delete"`, `Escape => "escape"`,
 //! `Tab => "tab"`. Enter stays `'\n'`, Backspace `'\u{8}'` in `KeyChar`.
 
+use unicode_segmentation::UnicodeSegmentation;
+
 /// History capacity for committed lines (recall via arrow up/down).
 pub const HISTORY_CAP: usize = 16;
 
@@ -67,6 +69,7 @@ impl Composer {
             '\n' | '\r' => {
                 let line = self.buffer.text().to_owned();
                 self.buffer.set_text("");
+                self.preedit = None;
                 self.history_pos = None;
                 if line.is_empty() {
                     return None;
@@ -103,7 +106,10 @@ impl Composer {
             "home" => self.buffer.move_home(false),
             "end" => self.buffer.move_end(false),
             "delete" => self.buffer.delete_forward(),
-            "escape" => self.focused = false,
+            "escape" => {
+                self.focused = false;
+                self.preedit = None;
+            }
             "tab" => {}
             "arrow_up" => self.recall_history(-1),
             "arrow_down" => self.recall_history(1),
