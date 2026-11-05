@@ -227,7 +227,7 @@ mod tests {
         c.handle_special("arrow_left");
         assert_eq!(c.cursor, 5);
         assert_eq!(c.handle_char('x'), None);
-        assert_eq!(c.text, "héllo日x本");
+        assert_eq!(c.text, "héllox日本");
         // Backspace removes the 'x' again.
         c.handle_char('\u{8}');
         assert_eq!(c.text, "héllo日本");
@@ -287,7 +287,7 @@ mod tests {
         }
         assert_eq!(c.history.len(), HISTORY_CAP);
         assert_eq!(c.history[0], "line5");
-        assert_eq!(c.history[HISTORY_CAP - 1], "line19");
+        assert_eq!(c.history[HISTORY_CAP - 1], "line20");
     }
 
     #[test]
