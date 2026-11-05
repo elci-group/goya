@@ -96,10 +96,10 @@ impl SessionView {
         }
     }
 
-    /// Scroll back `n` lines (PageUp); clamped so the window stays inside
-    /// the history.
+    /// Scroll back `n` lines (PageUp); clamped so the topmost view still
+    /// shows a full `TAIL_LINES` window (short histories cannot scroll).
     pub fn scroll_up(&mut self, n: usize) {
-        let max = self.history.len();
+        let max = self.history.len().saturating_sub(TAIL_LINES);
         self.scroll = (self.scroll + n).min(max);
     }
 
