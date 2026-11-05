@@ -57,10 +57,10 @@ pub struct MonitorHandle {
     pub view: Arc<Mutex<SessionView>>,
     dirty: Arc<AtomicBool>,
     pub stop: Arc<AtomicBool>,
-    /// Inbound command queue: `SendText` and friends. The sender sits
-    /// behind a mutex so every `MonitorHandle` clone can enqueue; the
-    /// receiver is shared so the queue survives agent-thread reconnects.
-    cmd_tx: Mutex<Sender<AgentCmd>>,
+    /// Inbound command queue: `SendText` and friends. Sender and receiver
+    /// both sit behind Arc'd mutexes so every `MonitorHandle` clone can
+    /// enqueue and the queue survives agent-thread reconnects.
+    cmd_tx: Arc<Mutex<Sender<AgentCmd>>>,
     cmd_rx: Arc<Mutex<Receiver<AgentCmd>>>,
 }
 
@@ -71,7 +71,7 @@ impl MonitorHandle {
             view: Arc::new(Mutex::new(SessionView::default())),
             dirty: Arc::new(AtomicBool::new(true)),
             stop: Arc::new(AtomicBool::new(false)),
-            cmd_tx: Mutex::new(tx),
+            cmd_tx: Arc::new(Mutex::new(tx)),
             cmd_rx: Arc::new(Mutex::new(rx)),
         }
     }
@@ -98,7 +98,8 @@ impl MonitorHandle {
     /// Non-blocking command drain used by the agent run loop (and the
     /// headless acceptance): never blocks.
     pub fn try_take_cmd(&self) -> Option<AgentCmd> {
-        match self.cmd_rx.lock().ok().and_then(|rx| rx.try_recv()) {
+        let rx = self.cmd_rx.lock().ok()?;
+        match rx.try_recv() {
             Ok(cmd) => Some(cmd),
             Err(TryRecvError::Empty) | Err(TryRecvError::Disconnected) => None,
         }
