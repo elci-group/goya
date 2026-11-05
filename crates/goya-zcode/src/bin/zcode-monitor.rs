@@ -546,7 +546,7 @@ fn headless_acceptance(store: &SceneStore) {
     let palette = monitor_palette();
     let pal_ok = node_fill_override("title", &palette) == Some(0x1e1e28)
         && node_fill_override("row_00", &palette).is_none()
-        && status_fill_override("subscribed", &palette) == Some(u32::from_be_bytes([0, palette.ok[0], palette.ok[1], palette.ok[2]]) & 0xffffff | 0)
+        && status_fill_override("subscribed", &palette) == Some(rgb_u32_bin(palette.ok))
         && status_fill_override("down: x", &palette) == Some(rgb_u32_bin(palette.err))
         && status_fill_override("running", &palette) == Some(rgb_u32_bin(palette.accent));
     println!("palette node/status fill mapping [{}]", pass_str(pal_ok));
@@ -556,6 +556,11 @@ fn headless_acceptance(store: &SceneStore) {
         std::process::exit(1);
     }
     println!("zcode-monitor: headless acceptance PASS");
+}
+
+/// `0xRRGGBB` from an sRGB triple (acceptance helper).
+fn rgb_u32_bin(c: [u8; 3]) -> u32 {
+    ((c[0] as u32) << 16) | ((c[1] as u32) << 8) | c[2] as u32
 }
 
 fn pass_str(ok: bool) -> &'static str {
