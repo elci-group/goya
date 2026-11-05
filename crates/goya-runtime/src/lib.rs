@@ -176,6 +176,9 @@ impl TextBuffer {
     pub fn grapheme_len(&self) -> usize {
         self.text.graphemes(true).count()
     }
+    pub fn graphemes(&self) -> Vec<&str> {
+        self.text.graphemes(true).collect()
+    }
 
     pub fn set_text(&mut self, text: impl Into<String>) {
         self.record_undo();
