@@ -843,10 +843,16 @@ impl GoyaWindow {
     }
 
     /// Dispatch pending compositor messages and return queued platform events.
+    /// Text-input-v3 preedit/commit frames are drained from the pure
+    /// [`TextInputState`] machine here, after `done` dispatch, so upstream
+    /// consumers always see atomically applied IME updates.
     pub fn poll(&mut self) -> Vec<PlatformEvent> {
         let _ = self.queue.dispatch_pending(&mut self.state);
         let _ = self.queue.flush();
-        std::mem::take(&mut self.state.events)
+        let drained = self.state.text_input_state.drain();
+        let mut events = std::mem::take(&mut self.state.events);
+        events.extend(drained);
+        events
     }
 
     /// Run bounded dispatch roundtrips so configure/pointer events land.
@@ -1773,47 +1779,23 @@ impl Dispatch<ZwpTextInputV3, ()> for GoyaWindowInner {
         _: &QueueHandle<Self>,
     ) {
         match event {
-            zwp_text_input_v3::Event::PreeditString {
-                text,
-                cursor_begin,
-                cursor_end,
-            } => {
-                state.ime_preedit = Some((text.unwrap_or_default(), cursor_begin, cursor_end));
+            zwp_text_input_v3::Event::PreeditString { text, .. } => {
+                // Cursor begin/end offsets are deliberately dropped: the
+                // GY-ZCODE-005 contract delivers preedit as plain text and
+                // the composer renders it inline without a cursor marker.
+                state.text_input_state.feed_preedit(text);
             }
             zwp_text_input_v3::Event::CommitString { text } => {
-                state.ime_commit = text;
+                state.text_input_state.feed_commit(text);
             }
-            zwp_text_input_v3::Event::DeleteSurroundingText {
-                before_length,
-                after_length,
-            } => {
-                state.ime_delete = Some((before_length, after_length));
+            zwp_text_input_v3::Event::Done { .. } => {
+                state.text_input_state.feed_done();
             }
-            zwp_text_input_v3::Event::Done { serial }
-                if state.ime_preedit.is_some()
-                    || state.ime_commit.is_some()
-                    || state.ime_delete.is_some() =>
-            {
-                state.events.push(PlatformEvent::ImeBatch {
-                    serial,
-                    preedit: state.ime_preedit.take(),
-                    commit: state.ime_commit.take(),
-                    delete: state.ime_delete.take(),
-                });
-            }
-            zwp_text_input_v3::Event::Done { .. } => {}
             zwp_text_input_v3::Event::Leave { .. } => {
-                state.ime_preedit = None;
-                state.ime_commit = None;
-                state.ime_delete = None;
-                state.events.push(PlatformEvent::ImeBatch {
-                    serial: 0,
-                    preedit: Some((String::new(), 0, 0)),
-                    commit: None,
-                    delete: None,
-                });
+                state.text_input_state.feed_leave();
             }
-            zwp_text_input_v3::Event::Enter { .. }
+            zwp_text_input_v3::Event::DeleteSurroundingText { .. }
+            | zwp_text_input_v3::Event::Enter { .. }
             | zwp_text_input_v3::Event::Language { .. }
             | zwp_text_input_v3::Event::Action { .. }
             | zwp_text_input_v3::Event::PreeditHint { .. } => {}
