@@ -354,11 +354,7 @@ fn render_preview_node(
         .map(|color| format!("#{:06x}", color & 0x00ff_ffff))
         .unwrap_or_else(|| "#353545".into());
     let label = node.text.as_deref().unwrap_or(&node.name);
-    let role = if node.is_button {
-        "button"
-    } else {
-        "group"
-    };
+    let role = if node.is_button { "button" } else { "group" };
     let left = node.rect.x - parent.map_or(0, |parent| parent.rect.x);
     let top = node.rect.y - parent.map_or(0, |parent| parent.rect.y);
     let content = if node.is_input {
