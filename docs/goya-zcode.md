@@ -307,3 +307,52 @@ and live acceptance.
 | J2 | `goya-wayland` | Shortcut events + pure helper + tests |
 | J3 | `goya-zcode` | theme adapter, clipboard ring, markdown renderer, bin wiring, tests |
 | gate | workspace | gates, live acceptance (no-send default), evidence |
+
+## Wave 5 — IME text input + tool-call rows (GY-ZCODE-005)
+
+Same swarm convention; contract frozen before dispatch.
+
+### Shared interface contract (frozen)
+
+1. **IME (J1: `goya-wayland`).** xkb Compose already handles dead keys
+   (wave 3); what is missing is the input-method protocol for CJK/complex
+   input. J1 implements the client side of `zwp_text_input_v3`:
+   - `GoyaWindow::set_text_input_active(&mut self, active: bool)` —
+     enable/disable on the seat; disabled by default (no protocol surface
+     for hosts that don't ask).
+   - `PlatformEvent::Preedit(Option<String>)` (None = preedit cleared) and
+     `PlatformEvent::CommitText(String)` from the IME; host commit_string
+     text is NOT synthesized as KeyChar events — it is delivered whole so
+     the host can insert at its own cursor.
+   - Pure state machine for the pending commit/preedit queue, unit-tested
+     compositor-free (wave-3 style). No tests can prove an actual IME works;
+     that is documented as an operator-verified item in evidence.
+2. **Tool rows (J2: `goya-zcode`).** Wire decode of `tool.updated`
+   (envelope payload kinds: scheduled/started/progress/completed/failed;
+   base fields toolCallId, toolName?, description?, per drowzy
+   `zcodeToolUpdatedEventPayloadSchema`):
+   - New `ProjEvent::ToolUpdate { tool: String, state: ToolState }` where
+     `ToolState ∈ {Scheduled, Started, Completed, Failed}` (progress updates
+     are folded into Started — the monitor's line model cannot update in
+     place, so progress is deliberately not rendered; documented).
+   - Rendering is append-only: Started → `⚙ <tool> …` line; Completed →
+     `⚙ <tool> ✓`; Failed → `⚙ <tool> ✗`; Scheduled renders nothing
+     (avoid noise). Dedup: a tool that already emitted a terminal line emits
+     nothing further.
+   - `SessionView` tracks a bounded set of in-flight tool ids (cap 32, evict
+     oldest) for dedup; unit tests for the state machine, dedup, and
+     rendering.
+   - Composer: consume `PlatformEvent::CommitText` (insert at cursor) and
+     `Preedit` (rendered inline in the input node, dimmed marker); window
+     text input activated iff the composer is focused.
+3. **Gate.** Workspace gates; live acceptance watches for real
+   `tool.updated` events only if a natural turn runs (still token-free by
+   default); evidence records operator-verified IME as an open item.
+
+### Assignments
+
+| Agent | Crates (exclusive) | Deliverable |
+|---|---|---|
+| J1 | `goya-wayland` | text-input-v3 client: Preedit/CommitText + activation API + state-machine tests |
+| J2 | `goya-zcode` | tool.updated decode + append-only tool rows + composer preedit/commit wiring + tests |
+| gate | workspace | gates, live acceptance, evidence |
