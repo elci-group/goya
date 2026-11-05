@@ -5,9 +5,9 @@
 //! frames to a framebuffer, and writes a PPM trace for visual verification.
 //! Runs headless; the Wayland surface adapter lands in Wave 1 continuation.
 
-use goya_ir::parse;
+use goya_ir::{parse, NodeId};
 use goya_layout::Constraints;
-use goya_runtime::{Event, Primitive, Runtime};
+use goya_runtime::{Event, HitTarget, Primitive, Runtime};
 use goya_state::Store;
 
 const MODULE_SRC: &str = "\
@@ -15,7 +15,7 @@ const MODULE_SRC: &str = "\
 column 1 2 3 4
 text 2 Hello, Goya!
 button 3 1 Increment
-spacer 4 8
+input 4 Type a message
 root 1
 ";
 
