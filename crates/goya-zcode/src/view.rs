@@ -154,7 +154,7 @@ impl SessionView {
 }
 
 /// Greedy wrap at `width` characters, breaking mid-word when a single
-/// token exceeds the width. ASCII-oriented; CJK chars count as 1.
+/// token exceeds the width. ASCII-oriented; non-ASCII chars count as 1.
 pub fn wrap_line(line: &str, width: usize) -> Vec<String> {
     if width == 0 {
         return vec![line.to_string()];
@@ -163,46 +163,29 @@ pub fn wrap_line(line: &str, width: usize) -> Vec<String> {
     let mut current = String::new();
     let mut current_len = 0usize;
     for word in line.split(' ') {
-        let mut remaining = word;
+        let mut word = word;
         loop {
-            let word_len = remaining.chars().count();
-            if word_len > width {
-                // Hard-split oversized tokens.
-                let split_at = char_boundary_floor(remaining, width - current_len.min(width));
-                let (head, tail) = remaining.split_at(split_at);
-                if !current.is_empty() {
-                    out.push(std::mem::take(&mut current));
-                    current_len = 0;
-                }
-                // `head` may still exceed width if width small; loop below
-                // handles it because we re-enter with the remainder.
-                let head_len = head.chars().count();
-                if head_len == width {
-                    out.push(head.to_string());
-                    remaining = tail;
-                } else {
-                    current.push_str(head);
-                    current_len += head_len;
-                    remaining = tail;
-                }
-                if remaining.is_empty() {
-                    break;
-                }
-                continue;
-            }
-            let sep = if current.is_empty() { 0 } else { 1 }; // space
+            let word_len = word.chars().count();
+            let sep = usize::from(!current.is_empty());
             if current_len + sep + word_len <= width {
                 if sep == 1 {
                     current.push(' ');
                 }
-                current.push_str(remaining);
+                current.push_str(word);
                 current_len += sep + word_len;
                 break;
             }
-            // Flush current line and retry the word on a fresh line.
-            out.push(std::mem::take(&mut current));
-            current_len = 0;
-            if word_len == 0 {
+            if !current.is_empty() {
+                out.push(std::mem::take(&mut current));
+                current_len = 0;
+                continue;
+            }
+            // The word alone exceeds the width: hard-split it.
+            let split_at = char_boundary_floor(word, width);
+            let head = &word[..split_at];
+            word = &word[split_at..];
+            out.push(head.to_string());
+            if word.is_empty() {
                 break;
             }
         }
