@@ -85,6 +85,13 @@ pub struct SessionView {
     /// Wave 4 (GY-ZCODE-004): when on (default), turn-completed response
     /// lines route through the markdown renderer (see [`markdown`]).
     pub markdown: bool,
+    /// Wave 5 (GY-ZCODE-005): tool ids with an open `⚙ …` row, oldest
+    /// first; capped at [`TOOL_TRACK_CAP`] (oldest evicted). `progress`
+    /// updates fold onto these instead of emitting duplicate lines.
+    in_flight_tools: VecDeque<String>,
+    /// Wave 5: tool ids that already emitted a terminal (`✓`/`✗`) line;
+    /// anything after that is inert. Same cap/eviction as above.
+    finished_tools: VecDeque<String>,
 }
 
 impl Default for SessionView {
@@ -99,6 +106,8 @@ impl Default for SessionView {
             scroll: ScrollState::default(),
             streaming: String::new(),
             markdown: true,
+            in_flight_tools: VecDeque::new(),
+            finished_tools: VecDeque::new(),
         }
     }
 }
