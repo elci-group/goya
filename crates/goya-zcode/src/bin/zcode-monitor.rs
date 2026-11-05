@@ -44,9 +44,27 @@ fn parse_args() -> Args {
             .and_then(|i| argv.get(i + 1))
             .cloned()
     };
-    let mode = if argv.iter().any(|a| a == "--live") || argv.iter().any(|a| a == "--frames") {
+    let has_live = argv.iter().any(|a| a == "--live") || argv.iter().any(|a| a == "--frames");
+    let has_dump = argv.iter().any(|a| a == "--stdin-dump");
+    if has_live && has_dump {
+        eprintln!("zcode-monitor: choose either --live/--frames or --stdin-dump");
+        std::process::exit(2);
+    }
+    let parse_positive = |flag: &str| -> Option<u64> {
+        if !argv.iter().any(|arg| arg == flag) {
+            return None;
+        }
+        Some(match get(flag).and_then(|raw| raw.parse::<u64>().ok()) {
+            Some(n) if n > 0 => n,
+            _ => {
+                eprintln!("zcode-monitor: {flag} requires a positive integer");
+                std::process::exit(2);
+            }
+        })
+    };
+    let mode = if has_live {
         Mode::Live
-    } else if argv.iter().any(|a| a == "--stdin-dump") {
+    } else if has_dump {
         Mode::Dump
     } else {
         Mode::Headless
@@ -61,8 +79,8 @@ fn parse_args() -> Args {
         session: get("--session"),
         mode,
         watch: argv.iter().any(|a| a == "--watch"),
-        duration: get("--duration").and_then(|v| v.parse().ok()),
-        frames: get("--frames").and_then(|v| v.parse().ok()),
+        duration: parse_positive("--duration"),
+        frames: parse_positive("--frames").map(|n| u32::try_from(n).unwrap_or(u32::MAX)),
     }
 }
 
