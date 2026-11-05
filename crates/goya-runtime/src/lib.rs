@@ -24,6 +24,47 @@ pub struct TextBuffer {
     redo: Vec<TextSnapshot>,
 }
 
+#[cfg(test)]
+mod text_and_scroll_tests {
+    use super::{ScrollState, TextBuffer};
+
+    #[test]
+    fn text_buffer_edits_extended_graphemes_without_splitting_utf8() {
+        let mut text = TextBuffer::new("e\u{301}👩‍💻");
+        assert_eq!(text.grapheme_len(), 2);
+        text.delete_backward();
+        assert_eq!(text.text(), "e\u{301}");
+        text.delete_backward();
+        assert_eq!(text.text(), "");
+    }
+
+    #[test]
+    fn text_buffer_selection_and_undo_redo_share_one_edit_path() {
+        let mut text = TextBuffer::new("alpha beta");
+        text.move_home(false);
+        text.move_right(true);
+        text.move_right(true);
+        text.insert("XY");
+        assert_eq!(text.text(), "XYpha beta");
+        text.undo();
+        assert_eq!(text.text(), "alpha beta");
+        text.redo();
+        assert_eq!(text.text(), "XYpha beta");
+    }
+
+    #[test]
+    fn scroll_state_clamps_geometry_and_rejects_non_finite_values() {
+        let mut scroll = ScrollState::default();
+        scroll.set_geometry(100.0, 500.0, 40.0, 100.0);
+        scroll.scroll_to(1000.0, 1000.0);
+        assert_eq!(scroll.offset(), (60.0, 400.0));
+        scroll.scroll_by(f64::NAN, f64::INFINITY);
+        assert_eq!(scroll.offset(), (60.0, 400.0));
+        scroll.set_geometry(0.0, 20.0, 40.0, 100.0);
+        assert_eq!(scroll.offset(), (0.0, 0.0));
+    }
+}
+
 /// Shared two-axis scrolling state. Offsets are content-space units (pixels,
 /// points, or lines); geometry changes clamp offsets so the viewport never
 /// exposes space beyond the content.
@@ -38,7 +79,13 @@ pub struct ScrollState {
 }
 
 impl ScrollState {
-    pub fn set_geometry(&mut self, content_width: f64, content_height: f64, viewport_width: f64, viewport_height: f64) {
+    pub fn set_geometry(
+        &mut self,
+        content_width: f64,
+        content_height: f64,
+        viewport_width: f64,
+        viewport_height: f64,
+    ) {
         self.content_width = finite_nonnegative(content_width);
         self.content_height = finite_nonnegative(content_height);
         self.viewport_width = finite_nonnegative(viewport_width);
@@ -58,9 +105,14 @@ impl ScrollState {
         self.clamp_offsets();
     }
 
-    pub fn offset(&self) -> (f64, f64) { (self.offset_x, self.offset_y) }
+    pub fn offset(&self) -> (f64, f64) {
+        (self.offset_x, self.offset_y)
+    }
     pub fn max_offset(&self) -> (f64, f64) {
-        ((self.content_width - self.viewport_width).max(0.0), (self.content_height - self.viewport_height).max(0.0))
+        (
+            (self.content_width - self.viewport_width).max(0.0),
+            (self.content_height - self.viewport_height).max(0.0),
+        )
     }
 
     fn clamp_offsets(&mut self) {
@@ -71,11 +123,19 @@ impl ScrollState {
 }
 
 fn finite_nonnegative(value: f64) -> f64 {
-    if value.is_finite() { value.max(0.0) } else { 0.0 }
+    if value.is_finite() {
+        value.max(0.0)
+    } else {
+        0.0
+    }
 }
 
 fn finite_or_zero(value: f64) -> f64 {
-    if value.is_finite() { value } else { 0.0 }
+    if value.is_finite() {
+        value
+    } else {
+        0.0
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
