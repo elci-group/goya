@@ -1002,7 +1002,9 @@ fn wrap_bitmap_text(text: &str, columns: usize) -> Vec<String> {
                 let word_width = word.chars().count();
                 let separator = usize::from(!line.is_empty());
                 if width + separator + word_width <= columns {
-                    if separator != 0 { line.push(' '); }
+                    if separator != 0 {
+                        line.push(' ');
+                    }
                     line.push_str(word);
                     width += separator + word_width;
                     break;
@@ -1012,11 +1014,17 @@ fn wrap_bitmap_text(text: &str, columns: usize) -> Vec<String> {
                     width = 0;
                     continue;
                 }
-                let split = word.char_indices().nth(columns).map(|(index, _)| index).unwrap_or(word.len());
+                let split = word
+                    .char_indices()
+                    .nth(columns)
+                    .map(|(index, _)| index)
+                    .unwrap_or(word.len());
                 let head = &word[..split];
                 word = &word[split..];
                 output.push(head.to_owned());
-                if word.is_empty() { break; }
+                if word.is_empty() {
+                    break;
+                }
             }
         }
         output.push(line);
