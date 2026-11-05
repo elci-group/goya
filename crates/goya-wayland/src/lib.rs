@@ -122,6 +122,103 @@ pub enum TextInputPurpose {
     Url,
 }
 
+/// Pure, compositor-free queue for text-input-v3 IME updates (GY-ZCODE-005).
+///
+/// The protocol delivers `preedit_string` / `commit_string` /
+/// `delete_surrounding_text` in an uncommitted staging area and applies the
+/// whole frame atomically at `done`. This state machine mirrors that rule:
+/// [`TextInputState::feed_preedit`] and [`TextInputState::feed_commit`] only
+/// stage data; [`TextInputState::drain`] emits [`PlatformEvent`]s only after
+/// [`TextInputState::feed_done`] has armed a frame. The window event loop
+/// calls `drain` once per poll and forwards the events upstream.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct TextInputState {
+    /// Preedit staged by the latest `preedit_string` (None = this frame
+    /// clears the preedit). Replaced, not accumulated, per protocol.
+    pub pending_preedit: Option<String>,
+    /// Commit strings staged by `commit_string`, flushed in arrival order.
+    pub committed: Vec<String>,
+    /// Preedit the host currently has applied (updated on drain).
+    pub applied_preedit: Option<String>,
+    events: Vec<PlatformEvent>,
+    armed: bool,
+}
+
+impl TextInputState {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Stage a `preedit_string` frame update. `None` stages a clear.
+    pub fn feed_preedit(&mut self, preedit: Option<String>) {
+        self.pending_preedit = preedit;
+    }
+
+    /// Stage a `commit_string` frame update. Commit text arrives whole —
+    /// it is never split into key events.
+    pub fn feed_commit(&mut self, commit: Option<String>) {
+        if let Some(text) = commit {
+            // An empty commit string carries no text; the protocol uses it
+            // only to confirm the frame, so it stages nothing.
+            if !text.is_empty() {
+                self.committed.push(text);
+            }
+        }
+    }
+
+    /// Arm the staged frame: the next drain applies it atomically.
+    pub fn feed_done(&mut self) {
+        if self.pending_preedit.is_some() || !self.committed.is_empty() {
+            self.armed = true;
+        }
+    }
+
+    /// Surface left the text input: preedit is implicitly cleared, staged
+    /// data is discarded.
+    pub fn feed_leave(&mut self) {
+        self.pending_preedit = None;
+        self.committed.clear();
+        self.armed = false;
+        if self.applied_preedit.is_some() {
+            self.events.push(PlatformEvent::Preedit(None));
+            self.applied_preedit = None;
+        }
+    }
+
+    /// Emit the armed frame as ordered [`PlatformEvent`]s (commits first,
+    /// then the preedit install/clear) and reset the staging area. Draining
+    /// without an armed frame is a no-op — staged-but-unconfirmed data stays
+    /// staged, matching the protocol's atomicity.
+    pub fn drain(&mut self) -> Vec<PlatformEvent> {
+        if self.armed {
+            for text in self.committed.drain(..) {
+                self.events.push(PlatformEvent::CommitText(text));
+            }
+            let preedit = self.pending_preedit.take();
+            self.applied_preedit = preedit.clone();
+            self.events.push(PlatformEvent::Preedit(preedit));
+            self.armed = false;
+        }
+        std::mem::take(&mut self.events)
+    }
+}
+
+/// Pure activation decision for the text-input enable/disable state.
+/// `None` means "no protocol traffic needed" — either the global is missing
+/// (`None` input) or the requested state already holds. Returning `Some(_)`
+/// means the caller must send enable/disable followed by a state commit.
+fn text_input_activation(
+    bound: Option<ZwpTextInputV3>,
+    enabled: bool,
+    active: bool,
+) -> Option<(ZwpTextInputV3, bool)> {
+    let input = bound?;
+    if enabled == active {
+        return None;
+    }
+    Some((input, active))
+}
+
 /// Raster clip region in pixels.
 #[derive(Debug, Clone, Copy)]
 struct PixelClip {
