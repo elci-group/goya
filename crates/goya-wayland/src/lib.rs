@@ -91,6 +91,16 @@ pub enum KeySpecial {
     Tab,
 }
 
+/// Semantic input purpose communicated to compositor input methods.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextInputPurpose {
+    Normal,
+    Password,
+    Digits,
+    Email,
+    Url,
+}
+
 /// Raster clip region in pixels.
 #[derive(Debug, Clone, Copy)]
 struct PixelClip {
@@ -441,6 +451,30 @@ impl GoyaWindow {
         anchor_byte: u32,
         cursor_rect: (i32, i32, i32, i32),
     ) -> bool {
+        self.set_text_input_state_with_purpose(
+            enabled,
+            surrounding_text,
+            cursor_byte,
+            anchor_byte,
+            cursor_rect,
+            TextInputPurpose::Normal,
+            false,
+        )
+    }
+
+    /// Variant for fields with a semantic purpose or sensitive contents.
+    /// Password/PIN hints ask the compositor not to retain typed input.
+    #[allow(clippy::too_many_arguments)]
+    pub fn set_text_input_state_with_purpose(
+        &mut self,
+        enabled: bool,
+        surrounding_text: &str,
+        cursor_byte: u32,
+        anchor_byte: u32,
+        cursor_rect: (i32, i32, i32, i32),
+        purpose: TextInputPurpose,
+        sensitive: bool,
+    ) -> bool {
         let (Some(input), Some(_surface)) = (&self.state.text_input, &self.state.surface) else {
             return false;
         };
@@ -451,10 +485,21 @@ impl GoyaWindow {
             let cursor = utf8_byte_offset(surrounding_text, cursor_byte);
             let anchor = utf8_byte_offset(surrounding_text, anchor_byte);
             input.set_surrounding_text(surrounding_text.to_owned(), cursor, anchor);
-            input.set_content_type(
-                zwp_text_input_v3::ContentHint::None,
-                zwp_text_input_v3::ContentPurpose::Normal,
-            );
+            let mut hint = zwp_text_input_v3::ContentHint::None;
+            let purpose = match purpose {
+                TextInputPurpose::Normal => zwp_text_input_v3::ContentPurpose::Normal,
+                TextInputPurpose::Password => zwp_text_input_v3::ContentPurpose::Password,
+                TextInputPurpose::Digits => zwp_text_input_v3::ContentPurpose::Digits,
+                TextInputPurpose::Email => zwp_text_input_v3::ContentPurpose::Email,
+                TextInputPurpose::Url => zwp_text_input_v3::ContentPurpose::Url,
+            };
+            if sensitive || matches!(purpose, zwp_text_input_v3::ContentPurpose::Password) {
+                hint |= zwp_text_input_v3::ContentHint::SensitiveData;
+            }
+            if matches!(purpose, zwp_text_input_v3::ContentPurpose::Password) {
+                hint |= zwp_text_input_v3::ContentHint::HiddenText;
+            }
+            input.set_content_type(hint, purpose);
             input.set_cursor_rectangle(
                 cursor_rect.0,
                 cursor_rect.1,
