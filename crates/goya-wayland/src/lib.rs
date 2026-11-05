@@ -70,14 +70,13 @@ pub enum PlatformEvent {
     /// state path; the keymap-free evdev fallback tracks no ctrl modifier
     /// and therefore never emits shortcuts.
     Shortcut(Shortcut),
-    /// Atomic text-input-v3 update. Consumers remove old preedit, apply
-    /// surrounding deletion, insert commit text, then install new preedit.
-    ImeBatch {
-        serial: u32,
-        preedit: Option<(String, i32, i32)>,
-        commit: Option<String>,
-        delete: Option<(u32, u32)>,
-    },
+    /// IME preedit text (GY-ZCODE-005), applied after the protocol `done`
+    /// frame. `None` clears an existing preedit.
+    Preedit(Option<String>),
+    /// Whole commit string from the IME (GY-ZCODE-005). This is never
+    /// synthesized as [`PlatformEvent::KeyChar`] events — hosts insert it at
+    /// their own cursor. Applied after the protocol `done` frame.
+    CommitText(String),
     /// Compositor resized the window to new pixel dimensions.
     Resized(i32, i32),
     Configured,
