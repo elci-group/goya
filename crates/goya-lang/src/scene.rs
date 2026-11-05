@@ -219,6 +219,14 @@ pub fn layout(scene: &Scene, width_pt: f64, height_pt: f64) -> Frame {
 
 fn resolve_cell(cell: &SceneCell, parent: RectMp, frame: &mut Frame) {
     let rect = resolve_rect(cell, parent);
+    // Wrap is a pure textual transform: greedy word wrap at the declared
+    // column count, emitted as '\n'-joined text. The wave-2 goya-wayland
+    // raster already splits '\n' text at glyph_px*1.4 line height (rect
+    // clipped), so wrapped text reaches the screen with no renderer change.
+    let text = match (&cell.wrap, &cell.text) {
+        (Some(width), Some(t)) => Some(wrap_text(t, *width as usize).join("\n")),
+        _ => cell.text.clone(),
+    };
     frame.insert(DrawNode {
         name: cell.name.clone(),
         is_button: cell.kind == CellKind::Button,
@@ -227,13 +235,67 @@ fn resolve_cell(cell: &SceneCell, parent: RectMp, frame: &mut Frame) {
         fill: cell.fill,
         stroke: cell.stroke,
         stroke_width: cell.stroke_width,
-        text: cell.text.clone(),
+        text,
         text_size: cell.text_size,
         anchor: cell.anchor.unwrap_or(Anchor::Start),
     });
     for child in &cell.children {
         resolve_cell(child, rect, frame);
     }
+}
+
+/// Greedy word wrap at `width` columns (same algorithm class as the
+/// monitor's host-side `wrap_line`): words fill lines until they would
+/// overflow; a token longer than `width` is hard-split. Multi-space runs
+/// collapse to single separators between words on a line. Deterministic
+/// and measurement-free.
+fn wrap_text(text: &str, width: usize) -> Vec<String> {
+    let mut out = Vec::new();
+    for line in text.split('\n') {
+        let mut current = String::new();
+        let mut current_len = 0usize;
+        for word in line.split(' ') {
+            let mut word = word;
+            loop {
+                let word_len = word.chars().count();
+                let sep = usize::from(!current.is_empty());
+                if current_len + sep + word_len <= width {
+                    if sep == 1 {
+                        current.push(' ');
+                    }
+                    current.push_str(word);
+                    current_len += sep + word_len;
+                    break;
+                }
+                if !current.is_empty() {
+                    out.push(std::mem::take(&mut current));
+                    current_len = 0;
+                    continue;
+                }
+                // The word alone exceeds the width: hard-split it.
+                let split_at = char_boundary_floor(word, width);
+                let head = &word[..split_at];
+                word = &word[split_at..];
+                out.push(head.to_string());
+                if word.is_empty() {
+                    break;
+                }
+            }
+        }
+        if !current.is_empty() || out.is_empty() {
+            out.push(current);
+        }
+    }
+    out
+}
+
+/// Largest byte offset ≤ `max_chars` characters that is a char boundary.
+fn char_boundary_floor(word: &str, max_chars: usize) -> usize {
+    let mut end = 0usize;
+    for (i, _) in word.char_indices().skip(max_chars) {
+        return i;
+    }
+    word.len().saturating_sub(end) + end // word.len() when short enough
 }
 
 fn resolve_rect(cell: &SceneCell, parent: RectMp) -> RectMp {
