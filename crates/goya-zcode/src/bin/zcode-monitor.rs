@@ -2,9 +2,15 @@
 //!
 //! Read-only native Goya window mirroring a live ZCode agent session.
 //! See docs/goya-zcode.md. Modes:
-//!   default       headless scene acceptance (PASS/FAIL, non-zero on fail)
-//!   --stdin-dump  live protocol run, projection printed to stdout
-//!   --live        Wayland window
+//!   default        headless scene acceptance (PASS/FAIL, non-zero on fail)
+//!   --stdin-dump   live protocol run, projection printed to stdout
+//!   --live         Wayland window
+//!
+//! Wave 3 (GY-ZCODE-003): the composer commits into a send queue drained
+//! by the agent thread (`session/send` on the CLI stdin). Sending is
+//! armed only by `--allow-send` (default off — no tokens are spent); the
+//! transcript scrolls via PageUp/PageDown (and PointerScroll once
+//! goya-wayland emits it) while the composer is unfocused.
 
 use goya_lang::{hit_test, layout, DrawNode, SceneStore};
 use goya_runtime::Primitive;
