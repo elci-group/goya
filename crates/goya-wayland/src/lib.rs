@@ -1895,7 +1895,9 @@ impl Dispatch<WlKeyboard, ()> for GoyaWindowInner {
                 }
             }
             wl_keyboard::Event::Leave { .. } => {
-                if let Some(compose) = state.compose_state.as_mut() { compose.reset(); }
+                if let Some(compose) = state.compose_state.as_mut() {
+                    compose.reset();
+                }
             }
             _ => {}
         }
@@ -2184,7 +2186,7 @@ mod raster_tests {
 
 #[cfg(test)]
 mod key_tests {
-    use super::{key_char, key_char_from_state, key_chars};
+    use super::{key_char, key_char_from_state, key_chars, key_chars_with_compose};
     #[test]
     fn us_layout_spot_checks() {
         assert_eq!(key_char(30, false), Some('a'));
@@ -2268,6 +2270,41 @@ mod key_tests {
         state.update_mask(1 << mod5, 0, 0, 0, 0, 0);
         // German AltGr+Q emits @; evdev KEY_Q is 16.
         assert_eq!(key_chars(Some(&state), 16, false, false), vec!['@']);
+    }
+
+    #[test]
+    fn locale_compose_completes_dead_acute_sequence() {
+        use std::ffi::OsStr;
+        use xkbcommon::xkb::{self, Context, Keymap};
+
+        let context = Context::new(xkb::CONTEXT_NO_FLAGS);
+        let Some(keymap) = Keymap::new_from_names(
+            &context,
+            "",
+            "",
+            "us",
+            "intl",
+            Some(String::new()),
+            xkb::COMPILE_NO_FLAGS,
+        ) else {
+            return;
+        };
+        let state = xkb::State::new(&keymap);
+        let Ok(table) = xkb::compose::Table::new_from_locale(
+            &context,
+            OsStr::new("C.UTF-8"),
+            xkb::compose::COMPILE_NO_FLAGS,
+        ) else {
+            return;
+        };
+        let mut compose = xkb::compose::State::new(&table, xkb::compose::STATE_NO_FLAGS);
+        assert!(
+            key_chars_with_compose(Some(&state), Some(&mut compose), 40, false, false).is_empty()
+        );
+        assert_eq!(
+            key_chars_with_compose(Some(&state), Some(&mut compose), 18, false, false),
+            vec!['é']
+        );
     }
 
     #[test]
