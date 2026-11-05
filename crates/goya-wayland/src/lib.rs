@@ -1477,7 +1477,51 @@ fn keymap_state_from_fd(
     Some(xkbcommon::xkb::State::new(&keymap))
 }
 
-fn key_chars(xkb_state: Option<&xkbcommon::xkb::State>, keycode: u32, shift: bool) -> Vec<char> {
+/// Pure decision helper (GY-ZCODE-003 contract addendum): given a live
+/// `xkb::State`, an evdev keycode and the ctrl modifier, resolve the single
+/// Unicode character the key produces, if any.
+///
+/// Scope boundary: IME, dead keys and compose sequences are OUT of scope —
+/// `key_get_one_sym`/`key_get_utf32` only observe already-resolved keysyms,
+/// and multi-char keysym strings are deliberately dropped (None) so the
+/// `PlatformEvent::KeyChar(char)` contract stays one event per character.
+/// Full composition support belongs to a future IME layer, not this helper.
+///
+/// Modifier rules (frozen contract):
+/// - Ctrl held: emit nothing (ctrl+letter combos are inert for now).
+/// - Plain / shifted characters flow through as `KeyChar` via the xkb map.
+fn key_char_from_state(
+    xkb_state: &xkbcommon::xkb::State,
+    keycode: u32,
+    ctrl: bool,
+) -> Option<char> {
+    if ctrl {
+        return None;
+    }
+    // Wayland key events use evdev keycodes; XKB keycodes include the
+    // conventional X11 offset of 8.
+    let xkb_keycode = xkbcommon::xkb::Keycode::new(keycode.checked_add(8)?);
+    let keysym = xkb_state.key_get_one_sym(xkb_keycode);
+    if keysym.is_raw_key() {
+        // Raw keyboard keysyms (e.g. arrow/home/page navigation symbols on
+        // dedicated keys) carry no text; navigation keeps its KeySpecial
+        // semantics upstream in the dispatch path.
+        return None;
+    }
+    let c = xkb_state.key_get_utf32(xkb_keycode);
+    if c.is_control() || c == '\0' {
+        None
+    } else {
+        Some(c)
+    }
+}
+
+fn key_chars(
+    xkb_state: Option<&xkbcommon::xkb::State>,
+    keycode: u32,
+    shift: bool,
+    ctrl: bool,
+) -> Vec<char> {
     // Preserve the existing public event contract for these control keys,
     // even when a custom keymap assigns a different UTF-8 representation.
     match keycode {
@@ -1486,13 +1530,7 @@ fn key_chars(xkb_state: Option<&xkbcommon::xkb::State>, keycode: u32, shift: boo
         _ => {}
     }
     if let Some(xkb_state) = xkb_state {
-        // Wayland key events use evdev keycodes; XKB keycodes include the
-        // conventional X11 offset of 8.
-        let Some(xkb_keycode) = keycode.checked_add(8) else {
-            return Vec::new();
-        };
-        let translated = xkb_state.key_get_utf8(xkbcommon::xkb::Keycode::new(xkb_keycode));
-        return translated.chars().filter(|c| !c.is_control()).collect();
+        return key_char_from_state(xkb_state, keycode, ctrl).into_iter().collect();
     }
     key_char(keycode, shift)
         .filter(|c| !c.is_control() || matches!(c, '\n' | '\u{8}'))
@@ -1542,6 +1580,7 @@ impl Dispatch<WlKeyboard, ()> for GoyaWindowInner {
                 ..
             } => {
                 state.shift = mods_depressed & 0x1 != 0; // ShiftMask
+                state.ctrl = mods_depressed & 0x4 != 0; // ControlMask
                 if let Some(xkb_state) = state.xkb_state.as_mut() {
                     xkb_state.update_mask(mods_depressed, mods_latched, mods_locked, 0, 0, group);
                 }
@@ -1554,7 +1593,7 @@ impl Dispatch<WlKeyboard, ()> for GoyaWindowInner {
                 if let Some(ks) = key_special(key) {
                     state.events.push(PlatformEvent::KeySpecial(ks));
                 } else {
-                    for c in key_chars(state.xkb_state.as_ref(), key, state.shift) {
+                    for c in key_chars(state.xkb_state.as_ref(), key, state.shift, state.ctrl) {
                         state.events.push(PlatformEvent::KeyChar(c));
                     }
                 }
