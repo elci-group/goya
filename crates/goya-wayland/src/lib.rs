@@ -90,10 +90,23 @@ pub enum PlatformEvent {
     /// IME preedit text (GY-ZCODE-005), applied after the protocol `done`
     /// frame. `None` clears an existing preedit.
     Preedit(Option<String>),
+    /// Full text-input-v3 preedit update, including byte-indexed cursor or
+    /// selection endpoints. `text: None` clears an existing preedit.
+    PreeditWithCursor {
+        text: Option<String>,
+        cursor_begin: i32,
+        cursor_end: i32,
+    },
     /// Whole commit string from the IME (GY-ZCODE-005). This is never
     /// synthesized as [`PlatformEvent::KeyChar`] events — hosts insert it at
     /// their own cursor. Applied after the protocol `done` frame.
     CommitText(String),
+    /// Delete UTF-8 bytes around the committed-text cursor, as requested by
+    /// text-input-v3. Hosts expand endpoints to valid grapheme boundaries.
+    DeleteSurroundingText {
+        before_bytes: u32,
+        after_bytes: u32,
+    },
     /// Compositor resized the window to new pixel dimensions.
     Resized(i32, i32),
     Configured,
@@ -153,6 +166,9 @@ pub struct TextInputState {
     /// Preedit staged by the latest `preedit_string` (None = this frame
     /// clears the preedit). Replaced, not accumulated, per protocol.
     pub pending_preedit: Option<String>,
+    pending_preedit_cursor: Option<(i32, i32)>,
+    preedit_received: bool,
+    pending_delete: Option<(u32, u32)>,
     /// Commit strings staged by `commit_string`, flushed in arrival order.
     pub committed: Vec<String>,
     /// Preedit the host currently has applied (updated on drain).
@@ -168,7 +184,25 @@ impl TextInputState {
 
     /// Stage a `preedit_string` frame update. `None` stages a clear.
     pub fn feed_preedit(&mut self, preedit: Option<String>) {
+        let cursor_end = preedit
+            .as_ref()
+            .map_or(0, |text| text.len().min(i32::MAX as usize) as i32);
         self.pending_preedit = preedit;
+        self.pending_preedit_cursor = Some((0, cursor_end));
+        self.preedit_received = true;
+    }
+
+    /// Stage a protocol preedit and its byte-indexed caret/selection. Invalid
+    /// UTF-8 boundaries are normalized by the receiving text buffer.
+    pub fn feed_preedit_with_cursor(
+        &mut self,
+        preedit: Option<String>,
+        cursor_begin: i32,
+        cursor_end: i32,
+    ) {
+        self.pending_preedit = preedit;
+        self.pending_preedit_cursor = Some((cursor_begin, cursor_end));
+        self.preedit_received = true;
     }
 
     /// Stage a `commit_string` frame update. Commit text arrives whole —
@@ -183,12 +217,17 @@ impl TextInputState {
         }
     }
 
+    /// Stage the latest delete-surrounding-text request in this protocol
+    /// frame; the value remains unapplied until [`Self::feed_done`].
+    pub fn feed_delete_surrounding(&mut self, before_bytes: u32, after_bytes: u32) {
+        self.pending_delete = Some((before_bytes, after_bytes));
+    }
+
     /// Arm the staged frame: the next drain applies it atomically. A staged
     /// clear (`preedit_string` with no text) also arms when a preedit is
     /// currently applied — clearing is a visible frame change.
     pub fn feed_done(&mut self) {
-        let preedit_changed = self.pending_preedit != self.applied_preedit;
-        if preedit_changed || !self.committed.is_empty() {
+        if self.preedit_received || self.pending_delete.is_some() || !self.committed.is_empty() {
             self.armed = true;
         }
     }
@@ -197,6 +236,9 @@ impl TextInputState {
     /// data is discarded.
     pub fn feed_leave(&mut self) {
         self.pending_preedit = None;
+        self.pending_preedit_cursor = None;
+        self.preedit_received = false;
+        self.pending_delete = None;
         self.committed.clear();
         self.armed = false;
         if self.applied_preedit.is_some() {
@@ -211,12 +253,44 @@ impl TextInputState {
     /// staged, matching the protocol's atomicity.
     pub fn drain(&mut self) -> Vec<PlatformEvent> {
         if self.armed {
+            let has_update = self.preedit_received
+                || self.pending_delete.is_some()
+                || !self.committed.is_empty();
+            if has_update && self.applied_preedit.take().is_some() {
+                self.events.push(PlatformEvent::Preedit(None));
+            }
+            if let Some((before_bytes, after_bytes)) = self.pending_delete.take() {
+                self.events.push(PlatformEvent::DeleteSurroundingText {
+                    before_bytes,
+                    after_bytes,
+                });
+            }
             for text in self.committed.drain(..) {
                 self.events.push(PlatformEvent::CommitText(text));
             }
-            let preedit = self.pending_preedit.take();
-            self.applied_preedit = preedit.clone();
-            self.events.push(PlatformEvent::Preedit(preedit));
+            if self.preedit_received {
+                let preedit = self.pending_preedit.take();
+                if let Some(text) = preedit.as_ref().filter(|text| !text.is_empty()) {
+                    let (cursor_begin, cursor_end) = self
+                        .pending_preedit_cursor
+                        .unwrap_or((0, text.len().min(i32::MAX as usize) as i32));
+                    if cursor_begin == 0
+                        && cursor_end == text.len().min(i32::MAX as usize) as i32
+                    {
+                        self.events
+                            .push(PlatformEvent::Preedit(Some(text.clone())));
+                    } else {
+                        self.events.push(PlatformEvent::PreeditWithCursor {
+                            text: Some(text.clone()),
+                            cursor_begin,
+                            cursor_end,
+                        });
+                    }
+                }
+                self.applied_preedit = preedit.filter(|text| !text.is_empty());
+            }
+            self.pending_preedit_cursor = None;
+            self.preedit_received = false;
             self.armed = false;
         }
         std::mem::take(&mut self.events)
@@ -1983,11 +2057,16 @@ impl Dispatch<ZwpTextInputV3, ()> for GoyaWindowInner {
         _: &QueueHandle<Self>,
     ) {
         match event {
-            zwp_text_input_v3::Event::PreeditString { text, .. } => {
-                // Cursor begin/end offsets are deliberately dropped: the
-                // GY-ZCODE-005 contract delivers preedit as plain text and
-                // the composer renders it inline without a cursor marker.
-                state.text_input_state.feed_preedit(text);
+            zwp_text_input_v3::Event::PreeditString {
+                text,
+                cursor_begin,
+                cursor_end,
+            } => {
+                state.text_input_state.feed_preedit_with_cursor(
+                    text,
+                    cursor_begin,
+                    cursor_end,
+                );
             }
             zwp_text_input_v3::Event::CommitString { text } => {
                 state.text_input_state.feed_commit(text);
@@ -1998,8 +2077,13 @@ impl Dispatch<ZwpTextInputV3, ()> for GoyaWindowInner {
             zwp_text_input_v3::Event::Leave { .. } => {
                 state.text_input_state.feed_leave();
             }
-            zwp_text_input_v3::Event::DeleteSurroundingText { .. }
-            | zwp_text_input_v3::Event::Enter { .. }
+            zwp_text_input_v3::Event::DeleteSurroundingText {
+                before_length,
+                after_length,
+            } => state
+                .text_input_state
+                .feed_delete_surrounding(before_length, after_length),
+            zwp_text_input_v3::Event::Enter { .. }
             | zwp_text_input_v3::Event::Language { .. }
             | zwp_text_input_v3::Event::Action { .. }
             | zwp_text_input_v3::Event::PreeditHint { .. } => {}
