@@ -211,15 +211,16 @@ impl AgentRun {
         });
 
         // subscribe; live events now flow through the reader thread.
-        let subscribed = self.request(
-            &mut stdin,
-            "session/subscribe",
-            json!({
-                "sessionId": target.session_id,
-                "deliveryKind": "desktop-continuous",
-            }),
-        )
-        .map_err(|e| format!("session/subscribe failed: {e}"))?;
+        let subscribed = self
+            .request(
+                &mut stdin,
+                "session/subscribe",
+                json!({
+                    "sessionId": target.session_id,
+                    "deliveryKind": "desktop-continuous",
+                }),
+            )
+            .map_err(|e| format!("session/subscribe failed: {e}"))?;
         if let Some(events) = subscribed.get("events").and_then(Value::as_array) {
             for envelope in events {
                 if envelope.get("sessionId").and_then(Value::as_str)
@@ -299,9 +300,9 @@ fn read_frames(
         }
         if msg.get("method").and_then(Value::as_str) == Some("session/event") {
             let envelope = msg.get("params").unwrap_or(&Value::Null);
-            let matches_session = session_id.as_deref().is_none_or(|id| {
-                envelope.get("sessionId").and_then(Value::as_str) == Some(id)
-            });
+            let matches_session = session_id
+                .as_deref()
+                .is_none_or(|id| envelope.get("sessionId").and_then(Value::as_str) == Some(id));
             if matches_session {
                 if let Some(event) = map_event(envelope) {
                     if let Ok(mut v) = view.lock() {
