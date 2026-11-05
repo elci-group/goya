@@ -239,7 +239,10 @@ fn run_dump(args: &Args, store: &mut SceneStore, last_mtime: &mut Option<SystemT
         if handle.take_dirty() {
             if let Ok(view) = handle.view.lock() {
                 let view = view.clone();
-                let header = format!("link={:?} status={} title={}", view.link, view.status, view.title);
+                let header = format!(
+                    "link={:?} status={} title={}",
+                    view.link, view.status, view.title
+                );
                 let rows = view.rows();
                 if last_snapshot.as_ref() != Some(&(header.clone(), rows.clone())) {
                     println!("--- {header}");
