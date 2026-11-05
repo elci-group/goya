@@ -77,14 +77,23 @@ impl From<std::io::Error> for SaveError {
 }
 
 /// Replace only the already-selected scene path. A same-directory temporary
-/// file and rename keep readers from observing a partially written source.
-fn atomic_replace_scene(path: &Path, source: &[u8]) -> Result<(), String> {
+/// file and rename keep readers from observing a partial write. The source
+/// revision is checked again immediately before rename.
+fn atomic_replace_scene(
+    path: &Path,
+    source: &[u8],
+    expected_revision: &str,
+) -> Result<(), SaveError> {
     if source.len() as u64 > MAX_SCENE_BYTES {
-        return Err("scene source exceeds the 128 KiB limit".into());
+        return Err(SaveError::Failed(
+            "scene source exceeds the 128 KiB limit".into(),
+        ));
     }
-    let metadata = fs::symlink_metadata(path).map_err(|error| error.to_string())?;
+    let metadata = fs::symlink_metadata(path)?;
     if metadata.file_type().is_symlink() || !metadata.is_file() {
-        return Err("save target is no longer a regular scene file".into());
+        return Err(SaveError::Failed(
+            "save target is no longer a regular scene file".into(),
+        ));
     }
     let parent = path
         .parent()
@@ -92,7 +101,7 @@ fn atomic_replace_scene(path: &Path, source: &[u8]) -> Result<(), String> {
         .unwrap_or_else(|| Path::new("."));
     let file_name = path
         .file_name()
-        .ok_or_else(|| "save target has no file name".to_string())?
+        .ok_or_else(|| SaveError::Failed("save target has no file name".to_string()))?
         .to_string_lossy();
 
     for _ in 0..16 {
@@ -108,7 +117,7 @@ fn atomic_replace_scene(path: &Path, source: &[u8]) -> Result<(), String> {
         {
             Ok(file) => file,
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(error) => return Err(error.to_string()),
+            Err(error) => return Err(SaveError::from(error)),
         };
         let result = (|| {
             file.write_all(source)?;
@@ -123,15 +132,21 @@ fn atomic_replace_scene(path: &Path, source: &[u8]) -> Result<(), String> {
             file.set_permissions(metadata.permissions())?;
             file.sync_all()?;
             drop(file);
-            fs::rename(&temporary, path)
+            let current = read_scene_source(path).map_err(SaveError::Failed)?;
+            if scene_revision(current.as_bytes()) != expected_revision {
+                return Err(SaveError::Conflict);
+            }
+            fs::rename(&temporary, path).map_err(SaveError::from)
         })();
         if let Err(error) = result {
             let _ = fs::remove_file(&temporary);
-            return Err(error.to_string());
+            return Err(error);
         }
         return Ok(());
     }
-    Err("could not allocate a unique temporary save file".into())
+    Err(SaveError::Failed(
+        "could not allocate a unique temporary save file".into(),
+    ))
 }
 
 #[derive(Debug, PartialEq, Eq)]
