@@ -652,13 +652,14 @@ mod tests {
             view.in_flight_tools.back().map(String::as_str),
             Some(format!("t{}", n - 1).as_str())
         );
-        // The evicted oldest id can start a fresh row again.
+        // The evicted oldest id can start a fresh row again (the other
+        // starts were never dedup'd — distinct ids all rendered).
         view.apply(&tool("t0", "bash", ToolState::Started));
         let starts = view
             .history
             .iter()
             .filter(|l| *l == "⚙ bash …")
             .count();
-        assert_eq!(starts, TOOL_TRACK_CAP + 1);
+        assert_eq!(starts, n as usize + 1);
     }
 }

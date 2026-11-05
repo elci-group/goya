@@ -474,7 +474,9 @@ mod tests {
         assert_eq!(c.display(), "│");
         c.set_preedit(Some("预"));
         assert!(c.text().is_empty(), "preedit must not enter the buffer");
-        assert_eq!(c.display(), "«预»│");
+        // set_preedit defaults to cursor offset 0: the caret sits before
+        // the composing text, inside the brackets.
+        assert_eq!(c.display(), "«│预»");
         // Cleared (PlatformEvent::Preedit(None)) removes the overlay.
         c.set_preedit(None);
         assert_eq!(c.display(), "│");
