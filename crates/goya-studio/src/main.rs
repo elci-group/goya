@@ -590,13 +590,6 @@ fn route_request_for_scene(
                 "Use text/plain;charset=utf-8".into(),
             );
         }
-        let Some(expected_revision) = req.if_match.as_deref() else {
-            return (
-                "428 Precondition Required",
-                "text/plain; charset=utf-8",
-                "Reload the editor before saving this scene".into(),
-            );
-        };
         let source = match String::from_utf8(req.body) {
             Ok(source) => source,
             Err(_) => {
@@ -646,6 +639,13 @@ fn route_request_for_scene(
                 "Use text/plain;charset=utf-8".into(),
             );
         }
+        let Some(expected_revision) = req.if_match.as_deref() else {
+            return (
+                "428 Precondition Required",
+                "text/plain; charset=utf-8",
+                "Reload the editor before saving this scene".into(),
+            );
+        };
         let source = match String::from_utf8(req.body) {
             Ok(source) => source,
             Err(_) => {
