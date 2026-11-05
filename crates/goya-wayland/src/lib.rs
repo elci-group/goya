@@ -1885,7 +1885,7 @@ mod raster_tests {
 
 #[cfg(test)]
 mod key_tests {
-    use super::{key_char, key_chars};
+    use super::{key_char, key_chars, key_char_from_state, key_special};
     #[test]
     fn us_layout_spot_checks() {
         assert_eq!(key_char(30, false), Some('a'));
