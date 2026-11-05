@@ -83,6 +83,11 @@ pub enum PlatformEvent {
     /// positive = wheel up, negative = wheel down. Devices that never emit a
     /// vertical axis produce nothing.
     PointerScroll(i32),
+    /// Smooth pointer or touchpad scrolling in surface-coordinate units.
+    /// Positive values mean up/left, matching [`PlatformEvent::PointerScroll`].
+    /// Horizontal and vertical axes are emitted independently as Wayland
+    /// reports them; consumers should accumulate fractional values.
+    PointerScrollDelta { x: f64, y: f64 },
     /// Ctrl+c / ctrl+v / ctrl+q (GY-ZCODE-004). Only produced by the xkb
     /// state path; the keymap-free evdev fallback tracks no ctrl modifier
     /// and therefore never emits shortcuts.
@@ -2464,6 +2469,17 @@ fn scroll_lines(axis_value: f64) -> Option<i32> {
     }
 }
 
+fn scroll_delta(axis: wl_pointer::Axis, axis_value: f64) -> Option<(f64, f64)> {
+    if !axis_value.is_finite() || axis_value == 0.0 {
+        return None;
+    }
+    match axis {
+        wl_pointer::Axis::HorizontalScroll => Some((-axis_value, 0.0)),
+        wl_pointer::Axis::VerticalScroll => Some((0.0, -axis_value)),
+        _ => None,
+    }
+}
+
 impl Dispatch<WlKeyboard, ()> for GoyaWindowInner {
     fn event(
         state: &mut Self,
@@ -2564,6 +2580,18 @@ impl Dispatch<WlPointer, ()> for GoyaWindowInner {
             } => {
                 if let Some(lines) = scroll_lines(value) {
                     state.events.push(PlatformEvent::PointerScroll(lines));
+                }
+                if let Some((x, y)) = scroll_delta(wl_pointer::Axis::VerticalScroll, value) {
+                    state.events.push(PlatformEvent::PointerScrollDelta { x, y });
+                }
+            }
+            wl_pointer::Event::Axis {
+                axis: WEnum::Value(wl_pointer::Axis::HorizontalScroll),
+                value,
+                ..
+            } => {
+                if let Some((x, y)) = scroll_delta(wl_pointer::Axis::HorizontalScroll, value) {
+                    state.events.push(PlatformEvent::PointerScrollDelta { x, y });
                 }
             }
             wl_pointer::Event::Leave { .. } => state.last_pointer = None,
@@ -3014,6 +3042,22 @@ mod key_special_tests {
         assert_eq!(scroll_lines(-10.0), Some(1));
         // Zero value emits nothing.
         assert_eq!(scroll_lines(0.0), None);
+    }
+
+    #[test]
+    fn smooth_scroll_preserves_fractional_and_horizontal_deltas() {
+        use super::scroll_delta;
+        assert_eq!(
+            scroll_delta(wl_pointer::Axis::VerticalScroll, 0.25),
+            Some((0.0, -0.25))
+        );
+        assert_eq!(
+            scroll_delta(wl_pointer::Axis::HorizontalScroll, -1.5),
+            Some((1.5, 0.0))
+        );
+        assert_eq!(scroll_delta(wl_pointer::Axis::VerticalScroll, 0.0), None);
+        assert_eq!(scroll_delta(wl_pointer::Axis::VerticalScroll, f64::NAN), None);
+        assert_eq!(scroll_delta(wl_pointer::Axis::VerticalScroll, f64::INFINITY), None);
     }
 }
 
