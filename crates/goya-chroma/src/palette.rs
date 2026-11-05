@@ -64,7 +64,7 @@ const MUTED_BLEND_TOWARD_SURFACE: f64 = 0.55;
 /// [`ResolveError::ContrastUnreachable`] is returned.
 pub fn palette(theme: &Theme, polarity: Polarity) -> Result<Palette, ResolveError> {
     let resolved = resolve(theme, polarity)?;
-    Ok(build(&resolved, polarity))
+    build(&resolved, polarity)
 }
 
 /// Shared mapping from a resolved theme to a palette (pure). Accent lightness
