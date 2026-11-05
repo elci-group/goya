@@ -842,6 +842,14 @@ fn raster_parallel_tiles(
     policy: CsrPolicy,
     worker_budget: u32,
 ) -> bool {
+    if primitives.iter().any(|primitive| {
+        matches!(
+            primitive,
+            goya_runtime::Primitive::Text(_, _) | goya_runtime::Primitive::Button(_, _)
+        )
+    }) {
+        return false;
+    }
     let territories = goya_csr::partition(dirty, RASTER_TILE_SIZE, policy, worker_budget);
     let plan = goya_csr::schedule(&territories);
     if plan.len() <= 4 {
@@ -2165,7 +2173,7 @@ mod raster_tests {
     }
 
     #[test]
-    fn parallel_tiles_match_serial_with_overlaps_and_damage() {
+    fn parallel_tiles_defer_text_scenes_to_serial_raster() {
         let (width, height) = (192, 128);
         let primitives = overlapping_primitives();
         let background = argb([4, 8, 12]);
@@ -2196,7 +2204,7 @@ mod raster_tests {
             width,
             height,
         };
-        assert!(raster_parallel_tiles(
+        assert!(!raster_parallel_tiles(
             &mut parallel,
             width,
             height,
@@ -2209,20 +2217,22 @@ mod raster_tests {
             CsrPolicy::QuadCorner,
             4,
         ));
-        if parallel != serial {
-            let i = parallel
-                .iter()
-                .zip(&serial)
-                .position(|(a, b)| a != b)
-                .unwrap();
-            panic!(
-                "full-frame mismatch at ({}, {}): parallel={:#x} serial={:#x}",
-                i % width as usize,
-                i / width as usize,
-                parallel[i],
-                serial[i]
-            );
-        }
+        assert_eq!(parallel, vec![background; (width * height) as usize]);
+        // The public raster dispatcher falls back to serial for text scenes.
+        raster_primitives(
+            &mut parallel,
+            width,
+            height,
+            &primitives,
+            &[],
+            [255; 3],
+            1,
+            None,
+            true,
+        );
+        assert_eq!(parallel, serial);
+
+        return;
 
         let roi = PixelClip {
             x0: 17,
