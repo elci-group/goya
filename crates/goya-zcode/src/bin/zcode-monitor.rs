@@ -6,18 +6,19 @@
 //!   --stdin-dump  live protocol run, projection printed to stdout
 //!   --live        Wayland window
 
-use goya_lang::{hit_test, layout, SceneStore};
+use goya_lang::{hit_test, layout, DrawNode, SceneStore};
 use goya_runtime::Primitive;
 use goya_wayland::GoyaWindow;
-use goya_zcode::agent::MonitorHandle;
-use goya_zcode::view::{SessionView, TAIL_LINES};
+use goya_zcode::agent::{self, MonitorHandle};
+use goya_zcode::view::{LinkState, ProjEvent, SessionView, TAIL_LINES};
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 const SCENE_PATH: &str = "apps/zcode-monitor.gscene";
 const WIN_W_PX: i32 = 400;
 const WIN_H_PX: i32 = 320;
+const LINE_WIDTH: usize = 56;
 
 struct Args {
     cli: String,
@@ -28,6 +29,7 @@ struct Args {
     duration: Option<u64>,
 }
 
+#[derive(PartialEq)]
 enum Mode {
     Headless,
     Dump,
@@ -63,25 +65,33 @@ fn parse_args() -> Args {
     }
 }
 
+fn truncate(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
+    let mut out: String = s.chars().take(max.saturating_sub(1)).collect();
+    out.push('~');
+    out
+}
+
 /// Override scene node texts from the view before primitive conversion
 /// (calculator `with_result` pattern; no per-frame scene rebuild).
-fn apply_view_to_frame(frame: &mut Vec<goya_lang::DrawNode>, view: &SessionView) {
+fn apply_view_to_frame(nodes: &mut [DrawNode], view: &SessionView) {
     let rows = view.rows();
     let status = match &view.link {
-        goya_zcode::view::LinkState::Connecting => String::from("linking"),
-        goya_zcode::view::LinkState::Up => view.status.clone(),
-        goya_zcode::view::LinkState::Down(reason) => format!("down: {reason}"),
+        LinkState::Connecting => String::from("linking"),
+        LinkState::Up => view.status.clone(),
+        LinkState::Down(reason) => format!("down: {reason}"),
     };
-    let status = goya_zcode::view::truncate_pub(&status, 14);
-    let title = goya_zcode::view::truncate_pub(&view.title, 34);
-    for node in frame.iter_mut() {
+    let status = truncate(&status, 14);
+    let title = truncate(&view.title, 34);
+    for node in nodes.iter_mut() {
         match node.name.as_str() {
             "title" => node.text = Some(title.clone()),
             "status" => node.text = Some(status.clone()),
             n if n.starts_with("row_") => {
-                let idx: Option<usize> = n[4..].parse().ok();
-                if let Some(i) = idx {
-                    node.text = rows.get(i).cloned().unwrap_or_default();
+                if let Ok(i) = n[4..].parse::<usize>() {
+                    node.text = Some(rows.get(i).cloned().unwrap_or_default());
                 }
             }
             _ => {}
@@ -89,19 +99,13 @@ fn apply_view_to_frame(frame: &mut Vec<goya_lang::DrawNode>, view: &SessionView)
     }
 }
 
-fn present_node(n: &goya_lang::DrawNode) -> Primitive {
-    let rect = goya_lang::RectMp {
+/// Convert a scene draw node into the renderer's primitive vocabulary.
+fn present_node(n: &DrawNode) -> Primitive {
+    let rect = goya_layout::Rect {
         x: n.rect.x,
         y: n.rect.y,
         width: n.rect.width,
         height: n.rect.height,
-    };
-    // RectMp -> goya_layout::Rect (same integer units).
-    let rect = goya_layout::Rect {
-        x: rect.x,
-        y: rect.y,
-        width: rect.width,
-        height: rect.height,
     };
     let mut label = n.text.clone().unwrap_or_default();
     if n.is_button && label.is_empty() {
@@ -134,16 +138,9 @@ fn main() {
         .and_then(|m| m.modified().ok());
 
     match args.mode {
-        Mode::Headless => {
-            headless_acceptance(&store);
-            return;
-        }
-        Mode::Dump => {
-            run_dump(&args, &mut store, last_mtime.as_ref());
-        }
-        Mode::Live => {
-            run_live(&args, &mut store, last_mtime.as_ref());
-        }
+        Mode::Headless => headless_acceptance(&store),
+        Mode::Dump => run_dump(&args, &mut store, &mut last_mtime),
+        Mode::Live => run_live(&args, &mut store, &mut last_mtime),
     }
 }
 
@@ -156,28 +153,30 @@ fn headless_acceptance(store: &SceneStore) {
     let frame = layout(store.get(), 400.0, 320.0);
     for name in ["title", "status", "quit"] {
         let found = frame.find(name).is_some();
-        println!("scene has '{name}' [{found}]",);
+        println!("scene has '{name}' [{pass}]", pass = pass_str(found));
         ok &= found;
     }
-    let mut rows_found = 0usize;
-    for node in &frame.nodes {
-        if node.name.starts_with("row_") {
-            rows_found += 1;
-        }
-    }
+    let rows_found = frame
+        .nodes
+        .iter()
+        .filter(|n| n.name.starts_with("row_"))
+        .count();
     let rows_ok = rows_found == TAIL_LINES;
-    println!("scene has {rows_found}/{TAIL_LINES} transcript rows [{pass}]", pass = if rows_ok { "PASS" } else { "FAIL" });
+    println!(
+        "scene has {rows_found}/{TAIL_LINES} transcript rows [{}]",
+        pass_str(rows_ok)
+    );
     ok &= rows_ok;
 
     // Projection contract: feed a synthetic turn through the view.
     let mut view = SessionView::default();
-    view.apply(&goya_zcode::view::ProjEvent::TurnStarted {
+    view.apply(&ProjEvent::TurnStarted {
         input: "acceptance input".into(),
     });
-    view.apply(&goya_zcode::view::ProjEvent::PartDelta {
+    view.apply(&ProjEvent::PartDelta {
         delta: "streamed response".into(),
     });
-    view.apply(&goya_zcode::view::ProjEvent::TurnCompleted {
+    view.apply(&ProjEvent::TurnCompleted {
         response: "final answer".into(),
         result: "success".into(),
     });
@@ -185,41 +184,30 @@ fn headless_acceptance(store: &SceneStore) {
     let proj_ok = view.status == "idle"
         && rows.last().map(String::as_str) == Some("final answer")
         && rows.contains(&"> acceptance input".to_string());
-    println!(
-        "projection turn lifecycle [{}]",
-        if proj_ok { "PASS" } else { "FAIL" }
-    );
+    println!("projection turn lifecycle [{}]", pass_str(proj_ok));
     ok &= proj_ok;
+
+    // Hit test on the quit button (bottom-right).
+    let frame = layout(store.get(), 400.0, 320.0);
+    let hit_ok = hit_test(&frame, 340_000, 304_000).as_deref() == Some("quit");
+    println!("hit test on 'quit' button [{}]", pass_str(hit_ok));
+    ok &= hit_ok;
 
     if !ok {
         std::process::exit(1);
     }
+    println!("zcode-monitor: headless acceptance PASS");
 }
 
-/// Shared live run: agent thread + dirty-flag loop body. `on_frame` gets
-/// a fresh view snapshot when dirty.
-fn run_loop(args: &Args, store: &mut SceneStore, last_mtime: Option<&std::time::SystemTime>, render: &mut dyn FnMut(&SessionView)) {
-    let handle = goya_zcode::agent::spawn_agent(&args.cli, &args.workspace, args.session.clone());
-    let started = Instant::now();
-    while !handle.stop.load(Ordering::Relaxed) {
-        if args.watch {
-            watch_swap(store, &mut last_mtime.cloned());
-        }
-        if handle.take_dirty() {
-            if let Ok(view) = handle.view.lock() {
-                render(&view.clone());
-            }
-        }
-        if let Some(secs) = args.duration {
-            if started.elapsed() >= Duration::from_secs(secs) {
-                handle.stop.store(true, Ordering::Relaxed);
-            }
-        }
-        std::thread::sleep(Duration::from_millis(33));
+fn pass_str(ok: bool) -> &'static str {
+    if ok {
+        "PASS"
+    } else {
+        "FAIL"
     }
 }
 
-fn watch_swap(store: &mut SceneStore, last_mtime: &mut Option<std::time::SystemTime>) {
+fn watch_swap(store: &mut SceneStore, last_mtime: &mut Option<SystemTime>) {
     if let Ok(m) = std::fs::metadata(SCENE_PATH) {
         if let Ok(mtime) = m.modified() {
             if last_mtime.as_ref() != Some(&mtime) {
@@ -234,28 +222,47 @@ fn watch_swap(store: &mut SceneStore, last_mtime: &mut Option<std::time::SystemT
     }
 }
 
-fn run_dump(args: &Args, store: &mut SceneStore, last_mtime: Option<&std::time::SystemTime>) {
+fn run_dump(args: &Args, store: &mut SceneStore, last_mtime: &mut Option<SystemTime>) {
     println!(
         "zcode-monitor: dumping projection (cli={}, workspace={})",
         args.cli,
         args.workspace.display()
     );
+    let handle = agent::spawn_agent(&args.cli, &args.workspace, args.session.clone());
     let mut last_rows: Vec<String> = Vec::new();
-    run_loop(args, store, last_mtime, &mut |view: &SessionView| {
-        let rows = view.rows();
-        if rows == last_rows {
-            return;
+    let started = Instant::now();
+    while !handle.stop.load(Ordering::Relaxed) {
+        if args.watch {
+            watch_swap(store, last_mtime);
         }
-        last_rows = rows.clone();
-        println!("--- link={:?} status={} title={}", view.link, view.status, view.title);
-        for row in &rows {
-            println!("| {row}");
+        if handle.take_dirty() {
+            if let Ok(view) = handle.view.lock() {
+                let view = view.clone();
+                let rows = view.rows();
+                if rows != last_rows {
+                    last_rows = rows.clone();
+                    println!(
+                        "--- link={:?} status={} title={}",
+                        view.link, view.status, view.title
+                    );
+                    for row in &rows {
+                        println!("| {row}");
+                    }
+                }
+            }
         }
-    });
+        if let Some(secs) = args.duration {
+            if started.elapsed() >= Duration::from_secs(secs) {
+                break;
+            }
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    handle.stop.store(true, Ordering::Relaxed);
     println!("zcode-monitor: dump done");
 }
 
-fn run_live(args: &Args, store: &mut SceneStore, last_mtime: Option<&std::time::SystemTime>) {
+fn run_live(args: &Args, store: &mut SceneStore, last_mtime: &mut Option<SystemTime>) {
     let mut win = match GoyaWindow::create("zcode-monitor", WIN_W_PX, WIN_H_PX) {
         Ok(w) => w,
         Err(e) => {
@@ -263,13 +270,51 @@ fn run_live(args: &Args, store: &mut SceneStore, last_mtime: Option<&std::time::
             return;
         }
     };
-    let mut quit_pressed = false;
-    run_loop(args, store, last_mtime, &mut |_view| {
-        // Render happens in the poll loop below; the closure only records
-        // freshness. See frame loop for the actual present() call.
-    });
-    let _ = quit_pressed;
+    let handle = agent::spawn_agent(&args.cli, &args.workspace, args.session.clone());
+    let started = Instant::now();
+    let mut frames = 0u32;
+    while !handle.stop.load(Ordering::Relaxed) && !win.close_requested() {
+        if args.watch {
+            watch_swap(store, last_mtime);
+        }
+        let mut dirty = handle.take_dirty();
+        for ev in win.poll() {
+            match ev {
+                goya_wayland::PlatformEvent::PointerPress(x, y) => {
+                    let frame = layout(store.get(), 400.0, 320.0);
+                    if let Some(name) = hit_test(
+                        &frame,
+                        (x as i64) * goya_wayland::MP_PER_PX,
+                        (y as i64) * goya_wayland::MP_PER_PX,
+                    ) {
+                        if name == "quit" {
+                            handle.stop.store(true, Ordering::Relaxed);
+                            dirty = true;
+                        }
+                    }
+                }
+                goya_wayland::PlatformEvent::Resized(_, _) => dirty = true,
+                _ => {}
+            }
+        }
+        if dirty {
+            let frame = layout(store.get(), 400.0, 320.0);
+            let mut nodes = frame.nodes.clone();
+            if let Ok(view) = handle.view.lock() {
+                apply_view_to_frame(&mut nodes, &view);
+            }
+            let prims: Vec<Primitive> = nodes.iter().map(present_node).collect();
+            let _ = win.present(&prims, [20, 20, 28], [225, 228, 236], 3);
+        }
+        if let Some(secs) = args.duration {
+            if started.elapsed() >= Duration::from_secs(secs) {
+                break;
+            }
+        }
+        win.pump(1);
+        std::thread::sleep(Duration::from_millis(16));
+        frames += 1;
+    }
+    handle.stop.store(true, Ordering::Relaxed);
+    println!("zcode-monitor: live ended after {frames} frames");
 }
-
-// The live path needs the frame loop inline (window events + present in
-// the same iteration), so it does not use run_loop; kept separate below.

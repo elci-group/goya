@@ -782,6 +782,7 @@ name = "goya-zcode"
 version = "0.1.8"
 dependencies = [
  "goya-lang",
+ "goya-layout",
  "goya-runtime",
  "goya-wayland",
  "serde",
