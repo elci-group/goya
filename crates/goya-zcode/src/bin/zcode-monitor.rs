@@ -260,6 +260,18 @@ fn feed_key(composer: &mut Composer, ev: &goya_wayland::PlatformEvent) -> Option
             composer.handle_ime_batch(preedit.clone(), commit.as_deref(), *delete);
             None
         }
+        // Wave 5 (GY-ZCODE-005): standalone IME deliveries from the
+        // zwp_text_input_v3 client. Preedit is an overlay; CommitText is
+        // the whole committed string inserted at the composer cursor via
+        // the established handle_ime_batch commit path (focused-guarded).
+        goya_wayland::PlatformEvent::Preedit(text) => {
+            composer.set_preedit(text.as_deref());
+            None
+        }
+        goya_wayland::PlatformEvent::CommitText(text) => {
+            composer.handle_ime_batch(None, Some(text.as_str()), None);
+            None
+        }
         _ => None,
     }
 }
@@ -675,6 +687,12 @@ fn run_live(args: &Args, store: &mut SceneStore, last_mtime: &mut Option<SystemT
                             let now_focused = name == "composer";
                             dirty |= composer.focused != now_focused;
                             composer.focused = now_focused;
+                            // Wave 5 (GY-ZCODE-005): the window text input
+                            // is activated iff the composer is focused
+                            // (disabled by default in goya-wayland; the
+                            // composer starts unfocused at startup, so no
+                            // startup activation is needed).
+                            win.set_text_input_active(now_focused);
                             sync_text_input(&mut win, &composer, store.get());
                         }
                     }

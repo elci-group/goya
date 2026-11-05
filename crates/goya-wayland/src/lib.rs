@@ -2946,8 +2946,8 @@ mod text_input_tests {
     fn activation_decision_noops_when_global_missing_or_state_holds() {
         // The registry never bound a text-input global (Option::None): the
         // activation API must be a safe no-op, not a panic or protocol error.
-        assert_eq!(text_input_activation(None, false, true), None);
-        assert_eq!(text_input_activation(None, false, false), None);
+        assert_eq!(text_input_activation::<()>(None, false, true), None);
+        assert_eq!(text_input_activation::<()>(None, false, false), None);
         // Bound but already in the requested state: no protocol traffic.
         // (Generic helper: `()` stands in for the proxy in unit tests.)
         assert_eq!(text_input_activation(Some(()), true, true), None);
