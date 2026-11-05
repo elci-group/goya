@@ -896,6 +896,8 @@ mod tests {
         assert!(rt.handle(Event::Character('e')));
         assert!(rt.handle(Event::Character('\u{301}')));
         assert_eq!(rt.input_text(NodeId(2)), Some("e\u{301}"));
+        assert_eq!(rt.input_cursor_byte(NodeId(2)), Some("e\u{301}".len()));
+        assert_eq!(rt.input_anchor_byte(NodeId(2)), Some("e\u{301}".len()));
         assert!(rt.handle(Event::TextBackspace));
         assert_eq!(rt.input_text(NodeId(2)), Some(""));
         assert!(rt.handle(Event::ImeBatch {
@@ -912,6 +914,11 @@ mod tests {
         assert_eq!(rt.input_text(NodeId(2)), Some("日"));
         assert!(rt.handle(Event::SetInputValue(NodeId(2), "screen reader".into())));
         assert_eq!(rt.input_text(NodeId(2)), Some("screen reader"));
+        assert_eq!(rt.input_cursor_byte(NodeId(2)), Some("screen reader".len()));
+        assert!(matches!(
+            rt.render_list().last(),
+            Some(Primitive::Text(_, value)) if value == "screen reader"
+        ));
     }
 
     #[test]

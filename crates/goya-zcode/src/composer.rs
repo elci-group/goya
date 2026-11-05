@@ -1,6 +1,6 @@
 //! Composer — pure editable-input state machine (GY-ZCODE-002, J3).
 //!
-//! Owns the composed text, a char-offset cursor, focus, and a bounded
+//! Owns the composed text, a grapheme-offset cursor, focus, and a bounded
 //! history of committed lines. The host binary maps Wayland events onto
 //! [`Composer::handle_char`] / [`Composer::handle_special`]; this module
 //! never touches goya-wayland types, so it compiles against the current

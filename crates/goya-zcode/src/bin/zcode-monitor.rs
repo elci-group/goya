@@ -382,19 +382,13 @@ mod input_event_tests {
     fn preedit_overlay_clears_without_committing_and_commit_replaces_it() {
         let mut composer = Composer::new();
         composer.focused = true;
-        feed_key(
-            &mut composer,
-            &PlatformEvent::Preedit(Some("かな".into())),
-        );
+        feed_key(&mut composer, &PlatformEvent::Preedit(Some("かな".into())));
         assert_eq!(composer.text(), "");
         assert_eq!(composer.display(), "«│かな»");
         feed_key(&mut composer, &PlatformEvent::Preedit(None));
         assert_eq!(composer.display(), "│");
 
-        feed_key(
-            &mut composer,
-            &PlatformEvent::Preedit(Some("かな".into())),
-        );
+        feed_key(&mut composer, &PlatformEvent::Preedit(Some("かな".into())));
         feed_key(&mut composer, &PlatformEvent::CommitText("仮名".into()));
         assert_eq!(composer.text(), "仮名");
         assert_eq!(composer.display(), "│仮名");
@@ -404,10 +398,7 @@ mod input_event_tests {
     fn unfocused_composer_ignores_unicode_and_ime_batches() {
         let mut composer = Composer::new();
         feed_key(&mut composer, &PlatformEvent::KeyChar('ø'));
-        feed_key(
-            &mut composer,
-            &PlatformEvent::Preedit(Some("ø".into())),
-        );
+        feed_key(&mut composer, &PlatformEvent::Preedit(Some("ø".into())));
         feed_key(&mut composer, &PlatformEvent::CommitText("ø".into()));
         assert_eq!(composer.text(), "");
         assert_eq!(composer.preedit, None);

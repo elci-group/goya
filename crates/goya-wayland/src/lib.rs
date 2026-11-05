@@ -1078,7 +1078,9 @@ fn raster_serial(
             i,
             config.fg,
             config.glyph_px,
-            config.clips.and_then(|clips| clips.get(i).copied().flatten()),
+            config
+                .clips
+                .and_then(|clips| clips.get(i).copied().flatten()),
             config
                 .text_sizes_pt
                 .and_then(|sizes| sizes.get(i).copied().flatten()),
