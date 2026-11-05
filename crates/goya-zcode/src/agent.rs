@@ -19,13 +19,16 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
-const RECONNECT_DELAY: Duration = Duration::from_secs(5);
+const RECONNECT_DELAY_MS: u64 = 5_000;
+const POLL_INTERVAL_MS: u64 = 200;
 
-/// Handle shared between the agent thread and the render loop.
+/// State shared between the agent thread and the render loop. The agent
+/// thread is the only writer; the render loop polls `take_dirty` and reads
+/// a view snapshot.
 #[derive(Clone)]
 pub struct MonitorHandle {
     pub view: Arc<Mutex<SessionView>>,
-    pub dirty: Arc<AtomicBool>,
+    dirty: Arc<AtomicBool>,
     pub stop: Arc<AtomicBool>,
 }
 
@@ -38,9 +41,13 @@ impl MonitorHandle {
         }
     }
 
-    /// Take and clear the dirty flag (render loop polls this).
+    /// Take and clear the dirty flag.
     pub fn take_dirty(&self) -> bool {
         self.dirty.swap(false, Ordering::Relaxed)
+    }
+
+    fn mark_dirty(&self) {
+        self.dirty.store(true, Ordering::Relaxed);
     }
 }
 
@@ -50,13 +57,10 @@ impl Default for MonitorHandle {
     }
 }
 
-/// One agent-thread run: spawn the CLI, list sessions, subscribe, stream
-/// events into the view. Exits when `stop` is set or the child dies;
-/// `spawn_agent` wraps it with reconnect backoff.
+/// One connection attempt: spawn the CLI, list sessions, subscribe, then
+/// hold the process open while events stream through the reader thread.
 struct AgentRun {
-    cli: String,
     workspace: PathBuf,
-    session: Option<String>,
     handle: MonitorHandle,
     child: Child,
     next_id: AtomicU64,
@@ -64,7 +68,7 @@ struct AgentRun {
 }
 
 impl AgentRun {
-    fn spawn(cli: &str, workspace: &Path) -> Result<Self, String> {
+    fn spawn(cli: &str, workspace: &Path, handle: MonitorHandle) -> Result<Self, String> {
         let mut child = Command::new(cli)
             .arg("app-server")
             .current_dir(workspace)
@@ -73,15 +77,19 @@ impl AgentRun {
             .stderr(Stdio::inherit())
             .spawn()
             .map_err(|e| format!("spawn `{cli} app-server`: {e}"))?;
-        let stdin = child
+        // Assert both pipes exist before dropping the struct; the run loop
+        // re-takes them.
+        child
             .stdin
             .take()
             .ok_or_else(|| "app-server stdin unavailable".to_string())?;
+        child
+            .stdout
+            .take()
+            .ok_or_else(|| "app-server stdout unavailable".to_string())?;
         Ok(Self {
-            cli: cli.to_string(),
             workspace: workspace.to_path_buf(),
-            session: None,
-            handle: MonitorHandle::new(),
+            handle,
             child,
             next_id: AtomicU64::new(1),
             pending: Arc::new(Mutex::new(HashMap::new())),
@@ -92,17 +100,12 @@ impl AgentRun {
         if let Ok(mut view) = self.handle.view.lock() {
             f(&mut view);
         }
-        self.handle.dirty.store(true, Ordering::Relaxed);
+        self.handle.mark_dirty();
     }
 
-    /// Send one request and await its response (responses are routed to us
-    /// by the reader thread through `pending`).
-    fn request(
-        &self,
-        stdin: &mut ChildStdin,
-        method: &str,
-        params: Value,
-    ) -> Result<Value, String> {
+    /// Send one request and await its response (routed back by the reader
+    /// thread through `pending`). Serialised by `&mut ChildStdin` ownership.
+    fn request(&self, stdin: &mut ChildStdin, method: &str, params: Value) -> Result<Value, String> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = channel();
         self.pending
@@ -110,11 +113,7 @@ impl AgentRun {
             .expect("pending map poisoned")
             .insert(id, tx);
         let frame = json!({"id": id, "method": method, "params": params});
-        let line = frame.to_string();
-        if writeln!(stdin, "{line}")
-            .and_then(|_| stdin.flush())
-            .is_err()
-        {
+        if writeln!(stdin, "{frame}").and_then(|_| stdin.flush()).is_err() {
             self.pending
                 .lock()
                 .expect("pending map poisoned")
@@ -122,8 +121,7 @@ impl AgentRun {
             return Err("app-server stdin write failed".to_string());
         }
         match rx.recv_timeout(REQUEST_TIMEOUT) {
-            Ok(Ok(result)) => Ok(result),
-            Ok(Err(err)) => Err(err),
+            Ok(result) => result,
             Err(RecvTimeoutError::Timeout) => {
                 self.pending
                     .lock()
@@ -135,97 +133,50 @@ impl AgentRun {
         }
     }
 
-    /// Reader loop: route responses to pending requests, apply
-    /// `session/event` notifications to the view.
-    fn read_loop(&self, reader: BufReader<std::process::ChildStdout>) {
-        let pending = Arc::clone(&self.pending);
-        for line in reader.lines() {
-            if self.handle.stop.load(Ordering::Relaxed) {
-                return;
-            }
-            let Ok(line) = line else { return };
-            if line.trim().is_empty() {
-                continue;
-            }
-            let Ok(msg) = serde_json::from_str::<Value>(&line) else {
-                // The stdout channel is strict JSON; a foreign line means
-                // the child was launched without the protocol boundary.
-                self.set_view(|v| v.link = LinkState::Down("non-JSON frame on stdout".into()));
-                return;
-            };
-            if msg.get("id").is_some()
-                && (msg.get("result").is_some() || msg.get("error").is_some())
-            {
-                let id = msg["id"].as_u64().unwrap_or(0);
-                let sender = pending.lock().expect("pending map poisoned").remove(&id);
-                if let Some(sender) = sender {
-                    if let Some(err) = msg.get("error") {
-                        let _ = sender.send(Err(err.to_string()));
-                    } else {
-                        let _ = sender.send(Ok(msg["result"].clone()));
-                    }
-                }
-                continue;
-            }
-            if msg.get("method").and_then(Value::as_str) == Some("session/event") {
-                if let Some(event) = map_event(msg.get("params").unwrap_or(&Value::Null)) {
-                    self.set_view(|v| v.apply(&event));
-                }
-            }
-            // Other notifications (state.updated, process/*) are inert.
-        }
-    }
+    fn run(mut self, session: Option<String>) -> Result<(), String> {
+        let mut stdin: ChildStdin = self.child.stdin.take().expect("checked at spawn");
+        let stdout = self.child.stdout.take().expect("checked at spawn");
 
-    fn run(&mut self, session_arg: Option<String>) -> Result<(), String> {
-        let mut stdin = self.child.stdin.take().expect("stdin taken at spawn");
-        let stdout = self.child.stdout.take().expect("stdout taken at spawn");
-        let reader = BufReader::new(stdout);
-        // The reader needs &self's pending map but the borrow checker
-        // dislikes splitting across threads; route through a scoped thread
-        // is impossible with std, so keep reads on this thread between
-        // requests instead: spawn a lightweight thread sharing Arc clones.
-        {
-            let pending = Arc::clone(&self.pending);
-            let view = Arc::clone(&self.handle.view);
-            let dirty = Arc::clone(&self.handle.dirty);
-            let stop = Arc::clone(&self.handle.stop);
-            let _reader_thread = std::thread::spawn(move || {
-                read_events(reader, pending, view, dirty, stop);
-            });
-            // (The thread detaches; the child's EOF ends it.)
-        }
+        // Reader thread routes responses into `pending` and applies
+        // session/event notifications to the shared view.
+        let reader_pending = Arc::clone(&self.pending);
+        let reader_view = Arc::clone(&self.handle.view);
+        let reader_dirty = Arc::clone(&self.handle.dirty);
+        let reader_stop = Arc::clone(&self.handle.stop);
+        std::thread::spawn(move || {
+            read_frames(
+                BufReader::new(stdout),
+                reader_pending,
+                reader_view,
+                reader_dirty,
+                reader_stop,
+            );
+        });
 
-        // 1. session/list for the workspace (workspaceKey = trimmed path,
-        //    the local-workspace identity rule).
-        let ws_path = self.workspace.to_string_lossy();
+        // Local workspace identity rule: workspaceKey = trimmed path.
+        let ws_path = self.workspace.to_string_lossy().to_string();
         let workspace_ref = json!({
             "workspacePath": ws_path,
-            "workspaceKey": ws_path.trim(),
+            "workspaceKey": ws_path.trim().to_string(),
         });
         self.set_view(|v| v.link = LinkState::Up);
+
         let list = self
-            .request(
-                &mut stdin,
-                "session/list",
-                json!({ "workspace": workspace_ref }),
-            )
+            .request(&mut stdin, "session/list", json!({ "workspace": workspace_ref }))
             .map_err(|e| format!("session/list failed: {e}"))?;
         let entries = parse_sessions(&list);
         if entries.is_empty() {
             self.set_view(|v| {
-                v.link = LinkState::Up;
                 v.sessions = Vec::new();
                 v.status = "no sessions".to_string();
             });
             return Ok(());
         }
-        let chosen = self
-            .session
-            .clone()
-            .or(session_arg)
-            .and_then(|id| entries.iter().find(|e| e.session_id == id).cloned())
-            .or_else(|| entries.first().cloned());
-        let Some(target) = chosen else {
+        let target = match session {
+            Some(id) => entries.iter().find(|e| e.session_id == id).cloned(),
+            None => entries.first().cloned(),
+        };
+        let Some(target) = target else {
             self.set_view(|v| v.status = "session not found".to_string());
             return Ok(());
         };
@@ -235,33 +186,39 @@ impl AgentRun {
             v.status = target.status.clone();
         });
 
-        // 2. subscribe; live events flow through the reader thread.
-        let _sub = self.request(
+        // subscribe; live events now flow through the reader thread.
+        self.request(
             &mut stdin,
             "session/subscribe",
             json!({
                 "sessionId": target.session_id,
                 "deliveryKind": "desktop-continuous",
             }),
-        )?;
+        )
+        .map_err(|e| format!("session/subscribe failed: {e}"))?;
         self.set_view(|v| v.status = "subscribed".to_string());
 
-        // 3. wait for stop or child exit.
+        // Hold the connection open until stop or child exit.
         while !self.handle.stop.load(Ordering::Relaxed) {
-            if let Ok(Some(_status)) = self.child.try_wait() {
-                self.set_view(|v| v.link = LinkState::Down("app-server exited".into()));
-                return Err("app-server exited".to_string());
+            match self.child.try_wait() {
+                Ok(Some(_)) => {
+                    self.set_view(|v| v.link = LinkState::Down("app-server exited".into()));
+                    return Err("app-server exited".to_string());
+                }
+                Ok(None) => std::thread::sleep(Duration::from_millis(POLL_INTERVAL_MS)),
+                Err(e) => return Err(format!("wait failed: {e}")),
             }
-            std::thread::sleep(Duration::from_millis(200));
         }
         let _ = self.child.kill();
+        let _ = self.child.wait();
         Ok(())
     }
 }
 
-/// Free-standing reader (owns everything it touches so it can move into a
-/// thread while the run loop keeps issuing requests).
-fn read_events(
+/// Reader loop: route responses to pending requests, apply
+/// `session/event` notifications to the view. Other notifications are
+/// inert; a non-JSON line means the child lacks the protocol boundary.
+fn read_frames(
     reader: BufReader<std::process::ChildStdout>,
     pending: Arc<Mutex<HashMap<u64, Sender<Result<Value, String>>>>>,
     view: Arc<Mutex<SessionView>>,
@@ -400,19 +357,18 @@ pub fn spawn_agent(cli: &str, workspace: &Path, session: Option<String>) -> Moni
             if h.stop.load(Ordering::Relaxed) {
                 return;
             }
-            match AgentRun::spawn(&cli, &workspace) {
-                Ok(mut run) => {
-                    let _ = run.run(None);
+            match AgentRun::spawn(&cli, &workspace, h.clone()) {
+                Ok(run) => {
+                    let _ = run.run(session.clone());
                 }
                 Err(err) => {
                     if let Ok(mut v) = h.view.lock() {
                         v.link = LinkState::Down(err);
                     }
-                    h.dirty.store(true, Ordering::Relaxed);
+                    h.mark_dirty();
                 }
             }
-            // Reconnect backoff; stop immediately if asked.
-            for _ in 0..RECONNECT_DELAY.as_millis() / 100 {
+            for _ in 0..RECONNECT_DELAY_MS / 100 {
                 if h.stop.load(Ordering::Relaxed) {
                     return;
                 }
