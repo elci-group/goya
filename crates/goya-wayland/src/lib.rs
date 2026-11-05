@@ -602,11 +602,20 @@ fn raster_primitives(
         width,
         height,
         primitives,
-        fills,
-        fg,
-        glyph_px,
-        Some(roi),
+        RasterConfig {
+            fills,
+            fg,
+            glyph_px,
+            clip: Some(roi),
+        },
     );
+}
+
+struct RasterConfig<'a> {
+    fills: &'a [Option<u32>],
+    fg: [u8; 3],
+    glyph_px: u32,
+    clip: Option<PixelClip>,
 }
 
 fn raster_serial(
@@ -614,13 +623,20 @@ fn raster_serial(
     width: i32,
     height: i32,
     primitives: &[goya_runtime::Primitive],
-    fills: &[Option<u32>],
-    fg: [u8; 3],
-    glyph_px: u32,
-    clip: Option<PixelClip>,
+    config: RasterConfig<'_>,
 ) {
     for (i, prim) in primitives.iter().enumerate() {
-        raster_primitive(pixels, width, height, prim, fills, i, fg, glyph_px, clip);
+        raster_primitive(
+            pixels,
+            width,
+            height,
+            prim,
+            config.fills,
+            i,
+            config.fg,
+            config.glyph_px,
+            config.clip,
+        );
     }
 }
 
