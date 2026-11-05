@@ -1361,6 +1361,68 @@ impl Dispatch<WlSeat, ()> for GoyaWindowInner {
     }
 }
 
+impl Dispatch<ZwpTextInputManagerV3, ()> for GoyaWindowInner {
+    fn event(
+        _: &mut Self,
+        _: &ZwpTextInputManagerV3,
+        _: zwp_text_input_manager_v3::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+    }
+}
+
+impl Dispatch<ZwpTextInputV3, ()> for GoyaWindowInner {
+    fn event(
+        state: &mut Self,
+        _: &ZwpTextInputV3,
+        event: zwp_text_input_v3::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        match event {
+            zwp_text_input_v3::Event::PreeditString { text, cursor_begin, cursor_end } => {
+                state.ime_preedit = Some((text.unwrap_or_default(), cursor_begin, cursor_end));
+            }
+            zwp_text_input_v3::Event::CommitString { text } => {
+                state.ime_commit = text;
+            }
+            zwp_text_input_v3::Event::DeleteSurroundingText { before_length, after_length } => {
+                state.ime_delete = Some((before_length, after_length));
+            }
+            zwp_text_input_v3::Event::Done { serial } => {
+                if state.ime_preedit.is_some() || state.ime_commit.is_some() || state.ime_delete.is_some() {
+                    state.events.push(PlatformEvent::ImeBatch {
+                        serial,
+                        preedit: state.ime_preedit.take(),
+                        commit: state.ime_commit.take(),
+                        delete: state.ime_delete.take(),
+                    });
+                }
+            }
+            zwp_text_input_v3::Event::Leave { .. } => {
+                state.ime_preedit = None;
+                state.ime_commit = None;
+                state.ime_delete = None;
+                state.events.push(PlatformEvent::ImeBatch {
+                    serial: 0,
+                    preedit: Some((String::new(), 0, 0)),
+                    commit: None,
+                    delete: None,
+                });
+            }
+            zwp_text_input_v3::Event::Enter { .. }
+            | zwp_text_input_v3::Event::Language { .. }
+            | zwp_text_input_v3::Event::PreeditCursor { .. }
+            | zwp_text_input_v3::Event::PreeditStyling { .. }
+            | zwp_text_input_v3::Event::TextDirection { .. } => {}
+            _ => {}
+        }
+    }
+}
+
 /// US QWERTY evdev keycode → printable char, honouring shift.
 /// Subset contract: printable ASCII only; unlisted keys yield None.
 fn key_char(keycode: u32, shift: bool) -> Option<char> {
