@@ -83,11 +83,11 @@ impl SessionView {
             return;
         }
         for piece in wrapped {
+            self.history.push(piece.clone());
             self.tail.push_back(piece);
             if self.tail.len() > TAIL_LINES {
                 self.tail.pop_front();
             }
-            self.history.push(piece);
         }
         if self.history.len() > HISTORY_CAP {
             // Drop the oldest overflow so scrollback stays bounded.

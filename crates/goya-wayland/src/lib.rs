@@ -1486,7 +1486,10 @@ fn key_chars(xkb_state: Option<&xkbcommon::xkb::State>, keycode: u32, shift: boo
     if let Some(xkb_state) = xkb_state {
         // Wayland key events use evdev keycodes; XKB keycodes include the
         // conventional X11 offset of 8.
-        let translated = xkb_state.key_get_utf8(xkbcommon::xkb::Keycode::new(keycode + 8));
+        let Some(xkb_keycode) = keycode.checked_add(8) else {
+            return Vec::new();
+        };
+        let translated = xkb_state.key_get_utf8(xkbcommon::xkb::Keycode::new(xkb_keycode));
         return translated.chars().filter(|c| !c.is_control()).collect();
     }
     key_char(keycode, shift)
