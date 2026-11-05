@@ -407,6 +407,38 @@ impl GoyaWindow {
         self.state.parallel_raster = enabled;
     }
 
+    /// Enable or disable the compositor IME for the focused editable field.
+    /// `cursor_rect` is surface-local pixel geometry for candidate windows;
+    /// surrounding cursor/anchor offsets are UTF-8 byte offsets as required
+    /// by text-input-v3. Returns `false` when the compositor lacks v3.
+    pub fn set_text_input_state(
+        &mut self,
+        enabled: bool,
+        surrounding_text: &str,
+        cursor_byte: u32,
+        anchor_byte: u32,
+        cursor_rect: (i32, i32, i32, i32),
+    ) -> bool {
+        let (Some(input), Some(surface)) = (&self.state.text_input, &self.state.surface) else {
+            return false;
+        };
+        if enabled {
+            input.enable(surface);
+            input.set_surrounding_text(surrounding_text.to_owned(), cursor_byte, anchor_byte);
+            input.set_content_type(0, 0);
+            input.set_cursor_rectangle(
+                cursor_rect.0,
+                cursor_rect.1,
+                cursor_rect.2.max(0),
+                cursor_rect.3.max(0),
+            );
+        } else {
+            input.disable();
+        }
+        input.commit();
+        true
+    }
+
     /// Map the runtime's render list into shared memory and present it.
     /// `glyph_px` is the glyph-pixel size in screen pixels (block scaling);
     /// 1 = tiny terminal-style text, 3–4 reads well at 4 px/pt geometry.
