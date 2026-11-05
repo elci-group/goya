@@ -1553,10 +1553,12 @@ mod raster_tests {
             width,
             height,
             &primitives,
-            &[],
-            [255, 255, 255],
-            1,
-            None,
+            RasterConfig {
+                fills: &[],
+                fg: [255, 255, 255],
+                glyph_px: 1,
+                clip: None,
+            },
         );
         let roi = PixelClip {
             x0: 0,
@@ -1617,10 +1619,12 @@ mod raster_tests {
             width,
             height,
             &primitives,
-            &[],
-            [255, 255, 255],
-            1,
-            Some(roi),
+            RasterConfig {
+                fills: &[],
+                fg: [255, 255, 255],
+                glyph_px: 1,
+                clip: Some(roi),
+            },
         );
         assert!(raster_parallel_tiles(
             &mut parallel,
@@ -1681,10 +1685,12 @@ mod raster_tests {
                 width,
                 height,
                 &primitives,
-                &[],
-                [255; 3],
-                2,
-                None,
+                RasterConfig {
+                    fills: &[],
+                    fg: [255; 3],
+                    glyph_px: 2,
+                    clip: None,
+                },
             );
         }
         let serial_elapsed = start.elapsed();
@@ -1801,7 +1807,18 @@ mod fill_tests {
         let overridden = argb([0x1A, 0x2A, 0x3B]);
 
         let mut buf = vec![0u32; (width * height) as usize];
-        raster_serial(&mut buf, width, height, &primitives, &[], [255; 3], 1, None);
+        raster_serial(
+            &mut buf,
+            width,
+            height,
+            &primitives,
+            RasterConfig {
+                fills: &[],
+                fg: [255; 3],
+                glyph_px: 1,
+                clip: None,
+            },
+        );
         assert_eq!(buf[probe], default, "no fill entry: flat default expected");
 
         raster_serial(
@@ -1809,10 +1826,12 @@ mod fill_tests {
             width,
             height,
             &primitives,
-            &[Some(0x1A2A3B)],
-            [255; 3],
-            1,
-            None,
+            RasterConfig {
+                fills: &[Some(0x1A2A3B)],
+                fg: [255; 3],
+                glyph_px: 1,
+                clip: None,
+            },
         );
         assert_eq!(buf[probe], overridden, "fills[0] must override the fill");
 
@@ -1822,10 +1841,12 @@ mod fill_tests {
             width,
             height,
             &primitives,
-            &[None, Some(0x1A2A3B)],
-            [255; 3],
-            1,
-            None,
+            RasterConfig {
+                fills: &[None, Some(0x1A2A3B)],
+                fg: [255; 3],
+                glyph_px: 1,
+                clip: None,
+            },
         );
         assert_eq!(buf[probe], default);
     }
@@ -1852,7 +1873,6 @@ mod multiline_tests {
         let fg = argb([255, 255, 255]);
         let bg = argb([0, 0, 0]);
         // glyph_px = 10 -> line height 14 px; glyph pixels start at (2, 2).
-        let g = 10usize;
         let line_height = ((10.0_f64) * 1.4) as i64;
 
         let mut two = vec![bg; (width * height) as usize];
