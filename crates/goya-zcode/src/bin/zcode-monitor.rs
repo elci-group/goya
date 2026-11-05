@@ -699,6 +699,9 @@ fn run_live(args: &Args, store: &mut SceneStore, last_mtime: &mut Option<SystemT
                 }
                 goya_wayland::PlatformEvent::KeyChar(_)
                 | goya_wayland::PlatformEvent::KeySpecial(_) => {
+                    // Escape can unfocus the composer (composer-side); keep
+                    // the window text input activation in sync with focus.
+                    let was_focused = composer.focused;
                     if composer.focused {
                         // Composer owns the keys: type, and Enter commits.
                         if let Some(line) = feed_key(&mut composer, &ev) {
@@ -712,21 +715,20 @@ fn run_live(args: &Args, store: &mut SceneStore, last_mtime: &mut Option<SystemT
                         // (inert while unfocused).
                         scroll_history(&handle, key_special_to_action(special_name(*s)));
                     }
+                    if composer.focused != was_focused {
+                        win.set_text_input_active(composer.focused);
+                    }
                     sync_text_input(&mut win, &composer, store.get());
                     dirty = true;
                 }
                 goya_wayland::PlatformEvent::PointerScroll(lines) => {
                     dirty |= scroll_pointer_history(&handle, lines, composer.focused);
                 }
-                goya_wayland::PlatformEvent::ImeBatch { .. } => {
-                    if let goya_wayland::PlatformEvent::ImeBatch {
-                        preedit,
-                        commit,
-                        delete,
-                        ..
-                    } = ev
-                    {
-                        composer.handle_ime_batch(preedit, commit.as_deref(), delete);
+                goya_wayland::PlatformEvent::ImeBatch { .. }
+                | goya_wayland::PlatformEvent::Preedit(_)
+                | goya_wayland::PlatformEvent::CommitText(_) => {
+                    if composer.focused {
+                        feed_key(&mut composer, &ev);
                     }
                     sync_text_input(&mut win, &composer, store.get());
                     dirty = true;
