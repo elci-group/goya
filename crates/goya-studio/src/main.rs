@@ -23,10 +23,28 @@ const MAX_PREVIEW_NODES: usize = 512;
 static SAVE_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 fn read_scene_source(path: &Path) -> Result<String, String> {
+    let path_metadata = fs::symlink_metadata(path).map_err(|error| error.to_string())?;
+    if path_metadata.file_type().is_symlink() || !path_metadata.is_file() {
+        return Err("scene path no longer refers to a regular file".into());
+    }
+    let file = File::open(path).map_err(|error| format!("cannot open scene: {error}"))?;
+    let opened_metadata = file
+        .metadata()
+        .map_err(|error| format!("cannot inspect scene: {error}"))?;
+    if !opened_metadata.is_file() {
+        return Err("opened scene is not a regular file".into());
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if path_metadata.dev() != opened_metadata.dev()
+            || path_metadata.ino() != opened_metadata.ino()
+        {
+            return Err("scene path changed while opening it".into());
+        }
+    }
     let mut bytes = Vec::with_capacity(MAX_SCENE_BYTES as usize + 1);
-    File::open(path)
-        .map_err(|error| format!("cannot open scene: {error}"))?
-        .take(MAX_SCENE_BYTES + 1)
+    file.take(MAX_SCENE_BYTES + 1)
         .read_to_end(&mut bytes)
         .map_err(|error| format!("cannot read scene: {error}"))?;
     if bytes.len() as u64 > MAX_SCENE_BYTES {
@@ -1097,9 +1115,18 @@ mod tests {
         #[cfg(unix)]
         {
             let outside_path = directory.join("outside.gscene");
-            fs::write(&outside_path, SCENE).unwrap();
+            fs::write(&outside_path, SCENE.replace("hello", "outside secret")).unwrap();
             fs::remove_file(&canonical_path).unwrap();
             std::os::unix::fs::symlink(&outside_path, &canonical_path).unwrap();
+            let symlink_reload = route_request_for_scene(
+                &get("/"),
+                HOST,
+                SCENE,
+                &preview,
+                Some(&canonical_path),
+            );
+            assert_eq!(symlink_reload.0, "500 Internal Server Error");
+            assert!(!symlink_reload.2.contains("outside secret"));
             let symlink_target = route_request_for_scene(
                 &post("/save", &edited),
                 HOST,
