@@ -258,7 +258,7 @@ struct GoyaWindowInner {
     last_pointer: Option<(f64, f64)>,
     xkb_context: Option<xkbcommon::xkb::Context>,
     xkb_state: Option<xkbcommon::xkb::State>,
-    compose_table: Option<xkbcommon::xkb::compose::Table>,
+    _compose_table: Option<xkbcommon::xkb::compose::Table>,
     compose_state: Option<xkbcommon::xkb::compose::State>,
     text_input_manager: Option<ZwpTextInputManagerV3>,
     text_input: Option<ZwpTextInputV3>,
@@ -315,7 +315,7 @@ impl GoyaWindowInner {
             last_pointer: None,
             xkb_context,
             xkb_state: None,
-            compose_table,
+            _compose_table: compose_table,
             compose_state,
             text_input_manager: None,
             text_input: None,
@@ -1773,6 +1773,41 @@ fn key_chars(
         .filter(|c| !c.is_control() || matches!(c, '\n' | '\u{8}'))
         .into_iter()
         .collect()
+}
+
+fn key_chars_with_compose(
+    xkb_state: Option<&xkbcommon::xkb::State>,
+    compose_state: Option<&mut xkbcommon::xkb::compose::State>,
+    evdev_keycode: u32,
+    shift: bool,
+    ctrl: bool,
+) -> Vec<char> {
+    let Some(state) = xkb_state else { return Vec::new() };
+    let Some(keycode) = evdev_keycode.checked_add(8).map(xkbcommon::xkb::Keycode::new) else {
+        return Vec::new();
+    };
+    let keysym = state.key_get_one_sym(keycode);
+    let Some(compose) = compose_state else {
+        return key_chars(xkb_state, evdev_keycode, shift, ctrl);
+    };
+    if compose.feed(keysym) == xkbcommon::xkb::compose::FeedResult::Ignored {
+        return key_chars(xkb_state, evdev_keycode, shift, ctrl);
+    }
+    match compose.status() {
+        xkbcommon::xkb::compose::Status::Composing => Vec::new(),
+        xkbcommon::xkb::compose::Status::Composed => {
+            let chars = compose.utf8().unwrap_or_default().chars().collect();
+            compose.reset();
+            chars
+        }
+        xkbcommon::xkb::compose::Status::Cancelled => {
+            compose.reset();
+            key_chars(xkb_state, evdev_keycode, shift, ctrl)
+        }
+        xkbcommon::xkb::compose::Status::Nothing => {
+            key_chars(xkb_state, evdev_keycode, shift, ctrl)
+        }
+    }
 }
 
 /// wl_pointer vertical-axis value → [`PlatformEvent::PointerScroll`] line
