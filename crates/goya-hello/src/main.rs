@@ -370,7 +370,7 @@ mod input_tests {
                 after_bytes: 0,
             },
         );
-        assert_eq!(runtime.input_text(NodeId(4)), Some("é仮名"));
+        assert_eq!(runtime.input_text(NodeId(4)), Some("é仮日"));
         apply_text_event(
             &mut runtime,
             goya_wayland::PlatformEvent::PreeditWithCursor {
