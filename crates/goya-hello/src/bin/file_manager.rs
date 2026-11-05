@@ -265,15 +265,6 @@ fn entry_at(px: i32, py: i32) -> Option<usize> {
     None
 }
 
-fn modified(m: &std::fs::Metadata) -> u64 {
-    use std::time::UNIX_EPOCH;
-    m.modified()
-        .ok()
-        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0)
-}
-
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let live = args.iter().any(|a| a == "--live");

@@ -252,7 +252,7 @@ fn self_test(store: &mut SceneStore) {
 
     // add_min at minute 59 wraps the hour without touching the day.
     clock.reset();
-    clock.bump(1 * 3600 + 59 * 60 + 30); // 01.59.30, day 1
+    clock.bump(3600 + 59 * 60 + 30); // 01.59.30, day 1
     clock.add_min(); // 02.00.30
     if clock.time_text() != "02.00.30" || clock.day_text() != "day 1" {
         failures.push(format!(
