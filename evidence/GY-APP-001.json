@@ -1,0 +1,48 @@
+{
+  "work_package": "GY-APP-001",
+  "title": "Exemplar applications: calendar, music player, clock, file manager",
+  "wave": 2,
+  "date": "2026-11-05",
+  "scope": {
+    "objective": "Four complete exemplar GUI applications authored in GY-LANG/1 scene syntax with thin deterministic host state machines, each with headless acceptance tests and live Wayland presentation.",
+    "affected": [
+      "apps/calendar.gscene",
+      "apps/music_player.gscene",
+      "apps/clock.gscene",
+      "apps/file_manager.gscene",
+      "crates/goya-hello/src/bin/{calendar,music_player,clock,file_manager}.rs"
+    ],
+    "exclusions": [
+      "persistent storage",
+      "real audio playback of tracks (tones only)",
+      "wall-clock integration in self-tests (determinism)"
+    ]
+  },
+  "implementation_record": {
+    "notes": "Each app follows the calculator exemplar contract. Notable glyph-set constraint handling: calendar uses '-'/'+/today' labels, clock uses '.' separators and 'clear' (glyph set excludes uppercase and several letters), file manager names files within the renderable alphabet."
+  },
+  "test_evidence": {
+    "commands": [
+      "cargo run --bin calendar|music_player|clock|file_manager (headless)",
+      "cargo run --bin <app> -- --live (each)",
+      "gates: clippy/fmt/test/uni"
+    ],
+    "results": {
+      "headless": "all four ALL CHECKS PASS exit 0",
+      "live": "calendar/clock/music/files windows presented (clock ticked to real time display in live run)",
+      "workspace_tests": "517 passed, 0 failed",
+      "clippy": "pass",
+      "rustfmt": "pass",
+      "uni": "73/100 exit 1 \u2014 advisory-only regression: large single-file app hunks (ferret), /proc/cpuinfo platform constant + test-side assert patterns (traci/edwardian). No behavioural findings; CI cargo gates green. Structural splitting (multi-file apps) is the recorded remedy, deferred as churn vs. value.",
+      "integration_fixes": [
+        "calendar grid underflow (saturating_sub)",
+        "calendar month-label off-by-one",
+        "calendar test premise: Nov has 30 days not 31",
+        "pointer f64\u2192i64 casts in 2 hosts",
+        "clock identity-op",
+        "file manager dead fn"
+      ]
+    }
+  },
+  "integration_decision": "accept"
+}

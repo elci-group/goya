@@ -633,3 +633,31 @@ rendered projection."
 | Path | Owner |
 |---|---|
 | crates/goya-ddh | Agent-Interface Swarm N1 (DDH/DIG) |
+
+---
+
+# Exemplar Applications — GY-APP-001 (calendar, music, clock, files)
+
+Four complete applications authored in GY-LANG/1 scene syntax with thin
+deterministic hosts, each following the calculator exemplar contract:
+scene declares structure; host supplies state; headless self-test asserts
+behaviour; `--live` opens a window with dirty-redraw presentation.
+
+| App | Scene | Host behaviours | Acceptance highlights |
+|---|---|---|---|
+| Calendar | apps/calendar.gscene | Gregorian math: leap rule incl. century exceptions, monday-first grid, month navigation, today reset | Feb 2024=29/Feb 2023=28, 2000-01-01=Saturday, Nov 2026 day 1 lands col 6 (Sunday), Nov has 30 days at slot 35 |
+| Music player | apps/music_player.gscene | 5-track playlist state machine: play/pause, wrapping next/prev, clamped volume, auto-advance at track end, ASCII progress bar | tick advances only while playing; exact 50% bar = `xxxxxxxxxx..........` |
+| Clock | apps/clock.gscene | Synthetic clock: h/m/s bumps with day rollover, reset; no wall clock in self-test | 23.59.59 + 1s → day 2; 86400 consecutive seconds = exactly 1 day (no drift) |
+| File manager | apps/file_manager.gscene | In-memory VFS: sorted listings with `/` dir markers, open/up navigation, selection status | open docs → intro.doc notes.txt; up at root stays; padding to 8 entries |
+
+All four: live Wayland windows verified (dirty-redraw), glyph-safe labels
+(GY-LANG/1 renderable alphabet), host-side data binding overrides scene
+text cells, LCPE-style dirty-only redraw.
+
+Known limitation recorded: the glyph set covers a lowercase subset of
+Latin — uppercase/other characters render as boxes (Wave 4 typography).
+
+## Fix during integration
+Calendar label off-by-one (1-based month indexing a 0-based name array)
+and a day-31-in-November test premise error — both caught by the
+self-test gate, fixed in the same commit.
