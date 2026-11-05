@@ -139,7 +139,7 @@ impl Composer {
     /// an overlay — it never enters the committed buffer text until the
     /// compositor sends `CommitText`. Cursor-relative offsets default to
     /// (0, len), i.e. the caret sits at the preedit start. No-op while
-    /// unfocused, matching [`Composer::handle_ime_batch`].
+    /// unfocused, matching [`Composer::commit_text`].
     pub fn set_preedit(&mut self, preedit: Option<&str>) {
         if !self.focused {
             return;
@@ -458,10 +458,10 @@ mod tests {
     #[test]
     fn ime_preedit_is_not_committed_until_compositor_commit() {
         let mut c = focused();
-        c.handle_ime_batch(Some(("かな".into(), 0, 6)), None, None);
+        c.set_preedit(Some("かな"));
         assert_eq!(c.text(), "");
         assert!(c.display().contains("かな"));
-        c.handle_ime_batch(None, Some("仮名"), None);
+        c.commit_text("仮名");
         assert_eq!(c.text(), "仮名");
         assert!(!c.display().contains("かな"));
     }
