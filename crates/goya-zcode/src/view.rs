@@ -228,6 +228,38 @@ impl SessionView {
                 self.push_line(&format!("[error] {message}"));
                 self.status = "error".to_string();
             }
+            ProjEvent::ToolUpdate { id, tool, state } => {
+                // Dedup: once a terminal line exists for this id, nothing
+                // further is emitted; progress on an in-flight tool folds
+                // into its existing row (append-only line model).
+                if self.finished_tools.contains(id) {
+                    return;
+                }
+                match state {
+                    ToolState::Scheduled => {} // silent — avoid noise
+                    ToolState::Started => {
+                        if self.in_flight_tools.contains(id) {
+                            return; // progress fold / duplicate start
+                        }
+                        self.push_line(&format!("⚙ {tool} …"));
+                        track_tool(&mut self.in_flight_tools, id);
+                    }
+                    ToolState::Completed | ToolState::Failed => {
+                        // Terminal lines only close tools we saw start;
+                        // unsolicited completions render nothing.
+                        let open = self.in_flight_tools.iter().position(|t| t == id);
+                        if let Some(pos) = open {
+                            self.in_flight_tools.remove(pos);
+                            let mark = match state {
+                                ToolState::Failed => "✗",
+                                _ => "✓",
+                            };
+                            self.push_line(&format!("⚙ {tool} {mark}"));
+                            self.remember_tool(&mut self.finished_tools, id);
+                        }
+                    }
+                }
+            }
         }
     }
 
