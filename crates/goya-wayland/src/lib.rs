@@ -1964,6 +1964,11 @@ fn key_chars(
             .into_iter()
             .collect();
     }
+    // NOTE (GY-ZCODE-004): this keymap-free evdev fallback tracks no ctrl
+    // modifier, so it emits NO `PlatformEvent::Shortcut` events — the
+    // ctrl+c/v/q shortcut contract is served exclusively by the xkb state
+    // path (`shortcut_from_key` via `handle_key_press`). This asymmetry is
+    // intentional and documented in the frozen contract.
     key_char(keycode, shift)
         .filter(|c| !c.is_control() || matches!(c, '\n' | '\u{8}'))
         .into_iter()
@@ -2078,25 +2083,7 @@ impl Dispatch<WlKeyboard, ()> for GoyaWindowInner {
                 key,
                 state: WEnum::Value(wl_keyboard::KeyState::Pressed),
                 ..
-            } => {
-                if let Some(ks) = key_special(key) {
-                    if let Some(compose) = state.compose_state.as_mut() {
-                        compose.reset();
-                    }
-                    state.events.push(PlatformEvent::KeySpecial(ks));
-                } else {
-                    let chars = key_chars_with_compose(
-                        state.xkb_state.as_ref(),
-                        state.compose_state.as_mut(),
-                        key,
-                        state.shift,
-                        state.ctrl,
-                    );
-                    for c in chars {
-                        state.events.push(PlatformEvent::KeyChar(c));
-                    }
-                }
-            }
+            } => state.handle_key_press(key),
             wl_keyboard::Event::Leave { .. } => {
                 if let Some(compose) = state.compose_state.as_mut() {
                     compose.reset();
