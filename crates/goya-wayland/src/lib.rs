@@ -1111,6 +1111,7 @@ fn draw_glyphs(
     draw_bitmap_glyphs(pixels, win_w, win_h, r, s, rgb, glyph_px, clip);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_shaped_glyphs(
     pixels: &mut [u32],
     win_w: i32,
