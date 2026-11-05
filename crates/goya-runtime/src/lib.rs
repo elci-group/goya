@@ -234,6 +234,10 @@ impl Runtime {
                 }
             }
             Node::Text { content } => out.push(Primitive::Text(rect, content.clone())),
+            // Input nodes contribute their static placeholder here. Focused
+            // editable text is host-side state (GY-ZCODE/2), not runtime
+            // module state, so this renderer remains deterministic.
+            Node::Input { placeholder } => out.push(Primitive::Text(rect, placeholder.clone())),
             Node::Button { label, .. } => out.push(Primitive::Button(rect, label.clone())),
             Node::Spacer { .. } => {}
         }
