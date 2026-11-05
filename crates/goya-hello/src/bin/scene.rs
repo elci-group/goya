@@ -248,7 +248,22 @@ fn main() {
                 })
             })
             .collect();
-        let _ = win.present_clipped(&prims, &[], &clips, [235, 235, 240], [20, 20, 28], 3);
+        let text_sizes: Vec<Option<f32>> = nodes
+            .iter()
+            .map(|node| {
+                node.text_size
+                    .and_then(|size| (size > 0.0 && size.is_finite()).then_some(size as f32))
+            })
+            .collect();
+        let _ = win.present_clipped_with_text_sizes(
+            &prims,
+            &[],
+            &clips,
+            &text_sizes,
+            [235, 235, 240],
+            [20, 20, 28],
+            3,
+        );
         win.pump(1);
         // Watch cadence: ~60 fps is pointless for file polling; keep the
         // frame budget long enough to catch edits.

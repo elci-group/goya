@@ -752,6 +752,7 @@ impl GoyaWindow {
     /// Present with both per-primitive clips and text sizes. The slices use
     /// primitive order, and missing entries retain the surface clip/default
     /// font metrics respectively.
+    #[allow(clippy::too_many_arguments)]
     pub fn present_clipped_with_text_sizes(
         &mut self,
         primitives: &[goya_runtime::Primitive],
