@@ -10,8 +10,9 @@
 //! - plain `@cell` (no text) → [`goya_ir::Node::Column`] containing its children
 //!   (a childless plain cell is an empty `Column`, the IR's stand-in for a
 //!   positioned surface — the resolved rect lives in the [`NodeTable`], since
-//!   the IR vocabulary {Column, Row, Text, Button, Spacer} has no absolute
+//!   the IR vocabulary {Column, Row, Text, Button, Spacer, Input} has no absolute
 //!   geometry).
+//! - `@input` cells → [`goya_ir::Node::Input`] carrying the placeholder.
 //!
 //! Contract: lowering is total (never panics on any scene), deterministic
 //! (lowering twice yields an equal [`Lowered`]), and never loses a scene
@@ -38,6 +39,8 @@ pub enum Role {
     Cell,
     /// `@button` → `Node::Button`.
     Button,
+    /// `@input` → `Node::Input` (placeholder is the scene `text:` value).
+    Input,
     /// Synthetic `Node::Text` emitted as the first child of a text-bearing cell.
     Text,
 }
@@ -178,6 +181,15 @@ impl<'a> Lowerer<'a> {
                 self.next_action += 1;
                 children = Vec::new();
                 (id, Role::Button)
+            }
+            CellKind::Input => {
+                // Editable field: the placeholder is the scene `text:` value;
+                // focus and typed content are host-side state (Wave 2).
+                let id = self.push(Node::Input {
+                    placeholder: cell.text.clone().unwrap_or_default(),
+                });
+                children = Vec::new();
+                (id, Role::Input)
             }
             CellKind::Cell => {
                 let id;

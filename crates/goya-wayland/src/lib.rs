@@ -838,11 +838,13 @@ fn intersects_tile(
     if let goya_runtime::Primitive::Text(_, text) | goya_runtime::Primitive::Button(_, text) = prim
     {
         let glyph = i64::from(glyph_px.max(1));
+        // Multi-line text stacks at 1.4 * glyph_px line height.
+        let lines = text.split('\n').count() as i64;
         rx0 = rx0.min(rect.x + 2 * MP_PER_PX);
         ry0 = ry0.min(rect.y + 2 * MP_PER_PX);
         rx1 =
             rx1.max((rect.x / MP_PER_PX + 2 + text.chars().count() as i64 * 6 * glyph) * MP_PER_PX);
-        ry1 = ry1.max((rect.y / MP_PER_PX + 2 + 7 * glyph) * MP_PER_PX);
+        ry1 = ry1.max((rect.y / MP_PER_PX + 2 + 7 * glyph) * MP_PER_PX * lines);
     }
     let rx0 = rx0 / MP_PER_PX;
     let ry0 = ry0 / MP_PER_PX;
@@ -908,25 +910,45 @@ fn draw_glyphs(
     // instead of clipping the portion that begins before it.
     let ox = r.x / MP_PER_PX + 2;
     let oy = r.y / MP_PER_PX + 2;
-    for (ci, ch) in s.chars().enumerate() {
-        let glyph = glyph5x7(ch);
-        for (gy, row) in glyph.iter().enumerate() {
-            for gx in 0..5 {
-                if row & (1 << (4 - gx)) != 0 {
-                    // Block-scale: each glyph pixel is g×g screen pixels.
-                    for dy in 0..g {
-                        let y = oy + (gy * g + dy) as i64;
-                        if y >= cy1 as i64 || y < cy0 as i64 || y >= i64::from(win_h) {
-                            continue;
-                        }
-                        for dx in 0..g {
-                            let x = ox + ((ci * 6 + gx) * g + dx) as i64;
-                            if x >= cx1 as i64 || x < cx0 as i64 || x >= i64::from(win_w) {
+    // Node rect bounds in pixels; every line is clipped to this rect
+    // (GY-WAVE2 multi-line contract). Lines that start at or beyond the
+    // rect's bottom edge are dropped entirely.
+    let rect_x1 = (r.x + r.width) / MP_PER_PX + 2;
+    let rect_y1 = (r.y + r.height) / MP_PER_PX + 2;
+    let line_height = ((glyph_px.max(1) as f64) * 1.4) as i64;
+    for (li, line) in s.split('\n').enumerate() {
+        let line_oy = oy + (li as i64) * line_height;
+        if line_oy >= rect_y1 {
+            break;
+        }
+        for (ci, ch) in line.chars().enumerate() {
+            let glyph = glyph5x7(ch);
+            for (gy, row) in glyph.iter().enumerate() {
+                for gx in 0..5 {
+                    if row & (1 << (4 - gx)) != 0 {
+                        // Block-scale: each glyph pixel is g×g screen pixels.
+                        for dy in 0..g {
+                            let y = line_oy + (gy * g + dy) as i64;
+                            if y >= cy1 as i64
+                                || y < cy0 as i64
+                                || y >= i64::from(win_h)
+                                || y >= rect_y1
+                            {
                                 continue;
                             }
-                            let idx = y as usize * (win_w as usize) + x as usize;
-                            if idx < pixels.len() {
-                                pixels[idx] = a;
+                            for dx in 0..g {
+                                let x = ox + ((ci * 6 + gx) * g + dx) as i64;
+                                if x >= cx1 as i64
+                                    || x < cx0 as i64
+                                    || x >= i64::from(win_w)
+                                    || x >= rect_x1
+                                {
+                                    continue;
+                                }
+                                let idx = y as usize * (win_w as usize) + x as usize;
+                                if idx < pixels.len() {
+                                    pixels[idx] = a;
+                                }
                             }
                         }
                     }
@@ -1369,6 +1391,24 @@ fn key_char(keycode: u32, shift: bool) -> Option<char> {
     Some(c)
 }
 
+/// evdev US-subset keycode → navigation/editing key (GY-WAVE2 contract).
+/// Unmapped keycodes yield None; Enter/Backspace stay in `key_char`.
+fn key_special(keycode: u32) -> Option<KeySpecial> {
+    let ks = match keycode {
+        105 => KeySpecial::ArrowLeft,
+        106 => KeySpecial::ArrowRight,
+        103 => KeySpecial::ArrowUp,
+        108 => KeySpecial::ArrowDown,
+        102 => KeySpecial::Home,
+        107 => KeySpecial::End,
+        111 => KeySpecial::Delete,
+        1 => KeySpecial::Escape,
+        15 => KeySpecial::Tab,
+        _ => return None,
+    };
+    Some(ks)
+}
+
 impl Dispatch<WlKeyboard, ()> for GoyaWindowInner {
     fn event(
         state: &mut Self,
@@ -1390,7 +1430,9 @@ impl Dispatch<WlKeyboard, ()> for GoyaWindowInner {
                 state: WEnum::Value(wl_keyboard::KeyState::Pressed),
                 ..
             } => {
-                if let Some(c) = key_char(key, state.shift) {
+                if let Some(ks) = key_special(key) {
+                    state.events.push(PlatformEvent::KeySpecial(ks));
+                } else if let Some(c) = key_char(key, state.shift) {
                     state.events.push(PlatformEvent::KeyChar(c));
                 }
             }

@@ -58,6 +58,21 @@
         @cell row_13 { position: (6, 266, 0);  extent: (388, 18, 0); fill: #202028; text: ""; text-size: 9 }
 
         // ---- Footer --------------------------------------------
+        // Composer input (GY-ZCODE-002): host-owned focus; enter echoes
+        // lines as [local] tail entries, never sent to the agent. The
+        // parser gains @input in parallel (J1); until then the monitor
+        // bin strips this node as a fallback so the scene still parses.
+        // Placed left of `quit` (290, 292) with no overlap.
+        @input composer {
+            position: (6, 292, 0)
+            extent: (270, 24, 0)
+            fill: #101016
+            stroke: #3a3a46
+            stroke-width: 1
+            text: "type here…"
+            text-size: 9
+        }
+
         @button quit {
             position: (290, 292, 0)
             extent: (100, 24, 0)

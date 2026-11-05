@@ -2,7 +2,7 @@
 //!
 //! Revised per architecture decision: the Goya surface language adopts the
 //! RUGID scene grammar (github.com/elci-group/RUGID) — `@ontology` /
-//! `@cell` / `@button` blocks with `position`/`extent` (absolute points) and
+//! `@cell` / `@button` / `@input` blocks with `position`/`extent` (absolute points) and
 //! `position_p`/`extent_p` (proportional 0..1 of the parent). This replaces
 //! the Wave-1 line-oriented module DSL for GUI authoring; `goya-ir`'s
 //! programmatic API remains unchanged and interoperates via [`layout`].
