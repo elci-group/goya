@@ -1018,7 +1018,7 @@ mod tests {
 
     #[test]
     fn check_summary_counts_input_nodes() {
-        let scene = "@ontology demo { @button ok { position: (0, 0, 0) extent: (80, 40, 0) text: \"hello\" } @input name { position: (0, 100, 0) extent: (200, 40, 0) text: \"Your name\" } }";
+        let scene = "@ontology demo { @cell root { position: (0, 0, 0) extent: (800, 600, 0) @button ok { position: (0, 0, 0) extent: (80, 40, 0) text: \"hello\" } @input name { position: (0, 100, 0) extent: (200, 40, 0) text: \"Your name\" } } }";
         let project = SceneProject::from_source(scene, Viewport::default()).unwrap();
         let summary = check_summary(&project);
         assert!(summary.contains("inputs=1"));
@@ -1027,7 +1027,7 @@ mod tests {
 
     #[test]
     fn editor_and_preview_surface_input_nodes() {
-        let scene = "@ontology demo { @button ok { position: (0, 0, 0) extent: (80, 40, 0) text: \"hello\" } @input name { position_p: (0.1, 0.2, 0) extent_p: (0.5, 0.1, 0) text: \"Your name\" } }";
+        let scene = "@ontology demo { @cell root { position: (0, 0, 0) extent: (800, 600, 0) @button ok { position: (0, 0, 0) extent: (80, 40, 0) text: \"hello\" } @input name { position_p: (0.1, 0.2, 0) extent_p: (0.5, 0.1, 0) text: \"Your name\" } } }";
         let project = SceneProject::from_source(scene, Viewport::default()).unwrap();
 
         // Preview canvas renders the placeholder and marks it as a textbox.
