@@ -363,5 +363,13 @@ mod input_tests {
             runtime.render_list().last(),
             Some(Primitive::Text(_, value)) if value == "é仮名日"
         ));
+        apply_text_event(
+            &mut runtime,
+            goya_wayland::PlatformEvent::DeleteSurroundingText {
+                before_bytes: 3,
+                after_bytes: 0,
+            },
+        );
+        assert_eq!(runtime.input_text(NodeId(4)), Some("é仮名"));
     }
 }
