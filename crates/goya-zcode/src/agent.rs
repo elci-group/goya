@@ -304,6 +304,46 @@ impl AgentRun {
         let _ = self.child.wait();
         Ok(())
     }
+
+    /// Handle one UI command. The run loop owns stdin, so the wire
+    /// request is issued here, serialised with setup traffic by `&mut
+    /// ChildStdin`. The loop blocks on the response (up to
+    /// `REQUEST_TIMEOUT`), never on the command channel itself.
+    fn handle_cmd(
+        &self,
+        stdin: &mut ChildStdin,
+        session_id: &str,
+        cmd: AgentCmd,
+        send_pending: &mut bool,
+    ) {
+        let AgentCmd::SendText { line, wire } = cmd;
+        if !wire {
+            // No --allow-send: admission-shaped no-op, nothing on the wire.
+            return;
+        }
+        if *send_pending {
+            self.set_view(|v| v.status = "busy — send pending".to_string());
+            return;
+        }
+        *send_pending = true;
+        let result = self.request(
+            stdin,
+            "session/send",
+            json!({ "sessionId": session_id, "content": line }),
+        );
+        match result {
+            Ok(res) if res.get("accepted").and_then(Value::as_bool) == Some(true) => {
+                // Confirmed by the next `turn.started`, which sets the
+                // status to "running" (see `SessionView::apply`).
+                self.set_view(|v| v.status = "sending".to_string());
+            }
+            Ok(_) => self.set_view(|v| v.status = "send rejected by server".to_string()),
+            // Server errors (e.g. "-32010: A prompt is already running
+            // for this session") surface as status text, never a crash.
+            Err(err) => self.set_view(|v| v.status = err),
+        }
+        *send_pending = false;
+    }
 }
 
 /// Reader loop: route responses to pending requests, apply
