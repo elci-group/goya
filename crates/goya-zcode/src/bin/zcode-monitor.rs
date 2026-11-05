@@ -391,7 +391,7 @@ mod input_event_tests {
         feed_key(&mut composer, &PlatformEvent::Preedit(Some("かな".into())));
         feed_key(&mut composer, &PlatformEvent::CommitText("仮名".into()));
         assert_eq!(composer.text(), "仮名");
-        assert_eq!(composer.display(), "│仮名");
+        assert_eq!(composer.display(), "仮名│");
     }
 
     #[test]

@@ -21,7 +21,10 @@ pub use hotswap::SceneStore;
 pub use lexer::{lex, LexError, Token, TokenKind};
 pub use lowering::{lower, LowerError, Lowered, NodeKey, NodeRecord, NodeTable, Role};
 pub use parser::{parse, ParseError};
-pub use scene::{hit_test, layout, Anchor, CellKind, DrawNode, RectMp, Scene, SceneCell, Vec3};
+pub use scene::{
+    hit_test, hit_test_scrolled, layout, Anchor, CellKind, DrawNode, RectMp, Scene, SceneCell,
+    ScrollOffsets, Vec3,
+};
 pub use scene::{
     EffectRequestDecl, EffectValueType, InteractionClass, InteractionDecl, InteractionExpr,
     InteractionType, InteractionValue, StateAssignment, TypedKey,
@@ -128,6 +131,30 @@ mod tests {
         assert_eq!(content.rect.y, viewport.rect.y + 200_000);
         assert_eq!(content.rect.width, 180_000);
         assert_eq!(content.rect.height, 50_000);
+        assert_eq!(frame.scroll_limits("viewport"), (0, 130_000));
+    }
+
+    #[test]
+    fn scroll_offsets_clamp_translate_children_and_clip_hits() {
+        let src = "@ontology nested { @cell root { extent: (800, 600, 0) @cell viewport { position: (100, 100, 0) extent: (300, 120, 0) scroll: true @button action { position: (20, 200, 0) extent: (180, 50, 0) text: \"go\" } } } }";
+        let scene = parse(src).unwrap();
+        let frame = layout(&scene, 800.0, 600.0);
+        let mut offsets = ScrollOffsets::default();
+        assert_eq!(
+            frame.scroll_target_at(&offsets, 150_000, 150_000),
+            Some("viewport".to_owned())
+        );
+        assert!(offsets.scroll_by(&frame, "viewport", 20_000, 200_000));
+        assert_eq!(offsets.get("viewport"), (0, 130_000));
+        let nodes = frame.scrolled_nodes(&offsets);
+        let action = nodes.iter().find(|node| node.name == "action").unwrap();
+        assert_eq!(action.rect.y, 170_000);
+        assert_eq!(action.clip.unwrap().y, 100_000);
+        assert_eq!(
+            hit_test_scrolled(&frame, &offsets, 150_000, 175_000),
+            Some("action".to_owned())
+        );
+        assert_eq!(hit_test_scrolled(&frame, &offsets, 150_000, 225_000), None);
     }
 
     #[test]
