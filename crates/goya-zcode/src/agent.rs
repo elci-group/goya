@@ -302,11 +302,13 @@ fn read_frames(
             let matches_session = session_id.as_deref().is_none_or(|id| {
                 envelope.get("sessionId").and_then(Value::as_str) == Some(id)
             });
-            if matches_session && let Some(event) = map_event(envelope) {
-                if let Ok(mut v) = view.lock() {
-                    v.apply(&event);
+            if matches_session {
+                if let Some(event) = map_event(envelope) {
+                    if let Ok(mut v) = view.lock() {
+                        v.apply(&event);
+                    }
+                    dirty.store(true, Ordering::Relaxed);
                 }
-                dirty.store(true, Ordering::Relaxed);
             }
         }
     }
