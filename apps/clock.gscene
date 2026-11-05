@@ -1,0 +1,61 @@
+// ============================================================
+// clock.gscene — CLOCK exemplar Goya application.
+//
+// RUGID-style scene syntax (GY-LANG/1). Extent is in POINTS;
+// the host window is 400x400 px (4 px per point).
+//
+// Glyph budget: the renderer only shapes a limited set —
+// lowercase {a,c,d,e,g,h,i,l,m,n,o,r,t,u,v,y}, digits 0-9 and
+// + - / * % . , = ! space. Every label below stays inside it,
+// and the host overrides the time text with "hh.mm.ss"
+// ('.' separators because ':' has no glyph).
+//
+// Run it:
+//   cargo run --bin clock -- --live
+// ============================================================
+
+@ontology clock {
+
+    @cell window {
+        position: (0, 0, 0)
+        extent: (100, 100, 0)
+        fill: #101018
+
+        // ---- Big time display ---------------------------------
+        @cell time_panel {
+            position: (5, 5, 0)
+            extent: (90, 34, 0)
+            fill: #1c1c28
+            stroke: #44444c
+            stroke-width: 2
+
+            @cell time_text {
+                // Proportional: centred in the panel — text is
+                // overridden by the host as "hh.mm.ss" every frame.
+                position_p: (0.5, 0.5, 0)
+                text: "00.00.00"
+                text-size: 18
+                fill: #00ff88
+                text-anchor: middle
+            }
+
+            @cell day_text {
+                // Proportional: bottom-right of the panel — the host
+                // overrides it with "day N".
+                position_p: (0.95, 0.9, 0)
+                text: "day 1"
+                text-size: 10
+                fill: #cccccc
+                text-anchor: end
+            }
+        }
+
+        // ---- Adjust buttons: h+ / m+ / s+ ----------------------
+        @button btn_h_add { position: (5, 45, 0); extent: (27, 20, 0); text: "h+"; fill: #555555 }
+        @button btn_m_add { position: (36, 45, 0); extent: (27, 20, 0); text: "m+"; fill: #555555 }
+        @button btn_s_add { position: (67, 45, 0); extent: (27, 20, 0); text: "s+"; fill: #555555 }
+
+        // ---- Reset ---------------------------------------------
+        @button btn_reset { position: (5, 70, 0); extent: (89, 20, 0); text: "clear"; fill: #ff4444 }
+    }
+}
