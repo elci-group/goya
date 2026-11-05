@@ -336,4 +336,98 @@ mod tests {
         let view = SessionView::default();
         assert_eq!(view.rows().len(), TAIL_LINES);
     }
+
+    #[test]
+    fn stick_to_bottom_at_live_scroll() {
+        let mut view = SessionView::default();
+        for i in 0..30 {
+            view.push_line(&format!("line {i:02}"));
+        }
+        assert_eq!(view.scroll, 0);
+        let rows = view.rows();
+        assert_eq!(rows[TAIL_LINES - 1], "line 29");
+        assert_eq!(rows[TAIL_LINES - 2], "line 28");
+        // New events keep the view pinned to the bottom.
+        view.push_line("line 30");
+        assert_eq!(view.scroll, 0);
+        assert_eq!(view.rows()[TAIL_LINES - 1], "line 30");
+    }
+
+    #[test]
+    fn scroll_window_clamps_at_top() {
+        let mut view = SessionView::default();
+        for i in 0..30 {
+            view.push_line(&format!("line {i:02}"));
+        }
+        // Way past the top: clamp so the window shows the oldest lines.
+        view.scroll_up(10_000);
+        let rows = view.rows();
+        assert_eq!(rows[0], "line 00");
+        assert_eq!(rows[TAIL_LINES - 1], "line 13");
+        // Scrolled view comes from history, not the 14-line tail.
+        assert_eq!(view.history.len(), 30);
+    }
+
+    #[test]
+    fn scroll_down_returns_to_live() {
+        let mut view = SessionView::default();
+        for i in 0..30 {
+            view.push_line(&format!("line {i:02}"));
+        }
+        view.scroll_up(SCROLL_STEP);
+        assert_eq!(view.scroll, SCROLL_STEP);
+        assert_eq!(view.rows()[TAIL_LINES - 1], "line 15");
+        view.scroll_down(SCROLL_STEP);
+        assert_eq!(view.scroll, 0);
+        assert_eq!(view.rows()[TAIL_LINES - 1], "line 29");
+        // scroll_to_bottom is a no-op at 0 and resets from anywhere.
+        view.scroll_up(5);
+        view.scroll_to_bottom();
+        assert_eq!(view.scroll, 0);
+    }
+
+    #[test]
+    fn history_cap_evicts_oldest() {
+        let mut view = SessionView::default();
+        for i in 0..(HISTORY_CAP + 10) {
+            view.push_line(&format!("line {i}"));
+        }
+        assert_eq!(view.history.len(), HISTORY_CAP);
+        assert_eq!(view.history[0], format!("line 10"));
+        assert_eq!(
+            view.history[HISTORY_CAP - 1],
+            format!("line {}", HISTORY_CAP + 9)
+        );
+    }
+
+    #[test]
+    fn scroll_preserved_across_delta_when_scrolled_back() {
+        let mut view = SessionView::default();
+        for i in 0..30 {
+            view.push_line(&format!("line {i:02}"));
+        }
+        view.scroll_up(3);
+        // Incoming deltas while scrolled back must not hijack the view.
+        view.apply(&ProjEvent::PartDelta {
+            delta: "streaming in the background".into(),
+        });
+        assert_eq!(view.scroll, 3);
+        let rows = view.rows();
+        assert_eq!(rows[TAIL_LINES - 1], "line 26");
+        assert!(!rows[TAIL_LINES - 1].contains("streaming"));
+        // And at the bottom, the streaming preview still shows.
+        view.scroll_to_bottom();
+        view.push_line("settled");
+        assert!(view.rows()[TAIL_LINES - 1] == "settled");
+    }
+
+    #[test]
+    fn turn_started_confirms_sending_status() {
+        let mut view = SessionView::default();
+        view.status = "sending".to_string();
+        view.apply(&ProjEvent::TurnStarted {
+            input: "hi".into(),
+        });
+        assert_eq!(view.status, "running");
+    }
 }
