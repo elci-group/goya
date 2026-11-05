@@ -15,7 +15,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{
-    sync_channel, Receiver, RecvTimeoutError, Sender, SyncSender, TryRecvError, TrySendError,
+    channel, sync_channel, Receiver, RecvTimeoutError, Sender, SyncSender, TryRecvError,
+    TrySendError,
 };
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -323,7 +324,7 @@ impl AgentRun {
         params: Value,
     ) -> Result<Value, String> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        let (tx, rx) = sync_channel(1);
+        let (tx, rx) = channel();
         self.pending
             .lock()
             .expect("pending map poisoned")
