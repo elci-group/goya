@@ -1,0 +1,33 @@
+{
+  "work_package": "GY-ZCODE-002",
+  "title": "Swarm wave 2: editable input node, renderer fills/multi-line/KeySpecial, monitor composer",
+  "date": "2026-11-05",
+  "swarm": {
+    "convention": "GY-WAVE2-SWARM (concurrent agents, exclusive crate ownership, frozen interface contract, central integration gate)",
+    "contract": "docs/goya-zcode.md 'Wave 2' section frozen before dispatch",
+    "assignments": {
+      "J1": "goya-ir + goya-lang: Node::Input{placeholder}, @input scene syntax, SceneCell/DrawNode is_input, hit_test matches inputs, 4 new tests",
+      "J2": "goya-wayland: present/present_dirty fills:&[Option<u32>] slice, multi-line text raster (glyph_px*1.4, rect-clipped), PlatformEvent::KeySpecial(KeySpecial) evdev arrows/home/end/delete/escape/tab, new fill/multiline/key tests",
+      "J3": "goya-zcode: pure Composer state machine (char-offset cursor, UTF-8 safe, history cap 16, drafts), @input composer in scene, live focus/typing wiring, headless composer acceptance"
+    }
+  },
+  "gate_record": {
+    "goya_hello_migration": "workspace build green post-wave; all four bins compile against the new present/present_dirty signatures",
+    "verification": {
+      "cargo_build_workspace": "clean",
+      "cargo_test_workspace_lib_tests": "489 passed, 0 failed (includes new J1/J2/J3 tests)",
+      "cargo_clippy_workspace_all_targets_D_warnings": "clean",
+      "cargo_fmt_all_check": "clean",
+      "zcode_monitor_headless": "all PASS including composer type/backspace/commit",
+      "calculator_exemplar": "ALL EXEMPLAR CHECKS PASS",
+      "zcode_monitor_stdin_dump_live": "link Connecting->Up, session list loaded, subscribed to live session",
+      "zcode_monitor_live_wayland": "window presented, 358 frames over 6s acceptance run"
+    }
+  },
+  "notes": [
+    "Monitor stays read-only: Enter echoes composed line as '[local] ...'; sending requires session/send + v4 admission (later increment).",
+    "Doctests excluded per known host rustdoc LLVM issue (README).",
+    "kaptaind auto-committer captured and committed agent work mid-flight (incl. one temporary J1 patch later reverted); final tree verified by the gate gates above.",
+    "Keyboard remains US-subset ASCII; non-ASCII input needs xkb keymap work (open platform item)."
+  ]
+}
