@@ -194,15 +194,26 @@ impl Composer {
         let mut chars = self.buffer.graphemes();
         let mut combined = Vec::new();
         let cursor = self.cursor_grapheme();
-        if let Some((preedit, _, _)) = &self.preedit {
+        let mut display_cursor = cursor;
+        if let Some((preedit, cursor_begin, _)) = &self.preedit {
             let mut before = chars[..cursor.min(chars.len())].to_vec();
             combined.append(&mut before);
             combined.extend(preedit.graphemes(true));
             combined.extend(chars[cursor.min(chars.len())..].iter().copied());
+            let requested = if *cursor_begin < 0 {
+                preedit.len()
+            } else {
+                *cursor_begin as usize
+            };
+            let mut byte = requested.min(preedit.len());
+            while !preedit.is_char_boundary(byte) {
+                byte -= 1;
+            }
+            display_cursor += preedit[..byte].graphemes(true).count();
             chars = combined;
         }
         let len = chars.len();
-        let cursor = cursor.min(len);
+        let cursor = display_cursor.min(len);
         // Keep ~2/3 of the window before the cursor when possible.
         let half_before = VIEW_WIDTH * 2 / 3;
         let start = cursor

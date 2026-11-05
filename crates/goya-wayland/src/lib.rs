@@ -483,7 +483,8 @@ impl GoyaWindow {
             if !self.state.text_input_enabled {
                 input.enable();
             }
-            let secure = sensitive || matches!(purpose, TextInputPurpose::Password | TextInputPurpose::Pin);
+            let secure =
+                sensitive || matches!(purpose, TextInputPurpose::Password | TextInputPurpose::Pin);
             let (surrounding, cursor, anchor) = if secure {
                 (String::new(), 0, 0)
             } else {
