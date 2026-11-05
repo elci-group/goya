@@ -1237,20 +1237,56 @@ fn raster_primitive(
     index: usize,
     fg: [u8; 3],
     glyph_px: u32,
+    node_clip: Option<Rect>,
+    text_size_pt: Option<f32>,
     clip: Option<PixelClip>,
 ) {
+    let clip = match node_clip {
+        Some(rect) => intersect_pixel_clips(
+            clip,
+            Some(pixel_clip_for_rect(&rect, width, height)),
+        ),
+        None => clip,
+    };
     match prim {
         goya_runtime::Primitive::Panel(_) => {}
         goya_runtime::Primitive::Text(rect, text) => {
             let fill = resolve_fill(fills, index, [16, 16, 20]);
             fill_rect_clipped(pixels, width, height, rect, fill, clip);
-            draw_glyphs(pixels, width, height, rect, text, fg, glyph_px, clip);
+            draw_glyphs(pixels, width, height, rect, text, fg, glyph_px, text_size_pt, clip);
         }
         goya_runtime::Primitive::Button(rect, text) => {
             let fill = resolve_fill(fills, index, [80, 100, 180]);
             fill_rect_clipped(pixels, width, height, rect, fill, clip);
-            draw_glyphs(pixels, width, height, rect, text, fg, glyph_px, clip);
+            draw_glyphs(pixels, width, height, rect, text, fg, glyph_px, text_size_pt, clip);
         }
+    }
+}
+
+fn pixel_clip_for_rect(rect: &Rect, width: i32, height: i32) -> PixelClip {
+    let x0 = (rect.x / MP_PER_PX).max(0) as usize;
+    let y0 = (rect.y / MP_PER_PX).max(0) as usize;
+    let right = rect.x.saturating_add(rect.width.max(0));
+    let bottom = rect.y.saturating_add(rect.height.max(0));
+    let x1 = ((right.saturating_add(MP_PER_PX - 1)) / MP_PER_PX)
+        .min(i64::from(width.max(0)))
+        .max(0) as usize;
+    let y1 = ((bottom.saturating_add(MP_PER_PX - 1)) / MP_PER_PX)
+        .min(i64::from(height.max(0)))
+        .max(0) as usize;
+    PixelClip { x0, y0, x1, y1 }
+}
+
+fn intersect_pixel_clips(a: Option<PixelClip>, b: Option<PixelClip>) -> Option<PixelClip> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(PixelClip {
+            x0: a.x0.max(b.x0),
+            y0: a.y0.max(b.y0),
+            x1: a.x1.min(b.x1),
+            y1: a.y1.min(b.y1),
+        }),
+        (Some(clip), None) | (None, Some(clip)) => Some(clip),
+        (None, None) => None,
     }
 }
 
@@ -1280,13 +1316,33 @@ fn raster_primitive_offset(
             let rect = offset(rect);
             let fill = resolve_fill(fills, index, [16, 16, 20]);
             fill_rect_clipped(pixels, width, height, &rect, fill, Some(clip));
-            draw_glyphs(pixels, width, height, &rect, text, fg, glyph_px, Some(clip));
+            draw_glyphs(
+                pixels,
+                width,
+                height,
+                &rect,
+                text,
+                fg,
+                glyph_px,
+                None,
+                Some(clip),
+            );
         }
         goya_runtime::Primitive::Button(rect, text) => {
             let rect = offset(rect);
             let fill = resolve_fill(fills, index, [80, 100, 180]);
             fill_rect_clipped(pixels, width, height, &rect, fill, Some(clip));
-            draw_glyphs(pixels, width, height, &rect, text, fg, glyph_px, Some(clip));
+            draw_glyphs(
+                pixels,
+                width,
+                height,
+                &rect,
+                text,
+                fg,
+                glyph_px,
+                None,
+                Some(clip),
+            );
         }
     }
 }
@@ -1364,9 +1420,10 @@ fn draw_glyphs(
     s: &str,
     rgb: [u8; 3],
     glyph_px: u32,
+    text_size_pt: Option<f32>,
     clip: Option<PixelClip>,
 ) {
-    if draw_shaped_glyphs(pixels, win_w, win_h, r, s, rgb, glyph_px, clip) {
+    if draw_shaped_glyphs(pixels, win_w, win_h, r, s, rgb, glyph_px, text_size_pt, clip) {
         return;
     }
     draw_bitmap_glyphs(pixels, win_w, win_h, r, s, rgb, glyph_px, clip);
@@ -1381,6 +1438,7 @@ fn draw_shaped_glyphs(
     s: &str,
     rgb: [u8; 3],
     glyph_px: u32,
+    text_size_pt: Option<f32>,
     clip: Option<PixelClip>,
 ) -> bool {
     static TEXT: OnceLock<Mutex<(FontSystem, SwashCache)>> = OnceLock::new();
@@ -1391,7 +1449,11 @@ fn draw_shaped_glyphs(
         return false;
     };
     let (font_system, cache) = &mut *text;
-    let font_size = (glyph_px.max(1) as f32) * 7.0;
+    let fallback_font_size = (glyph_px.max(1) as f32) * 7.0;
+    let font_size = text_size_pt
+        .filter(|size| size.is_finite() && *size > 0.0)
+        .map(|size| size.clamp(0.25, 256.0) * 4.0)
+        .unwrap_or(fallback_font_size);
     let line_height = (font_size * 1.4).max(font_size + 1.0);
     let mut buffer = Buffer::new(font_system, Metrics::new(font_size, line_height));
     let width = (r.width / MP_PER_PX - 4).max(1) as f32;
