@@ -323,7 +323,7 @@ impl AgentRun {
         params: Value,
     ) -> Result<Value, String> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        let (tx, rx) = channel();
+        let (tx, rx) = sync_channel(1);
         self.pending
             .lock()
             .expect("pending map poisoned")
