@@ -77,16 +77,13 @@ impl AgentRun {
             .stderr(Stdio::inherit())
             .spawn()
             .map_err(|e| format!("spawn `{cli} app-server`: {e}"))?;
-        // Assert both pipes exist before dropping the struct; the run loop
-        // re-takes them.
-        child
-            .stdin
-            .take()
-            .ok_or_else(|| "app-server stdin unavailable".to_string())?;
-        child
-            .stdout
-            .take()
-            .ok_or_else(|| "app-server stdout unavailable".to_string())?;
+        // Assert both pipes exist; the run loop re-takes them.
+        if child.stdin.is_none() {
+            return Err("app-server stdin unavailable".to_string());
+        }
+        if child.stdout.is_none() {
+            return Err("app-server stdout unavailable".to_string());
+        }
         Ok(Self {
             workspace: workspace.to_path_buf(),
             handle,
