@@ -30,14 +30,14 @@ use wayland_client::protocol::{
     wl_surface::{self, WlSurface},
 };
 use wayland_client::{Connection, Dispatch, QueueHandle, WEnum};
+use wayland_protocols::wp::text_input::zv3::{
+    zwp_text_input_manager_v3::{self, ZwpTextInputManagerV3},
+    zwp_text_input_v3::{self, ZwpTextInputV3},
+};
 use wayland_protocols::xdg::shell::client::{
     xdg_surface::{self, XdgSurface},
     xdg_toplevel::{self, XdgToplevel},
     xdg_wm_base::{self, XdgWmBase},
-};
-use wayland_protocols::wp::text_input::zv3::{
-    zwp_text_input_manager_v3::{self, ZwpTextInputManagerV3},
-    zwp_text_input_v3::{self, ZwpTextInputV3},
 };
 
 /// Contract identifier implemented by this crate.
@@ -1383,17 +1383,27 @@ impl Dispatch<ZwpTextInputV3, ()> for GoyaWindowInner {
         _: &QueueHandle<Self>,
     ) {
         match event {
-            zwp_text_input_v3::Event::PreeditString { text, cursor_begin, cursor_end } => {
+            zwp_text_input_v3::Event::PreeditString {
+                text,
+                cursor_begin,
+                cursor_end,
+            } => {
                 state.ime_preedit = Some((text.unwrap_or_default(), cursor_begin, cursor_end));
             }
             zwp_text_input_v3::Event::CommitString { text } => {
                 state.ime_commit = text;
             }
-            zwp_text_input_v3::Event::DeleteSurroundingText { before_length, after_length } => {
+            zwp_text_input_v3::Event::DeleteSurroundingText {
+                before_length,
+                after_length,
+            } => {
                 state.ime_delete = Some((before_length, after_length));
             }
             zwp_text_input_v3::Event::Done { serial } => {
-                if state.ime_preedit.is_some() || state.ime_commit.is_some() || state.ime_delete.is_some() {
+                if state.ime_preedit.is_some()
+                    || state.ime_commit.is_some()
+                    || state.ime_delete.is_some()
+                {
                     state.events.push(PlatformEvent::ImeBatch {
                         serial,
                         preedit: state.ime_preedit.take(),
