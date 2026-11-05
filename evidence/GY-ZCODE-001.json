@@ -1,0 +1,35 @@
+{
+  "work_package": "GY-ZCODE-001",
+  "title": "goya-zcode: read-only native ZCode session monitor (increment 1 of frontend rebuild)",
+  "date": "2026-11-05",
+  "scope": {
+    "objective": "First increment of rebuilding the drowzy frontend on Goya: a native Wayland window that connects to a ZCode CLI app-server over the NDJSON protocol and live-mirrors a session's status and streaming transcript tail. Full frontend replacement remains blocked on Goya platform gaps (no text wrapping, no editable text field, no scrolling, ASCII-only keyboard) — see docs/goya-zcode.md non-goals.",
+    "affected": [
+      "crates/goya-zcode (new)",
+      "apps/zcode-monitor.gscene (new)",
+      "docs/goya-zcode.md (new contract GY-ZCODE/1)",
+      "README.md (workspace table row)",
+      "Cargo.toml (workspace member)"
+    ],
+    "exclusions": [
+      "drowzy monorepo: zero code changes (it only serves its existing stdio protocol)",
+      "composer / sending input (Goya text-field gap)",
+      "scrolling (tail-N virtualization only)",
+      "theming plumbing to the renderer"
+    ]
+  },
+  "implementation_record": {
+    "contract": "docs/goya-zcode.md defines inputs, projection state, scene contract, acceptance, non-goals.",
+    "protocol": "Minimal client for the strict NDJSON channel of `zcode app-server`: requests {id, method, params}; responses {id, result|error}; notifications session/event, state.updated (inert). Consumed methods: session/list ({workspace:{workspacePath, workspaceKey}} — local identity rule workspaceKey = trimmed path), session/subscribe ({sessionId, deliveryKind:'desktop-continuous'}). Handled event types: turn.started, part.delta (field text), turn.completed, turn.failed; all others inert. Response schemas verified against drowzy packages/shared/src/zcode-protocol/index.ts (zcodeEventEnvelopeSchema, zcodeSessionListParamsSchema, zcodeSessionSubscribeParamsSchema, zcodeSessionEventSchema).",
+    "ownership": "Agent thread is the sole writer of SessionView (Mutex) + dirty AtomicBool; render loop only reads snapshots (dirty-flag poll, no channel). Reader thread routes responses into a pending map and applies events to the view; requests are serialised through &mut ChildStdin ownership. Unknown events are inert; non-JSON stdout frames mark link down; reconnect backoff 5s.",
+    "projection": "view.rs: bounded tail (14 wrapped lines, fixed width 56 chars — manual wrap because Goya has no text wrapping), streaming buffer flushed in chunks; turn lifecycle maps to status idle/running/error. Pure logic, unit-tested.",
+    "scene": "apps/zcode-monitor.gscene: header (title/status), row_00..row_13 transcript rows, quit button. Host overrides node text each frame (calculator with_result pattern); --watch transactional hot-swap via SceneStore::swap."
+  },
+  "acceptance": {
+    "unit": "cargo test -p goya-zcode: 6 passed (wrap width, hard split, tail bound+order, turn lifecycle, failed turn, rows fill).",
+    "clippy_fmt": "cargo clippy -p goya-zcode --all-targets -- -D warnings: clean. cargo fmt applied.",
+    "headless": "cargo run --bin zcode-monitor: scene has title/status/quit [PASS], 14/14 rows [PASS], projection turn lifecycle [PASS], hit test quit [PASS].",
+    "live": "zcode-monitor --stdin-dump --cli <node wrapper of drowzy apps/zcode-cli/packages/cli/dist/zcode.cjs> --workspace /home/sal/drowzy --duration 30: link Connecting -> Up, session/list returned the workspace sessions, subscribed to newest session ('Rebuild Frontend Using Goya', status idle). Tail empty is expected: subscribe without afterSeq streams only events after subscription and the session was idle. part.delta streaming path is covered by unit tests.",
+    "live_limitations": "A turn was not started during acceptance (avoids consuming provider tokens); live streaming delivery is proven by protocol capture of session/event notifications from the same server surface the TUI consumes, plus the unit-tested projection. rustdoc doctests are excluded per the known host LLVM issue stated in README."
+  }
+}
