@@ -7,8 +7,8 @@ ZCode (drowzy) agent session.
 ## Motivation
 
 Increment 1 of "rebuild the frontend on Goya". A full replacement of the
-Electron/React frontend is blocked on Goya platform gaps (no text wrapping, no
-editable text field, no scrolling, ASCII-only keyboard). This contract defines
+Electron/React frontend remains blocked on platform gaps (no general text
+wrapping, no scrolling, and non-ASCII glyph rendering). This contract defines
 the narrowest useful slice that exercises the full integration path:
 `.gscene` UI + external data source + live per-frame text override + Wayland
 presentation.
@@ -123,10 +123,14 @@ dispatch — agents implement against it, never negotiate it.
      call-site migration happens at the integration gate, not by J2.
    - Text containing `'\n'` rasterizes as multiple lines, line height =
      glyph_px * 1.4, clipped to the node rect.
+   - `PlatformEvent::KeyChar(char)` uses the compositor's XKB_V1 keymap for
+     Unicode translation, Shift/Caps Lock/AltGr, and active layout. The host
+     reads at most 16 MiB of keymap text; unsupported or invalid maps retain
+     the bounded US fallback. Dead-key compose sequences are not implemented.
    - `PlatformEvent` gains `KeySpecial(KeySpecial)` with `enum KeySpecial {
      ArrowLeft, ArrowRight, ArrowUp, ArrowDown, Home, End, Delete, Escape,
      Tab }` (Enter stays `'\n'`, Backspace stays `'\u{8}'` in `KeyChar`).
-     Evdev US-subset; unmapped keycodes stay `None`.
+     Navigation keys use evdev keycodes; unmapped codes stay `None`.
 3. **Composer (J3: `goya-zcode`).**
    - The monitor scene gains an `@input composer` node; the host maintains
      focus (click on the composer via `hit_test` focuses it), cursor
