@@ -24,6 +24,60 @@ pub struct TextBuffer {
     redo: Vec<TextSnapshot>,
 }
 
+/// Shared two-axis scrolling state. Offsets are content-space units (pixels,
+/// points, or lines); geometry changes clamp offsets so the viewport never
+/// exposes space beyond the content.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ScrollState {
+    content_width: f64,
+    content_height: f64,
+    viewport_width: f64,
+    viewport_height: f64,
+    offset_x: f64,
+    offset_y: f64,
+}
+
+impl ScrollState {
+    pub fn set_geometry(&mut self, content_width: f64, content_height: f64, viewport_width: f64, viewport_height: f64) {
+        self.content_width = finite_nonnegative(content_width);
+        self.content_height = finite_nonnegative(content_height);
+        self.viewport_width = finite_nonnegative(viewport_width);
+        self.viewport_height = finite_nonnegative(viewport_height);
+        self.clamp_offsets();
+    }
+
+    pub fn scroll_by(&mut self, dx: f64, dy: f64) {
+        self.offset_x += finite_or_zero(dx);
+        self.offset_y += finite_or_zero(dy);
+        self.clamp_offsets();
+    }
+
+    pub fn scroll_to(&mut self, x: f64, y: f64) {
+        self.offset_x = finite_or_zero(x);
+        self.offset_y = finite_or_zero(y);
+        self.clamp_offsets();
+    }
+
+    pub fn offset(&self) -> (f64, f64) { (self.offset_x, self.offset_y) }
+    pub fn max_offset(&self) -> (f64, f64) {
+        ((self.content_width - self.viewport_width).max(0.0), (self.content_height - self.viewport_height).max(0.0))
+    }
+
+    fn clamp_offsets(&mut self) {
+        let (max_x, max_y) = self.max_offset();
+        self.offset_x = self.offset_x.clamp(0.0, max_x);
+        self.offset_y = self.offset_y.clamp(0.0, max_y);
+    }
+}
+
+fn finite_nonnegative(value: f64) -> f64 {
+    if value.is_finite() { value.max(0.0) } else { 0.0 }
+}
+
+fn finite_or_zero(value: f64) -> f64 {
+    if value.is_finite() { value } else { 0.0 }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct TextSnapshot {
     text: String,
