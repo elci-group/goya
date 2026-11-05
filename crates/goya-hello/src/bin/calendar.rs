@@ -251,7 +251,7 @@ fn run_live(store: &mut SceneStore) -> Result<(), String> {
             if let PlatformEvent::PointerPress(x, y) = ev {
                 let frame = layout(store.get(), SCENE_W_PT, SCENE_H_PT);
                 if let Some(name) =
-                    hit_test(&frame, i64::from(x) * MP_PER_PX, i64::from(y) * MP_PER_PX)
+                    hit_test(&frame, x as i64 * MP_PER_PX, y as i64 * MP_PER_PX)
                 {
                     if name.starts_with("btn_") {
                         cal.press(&name);

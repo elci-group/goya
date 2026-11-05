@@ -287,11 +287,11 @@ fn main() {
             match ev {
                 goya_wayland::PlatformEvent::PointerPress(x, y) => {
                     let frame = layout(store.get(), EXTENT_W_PT, EXTENT_H_PT);
-                    if let Some(i) = entry_at(x, y) {
+                    if let Some(i) = entry_at(x as i32, y as i32) {
                         fm.click_entry(i);
                         dirty = true;
                     } else if let Some(name) =
-                        hit_test(&frame, i64::from(x) * goya_wayland::MP_PER_PX, i64::from(y) * goya_wayland::MP_PER_PX)
+                        hit_test(&frame, x as i64 * goya_wayland::MP_PER_PX, y as i64 * goya_wayland::MP_PER_PX)
                     {
                         if name == "btn_up" || name == "btn_open" {
                             fm.press(&name);
