@@ -13,9 +13,9 @@
 //! `Tab => "tab"`. Enter stays `'\n'`, Backspace `'\u{8}'` in `KeyChar`.
 //! Wave 5 (GY-ZCODE-005): `PlatformEvent::Preedit(Option<String>)` maps to
 //! [`Composer::set_preedit`] and `PlatformEvent::CommitText(String)` goes
-//! through [`Composer::handle_ime_batch`]'s commit path (insert at the
-//! cursor); the host activates the window text input iff the composer is
-//! focused (`GoyaWindow::set_text_input_active`).
+//! through [`Composer::commit_text`] (insert at the cursor); the host
+//! activates the window text input iff the composer is focused
+//! (`GoyaWindow::set_text_input_active`).
 
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -122,30 +122,16 @@ impl Composer {
         }
     }
 
-    /// Apply one text-input-v3 done batch in protocol order. Preedit remains
-    /// an overlay; delete and commit edits go through the shared TextBuffer.
-    pub fn handle_ime_batch(
-        &mut self,
-        preedit: Option<(String, i32, i32)>,
-        commit: Option<&str>,
-        delete: Option<(u32, u32)>,
-    ) {
+    /// Insert a whole IME commit string (`PlatformEvent::CommitText`) at
+    /// the cursor and clear any preedit overlay. Wave 5 (GY-ZCODE-005):
+    /// commit text arrives whole, never synthesized as key chars. No-op
+    /// while unfocused.
+    pub fn commit_text(&mut self, text: &str) {
         if !self.focused {
             return;
         }
-        if delete.is_some() {
-            self.preedit = None;
-        }
-        if let Some((before, after)) = delete {
-            self.buffer.delete_surrounding(before, after);
-        }
-        if let Some(text) = commit {
-            self.buffer.insert(text);
-            self.preedit = None;
-        }
-        if let Some(preedit) = preedit {
-            self.preedit = (!preedit.0.is_empty()).then_some(preedit);
-        }
+        self.buffer.insert(text);
+        self.preedit = None;
     }
 
     /// Wave 5 (GY-ZCODE-005): set or clear the IME preedit from a
