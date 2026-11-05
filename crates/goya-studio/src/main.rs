@@ -976,7 +976,11 @@ mod tests {
     }
 
     fn post(path: &str, body: &str) -> Vec<u8> {
-        format!("POST {path} HTTP/1.1\r\nHost: {HOST}\r\nOrigin: http://{HOST}\r\nContent-Type: text/plain;charset=utf-8\r\nContent-Length: {}\r\n\r\n{body}", body.len()).into_bytes()
+        post_with_revision(path, body, &scene_revision(SCENE.as_bytes()))
+    }
+
+    fn post_with_revision(path: &str, body: &str, revision: &str) -> Vec<u8> {
+        format!("POST {path} HTTP/1.1\r\nHost: {HOST}\r\nOrigin: http://{HOST}\r\nContent-Type: text/plain;charset=utf-8\r\nIf-Match: {revision}\r\nContent-Length: {}\r\n\r\n{body}", body.len()).into_bytes()
     }
 
     #[test]
@@ -1000,6 +1004,7 @@ mod tests {
                 host: HOST.into(),
                 origin: None,
                 content_type: None,
+                if_match: None,
                 body: Vec::new()
             }
         );
