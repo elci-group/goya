@@ -8,8 +8,9 @@
 
 use goya_lang::{hit_test, layout, DrawNode, SceneStore};
 use goya_runtime::Primitive;
-use goya_wayland::GoyaWindow;
+use goya_wayland::{GoyaWindow, KeySpecial};
 use goya_zcode::agent::{self};
+use goya_zcode::composer::Composer;
 use goya_zcode::view::{LinkState, ProjEvent, SessionView, TAIL_LINES};
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
