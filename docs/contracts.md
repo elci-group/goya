@@ -58,8 +58,11 @@ GY-WAYLAND-001 ✓ live Wayland surface + runtime pointer adapter
 GY-TEST-001 (partial): GY-IR/1 parser conformance and 20,000-input deterministic
 mutation fuzzing are present, along with public SDK integration coverage for
 parse/lower, frame geometry, canonical action IDs, hit testing, and runtime
-dispatch, plus an opt-in authored D1/D2-to-VEE loopback acceptance. Broader
-platform/runtime conformance coverage remains open.
+dispatch. A second public SDK flow now covers proportional geometry at two
+viewport sizes, valid and rejected scene swaps, state/render preservation on
+rejection, and primitive geometry. Authored D1/D2-to-VEE loopback acceptance
+is also available. Broader platform/runtime conformance coverage remains
+open.
 ```
 
 ## Ownership registry (Wave 1)
