@@ -56,6 +56,7 @@ pub fn parse(source: &str) -> Result<Scene, ParseError> {
         && root.text.is_none()
         && root.text_size.is_none()
         && root.anchor.is_none()
+        && !root.is_input
     {
         root = root.children.remove(0);
     }
@@ -130,6 +131,7 @@ impl P {
         let mut cell = SceneCell {
             name: String::new(),
             kind: CellKind::Cell,
+            is_input: false,
             position: None,
             extent: None,
             position_p: None,
@@ -157,17 +159,18 @@ impl P {
                     };
                     let word = tok.text;
                     match word.as_str() {
-                        "cell" | "button" => {
-                            let kind = if word == "button" {
-                                CellKind::Button
-                            } else {
-                                CellKind::Cell
+                        "cell" | "button" | "input" => {
+                            let kind = match word.as_str() {
+                                "button" => CellKind::Button,
+                                "input" => CellKind::Input,
+                                _ => CellKind::Cell,
                             };
                             let name = self.expect_ident()?;
                             self.expect(TokenKind::LBrace)?;
                             let mut child = self.parse_cell_body()?;
                             child.name = name;
                             child.kind = kind;
+                            child.is_input = kind == CellKind::Input;
                             cell.children.push(child);
                         }
                         "interaction" => {

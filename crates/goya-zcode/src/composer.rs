@@ -115,52 +115,44 @@ impl Composer {
     }
 
     /// Recall a committed line from history (`-1` = previous, `+1` = next).
+    /// `history_pos` walks `Some(last)` … `Some(0)` upward, then `None`
+    /// restores any stashed draft.
     fn recall_history(&mut self, dir: i32) {
         if self.history.is_empty() {
             return;
         }
         let last = self.history.len() - 1;
-        let pos = match self.history_pos {
-            None => {
-                if dir < 0 {
-                    self.draft_before_recall();
-                    Some(last)
-                } else {
-                    // Already at the newest draft; nothing newer to recall.
-                    return;
-                }
+        match (dir, self.history_pos) {
+            (-1, None) => {
+                // First recall: stash any non-empty, non-committed draft.
+                let draft = match self.text.is_empty()
+                    || self.history.last() == Some(&self.text)
+                {
+                    true => None,
+                    false => Some(std::mem::take(&mut self.text)),
+                };
+                self.draft = draft;
+                self.history_pos = Some(last);
+                self.text = self.history[last].clone();
             }
-            Some(p) => {
-                let np = p as i64 + dir as i64;
-                if np < 0 {
-                    return;
-                }
-                if np as usize >= last {
-                    self.draft_before_recall();
-                    None
-                } else {
-                    Some(np as usize)
-                }
+            (-1, Some(0)) => {} // already at the oldest entry
+            (-1, Some(p)) => {
+                self.history_pos = Some(p - 1);
+                self.text = self.history[p - 1].clone();
             }
-        };
-        if let Some(p) = pos {
-            self.text = self.history[p].clone();
+            (1, None) => {} // already at the newest draft
+            (1, Some(p)) if p >= last => {
+                // Past the newest entry: restore the stashed draft.
+                self.history_pos = None;
+                self.text = self.draft.take().unwrap_or_default();
+            }
+            (1, Some(p)) => {
+                self.history_pos = Some(p + 1);
+                self.text = self.history[p + 1].clone();
+            }
+            _ => {}
         }
         self.cursor = self.len_chars();
-        self.history_pos = pos;
-    }
-
-    /// Stash the in-progress draft when first recalling history, so
-    /// returning past the newest entry restores it.
-    fn draft_before_recall(&mut self) {
-        if self.history.last().map(String::as_str) != Some(self.text.as_str()) {
-            self.pending_draft = Some(std::mem::take(&mut self.text));
-        } else {
-            self.pending_draft = None;
-        }
-        if let Some(draft) = self.pending_draft.take() {
-            self.text = draft;
-        }
     }
 
     /// Byte index of the `n`-th char (clamped); keeps every mutation on a
