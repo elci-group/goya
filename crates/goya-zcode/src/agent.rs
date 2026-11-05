@@ -14,7 +14,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{channel, RecvTimeoutError, Sender};
+use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -25,6 +25,17 @@ const POLL_INTERVAL_MS: u64 = 200;
 /// Pending request id → one-shot response channel.
 type PendingMap = Arc<Mutex<HashMap<u64, Sender<Result<Value, String>>>>>;
 
+/// UI → agent-thread command (GY-ZCODE-003). The UI thread enqueues on
+/// Enter; the agent thread (stdin owner) drains the queue between poll
+/// iterations and issues the wire request itself.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AgentCmd {
+    /// Send a composed line to the target session. `wire == false` when
+    /// the monitor runs without `--allow-send`: admission is identical
+    /// but no `session/send` request is written to the child's stdin.
+    SendText { line: String, wire: bool },
+}
+
 /// State shared between the agent thread and the render loop. The agent
 /// thread is the only writer; the render loop polls `take_dirty` and reads
 /// a view snapshot.
@@ -33,14 +44,22 @@ pub struct MonitorHandle {
     pub view: Arc<Mutex<SessionView>>,
     dirty: Arc<AtomicBool>,
     pub stop: Arc<AtomicBool>,
+    /// Inbound command queue: `SendText` and friends. The sender sits
+    /// behind a mutex so every `MonitorHandle` clone can enqueue; the
+    /// receiver is shared so the queue survives agent-thread reconnects.
+    cmd_tx: Mutex<Sender<AgentCmd>>,
+    cmd_rx: Arc<Mutex<Receiver<AgentCmd>>>,
 }
 
 impl MonitorHandle {
     pub fn new() -> Self {
+        let (tx, rx) = channel();
         Self {
             view: Arc::new(Mutex::new(SessionView::default())),
             dirty: Arc::new(AtomicBool::new(true)),
             stop: Arc::new(AtomicBool::new(false)),
+            cmd_tx: Mutex::new(tx),
+            cmd_rx: Arc::new(Mutex::new(rx)),
         }
     }
 
@@ -51,6 +70,25 @@ impl MonitorHandle {
 
     fn mark_dirty(&self) {
         self.dirty.store(true, Ordering::Relaxed);
+    }
+
+    /// Enqueue a composed line for the agent thread. `wire == false`
+    /// (no `--allow-send`) keeps admission identical but skips the wire
+    /// request. Errors are ignored: a dead agent thread just means the
+    /// command is dropped (reconnect will pick up later Enters).
+    pub fn send_text(&self, line: String, wire: bool) {
+        if let Ok(tx) = self.cmd_tx.lock() {
+            let _ = tx.send(AgentCmd::SendText { line, wire });
+        }
+    }
+
+    /// Non-blocking command drain used by the agent run loop (and the
+    /// headless acceptance): never blocks.
+    pub fn try_take_cmd(&self) -> Option<AgentCmd> {
+        match self.cmd_rx.lock().ok().and_then(|rx| rx.try_recv()) {
+            Ok(cmd) => Some(cmd),
+            Err(TryRecvError::Empty) | Err(TryRecvError::Disconnected) => None,
+        }
     }
 }
 
@@ -238,7 +276,12 @@ impl AgentRun {
         }
         self.set_view(|v| v.status = "subscribed".to_string());
 
-        // Hold the connection open until stop or child exit.
+        // One outstanding send at a time; the flag lives in the run loop
+        // so a reconnect resets admission (the wire state does too).
+        let mut send_pending = false;
+        // Hold the connection open until stop or child exit. The command
+        // queue is drained non-blocking before every poll sleep, so the
+        // loop never waits more than POLL_INTERVAL_MS on the channel.
         while !self.handle.stop.load(Ordering::Relaxed) {
             if reader_done.load(Ordering::Acquire) {
                 self.set_view(|v| v.link = LinkState::Down("app-server stdout closed".into()));
@@ -249,9 +292,13 @@ impl AgentRun {
                     self.set_view(|v| v.link = LinkState::Down("app-server exited".into()));
                     return Err("app-server exited".to_string());
                 }
-                Ok(None) => std::thread::sleep(Duration::from_millis(POLL_INTERVAL_MS)),
+                Ok(None) => {}
                 Err(e) => return Err(format!("wait failed: {e}")),
             }
+            while let Some(cmd) = self.handle.try_take_cmd() {
+                self.handle_cmd(&mut stdin, &target.session_id, cmd, &mut send_pending);
+            }
+            std::thread::sleep(Duration::from_millis(POLL_INTERVAL_MS));
         }
         let _ = self.child.kill();
         let _ = self.child.wait();
