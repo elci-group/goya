@@ -10,6 +10,11 @@ pub const TAIL_LINES: usize = 14;
 /// Fixed wrap width in characters. Goya has no text wrapping (GY-ZCODE/1),
 /// so lines are wrapped here before they reach the scene.
 pub const LINE_WIDTH: usize = 56;
+/// Scrollback capacity for committed lines (`history`); the oldest lines
+/// are evicted once the cap is reached.
+pub const HISTORY_CAP: usize = 2000;
+/// Lines scrolled per PageUp/PageDown / PointerScroll step.
+pub const SCROLL_STEP: usize = TAIL_LINES;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LinkState {
@@ -43,6 +48,13 @@ pub struct SessionView {
     pub status: String,
     /// Committed transcript lines (already wrapped).
     pub tail: VecDeque<String>,
+    /// Scrollback of committed lines, oldest first, capped at
+    /// [`HISTORY_CAP`] (oldest evicted). `tail` is the live last-14
+    /// window of this; `history` keeps the rest for scrolling.
+    pub history: Vec<String>,
+    /// Lines back from the newest committed line; `0` = live/bottom.
+    /// New events never hijack the scroll position (see `apply`).
+    pub scroll: usize,
     /// In-flight assistant streaming buffer, flushed to `tail` in chunks.
     pub streaming: String,
 }
@@ -55,6 +67,8 @@ impl Default for SessionView {
             title: String::from("zcode monitor"),
             status: String::from("connecting"),
             tail: VecDeque::new(),
+            history: Vec::new(),
+            scroll: 0,
             streaming: String::new(),
         }
     }
