@@ -243,3 +243,67 @@ Dispatched while J2/J3 are in flight; exclusive ownership, frozen contract.
 |---|---|---|
 | J4 | `goya-lang` | `wrap:` property + deterministic layout wrapping + tests |
 | J5 | `goya-studio`, `goya-sdk` | @input/wrap awareness in check/inspect/serve + SDK accessors + tests |
+
+## Wave 4 — theming, clipboard ring, markdown blocks (GY-ZCODE-004)
+
+Same swarm convention; contract frozen before dispatch. Ownership: J1
+`goya-chroma`, J2 `goya-wayland`, J3 `goya-zcode`; gate runs workspace gates
+and live acceptance.
+
+### Shared interface contract (frozen)
+
+1. **Palette (J1: `goya-chroma`).**
+   - `pub struct Palette { pub bg: Rgb8, pub fg: Rgb8, pub muted: Rgb8,
+     pub accent: Rgb8, pub border: Rgb8, pub ok: Rgb8, pub err: Rgb8 }`
+     (Rgb8 is the crate's existing type).
+   - `pub fn palette(theme: &Theme, polarity: Polarity) -> Result<Palette,
+     ResolveError>` derived from the existing `resolve()`; bg/fg/accent/border
+     from the resolved roles; muted = surface fg blended toward surface;
+     ok/err fixed-hue anchors contrast-checked against bg (AA, like resolve).
+   - AA must hold for fg/bg, accent/bg, ok/bg, err/bg; conflict =
+     `ResolveError::ContrastUnreachable` (never silently fake, GY-CHR-001 §5).
+2. **Shortcuts (J2: `goya-wayland`).**
+   - `pub enum Shortcut { Copy, Paste, Quit }`; `PlatformEvent::Shortcut(
+     Shortcut)` emitted from ctrl+c / ctrl+v / ctrl+q through the xkb state
+     path (ctrl is currently inert there — this is its first consumer;
+     modifier tracking already exists).
+   - Keymap-free evdev fallback emits no Shortcut events (documented; ctrl is
+     untracked there). Other ctrl combos stay inert. Navigation/KeyChar
+     behavior byte-identical to wave 3.
+   - Pure decision helper extracted + tests (no compositor), wave-3 style.
+3. **Monitor (J3: `goya-zcode`).** J1/J2 land concurrently; code against the
+   frozen APIs, guard integration points (see wave-2/3 pattern: adapter
+   module + graceful degradation, mark TODOs for the gate).
+   - **Theming**: new `theme.rs` adapter exposing `monitor_palette() ->
+     MonitorPalette` (bg/fg/muted/accent/border/ok/err as `[u8;3]`).
+     Implementation calls `goya_chroma::palette` with the monitor's dark
+     Theme when available; until it lands, hand-tuned constants matching the
+     current scene colors (documented as fallback). The live render path
+     passes real fills via the wave-2 `fills` slice (rows, header, composer,
+     status ok/err colors). Scene `fill:` values remain as the layout-time
+     defaults; the per-frame fill slice overrides them.
+   - **Clipboard ring**: new `clipboard.rs` wrapping `goya_clipboard::
+     MemoryClipboard` with a local permissive capability policy. Ctrl+C
+     copies the focused/last transcript line into the ring; Ctrl+V inserts
+     `last_entry().plain_text` at the composer cursor. System (Wayland
+     data-device) clipboard is OUT — blocked upstream (GY-WAYLAND-001
+     follow-through); document in code and evidence.
+   - **Markdown blocks**: new `markdown.rs` — pure renderer from assistant
+     text to styled plain lines: ATX headings → prefixed/emphasised lines;
+     fenced code → `| ` gutter + indent (markers stripped); bullets → `• ` ;
+     ordered lists kept; bold/italic markers stripped; links kept as plain
+     text; paragraphs blank-line separated. `SessionView` gains a
+     `markdown: bool` mode (default on for turn-completed response lines);
+     `push_markdown(text)` routes through the renderer. Unit tests for every
+     construct.
+   - Bin wiring: Shortcuts dispatch (Copy/Paste/Quit), palette applied per
+     frame, status colors ok/err.
+
+### Assignments
+
+| Agent | Crates (exclusive) | Deliverable |
+|---|---|---|
+| J1 | `goya-chroma` | Palette + palette() + AA tests |
+| J2 | `goya-wayland` | Shortcut events + pure helper + tests |
+| J3 | `goya-zcode` | theme adapter, clipboard ring, markdown renderer, bin wiring, tests |
+| gate | workspace | gates, live acceptance (no-send default), evidence |
