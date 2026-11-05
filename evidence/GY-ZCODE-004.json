@@ -1,0 +1,39 @@
+{
+  "work_package": "GY-ZCODE-004",
+  "title": "Swarm wave 4: chroma palette hookup, shortcut clipboard ring, markdown blocks",
+  "date": "2026-11-05",
+  "swarm": {
+    "convention": "GY-WAVE2-SWARM (concurrent agents, exclusive crate ownership, frozen interface contract, central integration gate)",
+    "contract": "docs/goya-zcode.md 'Wave 4' section frozen before dispatch; J3 coded against the named J1/J2 APIs — zero GATE markers remained at integration",
+    "assignments": {
+      "J1": "goya-chroma: Palette{bg,fg,muted,accent,border,ok,err} + palette(&Theme, Polarity); muted = fg blended 0.55 toward surface; ok/err fixed-hue anchors (OKLCH h145/h25) lightness-searched to AA; brand-locked accent AA-searched on lightness only (hue/chroma identity preserved); exported aa_ratio for consumers",
+      "J2": "goya-wayland: Shortcut{Copy,Paste,Quit} + PlatformEvent::Shortcut from ctrl+c/v/q via the wave-3 xkb ctrl tracking; pure shortcut_from_key helper; evdev fallback emits none (documented); non-ctrl behavior byte-identical",
+      "J3": "goya-zcode: theme.rs (real goya_chroma::palette call site + documented ContrastUnreachable fallback; node/status fill overrides), clipboard.rs (MonitorClipboard ring over goya-clipboard MemoryClipboard + local AllowAllPolicy; Ctrl+C copies last transcript row, Ctrl+V pastes at composer cursor), markdown.rs (pure block renderer: headings, fenced code gutter + lang tag, bullets, inline marker stripping; reused view::wrap_line), SessionView.markdown mode, bin Shortcut dispatch + per-frame palette fills"
+    }
+  },
+  "gate_record": {
+    "integration_fixes": [
+      "Derived dark surface was blue-tinted (bg [44,87,167]): J3's theme roles used Polar(0.06) against the anchor (L≈0.52), far too shallow for a dark surface. Gate retuned the monitor theme (surface Polar(0.38), chroma Scale(0.25)); derived bg is now dark navy [3,11,28] vs scene target [20,20,28], with AA intact (bg/fg/accent/ok/err >= 4.5:1)",
+      "cargo fmt across agent output (formatting-only diffs, no semantic changes)"
+    ],
+    "verification": {
+      "cargo_build_workspace": "clean",
+      "cargo_test_workspace_lib_tests": "560 passed, 0 failed",
+      "cargo_clippy_workspace_all_targets_D_warnings": "clean",
+      "cargo_fmt_all_check": "clean",
+      "zcode_monitor_headless": "all 13 checks PASS (incl. markdown heading/code/bullet blocks, clipboard copy/paste round-trip, palette node/status fill mapping)",
+      "zcode_monitor_stdin_dump_live": "link Connecting->Up, subscribed to live session",
+      "zcode_monitor_live_wayland": "window presented with palette-driven fills, 341 frames over 6s",
+      "calculator_exemplar": "ALL EXEMPLAR CHECKS PASS"
+    },
+    "scope_honesty": {
+      "clipboard": "In-monitor ring only. System (Wayland data-device) clipboard read is unimplemented upstream (goya-clipboard has copy/last_entry only; data-device deferred since GY-WAYLAND-001). Paste pastes what was copied inside the monitor.",
+      "markdown": "Block-level only (headings/code fences/lists/marker stripping); no inline styling — the glyph renderer has no per-glyph color/weight."
+    }
+  },
+  "notes": [
+    "Keyboard shortcut asymmetry (xkb-only Shortcuts) documented in goya-wayland.",
+    "Doctests excluded per known host rustdoc LLVM issue (README).",
+    "kaptaind auto-committed agent work incrementally; gate verified the final tree by running all gates from the working tree."
+  ]
+}
