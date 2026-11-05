@@ -255,7 +255,7 @@ impl SessionView {
                                 _ => "✓",
                             };
                             self.push_line(&format!("⚙ {tool} {mark}"));
-                            self.remember_tool(&mut self.finished_tools, id);
+                            track_tool(&mut self.finished_tools, id);
                         }
                     }
                 }
@@ -304,6 +304,15 @@ impl SessionView {
         let start = rows.len().saturating_sub(TAIL_LINES);
         rows.split_off(start)
     }
+}
+
+/// Record a tool id in a bounded tracker, evicting the oldest entry once
+/// [`TOOL_TRACK_CAP`] is reached (duplicate ids are the caller's concern).
+fn track_tool(set: &mut VecDeque<String>, id: &str) {
+    if set.len() >= TOOL_TRACK_CAP {
+        set.pop_front();
+    }
+    set.push_back(id.to_string());
 }
 
 /// Greedy wrap at `width` characters, breaking mid-word when a single
