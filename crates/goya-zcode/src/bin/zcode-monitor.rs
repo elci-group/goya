@@ -26,6 +26,7 @@ struct Args {
     mode: Mode,
     watch: bool,
     duration: Option<u64>,
+    frames: Option<u32>,
 }
 
 #[derive(PartialEq)]
@@ -43,7 +44,7 @@ fn parse_args() -> Args {
             .and_then(|i| argv.get(i + 1))
             .cloned()
     };
-    let mode = if argv.iter().any(|a| a == "--live") {
+    let mode = if argv.iter().any(|a| a == "--live") || argv.iter().any(|a| a == "--frames") {
         Mode::Live
     } else if argv.iter().any(|a| a == "--stdin-dump") {
         Mode::Dump
@@ -61,6 +62,7 @@ fn parse_args() -> Args {
         mode,
         watch: argv.iter().any(|a| a == "--watch"),
         duration: get("--duration").and_then(|v| v.parse().ok()),
+        frames: get("--frames").and_then(|v| v.parse().ok()),
     }
 }
 
@@ -275,7 +277,10 @@ fn run_live(args: &Args, store: &mut SceneStore, last_mtime: &mut Option<SystemT
     let handle = agent::spawn_agent(&args.cli, &args.workspace, args.session.clone());
     let started = Instant::now();
     let mut frames = 0u32;
-    while !handle.stop.load(Ordering::Relaxed) && !win.close_requested() {
+    while !handle.stop.load(Ordering::Relaxed)
+        && !win.close_requested()
+        && args.frames.is_none_or(|limit| frames < limit)
+    {
         if args.watch {
             watch_swap(store, last_mtime);
         }
