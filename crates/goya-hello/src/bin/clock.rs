@@ -13,7 +13,7 @@
 //! render formatting, wrap-around arithmetic, 86400-step day sweep with
 //! no drift, and reset. Prints PASS/FAIL; exit 0/1.
 
-use goya_lang::{hit_test, layout, SceneStore};
+use goya_lang::{SceneStore, hit_test, layout};
 use goya_runtime::Primitive;
 
 const SCENE_PATH: &str = "apps/clock.gscene";
