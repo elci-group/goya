@@ -561,4 +561,104 @@ mod tests {
         view.apply(&ProjEvent::TurnStarted { input: "hi".into() });
         assert_eq!(view.status, "running");
     }
+
+    // --- Wave 5 (GY-ZCODE-005): tool-row lifecycle ---
+
+    fn tool(id: &str, tool: &str, state: ToolState) -> ProjEvent {
+        ProjEvent::ToolUpdate {
+            id: id.to_string(),
+            tool: tool.to_string(),
+            state,
+        }
+    }
+
+    #[test]
+    fn tool_started_then_completed_emits_exactly_two_lines() {
+        let mut view = SessionView::default();
+        view.apply(&tool("t1", "read_file", ToolState::Started));
+        view.apply(&tool("t1", "read_file", ToolState::Completed));
+        let gear: Vec<&String> = view
+            .history
+            .iter()
+            .filter(|l| l.contains('⚙'))
+            .collect();
+        assert_eq!(gear, vec!["⚙ read_file …", "⚙ read_file ✓"]);
+        assert!(view.in_flight_tools.is_empty());
+        assert!(view.finished_tools.contains(&"t1".to_string()));
+    }
+
+    #[test]
+    fn tool_failed_emits_cross_mark() {
+        let mut view = SessionView::default();
+        view.apply(&tool("t1", "write_file", ToolState::Started));
+        view.apply(&tool("t1", "write_file", ToolState::Failed));
+        assert!(view.history.contains(&"⚙ write_file ✗".to_string()));
+        assert!(view.finished_tools.contains(&"t1".to_string()));
+    }
+
+    #[test]
+    fn progress_folds_into_started_row() {
+        let mut view = SessionView::default();
+        view.apply(&tool("t1", "read_file", ToolState::Started));
+        // Progress arrives as repeated Started events (agent.rs folding).
+        view.apply(&tool("t1", "read_file", ToolState::Started));
+        view.apply(&tool("t1", "read_file", ToolState::Started));
+        view.apply(&tool("t1", "read_file", ToolState::Completed));
+        let gear: Vec<&String> = view
+            .history
+            .iter()
+            .filter(|l| l.contains('⚙'))
+            .collect();
+        assert_eq!(gear, vec!["⚙ read_file …", "⚙ read_file ✓"]);
+    }
+
+    #[test]
+    fn scheduled_is_silent_and_terminal_only_closes_in_flight() {
+        let mut view = SessionView::default();
+        // Scheduled renders nothing.
+        view.apply(&tool("t0", "bash", ToolState::Scheduled));
+        assert!(view.history.is_empty());
+        // Unsolicited completion without a start row: nothing.
+        view.apply(&tool("t0", "bash", ToolState::Completed));
+        assert!(view.history.is_empty());
+        // Started after a (never-rendered) completion still opens a row.
+        view.apply(&tool("t0", "bash", ToolState::Started));
+        assert!(view.history.contains(&"⚙ bash …".to_string()));
+    }
+
+    #[test]
+    fn events_after_terminal_line_are_inert() {
+        let mut view = SessionView::default();
+        view.apply(&tool("t1", "read_file", ToolState::Started));
+        view.apply(&tool("t1", "read_file", ToolState::Completed));
+        let before = view.history.clone();
+        // Anything after the terminal line: nothing further.
+        view.apply(&tool("t1", "read_file", ToolState::Started));
+        view.apply(&tool("t1", "read_file", ToolState::Completed));
+        view.apply(&tool("t1", "read_file", ToolState::Failed));
+        assert_eq!(view.history, before);
+    }
+
+    #[test]
+    fn tool_trackers_evict_oldest_at_cap() {
+        let mut view = SessionView::default();
+        let n = TOOL_TRACK_CAP as u32 + 5;
+        for i in 0..n {
+            view.apply(&tool(&format!("t{i}"), "bash", ToolState::Started));
+        }
+        assert_eq!(view.in_flight_tools.len(), TOOL_TRACK_CAP);
+        assert_eq!(view.in_flight_tools.front().map(String::as_str), Some("t5"));
+        assert_eq!(
+            view.in_flight_tools.back().map(String::as_str),
+            Some(format!("t{}", n - 1).as_str())
+        );
+        // The evicted oldest id can start a fresh row again.
+        view.apply(&tool("t0", "bash", ToolState::Started));
+        let starts = view
+            .history
+            .iter()
+            .filter(|l| *l == "⚙ bash …")
+            .count();
+        assert_eq!(starts, TOOL_TRACK_CAP + 1);
+    }
 }
