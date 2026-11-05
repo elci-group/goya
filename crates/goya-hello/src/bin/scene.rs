@@ -309,6 +309,189 @@ fn main() {
     );
 }
 
+#[derive(Default)]
+struct SceneInputs {
+    buffers: BTreeMap<String, TextBuffer>,
+    focused: Option<String>,
+    preedit: Option<(String, i32, i32)>,
+}
+
+impl SceneInputs {
+    fn sync_nodes(&mut self, frame: &goya_lang::Frame) {
+        self.buffers
+            .retain(|name, _| frame.find(name).is_some_and(|node| node.is_input));
+        for node in &frame.nodes {
+            if node.is_input {
+                self.buffers.entry(node.name.clone()).or_default();
+            }
+        }
+        if self
+            .focused
+            .as_ref()
+            .is_some_and(|name| !self.buffers.contains_key(name))
+        {
+            self.focused = None;
+            self.preedit = None;
+        }
+    }
+
+    fn focus(&mut self, name: Option<String>) {
+        if self.focused != name {
+            self.preedit = None;
+            self.focused = name.filter(|name| self.buffers.contains_key(name));
+        }
+    }
+
+    fn handle_character(&mut self, character: char) {
+        let Some(buffer) = self.focused.as_ref().and_then(|name| self.buffers.get_mut(name)) else {
+            return;
+        };
+        match character {
+            '\u{8}' => {
+                self.preedit = None;
+                buffer.delete_backward();
+            }
+            '\n' | '\r' => {}
+            character if !character.is_control() => {
+                self.preedit = None;
+                buffer.insert(&character.to_string());
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_special(&mut self, key: goya_wayland::KeySpecial, frame: &goya_lang::Frame) {
+        let Some(name) = self.focused.clone() else {
+            return;
+        };
+        match key {
+            goya_wayland::KeySpecial::Escape => self.focus(None),
+            goya_wayland::KeySpecial::Tab => {
+                let names: Vec<_> = frame
+                    .nodes
+                    .iter()
+                    .filter(|node| node.is_input)
+                    .map(|node| node.name.clone())
+                    .collect();
+                let next = names
+                    .iter()
+                    .position(|candidate| candidate == &name)
+                    .and_then(|index| names.get((index + 1) % names.len()))
+                    .cloned();
+                self.focus(next);
+            }
+            goya_wayland::KeySpecial::ArrowLeft
+            | goya_wayland::KeySpecial::ArrowRight
+            | goya_wayland::KeySpecial::Home
+            | goya_wayland::KeySpecial::End
+            | goya_wayland::KeySpecial::Delete => {
+                self.preedit = None;
+                if let Some(buffer) = self.buffers.get_mut(&name) {
+                    match key {
+                        goya_wayland::KeySpecial::ArrowLeft => buffer.move_left(false),
+                        goya_wayland::KeySpecial::ArrowRight => buffer.move_right(false),
+                        goya_wayland::KeySpecial::Home => buffer.move_home(false),
+                        goya_wayland::KeySpecial::End => buffer.move_end(false),
+                        goya_wayland::KeySpecial::Delete => buffer.delete_forward(),
+                        _ => unreachable!(),
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn delete_surrounding(&mut self, before_bytes: u32, after_bytes: u32) {
+        self.preedit = None;
+        if let Some(buffer) = self.focused.as_ref().and_then(|name| self.buffers.get_mut(name)) {
+            buffer.delete_surrounding(before_bytes, after_bytes);
+        }
+    }
+
+    fn commit(&mut self, text: &str) {
+        self.preedit = None;
+        if let Some(buffer) = self.focused.as_ref().and_then(|name| self.buffers.get_mut(name)) {
+            buffer.insert(text);
+        }
+    }
+
+    fn apply_to_nodes(&self, nodes: &mut [DrawNode]) {
+        for node in nodes.iter_mut().filter(|node| node.is_input) {
+            let placeholder = node.text.clone().unwrap_or_default();
+            let Some(buffer) = self.buffers.get(&node.name) else {
+                continue;
+            };
+            let focused = self.focused.as_deref() == Some(node.name.as_str());
+            if buffer.text().is_empty() && self.preedit.is_none() {
+                node.text = Some(if focused {
+                    format!("│{placeholder}")
+                } else {
+                    placeholder
+                });
+                continue;
+            }
+            let text = buffer.text();
+            let cursor = buffer.cursor_byte().min(text.len());
+            let mut value = String::new();
+            value.push_str(&text[..cursor]);
+            if let Some((preedit, cursor_begin, _)) = &self.preedit {
+                if focused && *cursor_begin >= 0 {
+                    let mut offset = (*cursor_begin as usize).min(preedit.len());
+                    while !preedit.is_char_boundary(offset) {
+                        offset -= 1;
+                    }
+                    value.push_str(&preedit[..offset]);
+                    value.push('│');
+                    value.push_str(&preedit[offset..]);
+                } else {
+                    value.push_str(preedit);
+                }
+            } else if focused {
+                value.push('│');
+            }
+            value.push_str(&text[cursor..]);
+            node.text = Some(value);
+        }
+    }
+
+    fn update_text_input(&self, window: &mut goya_wayland::GoyaWindow, nodes: &[DrawNode]) {
+        let Some(name) = self.focused.as_deref() else {
+            window.set_text_input_state(false, "", 0, 0, (0, 0, 0, 0));
+            return;
+        };
+        let Some(buffer) = self.buffers.get(name) else {
+            window.set_text_input_state(false, "", 0, 0, (0, 0, 0, 0));
+            return;
+        };
+        let Some(node) = nodes.iter().find(|node| node.name == name) else {
+            window.set_text_input_state(false, "", 0, 0, (0, 0, 0, 0));
+            return;
+        };
+        let font_px = node
+            .text_size
+            .filter(|size| size.is_finite() && *size > 0.0)
+            .map(|size| size * 4.0)
+            .unwrap_or(21.0);
+        let advance = font_px * 0.6;
+        let cursor_x = (node.rect.x / goya_wayland::MP_PER_PX) as f64
+            + 2.0
+            + buffer.cursor_grapheme() as f64 * advance;
+        let right = ((node.rect.x + node.rect.width) / goya_wayland::MP_PER_PX - 1) as f64;
+        let x = cursor_x.clamp((node.rect.x / goya_wayland::MP_PER_PX) as f64, right.max(0.0)) as i32;
+        let y = (node.rect.y / goya_wayland::MP_PER_PX) as i32 + 2;
+        let height = (font_px * 1.4)
+            .round()
+            .clamp(1.0, node.rect.height as f64 / goya_wayland::MP_PER_PX as f64) as i32;
+        window.set_text_input_state(
+            true,
+            buffer.text(),
+            buffer.cursor_byte().min(u32::MAX as usize) as u32,
+            buffer.anchor_byte().min(u32::MAX as usize) as u32,
+            (x, y, 1, height),
+        );
+    }
+}
+
 /// Convert a scene draw node into the renderer's primitive vocabulary.
 fn present_node(n: &DrawNode) -> Primitive {
     let rect = goya_layout::Rect {
