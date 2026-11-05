@@ -259,8 +259,23 @@ fn feed_key(composer: &mut Composer, ev: &goya_wayland::PlatformEvent) -> Option
             composer.set_preedit(text.as_deref());
             None
         }
+        goya_wayland::PlatformEvent::PreeditWithCursor {
+            text,
+            cursor_begin,
+            cursor_end,
+        } => {
+            composer.set_preedit_with_cursor(text.as_deref(), *cursor_begin, *cursor_end);
+            None
+        }
         goya_wayland::PlatformEvent::CommitText(text) => {
             composer.commit_text(text);
+            None
+        }
+        goya_wayland::PlatformEvent::DeleteSurroundingText {
+            before_bytes,
+            after_bytes,
+        } => {
+            composer.delete_surrounding(*before_bytes, *after_bytes);
             None
         }
         _ => None,
@@ -774,7 +789,9 @@ fn run_live(args: &Args, store: &mut SceneStore, last_mtime: &mut Option<SystemT
                     dirty |= scroll_pointer_history(&handle, lines, composer.focused);
                 }
                 goya_wayland::PlatformEvent::Preedit(_)
-                | goya_wayland::PlatformEvent::CommitText(_) => {
+                | goya_wayland::PlatformEvent::PreeditWithCursor { .. }
+                | goya_wayland::PlatformEvent::CommitText(_)
+                | goya_wayland::PlatformEvent::DeleteSurroundingText { .. } => {
                     if composer.focused {
                         feed_key(&mut composer, &ev);
                     }
