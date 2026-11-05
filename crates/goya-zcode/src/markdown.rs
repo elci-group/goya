@@ -21,7 +21,6 @@ use crate::view::wrap_line;
 pub fn render_markdown(text: &str, width: usize) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     let mut in_code = false;
-    let mut code_lang: Option<String> = None;
 
     for raw in text.lines() {
         let line = raw.trim_end();
@@ -29,12 +28,11 @@ pub fn render_markdown(text: &str, width: usize) -> Vec<String> {
             if in_code {
                 // Closing fence: dropped, exit code mode.
                 in_code = false;
-                code_lang = None;
             } else {
                 in_code = true;
-                code_lang = Some(rest.trim().to_string());
-                if !code_lang.as_deref().is_none_or(str::is_empty) {
-                    out.push(format!("| lang: {}", code_lang.unwrap()));
+                let lang = rest.trim();
+                if !lang.is_empty() {
+                    out.push(format!("| lang: {lang}"));
                 }
             }
             continue;
