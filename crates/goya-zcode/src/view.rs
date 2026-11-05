@@ -4,6 +4,7 @@
 //! snapshots. All reduction logic is pure and unit-tested here.
 
 use std::collections::VecDeque;
+use goya_runtime::ScrollState;
 
 /// Transcript tail capacity (matches `row_00`..`row_13` in the scene).
 pub const TAIL_LINES: usize = 14;
@@ -54,7 +55,7 @@ pub struct SessionView {
     pub history: Vec<String>,
     /// Lines back from the newest committed line; `0` = live/bottom.
     /// New events never hijack the scroll position (see `apply`).
-    pub scroll: usize,
+    scroll: ScrollState,
     /// In-flight assistant streaming buffer, flushed to `tail` in chunks.
     pub streaming: String,
 }
@@ -68,7 +69,7 @@ impl Default for SessionView {
             status: String::from("connecting"),
             tail: VecDeque::new(),
             history: Vec::new(),
-            scroll: 0,
+            scroll: ScrollState::default(),
             streaming: String::new(),
         }
     }
@@ -94,23 +95,38 @@ impl SessionView {
             let drop = self.history.len() - HISTORY_CAP;
             self.history.drain(0..drop);
         }
+        self.update_scroll_geometry();
     }
 
     /// Scroll back `n` lines (PageUp); clamped so the topmost view still
     /// shows a full `TAIL_LINES` window (short histories cannot scroll).
     pub fn scroll_up(&mut self, n: usize) {
-        let max = self.history.len().saturating_sub(TAIL_LINES);
-        self.scroll = (self.scroll + n).min(max);
+        self.scroll.scroll_by(0.0, -(n as f64));
     }
 
     /// Scroll forward `n` lines (PageDown); `0` is live/bottom.
     pub fn scroll_down(&mut self, n: usize) {
-        self.scroll = self.scroll.saturating_sub(n);
+        self.scroll.scroll_by(0.0, n as f64);
     }
 
     /// Jump back to the live bottom.
     pub fn scroll_to_bottom(&mut self) {
-        self.scroll = 0;
+        let (_, max) = self.scroll.max_offset();
+        self.scroll.scroll_to(0.0, max);
+    }
+
+    /// Lines back from the newest committed line; zero means the live bottom.
+    pub fn scroll_from_bottom(&self) -> usize {
+        let (_, max) = self.scroll.max_offset();
+        let (_, offset) = self.scroll.offset();
+        (max - offset).round().max(0.0) as usize
+    }
+
+    fn update_scroll_geometry(&mut self) {
+        let from_bottom = self.scroll_from_bottom();
+        let max = self.history.len().saturating_sub(TAIL_LINES);
+        self.scroll.set_geometry(1.0, self.history.len() as f64, 1.0, TAIL_LINES as f64);
+        self.scroll.scroll_to(0.0, max.saturating_sub(from_bottom) as f64);
     }
 
     /// Flush the streaming buffer into the tail.
@@ -170,7 +186,8 @@ impl SessionView {
     /// when scrolled back it is the `TAIL_LINES` window ending at
     /// `history.len() - scroll` (clamped to the available lines).
     pub fn rows(&self) -> Vec<String> {
-        let mut rows: Vec<String> = if self.scroll == 0 {
+        let scroll = self.scroll_from_bottom();
+        let mut rows: Vec<String> = if scroll == 0 {
             self.tail
                 .iter()
                 .map(|l| truncate_chars(l, LINE_WIDTH))
@@ -178,7 +195,7 @@ impl SessionView {
         } else {
             // Window ends at `len - scroll` (clamped so it never goes
             // past the oldest retained line).
-            let end = self.history.len().saturating_sub(self.scroll);
+            let end = self.history.len().saturating_sub(scroll);
             let start = end.saturating_sub(TAIL_LINES);
             self.history[start..end]
                 .iter()
@@ -187,7 +204,7 @@ impl SessionView {
         };
         // Live streaming preview on the last line while a turn runs
         // (only at the bottom — never while scrolled back).
-        if !self.streaming.is_empty() && self.scroll == 0 && rows.len() < TAIL_LINES {
+        if !self.streaming.is_empty() && scroll == 0 && rows.len() < TAIL_LINES {
             let preview = self
                 .streaming
                 .chars()
