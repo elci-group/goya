@@ -974,6 +974,40 @@ mod tests {
     }
 
     #[test]
+    fn input_render_tracks_focused_caret_and_ime_preedit_caret() {
+        let module = parse("input 1 Search\nroot 1").unwrap();
+        let mut rt = Runtime::new(
+            module,
+            Store::new(),
+            Constraints {
+                max_width: 400_000,
+                max_height: 300_000,
+            },
+        );
+        assert!(rt.focus_input(Some(NodeId(1))));
+        assert!(rt.handle(Event::SetInputValue(NodeId(1), "日a".into())));
+        assert!(rt.handle(Event::TextMoveHome { extend: false }));
+        assert!(matches!(
+            rt.render_list().last(),
+            Some(Primitive::Text(_, value)) if value == "│日a"
+        ));
+        assert!(rt.handle(Event::ImeBatch {
+            preedit: Some(("かな".into(), 3, 6)),
+            commit: None,
+            delete: None,
+        }));
+        assert!(matches!(
+            rt.render_list().last(),
+            Some(Primitive::Text(_, value)) if value == "か│な日a"
+        ));
+        assert!(rt.focus_input(None));
+        assert!(matches!(
+            rt.render_list().last(),
+            Some(Primitive::Text(_, value)) if value == "Search"
+        ));
+    }
+
+    #[test]
     fn level2_is_off_until_explicit_consent_and_revision_bound() {
         let mut rt = runtime_with_two_actions();
         assert!(!rt.level2.is_enabled());
