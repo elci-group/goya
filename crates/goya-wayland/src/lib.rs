@@ -260,6 +260,7 @@ struct GoyaWindowInner {
     xkb_state: Option<xkbcommon::xkb::State>,
     text_input_manager: Option<ZwpTextInputManagerV3>,
     text_input: Option<ZwpTextInputV3>,
+    text_input_enabled: bool,
     ime_preedit: Option<(String, i32, i32)>,
     ime_commit: Option<String>,
     ime_delete: Option<(u32, u32)>,
@@ -296,6 +297,7 @@ impl GoyaWindowInner {
             xkb_state: None,
             text_input_manager: None,
             text_input: None,
+            text_input_enabled: false,
             ime_preedit: None,
             ime_commit: None,
             ime_delete: None,
@@ -423,7 +425,9 @@ impl GoyaWindow {
             return false;
         };
         if enabled {
-            input.enable();
+            if !self.state.text_input_enabled {
+                input.enable();
+            }
             let cursor = utf8_byte_offset(surrounding_text, cursor_byte);
             let anchor = utf8_byte_offset(surrounding_text, anchor_byte);
             input.set_surrounding_text(surrounding_text.to_owned(), cursor, anchor);
@@ -437,10 +441,13 @@ impl GoyaWindow {
                 cursor_rect.2.max(0),
                 cursor_rect.3.max(0),
             );
-        } else {
+        } else if self.state.text_input_enabled {
             input.disable();
+        } else {
+            return true;
         }
         input.commit();
+        self.state.text_input_enabled = enabled;
         true
     }
 
