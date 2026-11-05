@@ -1254,26 +1254,26 @@ impl Dispatch<WlSeat, ()> for GoyaWindowInner {
 /// US QWERTY evdev keycode → printable char, honouring shift.
 /// Subset contract: printable ASCII only; unlisted keys yield None.
 fn key_char(keycode: u32, shift: bool) -> Option<char> {
-    let letter = |base: u8, off: u32| -> char {
-        let c = (base + off as u8) as char;
+    let shifted = |mut c: char| {
         if shift {
-            c.to_ascii_uppercase()
-        } else {
-            c
+            c = c.to_ascii_uppercase();
         }
+        c
     };
     // evdev US QWERTY keycodes.
     let c = match keycode {
-        16..=25 => return Some(letter(b'q', keycode - 16)), // q..p
-        30..=38 => return Some(letter(b'a', keycode - 30)), // a..l
+        16..=25 => {
+            let row = ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'];
+            return Some(shifted(row[(keycode - 16) as usize]));
+        }
+        30..=38 => {
+            let row = ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l'];
+            return Some(shifted(row[(keycode - 30) as usize]));
+        }
         44..=50 => {
             // z x c v b n m — not ASCII-contiguous; explicit table.
             let row = ['z', 'x', 'c', 'v', 'b', 'n', 'm'];
-            let mut c = row[(keycode - 44) as usize];
-            if shift {
-                c = c.to_ascii_uppercase();
-            }
-            return Some(c);
+            return Some(shifted(row[(keycode - 44) as usize]));
         }
         2 => {
             if shift {
@@ -1891,8 +1891,12 @@ mod key_tests {
     #[test]
     fn us_layout_spot_checks() {
         assert_eq!(key_char(30, false), Some('a'));
+        assert_eq!(key_char(31, false), Some('s'));
+        assert_eq!(key_char(36, false), Some('j'));
         assert_eq!(key_char(30, true), Some('A'));
         assert_eq!(key_char(16, false), Some('q'));
+        assert_eq!(key_char(17, false), Some('w'));
+        assert_eq!(key_char(18, false), Some('e'));
         assert_eq!(key_char(44, false), Some('z'));
         assert_eq!(key_char(50, false), Some('m'));
         assert_eq!(key_char(39, false), Some(';'));
