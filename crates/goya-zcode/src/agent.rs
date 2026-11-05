@@ -236,7 +236,6 @@ impl AgentRun {
                 }
             }
         }
-        let reader_done = reader_done;
         self.set_view(|v| v.status = "subscribed".to_string());
 
         // Hold the connection open until stop or child exit.
