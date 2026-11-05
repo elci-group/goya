@@ -538,3 +538,47 @@ pub fn spawn_agent(cli: &str, workspace: &Path, session: Option<String>) -> Moni
     });
     handle
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn admit_send_allows_one_and_drops_the_rest() {
+        let mut pending = false;
+        assert!(admit_send(&mut pending));
+        assert!(pending);
+        assert!(!admit_send(&mut pending), "second send while pending drops");
+        pending = false;
+        assert!(admit_send(&mut pending));
+    }
+
+    #[test]
+    fn command_queue_round_trips_and_survives_clone() {
+        let handle = MonitorHandle::new();
+        let clone = handle.clone();
+        clone.send_text("hello".to_string(), true);
+        assert_eq!(
+            handle.try_take_cmd(),
+            Some(AgentCmd::SendText {
+                line: "hello".to_string(),
+                wire: true
+            })
+        );
+        // Queue drained.
+        assert_eq!(handle.try_take_cmd(), None);
+    }
+
+    #[test]
+    fn command_queue_carries_wire_gate() {
+        let handle = MonitorHandle::new();
+        handle.send_text("nope".to_string(), false);
+        assert_eq!(
+            handle.try_take_cmd(),
+            Some(AgentCmd::SendText {
+                line: "nope".to_string(),
+                wire: false
+            })
+        );
+    }
+}
