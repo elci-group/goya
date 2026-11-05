@@ -1359,6 +1359,20 @@ fn key_char(keycode: u32, shift: bool) -> Option<char> {
                 '='
             }
         }
+        26 => {
+            if shift {
+                '{'
+            } else {
+                '['
+            }
+        }
+        27 => {
+            if shift {
+                '}'
+            } else {
+                ']'
+            }
+        }
         14 => '\u{8}', // backspace
         28 => '\n',    // enter
         39 => {
