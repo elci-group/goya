@@ -515,6 +515,43 @@ fn headless_acceptance(store: &SceneStore) {
     );
     ok &= wheel_ok;
 
+    // Markdown block contract (GY-ZCODE-004): heading + code + bullet
+    // sample routes through the view's markdown mode.
+    let mut md_view = SessionView::default();
+    md_view.push_markdown("# report\n\n```rust\nlet a = 1;\n```\n\n- bullet one");
+    let md_rows: Vec<String> = md_view
+        .history
+        .iter()
+        .take(6)
+        .cloned()
+        .collect();
+    let md_ok = md_rows.contains(&"■ REPORT".to_string())
+        && md_rows.contains(&"| lang: rust".to_string())
+        && md_rows.contains(&"|   let a = 1;".to_string())
+        && md_rows.contains(&"• bullet one".to_string());
+    println!("markdown heading/code/bullet blocks [{}]", pass_str(md_ok));
+    ok &= md_ok;
+
+    // Clipboard ring contract (GY-ZCODE-004): wire-free round-trip.
+    let clip_policy = AllowAllPolicy;
+    let clip = MonitorClipboard::new(&clip_policy);
+    let user = PrincipalId(1);
+    let clip_ok = clip.copy_line(user, "first line")
+        && clip.copy_line(user, "second line")
+        && clip.paste_text().as_deref() == Some("second line");
+    println!("clipboard copy/paste round-trip [{}]", pass_str(clip_ok));
+    ok &= clip_ok;
+
+    // Palette mapping contract (GY-ZCODE-004): pure, no display needed.
+    let palette = monitor_palette();
+    let pal_ok = node_fill_override("title", &palette) == Some(0x1e1e28)
+        && node_fill_override("row_00", &palette).is_none()
+        && status_fill_override("subscribed", &palette) == Some(u32::from_be_bytes([0, palette.ok[0], palette.ok[1], palette.ok[2]]) & 0xffffff | 0)
+        && status_fill_override("down: x", &palette) == Some(rgb_u32_bin(palette.err))
+        && status_fill_override("running", &palette) == Some(rgb_u32_bin(palette.accent));
+    println!("palette node/status fill mapping [{}]", pass_str(pal_ok));
+    ok &= pal_ok;
+
     if !ok {
         std::process::exit(1);
     }
