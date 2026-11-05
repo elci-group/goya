@@ -236,9 +236,26 @@ fn main() {
                         }
                     }
                 }
-                goya_wayland::PlatformEvent::KeyChar(c) => {
-                    println!("goya-scene: key '{c}'");
+                goya_wayland::PlatformEvent::KeyChar(c) => inputs.handle_character(c),
+                goya_wayland::PlatformEvent::KeySpecial(key) => {
+                    inputs.handle_special(key, &event_frame);
                 }
+                goya_wayland::PlatformEvent::Preedit(preedit) => {
+                    inputs.preedit = preedit.map(|text| {
+                        let end = text.len().min(i32::MAX as usize) as i32;
+                        (text, 0, end)
+                    });
+                }
+                goya_wayland::PlatformEvent::PreeditWithCursor {
+                    text,
+                    cursor_begin,
+                    cursor_end,
+                } => inputs.preedit = text.map(|text| (text, cursor_begin, cursor_end)),
+                goya_wayland::PlatformEvent::DeleteSurroundingText {
+                    before_bytes,
+                    after_bytes,
+                } => inputs.delete_surrounding(before_bytes, after_bytes),
+                goya_wayland::PlatformEvent::CommitText(text) => inputs.commit(&text),
                 goya_wayland::PlatformEvent::Resized(w, h) => {
                     println!("goya-scene: resized to {w}x{h} — relayout on next frame");
                 }
@@ -246,7 +263,10 @@ fn main() {
             }
         }
         let frame = layout(store.get(), 400.0, 150.0);
-        let nodes = frame.scrolled_nodes(&scroll_offsets);
+        let mut nodes = frame.scrolled_nodes(&scroll_offsets);
+        inputs.sync_nodes(&frame);
+        inputs.apply_to_nodes(&mut nodes);
+        inputs.update_text_input(&mut win, &nodes);
         let prims: Vec<Primitive> = nodes.iter().map(present_node).collect();
         let clips: Vec<Option<goya_layout::Rect>> = nodes
             .iter()
