@@ -357,7 +357,6 @@ fn headless_acceptance(store: &SceneStore) {
     let busy_ok = !admit_send(&mut pending) && pending;
     // 3) Gate off: the command still flows but carries wire=false and the
     //    view gets the disabled hint — no session/send is ever issued.
-    let mut view = SessionView::default();
     let gate_handle = agent::MonitorHandle::new();
     send_committed_line(&gate_handle, "blocked line", false);
     let gate_cmd = gate_handle.try_take_cmd();
@@ -366,10 +365,12 @@ fn headless_acceptance(store: &SceneStore) {
             line: "blocked line".to_string(),
             wire: false,
         })
-        && view.status != "send disabled — pass --allow-send"; // untouched view
-    view.status = "send disabled — pass --allow-send".to_string();
-    let hint_ok = view.status.contains("--allow-send");
-    let send_ok = admit_ok && busy_ok && gate_ok && hint_ok;
+        && gate_handle
+            .view
+            .lock()
+            .map(|v| v.status.contains("--allow-send"))
+            .unwrap_or(false);
+    let send_ok = admit_ok && busy_ok && gate_ok;
     println!(
         "send queue admission/busy-drop/gate [{}]",
         pass_str(send_ok)
