@@ -463,14 +463,29 @@ fn run_live(args: &Args, store: &mut SceneStore, last_mtime: &mut Option<SystemT
                 }
                 goya_wayland::PlatformEvent::KeyChar(_)
                 | goya_wayland::PlatformEvent::KeySpecial(_) => {
-                    if let Some(line) = feed_key(&mut composer, &ev) {
-                        if let Ok(mut view) = handle.view.lock() {
-                            view.push_line(&format!("[local] {line}"));
+                    if composer.focused {
+                        // Composer owns the keys: type, and Enter commits.
+                        if let Some(line) = feed_key(&mut composer, &ev) {
+                            // GY-ZCODE-003: enqueue for the agent thread;
+                            // no [local] echo — the wire send is the record.
+                            send_committed_line(&handle, &line, args.allow_send);
                         }
+                    } else if let goya_wayland::PlatformEvent::KeySpecial(s) = &ev {
+                        // Unfocused: page keys scroll the transcript,
+                        // arrow keys fall through to the composer arm
+                        // (inert while unfocused).
+                        scroll_history(&handle, key_special_to_action(special_name(*s)));
                     }
                     dirty = true;
                 }
                 goya_wayland::PlatformEvent::Resized(_, _) => dirty = true,
+                // Wave-3 gate point: when goya-wayland lands
+                // `PlatformEvent::PointerScroll(lines)` (REL_WHEEL,
+                // positive = wheel up / scroll up), wire it here:
+                // composer unfocused → lines > 0: view.scroll_up(SCROLL_STEP),
+                // lines < 0: view.scroll_down(SCROLL_STEP). Placeholder
+                // only — matching a not-yet-existing variant would break
+                // the build against the current goya-wayland.
                 _ => {}
             }
         }

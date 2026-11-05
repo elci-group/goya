@@ -14,9 +14,9 @@ use goya_layout::Rect;
 use rustix::fd::OwnedFd;
 use rustix::fs::{ftruncate, memfd_create, MemfdFlags};
 use rustix::mm::{mmap, munmap, MapFlags, ProtFlags};
-use std::os::fd::AsFd;
 use std::fs::File;
 use std::io::Read;
+use std::os::fd::AsFd;
 use wayland_client::protocol::{
     wl_buffer::WlBuffer,
     wl_compositor::WlCompositor,
@@ -1475,11 +1475,7 @@ fn keymap_state_from_fd(
     Some(xkbcommon::xkb::State::new(&keymap))
 }
 
-fn key_chars(
-    xkb_state: Option<&xkbcommon::xkb::State>,
-    keycode: u32,
-    shift: bool,
-) -> Vec<char> {
+fn key_chars(xkb_state: Option<&xkbcommon::xkb::State>, keycode: u32, shift: bool) -> Vec<char> {
     // Preserve the existing public event contract for these control keys,
     // even when a custom keymap assigns a different UTF-8 representation.
     match keycode {
@@ -1491,10 +1487,7 @@ fn key_chars(
         // Wayland key events use evdev keycodes; XKB keycodes include the
         // conventional X11 offset of 8.
         let translated = xkb_state.key_get_utf8(xkbcommon::xkb::Keycode::new(keycode + 8));
-        return translated
-            .chars()
-            .filter(|c| !c.is_control())
-            .collect();
+        return translated.chars().filter(|c| !c.is_control()).collect();
     }
     key_char(keycode, shift)
         .filter(|c| !c.is_control() || matches!(c, '\n' | '\u{8}'))
@@ -1545,14 +1538,7 @@ impl Dispatch<WlKeyboard, ()> for GoyaWindowInner {
             } => {
                 state.shift = mods_depressed & 0x1 != 0; // ShiftMask
                 if let Some(xkb_state) = state.xkb_state.as_mut() {
-                    xkb_state.update_mask(
-                        mods_depressed,
-                        mods_latched,
-                        mods_locked,
-                        0,
-                        0,
-                        group,
-                    );
+                    xkb_state.update_mask(mods_depressed, mods_latched, mods_locked, 0, 0, group);
                 }
             }
             wl_keyboard::Event::Key {
@@ -1855,7 +1841,7 @@ mod raster_tests {
 
 #[cfg(test)]
 mod key_tests {
-    use super::key_char;
+    use super::{key_char, key_chars};
     #[test]
     fn us_layout_spot_checks() {
         assert_eq!(key_char(30, false), Some('a'));
@@ -1878,6 +1864,63 @@ mod key_tests {
         assert_eq!(key_char(14, false), Some('\u{8}'));
         // Tab moved to KeySpecial, so it must NOT emit a char.
         assert_eq!(key_char(15, false), None);
+    }
+
+    #[test]
+    fn built_in_fallback_is_bounded_and_preserves_control_keys() {
+        assert_eq!(key_chars(None, 2, false), vec!['1']);
+        assert_eq!(key_chars(None, 2, true), vec!['!']);
+        assert_eq!(key_chars(None, 28, false), vec!['\n']);
+        assert_eq!(key_chars(None, 14, false), vec!['\u{8}']);
+        assert!(key_chars(None, 999, false).is_empty());
+    }
+
+    fn state_for_layout(layout: &str) -> (xkbcommon::xkb::Keymap, xkbcommon::xkb::State) {
+        use xkbcommon::xkb::{self, Context, Keymap};
+        let context = Context::new(xkb::CONTEXT_NO_FLAGS);
+        let keymap = Keymap::new_from_names(
+            &context,
+            "",
+            "",
+            layout,
+            "",
+            Some(String::new()),
+            xkb::COMPILE_NO_FLAGS,
+        )
+        .unwrap_or_else(|| panic!("installed XKB rules did not provide {layout:?}"));
+        let state = xkb::State::new(&keymap);
+        (keymap, state)
+    }
+
+    #[test]
+    fn xkb_state_honors_shift_and_caps_lock() {
+        use xkbcommon::xkb;
+
+        let (keymap, mut state) = state_for_layout("us");
+        let q = 16;
+        assert_eq!(key_chars(Some(&state), q, false), vec!['q']);
+
+        let shift = keymap.mod_get_index(&"Shift");
+        assert_ne!(shift, xkb::MOD_INVALID);
+        state.update_mask(1 << shift, 0, 0, 0, 0, 0);
+        assert_eq!(key_chars(Some(&state), q, false), vec!['Q']);
+
+        let lock = keymap.mod_get_index(&"Lock");
+        assert_ne!(lock, xkb::MOD_INVALID);
+        state.update_mask(0, 0, 1 << lock, 0, 0, 0);
+        assert_eq!(key_chars(Some(&state), q, false), vec!['Q']);
+    }
+
+    #[test]
+    fn xkb_state_honors_german_altgr_mapping() {
+        use xkbcommon::xkb;
+
+        let (keymap, mut state) = state_for_layout("de");
+        let mod5 = keymap.mod_get_index(&"Mod5");
+        assert_ne!(mod5, xkb::MOD_INVALID);
+        state.update_mask(1 << mod5, 0, 0, 0, 0, 0);
+        // German AltGr+Q emits @; evdev KEY_Q is 16.
+        assert_eq!(key_chars(Some(&state), 16, false), vec!['@']);
     }
 }
 
