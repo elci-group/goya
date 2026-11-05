@@ -57,6 +57,7 @@ pub fn parse(source: &str) -> Result<Scene, ParseError> {
         && root.text_size.is_none()
         && root.anchor.is_none()
         && root.wrap.is_none()
+        && !root.scroll
         && !root.is_input
     {
         root = root.children.remove(0);
@@ -144,6 +145,7 @@ impl P {
             text_size: None,
             anchor: None,
             wrap: None,
+            scroll: false,
             children: Vec::new(),
         };
         loop {
@@ -453,6 +455,14 @@ impl P {
                     return Err(ParseError { line: self.line() });
                 }
                 cell.wrap = Some(value as u32);
+            }
+            "scroll" => {
+                let value = self.expect_ident()?;
+                cell.scroll = match value.as_str() {
+                    "true" => true,
+                    "false" => false,
+                    _ => return Err(ParseError { line: self.line() }),
+                };
             }
             "text-anchor" | "text_anchor" => {
                 let name = self.expect_ident()?;

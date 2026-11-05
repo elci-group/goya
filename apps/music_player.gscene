@@ -1,0 +1,80 @@
+// ============================================================
+// music_player.gscene — MUSIC PLAYER exemplar application.
+//
+// GY-LANG/1 RUGID-style scene syntax. Extent is in POINTS and
+// the host window is extent * 4 px, so (100, 140) → 400 x 560.
+//
+// Run it:
+//   cargo run --bin music_player -- --live [--sound]
+// Headless acceptance (state-machine checks) runs without flags.
+//
+// All on-screen text is lowercase and glyph-safe for the demo
+// font (letters a c d e g h i l m n o r t u v y + s, digits,
+// + - / * % . , = ! space). The host overrides the labels and
+// the play/pause button text every frame.
+// ============================================================
+
+@ontology music_player {
+
+    @cell window {
+        position: (0, 0, 0)
+        extent: (100, 140, 0)
+        fill: #14141c
+
+        // ---- Title --------------------------------------------
+        @cell title {
+            position_p: (0.5, 0.08, 0)
+            text: "music"
+            text-size: 12
+            fill: #e8e8f0
+            text-anchor: middle
+        }
+
+        // ---- Display panel: track title + progress bar --------
+        @cell display {
+            position: (5, 18, 0)
+            extent: (90, 34, 0)
+            fill: #23232e
+            stroke: #444444
+            stroke-width: 2
+
+            @cell track_label {
+                // Overridden by the host with the track title.
+                position_p: (0.5, 0.32, 0)
+                text: "nocturne one"
+                text-size: 10
+                fill: #00ff88
+                text-anchor: middle
+            }
+
+            @cell progress_label {
+                // Overridden by the host with the ASCII bar:
+                // 20 chars, 'x' filled + '.' padding.
+                position_p: (0.5, 0.74, 0)
+                text: "...................."
+                text-size: 10
+                fill: #88ccff
+                text-anchor: middle
+            }
+        }
+
+        // ---- Volume readout ------------------------------------
+        @cell vol_label {
+            // Overridden by the host: "vol 0" .. "vol 100".
+            position_p: (0.5, 0.66, 0)
+            text: "vol 50"
+            text-size: 10
+            fill: #cccccc
+            text-anchor: middle
+        }
+
+        // ---- Transport row: prev, play/pause, next -------------
+        @button btn_prev { position: (5, 76, 0);  extent: (28, 20, 0); text: "prev"; fill: #555555 }
+        @button btn_play { position: (36, 76, 0); extent: (28, 20, 0); text: "play"; fill: #00cc66 }
+        @button btn_next { position: (67, 76, 0); extent: (28, 20, 0); text: "next"; fill: #555555 }
+
+        // ---- Volume row: vol-, vol+ -----------------------------
+        @button btn_vol_down { position: (25, 102, 0); extent: (22, 20, 0); text: "vol-"; fill: #888888 }
+        @button btn_vol_up   { position: (52, 102, 0); extent: (22, 20, 0); text: "vol+"; fill: #888888 }
+    }
+}

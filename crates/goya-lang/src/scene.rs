@@ -54,6 +54,8 @@ pub struct SceneCell {
     /// `wrap: <positive integer columns>` — greedy word-wrap width applied
     /// at layout time. Absent = no wrap.
     pub wrap: Option<u32>,
+    /// Enable a clipped, user-scrollable text viewport in interactive previews.
+    pub scroll: bool,
     pub children: Vec<SceneCell>,
 }
 
@@ -181,6 +183,8 @@ pub struct DrawNode {
     pub text: Option<String>,
     pub text_size: Option<f64>,
     pub anchor: Anchor,
+    /// Whether the node's text viewport accepts scrolling.
+    pub scroll: bool,
 }
 
 /// Layout output: draw order is depth-first (parents before children).
@@ -238,6 +242,7 @@ fn resolve_cell(cell: &SceneCell, parent: RectMp, frame: &mut Frame) {
         text,
         text_size: cell.text_size,
         anchor: cell.anchor.unwrap_or(Anchor::Start),
+        scroll: cell.scroll,
     });
     for child in &cell.children {
         resolve_cell(child, rect, frame);
