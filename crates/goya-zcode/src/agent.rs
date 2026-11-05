@@ -70,6 +70,14 @@ struct AgentRun {
     pending: PendingMap,
 }
 
+impl Drop for AgentRun {
+    fn drop(&mut self) {
+        // Every early return (including protocol errors) must reap app-server.
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
 impl AgentRun {
     fn spawn(cli: &str, workspace: &Path, handle: MonitorHandle) -> Result<Self, String> {
         let child = Command::new(cli)
@@ -151,6 +159,9 @@ impl AgentRun {
         let reader_view = Arc::clone(&self.handle.view);
         let reader_dirty = Arc::clone(&self.handle.dirty);
         let reader_stop = Arc::clone(&self.handle.stop);
+        let reader_done = Arc::new(AtomicBool::new(false));
+        let thread_done = Arc::clone(&reader_done);
+        let session_id = session.clone();
         std::thread::spawn(move || {
             read_frames(
                 BufReader::new(stdout),
@@ -158,7 +169,9 @@ impl AgentRun {
                 reader_view,
                 reader_dirty,
                 reader_stop,
+                session_id,
             );
+            thread_done.store(true, Ordering::Release);
         });
 
         // Local workspace identity rule: workspaceKey = trimmed path.
@@ -167,8 +180,6 @@ impl AgentRun {
             "workspacePath": ws_path,
             "workspaceKey": ws_path.trim().to_string(),
         });
-        self.set_view(|v| v.link = LinkState::Up);
-
         let list = self
             .request(
                 &mut stdin,
@@ -176,6 +187,7 @@ impl AgentRun {
                 json!({ "workspace": workspace_ref }),
             )
             .map_err(|e| format!("session/list failed: {e}"))?;
+        self.set_view(|v| v.link = LinkState::Up);
         let entries = parse_sessions(&list);
         if entries.is_empty() {
             self.set_view(|v| {
@@ -184,8 +196,8 @@ impl AgentRun {
             });
             return Ok(());
         }
-        let target = match session {
-            Some(id) => entries.iter().find(|e| e.session_id == id).cloned(),
+        let target = match session.as_ref() {
+            Some(id) => entries.iter().find(|e| &e.session_id == id).cloned(),
             None => entries.first().cloned(),
         };
         let Some(target) = target else {
@@ -199,7 +211,7 @@ impl AgentRun {
         });
 
         // subscribe; live events now flow through the reader thread.
-        self.request(
+        let subscribed = self.request(
             &mut stdin,
             "session/subscribe",
             json!({
@@ -208,10 +220,26 @@ impl AgentRun {
             }),
         )
         .map_err(|e| format!("session/subscribe failed: {e}"))?;
+        if let Some(events) = subscribed.get("events").and_then(Value::as_array) {
+            for envelope in events {
+                if envelope.get("sessionId").and_then(Value::as_str)
+                    == Some(target.session_id.as_str())
+                {
+                    if let Some(event) = map_event(envelope) {
+                        self.set_view(|v| v.apply(&event));
+                    }
+                }
+            }
+        }
+        let reader_done = reader_done;
         self.set_view(|v| v.status = "subscribed".to_string());
 
         // Hold the connection open until stop or child exit.
         while !self.handle.stop.load(Ordering::Relaxed) {
+            if reader_done.load(Ordering::Acquire) {
+                self.set_view(|v| v.link = LinkState::Down("app-server stdout closed".into()));
+                return Err("app-server stdout closed".to_string());
+            }
             match self.child.try_wait() {
                 Ok(Some(_)) => {
                     self.set_view(|v| v.link = LinkState::Down("app-server exited".into()));
@@ -236,6 +264,7 @@ fn read_frames(
     view: Arc<Mutex<SessionView>>,
     dirty: Arc<AtomicBool>,
     stop: Arc<AtomicBool>,
+    session_id: Option<String>,
 ) {
     for line in reader.lines() {
         if stop.load(Ordering::Relaxed) {
@@ -269,7 +298,11 @@ fn read_frames(
             continue;
         }
         if msg.get("method").and_then(Value::as_str) == Some("session/event") {
-            if let Some(event) = map_event(msg.get("params").unwrap_or(&Value::Null)) {
+            let envelope = msg.get("params").unwrap_or(&Value::Null);
+            let matches_session = session_id.as_deref().is_none_or(|id| {
+                envelope.get("sessionId").and_then(Value::as_str) == Some(id)
+            });
+            if matches_session && let Some(event) = map_event(envelope) {
                 if let Ok(mut v) = view.lock() {
                     v.apply(&event);
                 }
