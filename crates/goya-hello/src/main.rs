@@ -229,7 +229,9 @@ fn run_live() -> Result<(), String> {
                         Some(HitTarget::Input(id)) => {
                             rt.focus_input(Some(id));
                         }
-                        None => rt.focus_input(None),
+                        None => {
+                            rt.focus_input(None);
+                        }
                     }
                 }
                 event => apply_text_event(&mut rt, event),
