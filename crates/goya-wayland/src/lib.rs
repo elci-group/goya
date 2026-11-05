@@ -3341,6 +3341,7 @@ mod multiline_tests {
             [255, 255, 255],
             1,
             None,
+            None,
         );
         assert!(
             buf.iter().any(|pixel| *pixel != bg),

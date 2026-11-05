@@ -792,10 +792,16 @@ impl Runtime {
                     let value = if state.buffer.text().is_empty() && state.preedit.is_none() {
                         placeholder.clone()
                     } else {
-                        let mut value = state.buffer.text().to_owned();
+                        let text = state.buffer.text();
+                        let cursor = state.buffer.cursor_byte().min(text.len());
+                        let mut value = String::with_capacity(
+                            text.len() + state.preedit.as_ref().map_or(0, |p| p.0.len()),
+                        );
+                        value.push_str(&text[..cursor]);
                         if let Some((preedit, _, _)) = &state.preedit {
                             value.push_str(preedit);
                         }
+                        value.push_str(&text[cursor..]);
                         value
                     };
                     out.push(Primitive::Text(rect, value));
@@ -912,6 +918,23 @@ mod tests {
             delete: None,
         }));
         assert_eq!(rt.input_text(NodeId(2)), Some("日"));
+        assert!(rt.handle(Event::TextMoveHome { extend: false }));
+        assert!(rt.handle(Event::ImeBatch {
+            preedit: Some(("に".into(), 0, 0)),
+            commit: None,
+            delete: None,
+        }));
+        assert_eq!(rt.input_text(NodeId(2)), Some("日"));
+        assert!(matches!(
+            rt.render_list().last(),
+            Some(Primitive::Text(_, value)) if value == "に日"
+        ));
+        assert!(rt.handle(Event::ImeBatch {
+            preedit: None,
+            commit: Some("日本".into()),
+            delete: None,
+        }));
+        assert_eq!(rt.input_text(NodeId(2)), Some("日本日"));
         assert!(rt.handle(Event::SetInputValue(NodeId(2), "screen reader".into())));
         assert_eq!(rt.input_text(NodeId(2)), Some("screen reader"));
         assert_eq!(rt.input_cursor_byte(NodeId(2)), Some("screen reader".len()));

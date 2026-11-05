@@ -7,7 +7,7 @@
 //! `position_p`/`extent_p` (proportional). Buttons are interactive: clicks
 //! print their name. Without `--live`, programmatic checks run headless.
 
-use goya_lang::{hit_test, layout, Anchor, DrawNode};
+use goya_lang::{hit_test_scrolled, layout, Anchor, DrawNode, RectMp, ScrollOffsets};
 use goya_runtime::Primitive;
 
 const DEFAULT_SCENE: &str = "\
@@ -129,7 +129,7 @@ fn main() {
             "proportional centring of status cell [{}]",
             if ok { "PASS" } else { "FAIL" }
         );
-        let hit = hit_test(&frame, 80_000, 90_000);
+        let hit = hit_test_scrolled(&frame, &ScrollOffsets::default(), 80_000, 90_000);
         println!(
             "hit test on 'Open' button [{}]",
             if hit.as_deref() == Some("open") {
@@ -153,6 +153,8 @@ fn main() {
     };
     let mut frames = 0u32;
     let mut clicked = std::collections::BTreeMap::new();
+    let mut scroll_offsets = ScrollOffsets::default();
+    let mut pointer = None;
     // Interaction state (click counts, keyed by button NAME) survives
     // hot-swaps: the transactional store swaps only the scene, never the
     // application's state. A swap that fails to parse leaves the running
@@ -189,8 +191,9 @@ fn main() {
             match ev {
                 goya_wayland::PlatformEvent::PointerPress(x, y) => {
                     let frame = layout(store.get(), 400.0, 150.0);
-                    if let Some(name) = hit_test(
+                    if let Some(name) = hit_test_scrolled(
                         &frame,
+                        &scroll_offsets,
                         (x as i64) * goya_wayland::MP_PER_PX,
                         (y as i64) * goya_wayland::MP_PER_PX,
                     ) {
@@ -206,6 +209,22 @@ fn main() {
                         }
                     }
                 }
+                goya_wayland::PlatformEvent::PointerMove(x, y) => pointer = Some((x, y)),
+                goya_wayland::PlatformEvent::PointerScroll(lines) => {
+                    if let Some((x, y)) = pointer {
+                        let frame = layout(store.get(), 400.0, 150.0);
+                        let x = (x as i64) * goya_wayland::MP_PER_PX;
+                        let y = (y as i64) * goya_wayland::MP_PER_PX;
+                        if let Some(target) = frame.scroll_target_at(&scroll_offsets, x, y) {
+                            let _ = scroll_offsets.scroll_by(
+                                &frame,
+                                &target,
+                                0,
+                                -i64::from(lines).saturating_mul(40_000),
+                            );
+                        }
+                    }
+                }
                 goya_wayland::PlatformEvent::KeyChar(c) => {
                     println!("goya-scene: key '{c}'");
                 }
@@ -216,8 +235,18 @@ fn main() {
             }
         }
         let frame = layout(store.get(), 400.0, 150.0);
-        let prims: Vec<Primitive> = frame.nodes.iter().map(present_node).collect();
-        let _ = win.present(&prims, &[], [235, 235, 240], [20, 20, 28], 3);
+        let nodes = frame.scrolled_nodes(&scroll_offsets);
+        let prims: Vec<Primitive> = nodes.iter().map(present_node).collect();
+        let clips: Vec<Option<goya_layout::Rect>> = nodes
+            .iter()
+            .map(|node| node.clip.map(|clip: RectMp| goya_layout::Rect {
+                x: clip.x,
+                y: clip.y,
+                width: clip.width,
+                height: clip.height,
+            }))
+            .collect();
+        let _ = win.present_clipped(&prims, &[], &clips, [235, 235, 240], [20, 20, 28], 3);
         win.pump(1);
         // Watch cadence: ~60 fps is pointless for file polling; keep the
         // frame budget long enough to catch edits.
