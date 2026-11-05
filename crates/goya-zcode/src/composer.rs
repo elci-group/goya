@@ -11,6 +11,11 @@
 //! `ArrowUp => "arrow_up"`, `ArrowDown => "arrow_down"`, `Home => "home"`,
 //! `End => "end"`, `Delete => "delete"`, `Escape => "escape"`,
 //! `Tab => "tab"`. Enter stays `'\n'`, Backspace `'\u{8}'` in `KeyChar`.
+//! Wave 5 (GY-ZCODE-005): `PlatformEvent::Preedit(Option<String>)` maps to
+//! [`Composer::set_preedit`] and `PlatformEvent::CommitText(String)` goes
+//! through [`Composer::handle_ime_batch`]'s commit path (insert at the
+//! cursor); the host activates the window text input iff the composer is
+//! focused (`GoyaWindow::set_text_input_active`).
 
 use unicode_segmentation::UnicodeSegmentation;
 
