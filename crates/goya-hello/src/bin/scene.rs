@@ -479,9 +479,10 @@ impl SceneInputs {
         let right = ((node.rect.x + node.rect.width) / goya_wayland::MP_PER_PX - 1) as f64;
         let x = cursor_x.clamp((node.rect.x / goya_wayland::MP_PER_PX) as f64, right.max(0.0)) as i32;
         let y = (node.rect.y / goya_wayland::MP_PER_PX) as i32 + 2;
+        let max_height = (node.rect.height / goya_wayland::MP_PER_PX).max(1) as f64;
         let height = (font_px * 1.4)
             .round()
-            .clamp(1.0, node.rect.height as f64 / goya_wayland::MP_PER_PX as f64) as i32;
+            .clamp(1.0, max_height) as i32;
         window.set_text_input_state(
             true,
             buffer.text(),
@@ -518,4 +519,35 @@ fn present_node(n: &DrawNode) -> Primitive {
 #[allow(unused)]
 fn _anchor_check(a: Anchor) -> bool {
     matches!(a, Anchor::Start | Anchor::Middle | Anchor::End)
+}
+
+#[cfg(test)]
+mod input_tests {
+    use super::*;
+
+    #[test]
+    fn scene_input_routes_unicode_navigation_and_preedit_at_cursor() {
+        let scene = goya_lang::parse(
+            "@ontology demo { @input name { extent: (200, 40, 0) text: \"Search\" } }",
+        )
+        .unwrap();
+        let frame = layout(&scene, 300.0, 100.0);
+        let mut input = SceneInputs::default();
+        input.sync_nodes(&frame);
+        input.focus(Some("name".into()));
+        input.handle_character('日');
+        input.handle_special(goya_wayland::KeySpecial::ArrowLeft, &frame);
+        input.handle_character('é');
+        assert_eq!(input.buffers["name"].text(), "é日");
+
+        input.commit("語");
+        assert_eq!(input.buffers["name"].text(), "é語日");
+        input.delete_surrounding(3, 0);
+        assert_eq!(input.buffers["name"].text(), "é日");
+
+        input.preedit = Some(("かな".into(), 3, 6));
+        let mut nodes = frame.nodes.clone();
+        input.apply_to_nodes(&mut nodes);
+        assert_eq!(nodes.iter().find(|node| node.name == "name").unwrap().text.as_deref(), Some("éか│な日"));
+    }
 }
