@@ -18,7 +18,6 @@ use std::time::{Duration, Instant, SystemTime};
 const SCENE_PATH: &str = "apps/zcode-monitor.gscene";
 const WIN_W_PX: i32 = 400;
 const WIN_H_PX: i32 = 320;
-const LINE_WIDTH: usize = 56;
 
 struct Args {
     cli: String,
