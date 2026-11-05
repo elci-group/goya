@@ -1512,19 +1512,19 @@ impl Dispatch<ZwpTextInputV3, ()> for GoyaWindowInner {
             } => {
                 state.ime_delete = Some((before_length, after_length));
             }
-            zwp_text_input_v3::Event::Done { serial } => {
+            zwp_text_input_v3::Event::Done { serial }
                 if state.ime_preedit.is_some()
                     || state.ime_commit.is_some()
-                    || state.ime_delete.is_some()
-                {
-                    state.events.push(PlatformEvent::ImeBatch {
-                        serial,
-                        preedit: state.ime_preedit.take(),
-                        commit: state.ime_commit.take(),
-                        delete: state.ime_delete.take(),
-                    });
-                }
+                    || state.ime_delete.is_some() =>
+            {
+                state.events.push(PlatformEvent::ImeBatch {
+                    serial,
+                    preedit: state.ime_preedit.take(),
+                    commit: state.ime_commit.take(),
+                    delete: state.ime_delete.take(),
+                });
             }
+            zwp_text_input_v3::Event::Done { .. } => {}
             zwp_text_input_v3::Event::Leave { .. } => {
                 state.ime_preedit = None;
                 state.ime_commit = None;
