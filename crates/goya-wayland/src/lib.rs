@@ -1425,9 +1425,8 @@ impl Dispatch<ZwpTextInputV3, ()> for GoyaWindowInner {
             }
             zwp_text_input_v3::Event::Enter { .. }
             | zwp_text_input_v3::Event::Language { .. }
-            | zwp_text_input_v3::Event::PreeditCursor { .. }
-            | zwp_text_input_v3::Event::PreeditStyling { .. }
-            | zwp_text_input_v3::Event::TextDirection { .. } => {}
+            | zwp_text_input_v3::Event::Action { .. }
+            | zwp_text_input_v3::Event::PreeditHint { .. } => {}
             _ => {}
         }
     }
