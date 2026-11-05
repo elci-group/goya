@@ -56,6 +56,26 @@ fn read_scene_source(path: &Path) -> Result<String, String> {
     String::from_utf8(bytes).map_err(|error| format!("scene is not UTF-8: {error}"))
 }
 
+/// Stable revision tag used for optimistic saves. This is not an auth token.
+fn scene_revision(source: &[u8]) -> String {
+    let hash = source.iter().fold(0xcbf2_9ce4_8422_2325u64, |hash, byte| {
+        (hash ^ u64::from(*byte)).wrapping_mul(0x0000_0100_0000_01b3)
+    });
+    format!("goya-v1-{hash:016x}")
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum SaveError {
+    Conflict,
+    Failed(String),
+}
+
+impl From<std::io::Error> for SaveError {
+    fn from(error: std::io::Error) -> Self {
+        Self::Failed(error.to_string())
+    }
+}
+
 /// Replace only the already-selected scene path. A same-directory temporary
 /// file and rename keep readers from observing a partially written source.
 fn atomic_replace_scene(path: &Path, source: &[u8]) -> Result<(), String> {
