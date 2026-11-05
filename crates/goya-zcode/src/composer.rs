@@ -495,7 +495,7 @@ mod tests {
         }
         c.handle_special("arrow_left");
         // CommitText arrives whole (never as KeyChar chars) at the cursor.
-        c.handle_ime_batch(None, Some("汉字"), None);
+        c.commit_text("汉字");
         assert_eq!(c.text(), "a汉字b");
         // Grapheme cursor sits after the committed text; safe mid-swap.
         assert_eq!(c.cursor_grapheme(), 3);
