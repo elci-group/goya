@@ -1086,8 +1086,28 @@ mod tests {
         );
         assert_eq!(fs::read_to_string(&canonical_path).unwrap(), edited);
 
-        assert_eq!(fs::read_dir(&directory).unwrap().count(), 1);
+        #[cfg(unix)]
+        {
+            let outside_path = directory.join("outside.gscene");
+            fs::write(&outside_path, SCENE).unwrap();
+            fs::remove_file(&canonical_path).unwrap();
+            std::os::unix::fs::symlink(&outside_path, &canonical_path).unwrap();
+            let symlink_target = route_request_for_scene(
+                &post("/save", &edited),
+                HOST,
+                SCENE,
+                &preview,
+                Some(&canonical_path),
+            );
+            assert_eq!(symlink_target.0, "500 Internal Server Error");
+            assert_eq!(fs::read_to_string(&outside_path).unwrap(), SCENE);
+            fs::remove_file(&canonical_path).unwrap();
+            fs::remove_file(outside_path).unwrap();
+        }
+        #[cfg(not(unix))]
         fs::remove_file(&canonical_path).unwrap();
+
+        assert_eq!(fs::read_dir(&directory).unwrap().count(), 0);
         fs::remove_dir(&directory).unwrap();
     }
 }
