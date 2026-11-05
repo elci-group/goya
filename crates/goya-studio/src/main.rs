@@ -121,6 +121,7 @@ struct HttpRequest {
     host: String,
     origin: Option<String>,
     content_type: Option<String>,
+    if_match: Option<String>,
     body: Vec<u8>,
 }
 
@@ -131,6 +132,7 @@ struct RequestHead {
     host: String,
     origin: Option<String>,
     content_type: Option<String>,
+    if_match: Option<String>,
     content_length: usize,
 }
 
@@ -173,7 +175,8 @@ fn parse_request_head(header: &[u8]) -> Result<RequestHead, RequestError> {
     if lines.clone().count() > 16 {
         return Err(request_error("400 Bad Request", "Too many headers"));
     }
-    let (mut host, mut origin, mut content_type, mut content_length) = (None, None, None, None);
+    let (mut host, mut origin, mut content_type, mut if_match, mut content_length) =
+        (None, None, None, None, None);
     for line in lines {
         let (name, value) = line
             .split_once(':')
@@ -183,6 +186,7 @@ fn parse_request_head(header: &[u8]) -> Result<RequestHead, RequestError> {
             "host" => &mut host,
             "origin" => &mut origin,
             "content-type" => &mut content_type,
+            "if-match" => &mut if_match,
             "content-length" => {
                 if content_length.is_some() {
                     return Err(request_error("400 Bad Request", "Duplicate Content-Length"));
@@ -223,6 +227,7 @@ fn parse_request_head(header: &[u8]) -> Result<RequestHead, RequestError> {
         host,
         origin,
         content_type,
+        if_match,
         content_length,
     })
 }
@@ -247,6 +252,7 @@ fn parse_request(bytes: &[u8]) -> Result<HttpRequest, RequestError> {
         host,
         origin,
         content_type,
+        if_match,
         content_length,
     } = parse_request_head(&bytes[..end])?;
     let body = &bytes[end + 4..];
@@ -262,6 +268,7 @@ fn parse_request(bytes: &[u8]) -> Result<HttpRequest, RequestError> {
         host,
         origin,
         content_type,
+        if_match,
         body: body.to_vec(),
     })
 }
