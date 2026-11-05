@@ -815,16 +815,33 @@ fn project(path: &Path) -> Result<SceneProject, String> {
     SceneProject::from_path(path, Viewport::default()).map_err(|error| error.to_string())
 }
 
-fn check(path: &Path) -> Result<(), String> {
-    let project = project(path)?;
-    println!(
-        "valid: ontology={} scene_nodes={} ir_nodes={} viewport={}x{}pt",
+fn node_kind_label(node: &goya_lang::DrawNode) -> &'static str {
+    if node.is_input {
+        "input"
+    } else if node.is_button {
+        "button"
+    } else {
+        "cell"
+    }
+}
+
+fn check_summary(project: &SceneProject) -> String {
+    let frame = project.frame();
+    let input_count = frame.nodes.iter().filter(|node| node.is_input).count();
+    format!(
+        "valid: ontology={} scene_nodes={} inputs={} ir_nodes={} viewport={}x{}pt",
         project.scene().name,
-        project.frame().nodes.len(),
+        frame.nodes.len(),
+        input_count,
         project.module().nodes.len(),
         project.viewport().width_points,
         project.viewport().height_points
-    );
+    )
+}
+
+fn check(path: &Path) -> Result<(), String> {
+    let project = project(path)?;
+    println!("{}", check_summary(&project));
     Ok(())
 }
 
@@ -834,14 +851,24 @@ fn inspect(path: &Path) -> Result<(), String> {
     let frame = project.frame();
     for node in &frame.nodes {
         println!(
-            "{} {} x={} y={} w={} h={} text={:?}",
-            if node.is_button { "button" } else { "cell" },
+            "{} {} x={} y={} w={} h={} text={:?}{}",
+            node_kind_label(node),
             node.name,
             node.rect.x,
             node.rect.y,
             node.rect.width,
             node.rect.height,
-            node.text
+            node.text,
+            // Optional wave-3 `wrap:` property (lives on the scene cell,
+            // not DrawNode); absent = no wrap.
+            match project
+                .scene()
+                .find_node(&node.name)
+                .and_then(|cell| cell.wrap)
+            {
+                Some(columns) => format!(" wrap={columns}"),
+                None => String::new(),
+            }
         );
     }
     Ok(())

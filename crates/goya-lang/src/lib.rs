@@ -231,6 +231,118 @@ mod tests {
         assert_eq!(missing_close.line, 2);
     }
 
+    #[test]
+    fn wrap_parses_and_layout_wraps_text() {
+        let src = "\
+@ontology s {
+    @cell root {
+        position: (0, 0, 0)
+        extent: (800, 600, 0)
+        @cell note {
+            position: (0, 0, 0)
+            text: \"the quick brown fox jumps over\"
+            wrap: 10
+        }
+    }
+}
+";
+        let scene = parse(src).unwrap();
+        assert_eq!(scene.root.children[0].wrap, Some(10));
+        let frame = layout(&scene, 800.0, 600.0);
+        let note = frame.find("note").unwrap();
+        // Greedy: each line fits in 10 columns.
+        assert_eq!(
+            note.text.as_deref(),
+            Some("the quick\nbrown fox\njumps over")
+        );
+    }
+
+    #[test]
+    fn wrap_hard_splits_oversized_tokens() {
+        let src = "\
+@ontology s {
+    @cell t {
+        text: \"abcdefghij klm\"
+        wrap: 4
+    }
+}
+";
+        let scene = parse(src).unwrap();
+        let frame = layout(&scene, 800.0, 600.0);
+        let t = frame.find("t").unwrap();
+        // The 10-char token alone exceeds width 4: hard-split, remainder
+        // continues on its own line before "klm" joins.
+        assert_eq!(t.text.as_deref(), Some("abcd\nefgh\nij\nklm"));
+    }
+
+    #[test]
+    fn wrap_collapses_multi_spaces_between_words() {
+        let src = "\
+@ontology s {
+    @cell t {
+        text: \"a    b  c\"
+        wrap: 10
+    }
+}
+";
+        let scene = parse(src).unwrap();
+        let frame = layout(&scene, 800.0, 600.0);
+        let t = frame.find("t").unwrap();
+        // Separator runs collapse to single spaces between words on a line.
+        assert_eq!(t.text.as_deref(), Some("a b c"));
+    }
+
+    #[test]
+    fn absent_wrap_leaves_text_unchanged() {
+        let src = "\
+@ontology s {
+    @cell t {
+        text: \"the quick brown fox jumps over the lazy dog\"
+    }
+}
+";
+        let scene = parse(src).unwrap();
+        let frame = layout(&scene, 800.0, 600.0);
+        let t = frame.find("t").unwrap();
+        assert_eq!(
+            t.text.as_deref(),
+            Some("the quick brown fox jumps over the lazy dog")
+        );
+    }
+
+    #[test]
+    fn layout_with_wrap_is_deterministic() {
+        let src = "\
+@ontology s {
+    @cell t {
+        text: \"alpha beta gamma delta epsilon zeta\"
+        wrap: 12
+    }
+}
+";
+        let scene = parse(src).unwrap();
+        let a = layout(&scene, 800.0, 600.0);
+        let b = layout(&scene, 800.0, 600.0);
+        let ta = a.find("t").unwrap().text.clone();
+        let tb = b.find("t").unwrap().text.clone();
+        assert_eq!(ta, tb);
+        assert_eq!(
+            ta.as_deref(),
+            Some("alpha beta\ngamma delta\nepsilon zeta")
+        );
+    }
+
+    #[test]
+    fn wrap_rejects_zero_negative_and_overflow() {
+        let zero = parse("@ontology s { @cell t { wrap: 0 } }").unwrap_err();
+        let negative = parse("@ontology s { @cell t { wrap: -3 } }").unwrap_err();
+        let overflow = parse("@ontology s { @cell t { wrap: 99999999999999 } }").unwrap_err();
+        let fractional = parse("@ontology s { @cell t { wrap: 1.5 } }").unwrap_err();
+        for e in [zero, negative, overflow, fractional] {
+            assert!(e.line >= 1);
+        }
+    }
+
     /// Deterministic mutation fuzzing: parse + layout must be total.
     #[test]
     fn fuzz_parse_never_panics() {

@@ -134,19 +134,23 @@ pub struct MonitorHandle {
     /// Inbound command queue: `SendText` and friends. Sender and receiver
     /// both sit behind Arc'd mutexes so every `MonitorHandle` clone can
     /// enqueue and the queue survives agent-thread reconnects.
-    cmd_tx: Arc<Mutex<Sender<AgentCmd>>>,
+    cmd_tx: SyncSender<AgentCmd>,
     cmd_rx: Arc<Mutex<Receiver<AgentCmd>>>,
+    active_session_id: Arc<Mutex<Option<String>>>,
+    send_lifecycle: Arc<Mutex<SendLifecycle>>,
 }
 
 impl MonitorHandle {
     pub fn new() -> Self {
-        let (tx, rx) = channel();
+        let (tx, rx) = sync_channel(COMMAND_QUEUE_CAPACITY);
         Self {
             view: Arc::new(Mutex::new(SessionView::default())),
             dirty: Arc::new(AtomicBool::new(true)),
             stop: Arc::new(AtomicBool::new(false)),
-            cmd_tx: Arc::new(Mutex::new(tx)),
+            cmd_tx: tx,
             cmd_rx: Arc::new(Mutex::new(rx)),
+            active_session_id: Arc::new(Mutex::new(None)),
+            send_lifecycle: Arc::new(Mutex::new(SendLifecycle::default())),
         }
     }
 
@@ -159,13 +163,39 @@ impl MonitorHandle {
         self.dirty.store(true, Ordering::Relaxed);
     }
 
-    /// Enqueue a composed line for the agent thread. `wire == false`
-    /// (no `--allow-send`) keeps admission identical but skips the wire
-    /// request. Errors are ignored: a dead agent thread just means the
-    /// command is dropped (reconnect will pick up later Enters).
+    /// Enqueue without waiting for queue capacity. Each command captures the
+    /// active session at enqueue time so reconnects cannot retarget it.
     pub fn send_text(&self, line: String, wire: bool) {
-        if let Ok(tx) = self.cmd_tx.lock() {
-            let _ = tx.send(AgentCmd::SendText { line, wire });
+        let session_id = self
+            .active_session_id
+            .lock()
+            .ok()
+            .and_then(|active| active.clone());
+        let Some(session_id) = session_id else {
+            self.set_status("send unavailable — no active session");
+            return;
+        };
+        match self.cmd_tx.try_send(AgentCmd::SendText {
+            line,
+            wire,
+            session_id,
+        }) {
+            Ok(()) => {}
+            Err(TrySendError::Full(_)) => self.set_status("busy — send queue full"),
+            Err(TrySendError::Disconnected(_)) => self.set_status("send unavailable"),
+        }
+    }
+
+    fn set_status(&self, status: &str) {
+        if let Ok(mut view) = self.view.lock() {
+            view.status = status.to_string();
+        }
+        self.dirty.store(true, Ordering::Relaxed);
+    }
+
+    fn set_active_session(&self, session_id: Option<String>) {
+        if let Ok(mut active) = self.active_session_id.lock() {
+            *active = session_id;
         }
     }
 
@@ -194,6 +224,7 @@ struct AgentRun {
     child: Child,
     next_id: AtomicU64,
     pending: PendingMap,
+    send_lifecycle: Arc<Mutex<SendLifecycle>>,
 }
 
 impl Drop for AgentRun {
@@ -201,6 +232,10 @@ impl Drop for AgentRun {
         // Every early return (including protocol errors) must reap app-server.
         let _ = self.child.kill();
         let _ = self.child.wait();
+        if let Ok(mut lifecycle) = self.send_lifecycle.lock() {
+            lifecycle.disconnect();
+        }
+        self.handle.set_active_session(None);
     }
 }
 
@@ -227,6 +262,7 @@ impl AgentRun {
             child,
             next_id: AtomicU64::new(1),
             pending: Arc::new(Mutex::new(HashMap::new())),
+            send_lifecycle: Arc::clone(&handle.send_lifecycle),
         })
     }
 
