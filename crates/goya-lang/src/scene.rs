@@ -463,7 +463,8 @@ fn wrap_text(text: &str, width: usize) -> Vec<String> {
 
 #[cfg(test)]
 mod scrolling_tests {
-    use super::{layout, parse, ScrollOffsets};
+    use super::{layout, ScrollOffsets};
+    use crate::parse;
 
     #[test]
     fn reconcile_clamps_stale_offsets_and_removes_missing_viewports() {
