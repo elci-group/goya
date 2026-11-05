@@ -86,7 +86,7 @@ impl CpuTopology {
                 return None;
             }
             let parsed: Vec<u64> = values.iter().copied().collect::<Option<_>>()?;
-            if parsed.iter().any(|value| *value == 0) {
+            if parsed.contains(&0) {
                 return None;
             }
             let min = *parsed.iter().min()?;
@@ -99,12 +99,12 @@ impl CpuTopology {
             })
         }
         if let Some((performance_cpus, efficiency_cpus)) = split(capacity) {
-            return Some(Self::from_values(
+            return Self::from_values(
                 capacity,
                 TopologySource::CpuCapacity,
                 performance_cpus,
                 efficiency_cpus,
-            )?);
+            );
         }
         let (performance_cpus, efficiency_cpus) = split(highest_perf)?;
         Self::from_values(
@@ -439,7 +439,6 @@ mod tests {
     fn injected_sysfs_root_uses_online_cpu_ids_and_fallback() {
         use std::{
             fs,
-            path::PathBuf,
             sync::atomic::{AtomicU64, Ordering},
         };
         static NEXT: AtomicU64 = AtomicU64::new(0);
@@ -471,7 +470,7 @@ mod tests {
         assert_eq!(fallback.cpus[1].class, CoreClass::Efficiency);
         fs::write(root.join("cpu3/acpi_cppc/highest_perf"), "broken").unwrap();
         assert!(CpuTopology::detect_linux_from(&root).is_none());
-        let _ = fs::remove_dir_all(PathBuf::from(root));
+        let _ = fs::remove_dir_all(root);
     }
 
     fn cost(tp: f64, te: f64, ep: f64, ee: f64) -> WorkCost {
