@@ -238,7 +238,7 @@ mod tests {
 
     #[test]
     fn input_nodes_exposes_name_placeholder_and_geometry() {
-        const WITH_INPUT: &str = "@ontology sdk { @button go { position: (0, 0, 0) extent: (120, 40, 0) text: \"Go\" } @input composer { position: (0, 100, 0) extent: (400, 40, 0) text: \"Compose\" } }";
+        const WITH_INPUT: &str = "@ontology sdk { @cell root { position: (0, 0, 0) extent: (800, 600, 0) @button go { position: (0, 0, 0) extent: (120, 40, 0) text: \"Go\" } @input composer { position: (0, 100, 0) extent: (400, 40, 0) text: \"Compose\" } } }";
         let project =
             SceneProject::from_source(WITH_INPUT, Viewport::new(800.0, 600.0).unwrap()).unwrap();
         let inputs = project.input_nodes();
