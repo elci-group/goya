@@ -137,7 +137,7 @@ impl Calendar {
         let first_col = grid_column_monday_first(self.year, self.month, 1) as usize;
         let n_days = days_in_month(self.year, self.month) as usize;
         for (i, slot) in texts.iter_mut().enumerate() {
-            let day = i + 1 - first_col;
+            let day = (i + 1).saturating_sub(first_col);
             if day >= 1 && day <= n_days {
                 *slot = day.to_string();
             }
