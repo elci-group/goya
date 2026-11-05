@@ -40,7 +40,11 @@ required for changes). See GOYA directive §8.3.
   (false = quit), `hit_test(x_mp, y_mp) -> Option<ActionId>`,
   `render_list() -> Vec<Primitive>`.
 - Invariants: events are processed synchronously; layout is recomputed only
-  when the state revision advanced; unknown actions are inert.
+  when the state revision advanced; unknown actions are inert. `TextBuffer`
+  edits extended grapheme clusters, maintains selection and bounded undo/redo;
+  declared `Node::Input` fields share this model for keyboard, IME batch, and
+  accessibility value updates. `ScrollState` provides clamped two-axis
+  content/viewport offsets.
 
 ## Capability schema (Wave 1 form)
 
@@ -199,6 +203,14 @@ Status: Candidate (Swarm D — Platform). Completes GY-WAYLAND-001, the gate to 
   policy continues to apply to the foundation crates.
 - Graceful degradation: `WaylandError::NoDisplay` when no compositor is
   reachable — the application remains operational headless.
+- Keyboard: compositor XKB_V1 maps translate key presses into Unicode, with
+  locale-based XKB Compose for dead-key sequences. The built-in US mapping is
+  retained as a bounded fallback.
+- IME: when `zwp_text_input_manager_v3` is present, callers enable the text
+  input for focused fields and provide surrounding text, UTF-8 cursor/anchor
+  byte offsets, and a surface-local cursor rectangle. Preedit, deletion,
+  commit, and `done` serial are emitted as one ordered `ImeBatch`. Without
+  this optional protocol, XKB/Compose remains available.
 
 ## Direction-aware spacer refinement (GY-LAYOUT/1 amendment)
 
@@ -380,8 +392,9 @@ Consequences for the DAG:
   updates XKB state from Wayland modifier/layout masks. Evdev key events are
   translated through that state to Unicode `KeyChar` events, including
   Shift/Caps Lock and layouts such as German AltGr. Unsupported or malformed
-  keymaps retain the bounded US fallback. Dead-key compose sequences are not
-  implemented. Tests cover US Shift/Caps Lock, German AltGr, and fallback.
+  keymaps retain the bounded US fallback. Locale-based XKB Compose handles
+  dead-key sequences where a compose table is installed. Tests cover US
+  Shift/Caps Lock, German AltGr, and fallback.
 
 ### GY-WAYLAND/1 amendments — keyboard & resize
 - `PlatformEvent::KeyChar(char)`: initial `wl_keyboard` support used an evdev
