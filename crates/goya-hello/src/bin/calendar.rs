@@ -384,14 +384,16 @@ fn self_test(store: &mut SceneStore) {
             texts[0]
         ));
     }
-    if texts[6 + 30] != "31" {
+    // November has 30 days: last day lands at slot 6 + 29 = 35; slot 36
+    // is padding.
+    if texts[6 + 29] != "30" {
         failures.push(format!(
-            "nov 2026 day 31: expected slot 36, got '{}'",
-            texts[36]
+            "nov 2026 day 30: expected slot 35, got '{}'",
+            texts[35]
         ));
     }
-    if texts[36 + 1] != "" {
-        failures.push("nov 2026 slot 37 should be padding".into());
+    if texts[6 + 30] != "" {
+        failures.push("nov 2026 slot 36 should be padding".into());
     }
     if cal.label() != "november 2026" {
         failures.push(format!(
