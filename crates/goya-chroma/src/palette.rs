@@ -106,13 +106,6 @@ pub fn aa_ratio(fg: Rgb8, bg: Rgb8) -> f64 {
     (hi + 0.05) / (lo + 0.05)
 }
 
-/// RGB convenience mirroring the OKLCH-based [`crate::resolver::hex_anchor`].
-pub fn rgb_of(c: Oklch) -> Rgb8 {
-    oklch_to_srgb(c)
-}
-
-/// Re-export for consumers doing their own checks against `srgb_to_oklch`.
-
 #[cfg(test)]
 mod tests {
     use super::*;

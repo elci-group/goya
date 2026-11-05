@@ -2,7 +2,11 @@
 //!
 //! Minimal, honest scope per GY-WAYLAND-001: one window, pointer events
 //! mapped to surface-local pixels, and the goya render list presented via a
-//! shared-memory buffer. This crate is where Goya's zero-dependency policy
+//! shared-memory buffer. Keyboard input additionally surfaces ctrl+c /
+//! ctrl+v / ctrl+q as [`PlatformEvent::Shortcut`] events (GY-ZCODE-004);
+//! this shortcut path requires the compositor's xkb keymap — the keymap-free
+//! evdev fallback tracks no ctrl modifier and never emits shortcuts. This
+//! crate is where Goya's zero-dependency policy
 //! deliberately ends — the Wayland host layer uses the official Smithay
 //! client bindings rather than a hand-rolled wire protocol, because a
 //! protocol reimplementation is a security liability, not an asset
@@ -364,6 +368,39 @@ impl GoyaWindowInner {
 pub struct GoyaWindow {
     state: GoyaWindowInner,
     queue: wayland_client::EventQueue<GoyaWindowInner>,
+}
+
+impl GoyaWindowInner {
+    /// Compositor-free key press handling (GY-ZCODE-004): resolve one pressed
+    /// evdev keycode against the current modifier state into platform events.
+    /// Order matters: ctrl+c/v/q map to `PlatformEvent::Shortcut` first;
+    /// otherwise navigation keeps its `KeySpecial` semantics and text keys go
+    /// through XKB Compose → `KeyChar`, byte-identical to the pre-shortcut
+    /// behavior. Other ctrl combos produce no events (the char path returns
+    /// nothing while ctrl is held).
+    fn handle_key_press(&mut self, key: u32) {
+        if let Some(shortcut) = shortcut_from_key(self.ctrl, key) {
+            self.events.push(PlatformEvent::Shortcut(shortcut));
+            return;
+        }
+        if let Some(ks) = key_special(key) {
+            if let Some(compose) = self.compose_state.as_mut() {
+                compose.reset();
+            }
+            self.events.push(PlatformEvent::KeySpecial(ks));
+        } else {
+            let chars = key_chars_with_compose(
+                self.xkb_state.as_ref(),
+                self.compose_state.as_mut(),
+                key,
+                self.shift,
+                self.ctrl,
+            );
+            for c in chars {
+                self.events.push(PlatformEvent::KeyChar(c));
+            }
+        }
+    }
 }
 
 impl GoyaWindow {
@@ -1920,7 +1957,9 @@ fn keymap_state_from_fd(
 /// multi-scalar commits as ordered `KeyChar` events.
 ///
 /// Modifier rules (frozen contract):
-/// - Ctrl held: emit nothing (ctrl+letter combos are inert for now).
+/// - Ctrl held: emit no `KeyChar`. Ctrl+c/v/q are promoted to
+///   `PlatformEvent::Shortcut` upstream (see [`shortcut_from_key`]); all
+///   other ctrl combos stay inert.
 /// - Plain / shifted characters flow through as `KeyChar` via the xkb map.
 fn key_char_from_state(
     xkb_state: &xkbcommon::xkb::State,
