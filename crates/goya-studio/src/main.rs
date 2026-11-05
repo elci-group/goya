@@ -1067,6 +1067,7 @@ mod tests {
         assert!(initial.2.contains("id=\"redo\""));
         assert!(initial.2.contains("id=\"save\""));
         assert!(initial.2.contains("fetch('/save'"));
+        assert!(initial.2.contains("headers.set('If-Match',revision)"));
         assert!(initial.2.contains("historyLimit=64"));
         assert!(initial.2.contains("source.addEventListener('input'"));
         assert!(initial.2.contains("event.shiftKey?1:-1"));
@@ -1234,6 +1235,21 @@ mod tests {
             )
             .0,
             "403 Forbidden"
+        );
+
+        let missing_revision = String::from_utf8(post("/save", SCENE))
+            .unwrap()
+            .replace(&format!("If-Match: {}\r\n", scene_revision(SCENE.as_bytes())), "");
+        assert_eq!(
+            route_request_for_scene(
+                missing_revision.as_bytes(),
+                HOST,
+                SCENE,
+                &preview,
+                Some(&canonical_path),
+            )
+            .0,
+            "428 Precondition Required"
         );
         assert_eq!(fs::read_to_string(&canonical_path).unwrap(), edited);
 

@@ -60,9 +60,10 @@ mutation fuzzing are present, along with public SDK integration coverage for
 parse/lower, frame geometry, canonical action IDs, hit testing, and runtime
 dispatch. A second public SDK flow now covers proportional geometry at two
 viewport sizes, valid and rejected scene swaps, state/render preservation on
-rejection, and primitive geometry. Authored D1/D2-to-VEE loopback acceptance
-is also available. Broader platform/runtime conformance coverage remains
-open.
+rejection, and primitive geometry. A third verifies that an editable input
+node preserves its role, placeholder, frame geometry, and rendered text through
+the public SDK/runtime path. Authored D1/D2-to-VEE loopback acceptance is also
+available. Broader platform/runtime conformance coverage remains open.
 ```
 
 ## Ownership registry (Wave 1)
