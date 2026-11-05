@@ -38,9 +38,13 @@ fn monitor_dark_theme() -> Theme {
     Theme {
         anchor: goya_chroma::hex_anchor("#3267C8").expect("valid hex anchor"),
         harmony: Harmony::NeutralDominant,
+        // Anchor #3267C8 sits at L≈0.52; a large polar delta is required to
+        // reach a true dark surface (gate fix: Polar(0.06) yielded a blue
+        // mid-tone). Chroma scaled down hard so the surface reads near-grey
+        // rather than brand-blue.
         surface: ThemeRole {
-            lightness: PropertyRelation::Polar(0.06),
-            chroma: PropertyRelation::Scale(0.85),
+            lightness: PropertyRelation::Polar(0.38),
+            chroma: PropertyRelation::Scale(0.25),
             ..ThemeRole::default()
         },
         foreground: ThemeRole {
