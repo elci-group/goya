@@ -177,3 +177,46 @@ fn public_sdk_conforms_across_resize_swap_rollback_and_rendering() {
     let next_rect = updated_runtime.frame().rect(next_record.ir_node).unwrap();
     assert_eq!(button_primitive(&updated_runtime, "Next"), next_rect);
 }
+
+#[test]
+fn public_sdk_preserves_input_node_semantics_through_rendering() {
+    let source = r#"
+@ontology composer_contract {
+    @cell root {
+        position: (0, 0, 0)
+        extent: (240, 80, 0)
+
+        @input composer {
+            position: (12, 20, 0)
+            extent: (180, 32, 0)
+            text: "Type here"
+        }
+    }
+}
+"#;
+    let viewport = Viewport::new(240.0, 80.0).unwrap();
+    let project = SceneProject::from_source(source, viewport).unwrap();
+    let input = project.lowered().table.get("composer").unwrap();
+
+    assert_eq!(input.role, goya_lang::Role::Input);
+    assert_eq!(
+        project.module().node(input.ir_node),
+        Some(&Node::Input {
+            placeholder: "Type here".to_string()
+        })
+    );
+    assert!(project.frame().find("composer").unwrap().is_input);
+    assert_eq!(
+        project.lowered().rect_of("composer"),
+        Some((12_000, 20_000, 180_000, 32_000))
+    );
+
+    let runtime = project.runtime(Store::new());
+    let rendered = runtime.render_list();
+    assert!(rendered.iter().any(|primitive| matches!(
+        primitive,
+        Primitive::Text(rect, text)
+            if *rect == runtime.frame().rect(input.ir_node).unwrap()
+                && text == "Type here"
+    )));
+}
