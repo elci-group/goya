@@ -37,15 +37,28 @@ impl TextBuffer {
     pub fn new(text: impl Into<String>) -> Self {
         let text = text.into();
         let cursor = text.len();
-        Self { text, cursor, anchor: None, undo: Vec::new(), redo: Vec::new() }
+        Self {
+            text,
+            cursor,
+            anchor: None,
+            undo: Vec::new(),
+            redo: Vec::new(),
+        }
     }
 
-    pub fn text(&self) -> &str { &self.text }
-    pub fn cursor_byte(&self) -> usize { self.cursor }
-    pub fn selection_bytes(&self) -> Option<std::ops::Range<usize>> {
-        self.anchor.map(|anchor| anchor.min(self.cursor)..anchor.max(self.cursor))
+    pub fn text(&self) -> &str {
+        &self.text
     }
-    pub fn grapheme_len(&self) -> usize { self.text.graphemes(true).count() }
+    pub fn cursor_byte(&self) -> usize {
+        self.cursor
+    }
+    pub fn selection_bytes(&self) -> Option<std::ops::Range<usize>> {
+        self.anchor
+            .map(|anchor| anchor.min(self.cursor)..anchor.max(self.cursor))
+    }
+    pub fn grapheme_len(&self) -> usize {
+        self.text.graphemes(true).count()
+    }
 
     pub fn set_text(&mut self, text: impl Into<String>) {
         self.record_undo();
@@ -60,19 +73,32 @@ impl TextBuffer {
     }
 
     pub fn move_left(&mut self, extend: bool) {
-        let next = self.text.grapheme_indices(true)
-            .map(|(i, _)| i).take_while(|i| *i < self.cursor).last().unwrap_or(0);
+        let next = self
+            .text
+            .grapheme_indices(true)
+            .map(|(i, _)| i)
+            .take_while(|i| *i < self.cursor)
+            .last()
+            .unwrap_or(0);
         self.move_cursor(next, extend);
     }
 
     pub fn move_right(&mut self, extend: bool) {
-        let next = self.text.grapheme_indices(true)
-            .map(|(i, _)| i).find(|i| *i > self.cursor).unwrap_or(self.text.len());
+        let next = self
+            .text
+            .grapheme_indices(true)
+            .map(|(i, _)| i)
+            .find(|i| *i > self.cursor)
+            .unwrap_or(self.text.len());
         self.move_cursor(next, extend);
     }
 
-    pub fn move_home(&mut self, extend: bool) { self.move_cursor(0, extend); }
-    pub fn move_end(&mut self, extend: bool) { self.move_cursor(self.text.len(), extend); }
+    pub fn move_home(&mut self, extend: bool) {
+        self.move_cursor(0, extend);
+    }
+    pub fn move_end(&mut self, extend: bool) {
+        self.move_cursor(self.text.len(), extend);
+    }
 
     pub fn insert(&mut self, text: &str) {
         self.record_undo();
@@ -93,10 +119,12 @@ impl TextBuffer {
             self.cursor = range.start;
             self.anchor = None;
         } else {
+            let before = self.snapshot();
             let end = self.cursor;
             self.move_left(false);
             if self.cursor != end {
-                self.record_snapshot(TextSnapshot { text: self.text.clone(), cursor: end, anchor: None });
+                self.record_snapshot(before);
+                self.redo.clear();
                 self.text.replace_range(self.cursor..end, "");
             }
         }
@@ -109,19 +137,25 @@ impl TextBuffer {
             self.cursor = range.start;
             self.anchor = None;
         } else {
+            let before = self.snapshot();
             let start = self.cursor;
             self.move_right(false);
             let end = self.cursor;
             if end != start {
-                self.record_snapshot(TextSnapshot { text: self.text.clone(), cursor: start, anchor: None });
+                self.record_snapshot(before);
+                self.redo.clear();
                 self.text.replace_range(start..end, "");
                 self.cursor = start;
             }
         }
     }
 
-    pub fn undo(&mut self) { self.restore_history(true); }
-    pub fn redo(&mut self) { self.restore_history(false); }
+    pub fn undo(&mut self) {
+        self.restore_history(true);
+    }
+    pub fn redo(&mut self) {
+        self.restore_history(false);
+    }
 
     fn move_cursor(&mut self, cursor: usize, extend: bool) {
         if extend {
@@ -133,7 +167,11 @@ impl TextBuffer {
     }
 
     fn snapshot(&self) -> TextSnapshot {
-        TextSnapshot { text: self.text.clone(), cursor: self.cursor, anchor: self.anchor }
+        TextSnapshot {
+            text: self.text.clone(),
+            cursor: self.cursor,
+            anchor: self.anchor,
+        }
     }
 
     fn record_undo(&mut self) {
@@ -143,13 +181,24 @@ impl TextBuffer {
 
     fn record_snapshot(&mut self, snapshot: TextSnapshot) {
         self.undo.push(snapshot);
-        if self.undo.len() > Self::HISTORY_LIMIT { self.undo.remove(0); }
+        if self.undo.len() > Self::HISTORY_LIMIT {
+            self.undo.remove(0);
+        }
     }
 
     fn restore_history(&mut self, undo: bool) {
-        let (from, to) = if undo { (&mut self.undo, &mut self.redo) } else { (&mut self.redo, &mut self.undo) };
-        if let Some(snapshot) = from.pop() {
-            to.push(self.snapshot());
+        let current = self.snapshot();
+        let snapshot = if undo {
+            self.undo.pop()
+        } else {
+            self.redo.pop()
+        };
+        if let Some(snapshot) = snapshot {
+            if undo {
+                self.redo.push(current);
+            } else {
+                self.undo.push(current);
+            }
             self.text = snapshot.text;
             self.cursor = snapshot.cursor.min(self.text.len());
             self.anchor = snapshot.anchor;
