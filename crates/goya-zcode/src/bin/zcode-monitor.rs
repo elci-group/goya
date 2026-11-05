@@ -196,17 +196,38 @@ fn apply_composer_to_frame(nodes: &mut [DrawNode], composer: &Composer) {
 }
 
 /// Feed one key event into the composer; returns the committed line, if
-/// any. The monitor is a read-only link: committed lines are echoed into
-/// the tail with a `[local]` prefix and never sent to the agent.
+/// any. Page keys while the composer is unfocused scroll the transcript
+/// history instead (handled by the caller — they are not composer keys).
 fn feed_key(composer: &mut Composer, ev: &goya_wayland::PlatformEvent) -> Option<String> {
     match ev {
         goya_wayland::PlatformEvent::KeyChar(c) => composer.handle_char(*c),
         goya_wayland::PlatformEvent::KeySpecial(s) => {
-            composer.handle_special(special_name(*s));
+            match key_special_to_action(special_name(*s)) {
+                KeyAction::Composer(name) => composer.handle_special(name),
+                // Composer focused: page keys are inert for the view.
+                KeyAction::PageUp | KeyAction::PageDown => {}
+            }
             None
         }
         _ => None,
     }
+}
+
+/// Apply an unfocused page-key action to the transcript scrollback.
+fn scroll_history(handle: &agent::MonitorHandle, action: KeyAction) -> bool {
+    let dir = match action {
+        KeyAction::PageUp => -1i32,
+        KeyAction::PageDown => 1,
+        KeyAction::Composer(_) => return false,
+    };
+    if let Ok(mut view) = handle.view.lock() {
+        if dir < 0 {
+            view.scroll_up(SCROLL_STEP);
+        } else {
+            view.scroll_down(SCROLL_STEP);
+        }
+    }
+    true
 }
 
 /// Convert a scene draw node into the renderer's primitive vocabulary.
