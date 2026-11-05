@@ -430,11 +430,11 @@ fn headless_acceptance(store: &SceneStore) {
     }
     view.scroll_up(SCROLL_STEP);
     let scrolled = view.rows();
-    let scroll_ok = view.scroll == SCROLL_STEP
+    let scroll_ok = view.scroll_from_bottom() == SCROLL_STEP
         && scrolled[TAIL_LINES - 1] == "line 25"
         && view.rows().len() == TAIL_LINES;
     view.scroll_down(SCROLL_STEP);
-    let live_ok = view.scroll == 0 && view.rows()[TAIL_LINES - 1] == "line 39";
+    let live_ok = view.scroll_from_bottom() == 0 && view.rows()[TAIL_LINES - 1] == "line 39";
     println!(
         "scrollback page-up/page-down window [{}]",
         pass_str(scroll_ok && live_ok)
@@ -454,21 +454,23 @@ fn headless_acceptance(store: &SceneStore) {
         && wheel_handle
             .view
             .lock()
-            .map(|view| view.scroll == SCROLL_STEP && view.rows()[TAIL_LINES - 1] == "line 25")
+            .map(|view| {
+                view.scroll_from_bottom() == SCROLL_STEP && view.rows()[TAIL_LINES - 1] == "line 25"
+            })
             .unwrap_or(false);
     let focused_wheel = scroll_pointer_history(&wheel_handle, -5, true);
     let focused_ok = !focused_wheel
         && wheel_handle
             .view
             .lock()
-            .map(|view| view.scroll == SCROLL_STEP)
+            .map(|view| view.scroll_from_bottom() == SCROLL_STEP)
             .unwrap_or(false);
     let wheel_down = scroll_pointer_history(&wheel_handle, -5, false);
     let wheel_down_ok = wheel_down
         && wheel_handle
             .view
             .lock()
-            .map(|view| view.scroll == SCROLL_STEP - 5)
+            .map(|view| view.scroll_from_bottom() == SCROLL_STEP - 5)
             .unwrap_or(false);
     let wheel_ok = wheel_up_ok && focused_ok && wheel_down_ok;
     println!(
