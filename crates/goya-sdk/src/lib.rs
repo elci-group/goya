@@ -5,7 +5,7 @@
 //! still own window creation and presentation.
 
 use goya_ir::Module;
-use goya_lang::{layout as scene_layout, lower, DrawNode, Lowered, ParseError, Scene};
+use goya_lang::{layout as scene_layout, lower, DrawNode, Lowered, ParseError, RectMp, Scene};
 use goya_layout::Constraints;
 use goya_runtime::Runtime;
 use goya_state::Store;
@@ -98,6 +98,16 @@ pub struct SceneProject {
     viewport: Viewport,
 }
 
+/// One `@input` node enumerated from the authored scene.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InputNodeInfo {
+    pub name: String,
+    /// Placeholder text (the scene `text:` value); `None` when absent.
+    pub placeholder: Option<String>,
+    /// Millipoint geometry from the authored layout pass.
+    pub rect: RectMp,
+}
+
 /// Geometry emitted by the authored scene layout pass.
 #[derive(Debug, Clone, Default)]
 pub struct SceneFrame {
@@ -165,6 +175,21 @@ impl SceneProject {
         SceneFrame { nodes: frame.nodes }
     }
 
+    /// Enumerate `@input` nodes with their placeholder and geometry,
+    /// in draw order.
+    pub fn input_nodes(&self) -> Vec<InputNodeInfo> {
+        self.frame()
+            .nodes
+            .iter()
+            .filter(|node| node.is_input)
+            .map(|node| InputNodeInfo {
+                name: node.name.clone(),
+                placeholder: node.text.clone(),
+                rect: node.rect,
+            })
+            .collect()
+    }
+
     /// Create an event runtime over the canonical IR. Its flow layout is the
     /// GY-LAYOUT engine; use [`SceneProject::frame`] for authored scene geometry.
     pub fn runtime(&self, state: Store) -> Runtime {
@@ -209,6 +234,21 @@ mod tests {
         let action = runtime.hit_test(500, 1_000).unwrap();
         assert!(runtime.handle(Event::Activate(action)));
         assert!(!runtime.render_list().is_empty());
+    }
+
+    #[test]
+    fn input_nodes_exposes_name_placeholder_and_geometry() {
+        const WITH_INPUT: &str = "@ontology sdk { @button go { position: (0, 0, 0) extent: (120, 40, 0) text: \"Go\" } @input composer { position: (0, 100, 0) extent: (400, 40, 0) text: \"Compose\" } }";
+        let project =
+            SceneProject::from_source(WITH_INPUT, Viewport::new(800.0, 600.0).unwrap()).unwrap();
+        let inputs = project.input_nodes();
+        assert_eq!(inputs.len(), 1);
+        assert_eq!(inputs[0].name, "composer");
+        assert_eq!(inputs[0].placeholder.as_deref(), Some("Compose"));
+        assert_eq!(inputs[0].rect.width, 400_000);
+        // Cells and buttons are not reported as inputs.
+        let plain = SceneProject::from_source(SCENE, Viewport::default()).unwrap();
+        assert!(plain.input_nodes().is_empty());
     }
 
     #[test]

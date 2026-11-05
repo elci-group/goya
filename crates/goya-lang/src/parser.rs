@@ -56,6 +56,7 @@ pub fn parse(source: &str) -> Result<Scene, ParseError> {
         && root.text.is_none()
         && root.text_size.is_none()
         && root.anchor.is_none()
+        && root.wrap.is_none()
         && !root.is_input
     {
         root = root.children.remove(0);
@@ -142,6 +143,7 @@ impl P {
             text: None,
             text_size: None,
             anchor: None,
+            wrap: None,
             children: Vec::new(),
         };
         loop {
@@ -436,6 +438,24 @@ impl P {
                 Err(e) => return Err(e),
             },
             "text-size" | "text_size" => cell.text_size = Some(self.parse_number()?),
+            // `wrap` is a positive integer column count. 0, negatives,
+            // non-integers and out-of-range values are parse errors — a
+            // malformed wrap must not silently disable the feature.
+            "wrap" => {
+                let text = match self.peek() {
+                    Some(t) if t.kind == TokenKind::Number => {
+                        self.bump().expect("invariant").text.replace('_', "")
+                    }
+                    _ => return Err(ParseError { line: self.line() }),
+                };
+                let value: i64 = text
+                    .parse()
+                    .map_err(|_| ParseError { line: self.line() })?;
+                if value <= 0 || value > u32::MAX as i64 {
+                    return Err(ParseError { line: self.line() });
+                }
+                cell.wrap = Some(value as u32);
+            }
             "text-anchor" | "text_anchor" => {
                 let name = self.expect_ident()?;
                 cell.anchor = Some(match name.as_str() {
