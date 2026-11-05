@@ -286,9 +286,8 @@ fn wrap_text(text: &str, width: usize) -> Vec<String> {
                 }
             }
         }
-        if !current.is_empty() || out.is_empty() {
-            out.push(current);
-        }
+        // Preserve authored line breaks exactly, including empty lines.
+        out.push(current);
     }
     out
 }
