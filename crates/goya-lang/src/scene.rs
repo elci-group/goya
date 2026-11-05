@@ -250,6 +250,10 @@ fn resolve_cell(cell: &SceneCell, parent: RectMp, frame: &mut Frame) {
 /// collapse to single separators between words on a line. Deterministic
 /// and measurement-free.
 fn wrap_text(text: &str, width: usize) -> Vec<String> {
+    // Width 0 cannot come from the parser (it rejects 0), but stay total.
+    if width == 0 {
+        return vec![text.to_string()];
+    }
     let mut out = Vec::new();
     for line in text.split('\n') {
         let mut current = String::new();
