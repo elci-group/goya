@@ -7,7 +7,7 @@
 //! are strict, so params must match exactly; response parsing is lenient
 //! (unknown fields are ignored, unknown event types are inert).
 
-use crate::view::{LinkState, ProjEvent, SessionEntry, SessionView};
+use crate::view::{LinkState, ProjEvent, SessionEntry, SessionView, ToolState};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
@@ -660,7 +660,61 @@ fn map_event(envelope: &Value) -> Option<ProjEvent> {
                 .unwrap_or("turn failed")
                 .to_string(),
         }),
+        "tool.updated" => map_tool_update(payload),
         _ => None,
+    }
+}
+
+/// Wave 5 (GY-ZCODE-005): decode one `tool.updated` envelope payload
+/// (drowzy `zcodeToolUpdatedEventPayloadSchema`, strict base fields):
+/// `toolCallId` (required), `toolName?`, `description?`, and a `kind` of
+/// scheduled/started/progress/completed/failed. Unknown kinds and missing
+/// ids are inert. The display name is toolName, else description, else a
+/// short form of the id; the raw id travels in `ProjEvent::ToolUpdate.id`
+/// for the view's dedup (kept separate from the display name on purpose:
+/// ids must be unique even when names collide).
+fn map_tool_update(payload: &Value) -> Option<ProjEvent> {
+    let id = payload.get("toolCallId").and_then(Value::as_str)?;
+    if id.is_empty() {
+        return None;
+    }
+    let state = match payload.get("kind").and_then(Value::as_str) {
+        Some("scheduled") => ToolState::Scheduled,
+        // Progress folds into Started: the view opens the row once and
+        // ignores repeated Started events for the same id.
+        Some("started") | Some("progress") => ToolState::Started,
+        Some("completed") => ToolState::Completed,
+        Some("failed") => ToolState::Failed,
+        // Unknown kinds are inert (schema may grow).
+        _ => return None,
+    };
+    let tool = payload
+        .get("toolName")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            payload
+                .get("description")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+        })
+        .map(str::to_string)
+        .unwrap_or_else(|| short_tool_id(id));
+    Some(ProjEvent::ToolUpdate {
+        id: id.to_string(),
+        tool,
+        state,
+    })
+}
+
+/// Short display form of a tool call id: the last 8 chars (call ids are
+/// typically prefixed), or the whole id when shorter.
+fn short_tool_id(id: &str) -> String {
+    let chars: Vec<char> = id.chars().collect();
+    if chars.len() <= 8 {
+        id.to_string()
+    } else {
+        chars[chars.len() - 8..].iter().collect()
     }
 }
 
