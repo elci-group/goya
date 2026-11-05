@@ -371,11 +371,18 @@ Consequences for the DAG:
 
 ## Wave 2a/b additions (2026-11-04, afternoon wave)
 
+### GY-WAYLAND/2 keyboard layout support
+- The client consumes compositor-provided XKB_V1 keymaps up to 16 MiB and
+  updates XKB state from Wayland modifier/layout masks. Evdev key events are
+  translated through that state to Unicode `KeyChar` events, including
+  Shift/Caps Lock and layouts such as German AltGr. Unsupported or malformed
+  keymaps retain the bounded US fallback. Dead-key compose sequences are not
+  implemented. Tests cover US Shift/Caps Lock, German AltGr, and fallback.
+
 ### GY-WAYLAND/1 amendments — keyboard & resize
-- `PlatformEvent::KeyChar(char)`: `wl_keyboard` wired with an evdev US
-  QWERTY subset table (letters, digits + shifted symbols, space, enter,
-  backspace, punctuation). The xkb keymap fd is accepted and closed — the
-  built-in table is the declared scope; full keymap/IME support is Wave 4.
+- `PlatformEvent::KeyChar(char)`: initial `wl_keyboard` support used an evdev
+  US QWERTY subset; it is superseded by the GY-WAYLAND/2 XKB keymap handling
+  above.
 - `PlatformEvent::Resized(w, h)`: xdg toplevel configure carries new pixel
   dimensions; the fixed-size shm frame is dropped and reallocated at the
   next present, and the caller relayouts against the new viewport.
