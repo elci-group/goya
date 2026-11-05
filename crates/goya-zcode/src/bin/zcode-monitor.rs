@@ -617,7 +617,7 @@ fn run_live(args: &Args, store: &mut SceneStore, last_mtime: &mut Option<SystemT
                             let now_focused = name == "composer";
                             dirty |= composer.focused != now_focused;
                             composer.focused = now_focused;
-                            sync_text_input(&mut win, &composer);
+                            sync_text_input(&mut win, &composer, store.get());
                         }
                     }
                 }
@@ -636,6 +636,7 @@ fn run_live(args: &Args, store: &mut SceneStore, last_mtime: &mut Option<SystemT
                         // (inert while unfocused).
                         scroll_history(&handle, key_special_to_action(special_name(*s)));
                     }
+                    sync_text_input(&mut win, &composer, store.get());
                     dirty = true;
                 }
                 goya_wayland::PlatformEvent::PointerScroll(lines) => {
