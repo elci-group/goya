@@ -9,9 +9,9 @@
 use goya_lang::{hit_test, layout, DrawNode, SceneStore};
 use goya_runtime::Primitive;
 use goya_wayland::{GoyaWindow, KeySpecial};
-use goya_zcode::agent::{self};
+use goya_zcode::agent::{self, admit_send};
 use goya_zcode::composer::Composer;
-use goya_zcode::view::{LinkState, ProjEvent, SessionView, TAIL_LINES};
+use goya_zcode::view::{LinkState, ProjEvent, SessionView, SCROLL_STEP, TAIL_LINES};
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant, SystemTime};
@@ -28,6 +28,9 @@ struct Args {
     watch: bool,
     duration: Option<u64>,
     frames: Option<u32>,
+    /// GY-ZCODE-003: arming the wire send path. Default OFF — default
+    /// acceptance and normal runs never spend tokens.
+    allow_send: bool,
 }
 
 #[derive(PartialEq)]
@@ -82,6 +85,7 @@ fn parse_args() -> Args {
         watch: argv.iter().any(|a| a == "--watch"),
         duration: parse_positive("--duration"),
         frames: parse_positive("--frames").map(|n| u32::try_from(n).unwrap_or(u32::MAX)),
+        allow_send: argv.iter().any(|a| a == "--allow-send"),
     }
 }
 
