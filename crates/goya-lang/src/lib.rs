@@ -85,6 +85,21 @@ mod tests {
             extent_p: (0.8, 0.8, 0)
         }
     }
+}
+";
+        let scene = parse(src).unwrap();
+        let frame = layout(&scene, 800.0, 600.0);
+        let outer = frame.find("outer").unwrap();
+        // Absolute: points → millipoints, parent origin at viewport (0,0).
+        assert_eq!(outer.rect.x, 100_000);
+        assert_eq!(outer.rect.y, 100_000);
+        assert_eq!(outer.rect.width, 600_000);
+        let middle = frame.find("middle").unwrap();
+        // Proportional: 0.1 of 600 pt = 60 pt from outer's origin.
+        assert_eq!(middle.rect.x, 100_000 + 60_000);
+        assert_eq!(middle.rect.width, 480_000); // 0.8 * 600 pt
+        assert_eq!(middle.rect.height, 320_000); // 0.8 * 400 pt
+    }
 
     #[test]
     fn scrolling_parent_preserves_overflowing_child_extent_and_hierarchy() {
@@ -113,21 +128,6 @@ mod tests {
         assert_eq!(content.rect.y, viewport.rect.y + 200_000);
         assert_eq!(content.rect.width, 180_000);
         assert_eq!(content.rect.height, 50_000);
-    }
-}
-";
-        let scene = parse(src).unwrap();
-        let frame = layout(&scene, 800.0, 600.0);
-        let outer = frame.find("outer").unwrap();
-        // Absolute: points → millipoints, parent origin at viewport (0,0).
-        assert_eq!(outer.rect.x, 100_000);
-        assert_eq!(outer.rect.y, 100_000);
-        assert_eq!(outer.rect.width, 600_000);
-        let middle = frame.find("middle").unwrap();
-        // Proportional: 0.1 of 600 pt = 60 pt from outer's origin.
-        assert_eq!(middle.rect.x, 100_000 + 60_000);
-        assert_eq!(middle.rect.width, 480_000); // 0.8 * 600 pt
-        assert_eq!(middle.rect.height, 320_000); // 0.8 * 400 pt
     }
 
     #[test]
