@@ -131,9 +131,9 @@ fn apply_view_to_frame(nodes: &mut [DrawNode], view: &SessionView) {
 
 /// GY-ZCODE-002 gate integration point: map `goya_wayland::KeySpecial`
 /// onto the composer's `&str` key names (see `composer` module docs).
-/// Wave-3 note: when J1 lands `KeySpecial::{PageUp, PageDown}` in
-/// goya-wayland, add the arms here emitting "page_up" / "page_down" —
-/// `key_special_to_action` below already understands those names.
+/// Wave-3: J1 landed `KeySpecial::{PageUp, PageDown}`; they map to
+/// "page_up"/"page_down" and `key_special_to_action` routes them to
+/// transcript scrolling (never to the composer).
 fn special_name(special: KeySpecial) -> &'static str {
     match special {
         KeySpecial::ArrowLeft => "arrow_left",
@@ -145,6 +145,8 @@ fn special_name(special: KeySpecial) -> &'static str {
         KeySpecial::Delete => "delete",
         KeySpecial::Escape => "escape",
         KeySpecial::Tab => "tab",
+        KeySpecial::PageUp => "page_up",
+        KeySpecial::PageDown => "page_down",
     }
 }
 
