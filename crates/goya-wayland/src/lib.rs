@@ -96,6 +96,7 @@ pub enum KeySpecial {
 pub enum TextInputPurpose {
     Normal,
     Password,
+    Pin,
     Digits,
     Email,
     Url,
@@ -482,21 +483,34 @@ impl GoyaWindow {
             if !self.state.text_input_enabled {
                 input.enable();
             }
-            let cursor = utf8_byte_offset(surrounding_text, cursor_byte);
-            let anchor = utf8_byte_offset(surrounding_text, anchor_byte);
-            input.set_surrounding_text(surrounding_text.to_owned(), cursor, anchor);
+            let secure = sensitive || matches!(purpose, TextInputPurpose::Password | TextInputPurpose::Pin);
+            let (surrounding, cursor, anchor) = if secure {
+                (String::new(), 0, 0)
+            } else {
+                (
+                    surrounding_text.to_owned(),
+                    utf8_byte_offset(surrounding_text, cursor_byte),
+                    utf8_byte_offset(surrounding_text, anchor_byte),
+                )
+            };
+            input.set_surrounding_text(surrounding, cursor, anchor);
             let mut hint = zwp_text_input_v3::ContentHint::None;
             let purpose = match purpose {
                 TextInputPurpose::Normal => zwp_text_input_v3::ContentPurpose::Normal,
                 TextInputPurpose::Password => zwp_text_input_v3::ContentPurpose::Password,
+                TextInputPurpose::Pin => zwp_text_input_v3::ContentPurpose::Pin,
                 TextInputPurpose::Digits => zwp_text_input_v3::ContentPurpose::Digits,
                 TextInputPurpose::Email => zwp_text_input_v3::ContentPurpose::Email,
                 TextInputPurpose::Url => zwp_text_input_v3::ContentPurpose::Url,
             };
-            if sensitive || matches!(purpose, zwp_text_input_v3::ContentPurpose::Password) {
+            if secure {
                 hint |= zwp_text_input_v3::ContentHint::SensitiveData;
             }
-            if matches!(purpose, zwp_text_input_v3::ContentPurpose::Password) {
+            if matches!(
+                purpose,
+                zwp_text_input_v3::ContentPurpose::Password
+                    | zwp_text_input_v3::ContentPurpose::Pin
+            ) {
                 hint |= zwp_text_input_v3::ContentHint::HiddenText;
             }
             input.set_content_type(hint, purpose);
