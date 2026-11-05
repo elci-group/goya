@@ -956,7 +956,7 @@ mod tests {
         assert_eq!(rt.input_text(NodeId(2)), Some("日"));
         assert!(matches!(
             rt.render_list().last(),
-            Some(Primitive::Text(_, value)) if value == "に日"
+            Some(Primitive::Text(_, value)) if value == "│に日"
         ));
         assert!(rt.handle(Event::ImeBatch {
             preedit: None,
@@ -969,7 +969,7 @@ mod tests {
         assert_eq!(rt.input_cursor_byte(NodeId(2)), Some("screen reader".len()));
         assert!(matches!(
             rt.render_list().last(),
-            Some(Primitive::Text(_, value)) if value == "screen reader"
+            Some(Primitive::Text(_, value)) if value == "screen reader│"
         ));
     }
 
