@@ -238,6 +238,29 @@ fn scroll_history(handle: &agent::MonitorHandle, action: KeyAction) -> bool {
     true
 }
 
+/// Apply a wheel scroll only while the composer is unfocused. Clamp one event
+/// to a page so large or malformed line counts cannot jump arbitrary history.
+fn scroll_pointer_history(
+    handle: &agent::MonitorHandle,
+    lines: i32,
+    composer_focused: bool,
+) -> bool {
+    if composer_focused || lines == 0 {
+        return false;
+    }
+    let count = lines.unsigned_abs().min(SCROLL_STEP as u32) as usize;
+    if let Ok(mut view) = handle.view.lock() {
+        if lines > 0 {
+            view.scroll_up(count);
+        } else {
+            view.scroll_down(count);
+        }
+        true
+    } else {
+        false
+    }
+}
+
 /// Convert a scene draw node into the renderer's primitive vocabulary.
 fn present_node(n: &DrawNode) -> Primitive {
     let rect = goya_layout::Rect {
@@ -403,6 +426,44 @@ fn headless_acceptance(store: &SceneStore) {
     );
     ok &= scroll_ok && live_ok;
 
+    // Wheel history contract: positive scrolls up, negative scrolls down,
+    // the event magnitude is bounded, and a focused composer keeps the wheel.
+    let wheel_handle = agent::MonitorHandle::new();
+    if let Ok(mut view) = wheel_handle.view.lock() {
+        for i in 0..40 {
+            view.push_line(&format!("line {i:02}"));
+        }
+    }
+    let wheel_up = scroll_pointer_history(&wheel_handle, i32::MAX, false);
+    let wheel_up_ok = wheel_up
+        && wheel_handle
+            .view
+            .lock()
+            .map(|view| {
+                view.scroll == SCROLL_STEP && view.rows()[TAIL_LINES - 1] == "line 25"
+            })
+            .unwrap_or(false);
+    let focused_wheel = scroll_pointer_history(&wheel_handle, -5, true);
+    let focused_ok = !focused_wheel
+        && wheel_handle
+            .view
+            .lock()
+            .map(|view| view.scroll == SCROLL_STEP)
+            .unwrap_or(false);
+    let wheel_down = scroll_pointer_history(&wheel_handle, -5, false);
+    let wheel_down_ok = wheel_down
+        && wheel_handle
+            .view
+            .lock()
+            .map(|view| view.scroll == SCROLL_STEP - 5)
+            .unwrap_or(false);
+    let wheel_ok = wheel_up_ok && focused_ok && wheel_down_ok;
+    println!(
+        "pointer scroll bounded/focus-aware history [{}]",
+        pass_str(wheel_ok)
+    );
+    ok &= wheel_ok;
+
     if !ok {
         std::process::exit(1);
     }
@@ -533,14 +594,10 @@ fn run_live(args: &Args, store: &mut SceneStore, last_mtime: &mut Option<SystemT
                     }
                     dirty = true;
                 }
+                goya_wayland::PlatformEvent::PointerScroll(lines) => {
+                    dirty |= scroll_pointer_history(&handle, lines, composer.focused);
+                }
                 goya_wayland::PlatformEvent::Resized(_, _) => dirty = true,
-                // Wave-3 gate point: when goya-wayland lands
-                // `PlatformEvent::PointerScroll(lines)` (REL_WHEEL,
-                // positive = wheel up / scroll up), wire it here:
-                // composer unfocused → lines > 0: view.scroll_up(SCROLL_STEP),
-                // lines < 0: view.scroll_down(SCROLL_STEP). Placeholder
-                // only — matching a not-yet-existing variant would break
-                // the build against the current goya-wayland.
                 _ => {}
             }
         }
