@@ -226,7 +226,10 @@ mod tests {
     fn wrap_respects_width() {
         let lines = wrap_line("the quick brown fox jumps over the lazy dog", 10);
         assert!(lines.iter().all(|l| l.chars().count() <= 10));
-        assert_eq!(lines.join(" "), "the quick brown fox jumps over the lazy dog");
+        assert_eq!(
+            lines.join(" "),
+            "the quick brown fox jumps over the lazy dog"
+        );
     }
 
     #[test]

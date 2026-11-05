@@ -1118,13 +1118,8 @@ mod tests {
             fs::write(&outside_path, SCENE.replace("hello", "outside secret")).unwrap();
             fs::remove_file(&canonical_path).unwrap();
             std::os::unix::fs::symlink(&outside_path, &canonical_path).unwrap();
-            let symlink_reload = route_request_for_scene(
-                &get("/"),
-                HOST,
-                SCENE,
-                &preview,
-                Some(&canonical_path),
-            );
+            let symlink_reload =
+                route_request_for_scene(&get("/"), HOST, SCENE, &preview, Some(&canonical_path));
             assert_eq!(symlink_reload.0, "500 Internal Server Error");
             assert!(!symlink_reload.2.contains("outside secret"));
             let symlink_target = route_request_for_scene(
