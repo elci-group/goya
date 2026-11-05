@@ -77,7 +77,8 @@ each frame before conversion to primitives (calculator `with_result` pattern).
 - `--live`: Wayland window.
 - `--frames <n>`: stop live rendering after `n` frames (also selects live mode).
 - `--duration <seconds>`: stop either live or dump mode after the requested
-  duration. Invalid values are ignored by this candidate host.
+  duration. Both numeric options require positive integers; conflicting live
+  and dump modes are rejected.
 
 ## Acceptance
 
