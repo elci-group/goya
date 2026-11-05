@@ -189,37 +189,46 @@ fn main() {
                 }
             }
         }
+        let event_frame = layout(store.get(), 400.0, 150.0);
+        inputs.sync_nodes(&event_frame);
         for ev in win.poll() {
             match ev {
                 goya_wayland::PlatformEvent::PointerPress(x, y) => {
-                    let frame = layout(store.get(), 400.0, 150.0);
                     if let Some(name) = hit_test_scrolled(
-                        &frame,
+                        &event_frame,
                         &scroll_offsets,
                         (x as i64) * goya_wayland::MP_PER_PX,
                         (y as i64) * goya_wayland::MP_PER_PX,
                     ) {
-                        println!("goya-scene: button '{name}' activated");
-                        *clicked.entry(name).or_insert(0u32) += 1;
-                        if let Some(out) = audio.as_mut() {
-                            let t = goya_audio_dsp::Tap::new(880.0, 48_000.0, 0.12);
-                            let mut limiter = goya_audio_dsp::Limiter::new();
-                            let buf: Vec<f32> = (0..5_760)
-                                .map(|i| limiter.push(0.5 * t.sample(i as f32 / 48_000.0)))
-                                .collect();
-                            let _ = goya_audio_linux::AudioOutput::write(out, &buf);
+                        if event_frame.find(&name).is_some_and(|node| node.is_input) {
+                            inputs.focus(Some(name));
+                        } else if event_frame.find(&name).is_some_and(|node| node.is_button) {
+                            inputs.focus(None);
+                            println!("goya-scene: button '{name}' activated");
+                            *clicked.entry(name).or_insert(0u32) += 1;
+                            if let Some(out) = audio.as_mut() {
+                                let t = goya_audio_dsp::Tap::new(880.0, 48_000.0, 0.12);
+                                let mut limiter = goya_audio_dsp::Limiter::new();
+                                let buf: Vec<f32> = (0..5_760)
+                                    .map(|i| limiter.push(0.5 * t.sample(i as f32 / 48_000.0)))
+                                    .collect();
+                                let _ = goya_audio_linux::AudioOutput::write(out, &buf);
+                            }
+                        } else {
+                            inputs.focus(None);
                         }
+                    } else {
+                        inputs.focus(None);
                     }
                 }
                 goya_wayland::PlatformEvent::PointerMove(x, y) => pointer = Some((x, y)),
                 goya_wayland::PlatformEvent::PointerScroll(lines) => {
                     if let Some((x, y)) = pointer {
-                        let frame = layout(store.get(), 400.0, 150.0);
                         let x = (x as i64) * goya_wayland::MP_PER_PX;
                         let y = (y as i64) * goya_wayland::MP_PER_PX;
-                        if let Some(target) = frame.scroll_target_at(&scroll_offsets, x, y) {
+                        if let Some(target) = event_frame.scroll_target_at(&scroll_offsets, x, y) {
                             let _ = scroll_offsets.scroll_by(
-                                &frame,
+                                &event_frame,
                                 &target,
                                 0,
                                 -i64::from(lines).saturating_mul(40_000),
