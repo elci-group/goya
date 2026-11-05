@@ -1434,6 +1434,21 @@ fn key_special(keycode: u32) -> Option<KeySpecial> {
     Some(ks)
 }
 
+/// wl_pointer vertical-axis value → [`PlatformEvent::PointerScroll`] line
+/// count (GY-ZCODE-003). Wayland reports positive axis value = scroll
+/// down/towards the user; our contract is positive = wheel up, so the sign
+/// is inverted. One pointer notch maps to one line; a zero value yields None
+/// (nothing to emit).
+fn scroll_lines(axis_value: f64) -> Option<i32> {
+    if axis_value > 0.0 {
+        Some(-1)
+    } else if axis_value < 0.0 {
+        Some(1)
+    } else {
+        None
+    }
+}
+
 impl Dispatch<WlKeyboard, ()> for GoyaWindowInner {
     fn event(
         state: &mut Self,
@@ -1508,6 +1523,17 @@ impl Dispatch<WlPointer, ()> for GoyaWindowInner {
                         }
                         _ => {}
                     }
+                }
+            }
+            // Vertical wheel (REL_WHEEL equivalent): only the vertical axis
+            // is mapped; horizontal-axis devices emit nothing (GY-ZCODE-003).
+            wl_pointer::Event::Axis {
+                axis: WEnum::Value(wl_pointer::Axis::VerticalScroll),
+                value,
+                ..
+            } => {
+                if let Some(lines) = scroll_lines(value) {
+                    state.events.push(PlatformEvent::PointerScroll(lines));
                 }
             }
             wl_pointer::Event::Leave { .. } => state.last_pointer = None,
