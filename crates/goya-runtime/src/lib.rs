@@ -429,6 +429,13 @@ struct TextFieldState {
 
 impl Runtime {
     pub fn new(module: Module, store: Store, constraints: Constraints) -> Self {
+        let text_inputs = module
+            .nodes
+            .iter()
+            .filter_map(|(id, node)| {
+                matches!(node, Node::Input { .. }).then_some((*id, TextFieldState::default()))
+            })
+            .collect();
         let mut rt = Runtime {
             module,
             store,
@@ -437,9 +444,7 @@ impl Runtime {
             revision_at_layout: None,
             geometry_revision: Some(0),
             level2: Level2Predictor::new(),
-            text_inputs: module.nodes.iter().filter_map(|(id, node)| {
-                matches!(node, Node::Input { .. }).then_some((*id, TextFieldState::default()))
-            }).collect(),
+            text_inputs,
             focused_input: None,
         };
         rt.relayout();
@@ -461,7 +466,14 @@ impl Runtime {
     }
 
     pub fn focus_input(&mut self, node: Option<NodeId>) -> bool {
-        if node.is_some_and(|id| !self.text_inputs.contains_key(&id)) { return false; }
+        if node.is_some_and(|id| !self.text_inputs.contains_key(&id)) {
+            return false;
+        }
+        if self.focused_input != node {
+            if let Some(previous) = self.focused_input.and_then(|id| self.text_inputs.get_mut(&id)) {
+                previous.preedit = None;
+            }
+        }
         self.focused_input = node;
         true
     }
@@ -560,6 +572,7 @@ impl Runtime {
             Event::Character(c) if !c.is_control() && self.focused_input.is_some() => {
                 self.edit_focused(|state| state.buffer.insert(&c.to_string()));
             }
+            Event::Character(_) if self.focused_input.is_some() => {}
             Event::Character(c) => self.append_text(c),
         }
         // Relayout only when state changed since the last layout.
