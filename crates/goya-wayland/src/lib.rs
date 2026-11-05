@@ -912,13 +912,15 @@ fn draw_glyphs(
     let oy = r.y / MP_PER_PX + 2;
     // Node rect bounds in pixels; every line is clipped to this rect
     // (GY-WAVE2 multi-line contract). Lines that start at or beyond the
-    // rect's bottom edge are dropped entirely.
+    // rect's bottom edge are dropped entirely (threshold without the +2
+    // glyph-origin inset, matching the rect the caller declared).
     let rect_x1 = (r.x + r.width) / MP_PER_PX + 2;
-    let rect_y1 = (r.y + r.height) / MP_PER_PX + 2;
+    let rect_bottom = (r.y + r.height) / MP_PER_PX;
+    let rect_y1 = rect_bottom + 2;
     let line_height = ((glyph_px.max(1) as f64) * 1.4) as i64;
     for (li, line) in s.split('\n').enumerate() {
         let line_oy = oy + (li as i64) * line_height;
-        if line_oy >= rect_y1 {
+        if line_oy >= rect_bottom {
             break;
         }
         for (ci, ch) in line.chars().enumerate() {
@@ -1851,7 +1853,6 @@ mod multiline_tests {
             bg,
             "no second line on single-line text"
         );
-        let _ = g;
     }
 
     #[test]
@@ -1881,7 +1882,6 @@ mod multiline_tests {
     #[test]
     fn glyphs_are_clipped_to_node_rect_right_edge() {
         let (width, height) = (64, 32);
-        let fg = argb([255, 255, 255]);
         let bg = argb([0, 0, 0]);
         // Rect ends at x=8 px; a long single-line string must not paint
         // past the rect's right edge.
@@ -1898,6 +1898,5 @@ mod multiline_tests {
                 );
             }
         }
-        let _ = fg;
     }
 }

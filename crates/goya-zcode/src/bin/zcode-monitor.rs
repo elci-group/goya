@@ -119,6 +119,52 @@ fn apply_view_to_frame(nodes: &mut [DrawNode], view: &SessionView) {
     }
 }
 
+/// GY-ZCODE-002 gate integration point: map `goya_wayland::KeySpecial`
+/// onto the composer's `&str` key names (see `composer` module docs).
+fn special_name(special: KeySpecial) -> &'static str {
+    match special {
+        KeySpecial::ArrowLeft => "arrow_left",
+        KeySpecial::ArrowRight => "arrow_right",
+        KeySpecial::ArrowUp => "arrow_up",
+        KeySpecial::ArrowDown => "arrow_down",
+        KeySpecial::Home => "home",
+        KeySpecial::End => "end",
+        KeySpecial::Delete => "delete",
+        KeySpecial::Escape => "escape",
+        KeySpecial::Tab => "tab",
+    }
+}
+
+/// Per-frame composer render override: live text with a `│` cursor marker
+/// (visible window kept inside the node by `Composer::display`). Missing
+/// composer node in the scene is tolerated (pre-Wave-2 parser).
+fn apply_composer_to_frame(nodes: &mut [DrawNode], composer: &Composer) {
+    if !composer.focused {
+        return;
+    }
+    let text = composer.display();
+    for node in nodes.iter_mut() {
+        if node.name == "composer" {
+            node.text = Some(text.clone());
+            break;
+        }
+    }
+}
+
+/// Feed one key event into the composer; returns the committed line, if
+/// any. The monitor is a read-only link: committed lines are echoed into
+/// the tail with a `[local]` prefix and never sent to the agent.
+fn feed_key(composer: &mut Composer, ev: &goya_wayland::PlatformEvent) -> Option<String> {
+    match ev {
+        goya_wayland::PlatformEvent::KeyChar(c) => composer.handle_char(*c),
+        goya_wayland::PlatformEvent::KeySpecial(s) => {
+            composer.handle_special(special_name(*s));
+            None
+        }
+        _ => None,
+    }
+}
+
 /// Convert a scene draw node into the renderer's primitive vocabulary.
 fn present_node(n: &DrawNode) -> Primitive {
     let rect = goya_layout::Rect {
@@ -214,6 +260,28 @@ fn headless_acceptance(store: &SceneStore) {
     let hit_ok = hit_test(&frame, 340_000, 304_000).as_deref() == Some("quit");
     println!("hit test on 'quit' button [{}]", pass_str(hit_ok));
     ok &= hit_ok;
+
+    // Composer (GY-ZCODE-002): scripted type → backspace → commit run.
+    // SKIP when the scene has no composer node (e.g. pre-Wave-2 parser);
+    // that is a skip, not a failure, until J1's @input support lands.
+    let has_composer = frame.find("composer").is_some();
+    if has_composer {
+        let mut c = Composer::new();
+        c.focused = true;
+        for ch in "abx".chars() {
+            c.handle_char(ch);
+        }
+        c.handle_char('\u{8}');
+        c.handle_char('c');
+        let committed = c.handle_char('\n');
+        let comp_ok = committed.as_deref() == Some("abc")
+            && c.text.is_empty()
+            && c.history.last().map(String::as_str) == Some("abc");
+        println!("composer type/backspace/commit [{}]", pass_str(comp_ok));
+        ok &= comp_ok;
+    } else {
+        println!("composer type/backspace/commit [SKIP] (no 'composer' node in scene)");
+    }
 
     if !ok {
         std::process::exit(1);
