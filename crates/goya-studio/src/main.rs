@@ -368,12 +368,16 @@ fn finite_or(value: Option<Vec3>, fallback: Vec3) -> Vec3 {
     }
 }
 
-fn render_editor(project: &SceneProject, preview: &str) -> String {
+fn render_editor(project: &SceneProject, preview: &str, revision: &str) -> String {
     let source = project.source();
     let mut cells = Vec::new();
     flatten_cells(&project.scene().root, None, &mut cells);
     let frame = project.frame();
     let mut html = String::from("<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Goya Studio</title><style>body{margin:0;background:#17171d;color:#eee;font:14px system-ui,sans-serif}header{padding:10px 16px;border-bottom:1px solid #444}main{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;padding:12px;height:calc(100vh - 65px);height:calc(100dvh - 65px);box-sizing:border-box}section{display:flex;flex-direction:column;min-height:0}.tools{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:8px 0}textarea{flex:1;resize:none;background:#101014;color:#e8e8f0;border:1px solid #777;padding:12px;font:13px/1.5 ui-monospace,monospace}input,select{min-height:36px;background:#101014;color:#eee;border:1px solid #777;padding:5px}button{margin-top:8px;min-height:44px;padding:9px 12px;background:#3267c8;color:white;border:0;border-radius:4px;cursor:pointer}iframe{width:100%;height:100%;border:1px solid #777;background:#111}button:focus-visible,textarea:focus-visible,iframe:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid #9fc2ff;outline-offset:2px}output{min-height:1.4em;padding:5px}@media(max-width:760px){main{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(18rem,1fr) minmax(18rem,1fr);height:auto;min-height:calc(100vh - 65px);min-height:calc(100dvh - 65px)}}@media(forced-colors:active){button:focus-visible,textarea:focus-visible,iframe:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid Highlight;outline-offset:2px}}</style></head><body><header><strong>Goya Studio</strong> · local visual editor and preview</header><main aria-label=\"Scene editor\"><section aria-labelledby=\"source-label\"><label id=\"source-label\" for=\"source\">Scene source</label><div class=\"tools\"><label>Node<select id=\"node\">");
+    html = html.replace(
+        "</head>",
+        &format!("<meta name=\"goya-revision\" content=\"{revision}\"></head>"),
+    );
     for (index, (cell, parent_index)) in cells.iter().enumerate() {
         let draw = frame.nodes.get(index);
         let pos_default = Vec3::default();
@@ -541,10 +545,12 @@ fn route_request_for_scene(
             None => Ok(source.to_owned()),
         };
         return match current_source.and_then(|source| {
+            let revision = scene_revision(source.as_bytes());
             SceneProject::from_source(source, Viewport::default())
+                .map(|project| (project, revision))
                 .map_err(|error| error.to_string())
         }) {
-            Ok(project) if project.frame().nodes.len() <= MAX_PREVIEW_NODES => {
+            Ok((project, revision)) if project.frame().nodes.len() <= MAX_PREVIEW_NODES => {
                 let preview = if save_path.is_some() {
                     render_html(&project)
                 } else {
@@ -553,7 +559,7 @@ fn route_request_for_scene(
                 (
                     "200 OK",
                     "text/html; charset=utf-8",
-                    render_editor(&project, &preview),
+                    render_editor(&project, &preview, &revision),
                 )
             }
             Ok(_) => (
