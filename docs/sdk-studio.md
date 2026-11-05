@@ -38,6 +38,11 @@ the editor.
 **Save scene** validates and atomically replaces the file opened by `serve`;
 the browser cannot choose a server-side save path. Save and preview requests
 are limited to 128 KiB and require the page's same-origin request headers.
+Save also uses an `If-Match` revision from the scene loaded by the editor. If
+the opened file changed on disk, Studio returns HTTP 409 and keeps the browser
+draft intact instead of replacing the newer file. Reload the editor to use the
+new disk revision before saving again. A successful save advances the revision
+token for the next save.
 **Download source** remains available to export a separate copy. Stop the
 server with Ctrl-C.
 
