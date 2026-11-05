@@ -288,11 +288,23 @@ impl TextBuffer {
     /// Range endpoints are expanded to grapheme boundaries before deletion.
     pub fn delete_surrounding(&mut self, before_bytes: u32, after_bytes: u32) {
         let raw_start = self.cursor.saturating_sub(before_bytes as usize);
-        let raw_end = self.cursor.saturating_add(after_bytes as usize).min(self.text.len());
-        let start = self.text.grapheme_indices(true)
-            .map(|(index, _)| index).take_while(|index| *index <= raw_start).last().unwrap_or(0);
-        let end = self.text.grapheme_indices(true)
-            .map(|(index, _)| index).find(|index| *index >= raw_end).unwrap_or(self.text.len());
+        let raw_end = self
+            .cursor
+            .saturating_add(after_bytes as usize)
+            .min(self.text.len());
+        let start = self
+            .text
+            .grapheme_indices(true)
+            .map(|(index, _)| index)
+            .take_while(|index| *index <= raw_start)
+            .last()
+            .unwrap_or(0);
+        let end = self
+            .text
+            .grapheme_indices(true)
+            .map(|(index, _)| index)
+            .find(|index| *index >= raw_end)
+            .unwrap_or(self.text.len());
         if start < end {
             self.record_undo();
             self.text.replace_range(start..end, "");

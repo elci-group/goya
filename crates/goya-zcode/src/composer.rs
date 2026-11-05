@@ -125,8 +125,12 @@ impl Composer {
         commit: Option<&str>,
         delete: Option<(u32, u32)>,
     ) {
-        if !self.focused { return; }
-        if delete.is_some() { self.preedit = None; }
+        if !self.focused {
+            return;
+        }
+        if delete.is_some() {
+            self.preedit = None;
+        }
         if let Some((before, after)) = delete {
             self.buffer.delete_surrounding(before, after);
         }

@@ -241,7 +241,12 @@ fn feed_key(composer: &mut Composer, ev: &goya_wayland::PlatformEvent) -> Option
             }
             None
         }
-        goya_wayland::PlatformEvent::ImeBatch { preedit, commit, delete, .. } => {
+        goya_wayland::PlatformEvent::ImeBatch {
+            preedit,
+            commit,
+            delete,
+            ..
+        } => {
             composer.handle_ime_batch(preedit.clone(), commit.as_deref(), *delete);
             None
         }
@@ -643,7 +648,13 @@ fn run_live(args: &Args, store: &mut SceneStore, last_mtime: &mut Option<SystemT
                     dirty |= scroll_pointer_history(&handle, lines, composer.focused);
                 }
                 goya_wayland::PlatformEvent::ImeBatch { .. } => {
-                    if let goya_wayland::PlatformEvent::ImeBatch { preedit, commit, delete, .. } = ev {
+                    if let goya_wayland::PlatformEvent::ImeBatch {
+                        preedit,
+                        commit,
+                        delete,
+                        ..
+                    } = ev
+                    {
                         composer.handle_ime_batch(preedit, commit.as_deref(), delete);
                     }
                     sync_text_input(&mut win, &composer, store.get());
