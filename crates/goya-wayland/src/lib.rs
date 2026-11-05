@@ -62,6 +62,10 @@ pub enum PlatformEvent {
     /// positive = wheel up, negative = wheel down. Devices that never emit a
     /// vertical axis produce nothing.
     PointerScroll(i32),
+    /// Ctrl+c / ctrl+v / ctrl+q (GY-ZCODE-004). Only produced by the xkb
+    /// state path; the keymap-free evdev fallback tracks no ctrl modifier
+    /// and therefore never emits shortcuts.
+    Shortcut(Shortcut),
     /// Atomic text-input-v3 update. Consumers remove old preedit, apply
     /// surrounding deletion, insert commit text, then install new preedit.
     ImeBatch {
@@ -74,6 +78,17 @@ pub enum PlatformEvent {
     Resized(i32, i32),
     Configured,
     CloseRequested,
+}
+
+/// Application-level shortcut keys (GY-ZCODE-004): ctrl+c / ctrl+v / ctrl+q
+/// recognised through the compositor's xkb state path (ctrl modifier tracking
+/// plus evdev keycode). The keymap-free evdev fallback path never emits these
+/// because it does not track ctrl.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Shortcut {
+    Copy,
+    Paste,
+    Quit,
 }
 
 /// Navigation/editing keys emitted as [`PlatformEvent::KeySpecial`].
@@ -1992,6 +2007,23 @@ fn key_chars_with_compose(
         xkbcommon::xkb::compose::Status::Nothing => {
             key_chars(xkb_state, evdev_keycode, shift, ctrl)
         }
+    }
+}
+
+/// Pure decision helper (GY-ZCODE-004 contract): map ctrl + evdev keycode to
+/// an application shortcut. Only ctrl+c (46), ctrl+v (47) and ctrl+q (16)
+/// are recognised; every other combination — including plain (non-ctrl)
+/// presses of those keys — yields None and stays inert, exactly as in the
+/// pre-shortcut behavior.
+fn shortcut_from_key(ctrl: bool, keycode: u32) -> Option<Shortcut> {
+    if !ctrl {
+        return None;
+    }
+    match keycode {
+        46 => Some(Shortcut::Copy),   // KEY_C
+        47 => Some(Shortcut::Paste),  // KEY_V
+        16 => Some(Shortcut::Quit),   // KEY_Q
+        _ => None,
     }
 }
 
