@@ -256,13 +256,14 @@ impl AgentRun {
         if child.stdout.is_none() {
             return Err("app-server stdout unavailable".to_string());
         }
+        let send_lifecycle = Arc::clone(&handle.send_lifecycle);
         Ok(Self {
             workspace: workspace.to_path_buf(),
             handle,
             child,
             next_id: AtomicU64::new(1),
             pending: Arc::new(Mutex::new(HashMap::new())),
-            send_lifecycle: Arc::clone(&handle.send_lifecycle),
+            send_lifecycle,
         })
     }
 
@@ -325,6 +326,10 @@ impl AgentRun {
         let thread_done = Arc::clone(&reader_done);
         let session_filter = Arc::new(Mutex::new(None::<String>));
         let reader_filter = Arc::clone(&session_filter);
+        if let Ok(mut lifecycle) = self.send_lifecycle.lock() {
+            lifecycle.disconnect();
+        }
+        let reader_send_lifecycle = Arc::clone(&self.send_lifecycle);
         std::thread::spawn(move || {
             read_frames(
                 BufReader::new(stdout),
@@ -333,6 +338,7 @@ impl AgentRun {
                 reader_dirty,
                 reader_stop,
                 reader_filter,
+                reader_send_lifecycle,
             );
             thread_done.store(true, Ordering::Release);
         });
@@ -370,6 +376,8 @@ impl AgentRun {
         if let Ok(mut filter) = session_filter.lock() {
             *filter = Some(target.session_id.clone());
         }
+        self.handle
+            .set_active_session(Some(target.session_id.clone()));
         self.set_view(|v| {
             v.sessions = entries.clone();
             v.title = target.title.clone();
@@ -400,9 +408,6 @@ impl AgentRun {
         }
         self.set_view(|v| v.status = "subscribed".to_string());
 
-        // One outstanding send at a time; the flag lives in the run loop
-        // so a reconnect resets admission (the wire state does too).
-        let mut send_pending = false;
         // Hold the connection open until stop or child exit. The command
         // queue is drained non-blocking before every poll sleep, so the
         // loop never waits more than POLL_INTERVAL_MS on the channel.
@@ -420,7 +425,7 @@ impl AgentRun {
                 Err(e) => return Err(format!("wait failed: {e}")),
             }
             while let Some(cmd) = self.handle.try_take_cmd() {
-                self.handle_cmd(&mut stdin, &target.session_id, cmd, &mut send_pending);
+                self.handle_cmd(&mut stdin, &target.session_id, cmd);
             }
             std::thread::sleep(Duration::from_millis(POLL_INTERVAL_MS));
         }
@@ -438,17 +443,29 @@ impl AgentRun {
         stdin: &mut ChildStdin,
         session_id: &str,
         cmd: AgentCmd,
-        send_pending: &mut bool,
     ) {
-        let AgentCmd::SendText { line, wire } = cmd;
+        let AgentCmd::SendText {
+            line,
+            wire,
+            session_id: queued_session_id,
+        } = cmd;
+        if queued_session_id != session_id {
+            self.set_view(|v| v.status = "dropped stale send — session changed".to_string());
+            return;
+        }
         if !wire {
             // No --allow-send: admission-shaped no-op, nothing on the wire.
             return;
         }
-        if !admit_send(send_pending) {
+        let ticket = self
+            .send_lifecycle
+            .lock()
+            .ok()
+            .and_then(|mut lifecycle| lifecycle.admit(session_id));
+        let Some(ticket) = ticket else {
             self.set_view(|v| v.status = "busy — send pending".to_string());
             return;
-        }
+        };
         let result = self.request(
             stdin,
             "session/send",
@@ -456,16 +473,27 @@ impl AgentRun {
         );
         match result {
             Ok(res) if res.get("accepted").and_then(Value::as_bool) == Some(true) => {
-                // Confirmed by the next `turn.started`, which sets the
-                // status to "running" (see `SessionView::apply`).
-                self.set_view(|v| v.status = "sending".to_string());
+                self.update_send_response(ticket, true);
             }
-            Ok(_) => self.set_view(|v| v.status = "send rejected by server".to_string()),
+            Ok(_) => self.update_send_response(ticket, false),
             // Server errors (e.g. "-32010: A prompt is already running
             // for this session") surface as status text, never a crash.
-            Err(err) => self.set_view(|v| v.status = err),
+            Err(err) => {
+                self.update_send_response(ticket, false);
+                self.set_view(|v| v.status = err);
+            }
         }
-        *send_pending = false;
+    }
+
+    fn update_send_response(&self, ticket: u64, accepted: bool) {
+        let status = self
+            .send_lifecycle
+            .lock()
+            .ok()
+            .and_then(|mut lifecycle| lifecycle.response(ticket, accepted));
+        if let Some(status) = status {
+            self.set_view(|v| v.status = status.to_string());
+        }
     }
 }
 
@@ -479,6 +507,7 @@ fn read_frames(
     dirty: Arc<AtomicBool>,
     stop: Arc<AtomicBool>,
     session_filter: Arc<Mutex<Option<String>>>,
+    send_lifecycle: Arc<Mutex<SendLifecycle>>,
 ) {
     for line in reader.lines() {
         if stop.load(Ordering::Relaxed) {
@@ -529,6 +558,14 @@ fn read_frames(
                     envelope.get("sessionId").and_then(Value::as_str) == Some(id.as_str())
                 });
             if matches_session {
+                if let (Some(session_id), Some(kind)) = (
+                    envelope.get("sessionId").and_then(Value::as_str),
+                    envelope.get("type").and_then(Value::as_str),
+                ) {
+                    if let Ok(mut lifecycle) = send_lifecycle.lock() {
+                        lifecycle.event(session_id, kind);
+                    }
+                }
                 if let Some(event) = map_event(envelope) {
                     if let Ok(mut v) = view.lock() {
                         v.apply(&event);
