@@ -75,7 +75,11 @@ fn measure_and_place(
         return (0, 0);
     };
     match node {
-        Node::Text { content } | Node::Button { label: content, .. } => {
+        Node::Text { content }
+        | Node::Button { label: content, .. }
+        | Node::Input {
+            placeholder: content,
+        } => {
             let width = (content.chars().count() as i64) * GLYPH_WIDTH;
             place(frame, id, x, y, width.min(max_width), LEAF_HEIGHT);
             (width.min(max_width), LEAF_HEIGHT)
