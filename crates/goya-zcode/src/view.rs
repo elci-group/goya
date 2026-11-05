@@ -109,7 +109,7 @@ impl SessionView {
                 if response.is_empty() {
                     self.push_line(&format!("[done: {result}]"));
                 } else {
-                    self.push_line(&response);
+                    self.push_line(response);
                 }
                 self.status = if result == "success" || result == "cancelled" {
                     "idle".to_string()
@@ -208,14 +208,10 @@ fn truncate_chars(s: &str, max: usize) -> String {
 
 /// Largest char boundary <= `max_chars`.
 fn char_boundary_floor(s: &str, max_chars: usize) -> usize {
-    let mut count = 0usize;
-    for (idx, _) in s.char_indices() {
-        if count == max_chars {
-            return idx;
-        }
-        count += 1;
-    }
-    s.len()
+    s.char_indices()
+        .nth(max_chars)
+        .map(|(idx, _)| idx)
+        .unwrap_or(s.len())
 }
 
 #[cfg(test)]
