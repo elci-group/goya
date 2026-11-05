@@ -1757,6 +1757,7 @@ mod key_special_tests {
 #[cfg(test)]
 mod fill_tests {
     use super::{argb, raster_serial, resolve_fill, MP_PER_PX};
+    use goya_layout::Rect;
 
     #[test]
     fn resolve_fill_overrides_and_falls_back() {
@@ -1778,8 +1779,8 @@ mod fill_tests {
             height: 20 * MP_PER_PX,
         };
         let primitives = [goya_runtime::Primitive::Button(rect, "C".to_string())];
-        // Button glyph area sits at x>=2, y>=2; sample the plain fill area.
-        let probe = 5 + 5 * width as usize;
+        // The single 'C' glyph spans x=2..6; sample plain fill at (15, 15).
+        let probe = 15 + 15 * width as usize;
         let default = argb([80, 100, 180]);
         let overridden = argb([0x1A, 0x2A, 0x3B]);
 
@@ -1817,6 +1818,7 @@ mod fill_tests {
 #[cfg(test)]
 mod multiline_tests {
     use super::{argb, draw_glyphs, MP_PER_PX};
+    use goya_layout::Rect;
 
     fn rect(x: i64, y: i64, w: i64, h: i64) -> Rect {
         Rect {
