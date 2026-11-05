@@ -746,6 +746,7 @@ dependencies = [
  "goya-executable",
  "goya-ir",
  "goya-vee",
+ "unicode-segmentation",
 ]
 
 [[package]]

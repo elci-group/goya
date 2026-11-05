@@ -10,3 +10,4 @@ goya-ir.workspace = true
 goya-determinism.workspace = true
 goya-executable.workspace = true
 goya-vee.workspace = true
+unicode-segmentation = "1.12"

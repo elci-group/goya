@@ -417,6 +417,7 @@ fn intersect_rects(a: RectMp, b: RectMp) -> RectMp {
 /// collapse to single separators between words on a line. Deterministic
 /// and measurement-free.
 fn wrap_text(text: &str, width: usize) -> Vec<String> {
+    use unicode_segmentation::UnicodeSegmentation;
     // Width 0 cannot come from the parser (it rejects 0), but stay total.
     if width == 0 {
         return vec![text.to_string()];
@@ -430,7 +431,7 @@ fn wrap_text(text: &str, width: usize) -> Vec<String> {
         for word in line.split(' ').filter(|w| !w.is_empty()) {
             let mut word = word;
             loop {
-                let word_len = word.chars().count();
+                let word_len = word.graphemes(true).count();
                 let sep = usize::from(!current.is_empty());
                 if current_len + sep + word_len <= width {
                     if sep == 1 {
@@ -446,7 +447,11 @@ fn wrap_text(text: &str, width: usize) -> Vec<String> {
                     continue;
                 }
                 // The word alone exceeds the width: hard-split it.
-                let split_at = char_boundary_floor(word, width);
+                let split_at = word
+                    .grapheme_indices(true)
+                    .nth(width)
+                    .map(|(index, _)| index)
+                    .unwrap_or(word.len());
                 let head = &word[..split_at];
                 word = &word[split_at..];
                 out.push(head.to_string());
@@ -482,15 +487,6 @@ mod scrolling_tests {
         offsets.reconcile(&layout(&removed, 400.0, 300.0));
         assert_eq!(offsets.get("viewport"), (0, 0));
     }
-}
-
-/// Byte offset after the first `max_chars` characters (a char boundary;
-/// `word.len()` when the word is shorter).
-fn char_boundary_floor(word: &str, max_chars: usize) -> usize {
-    word.char_indices()
-        .nth(max_chars)
-        .map(|(i, _)| i)
-        .unwrap_or(word.len())
 }
 
 fn resolve_rect(cell: &SceneCell, parent: RectMp, allow_overflow: bool) -> RectMp {
