@@ -474,4 +474,43 @@ mod tests {
         assert_eq!(c.text(), "仮名");
         assert!(!c.display().contains("かな"));
     }
+
+    // --- Wave 5 (GY-ZCODE-005): Preedit/CommitText consumption ---
+
+    #[test]
+    fn set_preedit_brackets_inline_and_clears() {
+        let mut c = focused();
+        assert_eq!(c.display(), "│");
+        c.set_preedit(Some("预"));
+        assert!(c.text().is_empty(), "preedit must not enter the buffer");
+        assert_eq!(c.display(), "«预»│");
+        // Cleared (PlatformEvent::Preedit(None)) removes the overlay.
+        c.set_preedit(None);
+        assert_eq!(c.display(), "│");
+        // Empty preedit behaves like cleared.
+        c.set_preedit(Some(""));
+        assert_eq!(c.display(), "│");
+        // Unfocused: inert.
+        let mut u = Composer::default();
+        u.set_preedit(Some("预"));
+        assert_eq!(u.display(), "│");
+    }
+
+    #[test]
+    fn commit_text_inserts_mid_text_utf8_safe() {
+        let mut c = focused();
+        for ch in "ab".chars() {
+            c.handle_char(ch);
+        }
+        c.handle_special("arrow_left");
+        // CommitText arrives whole (never as KeyChar chars) at the cursor.
+        c.handle_ime_batch(None, Some("汉字"), None);
+        assert_eq!(c.text(), "a汉字b");
+        // Grapheme cursor sits after the committed text; safe mid-swap.
+        assert_eq!(c.cursor_grapheme(), 3);
+        assert_eq!(c.display(), "a汉字│b");
+        // And typing continues normally after a commit.
+        assert_eq!(c.handle_char('x'), None);
+        assert_eq!(c.text(), "a汉字xb");
+    }
 }
