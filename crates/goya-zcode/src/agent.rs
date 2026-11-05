@@ -40,6 +40,7 @@ pub enum AgentCmd {
         line: String,
         wire: bool,
         session_id: String,
+        ticket: Option<u64>,
     },
 }
 
@@ -118,6 +119,12 @@ impl SendLifecycle {
         self.pending = None;
     }
 
+    fn cancel(&mut self, ticket: u64) {
+        if self.pending.as_ref().is_some_and(|pending| pending.ticket == ticket) {
+            self.pending = None;
+        }
+    }
+
     fn is_pending(&self) -> bool {
         self.pending.is_some()
     }
@@ -175,14 +182,43 @@ impl MonitorHandle {
             self.set_status("send unavailable — no active session");
             return;
         };
+        let ticket = if wire {
+            let admitted = self
+                .send_lifecycle
+                .lock()
+                .ok()
+                .and_then(|mut lifecycle| lifecycle.admit(&session_id));
+            let Some(ticket) = admitted else {
+                self.set_status("busy — send pending");
+                return;
+            };
+            Some(ticket)
+        } else {
+            None
+        };
         match self.cmd_tx.try_send(AgentCmd::SendText {
             line,
             wire,
             session_id,
+            ticket,
         }) {
             Ok(()) => {}
-            Err(TrySendError::Full(_)) => self.set_status("busy — send queue full"),
-            Err(TrySendError::Disconnected(_)) => self.set_status("send unavailable"),
+            Err(TrySendError::Full(_)) => {
+                if let Some(ticket) = ticket {
+                    if let Ok(mut lifecycle) = self.send_lifecycle.lock() {
+                        lifecycle.cancel(ticket);
+                    }
+                }
+                self.set_status("busy — send queue full");
+            }
+            Err(TrySendError::Disconnected(_)) => {
+                if let Some(ticket) = ticket {
+                    if let Ok(mut lifecycle) = self.send_lifecycle.lock() {
+                        lifecycle.cancel(ticket);
+                    }
+                }
+                self.set_status("send unavailable");
+            }
         }
     }
 
@@ -448,8 +484,14 @@ impl AgentRun {
             line,
             wire,
             session_id: queued_session_id,
+            ticket,
         } = cmd;
         if queued_session_id != session_id {
+            if let Some(ticket) = ticket {
+                if let Ok(mut lifecycle) = self.send_lifecycle.lock() {
+                    lifecycle.cancel(ticket);
+                }
+            }
             self.set_view(|v| v.status = "dropped stale send — session changed".to_string());
             return;
         }
@@ -457,13 +499,8 @@ impl AgentRun {
             // No --allow-send: admission-shaped no-op, nothing on the wire.
             return;
         }
-        let ticket = self
-            .send_lifecycle
-            .lock()
-            .ok()
-            .and_then(|mut lifecycle| lifecycle.admit(session_id));
         let Some(ticket) = ticket else {
-            self.set_view(|v| v.status = "busy — send pending".to_string());
+            self.set_view(|v| v.status = "send unavailable — admission missing".to_string());
             return;
         };
         let result = self.request(
