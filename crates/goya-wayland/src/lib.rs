@@ -1134,6 +1134,19 @@ fn wrap_bitmap_text(text: &str, columns: usize) -> Vec<String> {
     output
 }
 
+#[cfg(test)]
+mod bitmap_wrap_tests {
+    use super::wrap_bitmap_text;
+
+    #[test]
+    fn wraps_to_rendered_node_width_and_keeps_explicit_lines() {
+        assert_eq!(
+            wrap_bitmap_text("alpha beta\n\nlongword", 5),
+            ["alpha", "beta", "", "longw", "ord"]
+        );
+    }
+}
+
 /// 5x7 glyphs (leftmost pixel = bit 4); unknown characters render as a box.
 fn glyph5x7(c: char) -> [u8; 7] {
     match c {
