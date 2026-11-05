@@ -425,9 +425,7 @@ mod tests {
     fn turn_started_confirms_sending_status() {
         let mut view = SessionView::default();
         view.status = "sending".to_string();
-        view.apply(&ProjEvent::TurnStarted {
-            input: "hi".into(),
-        });
+        view.apply(&ProjEvent::TurnStarted { input: "hi".into() });
         assert_eq!(view.status, "running");
     }
 }

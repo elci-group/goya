@@ -448,9 +448,7 @@ impl P {
                     }
                     _ => return Err(ParseError { line: self.line() }),
                 };
-                let value: i64 = text
-                    .parse()
-                    .map_err(|_| ParseError { line: self.line() })?;
+                let value: i64 = text.parse().map_err(|_| ParseError { line: self.line() })?;
                 if value <= 0 || value > u32::MAX as i64 {
                     return Err(ParseError { line: self.line() });
                 }

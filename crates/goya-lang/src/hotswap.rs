@@ -79,7 +79,8 @@ mod tests {
 
     #[test]
     fn hot_swap_accepts_wrap_edits() {
-        const WRAPPED: &str = "@ontology a { @cell note { text: \"alpha beta gamma delta\" wrap: 10 } }";
+        const WRAPPED: &str =
+            "@ontology a { @cell note { text: \"alpha beta gamma delta\" wrap: 10 } }";
         let mut store = SceneStore::new(V1).unwrap();
         let gen = store.swap(WRAPPED).unwrap();
         assert_eq!(gen, 2);

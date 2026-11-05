@@ -326,10 +326,7 @@ mod tests {
         let ta = a.find("t").unwrap().text.clone();
         let tb = b.find("t").unwrap().text.clone();
         assert_eq!(ta, tb);
-        assert_eq!(
-            ta.as_deref(),
-            Some("alpha beta\ngamma delta\nepsilon zeta")
-        );
+        assert_eq!(ta.as_deref(), Some("alpha beta\ngamma delta\nepsilon zeta"));
     }
 
     #[test]

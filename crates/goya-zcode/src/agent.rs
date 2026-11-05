@@ -120,7 +120,11 @@ impl SendLifecycle {
     }
 
     fn cancel(&mut self, ticket: u64) {
-        if self.pending.as_ref().is_some_and(|pending| pending.ticket == ticket) {
+        if self
+            .pending
+            .as_ref()
+            .is_some_and(|pending| pending.ticket == ticket)
+        {
             self.pending = None;
         }
     }
@@ -474,12 +478,7 @@ impl AgentRun {
     /// request is issued here, serialised with setup traffic by `&mut
     /// ChildStdin`. The loop blocks on the response (up to
     /// `REQUEST_TIMEOUT`), never on the command channel itself.
-    fn handle_cmd(
-        &self,
-        stdin: &mut ChildStdin,
-        session_id: &str,
-        cmd: AgentCmd,
-    ) {
+    fn handle_cmd(&self, stdin: &mut ChildStdin, session_id: &str, cmd: AgentCmd) {
         let AgentCmd::SendText {
             line,
             wire,
