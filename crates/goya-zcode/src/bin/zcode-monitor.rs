@@ -9,7 +9,7 @@
 use goya_lang::{hit_test, layout, DrawNode, SceneStore};
 use goya_runtime::Primitive;
 use goya_wayland::GoyaWindow;
-use goya_zcode::agent::{self, MonitorHandle};
+use goya_zcode::agent::{self};
 use goya_zcode::view::{LinkState, ProjEvent, SessionView, TAIL_LINES};
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
@@ -123,7 +123,9 @@ fn present_node(n: &DrawNode) -> Primitive {
 fn main() {
     let args = parse_args();
     let source = std::fs::read_to_string(SCENE_PATH).unwrap_or_else(|e| {
-        eprintln!("zcode-monitor: cannot read {SCENE_PATH}: {e} (run from the goya workspace root)");
+        eprintln!(
+            "zcode-monitor: cannot read {SCENE_PATH}: {e} (run from the goya workspace root)"
+        );
         std::process::exit(1);
     });
     let mut store = match SceneStore::new(&source) {

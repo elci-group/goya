@@ -10,6 +10,7 @@ path = "src/bin/zcode-monitor.rs"
 
 [dependencies]
 goya-lang.workspace = true
+goya-layout.workspace = true
 goya-runtime.workspace = true
 goya-wayland.workspace = true
 serde = { version = "1", features = ["derive"] }
