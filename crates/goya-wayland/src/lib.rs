@@ -11,6 +11,23 @@
 //! client bindings rather than a hand-rolled wire protocol, because a
 //! protocol reimplementation is a security liability, not an asset
 //! (GOYA §13: Linux compositor fragmentation).
+//!
+//! ## IME text input (GY-ZCODE-005)
+//!
+//! The client side of `zwp_text_input_v3` is implemented on the standard
+//! registry path: the global is bound when present, the text-input object is
+//! created against the seat, and [`GoyaWindow::set_text_input_active`] gates
+//! enable/disable around editable focus (disabled by default). Preedit and
+//! commit updates are queued by the pure [`TextInputState`] machine and
+//! delivered as [`PlatformEvent::Preedit`] / [`PlatformEvent::CommitText`]
+//! after the protocol `done` frame; commit text arrives whole and is never
+//! synthesized into [`PlatformEvent::KeyChar`] events.
+//!
+//! Full IME operation (candidate windows, actual CJK composition) is
+//! compositor- and input-method-dependent: unit tests in this crate cover
+//! only the compositor-free state machine and no-op paths. Whether a given
+//! desktop (wlroots, GNOME, KDE) actually delivers text-input-v3 traffic is
+//! an operator-verified acceptance item, not covered by tests here.
 
 use cosmic_text::{Attrs, Buffer, Color, FontSystem, Metrics, Shaping, SwashCache, Wrap};
 use goya_csr::{self, Policy as CsrPolicy};
