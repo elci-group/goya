@@ -8,7 +8,8 @@
 //! print their name. Without `--live`, programmatic checks run headless.
 
 use goya_lang::{hit_test_scrolled, layout, Anchor, DrawNode, RectMp, ScrollOffsets};
-use goya_runtime::Primitive;
+use goya_runtime::{Primitive, TextBuffer};
+use std::collections::BTreeMap;
 
 const DEFAULT_SCENE: &str = "\
 @ontology goya_workspace {
@@ -154,6 +155,7 @@ fn main() {
     let mut frames = 0u32;
     let mut clicked = std::collections::BTreeMap::new();
     let mut scroll_offsets = ScrollOffsets::default();
+    let mut inputs = SceneInputs::default();
     let mut pointer = None;
     // Interaction state (click counts, keyed by button NAME) survives
     // hot-swaps: the transactional store swaps only the scene, never the
