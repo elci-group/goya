@@ -43,6 +43,7 @@ members = [
     "crates/goya-ecosystem",
     "crates/goya-sdk",
     "crates/goya-studio",
+    "crates/goya-zcode",
 ]
 
 [workspace.package]
