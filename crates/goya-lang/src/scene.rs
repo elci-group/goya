@@ -247,7 +247,9 @@ impl Frame {
                         content_bottom.max(node.rect.y.saturating_add(node.rect.height));
                     break;
                 }
-                parent = self.find(parent_name).and_then(|parent| parent.parent.as_deref());
+                parent = self
+                    .find(parent_name)
+                    .and_then(|parent| parent.parent.as_deref());
             }
         }
         (
@@ -300,16 +302,16 @@ impl Frame {
     }
 
     /// Find the topmost visible scroll viewport under a screen point.
-    pub fn scroll_target_at(
-        &self,
-        offsets: &ScrollOffsets,
-        x: i64,
-        y: i64,
-    ) -> Option<String> {
-        self.scrolled_nodes(offsets).into_iter().rev().find_map(|node| {
-            (node.scroll && contains_point(node.rect, x, y) && node.clip.is_none_or(|clip| contains_point(clip, x, y)))
+    pub fn scroll_target_at(&self, offsets: &ScrollOffsets, x: i64, y: i64) -> Option<String> {
+        self.scrolled_nodes(offsets)
+            .into_iter()
+            .rev()
+            .find_map(|node| {
+                (node.scroll
+                    && contains_point(node.rect, x, y)
+                    && node.clip.is_none_or(|clip| contains_point(clip, x, y)))
                 .then_some(node.name)
-        })
+            })
     }
 
     fn insert(&mut self, node: DrawNode) {
@@ -381,7 +383,9 @@ fn intersect_rects(a: RectMp, b: RectMp) -> RectMp {
     let x = a.x.max(b.x);
     let y = a.y.max(b.y);
     let right = a.x.saturating_add(a.width).min(b.x.saturating_add(b.width));
-    let bottom = a.y.saturating_add(a.height).min(b.y.saturating_add(b.height));
+    let bottom =
+        a.y.saturating_add(a.height)
+            .min(b.y.saturating_add(b.height));
     RectMp {
         x,
         y,
@@ -510,12 +514,7 @@ pub fn hit_test(frame: &Frame, x: i64, y: i64) -> Option<String> {
 }
 
 /// Hit test a scene after applying scroll offsets and ancestor clipping.
-pub fn hit_test_scrolled(
-    frame: &Frame,
-    offsets: &ScrollOffsets,
-    x: i64,
-    y: i64,
-) -> Option<String> {
+pub fn hit_test_scrolled(frame: &Frame, offsets: &ScrollOffsets, x: i64, y: i64) -> Option<String> {
     for node in frame.scrolled_nodes(offsets).iter().rev() {
         // Interactive: buttons activate; inputs are focus targets (host-side
         // focus state, Wave 2 composer).
