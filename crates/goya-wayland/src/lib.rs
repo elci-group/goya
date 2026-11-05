@@ -1925,6 +1925,51 @@ mod key_tests {
         // German AltGr+Q emits @; evdev KEY_Q is 16.
         assert_eq!(key_chars(Some(&state), 16, false), vec!['@']);
     }
+
+    #[test]
+    fn compositor_keymap_fd_is_parsed_and_oversized_maps_are_rejected() {
+        use super::{keymap_state_from_fd, wl_keyboard, WEnum, MAX_XKB_KEYMAP_BYTES};
+        use std::fs::File;
+        use std::io::{Seek, SeekFrom, Write};
+        use xkbcommon::xkb::{self, Context, Keymap};
+
+        let context = Context::new(xkb::CONTEXT_NO_FLAGS);
+        let keymap = Keymap::new_from_names(
+            &context,
+            "",
+            "",
+            "us",
+            "",
+            Some(String::new()),
+            xkb::COMPILE_NO_FLAGS,
+        )
+        .unwrap();
+        let keymap_text = keymap.get_as_string(xkb::KEYMAP_FORMAT_TEXT_V1);
+        let mut file = File::from(
+            rustix::fs::memfd_create("goya-xkb-test", rustix::fs::MemfdFlags::CLOEXEC).unwrap(),
+        );
+        file.write_all(keymap_text.as_bytes()).unwrap();
+        file.seek(SeekFrom::Start(0)).unwrap();
+        let state = keymap_state_from_fd(
+            &context,
+            WEnum::Value(wl_keyboard::KeymapFormat::XkbV1),
+            file.into(),
+            keymap_text.len() as u32,
+        )
+        .unwrap();
+        assert_eq!(key_chars(Some(&state), 16, false), vec!['q']);
+
+        let oversized_fd =
+            rustix::fs::memfd_create("goya-xkb-oversized-test", rustix::fs::MemfdFlags::CLOEXEC)
+                .unwrap();
+        assert!(keymap_state_from_fd(
+            &context,
+            WEnum::Value(wl_keyboard::KeymapFormat::XkbV1),
+            oversized_fd,
+            MAX_XKB_KEYMAP_BYTES + 1,
+        )
+        .is_none());
+    }
 }
 
 #[cfg(test)]
