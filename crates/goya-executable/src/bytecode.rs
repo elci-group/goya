@@ -262,6 +262,11 @@ pub fn compile_module(module: &Module) -> Result<Bytecode, CompileError> {
                             size_bits: size.to_bits(),
                         });
                     }
+                    // TEMP J1 verification scaffolding — reverted after test run.
+                    Node::Input { placeholder } => instructions.push(Instruction::Text {
+                        node: id,
+                        content: placeholder.clone(),
+                    }),
                 }
             }
         }

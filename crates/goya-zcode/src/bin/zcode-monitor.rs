@@ -362,6 +362,9 @@ fn run_live(args: &Args, store: &mut SceneStore, last_mtime: &mut Option<SystemT
         }
     };
     let handle = agent::spawn_agent(&args.cli, &args.workspace, args.session.clone());
+    // GY-ZCODE-002: composer focus is host-side state (parse/layout stay
+    // deterministic per the frozen Wave 2 contract).
+    let mut composer = Composer::new();
     let started = Instant::now();
     let mut frames = 0u32;
     while !handle.stop.load(Ordering::Relaxed)
@@ -384,8 +387,22 @@ fn run_live(args: &Args, store: &mut SceneStore, last_mtime: &mut Option<SystemT
                         if name == "quit" {
                             handle.stop.store(true, Ordering::Relaxed);
                             dirty = true;
+                        } else {
+                            // Click on the composer focuses it; any other
+                            // click unfocuses it.
+                            let now_focused = name == "composer";
+                            dirty |= composer.focused != now_focused;
+                            composer.focused = now_focused;
                         }
                     }
+                }
+                goya_wayland::PlatformEvent::KeyChar(_) | goya_wayland::PlatformEvent::KeySpecial(_) => {
+                    if let Some(line) = feed_key(&mut composer, &ev) {
+                        if let Ok(mut view) = handle.view.lock() {
+                            view.push_line(&format!("[local] {line}"));
+                        }
+                    }
+                    dirty = true;
                 }
                 goya_wayland::PlatformEvent::Resized(_, _) => dirty = true,
                 _ => {}
@@ -397,6 +414,7 @@ fn run_live(args: &Args, store: &mut SceneStore, last_mtime: &mut Option<SystemT
             if let Ok(view) = handle.view.lock() {
                 apply_view_to_frame(&mut nodes, &view);
             }
+            apply_composer_to_frame(&mut nodes, &composer);
             let prims: Vec<Primitive> = nodes.iter().map(present_node).collect();
             let _ = win.present(&prims, [20, 20, 28], [225, 228, 236], 3);
         }
