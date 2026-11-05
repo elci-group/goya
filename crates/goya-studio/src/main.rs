@@ -1,11 +1,11 @@
 use goya_lang::{SceneCell, Vec3};
 use goya_sdk::{SceneProject, Viewport};
+use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
-use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
@@ -1087,6 +1087,25 @@ mod tests {
         assert_eq!(inputs.len(), 1);
         assert_eq!(inputs[0].name, "name");
         assert_eq!(inputs[0].placeholder.as_deref(), Some("Your name"));
+    }
+
+    #[test]
+    fn preview_nests_overflowing_children_inside_scroll_viewports() {
+        let source = "@ontology demo { @cell root { extent: (800, 600, 0) @cell viewport { position: (20, 30, 0) extent: (200, 100, 0) scroll: true @cell content { position: (0, 180, 0) extent: (100, 40, 0) text: \"below viewport\" } } } }";
+        let project = SceneProject::from_source(source, Viewport::default()).unwrap();
+        let nodes = &project.frame().nodes;
+        assert_eq!(nodes[2].parent.as_deref(), Some("viewport"));
+        assert_eq!(nodes[2].rect.y, nodes[1].rect.y + 180_000);
+        let preview = render_html(&project);
+        let viewport_start = preview.find("data-node-index=\"1\"").unwrap();
+        let content_start = preview.find("data-node-index=\"2\"").unwrap();
+        let parent_close = preview[viewport_start..].find("</div>").unwrap() + viewport_start;
+        assert!(
+            content_start < parent_close,
+            "overflowing content must be a DOM child"
+        );
+        assert!(preview.contains("class=\"node scrollable\""));
+        assert!(preview.contains("overflow:auto;overscroll-behavior:contain"));
     }
 
     #[test]
