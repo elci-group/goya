@@ -141,7 +141,15 @@ mod tests {
         let node = frame.find("name").unwrap();
         assert!(node.is_input);
         assert!(!node.is_button);
-        assert_eq!(node.rect, RectMp { x: 40_000, y: 520_000, width: 720_000, height: 48_000 });
+        assert_eq!(
+            node.rect,
+            RectMp {
+                x: 40_000,
+                y: 520_000,
+                width: 720_000,
+                height: 48_000
+            }
+        );
         assert_eq!(node.text.as_deref(), Some("Type a message"));
     }
 

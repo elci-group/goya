@@ -71,7 +71,8 @@ impl Composer {
             '\u{8}' => {
                 if self.cursor > 0 {
                     let del = self.char_index(self.cursor - 1);
-                    self.text.replace_range(del..self.char_index(self.cursor), "");
+                    self.text
+                        .replace_range(del..self.char_index(self.cursor), "");
                     self.cursor -= 1;
                 }
                 None
@@ -125,9 +126,7 @@ impl Composer {
         match (dir, self.history_pos) {
             (-1, None) => {
                 // First recall: stash any non-empty, non-committed draft.
-                let draft = match self.text.is_empty()
-                    || self.history.last() == Some(&self.text)
-                {
+                let draft = match self.text.is_empty() || self.history.last() == Some(&self.text) {
                     true => None,
                     false => Some(std::mem::take(&mut self.text)),
                 };
@@ -173,7 +172,9 @@ impl Composer {
         let cursor = self.cursor.min(len);
         // Keep ~2/3 of the window before the cursor when possible.
         let half_before = VIEW_WIDTH * 2 / 3;
-        let start = cursor.saturating_sub(half_before).min(len.saturating_sub(1));
+        let start = cursor
+            .saturating_sub(half_before)
+            .min(len.saturating_sub(1));
         let end = (start + VIEW_WIDTH).min(len);
         let start = end.saturating_sub(VIEW_WIDTH);
         let mut out = String::new();
@@ -279,7 +280,10 @@ mod tests {
             for ch in format!("line{i}").chars() {
                 c.handle_char(ch);
             }
-            assert_eq!(c.handle_char('\n').as_deref(), Some(format!("line{i}").as_str()));
+            assert_eq!(
+                c.handle_char('\n').as_deref(),
+                Some(format!("line{i}").as_str())
+            );
         }
         assert_eq!(c.history.len(), HISTORY_CAP);
         assert_eq!(c.history[0], "line5");

@@ -708,15 +708,9 @@ fn raster_parallel_tiles(
                                 x1: tile_w,
                                 y1: tile_h,
                             };
-                            for (i, prim) in primitives
-                                .iter()
-                                .enumerate()
-                                .filter(|(_, prim)| {
-                                    intersects_tile(
-                                        prim, tile.x0, tile.y0, tile.x1, tile.y1, glyph_px,
-                                    )
-                                })
-                            {
+                            for (i, prim) in primitives.iter().enumerate().filter(|(_, prim)| {
+                                intersects_tile(prim, tile.x0, tile.y0, tile.x1, tile.y1, glyph_px)
+                            }) {
                                 raster_primitive_offset(
                                     &mut output,
                                     tile_w as i32,
@@ -1666,7 +1660,16 @@ mod raster_tests {
         let start = Instant::now();
         for _ in 0..5 {
             serial.fill(argb([4, 8, 12]));
-            raster_serial(&mut serial, width, height, &primitives, &[], [255; 3], 2, None);
+            raster_serial(
+                &mut serial,
+                width,
+                height,
+                &primitives,
+                &[],
+                [255; 3],
+                2,
+                None,
+            );
         }
         let serial_elapsed = start.elapsed();
         let start = Instant::now();
@@ -1875,7 +1878,9 @@ mod multiline_tests {
         // A taller rect admits line 1.
         let r_tall = rect(0, 0, 40, 30);
         let mut buf2 = vec![bg; (width * height) as usize];
-        draw_glyphs(&mut buf2, width, height, &r_tall, "i\ni", [255; 3], 10, None);
+        draw_glyphs(
+            &mut buf2, width, height, &r_tall, "i\ni", [255; 3], 10, None,
+        );
         assert_eq!(buf2[2 + 16 * width as usize], fg, "line 1 inside tall rect");
     }
 
