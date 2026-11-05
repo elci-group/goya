@@ -786,6 +786,5 @@ mod tests {
             ),
             "gated send flows with wire=false and no ticket"
         );
-        );
     }
 }
