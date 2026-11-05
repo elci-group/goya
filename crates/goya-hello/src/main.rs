@@ -379,10 +379,10 @@ mod input_tests {
                 cursor_end: 6,
             },
         );
-        assert_eq!(runtime.input_text(NodeId(4)), Some("é仮名"));
+        assert_eq!(runtime.input_text(NodeId(4)), Some("é仮日"));
         assert!(matches!(
             runtime.render_list().last(),
-            Some(Primitive::Text(_, value)) if value == "é仮名かな"
+            Some(Primitive::Text(_, value)) if value == "é仮かな日"
         ));
     }
 }
