@@ -22,6 +22,9 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 const RECONNECT_DELAY_MS: u64 = 5_000;
 const POLL_INTERVAL_MS: u64 = 200;
 
+/// Pending request id → one-shot response channel.
+type PendingMap = Arc<Mutex<HashMap<u64, Sender<Result<Value, String>>>>>;
+
 /// State shared between the agent thread and the render loop. The agent
 /// thread is the only writer; the render loop polls `take_dirty` and reads
 /// a view snapshot.
@@ -64,7 +67,7 @@ struct AgentRun {
     handle: MonitorHandle,
     child: Child,
     next_id: AtomicU64,
-    pending: Arc<Mutex<HashMap<u64, Sender<Result<Value, String>>>>>,
+    pending: PendingMap,
 }
 
 impl AgentRun {
@@ -229,7 +232,7 @@ impl AgentRun {
 /// inert; a non-JSON line means the child lacks the protocol boundary.
 fn read_frames(
     reader: BufReader<std::process::ChildStdout>,
-    pending: Arc<Mutex<HashMap<u64, Sender<Result<Value, String>>>>>,
+    pending: PendingMap,
     view: Arc<Mutex<SessionView>>,
     dirty: Arc<AtomicBool>,
     stop: Arc<AtomicBool>,
