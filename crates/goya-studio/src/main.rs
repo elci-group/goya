@@ -463,6 +463,8 @@ fn render_editor(project: &SceneProject, preview: &str, revision: &str) -> Strin
     html = html.replace(
         "</body></html>",
         r#"<script>
+let revision=document.querySelector('meta[name="goya-revision"]').content;
+const studioFetch=window.fetch.bind(window);window.fetch=async(input,init={})=>{if(input==='/save'){const headers=new Headers(init.headers);headers.set('If-Match',revision);const response=await studioFetch(input,{...init,headers});if(response.ok)revision=(await response.clone().text()).trim();return response;}return studioFetch(input,init);};
 const undoButton=document.querySelector('#undo'),redoButton=document.querySelector('#redo'),applyButton=document.querySelector('#apply');
 const historyLimit=64,history=[];let historyIndex=-1,historyTimer=0;
 function editorState(){return {text:source.value,inspector:inspectorSource,fields:fields.map(f=>f.value),positionMode:document.querySelector('#pos-mode').value,extentMode:document.querySelector('#extent-mode').value,node:node.value};}
