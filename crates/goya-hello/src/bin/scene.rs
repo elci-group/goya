@@ -343,7 +343,11 @@ impl SceneInputs {
     }
 
     fn handle_character(&mut self, character: char) {
-        let Some(buffer) = self.focused.as_ref().and_then(|name| self.buffers.get_mut(name)) else {
+        let Some(buffer) = self
+            .focused
+            .as_ref()
+            .and_then(|name| self.buffers.get_mut(name))
+        else {
             return;
         };
         match character {
@@ -403,14 +407,22 @@ impl SceneInputs {
 
     fn delete_surrounding(&mut self, before_bytes: u32, after_bytes: u32) {
         self.preedit = None;
-        if let Some(buffer) = self.focused.as_ref().and_then(|name| self.buffers.get_mut(name)) {
+        if let Some(buffer) = self
+            .focused
+            .as_ref()
+            .and_then(|name| self.buffers.get_mut(name))
+        {
             buffer.delete_surrounding(before_bytes, after_bytes);
         }
     }
 
     fn commit(&mut self, text: &str) {
         self.preedit = None;
-        if let Some(buffer) = self.focused.as_ref().and_then(|name| self.buffers.get_mut(name)) {
+        if let Some(buffer) = self
+            .focused
+            .as_ref()
+            .and_then(|name| self.buffers.get_mut(name))
+        {
             buffer.insert(text);
         }
     }
@@ -477,12 +489,13 @@ impl SceneInputs {
             + 2.0
             + buffer.cursor_grapheme() as f64 * advance;
         let right = ((node.rect.x + node.rect.width) / goya_wayland::MP_PER_PX - 1) as f64;
-        let x = cursor_x.clamp((node.rect.x / goya_wayland::MP_PER_PX) as f64, right.max(0.0)) as i32;
+        let x = cursor_x.clamp(
+            (node.rect.x / goya_wayland::MP_PER_PX) as f64,
+            right.max(0.0),
+        ) as i32;
         let y = (node.rect.y / goya_wayland::MP_PER_PX) as i32 + 2;
         let max_height = (node.rect.height / goya_wayland::MP_PER_PX).max(1) as f64;
-        let height = (font_px * 1.4)
-            .round()
-            .clamp(1.0, max_height) as i32;
+        let height = (font_px * 1.4).round().clamp(1.0, max_height) as i32;
         window.set_text_input_state(
             true,
             buffer.text(),
@@ -548,6 +561,14 @@ mod input_tests {
         input.preedit = Some(("かな".into(), 3, 6));
         let mut nodes = frame.nodes.clone();
         input.apply_to_nodes(&mut nodes);
-        assert_eq!(nodes.iter().find(|node| node.name == "name").unwrap().text.as_deref(), Some("éか│な日"));
+        assert_eq!(
+            nodes
+                .iter()
+                .find(|node| node.name == "name")
+                .unwrap()
+                .text
+                .as_deref(),
+            Some("éか│な日")
+        );
     }
 }
