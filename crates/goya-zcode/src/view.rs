@@ -16,6 +16,9 @@ pub const LINE_WIDTH: usize = 56;
 pub const HISTORY_CAP: usize = 2000;
 /// Lines scrolled per PageUp/PageDown / PointerScroll step.
 pub const SCROLL_STEP: usize = TAIL_LINES;
+/// Wave 5 (GY-ZCODE-005): capacity of the in-flight / terminal tool-id
+/// trackers used for `tool.updated` dedup (see [`SessionView`]).
+pub const TOOL_TRACK_CAP: usize = 32;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LinkState {
@@ -39,6 +42,27 @@ pub enum ProjEvent {
     PartDelta { delta: String },
     TurnCompleted { response: String, result: String },
     TurnFailed { message: String },
+    /// Wave 5 (GY-ZCODE-005): one `tool.updated` wire event. `id` is the
+    /// raw `toolCallId` and is the dedup key; `tool` is the display name
+    /// (toolName, else description, else a short form of the id) chosen by
+    /// `agent::map_event`. `progress` wire kinds are folded into
+    /// [`ToolState::Started`] by the mapper — the monitor's line model is
+    /// append-only and cannot update rows in place, so progress deltas are
+    /// deliberately not rendered (frozen Wave 5 contract).
+    ToolUpdate {
+        id: String,
+        tool: String,
+        state: ToolState,
+    },
+}
+
+/// Lifecycle state of a tool call in [`ProjEvent::ToolUpdate`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ToolState {
+    Scheduled,
+    Started,
+    Completed,
+    Failed,
 }
 
 #[derive(Clone, Debug)]
