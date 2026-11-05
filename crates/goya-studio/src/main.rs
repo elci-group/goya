@@ -590,6 +590,13 @@ fn route_request_for_scene(
                 "Use text/plain;charset=utf-8".into(),
             );
         }
+        let Some(expected_revision) = req.if_match.as_deref() else {
+            return (
+                "428 Precondition Required",
+                "text/plain; charset=utf-8",
+                "Reload the editor before saving this scene".into(),
+            );
+        };
         let source = match String::from_utf8(req.body) {
             Ok(source) => source,
             Err(_) => {
@@ -651,9 +658,18 @@ fn route_request_for_scene(
         };
         return match SceneProject::from_source(source.clone(), Viewport::default()) {
             Ok(project) if project.frame().nodes.len() <= MAX_PREVIEW_NODES => {
-                match atomic_replace_scene(path, source.as_bytes()) {
-                    Ok(()) => ("200 OK", "text/plain; charset=utf-8", "Scene saved".into()),
-                    Err(error) => (
+                match atomic_replace_scene(path, source.as_bytes(), expected_revision) {
+                    Ok(()) => (
+                        "200 OK",
+                        "text/plain; charset=utf-8",
+                        scene_revision(source.as_bytes()),
+                    ),
+                    Err(SaveError::Conflict) => (
+                        "409 Conflict",
+                        "text/plain; charset=utf-8",
+                        "Scene changed on disk since this editor loaded it. Your unsaved edits are still here; reload before saving again.".into(),
+                    ),
+                    Err(SaveError::Failed(error)) => (
                         "500 Internal Server Error",
                         "text/plain; charset=utf-8",
                         format!("Save failed: {error}"),
