@@ -26,6 +26,15 @@
 //!   code gutter, bullets, ordered lists, inline marker stripping);
 //!   `SessionView::push_markdown` routes turn-completed responses through
 //!   it when `markdown` is on (default).
+//! - Wave 5 (GY-ZCODE-005): `agent::map_event` decodes `tool.updated`
+//!   (progress folds into Started; unknown kinds inert) into
+//!   `ProjEvent::ToolUpdate`; [`view::SessionView`] renders append-only
+//!   `⚙ <tool> …` / `✓` / `✗` rows with a bounded (cap 32) in-flight and
+//!   terminal-id tracker for dedup — Scheduled is silent and nothing is
+//!   emitted after a terminal line. The composer consumes
+//!   `PlatformEvent::Preedit` (bracketed « … » overlay) and
+//!   `PlatformEvent::CommitText` (insert at cursor); the live host
+//!   activates the window text input iff the composer is focused.
 
 pub mod agent;
 pub mod clipboard;
