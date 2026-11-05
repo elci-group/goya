@@ -2011,6 +2011,52 @@ mod key_tests {
         )
         .is_none());
     }
+
+    #[test]
+    fn xkb_path_emits_non_ascii_chars() {
+        use super::key_char_from_state;
+        use xkbcommon::xkb;
+
+        // German layout: the key next to Enter (evdev 12, minus/ß).
+        let (_, state) = state_for_layout("de");
+        assert_eq!(key_char_from_state(&state, 12, false), Some('ß'));
+        assert_eq!(key_chars(Some(&state), 12, false, false), vec!['ß']);
+
+        // Ctrl held: combos are inert for now (frozen contract).
+        assert_eq!(key_char_from_state(&state, 12, true), None);
+        let (keymap, mut state) = state_for_layout("us");
+        let ctrl = keymap.mod_get_index(&"Control");
+        assert_ne!(ctrl, xkb::MOD_INVALID);
+        state.update_mask(1 << ctrl, 0, 0, 0, 0, 0);
+        assert_eq!(key_char_from_state(&state, 30, true), None); // KEY_C + ctrl
+    }
+
+    #[test]
+    fn xkb_and_evdev_paths_agree_on_overlapping_keycodes() {
+        // 'us' layout vs the built-in evdev US-subset table must produce
+        // identical KeyChar results for every printable keycode both know.
+        let (_, state) = state_for_layout("us");
+        let printable = [
+            2, 3, 11, 12, 13, 16, 17, 18, 19, 20, 26, 30, 31, 32, 33, 44, 45, 50, 51, 52, 53, 57,
+        ];
+        for kc in printable {
+            for shift in [false, true] {
+                assert_eq!(
+                    key_chars(Some(&state), kc, shift, false),
+                    key_chars(None, kc, shift, false),
+                    "path mismatch at keycode {kc} shift={shift}"
+                );
+            }
+        }
+        // Navigation keys: xkb path must not steal them into KeyChar —
+        // key_special owns them upstream, and the xkb path yields no char.
+        for kc in [1, 15, 102, 103, 104, 105, 106, 107, 108, 109, 111] {
+            assert!(
+                key_char_from_state(&state, kc, false).is_none(),
+                "xkb path leaked a char for navigation keycode {kc}"
+            );
+        }
+    }
 }
 
 #[cfg(test)]
