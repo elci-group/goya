@@ -630,6 +630,7 @@ fn raster_parallel_tiles(
     width: i32,
     height: i32,
     primitives: &[goya_runtime::Primitive],
+    fills: &[Option<u32>],
     fg: [u8; 3],
     glyph_px: u32,
     roi: PixelClip,
@@ -707,14 +708,22 @@ fn raster_parallel_tiles(
                                 x1: tile_w,
                                 y1: tile_h,
                             };
-                            for prim in primitives.iter().filter(|prim| {
-                                intersects_tile(prim, tile.x0, tile.y0, tile.x1, tile.y1, glyph_px)
-                            }) {
+                            for (i, prim) in primitives
+                                .iter()
+                                .enumerate()
+                                .filter(|(_, prim)| {
+                                    intersects_tile(
+                                        prim, tile.x0, tile.y0, tile.x1, tile.y1, glyph_px,
+                                    )
+                                })
+                            {
                                 raster_primitive_offset(
                                     &mut output,
                                     tile_w as i32,
                                     tile_h as i32,
                                     prim,
+                                    fills,
+                                    i,
                                     fg,
                                     glyph_px,
                                     local_clip,
@@ -751,11 +760,14 @@ fn raster_parallel_tiles(
     true
 }
 
+#[allow(clippy::too_many_arguments)]
 fn raster_primitive(
     pixels: &mut [u32],
     width: i32,
     height: i32,
     prim: &goya_runtime::Primitive,
+    fills: &[Option<u32>],
+    index: usize,
     fg: [u8; 3],
     glyph_px: u32,
     clip: Option<PixelClip>,
@@ -763,11 +775,13 @@ fn raster_primitive(
     match prim {
         goya_runtime::Primitive::Panel(_) => {}
         goya_runtime::Primitive::Text(rect, text) => {
-            fill_rect_clipped(pixels, width, height, rect, [16, 16, 20], clip);
+            let fill = resolve_fill(fills, index, [16, 16, 20]);
+            fill_rect_clipped(pixels, width, height, rect, fill, clip);
             draw_glyphs(pixels, width, height, rect, text, fg, glyph_px, clip);
         }
         goya_runtime::Primitive::Button(rect, text) => {
-            fill_rect_clipped(pixels, width, height, rect, [80, 100, 180], clip);
+            let fill = resolve_fill(fills, index, [80, 100, 180]);
+            fill_rect_clipped(pixels, width, height, rect, fill, clip);
             draw_glyphs(pixels, width, height, rect, text, fg, glyph_px, clip);
         }
     }
@@ -779,6 +793,8 @@ fn raster_primitive_offset(
     width: i32,
     height: i32,
     prim: &goya_runtime::Primitive,
+    fills: &[Option<u32>],
+    index: usize,
     fg: [u8; 3],
     glyph_px: u32,
     clip: PixelClip,
@@ -795,12 +811,14 @@ fn raster_primitive_offset(
         goya_runtime::Primitive::Panel(_) => {}
         goya_runtime::Primitive::Text(rect, text) => {
             let rect = offset(rect);
-            fill_rect_clipped(pixels, width, height, &rect, [16, 16, 20], Some(clip));
+            let fill = resolve_fill(fills, index, [16, 16, 20]);
+            fill_rect_clipped(pixels, width, height, &rect, fill, Some(clip));
             draw_glyphs(pixels, width, height, &rect, text, fg, glyph_px, Some(clip));
         }
         goya_runtime::Primitive::Button(rect, text) => {
             let rect = offset(rect);
-            fill_rect_clipped(pixels, width, height, &rect, [80, 100, 180], Some(clip));
+            let fill = resolve_fill(fills, index, [80, 100, 180]);
+            fill_rect_clipped(pixels, width, height, &rect, fill, Some(clip));
             draw_glyphs(pixels, width, height, &rect, text, fg, glyph_px, Some(clip));
         }
     }

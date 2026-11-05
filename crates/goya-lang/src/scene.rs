@@ -18,6 +18,8 @@ pub struct Vec3 {
 pub enum CellKind {
     Cell,
     Button,
+    /// `@input` — editable text field (placeholder in `text`).
+    Input,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,6 +34,8 @@ pub enum Anchor {
 pub struct SceneCell {
     pub name: String,
     pub kind: CellKind,
+    /// True for `@input` cells (mirrors [`CellKind::Input`]).
+    pub is_input: bool,
     /// Absolute position in points, parent-origin-relative.
     pub position: Option<Vec3>,
     /// Absolute extent in points.
@@ -165,6 +169,8 @@ pub struct RectMp {
 pub struct DrawNode {
     pub name: String,
     pub is_button: bool,
+    /// Editable text field (`@input`); focus is host-side state.
+    pub is_input: bool,
     pub rect: RectMp,
     pub fill: Option<u32>,
     pub stroke: Option<u32>,
@@ -213,6 +219,7 @@ fn resolve_cell(cell: &SceneCell, parent: RectMp, frame: &mut Frame) {
     frame.insert(DrawNode {
         name: cell.name.clone(),
         is_button: cell.kind == CellKind::Button,
+        is_input: cell.is_input,
         rect,
         fill: cell.fill,
         stroke: cell.stroke,
@@ -268,7 +275,9 @@ fn resolve_rect(cell: &SceneCell, parent: RectMp) -> RectMp {
 /// depth-first with later-drawn (deeper) nodes winning.
 pub fn hit_test(frame: &Frame, x: i64, y: i64) -> Option<String> {
     for node in frame.nodes.iter().rev() {
-        if node.is_button
+        // Interactive: buttons activate; inputs are focus targets (host-side
+        // focus state, Wave 2 composer).
+        if (node.is_button || node.is_input)
             && x >= node.rect.x
             && x < node.rect.x + node.rect.width
             && y >= node.rect.y

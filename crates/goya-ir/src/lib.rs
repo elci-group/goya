@@ -35,6 +35,11 @@ pub enum Node {
     Spacer {
         size: f64,
     },
+    /// An editable single-line text field. The placeholder is shown while the
+    /// field is empty; focus and typed content are host-side state (Wave 2).
+    Input {
+        placeholder: String,
+    },
 }
 
 /// Identifies an action the runtime dispatches when an event fires.
@@ -91,7 +96,7 @@ impl Module {
 /// Grammar (line-oriented, indentation-free for Wave 1):
 /// `column <id> <child-ids...>` | `row <id> <child-ids...>`
 /// | `text <id> <string...>` | `button <id> <action> <label...>`
-/// | `spacer <id> <size>` | `root <id>`
+/// | `spacer <id> <size>` | `input <id> <placeholder...>` | `root <id>`
 pub fn parse(source: &str) -> Result<Module, ParseError> {
     let mut module = Module::default();
     let mut node_ids = HashSet::new();
@@ -134,6 +139,9 @@ pub fn parse(source: &str) -> Result<Module, ParseError> {
                     .first()
                     .and_then(|s| s.parse::<f64>().ok())
                     .ok_or(ParseError { line: line_no + 1 })?,
+            },
+            "input" => Node::Input {
+                placeholder: rest.join(" "),
             },
             "root" => {
                 if !rest.is_empty() || module.root.is_some() {
