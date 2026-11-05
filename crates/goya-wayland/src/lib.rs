@@ -1502,18 +1502,18 @@ fn key_char_from_state(
     // conventional X11 offset of 8.
     let xkb_keycode = xkbcommon::xkb::Keycode::new(keycode.checked_add(8)?);
     let keysym = xkb_state.key_get_one_sym(xkb_keycode);
-    if keysym.is_raw_key() {
-        // Raw keyboard keysyms (e.g. arrow/home/page navigation symbols on
-        // dedicated keys) carry no text; navigation keeps its KeySpecial
-        // semantics upstream in the dispatch path.
+    if keysym.is_pf_key() {
+        // Function/navigation keysyms (arrows, home, page keys, ...) carry
+        // no text; navigation keeps its KeySpecial semantics upstream in
+        // the dispatch path.
         return None;
     }
     let c = xkb_state.key_get_utf32(xkb_keycode);
-    if c.is_control() || c == '\0' {
-        None
-    } else {
-        Some(c)
-    }
+    // key_get_utf32 returns 0 when the keysym has no Unicode mapping.
+    let Some(c) = char::from_u32(c).filter(|c| !c.is_control()) else {
+        return None;
+    };
+    Some(c)
 }
 
 fn key_chars(
@@ -2036,13 +2036,24 @@ mod key_tests {
         // 'us' layout vs the built-in evdev US-subset table must produce
         // identical KeyChar results for every printable keycode both know.
         let (_, state) = state_for_layout("us");
+        // The xkb path reads modifiers from the state (not the bool), so
+        // mirror the compositor's Modifiers event for shift cases.
+        let shift_index = {
+            let keymap = state.get_keymap();
+            keymap.mod_get_index(&"Shift")
+        };
         let printable = [
             2, 3, 11, 12, 13, 16, 17, 18, 19, 20, 26, 30, 31, 32, 33, 44, 45, 50, 51, 52, 53, 57,
         ];
         for kc in printable {
             for shift in [false, true] {
+                let mut state = state.clone();
+                if shift {
+                    state.update_mask(1 << shift_index, 0, 0, 0, 0, 0);
+                }
                 assert_eq!(
                     key_chars(Some(&state), kc, shift, false),
+                    key_chars(None, kc, shift, false),
                     key_chars(None, kc, shift, false),
                     "path mismatch at keycode {kc} shift={shift}"
                 );
