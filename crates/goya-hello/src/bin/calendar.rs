@@ -14,7 +14,7 @@
 //! leap-year rule, the 2000-01-01 Saturday anchor, month wrap-around,
 //! the 2026-11-01 grid column, and the today reset.
 
-use goya_lang::{hit_test, layout, SceneStore};
+use goya_lang::{SceneStore, hit_test, layout};
 use goya_runtime::Primitive;
 use goya_wayland::{GoyaWindow, MP_PER_PX, PlatformEvent};
 
@@ -123,7 +123,11 @@ impl Calendar {
     }
 
     fn label(&self) -> String {
-        format!("{} {}", MONTH_NAMES[(self.month as usize).min(11)], self.year)
+        format!(
+            "{} {}",
+            MONTH_NAMES[(self.month as usize).min(11)],
+            self.year
+        )
     }
 
     /// The 42 grid texts, monday-first: day numbers inside the month,
@@ -154,7 +158,10 @@ impl Calendar {
 
 /// Host-side data binding: override the month label and every day-grid
 /// cell with the live month (scene declares structure, host supplies state).
-fn with_calendar_data(mut nodes: Vec<goya_lang::DrawNode>, cal: &Calendar) -> Vec<goya_lang::DrawNode> {
+fn with_calendar_data(
+    mut nodes: Vec<goya_lang::DrawNode>,
+    cal: &Calendar,
+) -> Vec<goya_lang::DrawNode> {
     let label = cal.label();
     let texts = cal.grid_texts();
     for n in &mut nodes {
@@ -234,8 +241,8 @@ fn main() {
 }
 
 fn run_live(store: &mut SceneStore) -> Result<(), String> {
-    let mut win = GoyaWindow::create("goya-calendar", WIN_W_PX, WIN_H_PX)
-        .map_err(|e| e.to_string())?;
+    let mut win =
+        GoyaWindow::create("goya-calendar", WIN_W_PX, WIN_H_PX).map_err(|e| e.to_string())?;
     let mut cal = Calendar::today();
     let mut dirty = true; // first frame always paints
     let mut presents = 0u32;
@@ -243,11 +250,9 @@ fn run_live(store: &mut SceneStore) -> Result<(), String> {
         for ev in win.poll() {
             if let PlatformEvent::PointerPress(x, y) = ev {
                 let frame = layout(store.get(), SCENE_W_PT, SCENE_H_PT);
-                if let Some(name) = hit_test(
-                    &frame,
-                    i64::from(x) * MP_PER_PX,
-                    i64::from(y) * MP_PER_PX,
-                ) {
+                if let Some(name) =
+                    hit_test(&frame, i64::from(x) * MP_PER_PX, i64::from(y) * MP_PER_PX)
+                {
                     if name.starts_with("btn_") {
                         cal.press(&name);
                         dirty = true;
@@ -345,7 +350,10 @@ fn self_test(store: &mut SceneStore) {
     }
 
     // Month navigation: prev from jan 2024 wraps to dec 2023.
-    let mut cal = Calendar { year: 2024, month: 1 };
+    let mut cal = Calendar {
+        year: 2024,
+        month: 1,
+    };
     cal.prev_month();
     if cal.year != 2023 || cal.month != 12 {
         failures.push(format!(
@@ -365,23 +373,38 @@ fn self_test(store: &mut SceneStore) {
     let cal = Calendar::today();
     let texts = cal.grid_texts();
     if texts[6] != "1" {
-        failures.push(format!("nov 2026 day 1: expected column 6, got '{}'", texts[6]));
+        failures.push(format!(
+            "nov 2026 day 1: expected column 6, got '{}'",
+            texts[6]
+        ));
     }
     if texts[0] != "" {
-        failures.push(format!("nov 2026 padding cell 0: expected empty, got '{}'", texts[0]));
+        failures.push(format!(
+            "nov 2026 padding cell 0: expected empty, got '{}'",
+            texts[0]
+        ));
     }
     if texts[6 + 30] != "31" {
-        failures.push(format!("nov 2026 day 31: expected slot 36, got '{}'", texts[36]));
+        failures.push(format!(
+            "nov 2026 day 31: expected slot 36, got '{}'",
+            texts[36]
+        ));
     }
     if texts[36 + 1] != "" {
         failures.push("nov 2026 slot 37 should be padding".into());
     }
     if cal.label() != "november 2026" {
-        failures.push(format!("label: expected 'november 2026', got '{}'", cal.label()));
+        failures.push(format!(
+            "label: expected 'november 2026', got '{}'",
+            cal.label()
+        ));
     }
 
     // Today button resets to november 2026.
-    let mut cal = Calendar { year: 1999, month: 2 };
+    let mut cal = Calendar {
+        year: 1999,
+        month: 2,
+    };
     cal.press("btn_today");
     if cal.year != TODAY_YEAR || cal.month != TODAY_MONTH {
         failures.push("today button: expected reset to nov 2026".into());
