@@ -1,0 +1,39 @@
+{
+  "work_package": "GY-ZCODE-003",
+  "title": "Swarm wave 3: send path, scrollable history, non-ASCII input, deterministic wrap, studio authoring",
+  "date": "2026-11-05",
+  "swarm": {
+    "convention": "GY-WAVE2-SWARM (concurrent agents, exclusive crate ownership, frozen interface contract, central integration gate)",
+    "contract": "docs/goya-zcode.md 'Wave 3' section + addendum frozen before dispatch",
+    "assignments": {
+      "J1": "goya-wayland: KeySpecial PageUp/PageDown (evdev 104/109), PlatformEvent::PointerScroll(i32) from Wayland vertical axis (sign-inverted, horizontal ignored)",
+      "J2": "goya-zcode: AgentCmd::SendText queue (session-pinned, survives reconnects), SendLifecycle admission (ticketed, one-outstanding, response/event reconciliation), session/send {sessionId, content}, scrollable history (cap 2000, stick-to-bottom), --allow-send gate, bin wiring incl. PointerScroll",
+      "J3": "goya-wayland: compositor xkb keymap wired to real Unicode KeyChar (pure key_char_from_state helper; 'de' layout keycode -> ASCII-free char verified), evdev fallback intact, nav keys identical both paths, ctrl inert, IME/dead-keys fenced",
+      "J4": "goya-lang: wrap: N cell property, deterministic greedy wrap in layout (byte-identical output when absent, authored \\n preserved, strict parse errors)",
+      "J5": "goya-sdk + goya-studio: SceneProject::input_nodes() accessor, check inputs=<n> summary, inspect input-kind labels + wrap listing, serve editor data-kind=input + inspector editing + preview role=textbox"
+    }
+  },
+  "gate_record": {
+    "integration_fixes": [
+      "kaptaind auto-committer interleaved two iterations of J2's goya-zcode work, leaving bin/lib/tests inconsistent: gate rewrote the stale agent.rs unit tests against the SendLifecycle/ticket API, made set_active_session public (session pinning for hosts/tests), rewrote the bin's headless send-queue block against the public handle API, restored the dropped mpsc::channel import, removed dead is_pending, fixed clippy field-init-style in a view test",
+      "PointerScroll needed no manual wiring: J2 picked up J1's variant mid-flight and wired the match arm"
+    ],
+    "verification": {
+      "cargo_build_workspace": "clean",
+      "cargo_test_workspace_lib_tests": "517 passed, 0 failed",
+      "cargo_clippy_workspace_all_targets_D_warnings": "clean",
+      "cargo_fmt_all_check": "clean",
+      "zcode_monitor_headless": "all PASS incl. send queue admission/busy-drop/gate, scrollback window, pointer scroll bounded/focus-aware",
+      "zcode_monitor_stdin_dump_live": "link Connecting->Up, subscribed to live session",
+      "zcode_monitor_live_wayland": "window presented, 360 frames over 6s",
+      "calculator_exemplar": "ALL EXEMPLAR CHECKS PASS (wave-2 record, unchanged)"
+    },
+    "send_safety": "Live acceptance sends NOTHING by default: --allow-send required; the wire path is exercised only when the operator passes the flag (token-bearing). Wire contract verified against drowzy zcodeSessionSendParamsSchema: {sessionId, content} -> {sessionId, accepted: true, stateRevision}; busy rejection -32010 surfaces as view status."
+  },
+  "notes": [
+    "Non-ASCII input now works when the compositor delivers a keymap (US fallback intact); IME/dead keys remain open.",
+    "goya-zcode still wraps host-side; migrating the monitor to goya-lang scene-level wrap: is a later increment.",
+    "Doctests excluded per known host rustdoc LLVM issue (README).",
+    "kaptaind auto-committed agent work incrementally throughout the wave; the gate verified the final tree by running all workspace gates from the working tree."
+  ]
+}
