@@ -1128,6 +1128,70 @@ mod tests {
     }
 
     #[test]
+    fn save_rejects_external_edits_and_preserves_the_browser_draft() {
+        let directory = std::env::temp_dir().join(format!(
+            "goya-studio-save-conflict-{}-{}",
+            std::process::id(),
+            SAVE_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&directory).unwrap();
+        let opened_path = directory.join("scene.gscene");
+        fs::write(&opened_path, SCENE).unwrap();
+        let canonical_path = fs::canonicalize(&opened_path).unwrap();
+        let preview = render_html(&SceneProject::from_source(SCENE, Viewport::default()).unwrap());
+        let initial_revision = scene_revision(SCENE.as_bytes());
+        let initial = route_request_for_scene(
+            &get("/"),
+            HOST,
+            SCENE,
+            &preview,
+            Some(&canonical_path),
+        );
+        assert_eq!(initial.0, "200 OK");
+        assert!(initial.2.contains(&format!(
+            "name=\"goya-revision\" content=\"{initial_revision}\""
+        )));
+
+        let external = SCENE.replace("hello", "external edit");
+        fs::write(&canonical_path, &external).unwrap();
+        let browser_draft = SCENE.replace("hello", "my unsaved edit");
+        let stale_save = route_request_for_scene(
+            &post_with_revision("/save", &browser_draft, &initial_revision),
+            HOST,
+            SCENE,
+            &preview,
+            Some(&canonical_path),
+        );
+        assert_eq!(stale_save.0, "409 Conflict");
+        assert!(stale_save.2.contains("Your unsaved edits are still here"));
+        assert_eq!(fs::read_to_string(&canonical_path).unwrap(), external);
+
+        let refreshed_revision = scene_revision(external.as_bytes());
+        let refreshed_page = route_request_for_scene(
+            &get("/"),
+            HOST,
+            SCENE,
+            &preview,
+            Some(&canonical_path),
+        );
+        assert!(refreshed_page.2.contains(&format!(
+            "name=\"goya-revision\" content=\"{refreshed_revision}\""
+        )));
+        let saved = route_request_for_scene(
+            &post_with_revision("/save", &browser_draft, &refreshed_revision),
+            HOST,
+            SCENE,
+            &preview,
+            Some(&canonical_path),
+        );
+        assert_eq!(saved.0, "200 OK");
+        assert_eq!(saved.2, scene_revision(browser_draft.as_bytes()));
+        assert_eq!(fs::read_to_string(&canonical_path).unwrap(), browser_draft);
+        fs::remove_file(&canonical_path).unwrap();
+        fs::remove_dir(&directory).unwrap();
+    }
+
+    #[test]
     fn save_route_validates_and_atomically_updates_only_the_open_scene() {
         let directory = std::env::temp_dir().join(format!(
             "goya-studio-save-{}-{}",

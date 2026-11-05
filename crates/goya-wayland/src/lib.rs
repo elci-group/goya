@@ -1802,6 +1802,9 @@ mod key_special_tests {
         assert_eq!(key_special(102), Some(KeySpecial::Home));
         assert_eq!(key_special(107), Some(KeySpecial::End));
         assert_eq!(key_special(111), Some(KeySpecial::Delete));
+        // GY-ZCODE-003: PageUp/PageDown.
+        assert_eq!(key_special(104), Some(KeySpecial::PageUp));
+        assert_eq!(key_special(109), Some(KeySpecial::PageDown));
         assert_eq!(key_special(1), Some(KeySpecial::Escape));
         assert_eq!(key_special(15), Some(KeySpecial::Tab));
     }
@@ -1813,6 +1816,17 @@ mod key_special_tests {
             assert_eq!(key_special(kc), None, "keycode {kc} should be unmapped");
         }
     }
+
+    #[test]
+    fn scroll_lines_sign_is_inverted() {
+        use super::scroll_lines;
+        // Wayland positive axis value = scroll down; contract positive = up.
+        assert_eq!(scroll_lines(10.0), Some(-1));
+        assert_eq!(scroll_lines(-10.0), Some(1));
+        // Zero value emits nothing.
+        assert_eq!(scroll_lines(0.0), None);
+    }
+}
 }
 
 #[cfg(test)]
