@@ -12,11 +12,14 @@
 //! transcript scrolls via PageUp/PageDown (and PointerScroll once
 //! goya-wayland emits it) while the composer is unfocused.
 
+use goya_clipboard::PrincipalId;
 use goya_lang::{hit_test, layout, DrawNode, SceneStore};
 use goya_runtime::Primitive;
-use goya_wayland::{GoyaWindow, KeySpecial};
+use goya_wayland::{GoyaWindow, KeySpecial, PlatformEvent, Shortcut};
 use goya_zcode::agent::{self};
+use goya_zcode::clipboard::{AllowAllPolicy, MonitorClipboard};
 use goya_zcode::composer::Composer;
+use goya_zcode::theme::{monitor_palette, node_fill_override, status_fill_override};
 use goya_zcode::view::{LinkState, ProjEvent, SessionView, SCROLL_STEP, TAIL_LINES};
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
@@ -594,6 +597,12 @@ fn run_live(args: &Args, store: &mut SceneStore, last_mtime: &mut Option<SystemT
     // GY-ZCODE-002: composer focus is host-side state (parse/layout stay
     // deterministic per the frozen Wave 2 contract).
     let mut composer = Composer::new();
+    // GY-ZCODE-004: in-process clipboard ring (Wayland data-device is out,
+    // blocked upstream) and the chroma-derived monitor palette, computed
+    // once — the palette is a pure function of the fixed dark theme.
+    let clip_policy = AllowAllPolicy;
+    let clipboard = MonitorClipboard::new(&clip_policy);
+    let palette = monitor_palette();
     let started = Instant::now();
     let mut frames = 0u32;
     while !handle.stop.load(Ordering::Relaxed)
@@ -661,19 +670,73 @@ fn run_live(args: &Args, store: &mut SceneStore, last_mtime: &mut Option<SystemT
                     dirty = true;
                 }
                 goya_wayland::PlatformEvent::Resized(_, _) => dirty = true,
+                // GY-ZCODE-004: ctrl+c/v/q shortcuts from goya-wayland.
+                PlatformEvent::Shortcut(shortcut) => match shortcut {
+                    Shortcut::Copy => {
+                        let last = handle.view.lock().ok().and_then(|view| {
+                            view.rows()
+                                .into_iter()
+                                .rev()
+                                .find(|row| !row.is_empty())
+                        });
+                        let copied = last
+                            .map(|row| clipboard.copy_line(PrincipalId(1), &row))
+                            .unwrap_or(false);
+                        if let Ok(mut view) = handle.view.lock() {
+                            view.status = if copied {
+                                "copied".to_string()
+                            } else {
+                                "copy failed".to_string()
+                            };
+                        }
+                        dirty = true;
+                    }
+                    Shortcut::Paste => {
+                        if let Some(text) = clipboard.paste_text() {
+                            for ch in text.chars() {
+                                if composer.handle_char(ch).is_some() {
+                                    break;
+                                }
+                            }
+                        }
+                        sync_text_input(&mut win, &composer, store.get());
+                        dirty = true;
+                    }
+                    Shortcut::Quit => {
+                        handle.stop.store(true, Ordering::Relaxed);
+                        dirty = true;
+                    }
+                },
                 _ => {}
             }
         }
         if dirty {
             let frame = layout(store.get(), 400.0, 320.0);
             let mut nodes = frame.nodes.clone();
+            let mut status_text = String::new();
             if let Ok(view) = handle.view.lock() {
+                status_text = match &view.link {
+                    LinkState::Connecting => String::from("linking"),
+                    LinkState::Up => view.status.clone(),
+                    LinkState::Down(reason) => format!("down: {reason}"),
+                };
                 apply_view_to_frame(&mut nodes, &view);
             }
             apply_composer_to_frame(&mut nodes, &composer);
             let prims: Vec<Primitive> = nodes.iter().map(present_node).collect();
-            let fills: Vec<Option<u32>> = nodes.iter().map(|node| node.fill).collect();
-            let _ = win.present(&prims, &fills, [225, 228, 236], [20, 20, 28], 3);
+            // GY-ZCODE-004: chroma-derived per-frame fill overrides take
+            // precedence; scene `fill:` values remain the defaults.
+            let fills: Vec<Option<u32>> = nodes
+                .iter()
+                .map(|node| {
+                    if node.name == "status" {
+                        status_fill_override(&status_text, &palette).or(node.fill)
+                    } else {
+                        node_fill_override(&node.name, &palette).or(node.fill)
+                    }
+                })
+                .collect();
+            let _ = win.present(&prims, &fills, palette.fg, palette.bg, 3);
         }
         if let Some(secs) = args.duration {
             if started.elapsed() >= Duration::from_secs(secs) {
