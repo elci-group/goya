@@ -87,9 +87,10 @@ each frame before conversion to primitives (calculator `with_result` pattern).
    observe link up, session list, and streaming tail lines for a running
    session; record under `evidence/`.
 
-## Explicit non-goals (blocked on Goya platform gaps)
+## Explicit non-goals
 
-- Sending input / composer (no editable text field; keyboard is ASCII-only).
+- Sending composed text to a session. The current composer is local-only and
+  commits entries to the transcript with a `[local]` marker.
 - Scrolling (only tail-N virtualization exists here).
 - Theming plumbing to the renderer (colors are flat bg/fg per frame).
 - Web, phone remote, and any replacement of the existing desktop frontend.
@@ -144,7 +145,13 @@ dispatch — agents implement against it, never negotiate it.
 | J1 | `goya-ir`, `goya-lang` | `Node::Input` + parser + `DrawNode.is_input` + unit tests |
 | J2 | `goya-wayland` | per-node fills, multi-line raster, KeySpecial events + tests |
 | J3 | `goya-zcode` | composer state machine + scene update + tests (pure logic) |
-| gate | workspace | cargo build/test/clippy/fmt, goya-hello call-site migration, live acceptance, evidence |
+| gate | workspace | cargo build/test/clippy/fmt, all `present(fills, ...)` call-site migrations, live keyboard/composer acceptance, evidence |
+
+The Wave 2 implementation is present, but the gate remains open until the
+workspace verification and live keyboard/composer acceptance are recorded.
+The public GY-IR/2 executable bytecode backend renders an input node's static
+placeholder with the existing text opcode; editable contents and focus remain
+host-side state and are not part of bytecode v1.
 
 Contention rule: agents may run `cargo check -p <own crates>` only; the gate
 runs all workspace gates. All changes spec-first; each agent updates only its
