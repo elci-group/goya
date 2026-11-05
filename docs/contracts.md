@@ -39,6 +39,8 @@ required for changes). See GOYA directive §8.3.
 - Provides: `Runtime::new(module, store, constraints)`, `handle(Event) -> bool`
   (false = quit), `hit_test(x_mp, y_mp) -> Option<ActionId>`,
   `render_list() -> Vec<Primitive>`.
+  `hit_test_target(x_mp, y_mp)` distinguishes button actions from editable
+  input focus targets while preserving reverse draw-order hit testing.
 - Invariants: events are processed synchronously; layout is recomputed only
   when the state revision advanced; unknown actions are inert. `TextBuffer`
   edits extended grapheme clusters, maintains selection and bounded undo/redo;
