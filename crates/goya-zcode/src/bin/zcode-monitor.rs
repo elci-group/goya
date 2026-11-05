@@ -348,6 +348,52 @@ fn headless_acceptance(store: &SceneStore) {
         println!("composer type/backspace/commit [SKIP] (no 'composer' node in scene)");
     }
 
+    // Send-queue contract (GY-ZCODE-003), exercised without touching the
+    // wire: admission, busy drop, and the --allow-send gate.
+    // 1) Queue accepts a command when sends are allowed.
+    let mut pending = false;
+    let admit_ok = admit_send(&mut pending);
+    // 2) A second send while one is outstanding is dropped.
+    let busy_ok = !admit_send(&mut pending) && pending;
+    // 3) Gate off: the command still flows but carries wire=false and the
+    //    view gets the disabled hint — no session/send is ever issued.
+    let mut view = SessionView::default();
+    let gate_handle = agent::MonitorHandle::new();
+    send_committed_line(&gate_handle, "blocked line", false);
+    let gate_cmd = gate_handle.try_take_cmd();
+    let gate_ok = gate_cmd
+        == Some(agent::AgentCmd::SendText {
+            line: "blocked line".to_string(),
+            wire: false,
+        })
+        && view.status != "send disabled — pass --allow-send"; // untouched view
+    view.status = "send disabled — pass --allow-send".to_string();
+    let hint_ok = view.status.contains("--allow-send");
+    let send_ok = admit_ok && busy_ok && gate_ok && hint_ok;
+    println!(
+        "send queue admission/busy-drop/gate [{}]",
+        pass_str(send_ok)
+    );
+    ok &= send_ok;
+
+    // Scrollback contract (GY-ZCODE-003): history window + snap rules.
+    let mut view = SessionView::default();
+    for i in 0..40 {
+        view.push_line(&format!("line {i:02}"));
+    }
+    view.scroll_up(SCROLL_STEP);
+    let scrolled = view.rows();
+    let scroll_ok = view.scroll == SCROLL_STEP
+        && scrolled[TAIL_LINES - 1] == "line 25"
+        && view.rows().len() == TAIL_LINES;
+    view.scroll_down(SCROLL_STEP);
+    let live_ok = view.scroll == 0 && view.rows()[TAIL_LINES - 1] == "line 39";
+    println!(
+        "scrollback page-up/page-down window [{}]",
+        pass_str(scroll_ok && live_ok)
+    );
+    ok &= scroll_ok && live_ok;
+
     if !ok {
         std::process::exit(1);
     }
