@@ -326,7 +326,7 @@ fn escape_html(text: &str) -> String {
 
 fn render_html(project: &SceneProject) -> String {
     let viewport = project.viewport();
-    let mut html = format!("<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{}</title><style>body{{margin:0;background:#111;color:#eee;font:14px system-ui,sans-serif}}header{{padding:12px 18px}}main{{padding:18px;overflow:auto}}.stage{{position:relative;margin:auto;background:#20202a;box-shadow:0 4px 24px #0008}}.node{{position:absolute;box-sizing:border-box;overflow:hidden;white-space:pre-wrap;overflow-wrap:anywhere;padding:4px;border:1px solid #ffffff30;border-radius:3px}}.node.scrollable{{overflow:auto;overscroll-behavior:contain;touch-action:pan-y}}.button{{display:flex;align-items:center;justify-content:center;font:inherit}}</style></head><body><header>Goya Studio preview · {}</header><main><div class=\"stage\" style=\"width:{}px;height:{}px\">", escape_html(&project.scene().name), escape_html(&project.scene().name), viewport.width_points, viewport.height_points);
+    let mut html = format!("<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{}</title><style>body{{margin:0;background:#111;color:#eee;font:14px system-ui,sans-serif}}header{{padding:12px 18px}}main{{padding:18px;overflow:auto}}.stage{{position:relative;margin:auto;background:#20202a;box-shadow:0 4px 24px #0008}}.node{{position:absolute;box-sizing:border-box;overflow:hidden;white-space:pre-wrap;overflow-wrap:anywhere;padding:4px;border:1px solid #ffffff30;border-radius:3px}}.node.scrollable{{overflow:auto;overscroll-behavior:contain;touch-action:pan-y}}.button{{display:flex;align-items:center;justify-content:center;font:inherit}}.scene-input{{box-sizing:border-box;width:100%;height:100%;min-width:0;padding:0;border:0;outline:0;background:transparent;color:inherit;font:inherit}}.input-node:focus-within{{outline:2px solid #ffdc65}}</style></head><body><header>Goya Studio preview · {}</header><main><div class=\"stage\" style=\"width:{}px;height:{}px\">", escape_html(&project.scene().name), escape_html(&project.scene().name), viewport.width_points, viewport.height_points);
     let nodes = project.frame().nodes;
     let mut children: BTreeMap<Option<String>, Vec<usize>> = BTreeMap::new();
     for (index, node) in nodes.iter().enumerate() {
@@ -337,7 +337,7 @@ fn render_html(project: &SceneProject) -> String {
             render_preview_node(&mut html, &nodes, &children, *index, None);
         }
     }
-    html.push_str("</div></main><script>const parentWindow=window.parent,nodes=[...document.querySelectorAll('[data-node-index]')];let selected=-1,drag=null;function markSelected(i){selected=i;for(const el of nodes)el.style.outline=Number(el.dataset.nodeIndex)===i?'2px solid #ffdc65':'';}function select(i){markSelected(i);parentWindow.postMessage({type:'goya-select',index:i},'*');}window.addEventListener('message',e=>{if(e.source!==parentWindow||!e.data||e.data.type!=='goya-selected'||!Number.isInteger(e.data.index))return;markSelected(e.data.index);});for(const el of nodes){const index=Number(el.dataset.nodeIndex);el.style.cursor='grab';el.style.touchAction=el.classList.contains('scrollable')?'pan-y':'none';el.addEventListener('pointerdown',e=>{if(e.button!==0)return;if(el.classList.contains('scrollable')&&e.pointerType!=='mouse')return;e.preventDefault();e.stopPropagation();select(index);drag={index,x:e.clientX,y:e.clientY,el};el.setPointerCapture(e.pointerId);});el.addEventListener('pointermove',e=>{if(!drag||drag.index!==index)return;e.stopPropagation();drag.el.style.transform='translate('+(e.clientX-drag.x)+'px,'+(e.clientY-drag.y)+'px)';});el.addEventListener('pointerup',e=>{if(!drag||drag.index!==index)return;e.stopPropagation();const d={type:'goya-drag',index,dx:e.clientX-drag.x,dy:e.clientY-drag.y};drag.el.style.transform='';drag=null;if(Math.abs(d.dx)+Math.abs(d.dy)>1)parentWindow.postMessage(d,'*');});el.addEventListener('pointercancel',()=>{if(drag&&drag.index===index){drag.el.style.transform='';drag=null;}});}</script></body></html>");
+    html.push_str("</div></main><script>const parentWindow=window.parent,nodes=[...document.querySelectorAll('[data-node-index]')];let selected=-1,drag=null;function markSelected(i){selected=i;for(const el of nodes)el.style.outline=Number(el.dataset.nodeIndex)===i?'2px solid #ffdc65':'';}function select(i){markSelected(i);parentWindow.postMessage({type:'goya-select',index:i},'*');}window.addEventListener('message',e=>{if(e.source!==parentWindow||!e.data||e.data.type!=='goya-selected'||!Number.isInteger(e.data.index))return;markSelected(e.data.index);});for(const el of nodes){const index=Number(el.dataset.nodeIndex);el.style.cursor=el.classList.contains('input-node')?'text':'grab';el.style.touchAction=el.classList.contains('scrollable')?'pan-y':'none';el.addEventListener('pointerdown',e=>{if(e.button!==0)return;if(e.target instanceof HTMLInputElement){e.stopPropagation();select(index);return;}if(el.classList.contains('scrollable')&&e.pointerType!=='mouse')return;e.preventDefault();e.stopPropagation();select(index);drag={index,x:e.clientX,y:e.clientY,el};el.setPointerCapture(e.pointerId);});el.addEventListener('pointermove',e=>{if(!drag||drag.index!==index)return;e.stopPropagation();drag.el.style.transform='translate('+(e.clientX-drag.x)+'px,'+(e.clientY-drag.y)+'px)';});el.addEventListener('pointerup',e=>{if(!drag||drag.index!==index)return;e.stopPropagation();const d={type:'goya-drag',index,dx:e.clientX-drag.x,dy:e.clientY-drag.y};drag.el.style.transform='';drag=null;if(Math.abs(d.dx)+Math.abs(d.dy)>1)parentWindow.postMessage(d,'*');});el.addEventListener('pointercancel',()=>{if(drag&&drag.index===index){drag.el.style.transform='';drag=null;}});}</script></body></html>");
     html
 }
 
@@ -354,19 +354,27 @@ fn render_preview_node(
         .map(|color| format!("#{:06x}", color & 0x00ff_ffff))
         .unwrap_or_else(|| "#353545".into());
     let label = node.text.as_deref().unwrap_or(&node.name);
-    let role = if node.is_input {
-        "textbox"
-    } else if node.is_button {
+    let role = if node.is_button {
         "button"
     } else {
         "group"
     };
     let left = node.rect.x - parent.map_or(0, |parent| parent.rect.x);
     let top = node.rect.y - parent.map_or(0, |parent| parent.rect.y);
+    let content = if node.is_input {
+        format!(
+            "<input class=\"scene-input\" type=\"text\" role=\"textbox\" aria-label=\"{}\" placeholder=\"{}\" autocomplete=\"off\">",
+            escape_html(label),
+            escape_html(label)
+        )
+    } else {
+        escape_html(label)
+    };
     html.push_str(&format!(
-        "<div class=\"node{}{}\" data-node-index=\"{}\" role=\"{}\" aria-label=\"{}\" style=\"left:{}px;top:{}px;width:{}px;height:{}px;background:{};{}\">{}",
+        "<div class=\"node{}{}{}\" data-node-index=\"{}\" role=\"{}\" aria-label=\"{}\" style=\"left:{}px;top:{}px;width:{}px;height:{}px;background:{};{}\">{}",
         if node.is_input || node.is_button { " button" } else { "" },
         if node.scroll { " scrollable" } else { "" },
+        if node.is_input { " input-node" } else { "" },
         index,
         role,
         escape_html(label),
@@ -376,7 +384,7 @@ fn render_preview_node(
         node.rect.height as f64 / 1000.0,
         color,
         node.text_size.map(|size| format!("font-size:{}px;", size)).unwrap_or_default(),
-        escape_html(label)
+        content
     ));
     if let Some(child_indices) = children.get(&Some(node.name.clone())) {
         for child in child_indices {
@@ -1072,6 +1080,12 @@ mod tests {
         let preview = render_html(&project);
         assert!(preview.contains("Your name"));
         assert!(preview.contains("role=\"textbox\""));
+        assert!(preview.contains("<input class=\"scene-input\" type=\"text\""));
+        assert!(preview.contains("placeholder=\"Your name\" autocomplete=\"off\">"));
+        assert!(preview.contains(
+            "if(e.target instanceof HTMLInputElement){e.stopPropagation();select(index);return;}"
+        ));
+        assert!(preview.contains("parentWindow.postMessage(d,'*')"));
 
         // Inspector select includes the input node as its own kind, and the
         // safe-matching block scanner accepts @input blocks.
