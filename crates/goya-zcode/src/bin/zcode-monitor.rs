@@ -404,7 +404,7 @@ fn headless_acceptance(store: &SceneStore) {
         c.handle_char('c');
         let committed = c.handle_char('\n');
         let comp_ok = committed.as_deref() == Some("abc")
-            && c.text.is_empty()
+            && c.text().is_empty()
             && c.history.last().map(String::as_str) == Some("abc");
         println!("composer type/backspace/commit [{}]", pass_str(comp_ok));
         ok &= comp_ok;
