@@ -419,13 +419,18 @@ impl GoyaWindow {
         anchor_byte: u32,
         cursor_rect: (i32, i32, i32, i32),
     ) -> bool {
-        let (Some(input), Some(surface)) = (&self.state.text_input, &self.state.surface) else {
+        let (Some(input), Some(_surface)) = (&self.state.text_input, &self.state.surface) else {
             return false;
         };
         if enabled {
-            input.enable(surface);
-            input.set_surrounding_text(surrounding_text.to_owned(), cursor_byte, anchor_byte);
-            input.set_content_type(0, 0);
+            input.enable();
+            let cursor = utf8_byte_offset(surrounding_text, cursor_byte);
+            let anchor = utf8_byte_offset(surrounding_text, anchor_byte);
+            input.set_surrounding_text(surrounding_text.to_owned(), cursor, anchor);
+            input.set_content_type(
+                zwp_text_input_v3::ContentHint::None,
+                zwp_text_input_v3::ContentPurpose::Normal,
+            );
             input.set_cursor_rectangle(
                 cursor_rect.0,
                 cursor_rect.1,
@@ -609,6 +614,14 @@ impl GoyaWindow {
     pub fn size(&self) -> (i32, i32) {
         (self.state.width, self.state.height)
     }
+}
+
+fn utf8_byte_offset(text: &str, requested: u32) -> i32 {
+    let mut offset = (requested as usize).min(text.len()).min(i32::MAX as usize);
+    while !text.is_char_boundary(offset) {
+        offset -= 1;
+    }
+    offset as i32
 }
 
 fn argb(rgb: [u8; 3]) -> u32 {
