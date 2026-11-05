@@ -67,7 +67,7 @@ each frame before conversion to primitives (calculator `with_result` pattern).
 ## Host binary
 
 `zcode-monitor [--cli <path>] [--workspace <path>] [--session <id>]
-               [--live | --stdin-dump] [--watch] [--frames <n>]`
+               [--live | --stdin-dump] [--watch] [--frames <n>] [--duration <seconds>]`
 
 - Default (headless acceptance): parse scene, run projection unit checks,
   print PASS/FAIL, exit non-zero on failure — same shape as `goya-scene`.
@@ -75,6 +75,9 @@ each frame before conversion to primitives (calculator `with_result` pattern).
   (link/sessions/tail) to stdout as it changes. Acceptance path on
   non-Wayland hosts.
 - `--live`: Wayland window.
+- `--frames <n>`: stop live rendering after `n` frames (also selects live mode).
+- `--duration <seconds>`: stop either live or dump mode after the requested
+  duration. Invalid values are ignored by this candidate host.
 
 ## Acceptance
 
