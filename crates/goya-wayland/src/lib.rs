@@ -1712,4 +1712,192 @@ mod key_tests {
         assert_eq!(key_char(42, false), None); // shift itself
         assert_eq!(key_char(999, false), None);
     }
+
+    #[test]
+    fn enter_and_backspace_stay_key_chars() {
+        // GY-WAVE2 contract: Enter stays '\n', Backspace stays '\u{8}'.
+        assert_eq!(key_char(28, false), Some('\n'));
+        assert_eq!(key_char(14, false), Some('\u{8}'));
+        // Tab moved to KeySpecial, so it must NOT emit a char.
+        assert_eq!(key_char(15, false), None);
+    }
+}
+
+#[cfg(test)]
+mod key_special_tests {
+    use super::{key_special, KeySpecial};
+
+    #[test]
+    fn evdev_us_subset_mapping_table() {
+        assert_eq!(key_special(105), Some(KeySpecial::ArrowLeft));
+        assert_eq!(key_special(106), Some(KeySpecial::ArrowRight));
+        assert_eq!(key_special(103), Some(KeySpecial::ArrowUp));
+        assert_eq!(key_special(108), Some(KeySpecial::ArrowDown));
+        assert_eq!(key_special(102), Some(KeySpecial::Home));
+        assert_eq!(key_special(107), Some(KeySpecial::End));
+        assert_eq!(key_special(111), Some(KeySpecial::Delete));
+        assert_eq!(key_special(1), Some(KeySpecial::Escape));
+        assert_eq!(key_special(15), Some(KeySpecial::Tab));
+    }
+
+    #[test]
+    fn unmapped_keycodes_stay_none() {
+        // Letters, digits, shift, enter, backspace, space, unknown codes.
+        for kc in [16, 30, 44, 2, 11, 42, 54, 28, 14, 57, 999, 0] {
+            assert_eq!(key_special(kc), None, "keycode {kc} should be unmapped");
+        }
+    }
+}
+
+#[cfg(test)]
+mod fill_tests {
+    use super::{argb, raster_serial, resolve_fill, MP_PER_PX};
+
+    #[test]
+    fn resolve_fill_overrides_and_falls_back() {
+        let fills = [Some(0xFF4444), None];
+        assert_eq!(resolve_fill(&fills, 0, [16, 16, 20]), [0xFF, 0x44, 0x44]);
+        assert_eq!(resolve_fill(&fills, 1, [16, 16, 20]), [16, 16, 20]);
+        // Short slice / empty slice fall back (caller may pass &[]).
+        assert_eq!(resolve_fill(&[], 0, [80, 100, 180]), [80, 100, 180]);
+        assert_eq!(resolve_fill(&fills, 5, [7, 8, 9]), [7, 8, 9]);
+    }
+
+    #[test]
+    fn fill_colour_reaches_rasterized_buffer() {
+        let (width, height) = (64, 32);
+        let rect = Rect {
+            x: 0,
+            y: 0,
+            width: 20 * MP_PER_PX,
+            height: 20 * MP_PER_PX,
+        };
+        let primitives = [goya_runtime::Primitive::Button(rect, "C".to_string())];
+        // Button glyph area sits at x>=2, y>=2; sample the plain fill area.
+        let probe = 5 + 5 * width as usize;
+        let default = argb([80, 100, 180]);
+        let overridden = argb([0x1A, 0x2A, 0x3B]);
+
+        let mut buf = vec![0u32; (width * height) as usize];
+        raster_serial(&mut buf, width, height, &primitives, &[], [255; 3], 1, None);
+        assert_eq!(buf[probe], default, "no fill entry: flat default expected");
+
+        raster_serial(
+            &mut buf,
+            width,
+            height,
+            &primitives,
+            &[Some(0x1A2A3B)],
+            [255; 3],
+            1,
+            None,
+        );
+        assert_eq!(buf[probe], overridden, "fills[0] must override the fill");
+
+        // Index is by primitive order: fill on the wrong index does nothing.
+        raster_serial(
+            &mut buf,
+            width,
+            height,
+            &primitives,
+            &[None, Some(0x1A2A3B)],
+            [255; 3],
+            1,
+            None,
+        );
+        assert_eq!(buf[probe], default);
+    }
+}
+
+#[cfg(test)]
+mod multiline_tests {
+    use super::{argb, draw_glyphs, MP_PER_PX};
+
+    fn rect(x: i64, y: i64, w: i64, h: i64) -> Rect {
+        Rect {
+            x: x * MP_PER_PX,
+            y: y * MP_PER_PX,
+            width: w * MP_PER_PX,
+            height: h * MP_PER_PX,
+        }
+    }
+
+    #[test]
+    fn second_line_rasterizes_at_line_height_offset() {
+        let (width, height) = (64, 64);
+        let r = rect(0, 0, 40, 40);
+        let fg = argb([255, 255, 255]);
+        let bg = argb([0, 0, 0]);
+        // glyph_px = 10 -> line height 14 px; glyph pixels start at (2, 2).
+        let g = 10usize;
+        let line_height = ((10.0_f64) * 1.4) as i64;
+
+        let mut two = vec![bg; (width * height) as usize];
+        draw_glyphs(&mut two, width, height, &r, "i\ni", [255; 3], 10, None);
+        // Column x=2 is inked at the top of each line for the 'i' glyph.
+        assert_eq!(two[2 + 2 * width as usize], fg, "line 0 inked");
+        assert_eq!(
+            two[2 + (2 + line_height) as usize * width as usize],
+            fg,
+            "line 1 offset by glyph_px * 1.4"
+        );
+
+        // Single-line baseline: nothing at the second line offset.
+        let mut one = vec![bg; (width * height) as usize];
+        draw_glyphs(&mut one, width, height, &r, "i", [255; 3], 10, None);
+        assert_eq!(one[2 + 2 * width as usize], fg);
+        assert_eq!(
+            one[2 + (2 + line_height) as usize * width as usize],
+            bg,
+            "no second line on single-line text"
+        );
+        let _ = g;
+    }
+
+    #[test]
+    fn lines_beyond_node_rect_are_dropped() {
+        let (width, height) = (64, 64);
+        let fg = argb([255, 255, 255]);
+        let bg = argb([0, 0, 0]);
+        // Rect height 16 px, glyph_px 10 -> line height 14; line 1 starts
+        // at y=16 which equals rect bottom, so only line 0 renders.
+        let r = rect(0, 0, 40, 16);
+        let mut buf = vec![bg; (width * height) as usize];
+        draw_glyphs(&mut buf, width, height, &r, "i\ni", [255; 3], 10, None);
+        assert_eq!(buf[2 + 2 * width as usize], fg, "line 0 inside rect");
+        assert_eq!(
+            buf[2 + 16 * width as usize],
+            bg,
+            "line 1 at rect bottom edge is dropped"
+        );
+
+        // A taller rect admits line 1.
+        let r_tall = rect(0, 0, 40, 30);
+        let mut buf2 = vec![bg; (width * height) as usize];
+        draw_glyphs(&mut buf2, width, height, &r_tall, "i\ni", [255; 3], 10, None);
+        assert_eq!(buf2[2 + 16 * width as usize], fg, "line 1 inside tall rect");
+    }
+
+    #[test]
+    fn glyphs_are_clipped_to_node_rect_right_edge() {
+        let (width, height) = (64, 32);
+        let fg = argb([255, 255, 255]);
+        let bg = argb([0, 0, 0]);
+        // Rect ends at x=8 px; a long single-line string must not paint
+        // past the rect's right edge.
+        let r = rect(0, 0, 8, 20);
+        let mut buf = vec![bg; (width * height) as usize];
+        draw_glyphs(&mut buf, width, height, &r, "iiiiiiii", [255; 3], 1, None);
+        let rect_x1 = 8 + 2; // rect right edge + glyph origin inset
+        for y in 0..height as usize {
+            for x in rect_x1..width as usize {
+                assert_eq!(
+                    buf[y * width as usize + x],
+                    bg,
+                    "ink outside node rect at ({x},{y})"
+                );
+            }
+        }
+        let _ = fg;
+    }
 }
