@@ -371,5 +371,18 @@ mod input_tests {
             },
         );
         assert_eq!(runtime.input_text(NodeId(4)), Some("é仮名"));
+        apply_text_event(
+            &mut runtime,
+            goya_wayland::PlatformEvent::PreeditWithCursor {
+                text: Some("かな".into()),
+                cursor_begin: 3,
+                cursor_end: 6,
+            },
+        );
+        assert_eq!(runtime.input_text(NodeId(4)), Some("é仮名"));
+        assert!(matches!(
+            runtime.render_list().last(),
+            Some(Primitive::Text(_, value)) if value == "é仮名かな"
+        ));
     }
 }
