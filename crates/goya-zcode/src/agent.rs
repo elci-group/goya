@@ -911,7 +911,7 @@ mod tests {
                 _ => None,
             })
             .as_deref(),
-            Some("7890abcde".strip_suffix('e').map(|s| s.to_owned() + "f").unwrap().as_str()),
+            Some("90abcdef"),
             "short id form is the last 8 chars"
         );
     }
