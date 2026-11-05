@@ -2037,20 +2037,16 @@ mod key_tests {
     fn xkb_and_evdev_paths_agree_on_overlapping_keycodes() {
         // 'us' layout vs the built-in evdev US-subset table must produce
         // identical KeyChar results for every printable keycode both know.
-        let (_, state) = state_for_layout("us");
-        // The xkb path reads modifiers from the state (not the bool), so
-        // mirror the compositor's Modifiers event for shift cases.
-        let shift_index = {
-            let keymap = state.get_keymap();
-            keymap.mod_get_index(&"Shift")
-        };
         let printable = [
             2, 3, 11, 12, 13, 16, 17, 18, 19, 20, 26, 30, 31, 32, 33, 44, 45, 50, 51, 52, 53, 57,
         ];
         for kc in printable {
             for shift in [false, true] {
-                let mut state = state.clone();
+                // Construct a fresh state per case so modifier state from a
+                // previous key cannot leak into this comparison.
+                let (keymap, mut state) = state_for_layout("us");
                 if shift {
+                    let shift_index = keymap.mod_get_index(&"Shift");
                     state.update_mask(1 << shift_index, 0, 0, 0, 0, 0);
                 }
                 assert_eq!(
@@ -2062,6 +2058,7 @@ mod key_tests {
         }
         // Navigation keys: xkb path must not steal them into KeyChar —
         // key_special owns them upstream, and the xkb path yields no char.
+        let (_, state) = state_for_layout("us");
         for kc in [1, 15, 102, 103, 104, 105, 106, 107, 108, 109, 111] {
             assert!(
                 key_char_from_state(&state, kc, false).is_none(),
