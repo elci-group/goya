@@ -23,6 +23,7 @@ evidenced; see `evidence/GY-WAVE1-001.json` and `docs/contracts.md`.
 | `goya-artifact` + `goya-watermark` | GY-ARTIFACT/1 | Byte/perceptual/provenance identity, DCT marks |
 | `goya-wayland` | GY-WAYLAND/1 | Live Wayland window, pointer → runtime, shm presentation |
 | `goya-hello` | — | GY-005 proof: headless PPM + `--live` window; `buttons` bin = ARSEM acceptance |
+| `goya-zcode` | GY-ZCODE/1 | Read-only native ZCode session monitor (`zcode-monitor` bin); see docs/goya-zcode.md |
 
 The core IR, state, layout, and runtime crates have no external dependencies;
 platform adapters and extensions declare their own dependencies.
