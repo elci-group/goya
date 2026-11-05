@@ -147,15 +147,14 @@ dispatch — agents implement against it, never negotiate it.
 | J3 | `goya-zcode` | composer state machine + scene update + tests (pure logic) |
 | gate | workspace | cargo build/test/clippy/fmt, all `present(fills, ...)` call-site migrations, live keyboard/composer acceptance, evidence |
 
-The workspace gate passes: `cargo test --workspace --lib --tests -j 1`,
-`cargo fmt --all -- --check`, and strict workspace Clippy all succeed. The
-headless host acceptance also covers composer typing, backspace, and local
-commit. The gate remains open until interactive Wayland keyboard/composer
-acceptance and the real ZCode app-server session stream are recorded; the
-headless check does not establish native input delivery or live protocol
-behavior. The public GY-IR/2 executable bytecode backend renders an input
-node's static placeholder with the existing text opcode; editable contents
-and focus remain host-side state and are not part of bytecode v1.
+The gate record in `evidence/GY-ZCODE-002.json` captures the workspace
+build/test/lint/format checks, headless composer typing/backspace/local
+commit, a live `stdin-dump` session stream, and a Wayland presentation run.
+Interactive keyboard/composer acceptance in the live window remains open;
+headless key simulation does not establish native input delivery. The public
+GY-IR/2 executable bytecode backend renders an input node's static placeholder
+with the existing text opcode; editable contents and focus remain host-side
+state and are not part of bytecode v1.
 
 Contention rule: agents may run `cargo check -p <own crates>` only; the gate
 runs all workspace gates. All changes spec-first; each agent updates only its
