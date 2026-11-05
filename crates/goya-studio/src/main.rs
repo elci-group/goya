@@ -378,8 +378,8 @@ fn render_preview_node(
         node.text_size.map(|size| format!("font-size:{}px;", size)).unwrap_or_default(),
         escape_html(label)
     ));
-    if let Some(children) = children.get(&Some(node.name.clone())) {
-        for child in children {
+    if let Some(child_indices) = children.get(&Some(node.name.clone())) {
+        for child in child_indices {
             render_preview_node(html, nodes, children, *child, Some(node));
         }
     }
