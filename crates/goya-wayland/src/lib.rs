@@ -273,11 +273,8 @@ impl TextInputState {
                     let (cursor_begin, cursor_end) = self
                         .pending_preedit_cursor
                         .unwrap_or((0, text.len().min(i32::MAX as usize) as i32));
-                    if cursor_begin == 0
-                        && cursor_end == text.len().min(i32::MAX as usize) as i32
-                    {
-                        self.events
-                            .push(PlatformEvent::Preedit(Some(text.clone())));
+                    if cursor_begin == 0 && cursor_end == text.len().min(i32::MAX as usize) as i32 {
+                        self.events.push(PlatformEvent::Preedit(Some(text.clone())));
                     } else {
                         self.events.push(PlatformEvent::PreeditWithCursor {
                             text: Some(text.clone()),
@@ -2061,11 +2058,9 @@ impl Dispatch<ZwpTextInputV3, ()> for GoyaWindowInner {
                 cursor_begin,
                 cursor_end,
             } => {
-                state.text_input_state.feed_preedit_with_cursor(
-                    text,
-                    cursor_begin,
-                    cursor_end,
-                );
+                state
+                    .text_input_state
+                    .feed_preedit_with_cursor(text, cursor_begin, cursor_end);
             }
             zwp_text_input_v3::Event::CommitString { text } => {
                 state.text_input_state.feed_commit(text);
@@ -3191,7 +3186,10 @@ mod text_input_tests {
         let mut s = TextInputState::new();
         s.feed_preedit(Some("compose".into()));
         s.feed_done();
-        assert_eq!(s.drain(), vec![PlatformEvent::Preedit(Some("compose".into()))]);
+        assert_eq!(
+            s.drain(),
+            vec![PlatformEvent::Preedit(Some("compose".into()))]
+        );
 
         s.feed_delete_surrounding(3, 2);
         s.feed_commit(Some("語".into()));
