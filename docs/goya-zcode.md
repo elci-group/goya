@@ -93,3 +93,60 @@ each frame before conversion to primitives (calculator `with_result` pattern).
 - Scrolling (only tail-N virtualization exists here).
 - Theming plumbing to the renderer (colors are flat bg/fg per frame).
 - Web, phone remote, and any replacement of the existing desktop frontend.
+
+## Wave 2 — platform gaps closed by swarm (GY-ZCODE-002)
+
+Executed per the GY-WAVE2-SWARM convention: concurrent agents with exclusive
+crate ownership implementing the shared interface contract below; a central
+integration gate runs the workspace gates. The contract is frozen before
+dispatch — agents implement against it, never negotiate it.
+
+### Shared interface contract (frozen)
+
+1. **Editable input node (J1: `goya-ir` + `goya-lang`).**
+   - `goya_ir::Node` gains `Input { placeholder: String }` (existing variants
+     unchanged).
+   - Scene syntax: `@input name { position/extent/fill/stroke/text-size;
+     text: "<placeholder>" }` (same geometry vocabulary as `@cell`).
+   - `goya_lang::DrawNode` gains `pub is_input: bool` (default false;
+     `CellKind`/`SceneCell` mirror it).
+   - Focus is host-side state; parse/layout stay deterministic (GY-LAYOUT/1).
+2. **Renderer (J2: `goya-wayland`).**
+   - `present`/`present_dirty` honour per-node fills: scene `fill:` reaches
+     the screen. Mechanism: primitives carry the fill (new
+     `Primitive::{Text,Button}` variant shape with `Option<u32> fill` in
+     `goya-runtime`… **correction**: to keep the frozen boundary tight, the
+     fill travels out-of-band — `present`/`present_dirty` gain a parallel
+     `fills: &[Option<u32>]` slice indexed by primitive order; the flat
+     bg/fg arguments remain for primitives without a fill. `goya-hello`
+     call-site migration happens at the integration gate, not by J2.
+   - Text containing `'\n'` rasterizes as multiple lines, line height =
+     glyph_px * 1.4, clipped to the node rect.
+   - `PlatformEvent` gains `KeySpecial(KeySpecial)` with `enum KeySpecial {
+     ArrowLeft, ArrowRight, ArrowUp, ArrowDown, Home, End, Delete, Escape,
+     Tab }` (Enter stays `'\n'`, Backspace stays `'\u{8}'` in `KeyChar`).
+     Evdev US-subset; unmapped keycodes stay `None`.
+3. **Composer (J3: `goya-zcode`).**
+   - The monitor scene gains an `@input composer` node; the host maintains
+     focus (click on the composer via `hit_test` focuses it), cursor
+     position, and typed text editable with the KeySpecial set +
+     `'\u{8}'`/`'\n'`.
+   - Enter commits: the monitor does NOT auto-send (read-only link); Enter
+     echoes the composed line into the tail marked `[local]` and clears the
+     field. Sending is a later increment (needs `session/send` + v4
+     admission).
+   - Composer text renders in the input node per frame (host override).
+
+### Assignments
+
+| Agent | Crates (exclusive) | Deliverable |
+|---|---|---|
+| J1 | `goya-ir`, `goya-lang` | `Node::Input` + parser + `DrawNode.is_input` + unit tests |
+| J2 | `goya-wayland` | per-node fills, multi-line raster, KeySpecial events + tests |
+| J3 | `goya-zcode` | composer state machine + scene update + tests (pure logic) |
+| gate | workspace | cargo build/test/clippy/fmt, goya-hello call-site migration, live acceptance, evidence |
+
+Contention rule: agents may run `cargo check -p <own crates>` only; the gate
+runs all workspace gates. All changes spec-first; each agent updates only its
+own crate's docs/comments.
+
