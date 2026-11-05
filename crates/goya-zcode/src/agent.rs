@@ -888,12 +888,15 @@ mod tests {
 
     #[test]
     fn tool_updated_display_falls_back_description_then_short_id() {
-        let payload = |extra: Value| {
-            serde_json::json!({
-                "kind": "started",
-                "toolCallId": "call_1234567890abcdef",
-            })
-            .merge(extra)
+        let payload = |mut extra: Value| {
+            if extra.is_null() {
+                serde_json::json!({"kind": "started", "toolCallId": "call_1234567890abcdef"})
+            } else {
+                let obj = extra.as_object_mut().expect("object payload");
+                obj.insert("kind".into(), "started".into());
+                obj.insert("toolCallId".into(), "call_1234567890abcdef".into());
+                extra
+            }
         };
         let ev = map_event(&payload(serde_json::json!({"description": "reading src"})));
         assert_eq!(
