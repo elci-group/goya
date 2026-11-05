@@ -134,6 +134,15 @@ impl Composer {
         self.preedit = None;
     }
 
+    /// Apply an IME delete-surrounding request in UTF-8 bytes. The shared
+    /// text buffer expands the requested range to grapheme boundaries.
+    pub fn delete_surrounding(&mut self, before_bytes: u32, after_bytes: u32) {
+        if self.focused {
+            self.preedit = None;
+            self.buffer.delete_surrounding(before_bytes, after_bytes);
+        }
+    }
+
     /// Wave 5 (GY-ZCODE-005): set or clear the IME preedit from a
     /// `PlatformEvent::Preedit` delivery (`None` = cleared). The preedit is
     /// an overlay — it never enters the committed buffer text until the
@@ -141,12 +150,23 @@ impl Composer {
     /// (0, len), i.e. the caret sits at the preedit start. No-op while
     /// unfocused, matching [`Composer::commit_text`].
     pub fn set_preedit(&mut self, preedit: Option<&str>) {
+        let cursor_end = preedit.map_or(0, |text| text.len().min(i32::MAX as usize) as i32);
+        self.set_preedit_with_cursor(preedit, 0, cursor_end);
+    }
+
+    /// Set IME preedit text and its UTF-8 byte cursor/selection endpoints.
+    pub fn set_preedit_with_cursor(
+        &mut self,
+        preedit: Option<&str>,
+        cursor_begin: i32,
+        cursor_end: i32,
+    ) {
         if !self.focused {
             return;
         }
         self.preedit = preedit
             .filter(|s| !s.is_empty())
-            .map(|s| (s.to_string(), 0, s.len().min(i32::MAX as usize) as i32));
+            .map(|s| (s.to_string(), cursor_begin, cursor_end));
     }
 
     /// Recall a committed line from history (`-1` = previous, `+1` = next).
