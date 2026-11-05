@@ -289,13 +289,13 @@ fn wrap_text(text: &str, width: usize) -> Vec<String> {
     out
 }
 
-/// Largest byte offset ≤ `max_chars` characters that is a char boundary.
+/// Byte offset after the first `max_chars` characters (a char boundary;
+/// `word.len()` when the word is shorter).
 fn char_boundary_floor(word: &str, max_chars: usize) -> usize {
-    let mut end = 0usize;
-    for (i, _) in word.char_indices().skip(max_chars) {
-        return i;
-    }
-    word.len().saturating_sub(end) + end // word.len() when short enough
+    word.char_indices()
+        .nth(max_chars)
+        .map(|(i, _)| i)
+        .unwrap_or(word.len())
 }
 
 fn resolve_rect(cell: &SceneCell, parent: RectMp) -> RectMp {
