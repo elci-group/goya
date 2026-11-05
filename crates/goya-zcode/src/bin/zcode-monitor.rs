@@ -918,6 +918,31 @@ mod input_event_tests {
     }
 
     #[test]
+    fn ime_byte_delete_and_preedit_cursor_follow_composer_graphemes() {
+        let mut composer = Composer::new();
+        composer.focused = true;
+        composer.buffer.set_text("日本語");
+        composer.buffer.move_end(false);
+        feed_key(
+            &mut composer,
+            &PlatformEvent::DeleteSurroundingText {
+                before_bytes: 3,
+                after_bytes: 0,
+            },
+        );
+        assert_eq!(composer.text(), "日本");
+        feed_key(
+            &mut composer,
+            &PlatformEvent::PreeditWithCursor {
+                text: Some("かな".into()),
+                cursor_begin: 3,
+                cursor_end: 6,
+            },
+        );
+        assert_eq!(composer.display(), "日本«か│な»");
+    }
+
+    #[test]
     fn unfocused_composer_ignores_unicode_and_ime_batches() {
         let mut composer = Composer::new();
         feed_key(&mut composer, &PlatformEvent::KeyChar('ø'));
