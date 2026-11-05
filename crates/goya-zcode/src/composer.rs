@@ -220,9 +220,9 @@ impl Composer {
             combined.append(&mut before);
             // Wave 5: bracket the preedit overlay (« … ») so composing text
             // is visually distinct from committed text in the input node.
-            combined.push('«');/
+            combined.push("«");
             combined.extend(preedit.graphemes(true));
-            combined.push('»');
+            combined.push("»");
             combined.extend(chars[cursor.min(chars.len())..].iter().copied());
             let requested = if *cursor_begin < 0 {
                 preedit.len()
