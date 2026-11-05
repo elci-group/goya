@@ -2652,7 +2652,7 @@ mod fill_tests {
 
 #[cfg(test)]
 mod multiline_tests {
-    use super::{argb, draw_bitmap_glyphs, MP_PER_PX};
+    use super::{argb, draw_bitmap_glyphs, draw_glyphs, MP_PER_PX};
     use goya_layout::Rect;
 
     fn rect(x: i64, y: i64, w: i64, h: i64) -> Rect {
@@ -2737,6 +2737,33 @@ mod multiline_tests {
                     bg,
                     "ink outside node rect at ({x},{y})"
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn shaped_path_accepts_unicode_and_respects_node_clip() {
+        let (width, height) = (48, 32);
+        let bg = argb([0, 0, 0]);
+        let mut buf = vec![bg; (width * height) as usize];
+        let r = rect(0, 0, 24, 24);
+        draw_glyphs(
+            &mut buf,
+            width,
+            height,
+            &r,
+            "Latin Ελληνικά العربية 日本語",
+            [255, 255, 255],
+            1,
+            None,
+        );
+        assert!(
+            buf.iter().any(|pixel| *pixel != bg),
+            "text should rasterize"
+        );
+        for y in 0..height as usize {
+            for x in 26..width as usize {
+                assert_eq!(buf[y * width as usize + x], bg, "ink escaped at ({x},{y})");
             }
         }
     }
