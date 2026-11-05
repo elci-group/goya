@@ -173,6 +173,8 @@ pub struct RectMp {
 #[derive(Debug, Clone)]
 pub struct DrawNode {
     pub name: String,
+    /// Structural parent; used by renderers that need clipping and overflow.
+    pub parent: Option<String>,
     pub is_button: bool,
     /// Editable text field (`@input`); focus is host-side state.
     pub is_input: bool,
@@ -217,12 +219,18 @@ pub fn layout(scene: &Scene, width_pt: f64, height_pt: f64) -> Frame {
         width: (width_pt * MP) as i64,
         height: (height_pt * MP) as i64,
     };
-    resolve_cell(&scene.root, vp, &mut frame);
+    resolve_cell(&scene.root, vp, &mut frame, None, false);
     frame
 }
 
-fn resolve_cell(cell: &SceneCell, parent: RectMp, frame: &mut Frame) {
-    let rect = resolve_rect(cell, parent);
+fn resolve_cell(
+    cell: &SceneCell,
+    parent_rect: RectMp,
+    frame: &mut Frame,
+    parent_name: Option<&str>,
+    allow_overflow: bool,
+) {
+    let rect = resolve_rect(cell, parent_rect, allow_overflow);
     // Wrap is a pure textual transform: greedy word wrap at the declared
     // column count, emitted as '\n'-joined text. The wave-2 goya-wayland
     // raster already splits '\n' text at glyph_px*1.4 line height (rect
@@ -233,6 +241,7 @@ fn resolve_cell(cell: &SceneCell, parent: RectMp, frame: &mut Frame) {
     };
     frame.insert(DrawNode {
         name: cell.name.clone(),
+        parent: parent_name.map(str::to_owned),
         is_button: cell.kind == CellKind::Button,
         is_input: cell.is_input,
         rect,
@@ -245,7 +254,7 @@ fn resolve_cell(cell: &SceneCell, parent: RectMp, frame: &mut Frame) {
         scroll: cell.scroll,
     });
     for child in &cell.children {
-        resolve_cell(child, rect, frame);
+        resolve_cell(child, rect, frame, Some(&cell.name), cell.scroll);
     }
 }
 
@@ -308,7 +317,7 @@ fn char_boundary_floor(word: &str, max_chars: usize) -> usize {
         .unwrap_or(word.len())
 }
 
-fn resolve_rect(cell: &SceneCell, parent: RectMp) -> RectMp {
+fn resolve_rect(cell: &SceneCell, parent: RectMp, allow_overflow: bool) -> RectMp {
     // Extent first: proportional fraction of parent, else absolute points,
     // else a sensible default (half the parent, never negative).
     let (w, h) = if let Some(e) = cell.extent_p {
@@ -336,13 +345,29 @@ fn resolve_rect(cell: &SceneCell, parent: RectMp) -> RectMp {
         (parent.x, parent.y)
     };
     // Clamp inside the parent (non-negative offsets only).
-    let x = x.max(parent.x).min(parent.x + parent.width);
-    let y = y.max(parent.y).min(parent.y + parent.height);
+    let x = if allow_overflow {
+        x.max(parent.x)
+    } else {
+        x.max(parent.x).min(parent.x + parent.width)
+    };
+    let y = if allow_overflow {
+        y.max(parent.y)
+    } else {
+        y.max(parent.y).min(parent.y + parent.height)
+    };
     RectMp {
         x,
         y,
-        width: w.min(parent.x + parent.width - x).max(0),
-        height: h.min(parent.y + parent.height - y).max(0),
+        width: if allow_overflow {
+            w
+        } else {
+            w.min(parent.x + parent.width - x).max(0)
+        },
+        height: if allow_overflow {
+            h
+        } else {
+            h.min(parent.y + parent.height - y).max(0)
+        },
     }
 }
 
