@@ -223,6 +223,23 @@ impl ScrollOffsets {
         self.offsets.insert(name.to_owned(), (x, y));
         true
     }
+
+    /// Re-clamp stored offsets after layout, resize, or scene replacement.
+    /// Offsets for viewports removed from the frame are discarded.
+    pub fn reconcile(&mut self, frame: &Frame) {
+        self.offsets.retain(|name, offset| {
+            let Some(node) = frame.find(name).filter(|node| node.scroll) else {
+                return false;
+            };
+            let (max_x, max_y) = frame.scroll_limits(name);
+            offset.0 = offset.0.clamp(0, max_x);
+            offset.1 = offset.1.clamp(0, max_y);
+            // Keep explicit zero offsets so callers can observe that the
+            // viewport remains registered after its content shrinks.
+            let _ = node;
+            true
+        });
+    }
 }
 
 impl Frame {
@@ -442,6 +459,28 @@ fn wrap_text(text: &str, width: usize) -> Vec<String> {
         out.push(current);
     }
     out
+}
+
+#[cfg(test)]
+mod scrolling_tests {
+    use super::{layout, parse, ScrollOffsets};
+
+    #[test]
+    fn reconcile_clamps_stale_offsets_and_removes_missing_viewports() {
+        let first = parse("@ontology a { @cell root { extent: (400, 300, 0) @cell viewport { extent: (100, 80, 0) scroll: true @cell content { position: (0, 200, 0) extent: (20, 20, 0) } } } }").unwrap();
+        let first_frame = layout(&first, 400.0, 300.0);
+        let mut offsets = ScrollOffsets::default();
+        assert!(offsets.scroll_by(&first_frame, "viewport", 0, 500_000));
+        assert_eq!(offsets.get("viewport"), (0, 140_000));
+
+        let smaller = parse("@ontology a { @cell root { extent: (400, 300, 0) @cell viewport { extent: (100, 80, 0) scroll: true @cell content { position: (0, 100, 0) extent: (20, 20, 0) } } } }").unwrap();
+        offsets.reconcile(&layout(&smaller, 400.0, 300.0));
+        assert_eq!(offsets.get("viewport"), (0, 40_000));
+
+        let removed = parse("@ontology a { @cell root { extent: (400, 300, 0) } }").unwrap();
+        offsets.reconcile(&layout(&removed, 400.0, 300.0));
+        assert_eq!(offsets.get("viewport"), (0, 0));
+    }
 }
 
 /// Byte offset after the first `max_chars` characters (a char boundary;
