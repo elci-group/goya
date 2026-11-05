@@ -125,6 +125,9 @@ fn apply_view_to_frame(nodes: &mut [DrawNode], view: &SessionView) {
 
 /// GY-ZCODE-002 gate integration point: map `goya_wayland::KeySpecial`
 /// onto the composer's `&str` key names (see `composer` module docs).
+/// Wave-3 note: when J1 lands `KeySpecial::{PageUp, PageDown}` in
+/// goya-wayland, add the arms here emitting "page_up" / "page_down" —
+/// `key_special_to_action` below already understands those names.
 fn special_name(special: KeySpecial) -> &'static str {
     match special {
         KeySpecial::ArrowLeft => "arrow_left",
@@ -137,6 +140,43 @@ fn special_name(special: KeySpecial) -> &'static str {
         KeySpecial::Escape => "escape",
         KeySpecial::Tab => "tab",
     }
+}
+
+/// What a special-key name does in the monitor. Composer-scoped names are
+/// forwarded to the composer only while it is focused; page keys scroll
+/// the transcript history only while it is NOT (arrow keys stay
+/// composer-only, per the frozen Wave 3 contract).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum KeyAction {
+    Composer(&'static str),
+    PageUp,
+    PageDown,
+}
+
+/// Map the `&str` names produced by [`special_name`] onto monitor actions.
+/// "page_up"/"page_down" are accepted NOW so the mapping is ready when
+/// goya-wayland emits them (J1, wave 3); until that lands the variants do
+/// not exist upstream and these entries are a graceful no-op.
+fn key_special_to_action(name: &'static str) -> KeyAction {
+    match name {
+        "page_up" => KeyAction::PageUp,
+        "page_down" => KeyAction::PageDown,
+        other => KeyAction::Composer(other),
+    }
+}
+
+/// Enter-commit path (GY-ZCODE-003): the committed line is enqueued for
+/// the agent thread, which owns stdin and issues `session/send`. The
+/// `[local]` echo is retired — the wire send is the record. Without
+/// `--allow-send` the status hint explains the gate and the command is
+/// queued with `wire == false` (admission identical, no wire request).
+fn send_committed_line(handle: &agent::MonitorHandle, line: &str, allow_send: bool) {
+    if !allow_send {
+        if let Ok(mut view) = handle.view.lock() {
+            view.status = "send disabled — pass --allow-send".to_string();
+        }
+    }
+    handle.send_text(line.to_string(), allow_send);
 }
 
 /// Per-frame composer render override: live text with a `│` cursor marker

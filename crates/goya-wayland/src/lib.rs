@@ -15,8 +15,8 @@ use rustix::fd::OwnedFd;
 use rustix::fs::{ftruncate, memfd_create, MemfdFlags};
 use rustix::mm::{mmap, munmap, MapFlags, ProtFlags};
 use std::os::fd::AsFd;
+use std::fs::File;
 use std::io::Read;
-use std::{fs::File, os::fd::OwnedFd};
 use wayland_client::protocol::{
     wl_buffer::WlBuffer,
     wl_compositor::WlCompositor,
@@ -1527,11 +1527,33 @@ impl Dispatch<WlKeyboard, ()> for GoyaWindowInner {
         _: &QueueHandle<Self>,
     ) {
         match event {
-            // xkb keymap fd arrives with format v1; we use the built-in US
-            // table instead, so the fd is closed without reading.
-            wl_keyboard::Event::Keymap { .. } => {}
-            wl_keyboard::Event::Modifiers { mods_depressed, .. } => {
+            wl_keyboard::Event::Keymap { format, fd, size } => {
+                if let Some(context) = state.xkb_context.as_ref() {
+                    // Keep a previously accepted keymap if the compositor
+                    // sends an unsupported or malformed replacement.
+                    if let Some(keymap_state) = keymap_state_from_fd(context, format, fd, size) {
+                        state.xkb_state = Some(keymap_state);
+                    }
+                }
+            }
+            wl_keyboard::Event::Modifiers {
+                mods_depressed,
+                mods_latched,
+                mods_locked,
+                group,
+                ..
+            } => {
                 state.shift = mods_depressed & 0x1 != 0; // ShiftMask
+                if let Some(xkb_state) = state.xkb_state.as_mut() {
+                    xkb_state.update_mask(
+                        mods_depressed,
+                        mods_latched,
+                        mods_locked,
+                        0,
+                        0,
+                        group,
+                    );
+                }
             }
             wl_keyboard::Event::Key {
                 key,
@@ -1540,8 +1562,10 @@ impl Dispatch<WlKeyboard, ()> for GoyaWindowInner {
             } => {
                 if let Some(ks) = key_special(key) {
                     state.events.push(PlatformEvent::KeySpecial(ks));
-                } else if let Some(c) = key_char(key, state.shift) {
-                    state.events.push(PlatformEvent::KeyChar(c));
+                } else {
+                    for c in key_chars(state.xkb_state.as_ref(), key, state.shift) {
+                        state.events.push(PlatformEvent::KeyChar(c));
+                    }
                 }
             }
             _ => {}
