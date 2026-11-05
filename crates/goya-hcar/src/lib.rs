@@ -473,6 +473,35 @@ mod tests {
         let _ = fs::remove_dir_all(root);
     }
 
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn live_linux_sysfs_topology_smoke_when_enabled() {
+        if std::env::var("GOYA_HCAR_LIVE_TOPOLOGY").as_deref() != Ok("1") {
+            return;
+        }
+        let topology = CpuTopology::detect_linux()
+            .expect("this host exposes a complete heterogeneous CPU signal");
+        let performance: Vec<_> = topology
+            .cpus
+            .iter()
+            .filter(|cpu| cpu.class == CoreClass::Performance)
+            .map(|cpu| cpu.cpu_id)
+            .collect();
+        let efficiency: Vec<_> = topology
+            .cpus
+            .iter()
+            .filter(|cpu| cpu.class == CoreClass::Efficiency)
+            .map(|cpu| cpu.cpu_id)
+            .collect();
+        assert_eq!(performance.len(), topology.performance_cpus);
+        assert_eq!(efficiency.len(), topology.efficiency_cpus);
+        assert!(!performance.is_empty() && !efficiency.is_empty());
+        eprintln!(
+            "source={:?} performance_cpus={performance:?} efficiency_cpus={efficiency:?}",
+            topology.source
+        );
+    }
+
     fn cost(tp: f64, te: f64, ep: f64, ee: f64) -> WorkCost {
         WorkCost {
             time_p: tp,
