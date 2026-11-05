@@ -539,6 +539,20 @@ fn argb(rgb: [u8; 3]) -> u32 {
     0xFF00_0000 | ((rgb[2] as u32) << 16) | ((rgb[1] as u32) << 8) | rgb[0] as u32
 }
 
+/// Resolve a primitive's fill colour for its index `i` (GY-WAVE2 contract):
+/// `fills[i] = Some(0xRRGGBB)` wins; `None` (or a short slice) falls back to
+/// the existing flat default. Returns the RGB triple for rasterisation.
+fn resolve_fill(fills: &[Option<u32>], i: usize, default: [u8; 3]) -> [u8; 3] {
+    match fills.get(i).copied().flatten() {
+        Some(rgb) => [
+            ((rgb >> 16) & 0xFF) as u8,
+            ((rgb >> 8) & 0xFF) as u8,
+            (rgb & 0xFF) as u8,
+        ],
+        None => default,
+    }
+}
+
 const RASTER_TILE_SIZE: u32 = 32;
 const MAX_RASTER_WORKERS: u32 = 4;
 
@@ -548,6 +562,7 @@ fn raster_primitives(
     width: i32,
     height: i32,
     primitives: &[goya_runtime::Primitive],
+    fills: &[Option<u32>],
     fg: [u8; 3],
     glyph_px: u32,
     clip: Option<PixelClip>,
@@ -577,12 +592,21 @@ fn raster_primitives(
         && policy != CsrPolicy::Serial
         && workers > 1
         && raster_parallel_tiles(
-            pixels, width, height, primitives, fg, glyph_px, roi, dirty, policy, workers,
+            pixels, width, height, primitives, fills, fg, glyph_px, roi, dirty, policy, workers,
         )
     {
         return;
     }
-    raster_serial(pixels, width, height, primitives, fg, glyph_px, Some(roi));
+    raster_serial(
+        pixels,
+        width,
+        height,
+        primitives,
+        fills,
+        fg,
+        glyph_px,
+        Some(roi),
+    );
 }
 
 fn raster_serial(
@@ -590,12 +614,13 @@ fn raster_serial(
     width: i32,
     height: i32,
     primitives: &[goya_runtime::Primitive],
+    fills: &[Option<u32>],
     fg: [u8; 3],
     glyph_px: u32,
     clip: Option<PixelClip>,
 ) {
-    for prim in primitives {
-        raster_primitive(pixels, width, height, prim, fg, glyph_px, clip);
+    for (i, prim) in primitives.iter().enumerate() {
+        raster_primitive(pixels, width, height, prim, fills, i, fg, glyph_px, clip);
     }
 }
 
