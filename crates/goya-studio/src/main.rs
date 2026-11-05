@@ -1140,13 +1140,8 @@ mod tests {
         let canonical_path = fs::canonicalize(&opened_path).unwrap();
         let preview = render_html(&SceneProject::from_source(SCENE, Viewport::default()).unwrap());
         let initial_revision = scene_revision(SCENE.as_bytes());
-        let initial = route_request_for_scene(
-            &get("/"),
-            HOST,
-            SCENE,
-            &preview,
-            Some(&canonical_path),
-        );
+        let initial =
+            route_request_for_scene(&get("/"), HOST, SCENE, &preview, Some(&canonical_path));
         assert_eq!(initial.0, "200 OK");
         assert!(initial.2.contains(&format!(
             "name=\"goya-revision\" content=\"{initial_revision}\""
@@ -1167,13 +1162,8 @@ mod tests {
         assert_eq!(fs::read_to_string(&canonical_path).unwrap(), external);
 
         let refreshed_revision = scene_revision(external.as_bytes());
-        let refreshed_page = route_request_for_scene(
-            &get("/"),
-            HOST,
-            SCENE,
-            &preview,
-            Some(&canonical_path),
-        );
+        let refreshed_page =
+            route_request_for_scene(&get("/"), HOST, SCENE, &preview, Some(&canonical_path));
         assert!(refreshed_page.2.contains(&format!(
             "name=\"goya-revision\" content=\"{refreshed_revision}\""
         )));
