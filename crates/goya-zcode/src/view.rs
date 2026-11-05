@@ -75,7 +75,8 @@ impl Default for SessionView {
 }
 
 impl SessionView {
-    /// Wrap and append a line to the tail, keeping it bounded.
+    /// Wrap and append a line to the tail and the scrollback, keeping
+    /// both bounded (tail: `TAIL_LINES`, history: `HISTORY_CAP`).
     pub fn push_line(&mut self, line: &str) {
         let wrapped = wrap_line(line, LINE_WIDTH);
         if wrapped.is_empty() {
@@ -86,7 +87,30 @@ impl SessionView {
             if self.tail.len() > TAIL_LINES {
                 self.tail.pop_front();
             }
+            self.history.push(piece);
         }
+        if self.history.len() > HISTORY_CAP {
+            // Drop the oldest overflow so scrollback stays bounded.
+            let drop = self.history.len() - HISTORY_CAP;
+            self.history.drain(0..drop);
+        }
+    }
+
+    /// Scroll back `n` lines (PageUp); clamped so the window stays inside
+    /// the history.
+    pub fn scroll_up(&mut self, n: usize) {
+        let max = self.history.len();
+        self.scroll = (self.scroll + n).min(max);
+    }
+
+    /// Scroll forward `n` lines (PageDown); `0` is live/bottom.
+    pub fn scroll_down(&mut self, n: usize) {
+        self.scroll = self.scroll.saturating_sub(n);
+    }
+
+    /// Jump back to the live bottom.
+    pub fn scroll_to_bottom(&mut self) {
+        self.scroll = 0;
     }
 
     /// Flush the streaming buffer into the tail.
