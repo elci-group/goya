@@ -251,25 +251,16 @@ fn feed_key(composer: &mut Composer, ev: &goya_wayland::PlatformEvent) -> Option
             }
             None
         }
-        goya_wayland::PlatformEvent::ImeBatch {
-            preedit,
-            commit,
-            delete,
-            ..
-        } => {
-            composer.handle_ime_batch(preedit.clone(), commit.as_deref(), *delete);
-            None
-        }
-        // Wave 5 (GY-ZCODE-005): standalone IME deliveries from the
+        // Wave 5 (GY-ZCODE-005): IME deliveries from the
         // zwp_text_input_v3 client. Preedit is an overlay; CommitText is
         // the whole committed string inserted at the composer cursor via
-        // the established handle_ime_batch commit path (focused-guarded).
+        // the focused-guarded commit path.
         goya_wayland::PlatformEvent::Preedit(text) => {
             composer.set_preedit(text.as_deref());
             None
         }
         goya_wayland::PlatformEvent::CommitText(text) => {
-            composer.handle_ime_batch(None, Some(text.as_str()), None);
+            composer.commit_text(text);
             None
         }
         _ => None,
@@ -780,8 +771,7 @@ fn run_live(args: &Args, store: &mut SceneStore, last_mtime: &mut Option<SystemT
                 goya_wayland::PlatformEvent::PointerScroll(lines) => {
                     dirty |= scroll_pointer_history(&handle, lines, composer.focused);
                 }
-                goya_wayland::PlatformEvent::ImeBatch { .. }
-                | goya_wayland::PlatformEvent::Preedit(_)
+                goya_wayland::PlatformEvent::Preedit(_)
                 | goya_wayland::PlatformEvent::CommitText(_) => {
                     if composer.focused {
                         feed_key(&mut composer, &ev);
