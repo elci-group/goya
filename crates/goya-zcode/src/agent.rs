@@ -888,17 +888,18 @@ mod tests {
 
     #[test]
     fn tool_updated_display_falls_back_description_then_short_id() {
-        let payload = |mut extra: Value| {
-            if extra.is_null() {
-                serde_json::json!({"kind": "started", "toolCallId": "call_1234567890abcdef"})
-            } else {
-                let obj = extra.as_object_mut().expect("object payload");
-                obj.insert("kind".into(), "started".into());
-                obj.insert("toolCallId".into(), "call_1234567890abcdef".into());
-                extra
-            }
+        let envelope = |extra: Value| {
+            let mut payload = match extra {
+                Value::Null => serde_json::json!({}),
+                obj @ Value::Object(_) => obj,
+                other => panic!("object or null expected: {other}"),
+            };
+            let obj = payload.as_object_mut().expect("object payload");
+            obj.insert("kind".into(), "started".into());
+            obj.insert("toolCallId".into(), "call_1234567890abcdef".into());
+            serde_json::json!({ "type": "tool.updated", "payload": payload })
         };
-        let ev = map_event(&payload(serde_json::json!({"description": "reading src"})));
+        let ev = map_event(&envelope(serde_json::json!({"description": "reading src"})));
         assert_eq!(
             ev,
             Some(ProjEvent::ToolUpdate {
@@ -907,7 +908,7 @@ mod tests {
                 state: ToolState::Started,
             })
         );
-        let ev = map_event(&payload(Value::Null));
+        let ev = map_event(&envelope(Value::Null));
         assert_eq!(
             ev.and_then(|e| match e {
                 ProjEvent::ToolUpdate { tool, .. } => Some(tool),
