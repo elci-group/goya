@@ -749,6 +749,31 @@ impl GoyaWindow {
         self.present_internal(primitives, fills, Some(clips), None, fg, bg, glyph_px, None)
     }
 
+    /// Present with both per-primitive clips and text sizes. The slices use
+    /// primitive order, and missing entries retain the surface clip/default
+    /// font metrics respectively.
+    pub fn present_clipped_with_text_sizes(
+        &mut self,
+        primitives: &[goya_runtime::Primitive],
+        fills: &[Option<u32>],
+        clips: &[Option<Rect>],
+        text_sizes_pt: &[Option<f32>],
+        fg: [u8; 3],
+        bg: [u8; 3],
+        glyph_px: u32,
+    ) -> Result<(), WaylandError> {
+        self.present_internal(
+            primitives,
+            fills,
+            Some(clips),
+            Some(text_sizes_pt),
+            fg,
+            bg,
+            glyph_px,
+            None,
+        )
+    }
+
     /// Present with per-primitive text sizes in points. Each optional size is
     /// indexed like `primitives`; absent or invalid sizes use `glyph_px`.
     /// The Wayland surface scale is four pixels per point.
