@@ -11,6 +11,13 @@
 //! armed only by `--allow-send` (default off — no tokens are spent); the
 //! transcript scrolls via PageUp/PageDown (and PointerScroll once
 //! goya-wayland emits it) while the composer is unfocused.
+//!
+//! Wave 4 (GY-ZCODE-004): ctrl+c/ctrl+v/ctrl+q arrive as
+//! `PlatformEvent::Shortcut` — Copy puts the last non-empty transcript row
+//! on the in-process clipboard ring, Paste inserts at the composer cursor,
+//! Quit exits. The chroma-derived palette (goya-chroma, AA-enforced)
+//! overrides scene fills per frame; header cells use the documented
+//! header fill and the status cell maps ok/err/accent by status text.
 
 use goya_clipboard::PrincipalId;
 use goya_lang::{hit_test, layout, DrawNode, SceneStore};
