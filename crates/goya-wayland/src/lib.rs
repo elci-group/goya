@@ -258,6 +258,8 @@ struct GoyaWindowInner {
     last_pointer: Option<(f64, f64)>,
     xkb_context: Option<xkbcommon::xkb::Context>,
     xkb_state: Option<xkbcommon::xkb::State>,
+    compose_table: Option<xkbcommon::xkb::compose::Table>,
+    compose_state: Option<xkbcommon::xkb::compose::State>,
     text_input_manager: Option<ZwpTextInputManagerV3>,
     text_input: Option<ZwpTextInputV3>,
     text_input_enabled: bool,
@@ -276,6 +278,24 @@ struct GoyaWindowInner {
 
 impl GoyaWindowInner {
     fn new(width: i32, height: i32) -> Self {
+        let xkb_context = Some(xkbcommon::xkb::Context::new(0));
+        let locale = std::env::var_os("LC_ALL")
+            .or_else(|| std::env::var_os("LC_CTYPE"))
+            .or_else(|| std::env::var_os("LANG"))
+            .unwrap_or_else(|| std::ffi::OsString::from("C.UTF-8"));
+        let compose_table = xkb_context.as_ref().and_then(|context| {
+            xkbcommon::xkb::compose::Table::new_from_locale(
+                context,
+                &locale,
+                xkbcommon::xkb::compose::COMPILE_NO_FLAGS,
+            ).ok()
+        });
+        let compose_state = compose_table.as_ref().map(|table| {
+            xkbcommon::xkb::compose::State::new(
+                table,
+                xkbcommon::xkb::compose::STATE_NO_FLAGS,
+            )
+        });
         GoyaWindowInner {
             width,
             height,
@@ -293,8 +313,10 @@ impl GoyaWindowInner {
             pointer: None,
             keyboard: None,
             last_pointer: None,
-            xkb_context: Some(xkbcommon::xkb::Context::new(0)),
+            xkb_context,
             xkb_state: None,
+            compose_table,
+            compose_state,
             text_input_manager: None,
             text_input: None,
             text_input_enabled: false,
