@@ -102,8 +102,16 @@ impl SessionView {
         self.update_scroll_geometry();
     }
 
-    /// Wrap and append a line to the tail and the scrollback, keeping
-    /// both bounded (tail: `TAIL_LINES`, history: `HISTORY_CAP`).
+    /// Append assistant markdown text: rendered to styled plain lines by
+    /// [`crate::markdown::render_markdown`], then pushed line by line
+    /// (blank separators are absorbed by `push_line`).
+    pub fn push_markdown(&mut self, text: &str) {
+        for line in crate::markdown::render_markdown(text, LINE_WIDTH) {
+            self.push_line(&line);
+        }
+    }
+
+    /// Scroll back `n` lines (PageUp); clamped so the topmost view still
     /// shows a full `TAIL_LINES` window (short histories cannot scroll).
     pub fn scroll_up(&mut self, n: usize) {
         self.scroll.scroll_by(0.0, -(n as f64));
