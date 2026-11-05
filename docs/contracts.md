@@ -274,8 +274,10 @@ both paths feed the same runtime/layout/render pipeline.
   `stroke-width`, `text`, `text-size`, `text-anchor: start|middle|end`,
   `scroll: true|false`, and `wrap: <positive integer columns>`. Studio previews
   wrap text to the node width by default (including long unbroken tokens);
-  `scroll: true` makes that node's text viewport vertically and horizontally
-  scrollable. `wrap` remains an explicit deterministic column-wrap override.
+  `scroll: true` makes the node a clipped, scrollable viewport for its text
+  and child nodes. Descendants remain nested in the preview DOM, and layout
+  preserves their overflow extent inside a scroll-enabled parent. `wrap`
+  remains an explicit deterministic column-wrap override.
 - Authoring extensions: `@template` blocks remain parsed and skipped;
   unknown visual properties are consumed and ignored. `@interaction` supports
   bounded D1 and static-journal D2 forms. Both require one
