@@ -2054,7 +2054,6 @@ mod key_tests {
                 assert_eq!(
                     key_chars(Some(&state), kc, shift, false),
                     key_chars(None, kc, shift, false),
-                    key_chars(None, kc, shift, false),
                     "path mismatch at keycode {kc} shift={shift}"
                 );
             }
