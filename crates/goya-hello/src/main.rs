@@ -232,48 +232,7 @@ fn run_live() -> Result<(), String> {
                         None => rt.focus_input(None),
                     }
                 }
-                goya_wayland::PlatformEvent::KeyChar(c) => {
-                    let _ = rt.handle(Event::Character(c));
-                }
-                goya_wayland::PlatformEvent::KeySpecial(key) => {
-                    use goya_wayland::KeySpecial;
-                    let event = match key {
-                        KeySpecial::ArrowLeft => Some(Event::TextMoveLeft { extend: false }),
-                        KeySpecial::ArrowRight => Some(Event::TextMoveRight { extend: false }),
-                        KeySpecial::Home => Some(Event::TextMoveHome { extend: false }),
-                        KeySpecial::End => Some(Event::TextMoveEnd { extend: false }),
-                        KeySpecial::Delete => Some(Event::TextDelete),
-                        KeySpecial::Escape => {
-                            rt.focus_input(None);
-                            None
-                        }
-                        KeySpecial::Tab => {
-                            let next = (rt.focused_input() != Some(NodeId(4))).then_some(NodeId(4));
-                            rt.focus_input(next);
-                            None
-                        }
-                        _ => None,
-                    };
-                    if let Some(event) = event {
-                        let _ = rt.handle(event);
-                    }
-                }
-                goya_wayland::PlatformEvent::Preedit(preedit) => {
-                    let _ = rt.handle(Event::ImeBatch {
-                        preedit: preedit.map(|text| (text, 0, 0)),
-                        commit: None,
-                        delete: None,
-                    });
-                }
-                goya_wayland::PlatformEvent::CommitText(text) => {
-                    let _ = rt.handle(Event::ImeBatch {
-                        preedit: None,
-                        commit: Some(text),
-                        delete: None,
-                    });
-                }
-                goya_wayland::PlatformEvent::CloseRequested => {}
-                _ => {}
+                event => apply_text_event(&mut rt, event),
             }
         }
         if let Some(id) = rt.focused_input() {
@@ -302,4 +261,88 @@ fn run_live() -> Result<(), String> {
     };
     println!("goya-hello live: {frames} frames presented, count={count}");
     Ok(())
+}
+
+fn apply_text_event(rt: &mut Runtime, event: goya_wayland::PlatformEvent) {
+    use goya_wayland::{KeySpecial, PlatformEvent};
+    let runtime_event = match event {
+        PlatformEvent::KeyChar(c) => Some(Event::Character(c)),
+        PlatformEvent::KeySpecial(KeySpecial::ArrowLeft) => {
+            Some(Event::TextMoveLeft { extend: false })
+        }
+        PlatformEvent::KeySpecial(KeySpecial::ArrowRight) => {
+            Some(Event::TextMoveRight { extend: false })
+        }
+        PlatformEvent::KeySpecial(KeySpecial::Home) => Some(Event::TextMoveHome { extend: false }),
+        PlatformEvent::KeySpecial(KeySpecial::End) => Some(Event::TextMoveEnd { extend: false }),
+        PlatformEvent::KeySpecial(KeySpecial::Delete) => Some(Event::TextDelete),
+        PlatformEvent::KeySpecial(KeySpecial::Escape) => {
+            rt.focus_input(None);
+            None
+        }
+        PlatformEvent::KeySpecial(KeySpecial::Tab) => {
+            let next = (rt.focused_input() != Some(NodeId(4))).then_some(NodeId(4));
+            rt.focus_input(next);
+            None
+        }
+        PlatformEvent::Preedit(preedit) => Some(Event::ImeBatch {
+            preedit: preedit.map(|text| (text, 0, 0)),
+            commit: None,
+            delete: None,
+        }),
+        PlatformEvent::CommitText(text) => Some(Event::ImeBatch {
+            preedit: None,
+            commit: Some(text),
+            delete: None,
+        }),
+        _ => None,
+    };
+    if let Some(event) = runtime_event {
+        let _ = rt.handle(event);
+    }
+}
+
+#[cfg(test)]
+mod input_tests {
+    use super::*;
+
+    #[test]
+    fn live_editor_routes_unicode_cursor_and_ime_events_to_the_focused_input() {
+        let module = parse(MODULE_SRC).unwrap();
+        let mut runtime = Runtime::new(
+            module,
+            Store::new(),
+            Constraints {
+                max_width: 400_000,
+                max_height: 300_000,
+            },
+        );
+        let input_rect = runtime.frame().rect(NodeId(4)).unwrap();
+        assert_eq!(
+            runtime.hit_test_target(input_rect.x + 1, input_rect.y + 1),
+            Some(HitTarget::Input(NodeId(4)))
+        );
+        assert!(runtime.focus_input(Some(NodeId(4))));
+        apply_text_event(&mut runtime, goya_wayland::PlatformEvent::KeyChar('日'));
+        apply_text_event(
+            &mut runtime,
+            goya_wayland::PlatformEvent::KeySpecial(goya_wayland::KeySpecial::ArrowLeft),
+        );
+        apply_text_event(&mut runtime, goya_wayland::PlatformEvent::KeyChar('é'));
+        assert_eq!(runtime.input_text(NodeId(4)), Some("é日"));
+        apply_text_event(
+            &mut runtime,
+            goya_wayland::PlatformEvent::Preedit(Some("かな".into())),
+        );
+        assert_eq!(runtime.input_text(NodeId(4)), Some("é日"));
+        apply_text_event(
+            &mut runtime,
+            goya_wayland::PlatformEvent::CommitText("仮名".into()),
+        );
+        assert_eq!(runtime.input_text(NodeId(4)), Some("é仮名日"));
+        assert!(matches!(
+            runtime.render_list().last(),
+            Some(Primitive::Text(_, value)) if value == "é仮名日"
+        ));
+    }
 }
