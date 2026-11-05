@@ -126,6 +126,8 @@ impl SessionView {
     pub fn apply(&mut self, event: &ProjEvent) {
         match event {
             ProjEvent::TurnStarted { input } => {
+                // The wire-accepted "sending" status is confirmed here:
+                // setting "running" clears any pending "sending" hint.
                 self.flush_streaming();
                 self.push_line(&format!("> {input}"));
                 self.status = "running".to_string();
