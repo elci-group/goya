@@ -234,7 +234,10 @@ impl MonitorHandle {
         self.dirty.store(true, Ordering::Relaxed);
     }
 
-    fn set_active_session(&self, session_id: Option<String>) {
+    /// Record which session sends should target. Called by the agent run
+    /// loop on subscribe; public so hosts/tests can pin a session without
+    /// a live connection.
+    pub fn set_active_session(&self, session_id: Option<String>) {
         if let Ok(mut active) = self.active_session_id.lock() {
             *active = session_id;
         }
