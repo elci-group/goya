@@ -160,3 +160,48 @@ Contention rule: agents may run `cargo check -p <own crates>` only; the gate
 runs all workspace gates. All changes spec-first; each agent updates only its
 own crate's docs/comments.
 
+## Wave 3 — send path + history scroll (GY-ZCODE-003)
+
+Same swarm convention. Contract frozen before dispatch.
+
+### Shared interface contract (frozen)
+
+1. **Keys (J1: `goya-wayland`).**
+   - `KeySpecial` gains `PageUp`, `PageDown` (evdev codes 104 / 109).
+   - `PlatformEvent` gains `PointerScroll(lines: i32)` (evdev REL_WHEEL,
+     positive = wheel up / content scroll up); unmapped devices emit nothing.
+2. **Send path (J2: `goya-zcode`).**
+   - Wire: `session/send` params `{sessionId, content}` only (all other
+     fields optional server-side; strict schema verified against drowzy
+     `zcodeSessionSendParamsSchema`). Result `{sessionId, accepted: true,
+     stateRevision}`. Server rejects with error `-32010` while a turn is
+     active — surfaced as view status, never a crash.
+   - Channel: `MonitorHandle` gains an inbound command queue
+     (`AgentCmd::SendText(String)`); the UI thread enqueues on Enter, the
+     agent thread (stdin owner) issues the request. One outstanding send at
+     a time; further Enters while pending are dropped with a status hint.
+   - View: `SessionView` gains `history: Vec<String>` (bounded, cap 2000) of
+     committed tail lines and `scroll: usize` (lines back from newest;
+     0 = live). `rows()` renders the 14-line window at `scroll`; new events
+     snap to bottom only when already at bottom (no scroll hijack). A
+     successful send sets status `sending`; `turn.started` confirms and
+     clears it.
+   - Bin: Enter (composer focused) sends the committed line; status shows
+     `sending` until `turn.started`. PageUp/PageDown and `PointerScroll`
+     scroll history when the composer is NOT focused (arrow keys stay
+     composer-only). `[local]` echo is retired — the wire send is the
+     record.
+3. **Gate.** A live acceptance that actually sends is token-bearing, so
+   sending is armed ONLY by the explicit `--allow-send` flag (default off).
+   Default acceptance exercises the pending/blocked path without spending
+   tokens.
+
+### Assignments
+
+| Agent | Crates (exclusive) | Deliverable |
+|---|---|---|
+| J1 | `goya-wayland` | PageUp/PageDown + PointerScroll + tests |
+| J2 | `goya-zcode` | AgentCmd queue, session/send, scrollable history, bin wiring, tests |
+| gate | workspace | gates, live acceptance (no-send default), evidence |
+
+
