@@ -227,11 +227,7 @@ impl TextInputState {
 /// `None` means "no protocol traffic needed" — either the global is missing
 /// (`None` input) or the requested state already holds. Returning `Some(_)`
 /// means the caller must send enable/disable followed by a state commit.
-fn text_input_activation<T>(
-    bound: Option<T>,
-    enabled: bool,
-    active: bool,
-) -> Option<(T, bool)> {
+fn text_input_activation<T>(bound: Option<T>, enabled: bool, active: bool) -> Option<(T, bool)> {
     let input = bound?;
     if enabled == active {
         return None;
@@ -2859,7 +2855,10 @@ mod text_input_tests {
         );
         s.feed_preedit(Some("ni hao".into()));
         s.feed_done();
-        assert_eq!(s.drain(), vec![PlatformEvent::Preedit(Some("ni hao".into()))]);
+        assert_eq!(
+            s.drain(),
+            vec![PlatformEvent::Preedit(Some("ni hao".into()))]
+        );
         // Draining again emits nothing: the frame was already applied.
         assert!(s.drain().is_empty());
         assert_eq!(s.applied_preedit.as_deref(), Some("ni hao"));
@@ -2956,8 +2955,14 @@ mod text_input_tests {
         assert_eq!(text_input_activation(Some(()), true, true), None);
         assert_eq!(text_input_activation(Some(()), false, false), None);
         // Bound and state changes: the decision carries the new state.
-        assert_eq!(text_input_activation(Some(()), false, true), Some(((), true)));
-        assert_eq!(text_input_activation(Some(()), true, false), Some(((), false)));
+        assert_eq!(
+            text_input_activation(Some(()), false, true),
+            Some(((), true))
+        );
+        assert_eq!(
+            text_input_activation(Some(()), true, false),
+            Some(((), false))
+        );
     }
 
     #[test]

@@ -38,10 +38,19 @@ pub struct SessionEntry {
 /// so this module never touches JSON.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ProjEvent {
-    TurnStarted { input: String },
-    PartDelta { delta: String },
-    TurnCompleted { response: String, result: String },
-    TurnFailed { message: String },
+    TurnStarted {
+        input: String,
+    },
+    PartDelta {
+        delta: String,
+    },
+    TurnCompleted {
+        response: String,
+        result: String,
+    },
+    TurnFailed {
+        message: String,
+    },
     /// Wave 5 (GY-ZCODE-005): one `tool.updated` wire event. `id` is the
     /// raw `toolCallId` and is the dedup key; `tool` is the display name
     /// (toolName, else description, else a short form of the id) chosen by
@@ -577,11 +586,7 @@ mod tests {
         let mut view = SessionView::default();
         view.apply(&tool("t1", "read_file", ToolState::Started));
         view.apply(&tool("t1", "read_file", ToolState::Completed));
-        let gear: Vec<&String> = view
-            .history
-            .iter()
-            .filter(|l| l.contains('⚙'))
-            .collect();
+        let gear: Vec<&String> = view.history.iter().filter(|l| l.contains('⚙')).collect();
         assert_eq!(gear, vec!["⚙ read_file …", "⚙ read_file ✓"]);
         assert!(view.in_flight_tools.is_empty());
         assert!(view.finished_tools.contains(&"t1".to_string()));
@@ -604,11 +609,7 @@ mod tests {
         view.apply(&tool("t1", "read_file", ToolState::Started));
         view.apply(&tool("t1", "read_file", ToolState::Started));
         view.apply(&tool("t1", "read_file", ToolState::Completed));
-        let gear: Vec<&String> = view
-            .history
-            .iter()
-            .filter(|l| l.contains('⚙'))
-            .collect();
+        let gear: Vec<&String> = view.history.iter().filter(|l| l.contains('⚙')).collect();
         assert_eq!(gear, vec!["⚙ read_file …", "⚙ read_file ✓"]);
     }
 
@@ -655,11 +656,7 @@ mod tests {
         // The evicted oldest id can start a fresh row again (the other
         // starts were never dedup'd — distinct ids all rendered).
         view.apply(&tool("t0", "bash", ToolState::Started));
-        let starts = view
-            .history
-            .iter()
-            .filter(|l| *l == "⚙ bash …")
-            .count();
+        let starts = view.history.iter().filter(|l| *l == "⚙ bash …").count();
         assert_eq!(starts, n as usize + 1);
     }
 }

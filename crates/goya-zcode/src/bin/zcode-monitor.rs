@@ -596,10 +596,12 @@ fn headless_acceptance(store: &SceneStore) {
         tool: "read_file".into(),
         state: ToolState::Started,
     });
-    let tool_ok = tool_ok
-        && tv.history.contains(&"⚙ write_file ✗".to_string())
-        && tv.history == before;
-    println!("tool-row started/progress/completed/failed [{}]", pass_str(tool_ok));
+    let tool_ok =
+        tool_ok && tv.history.contains(&"⚙ write_file ✗".to_string()) && tv.history == before;
+    println!(
+        "tool-row started/progress/completed/failed [{}]",
+        pass_str(tool_ok)
+    );
     ok &= tool_ok;
 
     // Preedit display contract (GY-ZCODE-005): inline bracketed overlay,
