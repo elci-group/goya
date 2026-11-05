@@ -1729,11 +1729,9 @@ fn keymap_state_from_fd(
 /// `xkb::State`, an evdev keycode and the ctrl modifier, resolve the single
 /// Unicode character the key produces, if any.
 ///
-/// Scope boundary: IME, dead keys and compose sequences are OUT of scope —
-/// `key_get_one_sym`/`key_get_utf32` only observe already-resolved keysyms,
-/// and multi-char keysym strings are deliberately dropped (None) so the
-/// `PlatformEvent::KeyChar(char)` contract stays one event per character.
-/// Full composition support belongs to a future IME layer, not this helper.
+/// This helper reads one already-resolved keysym. The event path wraps it
+/// with XKB Compose for locale-defined dead-key sequences and exposes
+/// multi-scalar commits as ordered `KeyChar` events.
 ///
 /// Modifier rules (frozen contract):
 /// - Ctrl held: emit nothing (ctrl+letter combos are inert for now).
@@ -1879,6 +1877,9 @@ impl Dispatch<WlKeyboard, ()> for GoyaWindowInner {
                 ..
             } => {
                 if let Some(ks) = key_special(key) {
+                    if let Some(compose) = state.compose_state.as_mut() {
+                        compose.reset();
+                    }
                     state.events.push(PlatformEvent::KeySpecial(ks));
                 } else {
                     let chars = key_chars_with_compose(
@@ -1892,6 +1893,9 @@ impl Dispatch<WlKeyboard, ()> for GoyaWindowInner {
                         state.events.push(PlatformEvent::KeyChar(c));
                     }
                 }
+            }
+            wl_keyboard::Event::Leave { .. } => {
+                if let Some(compose) = state.compose_state.as_mut() { compose.reset(); }
             }
             _ => {}
         }
