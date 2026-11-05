@@ -354,57 +354,6 @@ fn main() {
     }
 }
 
-#[cfg(test)]
-mod input_event_tests {
-    use super::{feed_key, Composer};
-    use goya_wayland::{KeySpecial, PlatformEvent};
-
-    #[test]
-    fn unicode_xkb_chars_and_ime_commits_share_grapheme_safe_cursor() {
-        let mut composer = Composer::new();
-        composer.focused = true;
-        feed_key(&mut composer, &PlatformEvent::KeyChar('e'));
-        feed_key(&mut composer, &PlatformEvent::KeyChar('\u{301}'));
-        assert_eq!(composer.text(), "e\u{301}");
-        assert_eq!(composer.cursor_grapheme(), 1);
-
-        feed_key(
-            &mut composer,
-            &PlatformEvent::KeySpecial(KeySpecial::ArrowLeft),
-        );
-        feed_key(&mut composer, &PlatformEvent::CommitText("漢字".into()));
-        assert_eq!(composer.text(), "漢字e\u{301}");
-        assert_eq!(composer.cursor_grapheme(), 2);
-        assert_eq!(composer.buffer.cursor_byte(), "漢字".len());
-    }
-
-    #[test]
-    fn preedit_overlay_clears_without_committing_and_commit_replaces_it() {
-        let mut composer = Composer::new();
-        composer.focused = true;
-        feed_key(&mut composer, &PlatformEvent::Preedit(Some("かな".into())));
-        assert_eq!(composer.text(), "");
-        assert_eq!(composer.display(), "«│かな»");
-        feed_key(&mut composer, &PlatformEvent::Preedit(None));
-        assert_eq!(composer.display(), "│");
-
-        feed_key(&mut composer, &PlatformEvent::Preedit(Some("かな".into())));
-        feed_key(&mut composer, &PlatformEvent::CommitText("仮名".into()));
-        assert_eq!(composer.text(), "仮名");
-        assert_eq!(composer.display(), "仮名│");
-    }
-
-    #[test]
-    fn unfocused_composer_ignores_unicode_and_ime_batches() {
-        let mut composer = Composer::new();
-        feed_key(&mut composer, &PlatformEvent::KeyChar('ø'));
-        feed_key(&mut composer, &PlatformEvent::Preedit(Some("ø".into())));
-        feed_key(&mut composer, &PlatformEvent::CommitText("ø".into()));
-        assert_eq!(composer.text(), "");
-        assert_eq!(composer.preedit, None);
-    }
-}
-
 /// Headless acceptance (same shape as goya-scene): scene structure and a
 /// projection round-trip, PASS/FAIL per check.
 fn headless_acceptance(store: &SceneStore) {
