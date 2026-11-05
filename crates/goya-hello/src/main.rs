@@ -361,7 +361,7 @@ mod input_tests {
         assert_eq!(runtime.input_text(NodeId(4)), Some("é仮名日"));
         assert!(matches!(
             runtime.render_list().last(),
-            Some(Primitive::Text(_, value)) if value == "é仮名日"
+            Some(Primitive::Text(_, value)) if value == "é仮名│日"
         ));
         apply_text_event(
             &mut runtime,
@@ -382,7 +382,7 @@ mod input_tests {
         assert_eq!(runtime.input_text(NodeId(4)), Some("é仮日"));
         assert!(matches!(
             runtime.render_list().last(),
-            Some(Primitive::Text(_, value)) if value == "é仮かな日"
+            Some(Primitive::Text(_, value)) if value == "é仮か│な日"
         ));
     }
 }

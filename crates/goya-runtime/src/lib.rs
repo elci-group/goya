@@ -818,10 +818,8 @@ impl Runtime {
                         value.push_str(&text[..cursor]);
                         if let Some((preedit, cursor_begin, _)) = &state.preedit {
                             if focused && *cursor_begin >= 0 {
-                                let offset = grapheme_boundary_at_or_before(
-                                    preedit,
-                                    *cursor_begin as usize,
-                                );
+                                let offset =
+                                    grapheme_boundary_at_or_before(preedit, *cursor_begin as usize);
                                 value.push_str(&preedit[..offset]);
                                 value.push('│');
                                 value.push_str(&preedit[offset..]);
@@ -1003,7 +1001,7 @@ mod tests {
         assert!(rt.focus_input(None));
         assert!(matches!(
             rt.render_list().last(),
-            Some(Primitive::Text(_, value)) if value == "Search"
+            Some(Primitive::Text(_, value)) if value == "日a"
         ));
     }
 
