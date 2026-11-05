@@ -1778,7 +1778,7 @@ mod key_special_tests {
 
 #[cfg(test)]
 mod fill_tests {
-    use super::{argb, raster_serial, resolve_fill, MP_PER_PX};
+    use super::{argb, raster_serial, resolve_fill, RasterConfig, MP_PER_PX};
     use goya_layout::Rect;
 
     #[test]
