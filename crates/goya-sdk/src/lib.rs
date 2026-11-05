@@ -99,7 +99,7 @@ pub struct SceneProject {
 }
 
 /// One `@input` node enumerated from the authored scene.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct InputNodeInfo {
     pub name: String,
     /// Placeholder text (the scene `text:` value); `None` when absent.

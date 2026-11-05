@@ -14,13 +14,16 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender, TryRecvError};
+use std::sync::mpsc::{
+    sync_channel, Receiver, RecvTimeoutError, Sender, SyncSender, TryRecvError, TrySendError,
+};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 const RECONNECT_DELAY_MS: u64 = 5_000;
 const POLL_INTERVAL_MS: u64 = 200;
+const COMMAND_QUEUE_CAPACITY: usize = 8;
 
 /// Pending request id → one-shot response channel.
 type PendingMap = Arc<Mutex<HashMap<u64, Sender<Result<Value, String>>>>>;
@@ -33,20 +36,91 @@ pub enum AgentCmd {
     /// Send a composed line to the target session. `wire == false` when
     /// the monitor runs without `--allow-send`: admission is identical
     /// but no `session/send` request is written to the child's stdin.
-    SendText { line: String, wire: bool },
+    SendText {
+        line: String,
+        wire: bool,
+        session_id: String,
+    },
 }
 
-/// Send admission: one outstanding wire send at a time. Returns `true`
-/// when the send may proceed (pending flag set), `false` when a send is
-/// already outstanding — the caller drops the command with the
-/// "busy — send pending" hint. Pure so the headless acceptance can
-/// exercise the drop path without a live connection.
-pub fn admit_send(send_pending: &mut bool) -> bool {
-    if *send_pending {
-        return false;
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SendPhase {
+    AwaitingResponse,
+    Accepted,
+    Started,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct PendingSend {
+    ticket: u64,
+    session_id: String,
+    phase: SendPhase,
+}
+
+/// Per-connection send admission and event/response reconciliation.
+#[derive(Debug, Default)]
+struct SendLifecycle {
+    next_ticket: u64,
+    pending: Option<PendingSend>,
+}
+
+impl SendLifecycle {
+    fn admit(&mut self, session_id: &str) -> Option<u64> {
+        if self.pending.is_some() {
+            return None;
+        }
+        let ticket = self.next_ticket.checked_add(1)?;
+        self.next_ticket = ticket;
+        self.pending = Some(PendingSend {
+            ticket,
+            session_id: session_id.to_string(),
+            phase: SendPhase::AwaitingResponse,
+        });
+        Some(ticket)
     }
-    *send_pending = true;
-    true
+
+    /// Return a status only for the still-pending send. If a start or
+    /// terminal event raced ahead of this response, it cannot regress state.
+    fn response(&mut self, ticket: u64, accepted: bool) -> Option<&'static str> {
+        let pending = self.pending.as_mut()?;
+        if pending.ticket != ticket {
+            return None;
+        }
+        if !accepted {
+            self.pending = None;
+            return Some("send rejected by server");
+        }
+        match pending.phase {
+            SendPhase::AwaitingResponse => {
+                pending.phase = SendPhase::Accepted;
+                Some("sending")
+            }
+            SendPhase::Accepted => Some("sending"),
+            SendPhase::Started => Some("running"),
+        }
+    }
+
+    fn event(&mut self, session_id: &str, kind: &str) {
+        let Some(pending) = self.pending.as_mut() else {
+            return;
+        };
+        if pending.session_id != session_id {
+            return;
+        }
+        match kind {
+            "turn.started" => pending.phase = SendPhase::Started,
+            "turn.completed" | "turn.failed" => self.pending = None,
+            _ => {}
+        }
+    }
+
+    fn disconnect(&mut self) {
+        self.pending = None;
+    }
+
+    fn is_pending(&self) -> bool {
+        self.pending.is_some()
+    }
 }
 
 /// State shared between the agent thread and the render loop. The agent
