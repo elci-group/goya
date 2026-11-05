@@ -942,7 +942,9 @@ fn draw_glyphs(
     let rect_bottom = (r.y + r.height) / MP_PER_PX;
     let rect_y1 = rect_bottom + 2;
     let line_height = ((glyph_px.max(1) as f64) * 1.4) as i64;
-    for (li, line) in s.split('\n').enumerate() {
+    let columns = (r.width.max(0) / MP_PER_PX / (6 * g as i64)).max(1) as usize;
+    let lines = wrap_bitmap_text(s, columns);
+    for (li, line) in lines.iter().enumerate() {
         let line_oy = oy + (li as i64) * line_height;
         if line_oy >= rect_bottom {
             break;
@@ -982,6 +984,44 @@ fn draw_glyphs(
             }
         }
     }
+}
+
+/// Wrap to the fixed bitmap font's measured cell width. Authored newlines
+/// are retained; whitespace separates words; oversized words are split at
+/// Unicode scalar boundaries so the renderer never emits out-of-viewport
+/// glyphs. This path intentionally matches the renderer's 6-cell advance.
+fn wrap_bitmap_text(text: &str, columns: usize) -> Vec<String> {
+    let columns = columns.max(1);
+    let mut output = Vec::new();
+    for authored_line in text.split('\n') {
+        let mut line = String::new();
+        let mut width = 0usize;
+        for original_word in authored_line.split_whitespace() {
+            let mut word = original_word;
+            loop {
+                let word_width = word.chars().count();
+                let separator = usize::from(!line.is_empty());
+                if width + separator + word_width <= columns {
+                    if separator != 0 { line.push(' '); }
+                    line.push_str(word);
+                    width += separator + word_width;
+                    break;
+                }
+                if !line.is_empty() {
+                    output.push(std::mem::take(&mut line));
+                    width = 0;
+                    continue;
+                }
+                let split = word.char_indices().nth(columns).map(|(index, _)| index).unwrap_or(word.len());
+                let head = &word[..split];
+                word = &word[split..];
+                output.push(head.to_owned());
+                if word.is_empty() { break; }
+            }
+        }
+        output.push(line);
+    }
+    output
 }
 
 /// 5x7 glyphs (leftmost pixel = bit 4); unknown characters render as a box.
