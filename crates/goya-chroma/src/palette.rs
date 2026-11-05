@@ -67,8 +67,10 @@ pub fn palette(theme: &Theme, polarity: Polarity) -> Result<Palette, ResolveErro
     Ok(build(&resolved, polarity))
 }
 
-/// Shared mapping from a resolved theme to a palette (pure).
-fn build(resolved: &ResolvedTheme, polarity: Polarity) -> Palette {
+/// Shared mapping from a resolved theme to a palette (pure). Accent lightness
+/// is contrast-adjusted toward AA (hue/chroma stay brand-locked); if that is
+/// impossible the conflict propagates — never silently faked.
+fn build(resolved: &ResolvedTheme, polarity: Polarity) -> Result<Palette, ResolveError> {
     let blend = |a: Rgb8, b: Rgb8, t: f64| Rgb8 {
         r: (a.r as f64 + (b.r as f64 - a.r as f64) * t).round() as u8,
         g: (a.g as f64 + (b.g as f64 - a.g as f64) * t).round() as u8,
@@ -77,24 +79,23 @@ fn build(resolved: &ResolvedTheme, polarity: Polarity) -> Palette {
 
     // ok/err: fixed hue/chroma, lightness searched to AA against the surface.
     // Failure propagates: the palette must never ship fake-compliant colours.
-    let ok = enforce_contrast(anchor_start(OK_ANCHOR, polarity), resolved.surface, WcagLevel::AA)
-        .expect("ok anchor must reach AA on any resolvable surface");
+    let ok = enforce_contrast(anchor_start(OK_ANCHOR, polarity), resolved.surface, WcagLevel::AA)?;
     let err = enforce_contrast(
         anchor_start(ERR_ANCHOR, polarity),
         resolved.surface,
         WcagLevel::AA,
-    )
-    .expect("err anchor must reach AA on any resolvable surface");
+    )?;
+    let accent = enforce_contrast(resolved.accent, resolved.surface, WcagLevel::AA)?;
 
-    Palette {
+    Ok(Palette {
         bg: resolved.surface_rgb,
         fg: resolved.foreground_rgb,
         muted: blend(resolved.foreground_rgb, resolved.surface_rgb, MUTED_BLEND_TOWARD_SURFACE),
-        accent: resolved.accent_rgb,
+        accent: oklch_to_srgb(accent),
         border: resolved.border_rgb,
         ok: oklch_to_srgb(ok),
         err: oklch_to_srgb(err),
-    }
+    })
 }
 
 /// Validate AA on composited RGB pairs (used by tests and by consumers that
@@ -109,6 +110,7 @@ pub fn aa_ratio(fg: Rgb8, bg: Rgb8) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::color::srgb_to_oklch;
     use crate::relation::PropertyRelation;
     use crate::theme::{Harmony, ThemeRole};
 
