@@ -221,16 +221,76 @@ fn run_live() -> Result<(), String> {
                     // Surface-local pixels → millipoints → hit test.
                     let mx = (x as i64) * goya_wayland::MP_PER_PX;
                     let my = (y as i64) * goya_wayland::MP_PER_PX;
-                    if let Some(action) = rt.hit_test(mx, my) {
-                        let _ = rt.handle(Event::Activate(action));
+                    match rt.hit_test_target(mx, my) {
+                        Some(HitTarget::Action(action)) => {
+                            rt.focus_input(None);
+                            let _ = rt.handle(Event::Activate(action));
+                        }
+                        Some(HitTarget::Input(id)) => {
+                            rt.focus_input(Some(id));
+                        }
+                        None => rt.focus_input(None),
                     }
                 }
                 goya_wayland::PlatformEvent::KeyChar(c) => {
                     let _ = rt.handle(Event::Character(c));
                 }
+                goya_wayland::PlatformEvent::KeySpecial(key) => {
+                    use goya_wayland::KeySpecial;
+                    let event = match key {
+                        KeySpecial::ArrowLeft => Some(Event::TextMoveLeft { extend: false }),
+                        KeySpecial::ArrowRight => Some(Event::TextMoveRight { extend: false }),
+                        KeySpecial::Home => Some(Event::TextMoveHome { extend: false }),
+                        KeySpecial::End => Some(Event::TextMoveEnd { extend: false }),
+                        KeySpecial::Delete => Some(Event::TextDelete),
+                        KeySpecial::Escape => {
+                            rt.focus_input(None);
+                            None
+                        }
+                        KeySpecial::Tab => {
+                            let next = (rt.focused_input() != Some(NodeId(4))).then_some(NodeId(4));
+                            rt.focus_input(next);
+                            None
+                        }
+                        _ => None,
+                    };
+                    if let Some(event) = event {
+                        let _ = rt.handle(event);
+                    }
+                }
+                goya_wayland::PlatformEvent::Preedit(preedit) => {
+                    let _ = rt.handle(Event::ImeBatch {
+                        preedit: preedit.map(|text| (text, 0, 0)),
+                        commit: None,
+                        delete: None,
+                    });
+                }
+                goya_wayland::PlatformEvent::CommitText(text) => {
+                    let _ = rt.handle(Event::ImeBatch {
+                        preedit: None,
+                        commit: Some(text),
+                        delete: None,
+                    });
+                }
                 goya_wayland::PlatformEvent::CloseRequested => {}
                 _ => {}
             }
+        }
+        if let Some(id) = rt.focused_input() {
+            let text = rt.input_text(id).unwrap_or_default();
+            let cursor = rt.input_cursor_byte(id).unwrap_or(text.len());
+            let anchor = rt.input_anchor_byte(id).unwrap_or(cursor);
+            let cursor_rect = rt.frame().rect(id).map_or((0, 0, 1, 20), |rect| {
+                (
+                    (rect.x / goya_wayland::MP_PER_PX) as i32,
+                    (rect.y / goya_wayland::MP_PER_PX) as i32,
+                    (rect.width / goya_wayland::MP_PER_PX).max(1) as i32,
+                    (rect.height / goya_wayland::MP_PER_PX).max(1) as i32,
+                )
+            });
+            win.set_text_input_state(true, text, cursor as u32, anchor as u32, cursor_rect);
+        } else {
+            win.set_text_input_state(false, "", 0, 0, (0, 0, 0, 0));
         }
         let _ = win.present(&rt.render_list(), &[], [235, 235, 240], [24, 24, 28], 2);
         win.pump(1);

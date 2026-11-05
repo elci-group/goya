@@ -729,7 +729,48 @@ impl GoyaWindow {
         bg: [u8; 3],
         glyph_px: u32,
     ) -> Result<(), WaylandError> {
-        self.present_dirty(primitives, fills, fg, bg, glyph_px, None)
+        self.present_internal(primitives, fills, None, None, fg, bg, glyph_px, None)
+    }
+
+    /// Present with per-primitive rectangular clip regions. Each optional
+    /// clip is in surface-local millipoints and uses the same index as the
+    /// primitive. Missing entries and `None` retain the full-surface clip.
+    /// This keeps legacy [`GoyaWindow::present`] behavior unchanged while
+    /// allowing scene hosts to enforce nested viewport clipping.
+    pub fn present_clipped(
+        &mut self,
+        primitives: &[goya_runtime::Primitive],
+        fills: &[Option<u32>],
+        clips: &[Option<Rect>],
+        fg: [u8; 3],
+        bg: [u8; 3],
+        glyph_px: u32,
+    ) -> Result<(), WaylandError> {
+        self.present_internal(primitives, fills, Some(clips), None, fg, bg, glyph_px, None)
+    }
+
+    /// Present with per-primitive text sizes in points. Each optional size is
+    /// indexed like `primitives`; absent or invalid sizes use `glyph_px`.
+    /// The Wayland surface scale is four pixels per point.
+    pub fn present_with_text_sizes(
+        &mut self,
+        primitives: &[goya_runtime::Primitive],
+        fills: &[Option<u32>],
+        text_sizes_pt: &[Option<f32>],
+        fg: [u8; 3],
+        bg: [u8; 3],
+        glyph_px: u32,
+    ) -> Result<(), WaylandError> {
+        self.present_internal(
+            primitives,
+            fills,
+            None,
+            Some(text_sizes_pt),
+            fg,
+            bg,
+            glyph_px,
+            None,
+        )
     }
 
     /// LCPE-aware presentation: `damage` is the resolved dirty rect in
@@ -741,6 +782,21 @@ impl GoyaWindow {
         &mut self,
         primitives: &[goya_runtime::Primitive],
         fills: &[Option<u32>],
+        fg: [u8; 3],
+        bg: [u8; 3],
+        glyph_px: u32,
+        damage: Option<(i32, i32, i32, i32)>,
+    ) -> Result<(), WaylandError> {
+        self.present_internal(primitives, fills, None, None, fg, bg, glyph_px, damage)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn present_internal(
+        &mut self,
+        primitives: &[goya_runtime::Primitive],
+        fills: &[Option<u32>],
+        clips: Option<&[Option<Rect>]>,
+        text_sizes_pt: Option<&[Option<f32>]>,
         fg: [u8; 3],
         bg: [u8; 3],
         glyph_px: u32,
@@ -820,6 +876,8 @@ impl GoyaWindow {
             fills,
             fg,
             glyph_px,
+            clips,
+            text_sizes_pt,
             clip,
             parallel_raster,
         );
