@@ -203,6 +203,30 @@ fn apply_composer_to_frame(nodes: &mut [DrawNode], composer: &Composer) {
     }
 }
 
+fn sync_text_input(
+    window: &mut goya_wayland::GoyaWindow,
+    composer: &Composer,
+    scene: &goya_lang::Scene,
+) {
+    let frame = layout(scene, 400.0, 320.0);
+    let rect = frame.find("composer").map(|node| node.rect);
+    let Some(rect) = rect.filter(|_| composer.focused) else {
+        let _ = window.set_text_input_state(false, "", 0, 0, (0, 0, 0, 0));
+        return;
+    };
+    let x = (rect.x / goya_wayland::MP_PER_PX) as i32;
+    let y = (rect.y / goya_wayland::MP_PER_PX) as i32;
+    let cursor_x = x.saturating_add((composer.cursor_grapheme() as i32).saturating_mul(6));
+    let cursor_byte = composer.buffer.cursor_byte().min(u32::MAX as usize) as u32;
+    let _ = window.set_text_input_state(
+        true,
+        composer.text(),
+        cursor_byte,
+        cursor_byte,
+        (cursor_x, y, 1, 16),
+    );
+}
+
 /// Feed one key event into the composer; returns the committed line, if
 /// any. Page keys while the composer is unfocused scroll the transcript
 /// history instead (handled by the caller — they are not composer keys).
@@ -215,6 +239,10 @@ fn feed_key(composer: &mut Composer, ev: &goya_wayland::PlatformEvent) -> Option
                 // Composer focused: page keys are inert for the view.
                 KeyAction::PageUp | KeyAction::PageDown => {}
             }
+            None
+        }
+        goya_wayland::PlatformEvent::ImeBatch { preedit, commit, delete, .. } => {
+            composer.handle_ime_batch(preedit.clone(), commit.as_deref(), *delete);
             None
         }
         _ => None,
@@ -589,6 +617,7 @@ fn run_live(args: &Args, store: &mut SceneStore, last_mtime: &mut Option<SystemT
                             let now_focused = name == "composer";
                             dirty |= composer.focused != now_focused;
                             composer.focused = now_focused;
+                            sync_text_input(&mut win, &composer);
                         }
                     }
                 }
@@ -611,6 +640,13 @@ fn run_live(args: &Args, store: &mut SceneStore, last_mtime: &mut Option<SystemT
                 }
                 goya_wayland::PlatformEvent::PointerScroll(lines) => {
                     dirty |= scroll_pointer_history(&handle, lines, composer.focused);
+                }
+                goya_wayland::PlatformEvent::ImeBatch { .. } => {
+                    if let goya_wayland::PlatformEvent::ImeBatch { preedit, commit, delete, .. } = ev {
+                        composer.handle_ime_batch(preedit, commit.as_deref(), delete);
+                    }
+                    sync_text_input(&mut win, &composer, store.get());
+                    dirty = true;
                 }
                 goya_wayland::PlatformEvent::Resized(_, _) => dirty = true,
                 _ => {}
