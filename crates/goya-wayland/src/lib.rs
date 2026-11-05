@@ -8,6 +8,7 @@
 //! protocol reimplementation is a security liability, not an asset
 //! (GOYA §13: Linux compositor fragmentation).
 
+use cosmic_text::{Attrs, Buffer, Color, FontSystem, Metrics, Shaping, SwashCache, Wrap};
 use goya_csr::{self, Policy as CsrPolicy};
 use goya_hcar::{AffinityMode, Classifier, CoreAssignment, WorkCost, WorkItem};
 use goya_layout::Rect;
@@ -17,6 +18,7 @@ use rustix::mm::{mmap, munmap, MapFlags, ProtFlags};
 use std::fs::File;
 use std::io::Read;
 use std::os::fd::AsFd;
+use std::sync::{Mutex, OnceLock};
 use wayland_client::protocol::{
     wl_buffer::WlBuffer,
     wl_compositor::WlCompositor,
@@ -1076,6 +1078,96 @@ fn fill_rect_clipped(
 
 #[allow(clippy::too_many_arguments)]
 fn draw_glyphs(
+    pixels: &mut [u32],
+    win_w: i32,
+    win_h: i32,
+    r: &Rect,
+    s: &str,
+    rgb: [u8; 3],
+    glyph_px: u32,
+    clip: Option<PixelClip>,
+) {
+    if draw_shaped_glyphs(pixels, win_w, win_h, r, s, rgb, glyph_px, clip) {
+        return;
+    }
+    draw_bitmap_glyphs(pixels, win_w, win_h, r, s, rgb, glyph_px, clip);
+}
+
+fn draw_shaped_glyphs(
+    pixels: &mut [u32],
+    win_w: i32,
+    win_h: i32,
+    r: &Rect,
+    s: &str,
+    rgb: [u8; 3],
+    glyph_px: u32,
+    clip: Option<PixelClip>,
+) -> bool {
+    static TEXT: OnceLock<Mutex<(FontSystem, SwashCache)>> = OnceLock::new();
+    let Ok(mut text) = TEXT
+        .get_or_init(|| Mutex::new((FontSystem::new(), SwashCache::new())))
+        .lock()
+    else {
+        return false;
+    };
+    let (font_system, cache) = &mut *text;
+    let font_size = (glyph_px.max(1) as f32) * 7.0;
+    let line_height = (font_size * 1.4).max(font_size + 1.0);
+    let mut buffer = Buffer::new(font_system, Metrics::new(font_size, line_height));
+    let width = (r.width / MP_PER_PX - 4).max(1) as f32;
+    let height = (r.height / MP_PER_PX - 4).max(1) as f32;
+    buffer.set_size(font_system, Some(width), Some(height));
+    buffer.set_wrap(font_system, Wrap::WordOrGlyph);
+    buffer.set_text(font_system, s, &Attrs::new(), Shaping::Advanced, None);
+    buffer.shape_until_scroll(font_system, true);
+
+    let (cx0, cy0, cx1, cy1) = match clip {
+        Some(c) => (c.x0 as i64, c.y0 as i64, c.x1 as i64, c.y1 as i64),
+        None => (0, 0, i64::from(win_w), i64::from(win_h)),
+    };
+    let origin_x = r.x / MP_PER_PX + 2;
+    let origin_y = r.y / MP_PER_PX + 2;
+    let rect_right = (r.x + r.width) / MP_PER_PX + 2;
+    let rect_bottom = (r.y + r.height) / MP_PER_PX + 2;
+    let color = Color::rgb(rgb[0], rgb[1], rgb[2]);
+    let mut drew = false;
+    buffer.draw(font_system, cache, color, |x, y, w, h, color| {
+        let [cr, cg, cb, alpha] = color.as_rgba();
+        if alpha == 0 {
+            return;
+        }
+        for dy in 0..h as i64 {
+            let py = origin_y + i64::from(y) + dy;
+            if py < cy0 || py >= cy1 || py < 0 || py >= i64::from(win_h) || py >= rect_bottom {
+                continue;
+            }
+            for dx in 0..w as i64 {
+                let px = origin_x + i64::from(x) + dx;
+                if px < cx0 || px >= cx1 || px < 0 || px >= i64::from(win_w) || px >= rect_right {
+                    continue;
+                }
+                let index = py as usize * win_w as usize + px as usize;
+                if index >= pixels.len() {
+                    continue;
+                }
+                let dst = pixels[index];
+                let inv = 255 - alpha as u32;
+                let blend = |src: u8, old: u32, shift: u32| -> u32 {
+                    (u32::from(src) * alpha as u32 + ((old >> shift) & 0xff) * inv + 127) / 255
+                };
+                pixels[index] = 0xff00_0000
+                    | (blend(cr, dst, 16) << 16)
+                    | (blend(cg, dst, 8) << 8)
+                    | blend(cb, dst, 0);
+                drew = true;
+            }
+        }
+    });
+    drew
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_bitmap_glyphs(
     pixels: &mut [u32],
     win_w: i32,
     win_h: i32,
