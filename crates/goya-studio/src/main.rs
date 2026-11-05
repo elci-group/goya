@@ -433,6 +433,7 @@ fn escape_js_string(text: &str) -> String {
     out
 }
 
+#[cfg(test)]
 fn route_request(
     request: &[u8],
     expected_host: &str,
