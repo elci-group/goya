@@ -439,9 +439,7 @@ fn headless_acceptance(store: &SceneStore) {
         && wheel_handle
             .view
             .lock()
-            .map(|view| {
-                view.scroll == SCROLL_STEP && view.rows()[TAIL_LINES - 1] == "line 25"
-            })
+            .map(|view| view.scroll == SCROLL_STEP && view.rows()[TAIL_LINES - 1] == "line 25")
             .unwrap_or(false);
     let focused_wheel = scroll_pointer_history(&wheel_handle, -5, true);
     let focused_ok = !focused_wheel
