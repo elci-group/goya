@@ -456,6 +456,26 @@ mod tests {
     }
 
     #[test]
+    fn markdown_on_routes_turn_completed_through_renderer() {
+        let mut view = SessionView::default();
+        assert!(view.markdown);
+        view.apply(&ProjEvent::TurnCompleted {
+            response: "# heading\n- bullet".into(),
+            result: "success".into(),
+        });
+        let rows = view.rows();
+        assert!(rows.contains(&"■ HEADING".to_string()));
+        assert!(rows.contains(&"• bullet".to_string()));
+        // Markdown off falls back to raw push_line.
+        let mut raw = SessionView { markdown: false, ..Default::default() };
+        raw.apply(&ProjEvent::TurnCompleted {
+            response: "# heading".into(),
+            result: "success".into(),
+        });
+        assert!(raw.history.last().map(String::as_str) == Some("# heading"));
+    }
+
+    #[test]
     fn turn_started_confirms_sending_status() {
         let mut view = SessionView {
             status: "sending".to_string(),
