@@ -258,7 +258,9 @@ fn wrap_text(text: &str, width: usize) -> Vec<String> {
     for line in text.split('\n') {
         let mut current = String::new();
         let mut current_len = 0usize;
-        for word in line.split(' ') {
+        // Empty tokens between consecutive spaces would accumulate as
+        // separators; skip them so runs collapse to single spaces.
+        for word in line.split(' ').filter(|w| !w.is_empty()) {
             let mut word = word;
             loop {
                 let word_len = word.chars().count();
