@@ -123,7 +123,11 @@ fn resolve_role(role: &ThemeRole, parent: Oklch, polarity: Polarity, harmony: Ha
 /// Adjust foreground lightness (never hue — identity is preserved) until the
 /// composited pair reaches `level`, or fail loudly. Deterministic bisection
 /// over OKLab lightness, the axis contrast actually depends on.
-fn enforce_contrast(fg: Oklch, bg: Oklch, level: WcagLevel) -> Result<Oklch, ResolveError> {
+pub(crate) fn enforce_contrast(
+    fg: Oklch,
+    bg: Oklch,
+    level: WcagLevel,
+) -> Result<Oklch, ResolveError> {
     let target = level.ratio();
     if contrast_ratio(fg, bg) >= target {
         return Ok(fg);

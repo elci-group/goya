@@ -7,13 +7,19 @@
 //!
 //! Contract: resolution is a pure function of (theme, polarity). No time,
 //! environment or RNG dependence. See docs/contracts.md.
+//!
+//! On top of role resolution, [`palette`] derives a render-ready UI palette
+//! (bg/fg/muted/accent/border plus fixed-hue ok/err status anchors) with AA
+//! contrast enforced on every foreground-like field against the background.
 
 mod color;
+mod palette;
 mod relation;
 mod resolver;
 mod theme;
 
 pub use color::{oklch_to_srgb, srgb_to_oklch, Oklch, Rgb8};
+pub use palette::{aa_ratio, palette, Palette};
 pub use relation::{Polarity, PropertyRelation, Role};
 pub use resolver::{hex_anchor, resolve, ResolveError, ResolvedTheme};
 pub use theme::{Harmony, Theme, ThemeRole, WcagLevel};

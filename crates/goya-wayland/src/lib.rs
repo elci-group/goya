@@ -2634,6 +2634,102 @@ mod key_special_tests {
 }
 
 #[cfg(test)]
+mod shortcut_tests {
+    use super::{shortcut_from_key, GoyaWindowInner, PlatformEvent, Shortcut};
+    use xkbcommon::xkb::{self, Context, Keymap};
+
+    #[test]
+    fn helper_mapping_table() {
+        // GY-ZCODE-004: ctrl+c/v/q via evdev keycodes.
+        assert_eq!(shortcut_from_key(true, 46), Some(Shortcut::Copy)); // KEY_C
+        assert_eq!(shortcut_from_key(true, 47), Some(Shortcut::Paste)); // KEY_V
+        assert_eq!(shortcut_from_key(true, 16), Some(Shortcut::Quit)); // KEY_Q
+        // Non-ctrl presses of the same keys stay plain text, not shortcuts.
+        assert_eq!(shortcut_from_key(false, 46), None);
+        assert_eq!(shortcut_from_key(false, 47), None);
+        assert_eq!(shortcut_from_key(false, 16), None);
+        assert_eq!(shortcut_from_key(false, 999), None);
+    }
+
+    #[test]
+    fn other_ctrl_combos_stay_inert() {
+        // Ctrl held, but not c/v/q: helper must yield None for letters,
+        // digits, navigation codes and unknown codes alike.
+        for kc in [16 - 1, 30, 31, 32, 44, 45, 48, 2, 11, 57, 1, 105, 999, 0] {
+            assert_eq!(
+                shortcut_from_key(true, kc),
+                None,
+                "ctrl+keycode {kc} must stay inert"
+            );
+        }
+    }
+
+    /// Full event-path test without a compositor: build a `us` keymap via
+    /// `Keymap::new_from_names`, install it in a `GoyaWindowInner`, raise the
+    /// ctrl modifier exactly as the `wl_keyboard.modifiers` dispatch does,
+    /// then run the extracted press handler.
+    fn inner_with_ctrl(ctrl: bool) -> GoyaWindowInner {
+        let mut inner = GoyaWindowInner::new(80, 24);
+        let context = Context::new(xkb::CONTEXT_NO_FLAGS);
+        let keymap = Keymap::new_from_names(
+            &context,
+            "",
+            "",
+            "us",
+            "",
+            Some(String::new()),
+            xkb::COMPILE_NO_FLAGS,
+        )
+        .unwrap_or_else(|| panic!("installed XKB rules did not provide 'us'"));
+        let state = xkb::State::new(&keymap);
+        inner.xkb_state = Some(state);
+        let ctrl_index = keymap.mod_get_index(&"Control");
+        assert_ne!(ctrl_index, xkb::MOD_INVALID);
+        inner.ctrl = ctrl;
+        if ctrl {
+            inner
+                .xkb_state
+                .as_mut()
+                .unwrap()
+                .update_mask(1 << ctrl_index, 0, 0, 0, 0, 0);
+        }
+        inner
+    }
+
+    #[test]
+    fn xkb_path_emits_shortcut_paste_for_ctrl_v() {
+        let mut inner = inner_with_ctrl(true);
+        inner.handle_key_press(47); // KEY_V
+        assert_eq!(inner.events, vec![PlatformEvent::Shortcut(Shortcut::Paste)]);
+    }
+
+    #[test]
+    fn xkb_path_emits_shortcut_copy_and_quit() {
+        let mut inner = inner_with_ctrl(true);
+        inner.handle_key_press(46); // KEY_C
+        assert_eq!(inner.events, vec![PlatformEvent::Shortcut(Shortcut::Copy)]);
+        inner.events.clear();
+        inner.handle_key_press(16); // KEY_Q
+        assert_eq!(inner.events, vec![PlatformEvent::Shortcut(Shortcut::Quit)]);
+    }
+
+    #[test]
+    fn non_ctrl_behavior_is_unchanged_and_other_ctrl_combos_emit_nothing() {
+        // Plain 'c'/'v'/'q' still flow through as KeyChar (wave-3 contract).
+        let mut inner = inner_with_ctrl(false);
+        for (kc, ch) in [(46, 'c'), (47, 'v'), (16, 'q')] {
+            inner.handle_key_press(kc);
+            assert_eq!(inner.events, vec![PlatformEvent::KeyChar(ch)]);
+            inner.events.clear();
+        }
+        // Ctrl+a (and any other ctrl combo) emits nothing at all.
+        let mut inner = inner_with_ctrl(true);
+        inner.handle_key_press(30); // KEY_A
+        assert!(inner.events.is_empty());
+    }
+}
+
+#[cfg(test)]
 mod fill_tests {
     use super::{argb, raster_serial, resolve_fill, RasterConfig, MP_PER_PX};
     use goya_layout::Rect;

@@ -8,7 +8,7 @@
 //! [`ResolveError::ContrastUnreachable`], never silently faked (GY-CHR-001
 //! §5).
 
-use crate::color::{oklch_to_srgb, srgb_to_oklch, Oklch, Rgb8};
+use crate::color::{oklch_to_srgb, Oklch, Rgb8};
 use crate::relation::Polarity;
 use crate::resolver::{enforce_contrast, resolve, ResolveError, ResolvedTheme};
 use crate::theme::{Theme, WcagLevel};
