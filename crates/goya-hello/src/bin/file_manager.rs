@@ -44,20 +44,44 @@ fn vfs() -> VfsNode {
                 name: "docs",
                 dir: true,
                 children: vec![
-                    VfsNode { name: "intro.doc", dir: false, children: Vec::new() },
-                    VfsNode { name: "notes.txt", dir: false, children: Vec::new() },
+                    VfsNode {
+                        name: "intro.doc",
+                        dir: false,
+                        children: Vec::new(),
+                    },
+                    VfsNode {
+                        name: "notes.txt",
+                        dir: false,
+                        children: Vec::new(),
+                    },
                 ],
             },
             VfsNode {
                 name: "media",
                 dir: true,
                 children: vec![
-                    VfsNode { name: "movie1", dir: false, children: Vec::new() },
-                    VfsNode { name: "movie2", dir: false, children: Vec::new() },
+                    VfsNode {
+                        name: "movie1",
+                        dir: false,
+                        children: Vec::new(),
+                    },
+                    VfsNode {
+                        name: "movie2",
+                        dir: false,
+                        children: Vec::new(),
+                    },
                 ],
             },
-            VfsNode { name: "pics", dir: true, children: Vec::new() },
-            VfsNode { name: "readme.txt", dir: false, children: Vec::new() },
+            VfsNode {
+                name: "pics",
+                dir: true,
+                children: Vec::new(),
+            },
+            VfsNode {
+                name: "readme.txt",
+                dir: false,
+                children: Vec::new(),
+            },
         ],
     }
 }
@@ -210,7 +234,11 @@ fn present_nodes(nodes: &[goya_lang::DrawNode]) -> Vec<goya_runtime::Primitive> 
             };
             let label = n.text.clone().unwrap_or_default();
             if n.is_button {
-                let label = if label.is_empty() { n.name.clone() } else { label };
+                let label = if label.is_empty() {
+                    n.name.clone()
+                } else {
+                    label
+                };
                 Primitive::Button(rect, label)
             } else if n.text.is_some() {
                 Primitive::Text(rect, label)
@@ -290,9 +318,11 @@ fn main() {
                     if let Some(i) = entry_at(x as i32, y as i32) {
                         fm.click_entry(i);
                         dirty = true;
-                    } else if let Some(name) =
-                        hit_test(&frame, x as i64 * goya_wayland::MP_PER_PX, y as i64 * goya_wayland::MP_PER_PX)
-                    {
+                    } else if let Some(name) = hit_test(
+                        &frame,
+                        x as i64 * goya_wayland::MP_PER_PX,
+                        y as i64 * goya_wayland::MP_PER_PX,
+                    ) {
                         if name == "btn_up" || name == "btn_open" {
                             fm.press(&name);
                             dirty = true;
@@ -371,10 +401,16 @@ fn self_test(store: &mut SceneStore) {
     let entries = fm.entries();
     let expected_root = ["docs/", "media/", "pics/", "readme.txt"];
     if entries[..4] != expected_root {
-        failures.push(format!("root listing: expected {expected_root:?}, got {:?}", &entries[..4]));
+        failures.push(format!(
+            "root listing: expected {expected_root:?}, got {:?}",
+            &entries[..4]
+        ));
     }
     if entries.len() != ENTRY_COUNT {
-        failures.push(format!("entry count: expected {ENTRY_COUNT}, got {}", entries.len()));
+        failures.push(format!(
+            "entry count: expected {ENTRY_COUNT}, got {}",
+            entries.len()
+        ));
     }
     if entries[4..].iter().any(|e| !e.is_empty()) {
         failures.push("padding: rows 4..8 should be empty".into());
@@ -386,17 +422,25 @@ fn self_test(store: &mut SceneStore) {
     // Open "docs" (row 0) -> path bar "root/docs", listing intro.doc notes.txt.
     fm.click_entry(0);
     if fm.path_text() != "root/docs" {
-        failures.push(format!("path bar: expected root/docs, got {}", fm.path_text()));
+        failures.push(format!(
+            "path bar: expected root/docs, got {}",
+            fm.path_text()
+        ));
     }
     let sub = fm.entries();
     if sub[0] != "intro.doc" || sub[1] != "notes.txt" {
-        failures.push(format!("docs listing: expected intro.doc/notes.txt, got {sub:?}"));
+        failures.push(format!(
+            "docs listing: expected intro.doc/notes.txt, got {sub:?}"
+        ));
     }
 
     // Open a file (notes.txt, row 1) -> status set.
     fm.click_entry(1);
     if fm.status != "selected notes.txt" {
-        failures.push(format!("open file: expected 'selected notes.txt', got '{}'", fm.status));
+        failures.push(format!(
+            "open file: expected 'selected notes.txt', got '{}'",
+            fm.status
+        ));
     }
 
     // Up returns to root.
@@ -414,7 +458,10 @@ fn self_test(store: &mut SceneStore) {
         failures.push(format!("up at root: path moved to {}", fm.path_text()));
     }
     if fm.status != "at root" {
-        failures.push(format!("up at root: expected 'at root', got '{}'", fm.status));
+        failures.push(format!(
+            "up at root: expected 'at root', got '{}'",
+            fm.status
+        ));
     }
 
     // Open nonexistent (empty entry) is a no-op.

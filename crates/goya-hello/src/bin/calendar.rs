@@ -14,9 +14,9 @@
 //! leap-year rule, the 2000-01-01 Saturday anchor, month wrap-around,
 //! the 2026-11-01 grid column, and the today reset.
 
-use goya_lang::{SceneStore, hit_test, layout};
+use goya_lang::{hit_test, layout, SceneStore};
 use goya_runtime::Primitive;
-use goya_wayland::{GoyaWindow, MP_PER_PX, PlatformEvent};
+use goya_wayland::{GoyaWindow, PlatformEvent, MP_PER_PX};
 
 const SCENE_PATH: &str = "apps/calendar.gscene";
 const SCENE_W_PT: f64 = 100.0;
@@ -125,7 +125,7 @@ impl Calendar {
     fn label(&self) -> String {
         format!(
             "{} {}",
-            MONTH_NAMES[(self.month as usize).min(11)],
+            MONTH_NAMES[((self.month as usize).max(1) - 1).min(11)],
             self.year
         )
     }
@@ -250,9 +250,7 @@ fn run_live(store: &mut SceneStore) -> Result<(), String> {
         for ev in win.poll() {
             if let PlatformEvent::PointerPress(x, y) = ev {
                 let frame = layout(store.get(), SCENE_W_PT, SCENE_H_PT);
-                if let Some(name) =
-                    hit_test(&frame, x as i64 * MP_PER_PX, y as i64 * MP_PER_PX)
-                {
+                if let Some(name) = hit_test(&frame, x as i64 * MP_PER_PX, y as i64 * MP_PER_PX) {
                     if name.starts_with("btn_") {
                         cal.press(&name);
                         dirty = true;
