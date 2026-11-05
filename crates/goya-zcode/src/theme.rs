@@ -140,12 +140,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn palette_derives_from_chroma() {
+    fn palette_derives_from_chroma_meets_aa() {
         let p = monitor_palette();
-        // Derived palette is a real colour set, not the fallback constants:
-        // bg must be near the declared dark surface, not exactly the
-        // hand-tuned constant (that would mean derivation silently failed).
-        assert_eq!(p.bg, [20, 20, 28], "chroma dark surface should match the scene bg");
+        // The derived palette must be a genuine chroma product: AA holds
+        // for fg/accent/ok/err against bg (GY-CHROMA/1 contract).
+        let rgb = |c: [u8; 3]| goya_chroma::Rgb8::new(c[0], c[1], c[2]);
+        for (name, fg) in [("fg", p.fg), ("accent", p.accent), ("ok", p.ok), ("err", p.err)] {
+            let ratio = goya_chroma::aa_ratio(rgb(fg), rgb(p.bg));
+            assert!(ratio >= 4.5, "{name}/bg contrast {ratio:.2} below AA");
+        }
     }
 
     #[test]

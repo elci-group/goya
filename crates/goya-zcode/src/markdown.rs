@@ -72,10 +72,12 @@ pub fn render_markdown(text: &str, width: usize) -> Vec<String> {
             continue;
         }
 
-        // Ordered lists: kept as-is with a 2-space indent.
+        // Ordered lists: kept as-is with a 2-space indent. Wrap first,
+        // then indent every piece — `wrap_line` strips leading spaces.
         if starts_ordered(trimmed) {
-            let rendered = format!("  {}", strip_inline(trimmed));
-            out.extend(wrap_line(&rendered, width));
+            for piece in wrap_line(&strip_inline(trimmed), width.saturating_sub(2)) {
+                out.push(format!("  {piece}"));
+            }
             continue;
         }
 
