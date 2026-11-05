@@ -3,8 +3,8 @@
 //! The agent thread is the only writer; the render loop only reads
 //! snapshots. All reduction logic is pure and unit-tested here.
 
-use std::collections::VecDeque;
 use goya_runtime::ScrollState;
+use std::collections::VecDeque;
 
 /// Transcript tail capacity (matches `row_00`..`row_13` in the scene).
 pub const TAIL_LINES: usize = 14;
@@ -125,8 +125,10 @@ impl SessionView {
     fn update_scroll_geometry(&mut self) {
         let from_bottom = self.scroll_from_bottom();
         let max = self.history.len().saturating_sub(TAIL_LINES);
-        self.scroll.set_geometry(1.0, self.history.len() as f64, 1.0, TAIL_LINES as f64);
-        self.scroll.scroll_to(0.0, max.saturating_sub(from_bottom) as f64);
+        self.scroll
+            .set_geometry(1.0, self.history.len() as f64, 1.0, TAIL_LINES as f64);
+        self.scroll
+            .scroll_to(0.0, max.saturating_sub(from_bottom) as f64);
     }
 
     /// Flush the streaming buffer into the tail.
@@ -360,13 +362,13 @@ mod tests {
         for i in 0..30 {
             view.push_line(&format!("line {i:02}"));
         }
-        assert_eq!(view.scroll, 0);
+        assert_eq!(view.scroll_from_bottom(), 0);
         let rows = view.rows();
         assert_eq!(rows[TAIL_LINES - 1], "line 29");
         assert_eq!(rows[TAIL_LINES - 2], "line 28");
         // New events keep the view pinned to the bottom.
         view.push_line("line 30");
-        assert_eq!(view.scroll, 0);
+        assert_eq!(view.scroll_from_bottom(), 0);
         assert_eq!(view.rows()[TAIL_LINES - 1], "line 30");
     }
 
@@ -392,15 +394,15 @@ mod tests {
             view.push_line(&format!("line {i:02}"));
         }
         view.scroll_up(SCROLL_STEP);
-        assert_eq!(view.scroll, SCROLL_STEP);
+        assert_eq!(view.scroll_from_bottom(), SCROLL_STEP);
         assert_eq!(view.rows()[TAIL_LINES - 1], "line 15");
         view.scroll_down(SCROLL_STEP);
-        assert_eq!(view.scroll, 0);
+        assert_eq!(view.scroll_from_bottom(), 0);
         assert_eq!(view.rows()[TAIL_LINES - 1], "line 29");
         // scroll_to_bottom is a no-op at 0 and resets from anywhere.
         view.scroll_up(5);
         view.scroll_to_bottom();
-        assert_eq!(view.scroll, 0);
+        assert_eq!(view.scroll_from_bottom(), 0);
     }
 
     #[test]
@@ -428,7 +430,7 @@ mod tests {
         view.apply(&ProjEvent::PartDelta {
             delta: "streaming in the background".into(),
         });
-        assert_eq!(view.scroll, 3);
+        assert_eq!(view.scroll_from_bottom(), 3);
         let rows = view.rows();
         assert_eq!(rows[TAIL_LINES - 1], "line 26");
         assert!(!rows[TAIL_LINES - 1].contains("streaming"));
