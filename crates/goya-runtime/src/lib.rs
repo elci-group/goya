@@ -166,6 +166,9 @@ impl TextBuffer {
     pub fn cursor_byte(&self) -> usize {
         self.cursor
     }
+    pub fn cursor_grapheme(&self) -> usize {
+        self.text[..self.cursor.min(self.text.len())].graphemes(true).count()
+    }
     pub fn selection_bytes(&self) -> Option<std::ops::Range<usize>> {
         self.anchor
             .map(|anchor| anchor.min(self.cursor)..anchor.max(self.cursor))
@@ -187,6 +190,12 @@ impl TextBuffer {
     }
 
     pub fn move_left(&mut self, extend: bool) {
+        if !extend {
+            if let Some(selection) = self.selection_bytes() {
+                self.move_cursor(selection.start, false);
+                return;
+            }
+        }
         let next = self
             .text
             .grapheme_indices(true)
@@ -198,6 +207,12 @@ impl TextBuffer {
     }
 
     pub fn move_right(&mut self, extend: bool) {
+        if !extend {
+            if let Some(selection) = self.selection_bytes() {
+                self.move_cursor(selection.end, false);
+                return;
+            }
+        }
         let next = self
             .text
             .grapheme_indices(true)
