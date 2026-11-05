@@ -74,6 +74,14 @@ fn atomic_replace_scene(path: &Path, source: &[u8]) -> Result<(), String> {
         };
         let result = (|| {
             file.write_all(source)?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                file.set_permissions(fs::Permissions::from_mode(
+                    metadata.permissions().mode() & 0o777,
+                ))?;
+            }
+            #[cfg(not(unix))]
             file.set_permissions(metadata.permissions())?;
             file.sync_all()?;
             drop(file);
