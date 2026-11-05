@@ -837,4 +837,82 @@ mod tests {
             "gated send flows with wire=false and no ticket"
         );
     }
+
+    // --- Wave 5 (GY-ZCODE-005): tool.updated decoding ---
+
+    #[test]
+    fn tool_updated_maps_kinds_and_display_names() {
+        let env = |kind: &str| {
+            serde_json::json!({
+                "type": "tool.updated",
+                "payload": {
+                    "kind": kind,
+                    "toolCallId": "call_abcdefghij",
+                    "toolName": "read_file",
+                }
+            })
+        };
+        assert_eq!(
+            map_event(&env("started")),
+            Some(ProjEvent::ToolUpdate {
+                id: "call_abcdefghij".into(),
+                tool: "read_file".into(),
+                state: ToolState::Started,
+            })
+        );
+        // Progress folds onto Started.
+        assert_eq!(
+            map_event(&env("progress")),
+            map_event(&env("started")),
+            "progress must fold into Started"
+        );
+        assert_eq!(
+            map_event(&env("completed")),
+            Some(ProjEvent::ToolUpdate {
+                id: "call_abcdefghij".into(),
+                tool: "read_file".into(),
+                state: ToolState::Completed,
+            })
+        );
+        // Unknown kinds are inert.
+        assert_eq!(map_event(&env("archived")), None);
+        // Missing toolCallId is inert.
+        assert_eq!(
+            map_event(&serde_json::json!({
+                "type": "tool.updated",
+                "payload": {"kind": "started"},
+            })),
+            None
+        );
+    }
+
+    #[test]
+    fn tool_updated_display_falls_back_description_then_short_id() {
+        let payload = |extra: Value| {
+            serde_json::json!({
+                "kind": "started",
+                "toolCallId": "call_1234567890abcdef",
+            })
+            .merge(extra)
+        };
+        let ev = map_event(&payload(serde_json::json!({"description": "reading src"})));
+        assert_eq!(
+            ev,
+            Some(ProjEvent::ToolUpdate {
+                id: "call_1234567890abcdef".into(),
+                tool: "reading src".into(),
+                state: ToolState::Started,
+            })
+        );
+        let ev = map_event(&payload(Value::Null));
+        assert_eq!(
+            ev.and_then(|e| match e {
+                ProjEvent::ToolUpdate { tool, .. } => Some(tool),
+                _ => None,
+            })
+            .as_deref(),
+            Some("7890abcde".strip_suffix('e').map(|s| s.to_owned() + "f").unwrap().as_str()),
+            "short id form is the last 8 chars"
+        );
+    }
 }
