@@ -1912,11 +1912,11 @@ mod key_tests {
 
     #[test]
     fn built_in_fallback_is_bounded_and_preserves_control_keys() {
-        assert_eq!(key_chars(None, 2, false), vec!['1']);
-        assert_eq!(key_chars(None, 2, true), vec!['!']);
-        assert_eq!(key_chars(None, 28, false), vec!['\n']);
-        assert_eq!(key_chars(None, 14, false), vec!['\u{8}']);
-        assert!(key_chars(None, 999, false).is_empty());
+        assert_eq!(key_chars(None, 2, false, false), vec!['1']);
+        assert_eq!(key_chars(None, 2, true, false), vec!['!']);
+        assert_eq!(key_chars(None, 28, false, false), vec!['\n']);
+        assert_eq!(key_chars(None, 14, false, false), vec!['\u{8}']);
+        assert!(key_chars(None, 999, false, false).is_empty());
     }
 
     fn state_for_layout(layout: &str) -> (xkbcommon::xkb::Keymap, xkbcommon::xkb::State) {
@@ -1942,17 +1942,17 @@ mod key_tests {
 
         let (keymap, mut state) = state_for_layout("us");
         let q = 16;
-        assert_eq!(key_chars(Some(&state), q, false), vec!['q']);
+        assert_eq!(key_chars(Some(&state), q, false, false), vec!['q']);
 
         let shift = keymap.mod_get_index(&"Shift");
         assert_ne!(shift, xkb::MOD_INVALID);
         state.update_mask(1 << shift, 0, 0, 0, 0, 0);
-        assert_eq!(key_chars(Some(&state), q, false), vec!['Q']);
+        assert_eq!(key_chars(Some(&state), q, false, false), vec!['Q']);
 
         let lock = keymap.mod_get_index(&"Lock");
         assert_ne!(lock, xkb::MOD_INVALID);
         state.update_mask(0, 0, 1 << lock, 0, 0, 0);
-        assert_eq!(key_chars(Some(&state), q, false), vec!['Q']);
+        assert_eq!(key_chars(Some(&state), q, false, false), vec!['Q']);
     }
 
     #[test]
@@ -1964,7 +1964,7 @@ mod key_tests {
         assert_ne!(mod5, xkb::MOD_INVALID);
         state.update_mask(1 << mod5, 0, 0, 0, 0, 0);
         // German AltGr+Q emits @; evdev KEY_Q is 16.
-        assert_eq!(key_chars(Some(&state), 16, false), vec!['@']);
+        assert_eq!(key_chars(Some(&state), 16, false, false), vec!['@']);
     }
 
     #[test]
@@ -1998,7 +1998,7 @@ mod key_tests {
             keymap_text.len() as u32,
         )
         .unwrap();
-        assert_eq!(key_chars(Some(&state), 16, false), vec!['q']);
+        assert_eq!(key_chars(Some(&state), 16, false, false), vec!['q']);
 
         let oversized_fd =
             rustix::fs::memfd_create("goya-xkb-oversized-test", rustix::fs::MemfdFlags::CLOEXEC)
