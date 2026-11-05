@@ -136,10 +136,9 @@ dispatch — agents implement against it, never negotiate it.
      focus (click on the composer via `hit_test` focuses it), cursor
      position, and typed text editable with the KeySpecial set +
      `'\u{8}'`/`'\n'`.
-   - Enter commits: the monitor does NOT auto-send (read-only link); Enter
-     echoes the composed line into the tail marked `[local]` and clears the
-     field. Sending is a later increment (needs `session/send` + v4
-     admission).
+   - Enter commits the composed line. The monitor remains read-only by
+     default; the later GY-ZCODE-003 increment adds an opt-in send path gated
+     by the explicit `--allow-send` flag.
    - Composer text renders in the input node per frame (host override).
 
 ### Assignments
@@ -209,3 +208,38 @@ Same swarm convention. Contract frozen before dispatch.
 | gate | workspace | gates, live acceptance (no-send default), evidence |
 
 
+
+## Wave 3 addendum — extra work packages (same swarm, no crate overlap)
+
+Dispatched while J2/J3 are in flight; exclusive ownership, frozen contract.
+
+4. **Deterministic wrap (J4: `goya-lang`).**
+   - Scene vocabulary gains `wrap: <positive integer columns>` on cells
+     (parsed like other cell properties, default absent = no wrap).
+   - `goya_lang::layout`, when `wrap` is present, splits the cell's text
+     into lines at the requested column count (greedy word wrap,
+     hard-splitting oversized tokens — same algorithm class as the monitor's
+     host-side `wrap_line`) and emits them newline-joined in the node's
+     text; the wave-2 renderer already rasterizes `'\n'` (glyph_px*1.4,
+     rect-clipped), so wrapped text reaches the screen with no renderer
+     change.
+   - Layout stays a pure function of (module, constraints) — wrapping is
+     deterministic, no measurement (GY-LAYOUT/1 intact). `DrawNode` shape is
+     unchanged.
+   - Tests: wrap produces expected lines; absent `wrap` unchanged; hot-swap
+     accepts wrap edits; layout determinism (same input twice → identical).
+   - NOTE for gate/J2: goya-zcode's host-side wrap stays as-is this wave;
+     migrating the monitor to scene-level `wrap` is a later increment.
+5. **Studio authoring (J5: `goya-studio` + `goya-sdk`).**
+   - Studio's `check`/`inspect`/`serve` handle `@input` nodes (node list,
+     geometry inspector) and show `wrap` when present; preview renders
+     placeholder text for inputs via the existing text opcode (no renderer
+     work).
+   - `goya_sdk::SceneProject` exposes input nodes (name/placeholder/geometry)
+     so SDK consumers can enumerate them.
+   - Tests follow existing crate test style.
+
+| Agent | Crates (exclusive) | Deliverable |
+|---|---|---|
+| J4 | `goya-lang` | `wrap:` property + deterministic layout wrapping + tests |
+| J5 | `goya-studio`, `goya-sdk` | @input/wrap awareness in check/inspect/serve + SDK accessors + tests |

@@ -1530,7 +1530,9 @@ fn key_chars(
         _ => {}
     }
     if let Some(xkb_state) = xkb_state {
-        return key_char_from_state(xkb_state, keycode, ctrl).into_iter().collect();
+        return key_char_from_state(xkb_state, keycode, ctrl)
+            .into_iter()
+            .collect();
     }
     key_char(keycode, shift)
         .filter(|c| !c.is_control() || matches!(c, '\n' | '\u{8}'))
@@ -1885,7 +1887,7 @@ mod raster_tests {
 
 #[cfg(test)]
 mod key_tests {
-    use super::{key_char, key_chars, key_char_from_state, key_special};
+    use super::{key_char, key_char_from_state, key_chars};
     #[test]
     fn us_layout_spot_checks() {
         assert_eq!(key_char(30, false), Some('a'));
