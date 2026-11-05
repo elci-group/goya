@@ -376,7 +376,7 @@ fn self_test(store: &mut SceneStore) {
             texts[6]
         ));
     }
-    if texts[0] != "" {
+    if !texts[0].is_empty() {
         failures.push(format!(
             "nov 2026 padding cell 0: expected empty, got '{}'",
             texts[0]
@@ -390,7 +390,7 @@ fn self_test(store: &mut SceneStore) {
             texts[35]
         ));
     }
-    if texts[6 + 30] != "" {
+    if !texts[6 + 30].is_empty() {
         failures.push("nov 2026 slot 36 should be padding".into());
     }
     if cal.label() != "november 2026" {
