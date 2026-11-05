@@ -63,6 +63,21 @@ mod tests {
     }
 
     #[test]
+    fn hot_swap_accepts_input_additions() {
+        const WITH_INPUT: &str = "@ontology a { @button b { position: (0,0,0) extent: (10,10,0) } @input composer { position: (0,20,0) extent: (30,10,0) text: \"Compose\" } }";
+        let mut store = SceneStore::new(V1).unwrap();
+        let gen = store.swap(WITH_INPUT).unwrap();
+        assert_eq!(gen, 2);
+        let composer = store.get().find_node("composer").unwrap();
+        assert_eq!(composer.kind, crate::CellKind::Input);
+        assert!(composer.is_input);
+        assert_eq!(composer.text.as_deref(), Some("Compose"));
+        // And an @input-only scene loads as the initial scene too.
+        let store = SceneStore::new(WITH_INPUT).unwrap();
+        assert!(store.get().find_node("composer").is_some());
+    }
+
+    #[test]
     fn failed_swap_is_transactional() {
         let mut store = SceneStore::new(V1).unwrap();
         let gen_before = store.generation();
