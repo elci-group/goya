@@ -288,7 +288,16 @@ fn apply_text_event(rt: &mut Runtime, event: goya_wayland::PlatformEvent) {
             None
         }
         PlatformEvent::Preedit(preedit) => Some(Event::ImeBatch {
-            preedit: preedit.map(|text| (text, 0, 0)),
+            preedit: Some((preedit.unwrap_or_default(), 0, 0)),
+            commit: None,
+            delete: None,
+        }),
+        PlatformEvent::PreeditWithCursor {
+            text,
+            cursor_begin,
+            cursor_end,
+        } => Some(Event::ImeBatch {
+            preedit: Some((text.unwrap_or_default(), cursor_begin, cursor_end)),
             commit: None,
             delete: None,
         }),
@@ -296,6 +305,14 @@ fn apply_text_event(rt: &mut Runtime, event: goya_wayland::PlatformEvent) {
             preedit: None,
             commit: Some(text),
             delete: None,
+        }),
+        PlatformEvent::DeleteSurroundingText {
+            before_bytes,
+            after_bytes,
+        } => Some(Event::ImeBatch {
+            preedit: None,
+            commit: None,
+            delete: Some((before_bytes, after_bytes)),
         }),
         _ => None,
     };
