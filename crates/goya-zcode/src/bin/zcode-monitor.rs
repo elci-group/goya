@@ -526,12 +526,7 @@ fn headless_acceptance(store: &SceneStore) {
     // sample routes through the view's markdown mode.
     let mut md_view = SessionView::default();
     md_view.push_markdown("# report\n\n```rust\nlet a = 1;\n```\n\n- bullet one");
-    let md_rows: Vec<String> = md_view
-        .history
-        .iter()
-        .take(6)
-        .cloned()
-        .collect();
+    let md_rows: Vec<String> = md_view.history.iter().take(6).cloned().collect();
     let md_ok = md_rows.contains(&"■ REPORT".to_string())
         && md_rows.contains(&"| lang: rust".to_string())
         && md_rows.contains(&"|   let a = 1;".to_string())
@@ -723,10 +718,7 @@ fn run_live(args: &Args, store: &mut SceneStore, last_mtime: &mut Option<SystemT
                 PlatformEvent::Shortcut(shortcut) => match shortcut {
                     Shortcut::Copy => {
                         let last = handle.view.lock().ok().and_then(|view| {
-                            view.rows()
-                                .into_iter()
-                                .rev()
-                                .find(|row| !row.is_empty())
+                            view.rows().into_iter().rev().find(|row| !row.is_empty())
                         });
                         let copied = last
                             .map(|row| clipboard.copy_line(PrincipalId(1), &row))

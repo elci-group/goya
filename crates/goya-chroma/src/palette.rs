@@ -79,7 +79,11 @@ fn build(resolved: &ResolvedTheme, polarity: Polarity) -> Result<Palette, Resolv
 
     // ok/err: fixed hue/chroma, lightness searched to AA against the surface.
     // Failure propagates: the palette must never ship fake-compliant colours.
-    let ok = enforce_contrast(anchor_start(OK_ANCHOR, polarity), resolved.surface, WcagLevel::AA)?;
+    let ok = enforce_contrast(
+        anchor_start(OK_ANCHOR, polarity),
+        resolved.surface,
+        WcagLevel::AA,
+    )?;
     let err = enforce_contrast(
         anchor_start(ERR_ANCHOR, polarity),
         resolved.surface,
@@ -90,7 +94,11 @@ fn build(resolved: &ResolvedTheme, polarity: Polarity) -> Result<Palette, Resolv
     Ok(Palette {
         bg: resolved.surface_rgb,
         fg: resolved.foreground_rgb,
-        muted: blend(resolved.foreground_rgb, resolved.surface_rgb, MUTED_BLEND_TOWARD_SURFACE),
+        muted: blend(
+            resolved.foreground_rgb,
+            resolved.surface_rgb,
+            MUTED_BLEND_TOWARD_SURFACE,
+        ),
         accent: oklch_to_srgb(accent),
         border: resolved.border_rgb,
         ok: oklch_to_srgb(ok),
@@ -153,7 +161,12 @@ mod tests {
     }
 
     fn assert_aa(p: Palette, polarity: Polarity) {
-        for (name, fg) in [("fg", p.fg), ("accent", p.accent), ("ok", p.ok), ("err", p.err)] {
+        for (name, fg) in [
+            ("fg", p.fg),
+            ("accent", p.accent),
+            ("ok", p.ok),
+            ("err", p.err),
+        ] {
             let ratio = aa_ratio(fg, p.bg);
             assert!(
                 ratio >= 4.5,
@@ -177,7 +190,10 @@ mod tests {
     #[test]
     fn palette_is_deterministic() {
         let t = dark_theme();
-        assert_eq!(palette(&t, Polarity::Dark).unwrap(), palette(&t, Polarity::Dark).unwrap());
+        assert_eq!(
+            palette(&t, Polarity::Dark).unwrap(),
+            palette(&t, Polarity::Dark).unwrap()
+        );
         assert_eq!(
             palette(&t, Polarity::Light).unwrap(),
             palette(&t, Polarity::Light).unwrap()
@@ -187,7 +203,11 @@ mod tests {
     #[test]
     fn muted_sits_between_fg_and_bg() {
         let p = palette(&dark_theme(), Polarity::Dark).unwrap();
-        for (m, f, b) in [(p.muted.r, p.fg.r, p.bg.r), (p.muted.g, p.fg.g, p.bg.g), (p.muted.b, p.fg.b, p.bg.b)] {
+        for (m, f, b) in [
+            (p.muted.r, p.fg.r, p.bg.r),
+            (p.muted.g, p.fg.g, p.bg.g),
+            (p.muted.b, p.fg.b, p.bg.b),
+        ] {
             let lo = f.min(b);
             let hi = f.max(b);
             assert!(m >= lo && m <= hi, "muted channel {m} outside [{lo},{hi}]");

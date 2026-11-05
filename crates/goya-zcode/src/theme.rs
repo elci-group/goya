@@ -8,10 +8,8 @@
 //! hand-tuned constants that match the original scene colours rather than
 //! shipping fake-compliant colours.
 
-use goya_chroma::{
-    palette, Polarity, PropertyRelation, ResolveError, Theme, ThemeRole, WcagLevel,
-};
 use goya_chroma::Harmony;
+use goya_chroma::{palette, Polarity, PropertyRelation, ResolveError, Theme, ThemeRole, WcagLevel};
 
 /// Monitor palette in plain sRGB triples, ready for primitive fills.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -127,7 +125,10 @@ pub fn status_fill_override(status: &str, palette: &MonitorPalette) -> Option<u3
     let lower = status.to_lowercase();
     let color = if lower == "idle" || lower == "subscribed" {
         palette.ok
-    } else if ["error", "down", "rejected"].iter().any(|bad| lower.contains(bad)) {
+    } else if ["error", "down", "rejected"]
+        .iter()
+        .any(|bad| lower.contains(bad))
+    {
         palette.err
     } else {
         palette.accent
@@ -149,7 +150,12 @@ mod tests {
         // The derived palette must be a genuine chroma product: AA holds
         // for fg/accent/ok/err against bg (GY-CHROMA/1 contract).
         let rgb = |c: [u8; 3]| goya_chroma::Rgb8::new(c[0], c[1], c[2]);
-        for (name, fg) in [("fg", p.fg), ("accent", p.accent), ("ok", p.ok), ("err", p.err)] {
+        for (name, fg) in [
+            ("fg", p.fg),
+            ("accent", p.accent),
+            ("ok", p.ok),
+            ("err", p.err),
+        ] {
             let ratio = goya_chroma::aa_ratio(rgb(fg), rgb(p.bg));
             assert!(ratio >= 4.5, "{name}/bg contrast {ratio:.2} below AA");
         }
@@ -186,9 +192,18 @@ mod tests {
         assert_eq!(status_fill_override("idle", &p), Some(rgb_u32(p.ok)));
         assert_eq!(status_fill_override("subscribed", &p), Some(rgb_u32(p.ok)));
         assert_eq!(status_fill_override("error", &p), Some(rgb_u32(p.err)));
-        assert_eq!(status_fill_override("down: link lost", &p), Some(rgb_u32(p.err)));
-        assert_eq!(status_fill_override("rejected by host", &p), Some(rgb_u32(p.err)));
+        assert_eq!(
+            status_fill_override("down: link lost", &p),
+            Some(rgb_u32(p.err))
+        );
+        assert_eq!(
+            status_fill_override("rejected by host", &p),
+            Some(rgb_u32(p.err))
+        );
         assert_eq!(status_fill_override("running", &p), Some(rgb_u32(p.accent)));
-        assert_eq!(status_fill_override("connecting", &p), Some(rgb_u32(p.accent)));
+        assert_eq!(
+            status_fill_override("connecting", &p),
+            Some(rgb_u32(p.accent))
+        );
     }
 }

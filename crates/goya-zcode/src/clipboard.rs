@@ -26,7 +26,11 @@ pub const RING_CAP: usize = 8;
 pub struct AllowAllPolicy;
 
 impl CapabilityPolicy for AllowAllPolicy {
-    fn permits(&self, _principal: PrincipalId, _capability: goya_clipboard::ClipboardCapability) -> bool {
+    fn permits(
+        &self,
+        _principal: PrincipalId,
+        _capability: goya_clipboard::ClipboardCapability,
+    ) -> bool {
         true
     }
 }
@@ -62,10 +66,7 @@ impl<'a> MonitorClipboard<'a> {
             mode: CopyMode::Verbatim,
             principal,
         };
-        let ok = self
-            .inner
-            .copy(request, text, &self.source, &[])
-            .is_ok();
+        let ok = self.inner.copy(request, text, &self.source, &[]).is_ok();
         if ok {
             let mut ring = self.ring.borrow_mut();
             ring.push_back(text.to_string());

@@ -2064,9 +2064,9 @@ fn shortcut_from_key(ctrl: bool, keycode: u32) -> Option<Shortcut> {
         return None;
     }
     match keycode {
-        46 => Some(Shortcut::Copy),   // KEY_C
-        47 => Some(Shortcut::Paste),  // KEY_V
-        16 => Some(Shortcut::Quit),   // KEY_Q
+        46 => Some(Shortcut::Copy),  // KEY_C
+        47 => Some(Shortcut::Paste), // KEY_V
+        16 => Some(Shortcut::Quit),  // KEY_Q
         _ => None,
     }
 }
@@ -2644,7 +2644,7 @@ mod shortcut_tests {
         assert_eq!(shortcut_from_key(true, 46), Some(Shortcut::Copy)); // KEY_C
         assert_eq!(shortcut_from_key(true, 47), Some(Shortcut::Paste)); // KEY_V
         assert_eq!(shortcut_from_key(true, 16), Some(Shortcut::Quit)); // KEY_Q
-        // Non-ctrl presses of the same keys stay plain text, not shortcuts.
+                                                                       // Non-ctrl presses of the same keys stay plain text, not shortcuts.
         assert_eq!(shortcut_from_key(false, 46), None);
         assert_eq!(shortcut_from_key(false, 47), None);
         assert_eq!(shortcut_from_key(false, 16), None);

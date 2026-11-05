@@ -467,7 +467,10 @@ mod tests {
         assert!(rows.contains(&"■ HEADING".to_string()));
         assert!(rows.contains(&"• bullet".to_string()));
         // Markdown off falls back to raw push_line.
-        let mut raw = SessionView { markdown: false, ..Default::default() };
+        let mut raw = SessionView {
+            markdown: false,
+            ..Default::default()
+        };
         raw.apply(&ProjEvent::TurnCompleted {
             response: "# heading".into(),
             result: "success".into(),

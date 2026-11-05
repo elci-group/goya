@@ -142,7 +142,11 @@ fn strip_inline(s: &str) -> String {
             }
             b'*' => {
                 // Bold/italic markers stripped; content kept.
-                i += if bytes.get(i + 1) == Some(&b'*') { 2 } else { 1 };
+                i += if bytes.get(i + 1) == Some(&b'*') {
+                    2
+                } else {
+                    1
+                };
             }
             _ => {
                 let ch = s[i..].chars().next().unwrap();
@@ -178,7 +182,12 @@ mod tests {
         let lines = render("```rust\nfn main() {}\nlet x = 1;\n```\nafter");
         assert_eq!(
             lines,
-            vec!["| lang: rust", "|   fn main() {}", "|   let x = 1;", "after"]
+            vec![
+                "| lang: rust",
+                "|   fn main() {}",
+                "|   let x = 1;",
+                "after"
+            ]
         );
     }
 
@@ -216,10 +225,7 @@ mod tests {
     #[test]
     fn links_simplify() {
         // Same text and URL: URL dropped.
-        assert_eq!(
-            render("see [docs](docs) here"),
-            vec!["see docs here"]
-        );
+        assert_eq!(render("see [docs](docs) here"), vec!["see docs here"]);
         // Different: URL kept in parens.
         assert_eq!(
             render("see [the docs](https://example.com) now"),
