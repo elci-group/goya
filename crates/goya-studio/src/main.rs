@@ -1130,7 +1130,10 @@ mod tests {
                 Some(&canonical_path),
             );
             assert_eq!(symlink_target.0, "500 Internal Server Error");
-            assert_eq!(fs::read_to_string(&outside_path).unwrap(), SCENE);
+            assert_eq!(
+                fs::read_to_string(&outside_path).unwrap(),
+                SCENE.replace("hello", "outside secret")
+            );
             fs::remove_file(&canonical_path).unwrap();
             fs::remove_file(outside_path).unwrap();
         }
