@@ -325,7 +325,7 @@ fn escape_html(text: &str) -> String {
 
 fn render_html(project: &SceneProject) -> String {
     let viewport = project.viewport();
-    let mut html = format!("<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{}</title><style>body{{margin:0;background:#111;color:#eee;font:14px system-ui,sans-serif}}header{{padding:12px 18px}}main{{padding:18px;overflow:auto}}.stage{{position:relative;margin:auto;background:#20202a;box-shadow:0 4px 24px #0008}}.node{{position:absolute;box-sizing:border-box;overflow:hidden;white-space:pre-wrap;padding:4px;border:1px solid #ffffff30;border-radius:3px}}.button{{display:flex;align-items:center;justify-content:center;font:inherit}}</style></head><body><header>Goya Studio preview · {}</header><main><div class=\"stage\" style=\"width:{}px;height:{}px\">", escape_html(&project.scene().name), escape_html(&project.scene().name), viewport.width_points, viewport.height_points);
+    let mut html = format!("<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{}</title><style>body{{margin:0;background:#111;color:#eee;font:14px system-ui,sans-serif}}header{{padding:12px 18px}}main{{padding:18px;overflow:auto}}.stage{{position:relative;margin:auto;background:#20202a;box-shadow:0 4px 24px #0008}}.node{{position:absolute;box-sizing:border-box;overflow:hidden;white-space:pre-wrap;overflow-wrap:anywhere;padding:4px;border:1px solid #ffffff30;border-radius:3px}}.node.scrollable{{overflow:auto;overscroll-behavior:contain;touch-action:pan-y}}.button{{display:flex;align-items:center;justify-content:center;font:inherit}}</style></head><body><header>Goya Studio preview · {}</header><main><div class=\"stage\" style=\"width:{}px;height:{}px\">", escape_html(&project.scene().name), escape_html(&project.scene().name), viewport.width_points, viewport.height_points);
     for (index, node) in project.frame().nodes.into_iter().enumerate() {
         let color = node
             .fill
@@ -339,8 +339,8 @@ fn render_html(project: &SceneProject) -> String {
         } else {
             "group"
         };
-        html.push_str(&format!("<div class=\"node{}\" data-node-index=\"{}\" role=\"{}\" aria-label=\"{}\" style=\"left:{}px;top:{}px;width:{}px;height:{}px;background:{};{}\">{}</div>",
-            if node.is_input || node.is_button { " button" } else { "" }, index, role, escape_html(label), node.rect.x as f64 / 1000.0,
+        html.push_str(&format!("<div class=\"node{}{}\" data-node-index=\"{}\" role=\"{}\" aria-label=\"{}\" style=\"left:{}px;top:{}px;width:{}px;height:{}px;background:{};{}\">{}</div>",
+            if node.is_input || node.is_button { " button" } else { "" }, if node.scroll { " scrollable" } else { "" }, index, role, escape_html(label), node.rect.x as f64 / 1000.0,
             node.rect.y as f64 / 1000.0, node.rect.width as f64 / 1000.0, node.rect.height as f64 / 1000.0,
             color, node.text_size.map(|size| format!("font-size:{}px;", size)).unwrap_or_default(), escape_html(label)));
     }

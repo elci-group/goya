@@ -1,0 +1,68 @@
+// ============================================================
+// file_manager.gscene — FILE MANAGER exemplar Goya application.
+//
+// RUGID-style scene syntax (GY-LANG/1): @ontology / @cell /
+// @button with absolute + proportional geometry. Extent is in
+// POINTS; the live window is extent * 4 => 400 x 600 px.
+//
+// All literal text stays inside the renderer's glyph set
+// (lowercase a c d e g h i l m n o r t u v y + digits + - / * % . , = ! space);
+// the host overrides path_text, entry_0..entry_7 and status_text
+// with live state every frame.
+//
+// Run it:
+//   cargo run --bin file_manager -- --live
+// ============================================================
+
+@ontology file_manager {
+
+    @cell window {
+        position: (0, 0, 0)
+        extent: (100, 150, 0)
+        fill: #1a1a1a
+
+        // ---- Path bar -----------------------------------------
+        @cell path_bar {
+            position: (5, 5, 0)
+            extent: (90, 12, 0)
+            fill: #2a2a2a
+            stroke: #444444
+            stroke-width: 2
+
+            @cell path_text {
+                // Text is overridden by the host with the current
+                // directory ("root", "root/docs", ...).
+                position_p: (0.03, 0.5, 0)
+                text: "root"
+                text-size: 12
+                fill: #00ff88
+                text-anchor: start
+            }
+        }
+
+        // ---- Toolbar row: up, open -----------------------------
+        @button btn_up   { position: (5, 20, 0);  extent: (20, 12, 0); text: "up";   fill: #555555 }
+        @button btn_open { position: (28, 20, 0); extent: (24, 12, 0); text: "open"; fill: #ff8800 }
+
+        // ---- Entry list: 8 label rows --------------------------
+        // Each row's text is overridden by the host with the current
+        // directory listing; unused rows render empty.
+        @cell entry_0 { position: (5, 35, 0);  extent: (90, 11, 0); fill: #2a2a2a; text: ""; text-size: 12 }
+        @cell entry_1 { position: (5, 47, 0);  extent: (90, 11, 0); fill: #2a2a2a; text: ""; text-size: 12 }
+        @cell entry_2 { position: (5, 59, 0);  extent: (90, 11, 0); fill: #2a2a2a; text: ""; text-size: 12 }
+        @cell entry_3 { position: (5, 71, 0);  extent: (90, 11, 0); fill: #2a2a2a; text: ""; text-size: 12 }
+        @cell entry_4 { position: (5, 83, 0);  extent: (90, 11, 0); fill: #2a2a2a; text: ""; text-size: 12 }
+        @cell entry_5 { position: (5, 95, 0);  extent: (90, 11, 0); fill: #2a2a2a; text: ""; text-size: 12 }
+        @cell entry_6 { position: (5, 107, 0); extent: (90, 11, 0); fill: #2a2a2a; text: ""; text-size: 12 }
+        @cell entry_7 { position: (5, 119, 0); extent: (90, 11, 0); fill: #2a2a2a; text: ""; text-size: 12 }
+
+        // ---- Status line ----------------------------------------
+        @cell status_text {
+            position: (5, 133, 0)
+            extent: (90, 12, 0)
+            fill: #2a2a2a
+            text: "ready"
+            text-size: 12
+        }
+    }
+}

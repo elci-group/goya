@@ -257,7 +257,11 @@ both paths feed the same runtime/layout/render pipeline.
   the parent. Undeclared extent fills the parent. Geometry clamps into the
   parent. Millipoint scale matches GY-LAYOUT/1 (1 pt = 1000 mp).
 - Appearance: `fill`/`stroke` hex colours (`#rgb`, `#rrggbb`, `#rrggbbaa`),
-  `stroke-width`, `text`, `text-size`, `text-anchor: start|middle|end`.
+  `stroke-width`, `text`, `text-size`, `text-anchor: start|middle|end`,
+  `scroll: true|false`, and `wrap: <positive integer columns>`. Studio previews
+  wrap text to the node width by default (including long unbroken tokens);
+  `scroll: true` makes that node's text viewport vertically and horizontally
+  scrollable. `wrap` remains an explicit deterministic column-wrap override.
 - Authoring extensions: `@template` blocks remain parsed and skipped;
   unknown visual properties are consumed and ignored. `@interaction` supports
   bounded D1 and static-journal D2 forms. Both require one

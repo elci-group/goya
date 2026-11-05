@@ -1,0 +1,105 @@
+// ============================================================
+// calendar.gscene — the CALENDAR exemplar Goya application.
+//
+// RUGID-style scene syntax (GY-LANG/1): @ontology / @cell /
+// @button with absolute + proportional geometry.
+//
+// Run it:
+//   cargo run --bin calendar -- [--live]
+// The host overrides month_label and the 42 day-grid cells
+// (day_r{row}_c{col}) with the displayed month; prev/next/
+// today navigate the deterministic Gregorian state machine.
+// All visible text is lowercase / digit-safe for the glyph set.
+// ============================================================
+
+@ontology calendar {
+
+    @cell window {
+        position: (0, 0, 0)
+        extent: (100, 170, 0)
+        fill: #1a1a1a
+
+        // ---- Title bar -----------------------------------------
+        @cell title {
+            position: (5, 2, 0)
+            extent: (90, 14, 0)
+            text: "calendar"
+            text-size: 12
+            fill: #1a1a1a
+            text-anchor: middle
+        }
+
+        // ---- Month label (text overridden by the host) ---------
+        @cell month_label {
+            position: (5, 18, 0)
+            extent: (90, 16, 0)
+            text: "november 2026"
+            text-size: 12
+            fill: #2a2a2a
+            text-anchor: middle
+        }
+
+        // ---- Weekday header row (monday-first) ------------------
+        @cell wd_0 { position: (4, 36, 0);  extent: (13, 10, 0); text: "mo"; fill: #1a1a1a; text-anchor: middle }
+        @cell wd_1 { position: (17, 36, 0); extent: (13, 10, 0); text: "tu"; fill: #1a1a1a; text-anchor: middle }
+        @cell wd_2 { position: (30, 36, 0); extent: (13, 10, 0); text: "we"; fill: #1a1a1a; text-anchor: middle }
+        @cell wd_3 { position: (43, 36, 0); extent: (13, 10, 0); text: "th"; fill: #1a1a1a; text-anchor: middle }
+        @cell wd_4 { position: (56, 36, 0); extent: (13, 10, 0); text: "fr"; fill: #1a1a1a; text-anchor: middle }
+        @cell wd_5 { position: (69, 36, 0); extent: (13, 10, 0); text: "sa"; fill: #1a1a1a; text-anchor: middle }
+        @cell wd_6 { position: (82, 36, 0); extent: (13, 10, 0); text: "su"; fill: #1a1a1a; text-anchor: middle }
+
+        // ---- 7 x 6 day grid (texts overridden by the host) ------
+        @cell day_r0_c0 { position: (4, 48, 0);  extent: (13, 15, 0); text: ""; fill: #1a1a1a; text-anchor: middle }
+        @cell day_r0_c1 { position: (17, 48, 0); extent: (13, 15, 0); text: ""; fill: #1a1a1a; text-anchor: middle }
+        @cell day_r0_c2 { position: (30, 48, 0); extent: (13, 15, 0); text: ""; fill: #1a1a1a; text-anchor: middle }
+        @cell day_r0_c3 { position: (43, 48, 0); extent: (13, 15, 0); text: ""; fill: #1a1a1a; text-anchor: middle }
+        @cell day_r0_c4 { position: (56, 48, 0); extent: (13, 15, 0); text: ""; fill: #1a1a1a; text-anchor: middle }
+        @cell day_r0_c5 { position: (69, 48, 0); extent: (13, 15, 0); text: ""; fill: #1a1a1a; text-anchor: middle }
+        @cell day_r0_c6 { position: (82, 48, 0); extent: (13, 15, 0); text: ""; fill: #1a1a1a; text-anchor: middle }
+
+        @cell day_r1_c0 { position: (4, 63, 0);  extent: (13, 15, 0); text: ""; fill: #1a1a1a; text-anchor: middle }
+        @cell day_r1_c1 { position: (17, 63, 0); extent: (13, 15, 0); text: ""; fill: #1a1a1a; text-anchor: middle }
+        @cell day_r1_c2 { position: (30, 63, 0); extent: (13, 15, 0); text: ""; fill: #1a1a1a; text-anchor: middle }
+        @cell day_r1_c3 { position: (43, 63, 0); extent: (13, 15, 0); text: ""; fill: #1a1a1a; text-anchor: middle }
+        @cell day_r1_c4 { position: (56, 63, 0); extent: (13, 15, 0); text: ""; fill: #1a1a1a; text-anchor: middle }
+        @cell day_r1_c5 { position: (69, 63, 0); extent: (13, 15, 0); text: ""; fill: #1a1a1a; text-anchor: middle }
+        @cell day_r1_c6 { position: (82, 63, 0); extent: (13, 15, 0); text: ""; fill: #1a1a1a; text-anchor: middle }
+
+        @cell day_r2_c0 { position: (4, 78, 0);  extent: (13, 15, 0); text: ""; fill: #1a1a1a; text-anchor: middle }
+        @cell day_r2_c1 { position: (17, 78, 0); extent: (13, 15, 0); text: ""; fill: #1a1a1a; text-anchor: middle }
+        @cell day_r2_c2 { position: (30, 78, 0); extent: (13, 15, 0); text: ""; fill: #1a1a1a; text-anchor: middle }
+        @cell day_r2_c3 { position: (43, 78, 0); extent: (13, 15, 0); text: ""; fill: #1a1a1a; text-anchor: middle }
+        @cell day_r2_c4 { position: (56, 78, 0); extent: (13, 15, 0); text: ""; fill: #1a1a1a; text-anchor: middle }
+        @cell day_r2_c5 { position: (69, 78, 0); extent: (13, 15, 0); text: ""; fill: #1a1a1a; text-anchor: middle }
+        @cell day_r2_c6 { position: (82, 78, 0); extent: (13, 15, 0); text: ""; fill: #1a1a1a; text-anchor: middle }
+
+        @cell day_r3_c0 { position: (4, 93, 0);  extent: (13, 15, 0); text: ""; fill: #1a1a1a; text-anchor: middle }
+        @cell day_r3_c1 { position: (17, 93, 0); extent: (13, 15, 0); text: ""; fill: #1a1a1a; text-anchor: middle }
+        @cell day_r3_c2 { position: (30, 93, 0); extent: (13, 15, 0); text: ""; fill: #1a1a1a; text-anchor: middle }
+        @cell day_r3_c3 { position: (43, 93, 0); extent: (13, 15, 0); text: ""; fill: #1a1a1a; text-anchor: middle }
+        @cell day_r3_c4 { position: (56, 93, 0); extent: (13, 15, 0); text: ""; fill: #1a1a1a; text-anchor: middle }
+        @cell day_r3_c5 { position: (69, 93, 0); extent: (13, 15, 0); text: ""; fill: #1a1a1a; text-anchor: middle }
+        @cell day_r3_c6 { position: (82, 93, 0); extent: (13, 15, 0); text: ""; fill: #1a1a1a; text-anchor: middle }
+
+        @cell day_r4_c0 { position: (4, 108, 0); extent: (13, 15, 0); text: ""; fill: #1a1a1a; text-anchor: middle }
+        @cell day_r4_c1 { position: (17, 108, 0); extent: (13, 15, 0); text: ""; fill: #1a1a1a; text-anchor: middle }
+        @cell day_r4_c2 { position: (30, 108, 0); extent: (13, 15, 0); text: ""; fill: #1a1a1a; text-anchor: middle }
+        @cell day_r4_c3 { position: (43, 108, 0); extent: (13, 15, 0); text: ""; fill: #1a1a1a; text-anchor: middle }
+        @cell day_r4_c4 { position: (56, 108, 0); extent: (13, 15, 0); text: ""; fill: #1a1a1a; text-anchor: middle }
+        @cell day_r4_c5 { position: (69, 108, 0); extent: (13, 15, 0); text: ""; fill: #1a1a1a; text-anchor: middle }
+        @cell day_r4_c6 { position: (82, 108, 0); extent: (13, 15, 0); text: ""; fill: #1a1a1a; text-anchor: middle }
+
+        @cell day_r5_c0 { position: (4, 123, 0); extent: (13, 15, 0); text: ""; fill: #1a1a1a; text-anchor: middle }
+        @cell day_r5_c1 { position: (17, 123, 0); extent: (13, 15, 0); text: ""; fill: #1a1a1a; text-anchor: middle }
+        @cell day_r5_c2 { position: (30, 123, 0); extent: (13, 15, 0); text: ""; fill: #1a1a1a; text-anchor: middle }
+        @cell day_r5_c3 { position: (43, 123, 0); extent: (13, 15, 0); text: ""; fill: #1a1a1a; text-anchor: middle }
+        @cell day_r5_c4 { position: (56, 123, 0); extent: (13, 15, 0); text: ""; fill: #1a1a1a; text-anchor: middle }
+        @cell day_r5_c5 { position: (69, 123, 0); extent: (13, 15, 0); text: ""; fill: #1a1a1a; text-anchor: middle }
+        @cell day_r5_c6 { position: (82, 123, 0); extent: (13, 15, 0); text: ""; fill: #1a1a1a; text-anchor: middle }
+
+        // ---- Navigation buttons ---------------------------------
+        @button btn_prev  { position: (4, 144, 0);  extent: (28, 20, 0); text: "-"; fill: #555555 }
+        @button btn_today { position: (36, 144, 0); extent: (28, 20, 0); text: "today"; fill: #00cc66 }
+        @button btn_next  { position: (68, 144, 0); extent: (28, 20, 0); text: "+"; fill: #555555 }
+    }
+}
