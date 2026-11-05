@@ -733,25 +733,38 @@ mod tests {
 
     #[test]
     fn admit_send_allows_one_and_drops_the_rest() {
-        let mut pending = false;
-        assert!(admit_send(&mut pending));
-        assert!(pending);
-        assert!(!admit_send(&mut pending), "second send while pending drops");
-        pending = false;
-        assert!(admit_send(&mut pending));
+        let mut lifecycle = SendLifecycle::default();
+        let first = lifecycle.admit("sess_a");
+        assert!(first.is_some(), "first send is admitted with a ticket");
+        assert!(
+            lifecycle.admit("sess_a").is_none(),
+            "second send while pending is dropped"
+        );
+        // Terminal response frees admission.
+        lifecycle.response(first.unwrap(), true);
+        lifecycle.event("sess_a", "turn.started");
+        lifecycle.event("sess_a", "turn.completed");
+        assert!(lifecycle.admit("sess_a").is_some(), "admission re-opens");
     }
 
     #[test]
     fn command_queue_round_trips_and_survives_clone() {
         let handle = MonitorHandle::new();
+        handle.set_active_session(Some("sess_a".to_string()));
         let clone = handle.clone();
         clone.send_text("hello".to_string(), true);
-        assert_eq!(
-            handle.try_take_cmd(),
-            Some(AgentCmd::SendText {
-                line: "hello".to_string(),
-                wire: true
-            })
+        let cmd = handle.try_take_cmd();
+        assert!(
+            matches!(
+                &cmd,
+                Some(AgentCmd::SendText {
+                    line,
+                    wire: true,
+                    session_id,
+                    ticket: Some(_)
+                }) if line == "hello" && session_id == "sess_a"
+            ),
+            "admitted send carries session and ticket: {cmd:?}"
         );
         // Queue drained.
         assert_eq!(handle.try_take_cmd(), None);
@@ -760,13 +773,19 @@ mod tests {
     #[test]
     fn command_queue_carries_wire_gate() {
         let handle = MonitorHandle::new();
+        handle.set_active_session(Some("sess_a".to_string()));
         handle.send_text("nope".to_string(), false);
-        assert_eq!(
-            handle.try_take_cmd(),
-            Some(AgentCmd::SendText {
-                line: "nope".to_string(),
-                wire: false
-            })
+        assert!(
+            matches!(
+                handle.try_take_cmd(),
+                Some(AgentCmd::SendText {
+                    wire: false,
+                    ticket: None,
+                    ..
+                })
+            ),
+            "gated send flows with wire=false and no ticket"
+        );
         );
     }
 }
