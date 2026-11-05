@@ -538,8 +538,10 @@ fn main() {
             let nodes = layout(store.get(), 100.0, 170.0).nodes;
             let nodes = with_result(nodes, &calc.shown());
             let prims = present_nodes(&nodes);
+            let fills: Vec<Option<u32>> = nodes.iter().map(|node| node.fill).collect();
             let _ = win.present_dirty(
                 &prims,
+                &fills,
                 [235, 235, 240],
                 [20, 20, 28],
                 fidelity.glyph_px.max(2),
