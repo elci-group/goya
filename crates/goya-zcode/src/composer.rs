@@ -510,6 +510,21 @@ mod tests {
     }
 
     #[test]
+    fn ime_preedit_cursor_and_surrounding_delete_use_utf8_boundaries() {
+        let mut c = Composer::new();
+        c.focused = true;
+        c.buffer.set_text("日本語");
+        c.buffer.move_end(false);
+        c.delete_surrounding(3, 0);
+        assert_eq!(c.text(), "日本");
+
+        c.set_preedit_with_cursor(Some("かな"), 3, 6);
+        assert!(c.display().contains("か│な"));
+        c.set_preedit_with_cursor(None, 0, 0);
+        assert!(!c.display().contains('«'));
+    }
+
+    #[test]
     fn commit_text_inserts_mid_text_utf8_safe() {
         let mut c = focused();
         for ch in "ab".chars() {
