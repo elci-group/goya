@@ -79,6 +79,14 @@ pub enum PlatformEvent {
     KeyChar(char),
     /// Non-printable navigation/editing key (see [`KeySpecial`]).
     KeySpecial(KeySpecial),
+    /// Navigation/editing key with the XKB modifiers active at key press.
+    /// Unmodified keys continue to use [`PlatformEvent::KeySpecial`] for API
+    /// compatibility; modified navigation uses this event so hosts can
+    /// implement selection extension and word movement.
+    KeySpecialWithModifiers {
+        key: KeySpecial,
+        modifiers: KeyModifiers,
+    },
     /// Mouse-wheel scroll in text lines (evdev REL_WHEEL via wl_pointer.axis);
     /// positive = wheel up, negative = wheel down. Devices that never emit a
     /// vertical axis produce nothing.
@@ -144,6 +152,13 @@ pub enum KeySpecial {
     PageDown,
     Escape,
     Tab,
+}
+
+/// Modifier state attached to a navigation key event.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct KeyModifiers {
+    pub shift: bool,
+    pub ctrl: bool,
 }
 
 /// Semantic input purpose communicated to compositor input methods.
@@ -570,7 +585,18 @@ impl GoyaWindowInner {
             if let Some(compose) = self.compose_state.as_mut() {
                 compose.reset();
             }
-            self.events.push(PlatformEvent::KeySpecial(ks));
+            let modifiers = KeyModifiers {
+                shift: self.shift,
+                ctrl: self.ctrl,
+            };
+            if modifiers.shift || modifiers.ctrl {
+                self.events.push(PlatformEvent::KeySpecialWithModifiers {
+                    key: ks,
+                    modifiers,
+                });
+            } else {
+                self.events.push(PlatformEvent::KeySpecial(ks));
+            }
         } else {
             let chars = key_chars_with_compose(
                 self.xkb_state.as_ref(),
@@ -3064,7 +3090,7 @@ mod key_special_tests {
 
 #[cfg(test)]
 mod shortcut_tests {
-    use super::{shortcut_from_key, GoyaWindowInner, PlatformEvent, Shortcut};
+    use super::{shortcut_from_key, GoyaWindowInner, KeyModifiers, PlatformEvent, Shortcut};
     use xkbcommon::xkb::{self, Context, Keymap};
 
     #[test]
@@ -3130,6 +3156,38 @@ mod shortcut_tests {
         let mut inner = inner_with_ctrl(true);
         inner.handle_key_press(47); // KEY_V
         assert_eq!(inner.events, vec![PlatformEvent::Shortcut(Shortcut::Paste)]);
+    }
+
+    #[test]
+    fn navigation_events_preserve_shift_and_control_modifiers() {
+        let mut inner = inner_with_ctrl(false);
+        inner.shift = true;
+        inner.handle_key_press(105); // Left
+        assert_eq!(
+            inner.events,
+            vec![PlatformEvent::KeySpecialWithModifiers {
+                key: super::KeySpecial::ArrowLeft,
+                modifiers: KeyModifiers {
+                    shift: true,
+                    ctrl: false,
+                },
+            }]
+        );
+
+        inner.events.clear();
+        inner.shift = false;
+        inner.ctrl = true;
+        inner.handle_key_press(106); // Right
+        assert_eq!(
+            inner.events,
+            vec![PlatformEvent::KeySpecialWithModifiers {
+                key: super::KeySpecial::ArrowRight,
+                modifiers: KeyModifiers {
+                    shift: false,
+                    ctrl: true,
+                },
+            }]
+        );
     }
 
     #[test]
