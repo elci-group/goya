@@ -766,7 +766,17 @@ fn raster_primitives(
         RASTER_TILE_SIZE,
         workers,
     );
+    // Cosmic-text raster callbacks use local glyph images whose fractional
+    // placement can differ at tile boundaries. Keep text scenes serial until
+    // the shaped runs can be cached and rasterised with a shared global origin.
+    let contains_text = primitives.iter().any(|primitive| {
+        matches!(
+            primitive,
+            goya_runtime::Primitive::Text(_, _) | goya_runtime::Primitive::Button(_, _)
+        )
+    });
     if allow_parallel
+        && !contains_text
         && policy != CsrPolicy::Serial
         && workers > 1
         && raster_parallel_tiles(
@@ -2675,7 +2685,7 @@ mod fill_tests {
 
 #[cfg(test)]
 mod multiline_tests {
-    use super::{argb, draw_glyphs, MP_PER_PX};
+    use super::{argb, draw_bitmap_glyphs, MP_PER_PX};
     use goya_layout::Rect;
 
     fn rect(x: i64, y: i64, w: i64, h: i64) -> Rect {
@@ -2697,7 +2707,7 @@ mod multiline_tests {
         let line_height = ((10.0_f64) * 1.4) as i64;
 
         let mut two = vec![bg; (width * height) as usize];
-        draw_glyphs(&mut two, width, height, &r, "i\ni", [255; 3], 10, None);
+        draw_bitmap_glyphs(&mut two, width, height, &r, "i\ni", [255; 3], 10, None);
         // Column x=2 is inked at the top of each line for the 'i' glyph.
         assert_eq!(two[2 + 2 * width as usize], fg, "line 0 inked");
         assert_eq!(
@@ -2708,7 +2718,7 @@ mod multiline_tests {
 
         // Single-line baseline: nothing at the second line offset.
         let mut one = vec![bg; (width * height) as usize];
-        draw_glyphs(&mut one, width, height, &r, "i", [255; 3], 10, None);
+        draw_bitmap_glyphs(&mut one, width, height, &r, "i", [255; 3], 10, None);
         assert_eq!(one[2 + 2 * width as usize], fg);
         assert_eq!(
             one[2 + (2 + line_height) as usize * width as usize],
@@ -2726,7 +2736,7 @@ mod multiline_tests {
         // at y=16 which equals rect bottom, so only line 0 renders.
         let r = rect(0, 0, 40, 16);
         let mut buf = vec![bg; (width * height) as usize];
-        draw_glyphs(&mut buf, width, height, &r, "i\ni", [255; 3], 10, None);
+        draw_bitmap_glyphs(&mut buf, width, height, &r, "i\ni", [255; 3], 10, None);
         assert_eq!(buf[2 + 2 * width as usize], fg, "line 0 inside rect");
         assert_eq!(
             buf[2 + 16 * width as usize],
@@ -2737,7 +2747,7 @@ mod multiline_tests {
         // A taller rect admits line 1.
         let r_tall = rect(0, 0, 40, 30);
         let mut buf2 = vec![bg; (width * height) as usize];
-        draw_glyphs(
+        draw_bitmap_glyphs(
             &mut buf2, width, height, &r_tall, "i\ni", [255; 3], 10, None,
         );
         assert_eq!(buf2[2 + 16 * width as usize], fg, "line 1 inside tall rect");
@@ -2751,7 +2761,7 @@ mod multiline_tests {
         // past the rect's right edge.
         let r = rect(0, 0, 8, 20);
         let mut buf = vec![bg; (width * height) as usize];
-        draw_glyphs(&mut buf, width, height, &r, "iiiiiiii", [255; 3], 1, None);
+        draw_bitmap_glyphs(&mut buf, width, height, &r, "iiiiiiii", [255; 3], 1, None);
         let rect_x1 = 8 + 2; // rect right edge + glyph origin inset
         for y in 0..height as usize {
             for x in rect_x1..width as usize {
