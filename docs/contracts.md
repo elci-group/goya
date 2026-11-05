@@ -484,7 +484,9 @@ Implemented as four new crates (all std-only, Candidate status):
   the P/E grouping is inferred from frequency topology.
   These are single-run exploratory measurements, not stable performance
   claims. The available path still uses OS-managed threads and HCAR `General`
-  classifications; Goya does not detect P/E topology or apply core affinity.
+  classifications. `goya-hcar` now exposes conservative Linux topology
+  detection from online-CPU `cpu_capacity` or ACPI `highest_perf` sysfs data,
+  but the renderer does not yet consume that metadata or apply core affinity.
   Process-level `taskset` measurements do not validate application affinity.
   See `evidence/GY-CSR-RASTER-INTEGRATION.json` for the unpinned baseline.
 
@@ -555,7 +557,8 @@ only that rect. Full-frame path unchanged when no damage resolved.
 Note: raster clipping is rectangle-level. An opt-in CSR CPU tile path is now
 implemented and covered by serial-equivalence tests, but its current measured
 regression keeps it disabled by default. HCAR supplies per-tile `General`
-classification only; P/E detection and affinity remain deferred.
+classification only. Linux P/E topology detection is available as HCAR
+metadata, while renderer integration and application affinity remain deferred.
 
 ### P1 — FSC content mutation (VERIFIED ALREADY FIXED)
 The audit inspected HEAD 56b4d15 (pre-fix). Current `apply_edit`
