@@ -247,10 +247,9 @@ impl TextInputState {
         }
     }
 
-    /// Emit the armed frame as ordered [`PlatformEvent`]s (commits first,
-    /// then the preedit install/clear) and reset the staging area. Draining
-    /// without an armed frame is a no-op — staged-but-unconfirmed data stays
-    /// staged, matching the protocol's atomicity.
+    /// Emit the armed protocol frame in text-input-v3 order: clear existing
+    /// preedit, delete surrounding bytes, apply commits, then install preedit.
+    /// Draining without an armed frame is a no-op.
     pub fn drain(&mut self) -> Vec<PlatformEvent> {
         if self.armed {
             let has_update = self.preedit_received
@@ -3182,10 +3181,40 @@ mod text_input_tests {
             vec![
                 PlatformEvent::CommitText("a".into()),
                 PlatformEvent::CommitText("b".into()),
-                PlatformEvent::CommitText("c".into()),
-                PlatformEvent::Preedit(None)
+                PlatformEvent::CommitText("c".into())
             ]
         );
+    }
+
+    #[test]
+    fn delete_and_preedit_cursor_are_forwarded_in_protocol_order() {
+        let mut s = TextInputState::new();
+        s.feed_preedit(Some("compose".into()));
+        s.feed_done();
+        assert_eq!(s.drain(), vec![PlatformEvent::Preedit(Some("compose".into()))]);
+
+        s.feed_delete_surrounding(3, 2);
+        s.feed_commit(Some("語".into()));
+        s.feed_preedit_with_cursor(Some("かな".into()), 3, 6);
+        assert!(s.drain().is_empty(), "the batch waits for done");
+        s.feed_done();
+        assert_eq!(
+            s.drain(),
+            vec![
+                PlatformEvent::Preedit(None),
+                PlatformEvent::DeleteSurroundingText {
+                    before_bytes: 3,
+                    after_bytes: 2,
+                },
+                PlatformEvent::CommitText("語".into()),
+                PlatformEvent::PreeditWithCursor {
+                    text: Some("かな".into()),
+                    cursor_begin: 3,
+                    cursor_end: 6,
+                },
+            ]
+        );
+        assert_eq!(s.applied_preedit.as_deref(), Some("かな"));
     }
 
     #[test]
