@@ -419,6 +419,13 @@ pub enum Primitive {
     Button(Rect, String),
 }
 
+/// Interactive scene target under a pointer, preserving draw order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HitTarget {
+    Action(ActionId),
+    Input(NodeId),
+}
+
 /// Integrates the platform surface, state store and module into one driven
 /// application runtime.
 pub struct Runtime {
@@ -533,14 +540,26 @@ impl Runtime {
     /// Find the topmost button under a point, in millipoints, and return its
     /// action. Hit testing is deterministic and layout-driven.
     pub fn hit_test(&self, x: i64, y: i64) -> Option<ActionId> {
-        // Iterate in reverse declaration order so later-drawn nodes win.
+        match self.hit_test_target(x, y)? {
+            HitTarget::Action(action) => Some(action),
+            HitTarget::Input(_) => None,
+        }
+    }
+
+    pub fn hit_test_target(&self, x: i64, y: i64) -> Option<HitTarget> {
         for (id, node) in self.module.nodes.iter().rev() {
-            if let Node::Button { on_activate, .. } = node {
-                if let Some(r) = self.frame.rect(*id) {
-                    if x >= r.x && x < r.x + r.width.max(1) && y >= r.y && y < r.y + r.height.max(1)
-                    {
-                        return Some(*on_activate);
-                    }
+            let target = match node {
+                Node::Button { on_activate, .. } => HitTarget::Action(*on_activate),
+                Node::Input { .. } => HitTarget::Input(*id),
+                _ => continue,
+            };
+            if let Some(rect) = self.frame.rect(*id) {
+                if x >= rect.x
+                    && x < rect.x + rect.width.max(1)
+                    && y >= rect.y
+                    && y < rect.y + rect.height.max(1)
+                {
+                    return Some(target);
                 }
             }
         }
@@ -850,6 +869,11 @@ mod tests {
                 max_width: 400_000,
                 max_height: 300_000,
             },
+        );
+        let input_rect = rt.frame().rect(NodeId(2)).unwrap();
+        assert_eq!(
+            rt.hit_test_target(input_rect.x + 1, input_rect.y + 1),
+            Some(HitTarget::Input(NodeId(2)))
         );
         assert!(rt.focus_input(Some(NodeId(2))));
         assert!(rt.handle(Event::Character('e')));
