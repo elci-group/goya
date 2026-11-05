@@ -85,6 +85,35 @@ mod tests {
             extent_p: (0.8, 0.8, 0)
         }
     }
+
+    #[test]
+    fn scrolling_parent_preserves_overflowing_child_extent_and_hierarchy() {
+        let src = "\
+@ontology nested {
+    @cell root {
+        extent: (800, 600, 0)
+        @cell viewport {
+            position: (100, 100, 0)
+            extent: (300, 120, 0)
+            scroll: true
+            @cell content {
+                position: (20, 200, 0)
+                extent: (180, 50, 0)
+            }
+        }
+    }
+}
+";
+        let scene = parse(src).unwrap();
+        let frame = layout(&scene, 800.0, 600.0);
+        let viewport = frame.find("viewport").unwrap();
+        let content = frame.find("content").unwrap();
+        assert_eq!(content.parent.as_deref(), Some("viewport"));
+        assert_eq!(content.rect.x, viewport.rect.x + 20_000);
+        assert_eq!(content.rect.y, viewport.rect.y + 200_000);
+        assert_eq!(content.rect.width, 180_000);
+        assert_eq!(content.rect.height, 50_000);
+    }
 }
 ";
         let scene = parse(src).unwrap();
