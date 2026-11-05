@@ -685,9 +685,8 @@ impl Runtime {
                 }
             }
             Node::Text { content } => out.push(Primitive::Text(rect, content.clone())),
-            // Input nodes contribute their static placeholder here. Focused
-            // editable text is host-side state (GY-ZCODE/2), not runtime
-            // module state, so this renderer remains deterministic.
+            // Input values live in the runtime text model. The placeholder is
+            // shown until the user commits text or an IME preedit arrives.
             Node::Input { placeholder } => {
                 if let Some(state) = self.text_inputs.get(&id) {
                     let value = if state.buffer.text().is_empty() && state.preedit.is_none() {
@@ -773,6 +772,32 @@ mod tests {
         let mut rt = runtime();
         assert!(rt.handle(Event::Activate(ActionId(999))));
         assert_eq!(rt.store().get("count"), None);
+    }
+
+    #[test]
+    fn declared_input_uses_shared_keyboard_ime_and_accessibility_edit_path() {
+        let module = parse("column 1 2\ninput 2 Search\nroot 1").unwrap();
+        let mut rt = Runtime::new(module, Store::new(), Constraints { max_width: 400_000, max_height: 300_000 });
+        assert!(rt.focus_input(Some(NodeId(2))));
+        assert!(rt.handle(Event::Character('e')));
+        assert!(rt.handle(Event::Character('\u{301}')));
+        assert_eq!(rt.input_text(NodeId(2)), Some("e\u{301}"));
+        assert!(rt.handle(Event::TextBackspace));
+        assert_eq!(rt.input_text(NodeId(2)), Some(""));
+        assert!(rt.handle(Event::ImeBatch {
+            preedit: Some(("に".into(), 0, 3)),
+            commit: None,
+            delete: None,
+        }));
+        assert_eq!(rt.input_text(NodeId(2)), Some(""));
+        assert!(rt.handle(Event::ImeBatch {
+            preedit: None,
+            commit: Some("日".into()),
+            delete: None,
+        }));
+        assert_eq!(rt.input_text(NodeId(2)), Some("日"));
+        assert!(rt.handle(Event::SetInputValue(NodeId(2), "screen reader".into())));
+        assert_eq!(rt.input_text(NodeId(2)), Some("screen reader"));
     }
 
     #[test]
