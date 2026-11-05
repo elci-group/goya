@@ -14,6 +14,7 @@
 //! up-at-root, open-on-empty no-op, padding).
 
 use goya_lang::{hit_test, layout, SceneStore};
+use goya_runtime::Primitive;
 
 const SCENE_PATH: &str = "apps/file_manager.gscene";
 const EXTENT_W_PT: f64 = 100.0;
@@ -219,9 +220,6 @@ fn present_nodes(nodes: &[goya_lang::DrawNode]) -> Vec<goya_runtime::Primitive> 
         })
         .collect()
 }
-
-use goya_runtime::Primitive;
-
 /// Which entry row (if any) holds the given window point? Points are
 /// converted from pixels (px = pt * 4) and matched against the row bands.
 fn entry_at(px: i32, py: i32) -> Option<usize> {
