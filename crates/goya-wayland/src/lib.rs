@@ -48,10 +48,27 @@ pub enum PlatformEvent {
     PointerRelease(f64, f64),
     /// Printable character typed on the keyboard (US layout subset).
     KeyChar(char),
+    /// Non-printable navigation/editing key (US subset, see [`KeySpecial`]).
+    KeySpecial(KeySpecial),
     /// Compositor resized the window to new pixel dimensions.
     Resized(i32, i32),
     Configured,
     CloseRequested,
+}
+
+/// Navigation/editing keys emitted as [`PlatformEvent::KeySpecial`].
+/// Enter stays `KeyChar('\n')` and Backspace stays `KeyChar('\u{8}')`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeySpecial {
+    ArrowLeft,
+    ArrowRight,
+    ArrowUp,
+    ArrowDown,
+    Home,
+    End,
+    Delete,
+    Escape,
+    Tab,
 }
 
 /// Raster clip region in pixels.
@@ -349,23 +366,29 @@ impl GoyaWindow {
     /// Map the runtime's render list into shared memory and present it.
     /// `glyph_px` is the glyph-pixel size in screen pixels (block scaling);
     /// 1 = tiny terminal-style text, 3–4 reads well at 4 px/pt geometry.
+    /// `fills` is a parallel slice indexed by primitive order (GY-WAVE2
+    /// contract): `Some(0xRRGGBB)` overrides that primitive's flat fill
+    /// colour; `None` keeps the existing default.
     pub fn present(
         &mut self,
         primitives: &[goya_runtime::Primitive],
+        fills: &[Option<u32>],
         fg: [u8; 3],
         bg: [u8; 3],
         glyph_px: u32,
     ) -> Result<(), WaylandError> {
-        self.present_dirty(primitives, fg, bg, glyph_px, None)
+        self.present_dirty(primitives, fills, fg, bg, glyph_px, None)
     }
 
     /// LCPE-aware presentation: `damage` is the resolved dirty rect in
     /// pixels (from goya-change's quantised envelope); None = full frame.
     /// The slot is always fully rasterised (small surfaces); locality is
-    /// expressed to the compositor via partial damage.
+    /// expressed to the compositor via partial damage. See [`GoyaWindow::present`]
+    /// for the `fills` contract.
     pub fn present_dirty(
         &mut self,
         primitives: &[goya_runtime::Primitive],
+        fills: &[Option<u32>],
         fg: [u8; 3],
         bg: [u8; 3],
         glyph_px: u32,
@@ -442,6 +465,7 @@ impl GoyaWindow {
             width,
             height,
             primitives,
+            fills,
             fg,
             glyph_px,
             clip,
