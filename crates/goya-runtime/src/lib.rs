@@ -492,11 +492,15 @@ impl Runtime {
     /// UTF-8 byte cursor and selection anchor for compositor surrounding-text
     /// state. Both positions are maintained on extended-grapheme boundaries.
     pub fn input_cursor_byte(&self, node: NodeId) -> Option<usize> {
-        self.text_inputs.get(&node).map(|state| state.buffer.cursor_byte())
+        self.text_inputs
+            .get(&node)
+            .map(|state| state.buffer.cursor_byte())
     }
 
     pub fn input_anchor_byte(&self, node: NodeId) -> Option<usize> {
-        self.text_inputs.get(&node).map(|state| state.buffer.anchor_byte())
+        self.text_inputs
+            .get(&node)
+            .map(|state| state.buffer.anchor_byte())
     }
 
     pub fn focus_input(&mut self, node: Option<NodeId>) -> bool {

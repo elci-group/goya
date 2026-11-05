@@ -989,6 +989,8 @@ fn raster_primitives(
     fills: &[Option<u32>],
     fg: [u8; 3],
     glyph_px: u32,
+    clips: Option<&[Option<Rect>]>,
+    text_sizes_pt: Option<&[Option<f32>]>,
     clip: Option<PixelClip>,
     allow_parallel: bool,
 ) {
@@ -1021,8 +1023,11 @@ fn raster_primitives(
             goya_runtime::Primitive::Text(_, _) | goya_runtime::Primitive::Button(_, _)
         )
     });
+    let has_custom_options = clips.is_some_and(|items| items.iter().any(Option::is_some))
+        || text_sizes_pt.is_some_and(|items| items.iter().any(Option::is_some));
     if allow_parallel
         && !contains_text
+        && !has_custom_options
         && policy != CsrPolicy::Serial
         && workers > 1
         && raster_parallel_tiles(
@@ -1040,6 +1045,8 @@ fn raster_primitives(
             fills,
             fg,
             glyph_px,
+            clips,
+            text_sizes_pt,
             clip: Some(roi),
         },
     );
@@ -1049,6 +1056,8 @@ struct RasterConfig<'a> {
     fills: &'a [Option<u32>],
     fg: [u8; 3],
     glyph_px: u32,
+    clips: Option<&'a [Option<Rect>]>,
+    text_sizes_pt: Option<&'a [Option<f32>]>,
     clip: Option<PixelClip>,
 }
 
@@ -1069,6 +1078,10 @@ fn raster_serial(
             i,
             config.fg,
             config.glyph_px,
+            config.clips.and_then(|clips| clips.get(i).copied().flatten()),
+            config
+                .text_sizes_pt
+                .and_then(|sizes| sizes.get(i).copied().flatten()),
             config.clip,
         );
     }
