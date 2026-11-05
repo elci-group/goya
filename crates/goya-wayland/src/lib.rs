@@ -224,11 +224,11 @@ impl TextInputState {
 /// `None` means "no protocol traffic needed" — either the global is missing
 /// (`None` input) or the requested state already holds. Returning `Some(_)`
 /// means the caller must send enable/disable followed by a state commit.
-fn text_input_activation(
-    bound: Option<ZwpTextInputV3>,
+fn text_input_activation<T>(
+    bound: Option<T>,
     enabled: bool,
     active: bool,
-) -> Option<(ZwpTextInputV3, bool)> {
+) -> Option<(T, bool)> {
     let input = bound?;
     if enabled == active {
         return None;
@@ -2949,10 +2949,12 @@ mod text_input_tests {
         assert_eq!(text_input_activation(None, false, true), None);
         assert_eq!(text_input_activation(None, false, false), None);
         // Bound but already in the requested state: no protocol traffic.
-        assert_eq!(
-            text_input_activation(Some(()) /* placeholder type erased */, true, true),
-            None
-        );
+        // (Generic helper: `()` stands in for the proxy in unit tests.)
+        assert_eq!(text_input_activation(Some(()), true, true), None);
+        assert_eq!(text_input_activation(Some(()), false, false), None);
+        // Bound and state changes: the decision carries the new state.
+        assert_eq!(text_input_activation(Some(()), false, true), Some(((), true)));
+        assert_eq!(text_input_activation(Some(()), true, false), Some(((), false)));
     }
 
     #[test]
