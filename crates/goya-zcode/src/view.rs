@@ -164,14 +164,28 @@ impl SessionView {
     }
 
     /// The exactly-`TAIL_LINES` rows rendered into the scene, newest last.
+    /// At `scroll == 0` this is the live tail (plus streaming preview);
+    /// when scrolled back it is the `TAIL_LINES` window ending at
+    /// `history.len() - scroll` (clamped to the available lines).
     pub fn rows(&self) -> Vec<String> {
-        let mut rows: Vec<String> = self
-            .tail
-            .iter()
-            .map(|l| truncate_chars(l, LINE_WIDTH))
-            .collect();
-        // Live streaming preview on the last line while a turn runs.
-        if !self.streaming.is_empty() && rows.len() < TAIL_LINES {
+        let mut rows: Vec<String> = if self.scroll == 0 {
+            self.tail
+                .iter()
+                .map(|l| truncate_chars(l, LINE_WIDTH))
+                .collect()
+        } else {
+            // Window ends at `len - scroll` (clamped so it never goes
+            // past the oldest retained line).
+            let end = self.history.len().saturating_sub(self.scroll);
+            let start = end.saturating_sub(TAIL_LINES);
+            self.history[start..end]
+                .iter()
+                .map(|l| truncate_chars(l, LINE_WIDTH))
+                .collect()
+        };
+        // Live streaming preview on the last line while a turn runs
+        // (only at the bottom — never while scrolled back).
+        if !self.streaming.is_empty() && self.scroll == 0 && rows.len() < TAIL_LINES {
             let preview = self
                 .streaming
                 .chars()
