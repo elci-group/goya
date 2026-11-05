@@ -21,11 +21,9 @@ pub const VIEW_WIDTH: usize = 30;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Composer {
-    /// Composed text (UTF-8); the cursor is a **char offset**, not a byte
-    /// index, so all cursor math is UTF-8 safe.
-    pub text: String,
-    /// Cursor position in chars (0 = before the first char, len = end).
-    pub cursor: usize,
+    /// Shared platform-neutral editing state used by keyboard, IME, and
+    /// accessibility input paths.
+    pub buffer: goya_runtime::TextBuffer,
     /// Whether the composer receives key input.
     pub focused: bool,
     /// Committed lines, newest last; arrow-up/down recall them.
@@ -42,9 +40,16 @@ impl Composer {
         Self::default()
     }
 
-    /// Number of chars in the composed text.
+    /// Number of extended grapheme clusters in the composed text.
     pub fn len_chars(&self) -> usize {
-        self.text.chars().count()
+        self.buffer.grapheme_len()
+    }
+
+    pub fn text(&self) -> &str {
+        self.buffer.text()
+    }
+    pub fn cursor_grapheme(&self) -> usize {
+        self.buffer.cursor_grapheme()
     }
 
     /// Feed one printable char, or `'\u{8}'` (backspace) / `'\n'` / `'\r'`
@@ -56,8 +61,8 @@ impl Composer {
         }
         match c {
             '\n' | '\r' => {
-                let line = std::mem::take(&mut self.text);
-                self.cursor = 0;
+                let line = self.buffer.text().to_owned();
+                self.buffer.set_text("");
                 self.history_pos = None;
                 if line.is_empty() {
                     return None;
@@ -69,18 +74,11 @@ impl Composer {
                 Some(line)
             }
             '\u{8}' => {
-                if self.cursor > 0 {
-                    let del = self.char_index(self.cursor - 1);
-                    self.text
-                        .replace_range(del..self.char_index(self.cursor), "");
-                    self.cursor -= 1;
-                }
+                self.buffer.delete_backward();
                 None
             }
             c if !c.is_control() => {
-                let at = self.char_index(self.cursor);
-                self.text.insert(at, c);
-                self.cursor += 1;
+                self.buffer.insert(&c.to_string());
                 None
             }
             // Other control chars are inert.
@@ -96,16 +94,11 @@ impl Composer {
             return;
         }
         match special {
-            "arrow_left" => self.cursor = self.cursor.saturating_sub(1),
-            "arrow_right" => self.cursor = (self.cursor + 1).min(self.len_chars()),
-            "home" => self.cursor = 0,
-            "end" => self.cursor = self.len_chars(),
-            "delete" if self.cursor < self.len_chars() => {
-                let del = self.char_index(self.cursor);
-                self.text
-                    .replace_range(del..self.char_index(self.cursor + 1), "");
-            }
-            "delete" => {}
+            "arrow_left" => self.buffer.move_left(false),
+            "arrow_right" => self.buffer.move_right(false),
+            "home" => self.buffer.move_home(false),
+            "end" => self.buffer.move_end(false),
+            "delete" => self.buffer.delete_forward(),
             "escape" => self.focused = false,
             "tab" => {}
             "arrow_up" => self.recall_history(-1),
@@ -125,50 +118,46 @@ impl Composer {
         match (dir, self.history_pos) {
             (-1, None) => {
                 // First recall: stash any non-empty, non-committed draft.
-                let draft = match self.text.is_empty() || self.history.last() == Some(&self.text) {
+                let draft = match self.text().is_empty()
+                    || self.history.last().map(String::as_str) == Some(self.text())
+                {
                     true => None,
-                    false => Some(std::mem::take(&mut self.text)),
+                    false => {
+                        let draft = self.text().to_owned();
+                        self.buffer.set_text("");
+                        Some(draft)
+                    }
                 };
                 self.draft = draft;
                 self.history_pos = Some(last);
-                self.text = self.history[last].clone();
+                self.buffer.set_text(self.history[last].clone());
             }
             (-1, Some(0)) => {} // already at the oldest entry
             (-1, Some(p)) => {
                 self.history_pos = Some(p - 1);
-                self.text = self.history[p - 1].clone();
+                self.buffer.set_text(self.history[p - 1].clone());
             }
             (1, None) => {} // already at the newest draft
             (1, Some(p)) if p >= last => {
                 // Past the newest entry: restore the stashed draft.
                 self.history_pos = None;
-                self.text = self.draft.take().unwrap_or_default();
+                self.buffer.set_text(self.draft.take().unwrap_or_default());
             }
             (1, Some(p)) => {
                 self.history_pos = Some(p + 1);
-                self.text = self.history[p + 1].clone();
+                self.buffer.set_text(self.history[p + 1].clone());
             }
             _ => {}
         }
-        self.cursor = self.len_chars();
-    }
-
-    /// Byte index of the `n`-th char (clamped); keeps every mutation on a
-    /// char boundary.
-    fn char_index(&self, n: usize) -> usize {
-        self.text
-            .char_indices()
-            .nth(n)
-            .map(|(idx, _)| idx)
-            .unwrap_or(self.text.len())
+        self.buffer.move_end(false);
     }
 
     /// Rendered text for the input node: a `VIEW_WIDTH`-char window around
     /// the cursor with a `│` cursor marker inserted at the cursor position.
     pub fn display(&self) -> String {
-        let chars: Vec<char> = self.text.chars().collect();
+        let chars = self.buffer.graphemes();
         let len = chars.len();
-        let cursor = self.cursor.min(len);
+        let cursor = self.cursor_grapheme().min(len);
         // Keep ~2/3 of the window before the cursor when possible.
         let half_before = VIEW_WIDTH * 2 / 3;
         let start = cursor
@@ -177,9 +166,9 @@ impl Composer {
         let end = (start + VIEW_WIDTH).min(len);
         let start = end.saturating_sub(VIEW_WIDTH);
         let mut out = String::new();
-        out.extend(chars[start..cursor].iter());
+        out.push_str(&chars[start..cursor].concat());
         out.push('│');
-        out.extend(chars[cursor..end].iter());
+        out.push_str(&chars[cursor..end].concat());
         out
     }
 }
@@ -201,7 +190,7 @@ mod tests {
         assert_eq!(c.handle_char('a'), None);
         c.handle_special("arrow_left");
         c.handle_special("escape");
-        assert_eq!(c.text, "");
+        assert_eq!(c.text(), "");
         assert!(!c.focused);
     }
 
@@ -211,8 +200,8 @@ mod tests {
         for ch in "abc".chars() {
             c.handle_char(ch);
         }
-        assert_eq!(c.text, "abc");
-        assert_eq!(c.cursor, 3);
+        assert_eq!(c.text(), "abc");
+        assert_eq!(c.cursor_grapheme(), 3);
     }
 
     #[test]
@@ -224,21 +213,21 @@ mod tests {
         // Move left twice (over 本 and 日), insert.
         c.handle_special("arrow_left");
         c.handle_special("arrow_left");
-        assert_eq!(c.cursor, 5);
+        assert_eq!(c.cursor_grapheme(), 5);
         assert_eq!(c.handle_char('x'), None);
-        assert_eq!(c.text, "héllox日本");
+        assert_eq!(c.text(), "héllox日本");
         // Backspace removes the 'x' again.
         c.handle_char('\u{8}');
-        assert_eq!(c.text, "héllo日本");
-        assert_eq!(c.cursor, 5);
+        assert_eq!(c.text(), "héllo日本");
+        assert_eq!(c.cursor_grapheme(), 5);
     }
 
     #[test]
     fn backspace_at_start_is_noop() {
         let mut c = focused();
         assert_eq!(c.handle_char('\u{8}'), None);
-        assert_eq!(c.text, "");
-        assert_eq!(c.cursor, 0);
+        assert_eq!(c.text(), "");
+        assert_eq!(c.cursor_grapheme(), 0);
     }
 
     #[test]
@@ -249,8 +238,8 @@ mod tests {
                 assert_eq!(line, "hello");
             }
         }
-        assert_eq!(c.text, "");
-        assert_eq!(c.cursor, 0);
+        assert_eq!(c.text(), "");
+        assert_eq!(c.cursor_grapheme(), 0);
         assert_eq!(c.history, vec!["hello"]);
     }
 
@@ -262,7 +251,7 @@ mod tests {
                 assert_eq!(line, "hi");
             }
         }
-        assert!(c.text.is_empty());
+        assert!(c.text().is_empty());
     }
 
     #[test]
@@ -297,17 +286,17 @@ mod tests {
         }
         c.handle_special("arrow_left");
         c.handle_special("arrow_left");
-        assert_eq!(c.cursor, 0);
+        assert_eq!(c.cursor_grapheme(), 0);
         // Clamp at start.
         c.handle_special("arrow_left");
-        assert_eq!(c.cursor, 0);
+        assert_eq!(c.cursor_grapheme(), 0);
         c.handle_special("arrow_right");
-        assert_eq!(c.cursor, 1);
+        assert_eq!(c.cursor_grapheme(), 1);
         c.handle_special("end");
-        assert_eq!(c.cursor, 2);
+        assert_eq!(c.cursor_grapheme(), 2);
         // Clamp at end.
         c.handle_special("arrow_right");
-        assert_eq!(c.cursor, 2);
+        assert_eq!(c.cursor_grapheme(), 2);
     }
 
     #[test]
@@ -317,9 +306,9 @@ mod tests {
             c.handle_char(ch);
         }
         c.handle_special("home");
-        assert_eq!(c.cursor, 0);
+        assert_eq!(c.cursor_grapheme(), 0);
         c.handle_special("end");
-        assert_eq!(c.cursor, 3);
+        assert_eq!(c.cursor_grapheme(), 3);
     }
 
     #[test]
@@ -330,12 +319,12 @@ mod tests {
         }
         c.handle_special("home");
         c.handle_special("delete");
-        assert_eq!(c.text, "bc");
-        assert_eq!(c.cursor, 0);
+        assert_eq!(c.text(), "bc");
+        assert_eq!(c.cursor_grapheme(), 0);
         // Delete at end is a noop.
         c.handle_special("end");
         c.handle_special("delete");
-        assert_eq!(c.text, "bc");
+        assert_eq!(c.text(), "bc");
     }
 
     #[test]
@@ -347,14 +336,14 @@ mod tests {
         assert_eq!(c.handle_char('d'), None);
         // Draft is "d"; recall previous commit.
         c.handle_special("arrow_up");
-        assert_eq!(c.text, "first");
+        assert_eq!(c.text(), "first");
         // Past the oldest entry: still "first".
         c.handle_special("arrow_up");
-        assert_eq!(c.text, "first");
+        assert_eq!(c.text(), "first");
         // Next past newest restores the draft.
         c.handle_special("arrow_down");
-        assert_eq!(c.text, "d");
-        assert_eq!(c.cursor, 1);
+        assert_eq!(c.text(), "d");
+        assert_eq!(c.cursor_grapheme(), 1);
     }
 
     #[test]
@@ -365,7 +354,7 @@ mod tests {
         }
         c.handle_char('y');
         c.handle_special("arrow_down");
-        assert_eq!(c.text, "y");
+        assert_eq!(c.text(), "y");
     }
 
     #[test]

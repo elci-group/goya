@@ -167,7 +167,9 @@ impl TextBuffer {
         self.cursor
     }
     pub fn cursor_grapheme(&self) -> usize {
-        self.text[..self.cursor.min(self.text.len())].graphemes(true).count()
+        self.text[..self.cursor.min(self.text.len())]
+            .graphemes(true)
+            .count()
     }
     pub fn selection_bytes(&self) -> Option<std::ops::Range<usize>> {
         self.anchor
