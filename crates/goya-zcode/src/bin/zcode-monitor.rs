@@ -230,7 +230,7 @@ fn run_dump(args: &Args, store: &mut SceneStore, last_mtime: &mut Option<SystemT
         args.workspace.display()
     );
     let handle = agent::spawn_agent(&args.cli, &args.workspace, args.session.clone());
-    let mut last_rows: Vec<String> = Vec::new();
+    let mut last_snapshot: Option<(String, Vec<String>)> = None;
     let started = Instant::now();
     while !handle.stop.load(Ordering::Relaxed) {
         if args.watch {
@@ -239,16 +239,14 @@ fn run_dump(args: &Args, store: &mut SceneStore, last_mtime: &mut Option<SystemT
         if handle.take_dirty() {
             if let Ok(view) = handle.view.lock() {
                 let view = view.clone();
+                let header = format!("link={:?} status={} title={}", view.link, view.status, view.title);
                 let rows = view.rows();
-                if rows != last_rows {
-                    last_rows = rows.clone();
-                    println!(
-                        "--- link={:?} status={} title={}",
-                        view.link, view.status, view.title
-                    );
+                if last_snapshot.as_ref() != Some(&(header.clone(), rows.clone())) {
+                    println!("--- {header}");
                     for row in &rows {
                         println!("| {row}");
                     }
+                    last_snapshot = Some((header, rows));
                 }
             }
         }
