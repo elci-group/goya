@@ -373,6 +373,17 @@ impl TextBuffer {
     }
 }
 
+fn grapheme_boundary_at_or_before(text: &str, byte: usize) -> usize {
+    if byte >= text.len() {
+        return text.len();
+    }
+    text.grapheme_indices(true)
+        .map(|(index, _)| index)
+        .take_while(|index| *index <= byte)
+        .last()
+        .unwrap_or(0)
+}
+
 /// Contract identifier implemented by this crate.
 pub const RUNTIME_CONTRACT: &str = "GY-RUNTIME/1";
 
