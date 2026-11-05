@@ -15,6 +15,8 @@ use rustix::fd::OwnedFd;
 use rustix::fs::{ftruncate, memfd_create, MemfdFlags};
 use rustix::mm::{mmap, munmap, MapFlags, ProtFlags};
 use std::os::fd::AsFd;
+use std::io::Read;
+use std::{fs::File, os::fd::OwnedFd};
 use wayland_client::protocol::{
     wl_buffer::WlBuffer,
     wl_compositor::WlCompositor,
@@ -1432,6 +1434,72 @@ fn key_special(keycode: u32) -> Option<KeySpecial> {
         _ => return None,
     };
     Some(ks)
+}
+
+/// Maximum compositor keymap accepted by the Wayland client. Real XKB text
+/// keymaps are normally well below this bound; rejecting larger descriptors
+/// avoids unbounded allocations from a malformed or hostile compositor.
+const MAX_XKB_KEYMAP_BYTES: u32 = 16 * 1024 * 1024;
+
+fn keymap_state_from_fd(
+    context: &xkbcommon::xkb::Context,
+    format: WEnum<wl_keyboard::KeymapFormat>,
+    fd: OwnedFd,
+    size: u32,
+) -> Option<xkbcommon::xkb::State> {
+    if format != WEnum::Value(wl_keyboard::KeymapFormat::XkbV1)
+        || size == 0
+        || size > MAX_XKB_KEYMAP_BYTES
+    {
+        return None;
+    }
+    let mut file = File::from(fd);
+    let mut bytes = Vec::with_capacity(size as usize);
+    file.by_ref()
+        .take(u64::from(size))
+        .read_to_end(&mut bytes)
+        .ok()?;
+    if bytes.len() != size as usize {
+        return None;
+    }
+    while bytes.last() == Some(&0) {
+        bytes.pop();
+    }
+    let keymap_text = String::from_utf8(bytes).ok()?;
+    let keymap = xkbcommon::xkb::Keymap::new_from_string(
+        context,
+        keymap_text,
+        xkbcommon::xkb::KEYMAP_FORMAT_TEXT_V1,
+        xkbcommon::xkb::COMPILE_NO_FLAGS,
+    )?;
+    Some(xkbcommon::xkb::State::new(&keymap))
+}
+
+fn key_chars(
+    xkb_state: Option<&xkbcommon::xkb::State>,
+    keycode: u32,
+    shift: bool,
+) -> Vec<char> {
+    // Preserve the existing public event contract for these control keys,
+    // even when a custom keymap assigns a different UTF-8 representation.
+    match keycode {
+        14 => return vec!['\u{8}'],
+        28 => return vec!['\n'],
+        _ => {}
+    }
+    if let Some(xkb_state) = xkb_state {
+        // Wayland key events use evdev keycodes; XKB keycodes include the
+        // conventional X11 offset of 8.
+        let translated = xkb_state.key_get_utf8(xkbcommon::xkb::Keycode::new(keycode + 8));
+        return translated
+            .chars()
+            .filter(|c| !c.is_control())
+            .collect();
+    }
+    key_char(keycode, shift)
+        .filter(|c| !c.is_control() || matches!(c, '\n' | '\u{8}'))
+        .into_iter()
+        .collect()
 }
 
 /// wl_pointer vertical-axis value → [`PlatformEvent::PointerScroll`] line
