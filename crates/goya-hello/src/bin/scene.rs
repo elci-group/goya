@@ -190,6 +190,9 @@ fn main() {
             }
         }
         let event_frame = layout(store.get(), 400.0, 150.0);
+        // Hot reloads can shrink or remove scrollable content. Keep saved
+        // offsets valid before routing pointer events against the new frame.
+        scroll_offsets.reconcile(&event_frame);
         inputs.sync_nodes(&event_frame);
         for ev in win.poll() {
             match ev {
