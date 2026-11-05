@@ -5,6 +5,7 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
@@ -326,26 +327,63 @@ fn escape_html(text: &str) -> String {
 fn render_html(project: &SceneProject) -> String {
     let viewport = project.viewport();
     let mut html = format!("<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{}</title><style>body{{margin:0;background:#111;color:#eee;font:14px system-ui,sans-serif}}header{{padding:12px 18px}}main{{padding:18px;overflow:auto}}.stage{{position:relative;margin:auto;background:#20202a;box-shadow:0 4px 24px #0008}}.node{{position:absolute;box-sizing:border-box;overflow:hidden;white-space:pre-wrap;overflow-wrap:anywhere;padding:4px;border:1px solid #ffffff30;border-radius:3px}}.node.scrollable{{overflow:auto;overscroll-behavior:contain;touch-action:pan-y}}.button{{display:flex;align-items:center;justify-content:center;font:inherit}}</style></head><body><header>Goya Studio preview · {}</header><main><div class=\"stage\" style=\"width:{}px;height:{}px\">", escape_html(&project.scene().name), escape_html(&project.scene().name), viewport.width_points, viewport.height_points);
-    for (index, node) in project.frame().nodes.into_iter().enumerate() {
-        let color = node
-            .fill
-            .map(|color| format!("#{:06x}", color & 0x00ff_ffff))
-            .unwrap_or_else(|| "#353545".into());
-        let label = node.text.as_deref().unwrap_or(&node.name);
-        let role = if node.is_input {
-            "textbox"
-        } else if node.is_button {
-            "button"
-        } else {
-            "group"
-        };
-        html.push_str(&format!("<div class=\"node{}{}\" data-node-index=\"{}\" role=\"{}\" aria-label=\"{}\" style=\"left:{}px;top:{}px;width:{}px;height:{}px;background:{};{}\">{}</div>",
-            if node.is_input || node.is_button { " button" } else { "" }, if node.scroll { " scrollable" } else { "" }, index, role, escape_html(label), node.rect.x as f64 / 1000.0,
-            node.rect.y as f64 / 1000.0, node.rect.width as f64 / 1000.0, node.rect.height as f64 / 1000.0,
-            color, node.text_size.map(|size| format!("font-size:{}px;", size)).unwrap_or_default(), escape_html(label)));
+    let nodes = project.frame().nodes;
+    let mut children: BTreeMap<Option<String>, Vec<usize>> = BTreeMap::new();
+    for (index, node) in nodes.iter().enumerate() {
+        children.entry(node.parent.clone()).or_default().push(index);
     }
-    html.push_str("</div></main><script>const parentWindow=window.parent,nodes=[...document.querySelectorAll('[data-node-index]')];let selected=-1,drag=null;function markSelected(i){selected=i;for(const el of nodes)el.style.outline=Number(el.dataset.nodeIndex)===i?'2px solid #ffdc65':'';}function select(i){markSelected(i);parentWindow.postMessage({type:'goya-select',index:i},'*');}window.addEventListener('message',e=>{if(e.source!==parentWindow||!e.data||e.data.type!=='goya-selected'||!Number.isInteger(e.data.index))return;markSelected(e.data.index);});for(const el of nodes){const index=Number(el.dataset.nodeIndex);el.style.cursor='grab';el.style.touchAction='none';el.addEventListener('pointerdown',e=>{if(e.button!==0)return;e.preventDefault();select(index);drag={index,x:e.clientX,y:e.clientY,el};el.setPointerCapture(e.pointerId);});el.addEventListener('pointermove',e=>{if(!drag||drag.index!==index)return;drag.el.style.transform='translate('+(e.clientX-drag.x)+'px,'+(e.clientY-drag.y)+'px)';});el.addEventListener('pointerup',e=>{if(!drag||drag.index!==index)return;const d={type:'goya-drag',index,dx:e.clientX-drag.x,dy:e.clientY-drag.y};drag.el.style.transform='';drag=null;if(Math.abs(d.dx)+Math.abs(d.dy)>1)parentWindow.postMessage(d,'*');});el.addEventListener('pointercancel',()=>{if(drag&&drag.index===index){drag.el.style.transform='';drag=null;}});}</script></body></html>");
+    if let Some(roots) = children.get(&None) {
+        for index in roots {
+            render_preview_node(&mut html, &nodes, &children, *index, None);
+        }
+    }
+    html.push_str("</div></main><script>const parentWindow=window.parent,nodes=[...document.querySelectorAll('[data-node-index]')];let selected=-1,drag=null;function markSelected(i){selected=i;for(const el of nodes)el.style.outline=Number(el.dataset.nodeIndex)===i?'2px solid #ffdc65':'';}function select(i){markSelected(i);parentWindow.postMessage({type:'goya-select',index:i},'*');}window.addEventListener('message',e=>{if(e.source!==parentWindow||!e.data||e.data.type!=='goya-selected'||!Number.isInteger(e.data.index))return;markSelected(e.data.index);});for(const el of nodes){const index=Number(el.dataset.nodeIndex);el.style.cursor='grab';el.style.touchAction=el.classList.contains('scrollable')?'pan-y':'none';el.addEventListener('pointerdown',e=>{if(e.button!==0)return;if(el.classList.contains('scrollable')&&e.pointerType!=='mouse')return;e.preventDefault();e.stopPropagation();select(index);drag={index,x:e.clientX,y:e.clientY,el};el.setPointerCapture(e.pointerId);});el.addEventListener('pointermove',e=>{if(!drag||drag.index!==index)return;e.stopPropagation();drag.el.style.transform='translate('+(e.clientX-drag.x)+'px,'+(e.clientY-drag.y)+'px)';});el.addEventListener('pointerup',e=>{if(!drag||drag.index!==index)return;e.stopPropagation();const d={type:'goya-drag',index,dx:e.clientX-drag.x,dy:e.clientY-drag.y};drag.el.style.transform='';drag=null;if(Math.abs(d.dx)+Math.abs(d.dy)>1)parentWindow.postMessage(d,'*');});el.addEventListener('pointercancel',()=>{if(drag&&drag.index===index){drag.el.style.transform='';drag=null;}});}</script></body></html>");
     html
+}
+
+fn render_preview_node(
+    html: &mut String,
+    nodes: &[goya_lang::DrawNode],
+    children: &BTreeMap<Option<String>, Vec<usize>>,
+    index: usize,
+    parent: Option<&goya_lang::DrawNode>,
+) {
+    let node = &nodes[index];
+    let color = node
+        .fill
+        .map(|color| format!("#{:06x}", color & 0x00ff_ffff))
+        .unwrap_or_else(|| "#353545".into());
+    let label = node.text.as_deref().unwrap_or(&node.name);
+    let role = if node.is_input {
+        "textbox"
+    } else if node.is_button {
+        "button"
+    } else {
+        "group"
+    };
+    let left = node.rect.x - parent.map_or(0, |parent| parent.rect.x);
+    let top = node.rect.y - parent.map_or(0, |parent| parent.rect.y);
+    html.push_str(&format!(
+        "<div class=\"node{}{}\" data-node-index=\"{}\" role=\"{}\" aria-label=\"{}\" style=\"left:{}px;top:{}px;width:{}px;height:{}px;background:{};{}\">{}",
+        if node.is_input || node.is_button { " button" } else { "" },
+        if node.scroll { " scrollable" } else { "" },
+        index,
+        role,
+        escape_html(label),
+        left as f64 / 1000.0,
+        top as f64 / 1000.0,
+        node.rect.width as f64 / 1000.0,
+        node.rect.height as f64 / 1000.0,
+        color,
+        node.text_size.map(|size| format!("font-size:{}px;", size)).unwrap_or_default(),
+        escape_html(label)
+    ));
+    if let Some(children) = children.get(&Some(node.name.clone())) {
+        for child in children {
+            render_preview_node(html, nodes, children, *child, Some(node));
+        }
+    }
+    html.push_str("</div>");
 }
 
 fn render_error_html(message: &str) -> String {
