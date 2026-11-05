@@ -15,7 +15,7 @@
 use goya_lang::{hit_test, layout, DrawNode, SceneStore};
 use goya_runtime::Primitive;
 use goya_wayland::{GoyaWindow, KeySpecial};
-use goya_zcode::agent::{self, admit_send};
+use goya_zcode::agent::{self};
 use goya_zcode::composer::Composer;
 use goya_zcode::view::{LinkState, ProjEvent, SessionView, SCROLL_STEP, TAIL_LINES};
 use std::path::PathBuf;
@@ -380,28 +380,43 @@ fn headless_acceptance(store: &SceneStore) {
     }
 
     // Send-queue contract (GY-ZCODE-003), exercised without touching the
-    // wire: admission, busy drop, and the --allow-send gate.
-    // 1) Queue accepts a command when sends are allowed.
-    let mut pending = false;
-    let admit_ok = admit_send(&mut pending);
-    // 2) A second send while one is outstanding is dropped.
-    let busy_ok = !admit_send(&mut pending) && pending;
-    // 3) Gate off: the command still flows but carries wire=false and the
-    //    view gets the disabled hint — no session/send is ever issued.
+    // wire: admission, busy drop, and the --allow-send gate — all against
+    // the public handle API (admission itself is unit-tested in agent.rs).
     let gate_handle = agent::MonitorHandle::new();
+    gate_handle.set_active_session(Some("sess_acceptance".to_string()));
+    // 1) Gate off: the command still flows but carries wire=false and no
+    //    ticket — no session/send is ever issued by the run loop.
     send_committed_line(&gate_handle, "blocked line", false);
-    let gate_cmd = gate_handle.try_take_cmd();
-    let gate_ok = gate_cmd
-        == Some(agent::AgentCmd::SendText {
-            line: "blocked line".to_string(),
+    let gate_ok = matches!(
+        gate_handle.try_take_cmd(),
+        Some(agent::AgentCmd::SendText {
             wire: false,
+            ticket: None,
+            ..
         })
+    ) && gate_handle
+        .view
+        .lock()
+        .map(|v| v.status.contains("--allow-send"))
+        .unwrap_or(false);
+    // 2) An admitted wire send carries a ticket…
+    gate_handle.send_text("line one".to_string(), true);
+    let admit_ok = matches!(
+        gate_handle.try_take_cmd(),
+        Some(agent::AgentCmd::SendText {
+            ticket: Some(_),
+            ..
+        })
+    );
+    // 3) …and a second send while one is outstanding is dropped as busy.
+    gate_handle.send_text("line two".to_string(), true);
+    let busy_ok = gate_handle.try_take_cmd().is_none()
         && gate_handle
             .view
             .lock()
-            .map(|v| v.status.contains("--allow-send"))
+            .map(|v| v.status.contains("busy"))
             .unwrap_or(false);
-    let send_ok = admit_ok && busy_ok && gate_ok;
+    let send_ok = gate_ok && admit_ok && busy_ok;
     println!(
         "send queue admission/busy-drop/gate [{}]",
         pass_str(send_ok)
