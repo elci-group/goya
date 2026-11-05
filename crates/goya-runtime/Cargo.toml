@@ -10,3 +10,4 @@ goya-state.workspace = true
 goya-layout.workspace = true
 goya-speculation.workspace = true
 goya-rpi2.workspace = true
+unicode-segmentation.workspace = true

@@ -93,6 +93,7 @@ goya-tov = { path = "crates/goya-tov" }
 goya-ecosystem = { path = "crates/goya-ecosystem" }
 goya-sdk = { path = "crates/goya-sdk" }
 goya-studio = { path = "crates/goya-studio" }
+unicode-segmentation = "1.12"
 
 [profile.release]
 debug = true

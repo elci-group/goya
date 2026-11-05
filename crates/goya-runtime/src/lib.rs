@@ -10,6 +10,152 @@ use goya_layout::{layout, Constraints, Frame, Rect};
 use goya_rpi2::ConsentRecord;
 use goya_speculation::{Level2Prediction, Level2Predictor};
 use goya_state::{Store, Value};
+use unicode_segmentation::UnicodeSegmentation;
+
+/// A UTF-8 text editing buffer whose cursor and selection always stay on
+/// extended grapheme-cluster boundaries. Platform key events, IME updates,
+/// and accessibility edits should all be applied through this type.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TextBuffer {
+    text: String,
+    cursor: usize,
+    anchor: Option<usize>,
+    undo: Vec<TextSnapshot>,
+    redo: Vec<TextSnapshot>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct TextSnapshot {
+    text: String,
+    cursor: usize,
+    anchor: Option<usize>,
+}
+
+impl TextBuffer {
+    const HISTORY_LIMIT: usize = 100;
+
+    pub fn new(text: impl Into<String>) -> Self {
+        let text = text.into();
+        let cursor = text.len();
+        Self { text, cursor, anchor: None, undo: Vec::new(), redo: Vec::new() }
+    }
+
+    pub fn text(&self) -> &str { &self.text }
+    pub fn cursor_byte(&self) -> usize { self.cursor }
+    pub fn selection_bytes(&self) -> Option<std::ops::Range<usize>> {
+        self.anchor.map(|anchor| anchor.min(self.cursor)..anchor.max(self.cursor))
+    }
+    pub fn grapheme_len(&self) -> usize { self.text.graphemes(true).count() }
+
+    pub fn set_text(&mut self, text: impl Into<String>) {
+        self.record_undo();
+        self.text = text.into();
+        self.cursor = self.text.len();
+        self.anchor = None;
+    }
+
+    pub fn select_all(&mut self) {
+        self.anchor = Some(0);
+        self.cursor = self.text.len();
+    }
+
+    pub fn move_left(&mut self, extend: bool) {
+        let next = self.text.grapheme_indices(true)
+            .map(|(i, _)| i).take_while(|i| *i < self.cursor).last().unwrap_or(0);
+        self.move_cursor(next, extend);
+    }
+
+    pub fn move_right(&mut self, extend: bool) {
+        let next = self.text.grapheme_indices(true)
+            .map(|(i, _)| i).find(|i| *i > self.cursor).unwrap_or(self.text.len());
+        self.move_cursor(next, extend);
+    }
+
+    pub fn move_home(&mut self, extend: bool) { self.move_cursor(0, extend); }
+    pub fn move_end(&mut self, extend: bool) { self.move_cursor(self.text.len(), extend); }
+
+    pub fn insert(&mut self, text: &str) {
+        self.record_undo();
+        if let Some(range) = self.selection_bytes() {
+            self.text.replace_range(range.clone(), text);
+            self.cursor = range.start + text.len();
+        } else {
+            self.text.insert_str(self.cursor, text);
+            self.cursor += text.len();
+        }
+        self.anchor = None;
+    }
+
+    pub fn delete_backward(&mut self) {
+        if let Some(range) = self.selection_bytes() {
+            self.record_undo();
+            self.text.replace_range(range.clone(), "");
+            self.cursor = range.start;
+            self.anchor = None;
+        } else {
+            let end = self.cursor;
+            self.move_left(false);
+            if self.cursor != end {
+                self.record_snapshot(TextSnapshot { text: self.text.clone(), cursor: end, anchor: None });
+                self.text.replace_range(self.cursor..end, "");
+            }
+        }
+    }
+
+    pub fn delete_forward(&mut self) {
+        if let Some(range) = self.selection_bytes() {
+            self.record_undo();
+            self.text.replace_range(range.clone(), "");
+            self.cursor = range.start;
+            self.anchor = None;
+        } else {
+            let start = self.cursor;
+            self.move_right(false);
+            let end = self.cursor;
+            if end != start {
+                self.record_snapshot(TextSnapshot { text: self.text.clone(), cursor: start, anchor: None });
+                self.text.replace_range(start..end, "");
+                self.cursor = start;
+            }
+        }
+    }
+
+    pub fn undo(&mut self) { self.restore_history(true); }
+    pub fn redo(&mut self) { self.restore_history(false); }
+
+    fn move_cursor(&mut self, cursor: usize, extend: bool) {
+        if extend {
+            self.anchor.get_or_insert(self.cursor);
+        } else {
+            self.anchor = None;
+        }
+        self.cursor = cursor.min(self.text.len());
+    }
+
+    fn snapshot(&self) -> TextSnapshot {
+        TextSnapshot { text: self.text.clone(), cursor: self.cursor, anchor: self.anchor }
+    }
+
+    fn record_undo(&mut self) {
+        self.record_snapshot(self.snapshot());
+        self.redo.clear();
+    }
+
+    fn record_snapshot(&mut self, snapshot: TextSnapshot) {
+        self.undo.push(snapshot);
+        if self.undo.len() > Self::HISTORY_LIMIT { self.undo.remove(0); }
+    }
+
+    fn restore_history(&mut self, undo: bool) {
+        let (from, to) = if undo { (&mut self.undo, &mut self.redo) } else { (&mut self.redo, &mut self.undo) };
+        if let Some(snapshot) = from.pop() {
+            to.push(self.snapshot());
+            self.text = snapshot.text;
+            self.cursor = snapshot.cursor.min(self.text.len());
+            self.anchor = snapshot.anchor;
+        }
+    }
+}
 
 /// Contract identifier implemented by this crate.
 pub const RUNTIME_CONTRACT: &str = "GY-RUNTIME/1";
