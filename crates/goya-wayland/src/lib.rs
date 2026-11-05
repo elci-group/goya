@@ -183,9 +183,12 @@ impl TextInputState {
         }
     }
 
-    /// Arm the staged frame: the next drain applies it atomically.
+    /// Arm the staged frame: the next drain applies it atomically. A staged
+    /// clear (`preedit_string` with no text) also arms when a preedit is
+    /// currently applied — clearing is a visible frame change.
     pub fn feed_done(&mut self) {
-        if self.pending_preedit.is_some() || !self.committed.is_empty() {
+        let preedit_changed = self.pending_preedit != self.applied_preedit;
+        if preedit_changed || !self.committed.is_empty() {
             self.armed = true;
         }
     }

@@ -27,7 +27,7 @@ use goya_zcode::agent::{self};
 use goya_zcode::clipboard::{AllowAllPolicy, MonitorClipboard};
 use goya_zcode::composer::Composer;
 use goya_zcode::theme::{monitor_palette, node_fill_override, status_fill_override};
-use goya_zcode::view::{LinkState, ProjEvent, SessionView, SCROLL_STEP, TAIL_LINES};
+use goya_zcode::view::{LinkState, ProjEvent, SessionView, ToolState, SCROLL_STEP, TAIL_LINES};
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant, SystemTime};
@@ -565,6 +565,62 @@ fn headless_acceptance(store: &SceneStore) {
         && status_fill_override("running", &palette) == Some(rgb_u32_bin(palette.accent));
     println!("palette node/status fill mapping [{}]", pass_str(pal_ok));
     ok &= pal_ok;
+
+    // Tool-row lifecycle contract (GY-ZCODE-005): started → progress
+    // (folded) → completed emits exactly two lines; failed emits ✗.
+    let mut tv = SessionView::default();
+    tv.apply(&ProjEvent::ToolUpdate {
+        id: "call_1".into(),
+        tool: "read_file".into(),
+        state: ToolState::Started,
+    });
+    // progress arrives as a repeated Started (agent.rs folds the kind).
+    tv.apply(&ProjEvent::ToolUpdate {
+        id: "call_1".into(),
+        tool: "read_file".into(),
+        state: ToolState::Started,
+    });
+    tv.apply(&ProjEvent::ToolUpdate {
+        id: "call_1".into(),
+        tool: "read_file".into(),
+        state: ToolState::Completed,
+    });
+    let gear: Vec<&String> = tv.history.iter().filter(|l| l.contains('⚙')).collect();
+    let tool_ok = gear == vec!["⚙ read_file …", "⚙ read_file ✓"];
+    // Failed case.
+    tv.apply(&ProjEvent::ToolUpdate {
+        id: "call_2".into(),
+        tool: "write_file".into(),
+        state: ToolState::Started,
+    });
+    tv.apply(&ProjEvent::ToolUpdate {
+        id: "call_2".into(),
+        tool: "write_file".into(),
+        state: ToolState::Failed,
+    });
+    // After a terminal line, anything further is inert.
+    let before = tv.history.clone();
+    tv.apply(&ProjEvent::ToolUpdate {
+        id: "call_1".into(),
+        tool: "read_file".into(),
+        state: ToolState::Started,
+    });
+    let tool_ok = tool_ok
+        && tv.history.contains(&"⚙ write_file ✗".to_string())
+        && tv.history == before;
+    println!("tool-row started/progress/completed/failed [{}]", pass_str(tool_ok));
+    ok &= tool_ok;
+
+    // Preedit display contract (GY-ZCODE-005): inline bracketed overlay,
+    // cleared on Preedit(None), never committed into the buffer text.
+    let mut pc = Composer::new();
+    pc.focused = true;
+    pc.set_preedit(Some("预"));
+    let preedit_ok = pc.text().is_empty() && pc.display().contains("«预»");
+    pc.set_preedit(None);
+    let preedit_ok = preedit_ok && pc.display() == "│";
+    println!("composer preedit inline overlay [{}]", pass_str(preedit_ok));
+    ok &= preedit_ok;
 
     if !ok {
         std::process::exit(1);
