@@ -24,10 +24,21 @@
       "zcode_monitor_live_wayland": "window presented, 358 frames over 6s acceptance run"
     }
   },
+  "keyboard_layout_follow_up": {
+    "implementation": "goya-wayland consumes compositor XKB_V1 keymaps up to 16 MiB, updates client state from Wayland modifier/layout masks, translates evdev keycodes (+8) to Unicode, and preserves Enter/Backspace events. Unsupported maps use the bounded US fallback; dead-key composition is not implemented.",
+    "dependency": "xkbcommon 0.9, MIT, Wayland feature",
+    "tests": [
+      "built_in_fallback_is_bounded_and_preserves_control_keys",
+      "xkb_state_honors_shift_and_caps_lock",
+      "xkb_state_honors_german_altgr_mapping",
+      "compositor_keymap_fd_is_parsed_and_oversized_maps_are_rejected"
+    ],
+    "live_keyboard_acceptance": "not established; unit keymap tests do not demonstrate physical/compositor input delivery"
+  },
   "notes": [
     "Monitor stays read-only: Enter echoes composed line as '[local] ...'; sending requires session/send + v4 admission (later increment).",
     "Doctests excluded per known host rustdoc LLVM issue (README).",
     "kaptaind auto-committer captured and committed agent work mid-flight (incl. one temporary J1 patch later reverted); final tree verified by the gate gates above.",
-    "Keyboard remains US-subset ASCII; non-ASCII input needs xkb keymap work (open platform item)."
+    "The initial Wave-2 keyboard implementation used a US-subset ASCII map; the keyboard_layout_follow_up records the XKB keymap implementation and its remaining live acceptance limit."
   ]
 }
