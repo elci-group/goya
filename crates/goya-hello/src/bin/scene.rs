@@ -239,12 +239,14 @@ fn main() {
         let prims: Vec<Primitive> = nodes.iter().map(present_node).collect();
         let clips: Vec<Option<goya_layout::Rect>> = nodes
             .iter()
-            .map(|node| node.clip.map(|clip: RectMp| goya_layout::Rect {
-                x: clip.x,
-                y: clip.y,
-                width: clip.width,
-                height: clip.height,
-            }))
+            .map(|node| {
+                node.clip.map(|clip: RectMp| goya_layout::Rect {
+                    x: clip.x,
+                    y: clip.y,
+                    width: clip.width,
+                    height: clip.height,
+                })
+            })
             .collect();
         let _ = win.present_clipped(&prims, &[], &clips, [235, 235, 240], [20, 20, 28], 3);
         win.pump(1);

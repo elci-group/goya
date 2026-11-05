@@ -3237,7 +3237,7 @@ mod fill_tests {
 
 #[cfg(test)]
 mod multiline_tests {
-    use super::{argb, draw_bitmap_glyphs, draw_glyphs, MP_PER_PX};
+    use super::{argb, draw_bitmap_glyphs, draw_glyphs, raster_primitives, MP_PER_PX};
     use goya_layout::Rect;
 
     fn rect(x: i64, y: i64, w: i64, h: i64) -> Rect {
@@ -3352,5 +3352,108 @@ mod multiline_tests {
                 assert_eq!(buf[y * width as usize + x], bg, "ink escaped at ({x},{y})");
             }
         }
+    }
+
+    #[test]
+    fn shaped_path_wraps_at_the_available_width() {
+        let (width, height) = (64, 40);
+        let bg = argb([0, 0, 0]);
+        let r = rect(0, 0, 20, 34);
+        let mut buf = vec![bg; (width * height) as usize];
+        draw_glyphs(
+            &mut buf, width, height, &r, "abcdefgh", [255; 3], 1, None, None,
+        );
+        let has_ink = |range: std::ops::Range<usize>| {
+            range.into_iter().any(|y| {
+                buf[y * width as usize..(y + 1) * width as usize]
+                    .iter()
+                    .any(|pixel| *pixel != bg)
+            })
+        };
+        assert!(has_ink(0..9), "first line should rasterize");
+        assert!(has_ink(9..20), "narrow node should wrap to another line");
+    }
+
+    #[test]
+    fn primitive_clip_constrains_fill_and_shaped_glyphs() {
+        let (width, height) = (40, 32);
+        let bg = argb([0, 0, 0]);
+        let mut buf = vec![bg; (width * height) as usize];
+        let node_rect = rect(0, 0, 30, 24);
+        let clip_rect = rect(0, 0, 10, 14);
+        let primitives = [goya_runtime::Primitive::Button(node_rect, "Clipped".into())];
+        raster_primitives(
+            &mut buf,
+            width,
+            height,
+            &primitives,
+            &[],
+            [255; 3],
+            1,
+            Some(&[Some(clip_rect)]),
+            None,
+            None,
+            false,
+        );
+        assert_eq!(buf[1 + width as usize], argb([80, 100, 180]));
+        for y in 0..height as usize {
+            for x in 10..width as usize {
+                assert_eq!(buf[y * width as usize + x], bg, "clip leaked at ({x},{y})");
+            }
+        }
+        for y in 14..height as usize {
+            for x in 0..width as usize {
+                assert_eq!(buf[y * width as usize + x], bg, "clip leaked at ({x},{y})");
+            }
+        }
+    }
+
+    #[test]
+    fn point_size_changes_native_glyph_metrics_and_invalid_size_falls_back() {
+        let (width, height) = (48, 52);
+        let bg = argb([0, 0, 0]);
+        let r = rect(0, 0, 40, 48);
+        let mut regular = vec![bg; (width * height) as usize];
+        let mut large = regular.clone();
+        let mut invalid = regular.clone();
+        draw_glyphs(
+            &mut regular,
+            width,
+            height,
+            &r,
+            "M",
+            [255; 3],
+            1,
+            None,
+            None,
+        );
+        draw_glyphs(
+            &mut large,
+            width,
+            height,
+            &r,
+            "M",
+            [255; 3],
+            1,
+            Some(8.0),
+            None,
+        );
+        draw_glyphs(
+            &mut invalid,
+            width,
+            height,
+            &r,
+            "M",
+            [255; 3],
+            1,
+            Some(f32::NAN),
+            None,
+        );
+        let coverage = |pixels: &[u32]| pixels.iter().filter(|pixel| **pixel != bg).count();
+        assert!(coverage(&large) > coverage(&regular));
+        assert_eq!(
+            invalid, regular,
+            "invalid size should use the default metrics"
+        );
     }
 }
