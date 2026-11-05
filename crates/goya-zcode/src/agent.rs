@@ -129,10 +129,6 @@ impl SendLifecycle {
             self.pending = None;
         }
     }
-
-    fn is_pending(&self) -> bool {
-        self.pending.is_some()
-    }
 }
 
 /// State shared between the agent thread and the render loop. The agent
