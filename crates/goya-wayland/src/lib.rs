@@ -1541,6 +1541,7 @@ mod raster_tests {
             width,
             height,
             &primitives,
+            &[],
             [255, 255, 255],
             1,
             None,
@@ -1562,6 +1563,7 @@ mod raster_tests {
             width,
             height,
             &primitives,
+            &[],
             [255, 255, 255],
             1,
             roi,
@@ -1603,6 +1605,7 @@ mod raster_tests {
             width,
             height,
             &primitives,
+            &[],
             [255, 255, 255],
             1,
             Some(roi),
@@ -1612,6 +1615,7 @@ mod raster_tests {
             width,
             height,
             &primitives,
+            &[],
             [255, 255, 255],
             1,
             roi,
@@ -1660,7 +1664,7 @@ mod raster_tests {
         let start = Instant::now();
         for _ in 0..5 {
             serial.fill(argb([4, 8, 12]));
-            raster_serial(&mut serial, width, height, &primitives, [255; 3], 2, None);
+            raster_serial(&mut serial, width, height, &primitives, &[], [255; 3], 2, None);
         }
         let serial_elapsed = start.elapsed();
         let start = Instant::now();
@@ -1671,6 +1675,7 @@ mod raster_tests {
                 width,
                 height,
                 &primitives,
+                &[],
                 [255; 3],
                 2,
                 roi,

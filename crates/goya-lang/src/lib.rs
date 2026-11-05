@@ -110,6 +110,90 @@ mod tests {
     }
 
     #[test]
+    fn parses_input_node_with_geometry_and_placeholder() {
+        let src = "\
+@ontology s {
+    @input name {
+        position: (40, 520, 0)
+        extent: (720, 48, 0)
+        fill: #202028
+        stroke: #3267c8
+        stroke-width: 1
+        text: \"Type a message\"
+        text-size: 16
+        text-anchor: middle
+    }
+}
+";
+        let scene = parse(src).unwrap();
+        let input = &scene.root;
+        assert_eq!(input.name, "name");
+        assert_eq!(input.kind, CellKind::Input);
+        assert!(input.is_input);
+        assert_eq!(input.text.as_deref(), Some("Type a message"));
+        assert_eq!(input.fill, Some(0x202028));
+        assert_eq!(input.stroke, Some(0x3267C8));
+        assert_eq!(input.stroke_width, Some(1.0));
+        assert_eq!(input.text_size, Some(16.0));
+        assert_eq!(input.anchor, Some(Anchor::Middle));
+
+        let frame = layout(&scene, 800.0, 600.0);
+        let node = frame.find("name").unwrap();
+        assert!(node.is_input);
+        assert!(!node.is_button);
+        assert_eq!(node.rect, RectMp { x: 40_000, y: 520_000, width: 720_000, height: 48_000 });
+        assert_eq!(node.text.as_deref(), Some("Type a message"));
+    }
+
+    #[test]
+    fn parses_scene_mixing_cell_button_and_input() {
+        let src = "\
+@ontology s {
+    @cell root {
+        position: (0, 0, 0)
+        extent: (800, 600, 0)
+        @cell label { text: \"Count\" }
+        @button go { position: (0, 0, 0); extent: (80, 40, 0); text: \"Go\" }
+        @input composer { position: (0, 100, 0); extent: (400, 40, 0); text: \"Compose\" }
+    }
+}
+";
+        let scene = parse(src).unwrap();
+        assert_eq!(scene.root.children.len(), 3);
+        assert_eq!(scene.root.children[0].kind, CellKind::Cell);
+        assert!(!scene.root.children[0].is_input);
+        assert_eq!(scene.root.children[1].kind, CellKind::Button);
+        assert!(!scene.root.children[1].is_input);
+        assert_eq!(scene.root.children[2].kind, CellKind::Input);
+        assert!(scene.root.children[2].is_input);
+    }
+
+    #[test]
+    fn hit_test_returns_input_name_when_clicked() {
+        let src = "\
+@ontology s {
+    @cell root {
+        position: (0, 0, 0)
+        extent: (800, 600, 0)
+        @button go { position: (0, 0, 0); extent: (100, 40, 0); text: \"Go\" }
+        @input composer { position: (0, 100, 0); extent: (400, 40, 0); text: \"Compose\" }
+    }
+}
+";
+        let scene = parse(src).unwrap();
+        let frame = layout(&scene, 800.0, 600.0);
+        // Inside the input rect.
+        assert_eq!(
+            hit_test(&frame, 50_000, 120_000),
+            Some("composer".to_string())
+        );
+        // The button still wins inside its own rect.
+        assert_eq!(hit_test(&frame, 50_000, 20_000), Some("go".to_string()));
+        // Outside both interactive rects.
+        assert_eq!(hit_test(&frame, 700_000, 500_000), None);
+    }
+
+    #[test]
     fn comments_and_inline_properties() {
         let src = "\
 @ontology s {
