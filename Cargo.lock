@@ -878,8 +878,11 @@ version = "0.1.8"
 name = "goya-zcode"
 version = "0.1.8"
 dependencies = [
+ "goya-chroma",
+ "goya-clipboard",
  "goya-lang",
  "goya-layout",
+ "goya-provenance",
  "goya-runtime",
  "goya-wayland",
  "serde",
