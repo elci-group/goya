@@ -100,13 +100,12 @@ impl Composer {
             "arrow_right" => self.cursor = (self.cursor + 1).min(self.len_chars()),
             "home" => self.cursor = 0,
             "end" => self.cursor = self.len_chars(),
-            "delete" => {
-                if self.cursor < self.len_chars() {
-                    let del = self.char_index(self.cursor);
-                    self.text
-                        .replace_range(del..self.char_index(self.cursor + 1), "");
-                }
+            "delete" if self.cursor < self.len_chars() => {
+                let del = self.char_index(self.cursor);
+                self.text
+                    .replace_range(del..self.char_index(self.cursor + 1), "");
             }
+            "delete" => {}
             "escape" => self.focused = false,
             "tab" => {}
             "arrow_up" => self.recall_history(-1),
