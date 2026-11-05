@@ -1242,10 +1242,7 @@ fn raster_primitive(
     clip: Option<PixelClip>,
 ) {
     let clip = match node_clip {
-        Some(rect) => intersect_pixel_clips(
-            clip,
-            Some(pixel_clip_for_rect(&rect, width, height)),
-        ),
+        Some(rect) => intersect_pixel_clips(clip, Some(pixel_clip_for_rect(&rect, width, height))),
         None => clip,
     };
     match prim {
@@ -1253,12 +1250,32 @@ fn raster_primitive(
         goya_runtime::Primitive::Text(rect, text) => {
             let fill = resolve_fill(fills, index, [16, 16, 20]);
             fill_rect_clipped(pixels, width, height, rect, fill, clip);
-            draw_glyphs(pixels, width, height, rect, text, fg, glyph_px, text_size_pt, clip);
+            draw_glyphs(
+                pixels,
+                width,
+                height,
+                rect,
+                text,
+                fg,
+                glyph_px,
+                text_size_pt,
+                clip,
+            );
         }
         goya_runtime::Primitive::Button(rect, text) => {
             let fill = resolve_fill(fills, index, [80, 100, 180]);
             fill_rect_clipped(pixels, width, height, rect, fill, clip);
-            draw_glyphs(pixels, width, height, rect, text, fg, glyph_px, text_size_pt, clip);
+            draw_glyphs(
+                pixels,
+                width,
+                height,
+                rect,
+                text,
+                fg,
+                glyph_px,
+                text_size_pt,
+                clip,
+            );
         }
     }
 }
@@ -1423,7 +1440,17 @@ fn draw_glyphs(
     text_size_pt: Option<f32>,
     clip: Option<PixelClip>,
 ) {
-    if draw_shaped_glyphs(pixels, win_w, win_h, r, s, rgb, glyph_px, text_size_pt, clip) {
+    if draw_shaped_glyphs(
+        pixels,
+        win_w,
+        win_h,
+        r,
+        s,
+        rgb,
+        glyph_px,
+        text_size_pt,
+        clip,
+    ) {
         return;
     }
     draw_bitmap_glyphs(pixels, win_w, win_h, r, s, rgb, glyph_px, clip);
@@ -2495,6 +2522,8 @@ mod raster_tests {
                 fills: &[],
                 fg: [255, 255, 255],
                 glyph_px: 1,
+                clips: None,
+                text_sizes_pt: None,
                 clip: None,
             },
         );
@@ -2533,6 +2562,8 @@ mod raster_tests {
             &[],
             [255; 3],
             1,
+            None,
+            None,
             None,
             true,
         );
@@ -2586,6 +2617,8 @@ mod raster_tests {
                     fills: &[],
                     fg: [255; 3],
                     glyph_px: 2,
+                    clips: None,
+                    text_sizes_pt: None,
                     clip: None,
                 },
             );
@@ -3160,6 +3193,8 @@ mod fill_tests {
                 fills: &[],
                 fg: [255; 3],
                 glyph_px: 1,
+                clips: None,
+                text_sizes_pt: None,
                 clip: None,
             },
         );
@@ -3174,6 +3209,8 @@ mod fill_tests {
                 fills: &[Some(0x1A2A3B)],
                 fg: [255; 3],
                 glyph_px: 1,
+                clips: None,
+                text_sizes_pt: None,
                 clip: None,
             },
         );
@@ -3189,6 +3226,8 @@ mod fill_tests {
                 fills: &[None, Some(0x1A2A3B)],
                 fg: [255; 3],
                 glyph_px: 1,
+                clips: None,
+                text_sizes_pt: None,
                 clip: None,
             },
         );
