@@ -30,7 +30,7 @@ use wayland_client::protocol::{
     wl_surface::{self, WlSurface},
 };
 use wayland_client::{Connection, Dispatch, QueueHandle, WEnum};
-use wayland_protocols::wp::text_input::zv3::{
+use wayland_protocols::wp::text_input::zv3::client::{
     zwp_text_input_manager_v3::{self, ZwpTextInputManagerV3},
     zwp_text_input_v3::{self, ZwpTextInputV3},
 };
