@@ -1524,9 +1524,7 @@ fn key_char_from_state(
     }
     let c = xkb_state.key_get_utf32(xkb_keycode);
     // key_get_utf32 returns 0 when the keysym has no Unicode mapping.
-    let Some(c) = char::from_u32(c).filter(|c| !c.is_control()) else {
-        return None;
-    };
+    let c = char::from_u32(c).filter(|c| !c.is_control())?;
     Some(c)
 }
 

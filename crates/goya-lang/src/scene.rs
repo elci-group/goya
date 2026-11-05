@@ -51,6 +51,9 @@ pub struct SceneCell {
     pub text: Option<String>,
     pub text_size: Option<f64>,
     pub anchor: Option<Anchor>,
+    /// `wrap: <positive integer columns>` — greedy word-wrap width applied
+    /// at layout time. Absent = no wrap.
+    pub wrap: Option<u32>,
     pub children: Vec<SceneCell>,
 }
 
