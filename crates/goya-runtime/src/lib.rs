@@ -789,21 +789,39 @@ impl Runtime {
             // shown until the user commits text or an IME preedit arrives.
             Node::Input { placeholder } => {
                 if let Some(state) = self.text_inputs.get(&id) {
-                    let value = if state.buffer.text().is_empty() && state.preedit.is_none() {
-                        placeholder.clone()
+                    let focused = self.focused_input == Some(id);
+                    let text = state.buffer.text();
+                    let cursor = state.buffer.cursor_byte().min(text.len());
+                    let mut value = String::with_capacity(
+                        text.len()
+                            + placeholder.len()
+                            + state.preedit.as_ref().map_or(0, |p| p.0.len())
+                            + usize::from(focused) * '│'.len_utf8(),
+                    );
+                    if text.is_empty() && state.preedit.is_none() {
+                        if focused {
+                            value.push('│');
+                        }
+                        value.push_str(placeholder);
                     } else {
-                        let text = state.buffer.text();
-                        let cursor = state.buffer.cursor_byte().min(text.len());
-                        let mut value = String::with_capacity(
-                            text.len() + state.preedit.as_ref().map_or(0, |p| p.0.len()),
-                        );
                         value.push_str(&text[..cursor]);
-                        if let Some((preedit, _, _)) = &state.preedit {
-                            value.push_str(preedit);
+                        if let Some((preedit, cursor_begin, _)) = &state.preedit {
+                            if focused && *cursor_begin >= 0 {
+                                let offset = grapheme_boundary_at_or_before(
+                                    preedit,
+                                    *cursor_begin as usize,
+                                );
+                                value.push_str(&preedit[..offset]);
+                                value.push('│');
+                                value.push_str(&preedit[offset..]);
+                            } else {
+                                value.push_str(preedit);
+                            }
+                        } else if focused {
+                            value.push('│');
                         }
                         value.push_str(&text[cursor..]);
-                        value
-                    };
+                    }
                     out.push(Primitive::Text(rect, value));
                 } else {
                     out.push(Primitive::Text(rect, placeholder.clone()));
