@@ -22,8 +22,8 @@ pub use lexer::{lex, LexError, Token, TokenKind};
 pub use lowering::{lower, LowerError, Lowered, NodeKey, NodeRecord, NodeTable, Role};
 pub use parser::{parse, ParseError};
 pub use scene::{
-    hit_test, hit_test_scrolled, layout, Anchor, CellKind, DrawNode, RectMp, Scene, SceneCell,
-    ScrollOffsets, Vec3,
+    hit_test, hit_test_scrolled, layout, Anchor, CellKind, DrawNode, Frame, RectMp, Scene,
+    SceneCell, ScrollOffsets, Vec3,
 };
 pub use scene::{
     EffectRequestDecl, EffectValueType, InteractionClass, InteractionDecl, InteractionExpr,
