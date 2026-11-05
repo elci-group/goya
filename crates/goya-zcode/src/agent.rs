@@ -69,7 +69,7 @@ struct AgentRun {
 
 impl AgentRun {
     fn spawn(cli: &str, workspace: &Path, handle: MonitorHandle) -> Result<Self, String> {
-        let mut child = Command::new(cli)
+        let child = Command::new(cli)
             .arg("app-server")
             .current_dir(workspace)
             .stdin(Stdio::piped())
@@ -102,7 +102,12 @@ impl AgentRun {
 
     /// Send one request and await its response (routed back by the reader
     /// thread through `pending`). Serialised by `&mut ChildStdin` ownership.
-    fn request(&self, stdin: &mut ChildStdin, method: &str, params: Value) -> Result<Value, String> {
+    fn request(
+        &self,
+        stdin: &mut ChildStdin,
+        method: &str,
+        params: Value,
+    ) -> Result<Value, String> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = channel();
         self.pending
@@ -110,7 +115,10 @@ impl AgentRun {
             .expect("pending map poisoned")
             .insert(id, tx);
         let frame = json!({"id": id, "method": method, "params": params});
-        if writeln!(stdin, "{frame}").and_then(|_| stdin.flush()).is_err() {
+        if writeln!(stdin, "{frame}")
+            .and_then(|_| stdin.flush())
+            .is_err()
+        {
             self.pending
                 .lock()
                 .expect("pending map poisoned")
@@ -159,7 +167,11 @@ impl AgentRun {
         self.set_view(|v| v.link = LinkState::Up);
 
         let list = self
-            .request(&mut stdin, "session/list", json!({ "workspace": workspace_ref }))
+            .request(
+                &mut stdin,
+                "session/list",
+                json!({ "workspace": workspace_ref }),
+            )
             .map_err(|e| format!("session/list failed: {e}"))?;
         let entries = parse_sessions(&list);
         if entries.is_empty() {
@@ -349,28 +361,26 @@ pub fn spawn_agent(cli: &str, workspace: &Path, session: Option<String>) -> Moni
     let cli = cli.to_string();
     let workspace = workspace.to_path_buf();
     let h = handle.clone();
-    std::thread::spawn(move || {
-        loop {
+    std::thread::spawn(move || loop {
+        if h.stop.load(Ordering::Relaxed) {
+            return;
+        }
+        match AgentRun::spawn(&cli, &workspace, h.clone()) {
+            Ok(run) => {
+                let _ = run.run(session.clone());
+            }
+            Err(err) => {
+                if let Ok(mut v) = h.view.lock() {
+                    v.link = LinkState::Down(err);
+                }
+                h.mark_dirty();
+            }
+        }
+        for _ in 0..RECONNECT_DELAY_MS / 100 {
             if h.stop.load(Ordering::Relaxed) {
                 return;
             }
-            match AgentRun::spawn(&cli, &workspace, h.clone()) {
-                Ok(run) => {
-                    let _ = run.run(session.clone());
-                }
-                Err(err) => {
-                    if let Ok(mut v) = h.view.lock() {
-                        v.link = LinkState::Down(err);
-                    }
-                    h.mark_dirty();
-                }
-            }
-            for _ in 0..RECONNECT_DELAY_MS / 100 {
-                if h.stop.load(Ordering::Relaxed) {
-                    return;
-                }
-                std::thread::sleep(Duration::from_millis(100));
-            }
+            std::thread::sleep(Duration::from_millis(100));
         }
     });
     handle
