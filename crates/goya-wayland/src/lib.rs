@@ -2231,49 +2231,6 @@ mod raster_tests {
             true,
         );
         assert_eq!(parallel, serial);
-
-        return;
-
-        let roi = PixelClip {
-            x0: 17,
-            y0: 11,
-            x1: 177,
-            y1: 117,
-        };
-        let dirty = goya_change::PixelRect {
-            x: roi.x0 as i32,
-            y: roi.y0 as i32,
-            width: (roi.x1 - roi.x0) as i32,
-            height: (roi.y1 - roi.y0) as i32,
-        };
-        serial.fill(background);
-        parallel.fill(background);
-        raster_serial(
-            &mut serial,
-            width,
-            height,
-            &primitives,
-            RasterConfig {
-                fills: &[],
-                fg: [255, 255, 255],
-                glyph_px: 1,
-                clip: Some(roi),
-            },
-        );
-        assert!(raster_parallel_tiles(
-            &mut parallel,
-            width,
-            height,
-            &primitives,
-            &[],
-            [255, 255, 255],
-            1,
-            roi,
-            dirty,
-            CsrPolicy::DualHorizontal,
-            4,
-        ));
-        assert_eq!(parallel, serial);
     }
 
     #[test]
