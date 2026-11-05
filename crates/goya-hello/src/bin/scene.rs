@@ -286,9 +286,10 @@ fn main() {
                     .and_then(|size| (size > 0.0 && size.is_finite()).then_some(size as f32))
             })
             .collect();
+        let fills: Vec<Option<u32>> = nodes.iter().map(|node| node.fill).collect();
         let _ = win.present_clipped_with_text_sizes(
             &prims,
-            &[],
+            &fills,
             &clips,
             &text_sizes,
             [235, 235, 240],
