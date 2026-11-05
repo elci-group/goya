@@ -78,6 +78,19 @@ mod tests {
     }
 
     #[test]
+    fn hot_swap_accepts_wrap_edits() {
+        const WRAPPED: &str = "@ontology a { @cell note { text: \"alpha beta gamma delta\" wrap: 10 } }";
+        let mut store = SceneStore::new(V1).unwrap();
+        let gen = store.swap(WRAPPED).unwrap();
+        assert_eq!(gen, 2);
+        let note = store.get().find_node("note").unwrap();
+        assert_eq!(note.wrap, Some(10));
+        // And back to an unwrapped scene.
+        assert!(store.swap(V2).is_ok());
+        assert!(store.get().find_node("note").is_none());
+    }
+
+    #[test]
     fn failed_swap_is_transactional() {
         let mut store = SceneStore::new(V1).unwrap();
         let gen_before = store.generation();

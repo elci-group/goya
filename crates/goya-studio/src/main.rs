@@ -1017,6 +1017,41 @@ mod tests {
     }
 
     #[test]
+    fn check_summary_counts_input_nodes() {
+        let scene = "@ontology demo { @button ok { position: (0, 0, 0) extent: (80, 40, 0) text: \"hello\" } @input name { position: (0, 100, 0) extent: (200, 40, 0) text: \"Your name\" } }";
+        let project = SceneProject::from_source(scene, Viewport::default()).unwrap();
+        let summary = check_summary(&project);
+        assert!(summary.contains("inputs=1"));
+        assert!(summary.contains("scene_nodes=3"));
+    }
+
+    #[test]
+    fn editor_and_preview_surface_input_nodes() {
+        let scene = "@ontology demo { @button ok { position: (0, 0, 0) extent: (80, 40, 0) text: \"hello\" } @input name { position_p: (0.1, 0.2, 0) extent_p: (0.5, 0.1, 0) text: \"Your name\" } }";
+        let project = SceneProject::from_source(scene, Viewport::default()).unwrap();
+
+        // Preview canvas renders the placeholder and marks it as a textbox.
+        let preview = render_html(&project);
+        assert!(preview.contains("Your name"));
+        assert!(preview.contains("role=\"textbox\""));
+
+        // Inspector select includes the input node as its own kind, and the
+        // safe-matching block scanner accepts @input blocks.
+        let editor = render_editor(&project, &preview, "goya-v1-test");
+        assert!(editor.contains("data-kind=\"input\""));
+        assert!(editor.contains("data-name=\"name\""));
+        assert!(editor.contains("data-pos-key=\"position_p\""));
+        assert!(editor.contains("data-extent-key=\"extent_p\""));
+        assert!(editor.contains("@(cell|button|input)"));
+
+        // Draw order: the input node appears after the button in the preview.
+        let inputs = project.input_nodes();
+        assert_eq!(inputs.len(), 1);
+        assert_eq!(inputs[0].name, "name");
+        assert_eq!(inputs[0].placeholder.as_deref(), Some("Your name"));
+    }
+
+    #[test]
     fn no_args_prints_usage_without_error() {
         assert!(run(&[]).is_ok());
     }
