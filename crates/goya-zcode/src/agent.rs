@@ -36,6 +36,19 @@ pub enum AgentCmd {
     SendText { line: String, wire: bool },
 }
 
+/// Send admission: one outstanding wire send at a time. Returns `true`
+/// when the send may proceed (pending flag set), `false` when a send is
+/// already outstanding — the caller drops the command with the
+/// "busy — send pending" hint. Pure so the headless acceptance can
+/// exercise the drop path without a live connection.
+pub fn admit_send(send_pending: &mut bool) -> bool {
+    if *send_pending {
+        return false;
+    }
+    *send_pending = true;
+    true
+}
+
 /// State shared between the agent thread and the render loop. The agent
 /// thread is the only writer; the render loop polls `take_dirty` and reads
 /// a view snapshot.
@@ -321,11 +334,10 @@ impl AgentRun {
             // No --allow-send: admission-shaped no-op, nothing on the wire.
             return;
         }
-        if *send_pending {
+        if !admit_send(send_pending) {
             self.set_view(|v| v.status = "busy — send pending".to_string());
             return;
         }
-        *send_pending = true;
         let result = self.request(
             stdin,
             "session/send",
@@ -377,10 +389,18 @@ fn read_frames(
             let sender = pending.lock().expect("pending map poisoned").remove(&id);
             if let Some(sender) = sender {
                 let payload = if let Some(err) = msg.get("error") {
-                    Err(match err.get("message").and_then(Value::as_str) {
-                        Some(m) => m.to_string(),
-                        None => err.to_string(),
-                    })
+                    // Keep the code in the status text: "-32010: …" is the
+                    // contract for "a prompt is already running".
+                    Err(
+                        match (
+                            err.get("code").and_then(Value::as_i64),
+                            err.get("message").and_then(Value::as_str),
+                        ) {
+                            (Some(code), Some(m)) => format!("{code}: {m}"),
+                            (_, Some(m)) => m.to_string(),
+                            (_, None) => err.to_string(),
+                        },
+                    )
                 } else {
                     Ok(msg["result"].clone())
                 };
