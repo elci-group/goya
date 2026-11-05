@@ -607,7 +607,7 @@ fn headless_acceptance(store: &SceneStore) {
     let mut pc = Composer::new();
     pc.focused = true;
     pc.set_preedit(Some("预"));
-    let preedit_ok = pc.text().is_empty() && pc.display().contains("«预»");
+    let preedit_ok = pc.text().is_empty() && pc.display() == "«│预»";
     pc.set_preedit(None);
     let preedit_ok = preedit_ok && pc.display() == "│";
     println!("composer preedit inline overlay [{}]", pass_str(preedit_ok));
