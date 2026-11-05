@@ -248,6 +248,15 @@ pub fn compile_module(module: &Module) -> Result<Bytecode, CompileError> {
                         node: id,
                         content: content.clone(),
                     }),
+                    // Editable input state is host-owned (focus and current
+                    // text are not part of the deterministic bytecode VM).
+                    // Preserve the authored placeholder as display text using
+                    // the existing stable opcode; do not invent an activation
+                    // action or change the bytecode format version here.
+                    Node::Input { placeholder } => instructions.push(Instruction::Text {
+                        node: id,
+                        content: placeholder.clone(),
+                    }),
                     Node::Button { label, on_activate } => instructions.push(Instruction::Button {
                         node: id,
                         action: *on_activate,
@@ -489,6 +498,34 @@ mod tests {
         assert_eq!(first.canonical_bytes(), second.canonical_bytes());
         assert_eq!(first.content_hash, fnv1a(&first.canonical_bytes()));
         assert_eq!(execute(&first), execute(&second));
+    }
+
+    #[test]
+    fn input_node_compiles_to_its_placeholder_without_an_action() {
+        let input = Module {
+            nodes: vec![(
+                NodeId(3),
+                Node::Input {
+                    placeholder: "Type here".into(),
+                },
+            )],
+            root: Some(NodeId(3)),
+        };
+        let bytecode = compile_module(&input).unwrap();
+        assert_eq!(
+            bytecode.instructions,
+            vec![Instruction::Text {
+                node: NodeId(3),
+                content: "Type here".into(),
+            }]
+        );
+        assert_eq!(
+            execute(&bytecode),
+            Ok(ExecutionNode::Text {
+                node: NodeId(3),
+                content: "Type here".into(),
+            })
+        );
     }
 
     #[test]
