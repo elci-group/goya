@@ -14,7 +14,22 @@
 //!   (GY-ZCODE-002) composer input node — focus, char-based cursor,
 //!   bounded commit history; host-mapped Wayland events feed it, it never
 //!   depends on goya-wayland types.
+//! - [`theme`]: Wave 4 (GY-ZCODE-004) theming adapter — derives the
+//!   monitor palette from `goya-chroma` (dark monitor theme, AA-enforced)
+//!   and maps node names / status text onto per-frame primitive fills;
+//!   scene `fill:` values stay as the layout-time defaults.
+//! - [`clipboard`]: Wave 4 clipboard ring over `goya-clipboard`'s
+//!   `MemoryClipboard` with a permissive local policy and a bounded
+//!   last-8 ring. Ctrl+C/Ctrl+V stay in-process — the Wayland data-device
+//!   clipboard is out (blocked upstream, GY-WAYLAND-001 follow-through).
+//! - [`markdown`]: Wave 4 pure markdown block renderer (headings, fenced
+//!   code gutter, bullets, ordered lists, inline marker stripping);
+//!   `SessionView::push_markdown` routes turn-completed responses through
+//!   it when `markdown` is on (default).
 
 pub mod agent;
+pub mod clipboard;
 pub mod composer;
+pub mod markdown;
+pub mod theme;
 pub mod view;
