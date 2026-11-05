@@ -586,6 +586,28 @@ impl GoyaWindow {
         self.state.parallel_raster = enabled;
     }
 
+    /// Enable or disable the compositor text input for this window's seat
+    /// (GY-ZCODE-005). Disabled by default; hosts activate it only while an
+    /// editable field has focus. A no-op when the compositor does not
+    /// advertise `zwp_text_input_manager_v3` (the global is absent, so there
+    /// is nothing to enable) or when the requested state already holds.
+    /// Preedit/commit updates arrive later as [`PlatformEvent::Preedit`] and
+    /// [`PlatformEvent::CommitText`].
+    pub fn set_text_input_active(&mut self, active: bool) {
+        let bound = self.state.text_input.clone();
+        if let Some((input, new_state)) =
+            text_input_activation(bound, self.state.text_input_enabled, active)
+        {
+            if new_state {
+                input.enable();
+            } else {
+                input.disable();
+            }
+            input.commit();
+            self.state.text_input_enabled = new_state;
+        }
+    }
+
     /// Enable or disable the compositor IME for the focused editable field.
     /// `cursor_rect` is surface-local pixel geometry for candidate windows;
     /// surrounding cursor/anchor offsets are UTF-8 byte offsets as required
