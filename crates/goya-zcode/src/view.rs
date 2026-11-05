@@ -58,6 +58,9 @@ pub struct SessionView {
     scroll: ScrollState,
     /// In-flight assistant streaming buffer, flushed to `tail` in chunks.
     pub streaming: String,
+    /// Wave 4 (GY-ZCODE-004): when on (default), turn-completed response
+    /// lines route through the markdown renderer (see [`markdown`]).
+    pub markdown: bool,
 }
 
 impl Default for SessionView {
@@ -71,6 +74,7 @@ impl Default for SessionView {
             history: Vec::new(),
             scroll: ScrollState::default(),
             streaming: String::new(),
+            markdown: true,
         }
     }
 }
@@ -98,7 +102,8 @@ impl SessionView {
         self.update_scroll_geometry();
     }
 
-    /// Scroll back `n` lines (PageUp); clamped so the topmost view still
+    /// Wrap and append a line to the tail and the scrollback, keeping
+    /// both bounded (tail: `TAIL_LINES`, history: `HISTORY_CAP`).
     /// shows a full `TAIL_LINES` window (short histories cannot scroll).
     pub fn scroll_up(&mut self, n: usize) {
         self.scroll.scroll_by(0.0, -(n as f64));
@@ -166,6 +171,8 @@ impl SessionView {
                 self.flush_streaming();
                 if response.is_empty() {
                     self.push_line(&format!("[done: {result}]"));
+                } else if self.markdown {
+                    self.push_markdown(response);
                 } else {
                     self.push_line(response);
                 }
