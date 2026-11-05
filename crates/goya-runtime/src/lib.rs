@@ -167,6 +167,9 @@ impl TextBuffer {
     pub fn cursor_byte(&self) -> usize {
         self.cursor
     }
+    pub fn anchor_byte(&self) -> usize {
+        self.anchor.unwrap_or(self.cursor)
+    }
     pub fn cursor_grapheme(&self) -> usize {
         self.text[..self.cursor.min(self.text.len())]
             .graphemes(true)
@@ -484,6 +487,16 @@ impl Runtime {
 
     pub fn input_text(&self, node: NodeId) -> Option<&str> {
         self.text_inputs.get(&node).map(|state| state.buffer.text())
+    }
+
+    /// UTF-8 byte cursor and selection anchor for compositor surrounding-text
+    /// state. Both positions are maintained on extended-grapheme boundaries.
+    pub fn input_cursor_byte(&self, node: NodeId) -> Option<usize> {
+        self.text_inputs.get(&node).map(|state| state.buffer.cursor_byte())
+    }
+
+    pub fn input_anchor_byte(&self, node: NodeId) -> Option<usize> {
+        self.text_inputs.get(&node).map(|state| state.buffer.anchor_byte())
     }
 
     pub fn focus_input(&mut self, node: Option<NodeId>) -> bool {
