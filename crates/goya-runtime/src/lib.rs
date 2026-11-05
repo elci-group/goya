@@ -386,9 +386,21 @@ pub enum Event {
     SetInputValue(NodeId, String),
     TextBackspace,
     TextDelete,
-    TextMoveLeft { extend: bool },
-    TextMoveRight { extend: bool },
+    TextMoveLeft {
+        extend: bool,
+    },
+    TextMoveRight {
+        extend: bool,
+    },
+    TextMoveHome {
+        extend: bool,
+    },
+    TextMoveEnd {
+        extend: bool,
+    },
     TextSelectAll,
+    TextUndo,
+    TextRedo,
     /// A compositor text-input-v3 batch, delivered after its `done` event.
     ImeBatch {
         preedit: Option<(String, i32, i32)>,
@@ -459,7 +471,9 @@ impl Runtime {
         &self.store
     }
 
-    pub fn focused_input(&self) -> Option<NodeId> { self.focused_input }
+    pub fn focused_input(&self) -> Option<NodeId> {
+        self.focused_input
+    }
 
     pub fn input_text(&self, node: NodeId) -> Option<&str> {
         self.text_inputs.get(&node).map(|state| state.buffer.text())
@@ -470,7 +484,10 @@ impl Runtime {
             return false;
         }
         if self.focused_input != node {
-            if let Some(previous) = self.focused_input.and_then(|id| self.text_inputs.get_mut(&id)) {
+            if let Some(previous) = self
+                .focused_input
+                .and_then(|id| self.text_inputs.get_mut(&id))
+            {
                 previous.preedit = None;
             }
         }
@@ -530,6 +547,20 @@ impl Runtime {
         None
     }
 
+    pub fn hit_test_input(&self, x: i64, y: i64) -> Option<NodeId> {
+        self.module.nodes.iter().rev().find_map(|(id, node)| {
+            if !matches!(node, Node::Input { .. }) {
+                return None;
+            }
+            let rect = self.frame.rect(*id)?;
+            (x >= rect.x
+                && x < rect.x + rect.width.max(1)
+                && y >= rect.y
+                && y < rect.y + rect.height.max(1))
+            .then_some(*id)
+        })
+    }
+
     /// Process one event. Returns `true` if the application should continue.
     pub fn handle(&mut self, event: Event) -> bool {
         self.handle_inner(event, None)
@@ -544,7 +575,9 @@ impl Runtime {
     fn handle_inner(&mut self, event: Event, now_ns: Option<u64>) -> bool {
         match event {
             Event::Quit => return false,
-            Event::FocusInput(node) => { self.focus_input(node); }
+            Event::FocusInput(node) => {
+                self.focus_input(node);
+            }
             Event::SetInputValue(node, value) => {
                 if let Some(state) = self.text_inputs.get_mut(&node) {
                     state.buffer.set_text(value);
@@ -553,10 +586,26 @@ impl Runtime {
             }
             Event::TextBackspace => self.edit_focused(|state| state.buffer.delete_backward()),
             Event::TextDelete => self.edit_focused(|state| state.buffer.delete_forward()),
-            Event::TextMoveLeft { extend } => self.edit_focused(|state| state.buffer.move_left(extend)),
-            Event::TextMoveRight { extend } => self.edit_focused(|state| state.buffer.move_right(extend)),
+            Event::TextMoveLeft { extend } => {
+                self.edit_focused(|state| state.buffer.move_left(extend))
+            }
+            Event::TextMoveRight { extend } => {
+                self.edit_focused(|state| state.buffer.move_right(extend))
+            }
+            Event::TextMoveHome { extend } => {
+                self.edit_focused(|state| state.buffer.move_home(extend))
+            }
+            Event::TextMoveEnd { extend } => {
+                self.edit_focused(|state| state.buffer.move_end(extend))
+            }
             Event::TextSelectAll => self.edit_focused(|state| state.buffer.select_all()),
-            Event::ImeBatch { preedit, commit, delete } => self.apply_ime_batch(preedit, commit, delete),
+            Event::TextUndo => self.edit_focused(|state| state.buffer.undo()),
+            Event::TextRedo => self.edit_focused(|state| state.buffer.redo()),
+            Event::ImeBatch {
+                preedit,
+                commit,
+                delete,
+            } => self.apply_ime_batch(preedit, commit, delete),
             Event::Activate(action) => {
                 self.dispatch(action);
                 if let Some(now_ns) = now_ns {
@@ -566,8 +615,11 @@ impl Runtime {
                 }
             }
             Event::Character('\u{8}') => {
-                if self.focused_input.is_some() { self.edit_focused(|state| state.buffer.delete_backward()); }
-                else { self.append_text('\u{8}'); }
+                if self.focused_input.is_some() {
+                    self.edit_focused(|state| state.buffer.delete_backward());
+                } else {
+                    self.append_text('\u{8}');
+                }
             }
             Event::Character(c) if !c.is_control() && self.focused_input.is_some() => {
                 self.edit_focused(|state| state.buffer.insert(&c.to_string()));
@@ -616,7 +668,10 @@ impl Runtime {
     }
 
     fn edit_focused(&mut self, edit: impl FnOnce(&mut TextFieldState)) {
-        if let Some(state) = self.focused_input.and_then(|id| self.text_inputs.get_mut(&id)) {
+        if let Some(state) = self
+            .focused_input
+            .and_then(|id| self.text_inputs.get_mut(&id))
+        {
             edit(state);
         }
     }
@@ -628,10 +683,19 @@ impl Runtime {
         delete: Option<(u32, u32)>,
     ) {
         self.edit_focused(|state| {
-            if delete.is_some() { state.preedit = None; }
-            if let Some((before, after)) = delete { state.buffer.delete_surrounding(before, after); }
-            if let Some(text) = commit { state.buffer.insert(&text); state.preedit = None; }
-            if let Some(value) = preedit { state.preedit = (!value.0.is_empty()).then_some(value); }
+            if delete.is_some() {
+                state.preedit = None;
+            }
+            if let Some((before, after)) = delete {
+                state.buffer.delete_surrounding(before, after);
+            }
+            if let Some(text) = commit {
+                state.buffer.insert(&text);
+                state.preedit = None;
+            }
+            if let Some(value) = preedit {
+                state.preedit = (!value.0.is_empty()).then_some(value);
+            }
         });
     }
 
@@ -693,7 +757,9 @@ impl Runtime {
                         placeholder.clone()
                     } else {
                         let mut value = state.buffer.text().to_owned();
-                        if let Some((preedit, _, _)) = &state.preedit { value.push_str(preedit); }
+                        if let Some((preedit, _, _)) = &state.preedit {
+                            value.push_str(preedit);
+                        }
                         value
                     };
                     out.push(Primitive::Text(rect, value));
@@ -777,7 +843,14 @@ mod tests {
     #[test]
     fn declared_input_uses_shared_keyboard_ime_and_accessibility_edit_path() {
         let module = parse("column 1 2\ninput 2 Search\nroot 1").unwrap();
-        let mut rt = Runtime::new(module, Store::new(), Constraints { max_width: 400_000, max_height: 300_000 });
+        let mut rt = Runtime::new(
+            module,
+            Store::new(),
+            Constraints {
+                max_width: 400_000,
+                max_height: 300_000,
+            },
+        );
         assert!(rt.focus_input(Some(NodeId(2))));
         assert!(rt.handle(Event::Character('e')));
         assert!(rt.handle(Event::Character('\u{301}')));
