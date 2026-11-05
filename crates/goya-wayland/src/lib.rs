@@ -288,13 +288,11 @@ impl GoyaWindowInner {
                 context,
                 &locale,
                 xkbcommon::xkb::compose::COMPILE_NO_FLAGS,
-            ).ok()
+            )
+            .ok()
         });
         let compose_state = compose_table.as_ref().map(|table| {
-            xkbcommon::xkb::compose::State::new(
-                table,
-                xkbcommon::xkb::compose::STATE_NO_FLAGS,
-            )
+            xkbcommon::xkb::compose::State::new(table, xkbcommon::xkb::compose::STATE_NO_FLAGS)
         });
         GoyaWindowInner {
             width,
@@ -1782,8 +1780,13 @@ fn key_chars_with_compose(
     shift: bool,
     ctrl: bool,
 ) -> Vec<char> {
-    let Some(state) = xkb_state else { return Vec::new() };
-    let Some(keycode) = evdev_keycode.checked_add(8).map(xkbcommon::xkb::Keycode::new) else {
+    let Some(state) = xkb_state else {
+        return Vec::new();
+    };
+    let Some(keycode) = evdev_keycode
+        .checked_add(8)
+        .map(xkbcommon::xkb::Keycode::new)
+    else {
         return Vec::new();
     };
     let keysym = state.key_get_one_sym(keycode);
@@ -1865,7 +1868,14 @@ impl Dispatch<WlKeyboard, ()> for GoyaWindowInner {
                 if let Some(ks) = key_special(key) {
                     state.events.push(PlatformEvent::KeySpecial(ks));
                 } else {
-                    for c in key_chars(state.xkb_state.as_ref(), key, state.shift, state.ctrl) {
+                    let chars = key_chars_with_compose(
+                        state.xkb_state.as_ref(),
+                        state.compose_state.as_mut(),
+                        key,
+                        state.shift,
+                        state.ctrl,
+                    );
+                    for c in chars {
                         state.events.push(PlatformEvent::KeyChar(c));
                     }
                 }
