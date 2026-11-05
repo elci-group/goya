@@ -432,4 +432,15 @@ mod tests {
         assert!(count <= VIEW_WIDTH + 1, "window too wide: {count}");
         assert!(visible.contains('│'));
     }
+
+    #[test]
+    fn ime_preedit_is_not_committed_until_compositor_commit() {
+        let mut c = focused();
+        c.handle_ime_batch(Some(("かな".into(), 0, 6)), None, None);
+        assert_eq!(c.text(), "");
+        assert!(c.display().contains("かな"));
+        c.handle_ime_batch(None, Some("仮名"), None);
+        assert_eq!(c.text(), "仮名");
+        assert!(!c.display().contains("かな"));
+    }
 }
