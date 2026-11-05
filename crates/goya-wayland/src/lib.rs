@@ -2843,6 +2843,139 @@ mod shortcut_tests {
 }
 
 #[cfg(test)]
+mod text_input_tests {
+    use super::{text_input_activation, PlatformEvent, TextInputState};
+
+    #[test]
+    fn preedit_stays_staged_until_done_then_applies_once() {
+        let mut s = TextInputState::new();
+        s.feed_preedit(Some("ni".into()));
+        assert!(
+            s.drain().is_empty(),
+            "no protocol done yet: nothing may be applied"
+        );
+        s.feed_preedit(Some("ni hao".into()));
+        s.feed_done();
+        assert_eq!(s.drain(), vec![PlatformEvent::Preedit(Some("ni hao".into()))]);
+        // Draining again emits nothing: the frame was already applied.
+        assert!(s.drain().is_empty());
+        assert_eq!(s.applied_preedit.as_deref(), Some("ni hao"));
+    }
+
+    #[test]
+    fn preedit_none_clears_and_is_visible_after_done() {
+        let mut s = TextInputState::new();
+        s.feed_preedit(Some("abc".into()));
+        s.feed_done();
+        let _ = s.drain();
+        s.feed_preedit(None);
+        assert!(s.drain().is_empty(), "clear also waits for done");
+        s.feed_done();
+        assert_eq!(s.drain(), vec![PlatformEvent::Preedit(None)]);
+        assert_eq!(s.applied_preedit, None);
+    }
+
+    #[test]
+    fn commit_text_arrives_whole_and_before_preedit() {
+        let mut s = TextInputState::new();
+        s.feed_preedit(Some("pin".into()));
+        s.feed_commit(Some("拼".into()));
+        s.feed_done();
+        assert_eq!(
+            s.drain(),
+            vec![
+                PlatformEvent::CommitText("拼".into()),
+                PlatformEvent::Preedit(Some("pin".into()))
+            ]
+        );
+    }
+
+    #[test]
+    fn multiple_commits_keep_arrival_order() {
+        let mut s = TextInputState::new();
+        s.feed_commit(Some("a".into()));
+        s.feed_commit(Some("b".into()));
+        s.feed_commit(Some("c".into()));
+        s.feed_done();
+        assert_eq!(
+            s.drain(),
+            vec![
+                PlatformEvent::CommitText("a".into()),
+                PlatformEvent::CommitText("b".into()),
+                PlatformEvent::CommitText("c".into()),
+                PlatformEvent::Preedit(None)
+            ]
+        );
+    }
+
+    #[test]
+    fn done_without_staged_data_is_a_noop_and_empty_commit_stages_nothing() {
+        let mut s = TextInputState::new();
+        s.feed_done();
+        assert!(s.drain().is_empty());
+        // Protocol uses empty commit_string purely as frame confirmation.
+        s.feed_commit(Some(String::new()));
+        s.feed_done();
+        assert!(s.drain().is_empty());
+    }
+
+    #[test]
+    fn leave_discards_staged_frame_and_clears_applied_preedit() {
+        let mut s = TextInputState::new();
+        s.feed_preedit(Some("draft".into()));
+        s.feed_done();
+        let _ = s.drain();
+        // A staged frame lost by leave must never surface.
+        s.feed_commit(Some("x".into()));
+        s.feed_leave();
+        assert_eq!(s.drain(), vec![PlatformEvent::Preedit(None)]);
+        // Leave without applied preedit emits nothing.
+        s.feed_leave();
+        assert!(s.drain().is_empty());
+    }
+
+    #[test]
+    fn fresh_state_drains_nothing_without_compositor_traffic() {
+        let mut s = TextInputState::new();
+        assert!(s.drain().is_empty());
+        assert_eq!(s.pending_preedit, None);
+        assert!(s.committed.is_empty());
+    }
+
+    #[test]
+    fn activation_decision_noops_when_global_missing_or_state_holds() {
+        // The registry never bound a text-input global (Option::None): the
+        // activation API must be a safe no-op, not a panic or protocol error.
+        assert_eq!(text_input_activation(None, false, true), None);
+        assert_eq!(text_input_activation(None, false, false), None);
+        // Bound but already in the requested state: no protocol traffic.
+        assert_eq!(
+            text_input_activation(Some(()) /* placeholder type erased */, true, true),
+            None
+        );
+    }
+
+    #[test]
+    fn drain_only_emits_after_done_even_across_interleaved_feeds() {
+        let mut s = TextInputState::new();
+        s.feed_commit(Some("one".into()));
+        s.feed_preedit(Some("p".into()));
+        assert!(s.drain().is_empty());
+        s.feed_commit(Some("two".into()));
+        s.feed_done();
+        let events = s.drain();
+        assert_eq!(
+            events,
+            vec![
+                PlatformEvent::CommitText("one".into()),
+                PlatformEvent::CommitText("two".into()),
+                PlatformEvent::Preedit(Some("p".into()))
+            ]
+        );
+    }
+}
+
+#[cfg(test)]
 mod fill_tests {
     use super::{argb, raster_serial, resolve_fill, RasterConfig, MP_PER_PX};
     use goya_layout::Rect;
