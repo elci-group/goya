@@ -143,6 +143,21 @@ impl Composer {
         }
     }
 
+    /// Wave 5 (GY-ZCODE-005): set or clear the IME preedit from a
+    /// `PlatformEvent::Preedit` delivery (`None` = cleared). The preedit is
+    /// an overlay — it never enters the committed buffer text until the
+    /// compositor sends `CommitText`. Cursor-relative offsets default to
+    /// (0, len), i.e. the caret sits at the preedit start. No-op while
+    /// unfocused, matching [`Composer::handle_ime_batch`].
+    pub fn set_preedit(&mut self, preedit: Option<&str>) {
+        if !self.focused {
+            return;
+        }
+        self.preedit = preedit
+            .filter(|s| !s.is_empty())
+            .map(|s| (s.to_string(), 0, s.len().min(i32::MAX as usize) as i32));
+    }
+
     /// Recall a committed line from history (`-1` = previous, `+1` = next).
     /// `history_pos` walks `Some(last)` … `Some(0)` upward, then `None`
     /// restores any stashed draft.
@@ -198,7 +213,11 @@ impl Composer {
         if let Some((preedit, cursor_begin, _)) = &self.preedit {
             let mut before = chars[..cursor.min(chars.len())].to_vec();
             combined.append(&mut before);
+            // Wave 5: bracket the preedit overlay (« … ») so composing text
+            // is visually distinct from committed text in the input node.
+            combined.push('«');
             combined.extend(preedit.graphemes(true));
+            combined.push('»');
             combined.extend(chars[cursor.min(chars.len())..].iter().copied());
             let requested = if *cursor_begin < 0 {
                 preedit.len()
@@ -209,7 +228,8 @@ impl Composer {
             while !preedit.is_char_boundary(byte) {
                 byte -= 1;
             }
-            display_cursor += preedit[..byte].graphemes(true).count();
+            // +1: the cursor offset shifts past the opening « bracket.
+            display_cursor += preedit[..byte].graphemes(true).count() + 1;
             chars = combined;
         }
         let len = chars.len();
