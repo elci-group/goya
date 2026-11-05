@@ -10,6 +10,7 @@ use goya_layout::{layout, Constraints, Frame, Rect};
 use goya_rpi2::ConsentRecord;
 use goya_speculation::{Level2Prediction, Level2Predictor};
 use goya_state::{Store, Value};
+use std::collections::HashMap;
 use unicode_segmentation::UnicodeSegmentation;
 
 /// A UTF-8 text editing buffer whose cursor and selection always stay on
@@ -379,6 +380,21 @@ pub enum Event {
     Activate(ActionId),
     /// Keyboard character input routed to the focused text sink.
     Character(char),
+    /// Focus a declared editable input node; `None` clears input focus.
+    FocusInput(Option<NodeId>),
+    /// Replace the focused field's value (used by accessibility adapters).
+    SetInputValue(NodeId, String),
+    TextBackspace,
+    TextDelete,
+    TextMoveLeft { extend: bool },
+    TextMoveRight { extend: bool },
+    TextSelectAll,
+    /// A compositor text-input-v3 batch, delivered after its `done` event.
+    ImeBatch {
+        preedit: Option<(String, i32, i32)>,
+        commit: Option<String>,
+        delete: Option<(u32, u32)>,
+    },
     /// Termination requested by the platform (window close, signal).
     Quit,
 }
@@ -401,6 +417,14 @@ pub struct Runtime {
     revision_at_layout: Option<u64>,
     geometry_revision: Option<u64>,
     level2: Level2Predictor,
+    text_inputs: HashMap<NodeId, TextFieldState>,
+    focused_input: Option<NodeId>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct TextFieldState {
+    buffer: TextBuffer,
+    preedit: Option<(String, i32, i32)>,
 }
 
 impl Runtime {
@@ -413,6 +437,10 @@ impl Runtime {
             revision_at_layout: None,
             geometry_revision: Some(0),
             level2: Level2Predictor::new(),
+            text_inputs: module.nodes.iter().filter_map(|(id, node)| {
+                matches!(node, Node::Input { .. }).then_some((*id, TextFieldState::default()))
+            }).collect(),
+            focused_input: None,
         };
         rt.relayout();
         rt
@@ -424,6 +452,18 @@ impl Runtime {
 
     pub fn store(&self) -> &Store {
         &self.store
+    }
+
+    pub fn focused_input(&self) -> Option<NodeId> { self.focused_input }
+
+    pub fn input_text(&self, node: NodeId) -> Option<&str> {
+        self.text_inputs.get(&node).map(|state| state.buffer.text())
+    }
+
+    pub fn focus_input(&mut self, node: Option<NodeId>) -> bool {
+        if node.is_some_and(|id| !self.text_inputs.contains_key(&id)) { return false; }
+        self.focused_input = node;
+        true
     }
 
     /// Explicitly enable Level-2 learning. It remains inactive unless this is
@@ -492,6 +532,19 @@ impl Runtime {
     fn handle_inner(&mut self, event: Event, now_ns: Option<u64>) -> bool {
         match event {
             Event::Quit => return false,
+            Event::FocusInput(node) => { self.focus_input(node); }
+            Event::SetInputValue(node, value) => {
+                if let Some(state) = self.text_inputs.get_mut(&node) {
+                    state.buffer.set_text(value);
+                    state.preedit = None;
+                }
+            }
+            Event::TextBackspace => self.edit_focused(|state| state.buffer.delete_backward()),
+            Event::TextDelete => self.edit_focused(|state| state.buffer.delete_forward()),
+            Event::TextMoveLeft { extend } => self.edit_focused(|state| state.buffer.move_left(extend)),
+            Event::TextMoveRight { extend } => self.edit_focused(|state| state.buffer.move_right(extend)),
+            Event::TextSelectAll => self.edit_focused(|state| state.buffer.select_all()),
+            Event::ImeBatch { preedit, commit, delete } => self.apply_ime_batch(preedit, commit, delete),
             Event::Activate(action) => {
                 self.dispatch(action);
                 if let Some(now_ns) = now_ns {
@@ -499,6 +552,13 @@ impl Runtime {
                         self.level2.observe_action(action, now_ns);
                     }
                 }
+            }
+            Event::Character('\u{8}') => {
+                if self.focused_input.is_some() { self.edit_focused(|state| state.buffer.delete_backward()); }
+                else { self.append_text('\u{8}'); }
+            }
+            Event::Character(c) if !c.is_control() && self.focused_input.is_some() => {
+                self.edit_focused(|state| state.buffer.insert(&c.to_string()));
             }
             Event::Character(c) => self.append_text(c),
         }
@@ -540,6 +600,26 @@ impl Runtime {
             tx.set("typed", Value::Text(s));
             let _ = tx.commit(|_| true);
         }
+    }
+
+    fn edit_focused(&mut self, edit: impl FnOnce(&mut TextFieldState)) {
+        if let Some(state) = self.focused_input.and_then(|id| self.text_inputs.get_mut(&id)) {
+            edit(state);
+        }
+    }
+
+    fn apply_ime_batch(
+        &mut self,
+        preedit: Option<(String, i32, i32)>,
+        commit: Option<String>,
+        delete: Option<(u32, u32)>,
+    ) {
+        self.edit_focused(|state| {
+            if delete.is_some() { state.preedit = None; }
+            if let Some((before, after)) = delete { state.buffer.delete_surrounding(before, after); }
+            if let Some(text) = commit { state.buffer.insert(&text); state.preedit = None; }
+            if let Some(value) = preedit { state.preedit = (!value.0.is_empty()).then_some(value); }
+        });
     }
 
     fn relayout(&mut self) {
@@ -595,7 +675,20 @@ impl Runtime {
             // Input nodes contribute their static placeholder here. Focused
             // editable text is host-side state (GY-ZCODE/2), not runtime
             // module state, so this renderer remains deterministic.
-            Node::Input { placeholder } => out.push(Primitive::Text(rect, placeholder.clone())),
+            Node::Input { placeholder } => {
+                if let Some(state) = self.text_inputs.get(&id) {
+                    let value = if state.buffer.text().is_empty() && state.preedit.is_none() {
+                        placeholder.clone()
+                    } else {
+                        let mut value = state.buffer.text().to_owned();
+                        if let Some((preedit, _, _)) = &state.preedit { value.push_str(preedit); }
+                        value
+                    };
+                    out.push(Primitive::Text(rect, value));
+                } else {
+                    out.push(Primitive::Text(rect, placeholder.clone()));
+                }
+            }
             Node::Button { label, .. } => out.push(Primitive::Button(rect, label.clone())),
             Node::Spacer { .. } => {}
         }
