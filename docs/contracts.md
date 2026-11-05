@@ -464,9 +464,13 @@ Implemented as four new crates (all std-only, Candidate status):
 - `Residency` migration hysteresis (§6): class changes require N
   consecutive confirmations; seeded on first observation.
 - Affinity modes: OsManaged default / Advisory / Controlled (§7).
+- Linux `CpuTopology::detect_linux()` reads online CPU IDs and conservative
+  `cpu_capacity`/ACPI `highest_perf` signals. It reports topology metadata,
+  but does not pin threads or change the OS-managed renderer.
 - Temporal persistence expressed in tests (§4): cheap-but-critical scroll
   tiles → P; relaxed status indicators → E.
-- 8 tests.
+- 11 tests, including fixture-driven topology parsing; live sysfs detection is
+  opt-in and has been exercised on the current Intel Core 5 120U host.
 
 ## Integration (demonstrated in `goya-calculator`)
 - LCPE: envelopes compiled from resolved scene geometry per generation;
@@ -487,6 +491,10 @@ Implemented as four new crates (all std-only, Candidate status):
   classifications. `goya-hcar` now exposes conservative Linux topology
   detection from online-CPU `cpu_capacity` or ACPI `highest_perf` sysfs data,
   but the renderer does not yet consume that metadata or apply core affinity.
+  The opt-in live probe (`GOYA_HCAR_LIVE_TOPOLOGY=1 cargo test -p goya-hcar
+  live_linux_sysfs_topology_smoke_when_enabled -- --nocapture`) reported
+  ACPI `highest_perf`, CPUs 0–3 Performance and 4–11 Efficiency on this Intel
+  Core 5 120U host. This validates sysfs classification only.
   Process-level `taskset` measurements do not validate application affinity.
   See `evidence/GY-CSR-RASTER-INTEGRATION.json` for the unpinned baseline.
 
