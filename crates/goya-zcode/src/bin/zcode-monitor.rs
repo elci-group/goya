@@ -396,7 +396,8 @@ fn run_live(args: &Args, store: &mut SceneStore, last_mtime: &mut Option<SystemT
                         }
                     }
                 }
-                goya_wayland::PlatformEvent::KeyChar(_) | goya_wayland::PlatformEvent::KeySpecial(_) => {
+                goya_wayland::PlatformEvent::KeyChar(_)
+                | goya_wayland::PlatformEvent::KeySpecial(_) => {
                     if let Some(line) = feed_key(&mut composer, &ev) {
                         if let Ok(mut view) = handle.view.lock() {
                             view.push_line(&format!("[local] {line}"));
@@ -416,7 +417,8 @@ fn run_live(args: &Args, store: &mut SceneStore, last_mtime: &mut Option<SystemT
             }
             apply_composer_to_frame(&mut nodes, &composer);
             let prims: Vec<Primitive> = nodes.iter().map(present_node).collect();
-            let _ = win.present(&prims, [20, 20, 28], [225, 228, 236], 3);
+            let fills: Vec<Option<u32>> = nodes.iter().map(|node| node.fill).collect();
+            let _ = win.present(&prims, &fills, [225, 228, 236], [20, 20, 28], 3);
         }
         if let Some(secs) = args.duration {
             if started.elapsed() >= Duration::from_secs(secs) {
