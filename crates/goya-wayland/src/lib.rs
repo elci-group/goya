@@ -3009,6 +3009,7 @@ mod key_tests {
 #[cfg(test)]
 mod key_special_tests {
     use super::{key_special, KeySpecial};
+    use wayland_client::protocol::wl_pointer;
 
     #[test]
     fn evdev_us_subset_mapping_table() {
