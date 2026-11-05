@@ -179,6 +179,8 @@ pub struct DrawNode {
     /// Editable text field (`@input`); focus is host-side state.
     pub is_input: bool,
     pub rect: RectMp,
+    /// Effective screen clip from scrollable ancestors after applying offsets.
+    pub clip: Option<RectMp>,
     pub fill: Option<u32>,
     pub stroke: Option<u32>,
     pub stroke_width: Option<f64>,
@@ -196,9 +198,118 @@ pub struct Frame {
     index: BTreeMap<String, usize>,
 }
 
+/// Per-scene scroll offsets in millipoints. Offsets are keyed by stable cell
+/// name and are clamped to the content extent each time they are changed.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ScrollOffsets {
+    offsets: BTreeMap<String, (i64, i64)>,
+}
+
+impl ScrollOffsets {
+    pub fn get(&self, name: &str) -> (i64, i64) {
+        self.offsets.get(name).copied().unwrap_or((0, 0))
+    }
+
+    /// Scroll a viewport by millipoints. Returns false when `name` does not
+    /// identify a scrollable node; otherwise stores the clamped new offset.
+    pub fn scroll_by(&mut self, frame: &Frame, name: &str, dx: i64, dy: i64) -> bool {
+        if !frame.find(name).is_some_and(|node| node.scroll) {
+            return false;
+        }
+        let (max_x, max_y) = frame.scroll_limits(name);
+        let (x, y) = self.get(name);
+        let x = x.saturating_add(dx).clamp(0, max_x);
+        let y = y.saturating_add(dy).clamp(0, max_y);
+        self.offsets.insert(name.to_owned(), (x, y));
+        true
+    }
+}
+
 impl Frame {
     pub fn find(&self, name: &str) -> Option<&DrawNode> {
         self.index.get(name).map(|&i| &self.nodes[i])
+    }
+
+    /// Maximum horizontal and vertical offsets for a scroll viewport,
+    /// measured from all descendants in the same scene coordinate space.
+    pub fn scroll_limits(&self, name: &str) -> (i64, i64) {
+        let Some(viewport) = self.find(name).filter(|node| node.scroll) else {
+            return (0, 0);
+        };
+        let mut content_right = viewport.rect.x + viewport.rect.width;
+        let mut content_bottom = viewport.rect.y + viewport.rect.height;
+        for node in &self.nodes {
+            let mut parent = node.parent.as_deref();
+            while let Some(parent_name) = parent {
+                if parent_name == name {
+                    content_right = content_right.max(node.rect.x.saturating_add(node.rect.width));
+                    content_bottom =
+                        content_bottom.max(node.rect.y.saturating_add(node.rect.height));
+                    break;
+                }
+                parent = self.find(parent_name).and_then(|parent| parent.parent.as_deref());
+            }
+        }
+        (
+            content_right.saturating_sub(viewport.rect.x + viewport.rect.width),
+            content_bottom.saturating_sub(viewport.rect.y + viewport.rect.height),
+        )
+    }
+
+    /// Return draw nodes translated by all ancestor scroll offsets and
+    /// clipped to the intersection of their scrollable ancestors.
+    pub fn scrolled_nodes(&self, offsets: &ScrollOffsets) -> Vec<DrawNode> {
+        self.nodes
+            .iter()
+            .map(|node| {
+                let mut translated = node.clone();
+                let mut shift_x = 0i64;
+                let mut shift_y = 0i64;
+                let mut clips: Vec<RectMp> = Vec::new();
+                let mut chain = Vec::new();
+                let mut parent = node.parent.as_deref();
+                while let Some(parent_name) = parent {
+                    if let Some(parent_node) = self.find(parent_name) {
+                        chain.push(parent_node);
+                        parent = parent_node.parent.as_deref();
+                    } else {
+                        break;
+                    }
+                }
+                chain.reverse();
+                for ancestor in chain {
+                    let visual_rect = RectMp {
+                        x: ancestor.rect.x - shift_x,
+                        y: ancestor.rect.y - shift_y,
+                        width: ancestor.rect.width,
+                        height: ancestor.rect.height,
+                    };
+                    if ancestor.scroll {
+                        clips.push(visual_rect);
+                        let (dx, dy) = offsets.get(&ancestor.name);
+                        shift_x = shift_x.saturating_add(dx);
+                        shift_y = shift_y.saturating_add(dy);
+                    }
+                }
+                translated.rect.x = translated.rect.x.saturating_sub(shift_x);
+                translated.rect.y = translated.rect.y.saturating_sub(shift_y);
+                translated.clip = clips.into_iter().reduce(intersect_rects);
+                translated
+            })
+            .collect()
+    }
+
+    /// Find the topmost visible scroll viewport under a screen point.
+    pub fn scroll_target_at(
+        &self,
+        offsets: &ScrollOffsets,
+        x: i64,
+        y: i64,
+    ) -> Option<String> {
+        self.scrolled_nodes(offsets).into_iter().rev().find_map(|node| {
+            (node.scroll && contains_point(node.rect, x, y) && node.clip.is_none_or(|clip| contains_point(clip, x, y)))
+                .then_some(node.name)
+        })
     }
 
     fn insert(&mut self, node: DrawNode) {
@@ -245,6 +356,7 @@ fn resolve_cell(
         is_button: cell.kind == CellKind::Button,
         is_input: cell.is_input,
         rect,
+        clip: None,
         fill: cell.fill,
         stroke: cell.stroke,
         stroke_width: cell.stroke_width,
@@ -255,6 +367,26 @@ fn resolve_cell(
     });
     for child in &cell.children {
         resolve_cell(child, rect, frame, Some(&cell.name), cell.scroll);
+    }
+}
+
+fn contains_point(rect: RectMp, x: i64, y: i64) -> bool {
+    x >= rect.x
+        && x < rect.x.saturating_add(rect.width)
+        && y >= rect.y
+        && y < rect.y.saturating_add(rect.height)
+}
+
+fn intersect_rects(a: RectMp, b: RectMp) -> RectMp {
+    let x = a.x.max(b.x);
+    let y = a.y.max(b.y);
+    let right = a.x.saturating_add(a.width).min(b.x.saturating_add(b.width));
+    let bottom = a.y.saturating_add(a.height).min(b.y.saturating_add(b.height));
+    RectMp {
+        x,
+        y,
+        width: right.saturating_sub(x).max(0),
+        height: bottom.saturating_sub(y).max(0),
     }
 }
 
@@ -374,7 +506,17 @@ fn resolve_rect(cell: &SceneCell, parent: RectMp, allow_overflow: bool) -> RectM
 /// Topmost interactive element under a point (millipoints), searching
 /// depth-first with later-drawn (deeper) nodes winning.
 pub fn hit_test(frame: &Frame, x: i64, y: i64) -> Option<String> {
-    for node in frame.nodes.iter().rev() {
+    hit_test_scrolled(frame, &ScrollOffsets::default(), x, y)
+}
+
+/// Hit test a scene after applying scroll offsets and ancestor clipping.
+pub fn hit_test_scrolled(
+    frame: &Frame,
+    offsets: &ScrollOffsets,
+    x: i64,
+    y: i64,
+) -> Option<String> {
+    for node in frame.scrolled_nodes(offsets).iter().rev() {
         // Interactive: buttons activate; inputs are focus targets (host-side
         // focus state, Wave 2 composer).
         if (node.is_button || node.is_input)
@@ -382,6 +524,7 @@ pub fn hit_test(frame: &Frame, x: i64, y: i64) -> Option<String> {
             && x < node.rect.x + node.rect.width
             && y >= node.rect.y
             && y < node.rect.y + node.rect.height
+            && node.clip.is_none_or(|clip| contains_point(clip, x, y))
         {
             return Some(node.name.clone());
         }
