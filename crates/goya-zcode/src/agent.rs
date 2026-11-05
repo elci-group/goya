@@ -161,7 +161,8 @@ impl AgentRun {
         let reader_stop = Arc::clone(&self.handle.stop);
         let reader_done = Arc::new(AtomicBool::new(false));
         let thread_done = Arc::clone(&reader_done);
-        let session_id = session.clone();
+        let session_filter = Arc::new(Mutex::new(None::<String>));
+        let reader_filter = Arc::clone(&session_filter);
         std::thread::spawn(move || {
             read_frames(
                 BufReader::new(stdout),
@@ -169,7 +170,7 @@ impl AgentRun {
                 reader_view,
                 reader_dirty,
                 reader_stop,
-                session_id,
+                reader_filter,
             );
             thread_done.store(true, Ordering::Release);
         });
@@ -204,6 +205,9 @@ impl AgentRun {
             self.set_view(|v| v.status = "session not found".to_string());
             return Ok(());
         };
+        if let Ok(mut filter) = session_filter.lock() {
+            *filter = Some(target.session_id.clone());
+        }
         self.set_view(|v| {
             v.sessions = entries.clone();
             v.title = target.title.clone();
@@ -265,7 +269,7 @@ fn read_frames(
     view: Arc<Mutex<SessionView>>,
     dirty: Arc<AtomicBool>,
     stop: Arc<AtomicBool>,
-    session_id: Option<String>,
+    session_filter: Arc<Mutex<Option<String>>>,
 ) {
     for line in reader.lines() {
         if stop.load(Ordering::Relaxed) {
@@ -300,9 +304,13 @@ fn read_frames(
         }
         if msg.get("method").and_then(Value::as_str) == Some("session/event") {
             let envelope = msg.get("params").unwrap_or(&Value::Null);
-            let matches_session = session_id
-                .as_deref()
-                .is_none_or(|id| envelope.get("sessionId").and_then(Value::as_str) == Some(id));
+            let matches_session = session_filter
+                .lock()
+                .ok()
+                .and_then(|filter| filter.clone())
+                .is_none_or(|id| {
+                    envelope.get("sessionId").and_then(Value::as_str) == Some(id.as_str())
+                });
             if matches_session {
                 if let Some(event) = map_event(envelope) {
                     if let Ok(mut v) = view.lock() {
