@@ -35,6 +35,10 @@ use wayland_protocols::xdg::shell::client::{
     xdg_toplevel::{self, XdgToplevel},
     xdg_wm_base::{self, XdgWmBase},
 };
+use wayland_protocols::wp::text_input::zv3::{
+    zwp_text_input_manager_v3::{self, ZwpTextInputManagerV3},
+    zwp_text_input_v3::{self, ZwpTextInputV3},
+};
 
 /// Contract identifier implemented by this crate.
 pub const WAYLAND_CONTRACT: &str = "GY-WAYLAND/1";
@@ -43,7 +47,7 @@ pub const WAYLAND_CONTRACT: &str = "GY-WAYLAND/1";
 pub const MP_PER_PX: i64 = 250;
 
 /// Pointer/button events translated from the compositor, surface-local.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum PlatformEvent {
     PointerMove(f64, f64),
     PointerPress(f64, f64),
@@ -56,6 +60,14 @@ pub enum PlatformEvent {
     /// positive = wheel up, negative = wheel down. Devices that never emit a
     /// vertical axis produce nothing.
     PointerScroll(i32),
+    /// Atomic text-input-v3 update. Consumers remove old preedit, apply
+    /// surrounding deletion, insert commit text, then install new preedit.
+    ImeBatch {
+        serial: u32,
+        preedit: Option<(String, i32, i32)>,
+        commit: Option<String>,
+        delete: Option<(u32, u32)>,
+    },
     /// Compositor resized the window to new pixel dimensions.
     Resized(i32, i32),
     Configured,
@@ -246,6 +258,11 @@ struct GoyaWindowInner {
     last_pointer: Option<(f64, f64)>,
     xkb_context: Option<xkbcommon::xkb::Context>,
     xkb_state: Option<xkbcommon::xkb::State>,
+    text_input_manager: Option<ZwpTextInputManagerV3>,
+    text_input: Option<ZwpTextInputV3>,
+    ime_preedit: Option<(String, i32, i32)>,
+    ime_commit: Option<String>,
+    ime_delete: Option<(u32, u32)>,
     shift: bool,
     ctrl: bool,
     buffers: Option<BufferPair>,
@@ -277,6 +294,11 @@ impl GoyaWindowInner {
             last_pointer: None,
             xkb_context: Some(xkbcommon::xkb::Context::new(0)),
             xkb_state: None,
+            text_input_manager: None,
+            text_input: None,
+            ime_preedit: None,
+            ime_commit: None,
+            ime_delete: None,
             shift: false,
             ctrl: false,
             buffers: None,
@@ -316,12 +338,16 @@ impl GoyaWindow {
         let mut shm: Option<WlShm> = None;
         let mut seat: Option<WlSeat> = None;
         let mut wm_base: Option<XdgWmBase> = None;
+        let mut text_input_manager: Option<ZwpTextInputManagerV3> = None;
         for (name, interface) in &state.globals {
             match interface.as_str() {
                 "wl_compositor" => compositor = Some(_registry.bind(*name, 1, &qh, ())),
                 "wl_shm" => shm = Some(_registry.bind(*name, 1, &qh, ())),
                 "wl_seat" => seat = Some(_registry.bind(*name, 1, &qh, ())),
                 "xdg_wm_base" => wm_base = Some(_registry.bind(*name, 1, &qh, ())),
+                "zwp_text_input_manager_v3" => {
+                    text_input_manager = Some(_registry.bind(*name, 1, &qh, ()))
+                }
                 _ => {}
             }
         }
@@ -342,6 +368,7 @@ impl GoyaWindow {
         state.shm = Some(shm.clone());
         state.xdg_wm_base = Some(wm_base.clone());
         state.seat = seat.clone();
+        state.text_input_manager = text_input_manager;
         // Initial commit: the compositor responds with a configure.
         surface.commit();
 
@@ -364,6 +391,9 @@ impl GoyaWindow {
         if let Some(seat) = seat {
             state.pointer = Some(seat.get_pointer(&qh, ()));
             state.keyboard = Some(seat.get_keyboard(&qh, ()));
+            if let Some(manager) = &state.text_input_manager {
+                state.text_input = Some(manager.get_text_input(&seat, &qh, ()))
+            }
         }
 
         Ok(GoyaWindow { state, queue })

@@ -11,6 +11,6 @@ goya-change.workspace = true
 goya-csr.workspace = true
 goya-hcar.workspace = true
 wayland-client = "0.31"
-wayland-protocols = { version = "0.32", features = ["client"] }
+wayland-protocols = { version = "0.32", features = ["client", "unstable"] }
 rustix = { version = "0.38", features = ["fs", "mm", "std"] }
 xkbcommon = { version = "0.9", default-features = false, features = ["wayland"] }
