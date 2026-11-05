@@ -24,6 +24,10 @@ pub struct Composer {
     /// Shared platform-neutral editing state used by keyboard, IME, and
     /// accessibility input paths.
     pub buffer: goya_runtime::TextBuffer,
+    /// IME composition is kept out of committed buffer text until the
+    /// compositor sends commit_string. The byte cursor range is protocol
+    /// relative to the preedit string.
+    pub preedit: Option<(String, i32, i32)>,
     /// Whether the composer receives key input.
     pub focused: bool,
     /// Committed lines, newest last; arrow-up/down recall them.
@@ -107,6 +111,28 @@ impl Composer {
         }
     }
 
+    /// Apply one text-input-v3 done batch in protocol order. Preedit remains
+    /// an overlay; delete and commit edits go through the shared TextBuffer.
+    pub fn handle_ime_batch(
+        &mut self,
+        preedit: Option<(String, i32, i32)>,
+        commit: Option<&str>,
+        delete: Option<(u32, u32)>,
+    ) {
+        if !self.focused { return; }
+        if delete.is_some() { self.preedit = None; }
+        if let Some((before, after)) = delete {
+            self.buffer.delete_surrounding(before, after);
+        }
+        if let Some(text) = commit {
+            self.buffer.insert(text);
+            self.preedit = None;
+        }
+        if let Some(preedit) = preedit {
+            self.preedit = (!preedit.0.is_empty()).then_some(preedit);
+        }
+    }
+
     /// Recall a committed line from history (`-1` = previous, `+1` = next).
     /// `history_pos` walks `Some(last)` … `Some(0)` upward, then `None`
     /// restores any stashed draft.
@@ -155,9 +181,18 @@ impl Composer {
     /// Rendered text for the input node: a `VIEW_WIDTH`-char window around
     /// the cursor with a `│` cursor marker inserted at the cursor position.
     pub fn display(&self) -> String {
-        let chars = self.buffer.graphemes();
+        let mut chars = self.buffer.graphemes();
+        let mut combined = Vec::new();
+        let cursor = self.cursor_grapheme();
+        if let Some((preedit, _, _)) = &self.preedit {
+            let mut before = chars[..cursor.min(chars.len())].to_vec();
+            combined.append(&mut before);
+            combined.extend(preedit.graphemes(true));
+            combined.extend(chars[cursor.min(chars.len())..].iter().copied());
+            chars = combined;
+        }
         let len = chars.len();
-        let cursor = self.cursor_grapheme().min(len);
+        let cursor = cursor.min(len);
         // Keep ~2/3 of the window before the cursor when possible.
         let half_before = VIEW_WIDTH * 2 / 3;
         let start = cursor
