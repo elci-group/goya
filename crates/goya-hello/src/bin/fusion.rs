@@ -324,7 +324,7 @@ fn live_loop() -> Result<(), String> {
             Polarity::Dark => [235, 235, 240],
             Polarity::Light => [30, 30, 36],
         };
-        let _ = win.present(&prims, fg, bg, 2);
+        let _ = win.present(&prims, &[], fg, bg, 2);
         win.pump(1);
         frames += 1;
     }

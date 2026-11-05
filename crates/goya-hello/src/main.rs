@@ -232,7 +232,7 @@ fn run_live() -> Result<(), String> {
                 _ => {}
             }
         }
-        let _ = win.present(&rt.render_list(), [235, 235, 240], [24, 24, 28], 2);
+        let _ = win.present(&rt.render_list(), &[], [235, 235, 240], [24, 24, 28], 2);
         win.pump(1);
         frames += 1;
     }

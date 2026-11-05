@@ -217,7 +217,7 @@ fn main() {
         }
         let frame = layout(store.get(), 400.0, 150.0);
         let prims: Vec<Primitive> = frame.nodes.iter().map(present_node).collect();
-        let _ = win.present(&prims, [235, 235, 240], [20, 20, 28], 3);
+        let _ = win.present(&prims, &[], [235, 235, 240], [20, 20, 28], 3);
         win.pump(1);
         // Watch cadence: ~60 fps is pointless for file polling; keep the
         // frame budget long enough to catch edits.
