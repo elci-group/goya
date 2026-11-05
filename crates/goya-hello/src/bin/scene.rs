@@ -225,7 +225,7 @@ fn main() {
                     }
                 }
                 goya_wayland::PlatformEvent::PointerMove(x, y) => pointer = Some((x, y)),
-                goya_wayland::PlatformEvent::PointerScroll(lines) => {
+                goya_wayland::PlatformEvent::PointerScrollDelta { x: dx, y: dy } => {
                     if let Some((x, y)) = pointer {
                         let x = (x as i64) * goya_wayland::MP_PER_PX;
                         let y = (y as i64) * goya_wayland::MP_PER_PX;
@@ -233,8 +233,8 @@ fn main() {
                             let _ = scroll_offsets.scroll_by(
                                 &event_frame,
                                 &target,
-                                0,
-                                -i64::from(lines).saturating_mul(40_000),
+                                (-dx * goya_wayland::MP_PER_PX as f64) as i64,
+                                (-dy * goya_wayland::MP_PER_PX as f64) as i64,
                             );
                         }
                     }
