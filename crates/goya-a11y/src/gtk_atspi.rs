@@ -128,7 +128,9 @@ impl GtkAtspiBridge {
                     if let Some(snapshot) = latest {
                         let mut current_tree = tree.borrow_mut();
                         if same_structure(&current_tree, &snapshot) {
-                            update_widgets(&snapshot, &widgets.borrow());
+                            suppress_actions.set(true);
+                            update_widgets(&current_tree, &snapshot, &widgets.borrow());
+                            suppress_actions.set(false);
                             if projected_focus_changed(&current_tree, &snapshot) {
                                 if let Some(widget) = snapshot
                                     .iter()
@@ -414,6 +416,9 @@ fn make_node(
         A11yRole::TextInput => {
             let entry = Entry::new();
             entry.set_placeholder_text(Some(&node.accessible_name));
+            if let Some(value) = node.semantics.value.as_deref() {
+                entry.set_text(value);
+            }
             let action = on_action.clone();
             let action_id = id.clone();
             let suppress = suppress_actions.clone();
@@ -499,7 +504,7 @@ fn projected_focus_changed(old: &A11yTree, new: &A11yTree) -> bool {
     focused(old) != focused(new)
 }
 
-fn update_widgets(tree: &A11yTree, widgets: &HashMap<String, Widget>) {
+fn update_widgets(old: &A11yTree, tree: &A11yTree, widgets: &HashMap<String, Widget>) {
     for node in tree.iter() {
         let Some(widget) = widgets.get(&node.id) else {
             continue;
@@ -530,6 +535,19 @@ fn update_widgets(tree: &A11yTree, widgets: &HashMap<String, Widget>) {
             A11yRole::TextInput => {
                 if let Some(entry) = widget.downcast_ref::<Entry>() {
                     entry.set_placeholder_text(Some(&node.accessible_name));
+                    let old_value = old.get(&node.id).and_then(|old| old.semantics.value.as_deref());
+                    if node.semantics.value.as_deref() != old_value {
+                        if let Some(value) = node.semantics.value.as_deref() {
+                            let position = entry.position();
+                            let selection = entry.selection_bounds();
+                            entry.set_text(value);
+                            if let Some((start, end)) = selection {
+                                entry.select_region(start, end);
+                            } else {
+                                entry.set_position(position.min(value.chars().count() as i32));
+                            }
+                        }
+                    }
                 }
             }
             A11yRole::MenuItem => {
