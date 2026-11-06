@@ -265,7 +265,7 @@ fn run_live(store: &mut SceneStore) -> Result<(), String> {
             let nodes = with_calendar_data(nodes, &cal);
             let prims = present_nodes(&nodes);
             let fills: Vec<Option<u32>> = nodes.iter().map(|node| node.fill).collect();
-            let _ = win.present(&prims, &fills, [235, 235, 240], [20, 20, 28], 3);
+            let _ = win.present(&prims, &fills, &[], [235, 235, 240], [20, 20, 28], 3);
             presents += 1;
             dirty = false;
         }

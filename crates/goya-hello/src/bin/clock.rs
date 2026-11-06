@@ -394,7 +394,7 @@ fn live_loop(store: &mut SceneStore) {
             let nodes = layout(store.get(), SCENE_W_PT, SCENE_H_PT).nodes;
             let nodes = with_display(nodes, &clock.time_text(), &clock.day_text());
             let (prims, fills) = present_nodes(&nodes);
-            let _ = win.present(&prims, &fills, [235, 235, 240], [16, 16, 24], 4);
+            let _ = win.present(&prims, &fills, &[], [235, 235, 240], [16, 16, 24], 4);
             presents += 1;
             dirty = false;
         }

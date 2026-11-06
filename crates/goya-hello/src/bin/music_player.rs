@@ -271,7 +271,7 @@ fn main() {
             let nodes = with_state(nodes, &player);
             let prims = present_nodes(&nodes);
             let fills: Vec<Option<u32>> = nodes.iter().map(|node| node.fill).collect();
-            let _ = win.present(&prims, &fills, [235, 235, 240], [16, 16, 24], 4);
+            let _ = win.present(&prims, &fills, &[], [235, 235, 240], [16, 16, 24], 4);
             dirty = false;
         }
         win.pump(1);

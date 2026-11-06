@@ -283,7 +283,7 @@ fn run_live() -> Result<(), String> {
         } else {
             win.set_text_input_state(false, "", 0, 0, (0, 0, 0, 0));
             let primitives = rt.render_list();
-            let _ = win.present(&primitives, &[], [235, 235, 240], [24, 24, 28], 2);
+            let _ = win.present(&primitives, &[], &[], [235, 235, 240], [24, 24, 28], 2);
         }
         win.pump(1);
         frames += 1;
