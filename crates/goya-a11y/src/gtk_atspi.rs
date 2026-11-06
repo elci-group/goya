@@ -447,7 +447,11 @@ fn make_node(
             scale.set_draw_value(true);
             let action = on_action.clone();
             let action_id = id.clone();
+            let suppress = suppress_actions.clone();
             scale.connect_value_changed(move |scale| {
+                if suppress.get() {
+                    return;
+                }
                 action(
                     action_id.clone(),
                     AtAction::SetValue(scale.value().to_string()),
