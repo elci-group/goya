@@ -14,9 +14,11 @@ import android.view.inputmethod.InputMethodManager
  * Android's editor-facing connection for Goya input nodes.
  *
  * This class owns no Editable and no committed text. Every read comes from a
- * fresh Rust-owned [EditorSnapshot], and every edit is forwarded through
- * [GoyaImeAdapter]. Calls must remain serialized on the runtime's editor
- * thread for the duration of each method, as required by the bridge contract.
+ * fresh runtime-owned [EditorSnapshot], and every edit is forwarded through
+ * [GoyaImeAdapter]. Snapshot text, selection offsets, and composing offsets all
+ * refer to the same displayed text, including any active preedit. Calls must
+ * remain serialized on the runtime's editor thread for the duration of each
+ * method, as required by the bridge contract.
  */
 class GoyaInputConnection(
     private val targetView: View,
