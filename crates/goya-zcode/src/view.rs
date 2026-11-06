@@ -277,6 +277,48 @@ impl SessionView {
         }
     }
 
+    /// Wave 6 (GY-ZCODE-006): move the selection by `delta` entries,
+    /// wrapping in both directions. Returns the newly selected entry, or
+    /// `None` when the sessions list is empty (selection unchanged).
+    pub fn cycle_selection(&mut self, delta: isize) -> Option<&SessionEntry> {
+        let len = self.sessions.len();
+        if len == 0 {
+            return None;
+        }
+        let idx = (self.selected as isize + delta).rem_euclid(len as isize) as usize;
+        self.selected = idx;
+        self.sessions.get(idx)
+    }
+
+    /// Wave 6: clear all session-scoped transcript state — tail, history,
+    /// streaming buffer, scroll position and the in-flight/finished tool
+    /// trackers. Called on session switch (per the frozen contract the
+    /// transcript is not retained per session yet). Link state, the
+    /// sessions list, the selection index and the `markdown` toggle are
+    /// deliberately kept.
+    pub fn reset_transcript(&mut self) {
+        self.tail.clear();
+        self.history.clear();
+        self.streaming.clear();
+        self.scroll = ScrollState::default();
+        self.in_flight_tools.clear();
+        self.finished_tools.clear();
+    }
+
+    /// Wave 6: the status text shown while a switch is in flight —
+    /// `"<n>/<m> switching session…"` (1-based index into the sessions
+    /// list). Falls back to the bare hint when the list is empty.
+    pub fn switching_status(&self) -> String {
+        if self.sessions.is_empty() {
+            return String::from("switching session…");
+        }
+        format!(
+            "{}/{} switching session…",
+            self.selected + 1,
+            self.sessions.len()
+        )
+    }
+
     /// The exactly-`TAIL_LINES` rows rendered into the scene, newest last.
     /// At `scroll == 0` this is the live tail (plus streaming preview);
     /// when scrolled back it is the `TAIL_LINES` window ending at
