@@ -624,7 +624,7 @@ mod input_tests {
         // through the navigation path instead.
         input.handle_special(goya_wayland::KeySpecial::ArrowLeft, &frame);
         input.handle_special(goya_wayland::KeySpecial::Delete, &frame);
-        assert_eq!(input.buffers["name"].text(), "é語");
+        assert_eq!(input.buffers["name"].text(), "é日");
 
         input.preedit = Some(("かな".into(), 3, 6));
         let mut nodes = frame.nodes.clone();

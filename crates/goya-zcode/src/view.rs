@@ -718,9 +718,10 @@ mod tests {
     }
 
     fn view_with_sessions() -> SessionView {
-        let mut view = SessionView::default();
-        view.sessions = vec![entry("a"), entry("b"), entry("c")];
-        view
+        SessionView {
+            sessions: vec![entry("a"), entry("b"), entry("c")],
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -788,7 +789,7 @@ mod tests {
         assert!(view.in_flight_tools.is_empty());
         assert!(view.finished_tools.is_empty());
         assert_eq!(view.scroll_from_bottom(), 0);
-        assert_eq!(view.rows().iter().all(|r| r.is_empty()), true);
+        assert!(view.rows().iter().all(|r| r.is_empty()));
         // Link, markdown toggle, sessions list and selection are kept.
         assert_eq!(view.link, LinkState::Up);
         assert!(!view.markdown);
