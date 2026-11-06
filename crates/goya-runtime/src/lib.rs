@@ -427,6 +427,18 @@ pub enum Event {
         anchor_byte: usize,
         cursor_byte: usize,
     },
+    /// Mark a composition span without moving or changing the selection.
+    /// Endpoints are UTF-8 byte offsets and are snapped to grapheme boundaries.
+    SetCompositionRegion {
+        node: NodeId,
+        start_byte: usize,
+        end_byte: usize,
+    },
+    /// Atomically commit text and place the caret within the inserted text.
+    CommitInputText {
+        text: String,
+        cursor_byte_in_text: usize,
+    },
     /// Finalize any active IME preedit as committed text.
     FinishComposition,
     TextBackspace,
@@ -473,6 +485,8 @@ pub struct TextDecoration {
     pub primitive_index: usize,
     pub caret_byte_offset: Option<usize>,
     pub selection_byte_range: Option<(usize, usize)>,
+    /// UTF-8 byte span that the active IME is composing, in displayed text.
+    pub composition_byte_range: Option<(usize, usize)>,
 }
 
 /// Interactive scene target under a pointer, preserving draw order.
@@ -500,6 +514,7 @@ pub struct Runtime {
 struct TextFieldState {
     buffer: TextBuffer,
     preedit: Option<(String, i32, i32)>,
+    composition_region: Option<std::ops::Range<usize>>,
 }
 
 impl Runtime {
@@ -671,6 +686,7 @@ impl Runtime {
                 if let Some(state) = self.text_inputs.get_mut(&node) {
                     state.buffer.set_text(value);
                     state.preedit = None;
+                    state.composition_region = None;
                 }
             }
             Event::SetInputSelection {
@@ -685,20 +701,38 @@ impl Runtime {
                 }
             }
             Event::FinishComposition => self.edit_focused(|state| {
-                if let Some((text, cursor_begin, _)) = state.preedit.take() {
-                    let insertion_start = state
-                        .buffer
-                        .selection_bytes()
-                        .map_or(state.buffer.cursor_byte(), |range| range.start);
-                    state.buffer.insert(&text);
-                    let preedit_cursor = if cursor_begin >= 0 {
-                        grapheme_boundary_at_or_before(&text, cursor_begin as usize)
-                    } else {
-                        0
-                    };
-                    let cursor = insertion_start + preedit_cursor;
-                    state.buffer.set_selection(cursor, cursor);
+                finish_composition(state);
+            }),
+            Event::SetCompositionRegion {
+                node,
+                start_byte,
+                end_byte,
+            } => {
+                if self.focused_input == Some(node) {
+                    if let Some(state) = self.text_inputs.get_mut(&node) {
+                        finish_composition(state);
+                        let start = grapheme_boundary_at_or_before(&state.buffer.text, start_byte);
+                        let end = grapheme_boundary_at_or_before(&state.buffer.text, end_byte);
+                        let region = start.min(end)..start.max(end);
+                        state.composition_region = (region.start < region.end).then_some(region);
+                    }
                 }
+            }
+            Event::CommitInputText {
+                text,
+                cursor_byte_in_text,
+            } => self.edit_focused(|state| {
+                let range = state
+                    .composition_region
+                    .take()
+                    .or_else(|| state.buffer.selection_bytes())
+                    .unwrap_or_else(|| state.buffer.cursor_byte()..state.buffer.cursor_byte());
+                state.preedit = None;
+                let inserted = text.clone();
+                state.buffer.replace_range(range.clone(), &text);
+                let cursor = range.start
+                    + grapheme_boundary_at_or_before(&inserted, cursor_byte_in_text);
+                state.buffer.set_selection(cursor, cursor);
             }),
             Event::TextBackspace => self.edit_focused(|state| state.buffer.delete_backward()),
             Event::TextDelete => self.edit_focused(|state| state.buffer.delete_forward()),
