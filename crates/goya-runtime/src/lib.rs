@@ -27,7 +27,10 @@ pub struct TextBuffer {
 
 #[cfg(test)]
 mod text_and_scroll_tests {
-    use super::{ScrollState, TextBuffer};
+    use super::{Event, Runtime, ScrollState, TextBuffer};
+    use goya_ir::{Module, Node, NodeId};
+    use goya_layout::Constraints;
+    use goya_state::Store;
 
     #[test]
     fn text_buffer_edits_extended_graphemes_without_splitting_utf8() {
@@ -88,6 +91,80 @@ mod text_and_scroll_tests {
         assert_eq!(scroll.offset(), (60.0, 400.0));
         scroll.set_geometry(0.0, 20.0, 40.0, 100.0);
         assert_eq!(scroll.offset(), (0.0, 0.0));
+    }
+
+    #[test]
+    fn runtime_scroll_events_update_registered_node_state() {
+        let node = NodeId(1);
+        let mut runtime = Runtime::new(
+            Module {
+                nodes: vec![(
+                    node,
+                    Node::Text {
+                        content: "content".into(),
+                    },
+                )],
+                root: Some(node),
+            },
+            Store::new(),
+            Constraints {
+                max_width: 100_000,
+                max_height: 100_000,
+            },
+        );
+
+        assert!(runtime.set_scroll_geometry(node, 500.0, 800.0, 100.0, 200.0));
+        assert!(runtime.handle(Event::Scroll {
+            node,
+            delta_x: 30.0,
+            delta_y: 250.0
+        }));
+        assert_eq!(runtime.scroll_state(node).unwrap().offset(), (30.0, 250.0));
+
+        assert!(runtime.handle(Event::Scroll {
+            node,
+            delta_x: 10_000.0,
+            delta_y: 10_000.0
+        }));
+        assert_eq!(runtime.scroll_state(node).unwrap().offset(), (400.0, 600.0));
+    }
+
+    #[test]
+    fn runtime_scroll_geometry_clamps_existing_offsets_and_rejects_unknown_nodes() {
+        let node = NodeId(1);
+        let mut runtime = Runtime::new(
+            Module {
+                nodes: vec![(
+                    node,
+                    Node::Text {
+                        content: "content".into(),
+                    },
+                )],
+                root: Some(node),
+            },
+            Store::new(),
+            Constraints {
+                max_width: 100_000,
+                max_height: 100_000,
+            },
+        );
+
+        assert!(!runtime.set_scroll_geometry(NodeId(99), 500.0, 800.0, 100.0, 200.0));
+        assert!(runtime.scroll_state(node).is_none());
+        assert!(runtime.set_scroll_geometry(node, 500.0, 800.0, 100.0, 200.0));
+        runtime.handle(Event::Scroll {
+            node,
+            delta_x: 300.0,
+            delta_y: 500.0,
+        });
+        assert!(runtime.set_scroll_geometry(node, 200.0, 250.0, 100.0, 200.0));
+        assert_eq!(runtime.scroll_state(node).unwrap().offset(), (100.0, 50.0));
+        assert!(runtime.handle(Event::Scroll {
+            node: NodeId(99),
+            delta_x: 50.0,
+            delta_y: 50.0
+        }));
+        assert!(runtime.scroll_state(NodeId(99)).is_none());
     }
 }
 
@@ -536,6 +613,14 @@ pub const RUNTIME_CONTRACT: &str = "GY-RUNTIME/1";
 pub enum Event {
     /// A hit on a node that maps to an action (e.g. button press).
     Activate(ActionId),
+    /// Scroll a registered node by content-space units. Positive deltas move
+    /// toward the content's right/bottom; hosts translate native units before
+    /// dispatch. Unregistered or unknown nodes are ignored.
+    Scroll {
+        node: NodeId,
+        delta_x: f64,
+        delta_y: f64,
+    },
     /// Keyboard character input routed to the focused text sink.
     Character(char),
     /// Focus a declared editable input node; `None` clears input focus.
@@ -646,6 +731,7 @@ pub struct Runtime {
     level2: Level2Predictor,
     text_inputs: HashMap<NodeId, TextFieldState>,
     focused_input: Option<NodeId>,
+    scroll_states: HashMap<NodeId, ScrollState>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -695,6 +781,7 @@ impl Runtime {
             level2: Level2Predictor::new(),
             text_inputs,
             focused_input: None,
+            scroll_states: HashMap::new(),
         };
         rt.relayout();
         rt
@@ -710,6 +797,34 @@ impl Runtime {
 
     pub fn focused_input(&self) -> Option<NodeId> {
         self.focused_input
+    }
+
+    /// Register or update a node's scroll geometry. Returns `false` for a
+    /// node not present in the module. Existing offsets are clamped whenever
+    /// geometry changes.
+    pub fn set_scroll_geometry(
+        &mut self,
+        node: NodeId,
+        content_width: f64,
+        content_height: f64,
+        viewport_width: f64,
+        viewport_height: f64,
+    ) -> bool {
+        if self.module.node(node).is_none() {
+            return false;
+        }
+        self.scroll_states.entry(node).or_default().set_geometry(
+            content_width,
+            content_height,
+            viewport_width,
+            viewport_height,
+        );
+        true
+    }
+
+    /// Read the registered scroll state for a module node.
+    pub fn scroll_state(&self, node: NodeId) -> Option<ScrollState> {
+        self.scroll_states.get(&node).copied()
     }
 
     pub fn input_text(&self, node: NodeId) -> Option<&str> {
@@ -896,6 +1011,15 @@ impl Runtime {
     fn handle_inner(&mut self, event: Event, now_ns: Option<u64>) -> bool {
         match event {
             Event::Quit => return false,
+            Event::Scroll {
+                node,
+                delta_x,
+                delta_y,
+            } => {
+                if let Some(state) = self.scroll_states.get_mut(&node) {
+                    state.scroll_by(delta_x, delta_y);
+                }
+            }
             Event::FocusInput(node) => {
                 self.focus_input(node);
             }

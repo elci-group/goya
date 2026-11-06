@@ -54,7 +54,13 @@ required for changes). See GOYA directive §8.3.
   `FinishComposition` commits the preedit, while focus loss cancels it.
   `CommitInputText` applies text and its caret position atomically. Platform
   surrounding deletion preserves the selected range. `ScrollState` provides
-  clamped two-axis content/viewport offsets.
+  clamped two-axis content/viewport offsets. `Runtime::set_scroll_geometry`
+  registers or updates scroll geometry for a declared node, and
+  `Runtime::scroll_state` reads its current state. `Event::Scroll` applies
+  content-space deltas to a registered node; positive deltas move toward the
+  content's right and bottom edges. Platform hosts convert their native delta
+  units before dispatch. Unknown or unregistered nodes are ignored, and
+  geometry changes clamp existing offsets.
 
 ## Capability schema (Wave 1 form)
 
