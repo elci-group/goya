@@ -270,16 +270,18 @@ class GoyaInputConnection(
     }
 
     private inline fun edit(operation: () -> Boolean): Boolean {
-        val (accepted, shouldPublish) = synchronized(batchLock) {
-            if (closed) {
-                false to false
+        if (closed) return false
+        val accepted = editorDispatcher.callSynchronously {
+            !closed && operation()
+        }
+        val shouldPublish = synchronized(batchLock) {
+            if (!accepted || closed) {
+                false
+            } else if (batchDepth > 0) {
+                selectionPending = true
+                false
             } else {
-                val wasAccepted = editorDispatcher.callSynchronously {
-                    !closed && operation()
-                }
-                val publish = wasAccepted && batchDepth == 0
-                if (wasAccepted && batchDepth > 0) selectionPending = true
-                wasAccepted to publish
+                true
             }
         }
         if (shouldPublish) publishSelection()
