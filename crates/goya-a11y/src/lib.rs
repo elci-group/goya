@@ -13,7 +13,7 @@
 //!   contrast) and the RARS text-protection policy (legibility guard).
 
 use goya_chroma::{oklch_to_srgb, Oklch, WcagLevel};
-use goya_ddh::{DdhNode, Dig, SemanticRole};
+use goya_ddh::{DdhNode, Dig, SemanticAttributes, SemanticRole};
 use std::collections::BTreeMap;
 
 #[cfg(feature = "atspi-gtk")]
@@ -107,6 +107,8 @@ pub struct A11yNode {
     pub hit_region: A11yRect,
     /// DIG parent id (typed "contains" edge, preserved for reachability).
     pub parent: Option<String>,
+    /// Optional value and selection semantics copied from the DIG.
+    pub semantics: SemanticAttributes,
 }
 
 impl A11yNode {
@@ -120,6 +122,7 @@ impl A11yNode {
             focused: node.state.focused,
             hit_region: A11yRect::from_parts(r.x, r.y, r.width, r.height),
             parent: node.parent.clone(),
+            semantics: node.semantics.clone(),
         }
     }
 
@@ -288,6 +291,7 @@ mod tests {
             actions: vec!["press".into()],
             exposed: true,
             parent: parent.map(|p| p.to_string()),
+            semantics: SemanticAttributes::default(),
         }
     }
 
