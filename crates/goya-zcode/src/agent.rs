@@ -1217,13 +1217,8 @@ mod tests {
 
         // Run acquires sess_b (never seen): default empty transcript.
         handle.on_session_acquired("sess_b");
-        let default_state = handle.view.lock().map(|v| {
-            (
-                v.history.is_empty(),
-                v.scroll_from_bottom() == 0,
-            )
-        });
-        assert_eq!(default_state, Some((true, true)));
+        let default_state = handle.view.lock().ok().map(|v| v.transcript_is_empty());
+        assert_eq!(default_state, Some(true));
         assert_eq!(handle.take_composer_restore(), None);
 
         // Switch back to sess_a (the bin snapshots its now-cleared
@@ -1231,12 +1226,11 @@ mod tests {
         handle.set_active_session(Some("sess_b".to_string()));
         handle.switch_session("sess_a".to_string(), composer_with(""));
         handle.on_session_acquired("sess_a");
-        let restored = handle.view.lock().map(|v| {
-            (
-                v.history.clone(),
-                v.scroll_from_bottom() == 0,
-            )
-        });
+        let restored = handle
+            .view
+            .lock()
+            .map(|v| (v.history.clone(), v.scroll_from_bottom() == 0))
+            .ok();
         assert_eq!(
             restored,
             Some((
@@ -1262,19 +1256,10 @@ mod tests {
         let handle = seeded_handle("sess_a");
         handle.switch_session("sess_b".to_string(), ComposerSnapshot::default());
         handle.on_session_acquired("never-seen");
-        let state = handle.view.lock().map(|v| {
-            (
-                v.tail.is_empty(),
-                v.history.is_empty(),
-                v.streaming.is_empty(),
-                v.in_flight_tools.is_empty(),
-                v.finished_tools.is_empty(),
-                v.scroll_from_bottom() == 0,
-            )
-        });
+        let state = handle.view.lock().map(|v| v.transcript_is_empty());
         assert_eq!(
             state,
-            Some((true, true, true, true, true, true)),
+            Some(true),
             "no retained snapshot: view keeps the default empty transcript"
         );
         assert_eq!(handle.take_composer_restore(), None);

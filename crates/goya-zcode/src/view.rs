@@ -348,6 +348,18 @@ impl SessionView {
         self.finished_tools.clear();
     }
 
+    /// Wave 7: true when no transcript state is held (the post-
+    /// `reset_transcript` / default shape). Used by the agent retention
+    /// tests; the trackers are private to this module.
+    pub(crate) fn transcript_is_empty(&self) -> bool {
+        self.tail.is_empty()
+            && self.history.is_empty()
+            && self.streaming.is_empty()
+            && self.in_flight_tools.is_empty()
+            && self.finished_tools.is_empty()
+            && self.scroll_from_bottom() == 0
+    }
+
     /// Wave 6: the status text shown while a switch is in flight —
     /// `"<n>/<m> switching session…"` (1-based index into the sessions
     /// list). Falls back to the bare hint when the list is empty.
