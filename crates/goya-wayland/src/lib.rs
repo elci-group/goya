@@ -1002,7 +1002,7 @@ impl GoyaWindow {
         bg: [u8; 3],
         glyph_px: u32,
     ) -> Result<(), WaylandError> {
-        self.present_internal(primitives, fills, None, None, fg, bg, glyph_px, None)
+        self.present_internal(primitives, fills, None, None, None, fg, bg, glyph_px, None)
     }
 
     /// Present with per-primitive rectangular clip regions. Each optional
@@ -1019,7 +1019,7 @@ impl GoyaWindow {
         bg: [u8; 3],
         glyph_px: u32,
     ) -> Result<(), WaylandError> {
-        self.present_internal(primitives, fills, Some(clips), None, fg, bg, glyph_px, None)
+        self.present_internal(primitives, fills, Some(clips), None, None, fg, bg, glyph_px, None)
     }
 
     /// Present with both per-primitive clips and text sizes. The slices use
@@ -1041,6 +1041,7 @@ impl GoyaWindow {
             fills,
             Some(clips),
             Some(text_sizes_pt),
+            None,
             fg,
             bg,
             glyph_px,
@@ -1065,6 +1066,35 @@ impl GoyaWindow {
             fills,
             None,
             Some(text_sizes_pt),
+            None,
+            fg,
+            bg,
+            glyph_px,
+            None,
+        )
+    }
+
+    /// Present text caret and selection overlays without modifying source
+    /// strings. Overlay offsets are UTF-8 byte offsets, and geometry uses the
+    /// same shaping, wrapping, size, clip and damage inputs as the text.
+    #[allow(clippy::too_many_arguments)]
+    pub fn present_with_text_overlays(
+        &mut self,
+        primitives: &[goya_runtime::Primitive],
+        fills: &[Option<u32>],
+        clips: &[Option<Rect>],
+        text_sizes_pt: &[Option<f32>],
+        overlays: &[TextOverlay],
+        fg: [u8; 3],
+        bg: [u8; 3],
+        glyph_px: u32,
+    ) -> Result<(), WaylandError> {
+        self.present_internal(
+            primitives,
+            fills,
+            Some(clips),
+            Some(text_sizes_pt),
+            Some(overlays),
             fg,
             bg,
             glyph_px,
@@ -1086,7 +1116,7 @@ impl GoyaWindow {
         glyph_px: u32,
         damage: Option<(i32, i32, i32, i32)>,
     ) -> Result<(), WaylandError> {
-        self.present_internal(primitives, fills, None, None, fg, bg, glyph_px, damage)
+        self.present_internal(primitives, fills, None, None, None, fg, bg, glyph_px, damage)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1096,6 +1126,7 @@ impl GoyaWindow {
         fills: &[Option<u32>],
         clips: Option<&[Option<Rect>]>,
         text_sizes_pt: Option<&[Option<f32>]>,
+        text_overlays: Option<&[TextOverlay]>,
         fg: [u8; 3],
         bg: [u8; 3],
         glyph_px: u32,
