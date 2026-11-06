@@ -483,31 +483,60 @@ impl SceneInputs {
             window.set_text_input_state(false, "", 0, 0, (0, 0, 0, 0));
             return;
         };
-        let font_px = node
-            .text_size
-            .filter(|size| size.is_finite() && *size > 0.0)
-            .map(|size| size * 4.0)
-            .unwrap_or(21.0);
-        let advance = font_px * 0.6;
-        let cursor_x = (node.rect.x / goya_wayland::MP_PER_PX) as f64
-            + 2.0
-            + buffer.cursor_grapheme() as f64 * advance;
-        let right = ((node.rect.x + node.rect.width) / goya_wayland::MP_PER_PX - 1) as f64;
-        let x = cursor_x.clamp(
-            (node.rect.x / goya_wayland::MP_PER_PX) as f64,
-            right.max(0.0),
-        ) as i32;
-        let y = (node.rect.y / goya_wayland::MP_PER_PX) as i32 + 2;
-        let max_height = (node.rect.height / goya_wayland::MP_PER_PX).max(1) as f64;
-        let height = (font_px * 1.4).round().clamp(1.0, max_height) as i32;
+        let (x, y, width, height) = input_cursor_rect(node, buffer);
         window.set_text_input_state(
             true,
             buffer.text(),
             buffer.cursor_byte().min(u32::MAX as usize) as u32,
             buffer.anchor_byte().min(u32::MAX as usize) as u32,
-            (x, y, 1, height),
+            (x, y, width, height),
         );
     }
+}
+
+/// Candidate-window geometry from the same shaped metrics used by the scene
+/// renderer. Node geometry is already translated for ancestor scroll offsets.
+fn input_cursor_rect(node: &DrawNode, buffer: &TextBuffer) -> (i32, i32, i32, i32) {
+    let px = |value: i64| value / goya_wayland::MP_PER_PX;
+    let width = px(node.rect.width).max(1) as f32;
+    let height = px(node.rect.height).max(1) as f32;
+    let font_px = node
+        .text_size
+        .filter(|size| size.is_finite() && *size > 0.0)
+        .map(|size| (size * 4.0) as f32)
+        .unwrap_or(21.0); // present uses glyph_px=3 => 7 px/glyph
+    let caret = goya_wayland::measure_text_caret(
+        buffer.text(),
+        (width - 4.0).max(1.0),
+        (height - 4.0).max(1.0),
+        font_px,
+        buffer.cursor_byte(),
+    );
+    let (caret_x, caret_y, caret_height) = caret
+        .map(|caret| (caret.x_px, caret.y_px, caret.height_px))
+        .unwrap_or((0.0, 0.0, font_px * 1.4));
+    let left = px(node.rect.x) as f32 + 2.0;
+    let top = px(node.rect.y) as f32 + 2.0;
+    let right = px(node.rect.x.saturating_add(node.rect.width)) as f32 - 1.0;
+    let bottom = px(node.rect.y.saturating_add(node.rect.height)) as f32 - 1.0;
+    let clip = node.clip.map(|clip| {
+        (
+            px(clip.x) as f32,
+            px(clip.y) as f32,
+            px(clip.x.saturating_add(clip.width)) as f32,
+            px(clip.y.saturating_add(clip.height)) as f32,
+        )
+    });
+    let (clip_left, clip_top, clip_right, clip_bottom) =
+        clip.unwrap_or((left, top, right + 1.0, bottom + 1.0));
+    let min_x = left.max(clip_left);
+    let max_x = right.min(clip_right - 1.0).max(min_x);
+    let min_y = top.max(clip_top);
+    let max_y = bottom.min(clip_bottom - 1.0).max(min_y);
+    let x = (left + caret_x).clamp(min_x, max_x);
+    let y = (top + caret_y).clamp(min_y, max_y);
+    let h = caret_height.round().clamp(1.0, (max_y - y + 1.0).max(1.0));
+    (x.round() as i32, y.round() as i32, 1, h as i32)
 }
 
 /// Convert a scene draw node into the renderer's primitive vocabulary.
