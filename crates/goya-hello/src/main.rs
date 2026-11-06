@@ -347,33 +347,10 @@ fn apply_text_event(rt: &mut Runtime, event: goya_wayland::PlatformEvent) {
             rt.focus_input(next);
             None
         }
-        PlatformEvent::Preedit(preedit) => Some(Event::ImeBatch {
-            preedit: Some((preedit.unwrap_or_default(), 0, 0)),
-            commit: None,
-            delete: None,
-        }),
-        PlatformEvent::PreeditWithCursor {
-            text,
-            cursor_begin,
-            cursor_end,
-        } => Some(Event::ImeBatch {
-            preedit: Some((text.unwrap_or_default(), cursor_begin, cursor_end)),
-            commit: None,
-            delete: None,
-        }),
-        PlatformEvent::CommitText(text) => Some(Event::ImeBatch {
-            preedit: None,
-            commit: Some(text),
-            delete: None,
-        }),
-        PlatformEvent::DeleteSurroundingText {
-            before_bytes,
-            after_bytes,
-        } => Some(Event::ImeBatch {
-            preedit: None,
-            commit: None,
-            delete: Some((before_bytes, after_bytes)),
-        }),
+        // GY-ZCODE-006: the off-contract `Event::ImeBatch` bridge was
+        // removed. IME preedit has no runtime concept in this exemplar and
+        // committed IME text arrives as `KeyChar` events, so `Preedit` /
+        // `CommitText` deliberately map to nothing here.
         _ => None,
     };
     if let Some(event) = runtime_event {
@@ -429,40 +406,13 @@ mod input_tests {
         );
         apply_text_event(&mut runtime, goya_wayland::PlatformEvent::KeyChar('é'));
         assert_eq!(runtime.input_text(NodeId(4)), Some("é日"));
-        apply_text_event(
-            &mut runtime,
-            goya_wayland::PlatformEvent::Preedit(Some("かな".into())),
-        );
-        assert_eq!(runtime.input_text(NodeId(4)), Some("é日"));
-        apply_text_event(
-            &mut runtime,
-            goya_wayland::PlatformEvent::CommitText("仮名".into()),
-        );
-        assert_eq!(runtime.input_text(NodeId(4)), Some("é仮名日"));
-        assert!(matches!(
-            runtime.render_list().last(),
-            Some(Primitive::Text(_, value)) if value == "é仮名日"
-        ));
-        apply_text_event(
-            &mut runtime,
-            goya_wayland::PlatformEvent::DeleteSurroundingText {
-                before_bytes: 3,
-                after_bytes: 0,
-            },
-        );
-        assert_eq!(runtime.input_text(NodeId(4)), Some("é仮日"));
-        apply_text_event(
-            &mut runtime,
-            goya_wayland::PlatformEvent::PreeditWithCursor {
-                text: Some("かな".into()),
-                cursor_begin: 3,
-                cursor_end: 6,
-            },
-        );
+        // GY-ZCODE-006: IME preedit/commit events no longer bridge into the
+        // runtime; committed text arrives via KeyChar only.
+        apply_text_event(&mut runtime, goya_wayland::PlatformEvent::KeyChar('仮'));
         assert_eq!(runtime.input_text(NodeId(4)), Some("é仮日"));
         assert!(matches!(
             runtime.render_list().last(),
-            Some(Primitive::Text(_, value)) if value == "é仮かな日"
+            Some(Primitive::Text(_, value)) if value == "é仮日"
         ));
     }
 }

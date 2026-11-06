@@ -905,9 +905,7 @@ fn run_live(args: &Args, store: &mut SceneStore, last_mtime: &mut Option<SystemT
                     dirty |= scroll_pointer_history(&handle, lines, composer.focused);
                 }
                 goya_wayland::PlatformEvent::Preedit(_)
-                | goya_wayland::PlatformEvent::PreeditWithCursor { .. }
-                | goya_wayland::PlatformEvent::CommitText(_)
-                | goya_wayland::PlatformEvent::DeleteSurroundingText { .. } => {
+                | goya_wayland::PlatformEvent::CommitText(_) => {
                     if composer.focused {
                         feed_key(&mut composer, &ev);
                     }
