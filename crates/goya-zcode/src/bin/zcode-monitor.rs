@@ -816,6 +816,41 @@ fn headless_acceptance(store: &SceneStore) {
     );
     ok &= ret_ok;
 
+    // Live a11y snapshot contract (GY-ZCODE-008): DIG from synthetic
+    // state over the real startup geometry — composer as Textbox with
+    // live text + focused, rows with their text, quit pressable, and
+    // exactly one republish per dirty flag.
+    let mut a11y = goya_zcode::a11y::MonitorA11y::new(&frame);
+    let mut av = SessionView::default();
+    av.push_line("> acceptance input");
+    av.push_line("final answer");
+    let mut ac = Composer::new();
+    ac.focused = true;
+    for ch in "typed".chars() {
+        ac.handle_char(ch);
+    }
+    a11y.republish(&av, &ac);
+    let node = |id: &str| a11y.nodes().iter().find(|n| n.id == id).cloned();
+    let comp_ok = node("composer").map(|n| {
+        goya_a11y::A11yRole::TextInput == n.role
+            && n.resolved_name() == "typed"
+            && n.focused
+            && n.editable
+            && n.focusable
+    }) == Some(true);
+    let rows_ok = node("row_00").map(|n| n.resolved_name() == "> acceptance input") == Some(true)
+        && node("row_01").map(|n| n.resolved_name() == "final answer") == Some(true);
+    let quit_ok = node("quit").map(|n| n.role == goya_a11y::A11yRole::Button && n.focusable)
+        == Some(true);
+    a11y.republish(&av, &ac);
+    let counter_ok = a11y.publishes() == 2;
+    let a11y_ok = comp_ok && rows_ok && quit_ok && counter_ok;
+    println!(
+        "a11y snapshot composer/rows/quit + republish-on-change [{a11y_ok}]",
+        a11y_ok = pass_str(a11y_ok)
+    );
+    ok &= a11y_ok;
+
     if !ok {
         std::process::exit(1);
     }
@@ -1073,6 +1108,7 @@ fn run_live(
                 // as the render (view + composer change), silently in
                 // live mode — AT-SPI bridging is upstream goya-a11y.
                 a11y.republish(&view, &composer);
+                apply_view_to_frame(&mut nodes, &view);
             }
             apply_composer_to_frame(&mut nodes, &composer);
             let prims: Vec<Primitive> = nodes.iter().map(present_node).collect();
