@@ -2716,12 +2716,6 @@ mod raster_tests {
             dirty,
             CsrPolicy::QuadCorner,
             4,
-            WorkerPlan {
-                performance_workers: 0,
-                efficiency_workers: 0,
-                general_workers: 4,
-                affinity_mode: AffinityMode::OsManaged,
-            },
         ));
         assert_eq!(parallel, vec![background; (width * height) as usize]);
         // The public raster dispatcher falls back to serial for text scenes.
@@ -2810,12 +2804,6 @@ mod raster_tests {
                 dirty,
                 CsrPolicy::QuadCorner,
                 4,
-                WorkerPlan {
-                    performance_workers: 0,
-                    efficiency_workers: 0,
-                    general_workers: 4,
-                    affinity_mode: AffinityMode::OsManaged,
-                },
             ));
         }
         let parallel_elapsed = start.elapsed();
@@ -2826,26 +2814,6 @@ mod raster_tests {
             parallel_elapsed.as_nanos(),
             serial_elapsed.as_secs_f64() / parallel_elapsed.as_secs_f64()
         );
-    }
-}
-
-#[cfg(test)]
-mod hcar_worker_plan_tests {
-    use super::*;
-
-    #[test]
-    fn worker_lanes_assign_classes_deterministically() {
-        let plan = WorkerPlan {
-            performance_workers: 2,
-            efficiency_workers: 3,
-            general_workers: 1,
-            affinity_mode: AffinityMode::OsManaged,
-        };
-        assert_eq!(worker_for_class(CoreAssignment::Performance, &plan, 4), 0);
-        assert_eq!(worker_for_class(CoreAssignment::Performance, &plan, 5), 1);
-        assert_eq!(worker_for_class(CoreAssignment::Efficiency, &plan, 4), 3);
-        assert_eq!(worker_for_class(CoreAssignment::Efficiency, &plan, 5), 2);
-        assert_eq!(worker_for_class(CoreAssignment::General, &plan, 4), 5);
     }
 }
 
