@@ -31,11 +31,16 @@ data class Preedit(val text: String, val cursorBeginUtf8: Int, val cursorEndUtf8
  * Android host, which publishes geometry from its latest render.
  */
 interface GoyaInputBridge {
+    /** These calls are synchronous and serialized with editor snapshots and mutations. */
     fun editorSnapshot(): EditorSnapshot?
     fun applyImeBatch(batch: ImeBatch): Boolean
     fun setSelectionUtf8(anchor: Int, cursor: Int): Boolean
     /** Mark an existing text range composing without moving selection or changing text. */
     fun setComposingRegionUtf8(start: Int, end: Int): Boolean
+    /** Atomically replace composition/selection and place the caret in committed text. */
+    fun commitInputText(text: String, cursorByteInText: Int): Boolean
+    /** Delete around both selection endpoints without deleting the selection. */
+    fun deleteInputSurrounding(beforeBytes: Int, afterBytes: Int): Boolean
     fun finishComposition(): Boolean
     fun requestCursorAnchorUpdates(mode: Int, filter: Int): Boolean
 }
@@ -43,6 +48,9 @@ interface GoyaInputBridge {
 /**
  * Converts Android InputConnection's UTF-16 offsets/counts to the UTF-8 byte
  * offsets used by Goya. This class does not retain or edit a second text model.
+ * Calls that read a snapshot and then mutate must run synchronously on the
+ * same serialized editor executor; otherwise another edit could invalidate
+ * the byte ranges between those calls. Commit is one atomic bridge operation.
  */
 class GoyaImeAdapter(private val bridge: GoyaInputBridge) {
     fun setComposingText(text: CharSequence, newCursorPosition: Int): Boolean {
@@ -55,26 +63,14 @@ class GoyaImeAdapter(private val bridge: GoyaInputBridge) {
     }
 
     fun commitText(text: CharSequence, newCursorPosition: Int): Boolean {
-        val snapshot = bridge.editorSnapshot() ?: return false
         val textValue = text.toString()
-        val anchor = clampUtf8Boundary(snapshot.text, snapshot.anchorUtf8)
-        val cursor = clampUtf8Boundary(snapshot.text, snapshot.cursorUtf8)
-        val replaceStart = minOf(anchor, cursor)
-        val replaceEnd = maxOf(anchor, cursor)
-        val prefix = snapshot.text.substring(0, utf16OffsetAtByte(snapshot.text, replaceStart))
-        val suffix = snapshot.text.substring(utf16OffsetAtByte(snapshot.text, replaceEnd))
-        val resultingText = prefix + textValue + suffix
-        val insertionStartUtf16 = prefix.length
-        val insertionEndUtf16 = insertionStartUtf16 + textValue.length
         val targetUtf16 = if (newCursorPosition > 0) {
-            insertionEndUtf16 + newCursorPosition - 1
+            textValue.length + newCursorPosition - 1
         } else {
-            insertionStartUtf16 + newCursorPosition
+            textValue.length + newCursorPosition
         }
-        val targetByte = byteOffsetAtUtf16(resultingText, targetUtf16)
-
-        if (!bridge.applyImeBatch(ImeBatch(commit = textValue))) return false
-        return bridge.setSelectionUtf8(targetByte, targetByte)
+        val cursorByteInText = byteOffsetAtUtf16(textValue, targetUtf16)
+        return bridge.commitInputText(textValue, cursorByteInText)
     }
 
     /** Android lengths are UTF-16 code units; Goya deletion lengths are UTF-8 bytes. */
@@ -83,18 +79,15 @@ class GoyaImeAdapter(private val bridge: GoyaInputBridge) {
         val snapshot = bridge.editorSnapshot() ?: return false
         val anchorByte = clampUtf8Boundary(snapshot.text, snapshot.anchorUtf8)
         val cursorByte = clampUtf8Boundary(snapshot.text, snapshot.cursorUtf8)
-        // Goya's current delete event is relative to its active cursor and
-        // cannot express Android's selection-excluding before/after ranges.
-        // Refuse the request instead of deleting selected text or the wrong side.
-        if (anchorByte != cursorByte) return false
-        val cursorUtf16 = utf16OffsetAtByte(snapshot.text, cursorByte)
-        val beforeUtf16 = safeUtf16Boundary(snapshot.text, cursorUtf16 - beforeLength)
-        val afterUtf16 = safeUtf16Boundary(snapshot.text, cursorUtf16 + afterLength)
-        val beforeBytes = cursorByte - byteOffsetAtUtf16(snapshot.text, beforeUtf16)
-        val afterBytes = byteOffsetAtUtf16(snapshot.text, afterUtf16) - cursorByte
-        return bridge.applyImeBatch(
-            ImeBatch(deleteBeforeUtf8 = beforeBytes, deleteAfterUtf8 = afterBytes),
-        )
+        val selectionStartByte = minOf(anchorByte, cursorByte)
+        val selectionEndByte = maxOf(anchorByte, cursorByte)
+        val selectionStartUtf16 = utf16OffsetAtByte(snapshot.text, selectionStartByte)
+        val selectionEndUtf16 = utf16OffsetAtByte(snapshot.text, selectionEndByte)
+        val beforeUtf16 = safeUtf16Boundary(snapshot.text, selectionStartUtf16 - beforeLength)
+        val afterUtf16 = safeUtf16Boundary(snapshot.text, selectionEndUtf16 + afterLength)
+        val beforeBytes = selectionStartByte - byteOffsetAtUtf16(snapshot.text, beforeUtf16)
+        val afterBytes = byteOffsetAtUtf16(snapshot.text, afterUtf16) - selectionEndByte
+        return bridge.deleteInputSurrounding(beforeBytes, afterBytes)
     }
 
     /** Absolute Android selection indices are UTF-16; Goya stores byte offsets. */

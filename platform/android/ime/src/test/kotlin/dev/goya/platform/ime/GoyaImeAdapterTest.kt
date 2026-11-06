@@ -4,10 +4,16 @@ private class RecordingBridge(var snapshot: EditorSnapshot?) : GoyaInputBridge {
     val batches = mutableListOf<ImeBatch>()
     val selections = mutableListOf<Pair<Int, Int>>()
     val composingRegions = mutableListOf<Pair<Int, Int>>()
+    val committedTexts = mutableListOf<Pair<String, Int>>()
+    val deletions = mutableListOf<Pair<Int, Int>>()
     val cursorRequests = mutableListOf<Pair<Int, Int>>()
     var finishedCompositions = 0
+    var snapshotReads = 0
 
-    override fun editorSnapshot() = snapshot
+    override fun editorSnapshot(): EditorSnapshot? {
+        snapshotReads += 1
+        return snapshot
+    }
     override fun applyImeBatch(batch: ImeBatch): Boolean {
         batches += batch
         return true
@@ -18,6 +24,14 @@ private class RecordingBridge(var snapshot: EditorSnapshot?) : GoyaInputBridge {
     }
     override fun setComposingRegionUtf8(start: Int, end: Int): Boolean {
         composingRegions += start to end
+        return true
+    }
+    override fun commitInputText(text: String, cursorByteInText: Int): Boolean {
+        committedTexts += text to cursorByteInText
+        return true
+    }
+    override fun deleteInputSurrounding(beforeBytes: Int, afterBytes: Int): Boolean {
+        deletions += beforeBytes to afterBytes
         return true
     }
     override fun finishComposition(): Boolean {
@@ -36,8 +50,8 @@ object GoyaImeAdapterTest {
     fun main(args: Array<String>) {
         composingCursorUsesUtf8Bytes()
         deletionConvertsUtf16UnitsWithoutSplittingSurrogatePairs()
-        deletionRefusesAnActiveSelection()
-        commitThenMovesCaretUsingFreshTextGeometry()
+        deletionPreservesSelectionAndUsesBothEndpoints()
+        commitIsAtomicAndDoesNotReadASnapshot()
         selectionAndCursorRequestsAreForwarded()
         composingRegionsNormalizeAndFinish()
     }
@@ -59,17 +73,21 @@ object GoyaImeAdapterTest {
         check(batch.deleteAfterUtf8 == 0)
     }
 
-    private fun deletionRefusesAnActiveSelection() {
-        val bridge = RecordingBridge(EditorSnapshot("abcd", 1, 3))
-        check(!GoyaImeAdapter(bridge).deleteSurroundingText(1, 1))
-        check(bridge.batches.isEmpty())
+    private fun deletionPreservesSelectionAndUsesBothEndpoints() {
+        val bridge = RecordingBridge(EditorSnapshot("a🧠b", 5, 1))
+        check(GoyaImeAdapter(bridge).deleteSurroundingText(1, 1))
+        // Selection is bytes 1..5. Delete one UTF-16 char before its start
+        // and after its end; the runtime event preserves the selected range.
+        check(bridge.deletions.single() == (1 to 1))
     }
 
-    private fun commitThenMovesCaretUsingFreshTextGeometry() {
+    private fun commitIsAtomicAndDoesNotReadASnapshot() {
         val bridge = RecordingBridge(EditorSnapshot("ab", 1, 1))
-        check(GoyaImeAdapter(bridge).commitText("é", 1))
-        check(bridge.batches.single() == ImeBatch(commit = "é"))
-        check(bridge.selections.single() == (3 to 3))
+        check(GoyaImeAdapter(bridge).commitText("🧠é", 1))
+        check(bridge.committedTexts.single() == ("🧠é" to 6))
+        check(bridge.snapshotReads == 0)
+        check(bridge.selections.isEmpty())
+        check(bridge.batches.isEmpty())
     }
 
     private fun selectionAndCursorRequestsAreForwarded() {
