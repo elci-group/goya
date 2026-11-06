@@ -748,6 +748,56 @@ fn headless_acceptance(store: &SceneStore) {
     );
     ok &= sess_ok;
 
+    // Per-session retention contract (GY-ZCODE-007): save/switch/restore
+    // cycle over synthetic state — switching away retains the outgoing
+    // transcript+composer in the handle LRU, acquiring an unknown session
+    // leaves the default empty transcript, and switching back restores
+    // both (the composer half via take_composer_restore).
+    let ret_handle = agent::MonitorHandle::new();
+    ret_handle.set_active_session(Some("sess_ret_a".to_string()));
+    if let Ok(mut view) = ret_handle.view.lock() {
+        view.push_line("retained line one");
+        view.push_line("retained line two");
+    }
+    let mut ret_composer = Composer::new();
+    ret_composer.focused = true;
+    for ch in "draft for a".chars() {
+        ret_composer.handle_char(ch);
+    }
+    ret_handle.switch_session("sess_ret_b".to_string(), ret_composer.snapshot());
+    let saved_ok = ret_handle
+        .view
+        .lock()
+        .map(|v| v.history.is_empty() && v.tail.is_empty())
+        .unwrap_or(false);
+    // Acquiring sess_ret_b (unknown): default empty, nothing staged.
+    ret_handle.on_session_acquired("sess_ret_b");
+    let unknown_ok = ret_handle.view.lock().map(|v| v.history.is_empty()).unwrap_or(false)
+        && ret_handle.take_composer_restore().is_none();
+    // Switch back to sess_ret_a, re-acquire: transcript + composer return.
+    ret_handle.set_active_session(Some("sess_ret_b".to_string()));
+    ret_handle.switch_session("sess_ret_a".to_string(), Composer::new().snapshot());
+    ret_handle.on_session_acquired("sess_ret_a");
+    let restored_view_ok = ret_handle
+        .view
+        .lock()
+        .map(|v| v.history == vec!["retained line one".to_string(), "retained line two".to_string()])
+        .unwrap_or(false);
+    let restored_composer_ok = ret_handle
+        .take_composer_restore()
+        .map(|snap| {
+            let mut c = Composer::new();
+            c.restore(snap);
+            c.text() == "draft for a" && c.cursor_grapheme() == "draft for a".chars().count()
+        })
+        .unwrap_or(false);
+    let ret_ok = saved_ok && unknown_ok && restored_view_ok && restored_composer_ok;
+    println!(
+        "per-session transcript/composer save/restore cycle [{}]",
+        pass_str(ret_ok)
+    );
+    ok &= ret_ok;
+
     if !ok {
         std::process::exit(1);
     }

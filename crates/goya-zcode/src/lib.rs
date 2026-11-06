@@ -44,7 +44,7 @@
 //!   status, skip the reconnect backoff. [`view::SessionView`] gains a
 //!   selection index (`cycle_selection`, wrapping both directions) and
 //!   `reset_transcript` — the transcript is session-scoped and reset on
-//!   switch (per-session history buffers are a later increment). The bin
+//!   switch. The bin
 //!   wires `Shortcut::{SessionNext, SessionPrevious}` (gated on J1's
 //!   goya-wayland variants; ctrl+Left/Right) to cycle + switch, and the
 //!   status line carries the `<n>/<m>` index.
