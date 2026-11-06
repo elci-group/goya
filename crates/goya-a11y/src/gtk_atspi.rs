@@ -272,6 +272,7 @@ mod tests {
             focused: true,
             hit_region: super::super::A11yRect::default(),
             parent: None,
+            semantics: super::super::SemanticAttributes::default(),
         };
         assert!(should_restore_focus(&node));
 
@@ -336,6 +337,30 @@ mod tests {
             2,
         );
         assert!(!same_structure(&old, &A11yTree::from_dig(&dig)));
+    }
+
+    #[test]
+    fn slider_configuration_uses_validated_semantics_and_clamps_value() {
+        let range = goya_ddh::NumericRange::new(-10.0, 10.0, 0.5).unwrap();
+        let mut node = A11yNode {
+            id: "volume".into(),
+            role: A11yRole::Slider,
+            accessible_name: "Volume".into(),
+            enabled: true,
+            focused: false,
+            hit_region: super::super::A11yRect::default(),
+            parent: None,
+            semantics: super::super::SemanticAttributes {
+                value: Some("12".into()),
+                range: Some(range),
+                ..Default::default()
+            },
+        };
+        assert_eq!(slider_config(&node), Some((-10.0, 10.0, 0.5, 10.0)));
+        node.semantics.value = Some("NaN".into());
+        assert_eq!(slider_config(&node), Some((-10.0, 10.0, 0.5, -10.0)));
+        node.semantics.range = None;
+        assert_eq!(slider_config(&node), None);
     }
 }
 
@@ -404,21 +429,11 @@ fn make_node(
             entry.upcast()
         }
         A11yRole::Slider => {
-            let range = node.semantics.range;
-            let (min, max, step) = range
-                .map(|r| (r.minimum, r.maximum, r.step))
-                .unwrap_or((0.0, 1.0, 0.1));
+            let config = slider_config(node);
+            let (min, max, step, value) = config.unwrap_or((0.0, 1.0, 0.1, 0.0));
             let scale = Scale::with_range(Orientation::Horizontal, min, max, step);
-            if let Some(range) = range {
-                if let Some(value) = node
-                    .semantics
-                    .value
-                    .as_deref()
-                    .and_then(|value| value.parse::<f64>().ok())
-                    .and_then(|value| range.clamp(value))
-                {
-                    scale.set_value(value);
-                }
+            if config.is_some() {
+                scale.set_value(value);
             } else {
                 // A slider without a declared bounded range cannot truthfully
                 // accept a value; keep it visible while disabling interaction.
@@ -489,12 +504,12 @@ fn update_widgets(tree: &A11yTree, widgets: &HashMap<String, Widget>) {
         let Some(widget) = widgets.get(&node.id) else {
             continue;
         };
-        widget.set_sensitive(node.enabled);
+        widget.set_sensitive(
+            node.enabled && (node.role != A11yRole::Slider || node.semantics.range.is_some()),
+        );
         if let Some(accessible) = widget.accessible() {
             accessible.set_name(&node.accessible_name);
-            if let Some(description) = node.semantics.description.as_deref() {
-                accessible.set_description(description);
-            }
+            accessible.set_description(node.semantics.description.as_deref().unwrap_or(""));
         }
         match node.role {
             A11yRole::StaticText => {
@@ -522,9 +537,30 @@ fn update_widgets(tree: &A11yTree, widgets: &HashMap<String, Widget>) {
                     item.set_label(&node.accessible_name);
                 }
             }
-            A11yRole::Window | A11yRole::Group | A11yRole::Slider => {}
+            A11yRole::Slider => {
+                if let Some(scale) = widget.downcast_ref::<Scale>() {
+                    if let Some((min, max, step, value)) = slider_config(node) {
+                        scale.set_range(min, max);
+                        scale.set_increments(step, step * 10.0);
+                        scale.set_value(value);
+                    }
+                }
+            }
+            A11yRole::Window | A11yRole::Group => {}
         }
     }
+}
+
+fn slider_config(node: &A11yNode) -> Option<(f64, f64, f64, f64)> {
+    let range = node.semantics.range?;
+    let value = node
+        .semantics
+        .value
+        .as_deref()
+        .and_then(|value| value.parse::<f64>().ok())
+        .and_then(|value| range.clamp(value))
+        .unwrap_or(range.minimum);
+    Some((range.minimum, range.maximum, range.step, value))
 }
 
 #[derive(Debug)]
