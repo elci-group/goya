@@ -576,6 +576,10 @@ impl AgentRun {
             v.title = target.title.clone();
             v.status = target.status.clone();
         });
+        // Wave 7: restore any retained transcript/composer for the newly
+        // acquired session (must precede the subscribe replay so replayed
+        // events append to the restored history).
+        self.handle.on_session_acquired(&target.session_id);
 
         // subscribe; live events now flow through the reader thread.
         let subscribed = self
@@ -1120,7 +1124,7 @@ mod tests {
         // Switch: the in-flight send is abandoned, the lifecycle resets,
         // the view resets + shows the switching hint, the pin moves, the
         // backoff is skipped, and a SwitchSession command is enqueued.
-        handle.switch_session("sess_b".to_string());
+        handle.switch_session("sess_b".to_string(), ComposerSnapshot::default());
         assert_eq!(handle.pinned_session().as_deref(), Some("sess_b"));
         assert!(
             handle
