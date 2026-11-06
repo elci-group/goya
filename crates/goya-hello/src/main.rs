@@ -241,16 +241,31 @@ fn run_live() -> Result<(), String> {
             let text = rt.input_text(id).unwrap_or_default();
             let cursor = rt.input_cursor_byte(id).unwrap_or(text.len());
             let anchor = rt.input_anchor_byte(id).unwrap_or(cursor);
+            let (primitives, decorations) = rt.render_list_with_text_decorations();
+            let decorated = decorations.iter().find(|item| item.node_id == id);
+            let display = decorated.and_then(|item| match primitives.get(item.primitive_index) {
+                Some(Primitive::Text(_, value)) => Some((value.as_str(), item.caret_byte_offset.unwrap_or(cursor))),
+                _ => None,
+            });
             let cursor_rect = rt
                 .frame()
                 .rect(id)
-                .map(|rect| text_input_cursor_rect(rect, text, cursor))
+                .map(|rect| display.map_or_else(|| text_input_cursor_rect(rect, text, cursor), |(shown, offset)| text_input_cursor_rect(rect, shown, offset)))
                 .unwrap_or((0, 0, 1, 20));
             win.set_text_input_state(true, text, cursor as u32, anchor as u32, cursor_rect);
+            let overlays = decorations.iter().map(|item| goya_wayland::TextOverlay {
+                primitive_index: item.primitive_index,
+                caret_byte_offset: item.caret_byte_offset,
+                selection_byte_range: item.selection_byte_range,
+                caret_rgb: [255, 220, 101],
+                selection_rgb: [55, 110, 210],
+            }).collect::<Vec<_>>();
+            let _ = win.present_with_text_overlays(&primitives, &[], &[], &[], &overlays, [235, 235, 240], [24, 24, 28], 2);
         } else {
             win.set_text_input_state(false, "", 0, 0, (0, 0, 0, 0));
+            let primitives = rt.render_list();
+            let _ = win.present(&primitives, &[], [235, 235, 240], [24, 24, 28], 2);
         }
-        let _ = win.present(&rt.render_list(), &[], [235, 235, 240], [24, 24, 28], 2);
         win.pump(1);
         frames += 1;
     }
