@@ -181,6 +181,7 @@ fn shape_text(
 }
 
 fn snap_grapheme_boundary(text: &str, offset: usize) -> usize {
+    let offset = offset.min(text.len());
     if offset == text.len()
         || text
             .grapheme_indices(true)
@@ -201,9 +202,16 @@ fn text_cursor(buffer: &Buffer, text: &str, byte_offset: usize) -> Option<cosmic
         let line_text = line.text();
         let end = base.checked_add(line_text.len())?;
         if byte_offset <= end {
-            return Some(cosmic_text::Cursor::new(
+            let line_offset = byte_offset.saturating_sub(base);
+            let affinity = if line_offset == 0 {
+                cosmic_text::Affinity::After
+            } else {
+                cosmic_text::Affinity::Before
+            };
+            return Some(cosmic_text::Cursor::new_with_affinity(
                 line_i,
-                byte_offset.saturating_sub(base),
+                line_offset,
+                affinity,
             ));
         }
         base = end.saturating_add(
@@ -3685,6 +3693,9 @@ mod multiline_tests {
         assert_eq!(snap_grapheme_boundary(text, 3), 3);
         assert_eq!(snap_grapheme_boundary(text, 7), 3);
         assert_eq!(snap_grapheme_boundary(text, text.len() + 20), text.len());
+        let start = measure_text_caret(text, 100.0, 60.0, 12.0, 3).unwrap();
+        let inside_emoji = measure_text_caret(text, 100.0, 60.0, 12.0, 7).unwrap();
+        assert_eq!(start, inside_emoji);
         assert!(measure_text(text, 0.0, 50.0, 12.0).is_none());
     }
 
