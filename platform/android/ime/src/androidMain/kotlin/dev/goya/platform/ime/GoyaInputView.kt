@@ -57,6 +57,7 @@ class GoyaInputView @JvmOverloads constructor(
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection? {
         val currentAdapter = adapter ?: return null
         val currentBridge = bridge ?: return null
+        activeConnection?.invalidate()
         val action = if (editorAction == null) {
             EditorInfo.IME_ACTION_UNSPECIFIED
         } else {
