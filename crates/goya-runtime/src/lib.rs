@@ -761,8 +761,8 @@ impl Runtime {
                 state.preedit = None;
                 let inserted = text.clone();
                 state.buffer.replace_range(range.clone(), &text);
-                let cursor = range.start
-                    + grapheme_boundary_at_or_before(&inserted, cursor_byte_in_text);
+                let cursor =
+                    range.start + grapheme_boundary_at_or_before(&inserted, cursor_byte_in_text);
                 state.buffer.set_selection(cursor, cursor);
             }),
             Event::TextBackspace => self.edit_focused(|state| state.buffer.delete_backward()),
@@ -882,14 +882,10 @@ impl Runtime {
             }
             if let Some(value) = preedit {
                 if state.composition_region.is_none() {
-                    state.composition_region = Some(
-                        state
-                            .buffer
-                            .selection_bytes()
-                            .unwrap_or_else(|| {
-                                state.buffer.cursor_byte()..state.buffer.cursor_byte()
-                            }),
-                    );
+                    state.composition_region =
+                        Some(state.buffer.selection_bytes().unwrap_or_else(|| {
+                            state.buffer.cursor_byte()..state.buffer.cursor_byte()
+                        }));
                 }
                 state.preedit = (!value.0.is_empty()).then_some(value);
             }
@@ -971,6 +967,7 @@ impl Runtime {
                     );
                     let mut caret_byte_offset = None;
                     let mut selection_byte_range = None;
+                    let mut composition_byte_range = None;
                     if text.is_empty() && state.preedit.is_none() {
                         value.push_str(placeholder);
                         if focused {
@@ -978,7 +975,11 @@ impl Runtime {
                         }
                     } else {
                         let replacement = if state.preedit.is_some() {
-                            state.buffer.selection_bytes().unwrap_or(cursor..cursor)
+                            state
+                                .composition_region
+                                .clone()
+                                .or_else(|| state.buffer.selection_bytes())
+                                .unwrap_or(cursor..cursor)
                         } else {
                             cursor..cursor
                         };
@@ -986,6 +987,7 @@ impl Runtime {
                         if let Some((preedit, cursor_begin, _)) = &state.preedit {
                             let base = value.len();
                             value.push_str(preedit);
+                            composition_byte_range = Some((base, base + preedit.len()));
                             if focused {
                                 let start = if *cursor_begin >= 0 {
                                     grapheme_boundary_at_or_before(preedit, *cursor_begin as usize)
@@ -1011,6 +1013,10 @@ impl Runtime {
                             caret_byte_offset = Some(value.len());
                             selection_byte_range =
                                 state.buffer.selection_bytes().map(|r| (r.start, r.end));
+                            composition_byte_range = state
+                                .composition_region
+                                .as_ref()
+                                .map(|range| (range.start, range.end));
                         }
                         value.push_str(&text[replacement.end..]);
                     }
@@ -1022,6 +1028,7 @@ impl Runtime {
                             primitive_index,
                             caret_byte_offset,
                             selection_byte_range,
+                            composition_byte_range,
                         });
                     }
                 } else {
