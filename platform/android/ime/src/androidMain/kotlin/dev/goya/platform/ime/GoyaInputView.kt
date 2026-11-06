@@ -2,6 +2,7 @@ package dev.goya.platform.ime
 
 import android.content.Context
 import android.util.AttributeSet
+import android.view.MotionEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
@@ -29,9 +30,13 @@ class GoyaInputView @JvmOverloads constructor(
     init {
         isFocusable = true
         isFocusableInTouchMode = true
+        isClickable = true
     }
 
-    /** Bind this view to one already-focused runtime input node. */
+    /**
+     * Bind this view to one runtime input node. The focus callback must
+     * forward View focus changes to the runtime's input-focus dispatch.
+     */
     fun bindInput(
         adapter: GoyaImeAdapter,
         bridge: GoyaInputBridge,
@@ -87,7 +92,28 @@ class GoyaInputView @JvmOverloads constructor(
         focusChanged?.invoke(focused)
     }
 
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                requestFocusFromTouch()
+                return true
+            }
+            MotionEvent.ACTION_UP -> {
+                performClick()
+                return true
+            }
+            MotionEvent.ACTION_CANCEL -> return true
+        }
+        return true
+    }
+
+    override fun performClick(): Boolean {
+        super.performClick()
+        return true
+    }
+
     override fun onDetachedFromWindow() {
+        focusChanged?.invoke(false)
         activeConnection?.invalidate()
         activeConnection = null
         super.onDetachedFromWindow()
