@@ -917,6 +917,7 @@ impl GoyaWindow {
         let mut seat: Option<WlSeat> = None;
         let mut wm_base: Option<XdgWmBase> = None;
         let mut text_input_manager: Option<ZwpTextInputManagerV3> = None;
+        let mut data_device_manager: Option<WlDataDeviceManager> = None;
         for (name, interface) in &state.globals {
             match interface.as_str() {
                 "wl_compositor" => compositor = Some(_registry.bind(*name, 1, &qh, ())),
@@ -925,6 +926,9 @@ impl GoyaWindow {
                 "xdg_wm_base" => wm_base = Some(_registry.bind(*name, 1, &qh, ())),
                 "zwp_text_input_manager_v3" => {
                     text_input_manager = Some(_registry.bind(*name, 1, &qh, ()))
+                }
+                "wl_data_device_manager" => {
+                    data_device_manager = Some(_registry.bind(*name, 1, &qh, ()))
                 }
                 _ => {}
             }
@@ -947,6 +951,7 @@ impl GoyaWindow {
         state.xdg_wm_base = Some(wm_base.clone());
         state.seat = seat.clone();
         state.text_input_manager = text_input_manager;
+        state.data_device_manager = data_device_manager;
         // Initial commit: the compositor responds with a configure.
         surface.commit();
 
@@ -971,6 +976,9 @@ impl GoyaWindow {
             state.keyboard = Some(seat.get_keyboard(&qh, ()));
             if let Some(manager) = &state.text_input_manager {
                 state.text_input = Some(manager.get_text_input(&seat, &qh, ()))
+            }
+            if let Some(manager) = &state.data_device_manager {
+                state.data_device = Some(manager.get_data_device(&seat, &qh, ()))
             }
         }
 
