@@ -1622,25 +1622,8 @@ mod tests {
         );
         assert_eq!(decorations.len(), 1);
         assert_eq!(decorations[0].caret_byte_offset, Some(0));
-        assert!(rt.handle(Event::ImeBatch {
-            preedit: Some(("かな".into(), 3, 6)),
-            commit: None,
-            delete: None,
-        }));
-        assert!(matches!(
-            rt.render_list().last(),
-            Some(Primitive::Text(_, value)) if value == "かな日a"
-        ));
-        let (_, decorations) = rt.render_list_with_text_decorations();
-        assert_eq!(decorations[0].caret_byte_offset, Some("か".len()));
-        assert_eq!(
-            decorations[0].selection_byte_range,
-            Some(("か".len(), "かな".len()))
-        );
-        assert_eq!(
-            decorations[0].composition_byte_range,
-            Some((0, "かな".len()))
-        );
+        // GY-ZCODE-006: `Event::ImeBatch` removed — there is no staged
+        // preedit to render, so decorations stay selection-only.
         assert!(rt.focus_input(None));
         assert!(matches!(
             rt.render_list().last(),

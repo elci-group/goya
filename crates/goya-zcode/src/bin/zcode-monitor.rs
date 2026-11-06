@@ -930,9 +930,8 @@ fn run_live(args: &Args, store: &mut SceneStore, last_mtime: &mut Option<SystemT
                 // GY-ZCODE-004: ctrl+c/v/q shortcuts from goya-wayland.
                 PlatformEvent::Shortcut(shortcut) => {
                     // Wave 6 (GY-ZCODE-006): ctrl+Left/Right session
-                    // switching — gated on J1's Shortcut variants; the
-                    // delta helper returns None for every shortcut until
-                    // they land, so this stays a no-op now.
+                    // switching (Shortcut::SessionNext/SessionPrevious,
+                    // J1's goya-wayland variants).
                     if let Some(delta) = shortcut_switch_delta(shortcut) {
                         dirty |= handle_session_switch(&handle, &mut composer, delta);
                         sync_text_input(&mut win, &composer, store.get());
@@ -965,10 +964,12 @@ fn run_live(args: &Args, store: &mut SceneStore, last_mtime: &mut Option<SystemT
                             sync_text_input(&mut win, &composer, store.get());
                             dirty = true;
                         }
-                        Shortcut::Quit => {
-                            handle.stop.store(true, Ordering::Relaxed);
-                            dirty = true;
-                        }
+                    Shortcut::Quit => {
+                        handle.stop.store(true, Ordering::Relaxed);
+                        dirty = true;
+                    }
+                    // Handled above via shortcut_switch_delta.
+                    Shortcut::SessionNext | Shortcut::SessionPrevious => {}
                     }
                 }
                 _ => {}
