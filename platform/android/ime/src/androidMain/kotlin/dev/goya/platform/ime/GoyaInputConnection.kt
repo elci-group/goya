@@ -125,7 +125,7 @@ class GoyaInputConnection(
         val registered = editorDispatcher.callSynchronously {
             !closed && adapter.requestCursorUpdates(cursorUpdateMode, cursorUpdateFilter)
         }
-        return registered && publisher.request(cursorUpdateMode, cursorUpdateFilter)
+        return registered && !closed && publisher.request(cursorUpdateMode, cursorUpdateFilter)
     }
 
     override fun performEditorAction(actionCode: Int): Boolean =
