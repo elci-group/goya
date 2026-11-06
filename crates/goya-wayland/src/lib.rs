@@ -30,6 +30,7 @@
 //! an operator-verified acceptance item, not covered by tests here.
 
 use cosmic_text::{Attrs, Buffer, Color, FontSystem, Metrics, Shaping, SwashCache, Wrap};
+use unicode_segmentation::UnicodeSegmentation;
 use goya_csr::{self, Policy as CsrPolicy};
 use goya_hcar::{AffinityMode, Classifier, CoreAssignment, WorkCost, WorkItem};
 use goya_layout::Rect;

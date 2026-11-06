@@ -612,7 +612,7 @@ check, uni snapshot on every push/PR. Branch protection is a GitHub
 settings action (owner-side).
 
 ### Deferred (recorded, not forgotten)
-- P1 typography stack (shaping/rasterisation) — Wave 4-scale dependency decision.
+- Typography: cosmic-text shaping/rasterisation, wrapping, per-node size and clipping are implemented in `goya-wayland`. Remaining work is shared shaped-layout geometry (text extent, caret, selection, hit testing), font/fallback policy, accurate IME cursor placement, grapheme-safe bitmap fallback, and glyph-level/live acceptance. The original `evidence/GY-WAVE1-001.json` 5x7 statement is a historical Wave-1 snapshot; it does not describe the current renderer.
 - GY-IR/2 model unification — Wave 2c.
 - HCAR hardware topology/dispatch — needs real P/E hardware profiling.
 
