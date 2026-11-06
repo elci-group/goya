@@ -1,6 +1,7 @@
 package dev.goya.platform.ime
 
 import android.content.Context
+import android.os.Looper
 import android.text.InputType
 import android.text.TextUtils
 import android.view.View
@@ -9,6 +10,11 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.ExtractedText
 import android.view.inputmethod.ExtractedTextRequest
 import android.view.inputmethod.InputMethodManager
+
+fun interface GoyaCursorAnchorPublisher {
+    /** Return true only when the host has accepted responsibility for updates. */
+    fun request(cursorUpdateMode: Int, cursorUpdateFilter: Int): Boolean
+}
 
 /**
  * Android's editor-facing connection for Goya input nodes.
@@ -24,6 +30,9 @@ class GoyaInputConnection(
     private val targetView: View,
     private val adapter: GoyaImeAdapter,
     private val bridge: GoyaInputBridge,
+    private val cursorAnchorPublisher: GoyaCursorAnchorPublisher? = null,
+    private val onEditorAction: ((Int) -> Boolean)? = null,
+    private val singleLine: Boolean = true,
 ) : BaseInputConnection(targetView, false) {
     private var batchDepth = 0
     private var closed = false
@@ -81,7 +90,21 @@ class GoyaInputConnection(
         edit { adapter.setSelection(start, end) }
 
     override fun requestCursorUpdates(cursorUpdateMode: Int, cursorUpdateFilter: Int): Boolean =
-        !closed && adapter.requestCursorUpdates(cursorUpdateMode, cursorUpdateFilter)
+        if (closed) {
+            false
+        } else {
+            val publisher = cursorAnchorPublisher ?: return false
+            adapter.requestCursorUpdates(cursorUpdateMode, cursorUpdateFilter) &&
+                publisher.request(cursorUpdateMode, cursorUpdateFilter)
+        }
+
+    override fun performEditorAction(actionCode: Int): Boolean =
+        !closed && (onEditorAction?.invoke(actionCode) ?: false)
+
+    override fun closeConnection() {
+        invalidate()
+        super.closeConnection()
+    }
 
     override fun getTextBeforeCursor(length: Int, flags: Int): CharSequence? {
         if (closed || length < 0) return null
@@ -122,11 +145,8 @@ class GoyaInputConnection(
         result.partialEndOffset = -1
         result.selectionStart = utf16OffsetAtByte(snapshot.text, snapshot.anchorUtf8)
         result.selectionEnd = utf16OffsetAtByte(snapshot.text, snapshot.cursorUtf8)
-        result.flags = if (snapshot.anchorUtf8 != snapshot.cursorUtf8) {
-            ExtractedText.FLAG_SELECTING
-        } else {
-            0
-        }
+        result.flags = (if (singleLine) ExtractedText.FLAG_SINGLE_LINE else 0) or
+            if (snapshot.anchorUtf8 != snapshot.cursorUtf8) ExtractedText.FLAG_SELECTING else 0
         return result
     }
 
@@ -151,6 +171,14 @@ class GoyaInputConnection(
     }
 
     private fun publishSelection() {
+        if (closed || !targetView.isAttachedToWindow) return
+        val handler = targetView.handler ?: return
+        val update = Runnable { publishSelectionOnViewThread() }
+        if (Looper.myLooper() == handler.looper) update.run() else handler.post(update)
+    }
+
+    private fun publishSelectionOnViewThread() {
+        if (closed || !targetView.isAttachedToWindow) return
         val snapshot = bridge.editorSnapshot() ?: return
         val anchor = utf16OffsetAtByte(snapshot.text, snapshot.anchorUtf8)
         val cursor = utf16OffsetAtByte(snapshot.text, snapshot.cursorUtf8)
@@ -175,7 +203,7 @@ class GoyaInputConnection(
         fun configureEditorInfo(
             outAttrs: EditorInfo,
             multiline: Boolean = false,
-            imeAction: Int = EditorInfo.IME_ACTION_DONE,
+            imeAction: Int = EditorInfo.IME_ACTION_UNSPECIFIED,
         ) {
             outAttrs.inputType = InputType.TYPE_CLASS_TEXT or
                 if (multiline) InputType.TYPE_TEXT_FLAG_MULTI_LINE else 0
