@@ -307,28 +307,16 @@ fn feed_key(composer: &mut Composer, ev: &goya_wayland::PlatformEvent) -> Option
         // Wave 5 (GY-ZCODE-005): IME deliveries from the
         // zwp_text_input_v3 client. Preedit is an overlay; CommitText is
         // the whole committed string inserted at the composer cursor via
-        // the focused-guarded commit path.
+        // the focused-guarded commit path. (PreeditWithCursor and
+        // DeleteSurroundingText were removed upstream by the GY-ZCODE-006
+        // goya-wayland rework; the composer-side methods remain, exercised
+        // by unit tests.)
         goya_wayland::PlatformEvent::Preedit(text) => {
             composer.set_preedit(text.as_deref());
             None
         }
-        goya_wayland::PlatformEvent::PreeditWithCursor {
-            text,
-            cursor_begin,
-            cursor_end,
-        } => {
-            composer.set_preedit_with_cursor(text.as_deref(), *cursor_begin, *cursor_end);
-            None
-        }
         goya_wayland::PlatformEvent::CommitText(text) => {
             composer.commit_text(text);
-            None
-        }
-        goya_wayland::PlatformEvent::DeleteSurroundingText {
-            before_bytes,
-            after_bytes,
-        } => {
-            composer.delete_surrounding(*before_bytes, *after_bytes);
             None
         }
         _ => None,
