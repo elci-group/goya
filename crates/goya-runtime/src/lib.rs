@@ -449,6 +449,12 @@ pub enum Event {
         text: String,
         cursor_byte_in_text: usize,
     },
+    /// Delete around the focused selection without deleting the selection.
+    /// Lengths are UTF-8 bytes and expand to complete graphemes.
+    DeleteInputSurrounding {
+        before_bytes: u32,
+        after_bytes: u32,
+    },
     /// Finalize any active IME preedit as committed text.
     FinishComposition,
     TextBackspace,
