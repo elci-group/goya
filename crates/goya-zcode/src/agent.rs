@@ -198,6 +198,15 @@ pub struct MonitorHandle {
     /// Wave 6: set by `switch_session` so the reconnect loop skips the
     /// backoff delay and re-connects immediately.
     switch_requested: Arc<AtomicBool>,
+    /// Wave 7: per-session transcript + composer LRU (cap
+    /// [`RETENTION_CAP`], oldest-inserted evicted). Written by
+    /// `switch_session` (save the outgoing session), drained by
+    /// `on_session_acquired` (restore the incoming one).
+    retention: Arc<Mutex<SessionRetention>>,
+    /// Wave 7: composer snapshot staged by `on_session_acquired` for the
+    /// host binary (the composer instance lives in the bin, not on the
+    /// handle) to pick up via `take_composer_restore`.
+    pending_composer: Arc<Mutex<Option<ComposerSnapshot>>>,
 }
 
 impl MonitorHandle {
@@ -213,6 +222,8 @@ impl MonitorHandle {
             send_lifecycle: Arc::new(Mutex::new(SendLifecycle::default())),
             pinned_session: Arc::new(Mutex::new(None)),
             switch_requested: Arc::new(AtomicBool::new(false)),
+            retention: Arc::new(Mutex::new(SessionRetention::default())),
+            pending_composer: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -303,18 +314,36 @@ impl MonitorHandle {
         }
     }
 
-    /// Wave 6: switch the pinned session (`GY-ZCODE-006`). This is the
-    /// single owner of the switch/reset sequence:
-    /// 1. pin `session_id` — the reconnect loop starts the next run there;
-    /// 2. abandon any in-flight send (the `SendLifecycle` pending entry is
+    /// Wave 6/7: switch the pinned session (`GY-ZCODE-006`). This is the
+    /// single owner of the switch/retain/reset sequence:
+    /// 1. retain the outgoing session — its transcript is snapshotted from
+    ///    the view and, with the caller-supplied composer snapshot, stored
+    ///    in the LRU keyed by the active session id (nothing is stored
+    ///    when no session is active — there is no key);
+    /// 2. pin `session_id` — the reconnect loop starts the next run there;
+    /// 3. abandon any in-flight send (the `SendLifecycle` pending entry is
     ///    reset — the stale "sending"/"busy" hint is replaced below);
-    /// 3. reset the transcript defensively (the bin already reset for
-    ///    instant feedback; one owner for the logic, two call sites);
-    /// 4. set the `"<n>/<m> switching session…"` status;
-    /// 5. flag the reconnect loop to skip its backoff;
-    /// 6. enqueue `AgentCmd::SwitchSession` so a live connection tears
+    /// 4. reset the transcript for instant feedback (the incoming
+    ///    session's retained state is restored by `on_session_acquired`);
+    /// 5. set the `"<n>/<m> switching session…"` status;
+    /// 6. flag the reconnect loop to skip its backoff;
+    /// 7. enqueue `AgentCmd::SwitchSession` so a live connection tears
     ///    down within one poll interval.
-    pub fn switch_session(&self, session_id: String) {
+    pub fn switch_session(&self, session_id: String, composer: ComposerSnapshot) {
+        // Wave 7: snapshot BEFORE the reset, keyed by the outgoing session.
+        let outgoing = self
+            .active_session_id
+            .lock()
+            .ok()
+            .and_then(|active| active.clone());
+        if let Some(from) = outgoing {
+            let transcript = self.view.lock().ok().map(|v| v.snapshot_transcript());
+            if let Some(transcript) = transcript {
+                if let Ok(mut retention) = self.retention.lock() {
+                    retention.store(from, (transcript, composer));
+                }
+            }
+        }
         if let Ok(mut pinned) = self.pinned_session.lock() {
             *pinned = Some(session_id.clone());
         }
@@ -338,6 +367,39 @@ impl MonitorHandle {
     /// Wave 6: the session the next run is pinned to.
     pub fn pinned_session(&self) -> Option<String> {
         self.pinned_session.lock().ok().and_then(|p| p.clone())
+    }
+
+    /// Wave 7 (GY-ZCODE-007): run-loop hook, called once a run acquires
+    /// `session_id` (after `session/list` resolved the target, before the
+    /// subscribe replay so replayed events append to the restored
+    /// history). A retained snapshot is restored into the view and its
+    /// composer half staged via `stage_composer_restore`; an unknown
+    /// session leaves the default (empty) transcript untouched — the
+    /// `switch_session` reset already put the view in that state.
+    pub fn on_session_acquired(&self, session_id: &str) {
+        let retained = self
+            .retention
+            .lock()
+            .ok()
+            .and_then(|mut r| r.take(session_id));
+        if let Some((transcript, composer)) = retained {
+            if let Ok(mut view) = self.view.lock() {
+                view.restore_transcript(transcript);
+            }
+            if let Ok(mut pending) = self.pending_composer.lock() {
+                *pending = Some(composer);
+            }
+            self.mark_dirty();
+        }
+    }
+
+    /// Wave 7: take the composer snapshot staged by the last
+    /// `on_session_acquired` (if any). The composer instance lives in the
+    /// host binary, so the restore itself is the bin's job: it applies
+    /// `Composer::restore` to its own composer (focus stays wherever the
+    /// switch left it — unfocused).
+    pub fn take_composer_restore(&self) -> Option<ComposerSnapshot> {
+        self.pending_composer.lock().ok().and_then(|mut p| p.take())
     }
 }
 
