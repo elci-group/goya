@@ -25,8 +25,10 @@ data class Preedit(val text: String, val cursorBeginUtf8: Int, val cursorEndUtf8
  * The Rust runtime remains the source of truth for text, selection, undo and
  * grapheme behavior. Snapshots are read-only and must be obtained afresh for
  * each operation. `setSelectionUtf8` and cursor-anchor requests are explicit
- * because GY-RUNTIME/1 currently has no absolute-selection or cursor-anchor
- * Event variant; an Android host must route those to its platform bridge.
+ * because Android offsets/counts are UTF-16 while GY-RUNTIME/1 selection and
+ * IME offsets use UTF-8 bytes. `setSelectionUtf8` maps to the runtime's
+ * grapheme-safe SetInputSelection event. Cursor-anchor requests go to the
+ * Android host, which publishes geometry from its latest render.
  */
 interface GoyaInputBridge {
     fun editorSnapshot(): EditorSnapshot?
