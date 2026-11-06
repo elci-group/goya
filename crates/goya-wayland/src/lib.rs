@@ -1192,15 +1192,25 @@ impl GoyaWindow {
     /// `fills` is a parallel slice indexed by primitive order (GY-WAVE2
     /// contract): `Some(0xRRGGBB)` overrides that primitive's flat fill
     /// colour; `None` keeps the existing default.
+    ///
+    /// `fgs` is a parallel slice indexed by primitive order (GY-ZCODE-009):
+    /// `Some(0xRRGGBB)` overrides that primitive's text (glyph) colour;
+    /// `None`, a short slice, or an empty slice falls back to the flat `fg`.
+    /// Text primitives only — Panel fills and Button rectangle fills are
+    /// unaffected (fills already own those), but a Button's *label* colour
+    /// override via `fgs` is honoured by design (the label is text).
     pub fn present(
         &mut self,
         primitives: &[goya_runtime::Primitive],
         fills: &[Option<u32>],
+        fgs: &[Option<u32>],
         fg: [u8; 3],
         bg: [u8; 3],
         glyph_px: u32,
     ) -> Result<(), WaylandError> {
-        self.present_internal(primitives, fills, None, None, None, fg, bg, glyph_px, None)
+        self.present_internal(
+            primitives, fills, fgs, None, None, None, fg, bg, glyph_px, None,
+        )
     }
 
     /// Present with per-primitive rectangular clip regions. Each optional
@@ -1520,7 +1530,16 @@ fn argb(rgb: [u8; 3]) -> u32 {
 /// `fills[i] = Some(0xRRGGBB)` wins; `None` (or a short slice) falls back to
 /// the existing flat default. Returns the RGB triple for rasterisation.
 fn resolve_fill(fills: &[Option<u32>], i: usize, default: [u8; 3]) -> [u8; 3] {
-    match fills.get(i).copied().flatten() {
+    resolve_color(fills, i, default)
+}
+
+/// Shared resolver for per-primitive colour slices (GY-WAVE2 `fills`
+/// contract, extended in GY-ZCODE-009 to text `fgs`): `slice[i] =
+/// Some(0xRRGGBB)` wins; `None`, a short slice, or an empty slice falls
+/// back to the flat default, keeping empty-slice output byte-identical to
+/// the pre-slice behaviour.
+fn resolve_color(slice: &[Option<u32>], i: usize, default: [u8; 3]) -> [u8; 3] {
+    match slice.get(i).copied().flatten() {
         Some(rgb) => [
             ((rgb >> 16) & 0xFF) as u8,
             ((rgb >> 8) & 0xFF) as u8,

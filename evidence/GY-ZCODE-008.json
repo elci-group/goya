@@ -1,0 +1,39 @@
+{
+  "work_package": "GY-ZCODE-008",
+  "title": "Swarm wave 8: live monitor a11y snapshot + Wayland data-device system clipboard",
+  "date": "2026-11-06",
+  "swarm": {
+    "convention": "GY-WAVE2-SWARM (concurrent agents, exclusive crate ownership, frozen interface contract, central integration gate)",
+    "contract": "docs/goya-zcode.md 'Wave 8' section frozen before dispatch",
+    "assignments": {
+      "J1": "goya-zcode: src/a11y.rs — scene-rect capture once at startup (fixed-size window), DIG build from live state (title/status Label nodes, rows with live text and empty rows omitted, composer as Textbox with placeholder label + focused mirror + scene hit region, quit Button with press), MonitorA11y::republish on the dirty flag, --a11y-dump mode, 4 new tests",
+      "J2": "goya-wayland: wl_data_device_manager v1 bound; set_clipboard_text (wl_data_source, text/plain offers, in-memory payload, chunked char-boundary-safe sends), request_clipboard_text -> PlatformEvent::ClipboardText(Option<String>) (one outstanding request; selection change cancels), pure ClipboardState machine (mime negotiation, request phases, chunked serving) with 10 new tests"
+    }
+  },
+  "gate_record": {
+    "integration_findings": [
+      "Upstream gap documented by J1: A11yTree has no public per-node mutator, so live_text cannot be patched into a projected tree from outside goya-a11y; MonitorA11y publishes the structural tree plus an AT-facing node snapshot until goya-a11y exposes get_mut.",
+      "Incremental a11y updates (run_with_updates) are behind the atspi-gtk feature (GTK/AT-SPI bridge, not wired here by contract); headless path is full-tree publish per dirty flag — documented in module docs.",
+      "gate fixes: formatting pass only; no semantic integration fixes needed (zero GATE markers)."
+    ],
+    "verification": {
+      "cargo_build_workspace": "clean",
+      "cargo_test_workspace_lib_tests": "657 passed, 0 failed",
+      "cargo_clippy_workspace_all_targets_D_warnings": "clean",
+      "cargo_fmt_all_check": "clean",
+      "zcode_monitor_headless": "all 18 checks PASS (incl. a11y snapshot composer/rows/quit + republish-on-change)",
+      "zcode_monitor_a11y_dump_live": "live dump shows composer as role=TextInput name='type here…' states=[enabled,editable,focusable] actions=[set_value,focus]",
+      "zcode_monitor_stdin_dump_live": "link Connecting->Up, subscribed to live session",
+      "zcode_monitor_live_wayland": "window presented, 276 frames over 6s"
+    },
+    "scope_honesty": {
+      "a11y": "DIG/dump verified headless and live; real screen-reader (Orca) operation remains operator-verified territory. Incremental AT-SPI updates need the gtk feature bridge (upstream).",
+      "clipboard": "Protocol plumbing unit-tested; live compositor copy/paste interop is operator-verified territory. The monitor's clipboard ring is still in-monitor; backing it with these host calls is goya-zcode work deferred to a next wave (documented in goya-wayland crate docs)."
+    }
+  },
+  "notes": [
+    "Closes the goya-clipboard 'deferred to GY-WAYLAND-001 follow-through' system-clipboard gap at the protocol level.",
+    "Doctests excluded per known host rustdoc LLVM issue (README).",
+    "kaptaind auto-committed agent work incrementally (v2.13.x); gate verified the final tree via all workspace gates."
+  ]
+}

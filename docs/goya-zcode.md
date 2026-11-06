@@ -471,3 +471,44 @@ Same swarm convention; contract frozen before dispatch.
 | J1 | `goya-zcode` | DIG construction + republish + --a11y-dump + tests |
 | J2 | `goya-wayland` | data-device set/request + ClipboardText event + state-machine tests |
 | gate | workspace | gates, acceptance, evidence |
+
+## Wave 9 — system clipboard wiring + per-node text colors (GY-ZCODE-009)
+
+Same swarm convention; contract frozen before dispatch.
+
+1. **Per-node text colors (J1: `goya-wayland`).**
+   - `present`/`present_dirty` gain a parallel `fgs: &[Option<u32>]` slice
+     indexed by primitive order, exactly mirroring the wave-2 `fills`
+     pattern: `Some(0xRRGGBB)` overrides the text color for the primitive at
+     that index; `None`/short-slice falls back to the flat fg argument.
+     Text primitives only (buttons keep their fill semantics); raster paths
+     (serial + parallel tiles) stay byte-identical in the None case.
+   - Existing call sites in goya-wayland's own tests updated; goya-hello
+     call sites migrated by the gate (as in wave 2).
+   - Tests mirror wave-2 `fill_tests`: override/fallback/short-slice,
+     rasterized-buffer byte comparison, parallel-tiles-match-serial.
+2. **Monitor consumption (J2: `goya-zcode`).**
+   - **System clipboard ring**: Ctrl+C → `win.set_clipboard_text(line)` +
+     ring record; Ctrl+V → `win.request_clipboard_text()`, and the
+     `ClipboardText(Option<String>)` event inserts at the composer cursor
+     when it arrives. `None` (no selection / no data-device) falls back to
+     the in-monitor ring — the ring stays as the offline fallback, now
+     backed by the system clipboard whenever the compositor provides one.
+     Document the None-ambiguity (absent device vs empty selection) in code.
+   - **Text colors**: per-node fg overrides from `monitor_palette()`:
+     status text uses ok/err/accent (same mapping as its fill), tool ✓ lines
+     ok, ✗ lines err, markdown headings accent, everything else None (flat
+     fg). Build the fgs slice in primitive order alongside fills. Adapter-
+     guard the new parameter per the established pattern (J1 lands
+     concurrently).
+   - Headless acceptance: color mapping check; clipboard check extended to
+     cover the set/request adapter path (compositor-free helper level); all
+     existing checks unchanged.
+
+### Assignments
+
+| Agent | Crates (exclusive) | Deliverable |
+|---|---|---|
+| J1 | `goya-wayland` | `fgs` slice + raster per-node text color + tests |
+| J2 | `goya-zcode` | system-clipboard-backed ring + text-color mapping + tests |
+| gate | workspace | gates, goya-hello call-site migration, acceptance, evidence |
