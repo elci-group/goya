@@ -3,7 +3,9 @@
 //! Minimal, honest scope per GY-WAYLAND-001: one window, pointer events
 //! mapped to surface-local pixels, and the goya render list presented via a
 //! shared-memory buffer. Keyboard input additionally surfaces ctrl+c /
-//! ctrl+v / ctrl+q as [`PlatformEvent::Shortcut`] events (GY-ZCODE-004);
+//! ctrl+v / ctrl+q as [`PlatformEvent::Shortcut`] events (GY-ZCODE-004),
+//! plus ctrl+Left / ctrl+Right as [`Shortcut::SessionPrevious`] /
+//! [`Shortcut::SessionNext`] for multi-session switching (GY-ZCODE-006);
 //! this shortcut path requires the compositor's xkb keymap — the keymap-free
 //! evdev fallback tracks no ctrl modifier and never emits shortcuts. This
 //! crate is where Goya's zero-dependency policy
@@ -300,15 +302,20 @@ pub enum PlatformEvent {
     CloseRequested,
 }
 
-/// Application-level shortcut keys (GY-ZCODE-004): ctrl+c / ctrl+v / ctrl+q
-/// recognised through the compositor's xkb state path (ctrl modifier tracking
-/// plus evdev keycode). The keymap-free evdev fallback path never emits these
-/// because it does not track ctrl.
+/// Application-level shortcut keys (GY-ZCODE-004): ctrl+c / ctrl+v / ctrl+q,
+/// extended in GY-ZCODE-006 with ctrl+Left / ctrl+Right session switching.
+/// All are recognised through the compositor's xkb state path (ctrl modifier
+/// tracking plus evdev keycode). The keymap-free evdev fallback path never
+/// emits these because it does not track ctrl.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Shortcut {
     Copy,
     Paste,
     Quit,
+    /// ctrl+Right (evdev 106): switch to the next session (GY-ZCODE-006).
+    SessionNext,
+    /// ctrl+Left (evdev 105): switch to the previous session (GY-ZCODE-006).
+    SessionPrevious,
 }
 
 /// Navigation/editing keys emitted as [`PlatformEvent::KeySpecial`].
@@ -2891,19 +2898,22 @@ fn key_chars_with_compose(
     }
 }
 
-/// Pure decision helper (GY-ZCODE-004 contract): map ctrl + evdev keycode to
-/// an application shortcut. Only ctrl+c (46), ctrl+v (47) and ctrl+q (16)
-/// are recognised; every other combination — including plain (non-ctrl)
-/// presses of those keys — yields None and stays inert, exactly as in the
-/// pre-shortcut behavior.
+/// Pure decision helper (GY-ZCODE-004 contract, extended by GY-ZCODE-006):
+/// map ctrl + evdev keycode to an application shortcut. Recognised combos are
+/// ctrl+c (46), ctrl+v (47), ctrl+q (16), ctrl+Left (105 →
+/// `SessionPrevious`) and ctrl+Right (106 → `SessionNext`); every other
+/// combination — including plain (non-ctrl) presses of those keys — yields
+/// None and keeps its existing semantics (arrows stay `KeySpecial`).
 fn shortcut_from_key(ctrl: bool, keycode: u32) -> Option<Shortcut> {
     if !ctrl {
         return None;
     }
     match keycode {
-        46 => Some(Shortcut::Copy),  // KEY_C
-        47 => Some(Shortcut::Paste), // KEY_V
-        16 => Some(Shortcut::Quit),  // KEY_Q
+        46 => Some(Shortcut::Copy),            // KEY_C
+        47 => Some(Shortcut::Paste),           // KEY_V
+        16 => Some(Shortcut::Quit),            // KEY_Q
+        105 => Some(Shortcut::SessionPrevious), // KEY_LEFT
+        106 => Some(Shortcut::SessionNext),     // KEY_RIGHT
         _ => None,
     }
 }

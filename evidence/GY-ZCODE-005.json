@@ -1,0 +1,37 @@
+{
+  "work_package": "GY-ZCODE-005",
+  "title": "Swarm wave 5: zwp_text_input_v3 IME path, tool.updated transcript rows",
+  "date": "2026-11-06",
+  "swarm": {
+    "convention": "GY-WAVE2-SWARM (concurrent agents, exclusive crate ownership, frozen interface contract, central integration gate)",
+    "contract": "docs/goya-zcode.md 'Wave 5' section frozen before dispatch",
+    "assignments": {
+      "J1": "goya-wayland: client-side zwp_text_input_v3 — set_text_input_active(bool) (safe no-op without the global), PlatformEvent::Preedit(Option<String>) / CommitText(String) emitted atomically on protocol done frames, pure TextInputState machine (8 tests incl. a found-and-fixed clear-must-arm bug), activation decision helper",
+      "J2": "goya-zcode: tool.updated wire decode (toolCallId dedup key separate from display name; scheduled silent, progress folded to Started, terminal-dedup, bounded in-flight/finished sets cap 32), append-only tool rows (⚙ tool … / ✓ / ✗), composer preedit «…» overlay + commit_text insert-at-cursor, set_text_input_active on focus changes"
+    }
+  },
+  "gate_record": {
+    "integration_findings": [
+      "kaptaind had staged a divergent IME design (ImeBatch with serial/delete-surrounding) into goya-wayland and goya-runtime mid-flight; J1 replaced the wayland surface per the frozen contract, and J2's bin converged on it. goya-runtime retains its own unrelated Event::ImeBatch variant — it compiles independently and was left untouched (no crate owns a scrub this wave; flagged for a future goya-runtime pass).",
+      "cargo fmt across agent output (formatting-only diffs)."
+    ],
+    "verification": {
+      "cargo_build_workspace": "clean",
+      "cargo_test_workspace_lib_tests": "579 passed, 0 failed",
+      "cargo_clippy_workspace_all_targets_D_warnings": "clean",
+      "cargo_fmt_all_check": "clean",
+      "zcode_monitor_headless": "all 15 checks PASS (incl. tool-row started/progress/completed/failed lifecycle and composer preedit overlay)",
+      "zcode_monitor_stdin_dump_live": "link Connecting->Up, subscribed to live session",
+      "zcode_monitor_live_wayland": "window presented, 352 frames over 6s"
+    },
+    "scope_honesty": {
+      "ime": "Protocol plumbing is unit-tested; real CJK IME operation (candidate windows, composition engines) is compositor+IME dependent and remains an OPERATOR-VERIFIED item, not proven here.",
+      "tool_rows": "Append-only lines; progress is folded into Started and not rendered in-place (line-model limitation, documented)."
+    }
+  },
+  "notes": [
+    "Dead-key composition already worked via xkb Compose (wave 3); wave 5 adds the input-method protocol layer on top.",
+    "Doctests excluded per known host rustdoc LLVM issue (README).",
+    "kaptaind auto-committed agent work incrementally (with .tmp artifacts in history messages); gate verified the final tree via all workspace gates."
+  ]
+}

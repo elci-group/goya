@@ -356,3 +356,46 @@ Same swarm convention; contract frozen before dispatch.
 | J1 | `goya-wayland` | text-input-v3 client: Preedit/CommitText + activation API + state-machine tests |
 | J2 | `goya-zcode` | tool.updated decode + append-only tool rows + composer preedit/commit wiring + tests |
 | gate | workspace | gates, live acceptance, evidence |
+
+## Wave 6 — multi-session switching + runtime cleanup (GY-ZCODE-006)
+
+Same swarm convention; contract frozen before dispatch. J1 owns
+`goya-runtime` + `goya-wayland`; J2 owns `goya-zcode`; gate runs workspace
+gates, live acceptance (token-free default), evidence.
+
+### Shared interface contract (frozen)
+
+1. **Runtime cleanup + session keys (J1: `goya-runtime`, `goya-wayland`).**
+   - `goya-runtime`: remove the divergent `Event::ImeBatch` variant left by
+     the auto-committer (flagged in GY-ZCODE-005). First verify no code
+     inside goya-runtime constructs or matches it; fix exhaustive matches in
+     that crate only. Nothing outside consumes it (verified by gate build).
+   - `goya-wayland`: `Shortcut` gains `SessionNext`, `SessionPrevious`,
+     emitted for ctrl+Right (code 106) / ctrl+Left (code 105) through the
+     existing ctrl+xkb shortcut path; plain arrows unchanged; evdev fallback
+     emits none (existing asymmetry). Extend the pure helper + tests.
+2. **Session switching (J2: `goya-zcode`).**
+   - `AgentCmd::SwitchSession { session_id: String }`; the agent run loop
+     handles it by tearing down the current connection and starting a fresh
+     run pinned to that session (simplest correct semantics: fresh
+     `session/list` + `session/subscribe`; the switch must work while a
+     connection is up, down, or reconnecting).
+   - `SessionView`: transcript (tail/history) is session-scoped and RESET on
+     switch (documented; per-session history buffers are a later increment).
+     The sessions list gains a selection index; `status` shows
+     `"<n>/<m> <status>"` on switch. `SessionView::cycle_selection(delta)`
+     returns the newly selected session id (wrapping), pure + tested.
+   - Bin: `Shortcut::SessionNext`/`SessionPrevious` cycle the selection and
+     enqueue SwitchSession; the composer unfocuses on switch; in-flight
+     sends are abandoned (lifecycle reset, status "switching session…").
+   - Headless acceptance: cycling over a synthetic session list selects the
+     right ids (wrap both directions); transcript reset on switch; existing
+     checks unchanged.
+
+### Assignments
+
+| Agent | Crates (exclusive) | Deliverable |
+|---|---|---|
+| J1 | `goya-runtime`, `goya-wayland` | ImeBatch removal + SessionNext/Previous shortcuts + tests |
+| J2 | `goya-zcode` | SwitchSession command, session-scoped reset, cycling + bin wiring + tests |
+| gate | workspace | gates, live acceptance, evidence |
