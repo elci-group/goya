@@ -881,6 +881,16 @@ fn run_dump(
                     for row in &rows {
                         println!("| {row}");
                     }
+                    // GY-ZCODE-008: one a11y republish per change; in
+                    // --a11y-dump mode each republish prints the tree.
+                    // Dump mode has no composer instance (it lives in the
+                    // live loop), so the composer projects unfocused with
+                    // the placeholder label.
+                    a11y.republish(&view, &Composer::new());
+                    if args.a11y_dump {
+                        println!("--- a11y");
+                        print!("{}", a11y.dump());
+                    }
                     last_snapshot = Some((header, rows));
                 }
             }
@@ -896,7 +906,12 @@ fn run_dump(
     println!("zcode-monitor: dump done");
 }
 
-fn run_live(args: &Args, store: &mut SceneStore, last_mtime: &mut Option<SystemTime>) {
+fn run_live(
+    args: &Args,
+    store: &mut SceneStore,
+    last_mtime: &mut Option<SystemTime>,
+    a11y: &mut goya_zcode::a11y::MonitorA11y,
+) {
     let mut win = match GoyaWindow::create("zcode-monitor", WIN_W_PX, WIN_H_PX) {
         Ok(w) => w,
         Err(e) => {
@@ -1054,7 +1069,10 @@ fn run_live(args: &Args, store: &mut SceneStore, last_mtime: &mut Option<SystemT
                     LinkState::Up => view.status.clone(),
                     LinkState::Down(reason) => format!("down: {reason}"),
                 };
-                apply_view_to_frame(&mut nodes, &view);
+                // GY-ZCODE-008: a11y republish rides the same dirty flag
+                // as the render (view + composer change), silently in
+                // live mode — AT-SPI bridging is upstream goya-a11y.
+                a11y.republish(&view, &composer);
             }
             apply_composer_to_frame(&mut nodes, &composer);
             let prims: Vec<Primitive> = nodes.iter().map(present_node).collect();
