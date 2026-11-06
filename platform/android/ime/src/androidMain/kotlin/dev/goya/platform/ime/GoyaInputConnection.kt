@@ -89,14 +89,12 @@ class GoyaInputConnection(
     override fun setSelection(start: Int, end: Int): Boolean =
         edit { adapter.setSelection(start, end) }
 
-    override fun requestCursorUpdates(cursorUpdateMode: Int, cursorUpdateFilter: Int): Boolean =
-        if (closed) {
-            false
-        } else {
-            val publisher = cursorAnchorPublisher ?: return false
-            adapter.requestCursorUpdates(cursorUpdateMode, cursorUpdateFilter) &&
-                publisher.request(cursorUpdateMode, cursorUpdateFilter)
-        }
+    override fun requestCursorUpdates(cursorUpdateMode: Int, cursorUpdateFilter: Int): Boolean {
+        if (closed) return false
+        val publisher = cursorAnchorPublisher ?: return false
+        return adapter.requestCursorUpdates(cursorUpdateMode, cursorUpdateFilter) &&
+            publisher.request(cursorUpdateMode, cursorUpdateFilter)
+    }
 
     override fun performEditorAction(actionCode: Int): Boolean =
         !closed && (onEditorAction?.invoke(actionCode) ?: false)
