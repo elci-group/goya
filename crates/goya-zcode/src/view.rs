@@ -101,6 +101,10 @@ pub struct SessionView {
     /// Wave 5: tool ids that already emitted a terminal (`✓`/`✗`) line;
     /// anything after that is inert. Same cap/eviction as above.
     finished_tools: VecDeque<String>,
+    /// Wave 6 (GY-ZCODE-006): index into `sessions` of the currently
+    /// selected entry; moved by `cycle_selection` and kept across
+    /// `reset_transcript` (the selection is list state, not transcript).
+    pub selected: usize,
 }
 
 impl Default for SessionView {
@@ -117,6 +121,7 @@ impl Default for SessionView {
             markdown: true,
             in_flight_tools: VecDeque::new(),
             finished_tools: VecDeque::new(),
+            selected: 0,
         }
     }
 }

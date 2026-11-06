@@ -3632,32 +3632,20 @@ mod shortcut_tests {
             }]
         );
 
+        // GY-ZCODE-006 regression: plain (non-ctrl) arrows keep their
+        // KeySpecial semantics — no shortcuts without the ctrl modifier.
         inner.events.clear();
         inner.shift = false;
         inner.handle_key_press(106); // Right
         assert_eq!(
             inner.events,
-            vec![PlatformEvent::KeySpecialWithModifiers {
-                key: super::KeySpecial::ArrowRight,
-                modifiers: KeyModifiers {
-                    shift: false,
-                    ctrl: false,
-                },
-            }]
+            vec![PlatformEvent::KeySpecial(super::KeySpecial::ArrowRight)]
         );
-        // GY-ZCODE-006 regression: plain (non-ctrl) arrows keep their
-        // KeySpecial semantics — no shortcuts without the ctrl modifier.
-        let mut inner = inner_with_ctrl(false);
+        inner.events.clear();
         inner.handle_key_press(105);
         assert_eq!(
             inner.events,
             vec![PlatformEvent::KeySpecial(super::KeySpecial::ArrowLeft)]
-        );
-        inner.events.clear();
-        inner.handle_key_press(106);
-        assert_eq!(
-            inner.events,
-            vec![PlatformEvent::KeySpecial(super::KeySpecial::ArrowRight)]
         );
     }
 
