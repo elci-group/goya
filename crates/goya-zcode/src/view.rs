@@ -315,7 +315,7 @@ impl SessionView {
             tail: self.tail.clone(),
             history: self.history.clone(),
             streaming: self.streaming.clone(),
-            scroll: self.scroll.clone(),
+            scroll: self.scroll,
             in_flight_tools: self.in_flight_tools.clone(),
             finished_tools: self.finished_tools.clone(),
         }
@@ -907,13 +907,18 @@ mod tests {
         saved.push_line("kept");
         let snap = saved.snapshot_transcript();
 
-        let mut fresh = SessionView::default();
-        fresh.sessions = vec![entry("other")];
-        fresh.selected = 0;
-        fresh.markdown = false;
+        let mut fresh = SessionView {
+            sessions: vec![entry("other")],
+            selected: 0,
+            markdown: false,
+            ..Default::default()
+        };
         fresh.restore_transcript(snap);
 
-        assert_eq!(fresh.history, vec!["⚙ bash …".to_string(), "kept".to_string()]);
+        assert_eq!(
+            fresh.history,
+            vec!["⚙ bash …".to_string(), "kept".to_string()]
+        );
         assert!(fresh.in_flight_tools.contains(&"t9".to_string()));
         // Only transcript fields moved; the fresh view's own state stays.
         assert_eq!(fresh.sessions.len(), 1);

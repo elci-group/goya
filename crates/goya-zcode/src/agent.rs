@@ -1292,7 +1292,11 @@ mod tests {
         handle.switch_session("resaved".to_string(), ComposerSnapshot::default());
         handle.set_active_session(Some("resaved".to_string()));
         handle.switch_session("s9th".to_string(), ComposerSnapshot::default());
-        let keys = handle.retention.lock().map(|r| r.order.clone()).unwrap_or_default();
+        let keys = handle
+            .retention
+            .lock()
+            .map(|r| r.order.clone())
+            .unwrap_or_default();
         assert_eq!(keys.len(), RETENTION_CAP);
         assert!(
             !keys.contains(&"s1".to_string()),
@@ -1312,11 +1316,7 @@ mod tests {
         let handle = MonitorHandle::new();
         handle.switch_session("sess_x".to_string(), composer_with("typed"));
         assert_eq!(handle.pinned_session().as_deref(), Some("sess_x"));
-        let len = handle
-            .retention
-            .lock()
-            .map(|r| r.map.len())
-            .unwrap_or(0);
+        let len = handle.retention.lock().map(|r| r.map.len()).unwrap_or(0);
         assert_eq!(len, 0, "no active session — nothing to key the snapshot on");
         assert!(matches!(
             handle.try_take_cmd(),

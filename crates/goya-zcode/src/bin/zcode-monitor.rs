@@ -772,7 +772,11 @@ fn headless_acceptance(store: &SceneStore) {
         .unwrap_or(false);
     // Acquiring sess_ret_b (unknown): default empty, nothing staged.
     ret_handle.on_session_acquired("sess_ret_b");
-    let unknown_ok = ret_handle.view.lock().map(|v| v.history.is_empty()).unwrap_or(false)
+    let unknown_ok = ret_handle
+        .view
+        .lock()
+        .map(|v| v.history.is_empty())
+        .unwrap_or(false)
         && ret_handle.take_composer_restore().is_none();
     // Switch back to sess_ret_a, re-acquire: transcript + composer return.
     ret_handle.set_active_session(Some("sess_ret_b".to_string()));
@@ -781,7 +785,13 @@ fn headless_acceptance(store: &SceneStore) {
     let restored_view_ok = ret_handle
         .view
         .lock()
-        .map(|v| v.history == vec!["retained line one".to_string(), "retained line two".to_string()])
+        .map(|v| {
+            v.history
+                == vec![
+                    "retained line one".to_string(),
+                    "retained line two".to_string(),
+                ]
+        })
         .unwrap_or(false);
     let restored_composer_ok = ret_handle
         .take_composer_restore()

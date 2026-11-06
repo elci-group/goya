@@ -254,9 +254,7 @@ impl A11yTree {
     /// Screen-reader lookup by accessible name (exact match, first in id
     /// order). This is the AT analogue of `ddh.find`.
     pub fn find_by_name(&self, name: &str) -> Option<&A11yNode> {
-        self.nodes
-            .values()
-            .find(|n| n.resolved_name() == name)
+        self.nodes.values().find(|n| n.resolved_name() == name)
     }
 
     /// Keyboard-operability audit: every ENABLED interactive node
@@ -624,10 +622,7 @@ mod tests {
         );
         // Traversal visits inputs alongside cells and buttons, same
         // id-ordered walk as every other kind.
-        let roles: Vec<(String, A11yRole)> = tree
-            .iter()
-            .map(|n| (n.id.clone(), n.role))
-            .collect();
+        let roles: Vec<(String, A11yRole)> = tree.iter().map(|n| (n.id.clone(), n.role)).collect();
         assert_eq!(
             roles,
             vec![
