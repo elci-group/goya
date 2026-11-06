@@ -193,6 +193,15 @@ impl TextBuffer {
         self.anchor = None;
     }
 
+    /// Set selection endpoints from platform-provided UTF-8 byte offsets.
+    /// Invalid, out-of-range, and mid-grapheme positions are snapped safely.
+    pub fn set_selection(&mut self, anchor_byte: usize, cursor_byte: usize) {
+        let anchor = grapheme_boundary_at_or_before(&self.text, anchor_byte);
+        let cursor = grapheme_boundary_at_or_before(&self.text, cursor_byte);
+        self.cursor = cursor;
+        self.anchor = (anchor != cursor).then_some(anchor);
+    }
+
     pub fn select_all(&mut self) {
         self.anchor = Some(0);
         self.cursor = self.text.len();
@@ -647,6 +656,17 @@ impl Runtime {
                 if let Some(state) = self.text_inputs.get_mut(&node) {
                     state.buffer.set_text(value);
                     state.preedit = None;
+                }
+            }
+            Event::SetInputSelection {
+                node,
+                anchor_byte,
+                cursor_byte,
+            } => {
+                if self.focused_input == Some(node) {
+                    if let Some(state) = self.text_inputs.get_mut(&node) {
+                        state.buffer.set_selection(anchor_byte, cursor_byte);
+                    }
                 }
             }
             Event::TextBackspace => self.edit_focused(|state| state.buffer.delete_backward()),
