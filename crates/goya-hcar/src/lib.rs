@@ -263,6 +263,76 @@ pub enum CoreAssignment {
     General,
 }
 
+/// Deterministic worker-class budget derived from optional topology metadata.
+/// Counts are scheduling hints; this plan does not pin threads or promise a
+/// performance improvement. `General` workers are used when topology is
+/// unavailable or homogeneous.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WorkerPlan {
+    pub performance_workers: usize,
+    pub efficiency_workers: usize,
+    pub general_workers: usize,
+    pub affinity_mode: AffinityMode,
+}
+
+impl WorkerPlan {
+    /// Allocate at most `worker_limit` workers, bounded by detected CPUs when
+    /// topology is available. Performance workers receive the constrained
+    /// budget first, then efficiency workers; unknown or homogeneous
+    /// topologies use general workers. Affinity remains an explicit policy.
+    pub fn from_topology(
+        topology: Option<&CpuTopology>,
+        worker_limit: usize,
+        affinity_mode: AffinityMode,
+    ) -> Self {
+        let Some(topology) = topology.filter(|topology| !topology.cpus.is_empty()) else {
+            return Self {
+                performance_workers: 0,
+                efficiency_workers: 0,
+                general_workers: worker_limit,
+                affinity_mode,
+            };
+        };
+
+        let performance_cpus = topology
+            .cpus
+            .iter()
+            .filter(|cpu| cpu.class == CoreClass::Performance)
+            .count();
+        let efficiency_cpus = topology
+            .cpus
+            .iter()
+            .filter(|cpu| cpu.class == CoreClass::Efficiency)
+            .count();
+        let general_cpus = topology
+            .cpus
+            .iter()
+            .filter(|cpu| cpu.class == CoreClass::General)
+            .count();
+
+        if performance_cpus == 0 && efficiency_cpus == 0 {
+            return Self {
+                performance_workers: 0,
+                efficiency_workers: 0,
+                general_workers: worker_limit.min(general_cpus.max(topology.cpus.len())),
+                affinity_mode,
+            };
+        }
+
+        let performance_workers = worker_limit.min(performance_cpus);
+        let remaining = worker_limit.saturating_sub(performance_workers);
+        let efficiency_workers = remaining.min(efficiency_cpus);
+        let remaining = remaining.saturating_sub(efficiency_workers);
+        let general_workers = remaining.min(general_cpus);
+        Self {
+            performance_workers,
+            efficiency_workers,
+            general_workers,
+            affinity_mode,
+        }
+    }
+}
+
 /// Heterogeneous workload classifier (directive §2). Deterministic.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Classifier {
@@ -432,6 +502,93 @@ mod tests {
                 .is_none()
         );
         assert!(CpuTopology::from_sysfs_signals(&[None, Some(512)], &[Some(64), None]).is_none());
+    }
+
+    #[test]
+    fn worker_plan_budgets_performance_then_efficiency_without_affinity() {
+        let topology = CpuTopology {
+            cpus: vec![
+                CpuClassAssignment {
+                    cpu_id: 0,
+                    class: CoreClass::Performance,
+                },
+                CpuClassAssignment {
+                    cpu_id: 1,
+                    class: CoreClass::Performance,
+                },
+                CpuClassAssignment {
+                    cpu_id: 2,
+                    class: CoreClass::Efficiency,
+                },
+                CpuClassAssignment {
+                    cpu_id: 3,
+                    class: CoreClass::Efficiency,
+                },
+            ],
+            performance_cpus: 2,
+            efficiency_cpus: 2,
+            source: TopologySource::CpuCapacity,
+        };
+        assert_eq!(
+            WorkerPlan::from_topology(Some(&topology), 3, AffinityMode::default()),
+            WorkerPlan {
+                performance_workers: 2,
+                efficiency_workers: 1,
+                general_workers: 0,
+                affinity_mode: AffinityMode::OsManaged,
+            }
+        );
+        assert_eq!(
+            WorkerPlan::from_topology(Some(&topology), 1, AffinityMode::Advisory),
+            WorkerPlan {
+                performance_workers: 1,
+                efficiency_workers: 0,
+                general_workers: 0,
+                affinity_mode: AffinityMode::Advisory,
+            }
+        );
+    }
+
+    #[test]
+    fn worker_plan_uses_general_fallback_and_zero_budget_is_empty() {
+        assert_eq!(
+            WorkerPlan::from_topology(None, 4, AffinityMode::default()),
+            WorkerPlan {
+                performance_workers: 0,
+                efficiency_workers: 0,
+                general_workers: 4,
+                affinity_mode: AffinityMode::OsManaged,
+            }
+        );
+        let homogeneous = CpuTopology {
+            cpus: vec![
+                CpuClassAssignment {
+                    cpu_id: 0,
+                    class: CoreClass::General,
+                },
+                CpuClassAssignment {
+                    cpu_id: 1,
+                    class: CoreClass::General,
+                },
+            ],
+            performance_cpus: 0,
+            efficiency_cpus: 0,
+            source: TopologySource::CpuCapacity,
+        };
+        assert_eq!(
+            WorkerPlan::from_topology(Some(&homogeneous), 8, AffinityMode::default()),
+            WorkerPlan {
+                performance_workers: 0,
+                efficiency_workers: 0,
+                general_workers: 2,
+                affinity_mode: AffinityMode::OsManaged,
+            }
+        );
+        assert_eq!(
+            WorkerPlan::from_topology(Some(&homogeneous), 0, AffinityMode::default())
+                .general_workers,
+            0
+        );
     }
 
     #[cfg(target_os = "linux")]

@@ -1739,7 +1739,7 @@ fn draw_bitmap_glyphs(
 
 /// Wrap to the fixed bitmap font's measured cell width. Authored newlines
 /// are retained; whitespace separates words; oversized words are split at
-/// Unicode scalar boundaries so the renderer never emits out-of-viewport
+/// extended grapheme boundaries so the renderer never emits out-of-viewport
 /// glyphs. This path intentionally matches the renderer's 6-cell advance.
 fn wrap_bitmap_text(text: &str, columns: usize) -> Vec<String> {
     let columns = columns.max(1);
@@ -1750,7 +1750,7 @@ fn wrap_bitmap_text(text: &str, columns: usize) -> Vec<String> {
         for original_word in authored_line.split_whitespace() {
             let mut word = original_word;
             loop {
-                let word_width = word.chars().count();
+                let word_width = word.graphemes(true).count();
                 let separator = usize::from(!line.is_empty());
                 if width + separator + word_width <= columns {
                     if separator != 0 {
@@ -1766,7 +1766,7 @@ fn wrap_bitmap_text(text: &str, columns: usize) -> Vec<String> {
                     continue;
                 }
                 let split = word
-                    .char_indices()
+                    .grapheme_indices(true)
                     .nth(columns)
                     .map(|(index, _)| index)
                     .unwrap_or(word.len());
@@ -1793,6 +1793,12 @@ mod bitmap_wrap_tests {
             wrap_bitmap_text("alpha beta\n\nlongword", 5),
             ["alpha", "beta", "", "longw", "ord"]
         );
+    }
+
+    #[test]
+    fn hard_wrap_keeps_combining_and_zwj_graphemes_intact() {
+        let wrapped = wrap_bitmap_text("a\u{301}👨‍👩‍👧‍👦z", 1);
+        assert_eq!(wrapped, ["a\u{301}", "👨‍👩‍👧‍👦", "z"]);
     }
 }
 
