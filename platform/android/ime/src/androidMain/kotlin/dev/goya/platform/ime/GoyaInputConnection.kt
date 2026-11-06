@@ -1,7 +1,6 @@
 package dev.goya.platform.ime
 
 import android.content.Context
-import android.os.Looper
 import android.text.InputType
 import android.text.TextUtils
 import android.view.View
@@ -283,8 +282,7 @@ class GoyaInputConnection(
                 }
             }
         } ?: return
-        val handler = targetView.handler ?: return
-        handler.post {
+        targetView.post {
             if (closed || !targetView.isAttachedToWindow) return@post
             val manager = targetView.context
                 .getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
