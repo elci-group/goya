@@ -787,9 +787,7 @@ impl Runtime {
     }
 
     /// Produce primitives and text decorations with stable primitive indices.
-    pub fn render_list_with_text_decorations(
-        &self,
-    ) -> (Vec<Primitive>, Vec<TextDecoration>) {
+    pub fn render_list_with_text_decorations(&self) -> (Vec<Primitive>, Vec<TextDecoration>) {
         let mut out = Vec::new();
         let mut decorations = Vec::new();
         self.emit(self.module.root, &mut out, &mut decorations);
@@ -828,37 +826,59 @@ impl Runtime {
                     let text = state.buffer.text();
                     let cursor = state.buffer.cursor_byte().min(text.len());
                     let mut value = String::with_capacity(
-                        text.len() + placeholder.len() + state.preedit.as_ref().map_or(0, |p| p.0.len()),
+                        text.len()
+                            + placeholder.len()
+                            + state.preedit.as_ref().map_or(0, |p| p.0.len()),
                     );
                     let mut caret_byte_offset = None;
                     let mut selection_byte_range = None;
                     if text.is_empty() && state.preedit.is_none() {
                         value.push_str(placeholder);
-                        if focused { caret_byte_offset = Some(0); }
+                        if focused {
+                            caret_byte_offset = Some(0);
+                        }
                     } else {
                         value.push_str(&text[..cursor]);
                         if let Some((preedit, cursor_begin, _)) = &state.preedit {
                             let base = value.len();
                             value.push_str(preedit);
                             if focused {
-                                let start = if *cursor_begin >= 0 { grapheme_boundary_at_or_before(preedit, *cursor_begin as usize) } else { 0 };
-                                let end = if state.preedit.as_ref().is_some_and(|(_, _, end)| *end >= 0) {
+                                let start = if *cursor_begin >= 0 {
+                                    grapheme_boundary_at_or_before(preedit, *cursor_begin as usize)
+                                } else {
+                                    0
+                                };
+                                let end = if state
+                                    .preedit
+                                    .as_ref()
+                                    .is_some_and(|(_, _, end)| *end >= 0)
+                                {
                                     let end = state.preedit.as_ref().unwrap().2 as usize;
                                     grapheme_boundary_at_or_before(preedit, end)
-                                } else { start };
+                                } else {
+                                    start
+                                };
                                 caret_byte_offset = Some(base + start);
-                                if end > start { selection_byte_range = Some((base + start, base + end)); }
+                                if end > start {
+                                    selection_byte_range = Some((base + start, base + end));
+                                }
                             }
                         } else if focused {
                             caret_byte_offset = Some(value.len());
-                            selection_byte_range = state.buffer.selection_bytes().map(|r| (r.start, r.end));
+                            selection_byte_range =
+                                state.buffer.selection_bytes().map(|r| (r.start, r.end));
                         }
                         value.push_str(&text[cursor..]);
                     }
                     let primitive_index = out.len();
                     out.push(Primitive::Text(rect, value));
                     if focused {
-                        decorations.push(TextDecoration { node_id: id, primitive_index, caret_byte_offset, selection_byte_range });
+                        decorations.push(TextDecoration {
+                            node_id: id,
+                            primitive_index,
+                            caret_byte_offset,
+                            selection_byte_range,
+                        });
                     }
                 } else {
                     out.push(Primitive::Text(rect, placeholder.clone()));
@@ -982,7 +1002,7 @@ mod tests {
         assert_eq!(rt.input_text(NodeId(2)), Some("日"));
         assert!(matches!(
             rt.render_list().last(),
-            Some(Primitive::Text(_, value)) if value == "│に日"
+            Some(Primitive::Text(_, value)) if value == "に日"
         ));
         assert!(rt.handle(Event::ImeBatch {
             preedit: None,
@@ -995,12 +1015,12 @@ mod tests {
         assert_eq!(rt.input_cursor_byte(NodeId(2)), Some("screen reader".len()));
         assert!(matches!(
             rt.render_list().last(),
-            Some(Primitive::Text(_, value)) if value == "screen reader│"
+            Some(Primitive::Text(_, value)) if value == "screen reader"
         ));
     }
 
     #[test]
-    fn input_render_tracks_focused_caret_and_ime_preedit_caret() {
+    fn input_render_keeps_text_unchanged_and_reports_focused_caret_and_preedit() {
         let module = parse("input 1 Search\nroot 1").unwrap();
         let mut rt = Runtime::new(
             module,
@@ -1015,8 +1035,18 @@ mod tests {
         assert!(rt.handle(Event::TextMoveHome { extend: false }));
         assert!(matches!(
             rt.render_list().last(),
-            Some(Primitive::Text(_, value)) if value == "│日a"
+            Some(Primitive::Text(_, value)) if value == "日a"
         ));
+        let (primitives, decorations) = rt.render_list_with_text_decorations();
+        assert_eq!(
+            primitives.last(),
+            Some(&Primitive::Text(
+                rt.frame().rect(NodeId(1)).unwrap(),
+                "日a".into()
+            ))
+        );
+        assert_eq!(decorations.len(), 1);
+        assert_eq!(decorations[0].caret_byte_offset, Some(0));
         assert!(rt.handle(Event::ImeBatch {
             preedit: Some(("かな".into(), 3, 6)),
             commit: None,
@@ -1024,13 +1054,45 @@ mod tests {
         }));
         assert!(matches!(
             rt.render_list().last(),
-            Some(Primitive::Text(_, value)) if value == "か│な日a"
+            Some(Primitive::Text(_, value)) if value == "かな日a"
         ));
+        let (_, decorations) = rt.render_list_with_text_decorations();
+        assert_eq!(decorations[0].caret_byte_offset, Some("か".len()));
+        assert_eq!(
+            decorations[0].selection_byte_range,
+            Some(("か".len(), "かな".len()))
+        );
         assert!(rt.focus_input(None));
         assert!(matches!(
             rt.render_list().last(),
             Some(Primitive::Text(_, value)) if value == "日a"
         ));
+        assert!(rt.render_list_with_text_decorations().1.is_empty());
+    }
+
+    #[test]
+    fn input_selection_decoration_uses_utf8_offsets_and_does_not_change_text() {
+        let module = parse("input 1 Search\nroot 1").unwrap();
+        let mut rt = Runtime::new(
+            module,
+            Store::new(),
+            Constraints {
+                max_width: 400_000,
+                max_height: 300_000,
+            },
+        );
+        rt.focus_input(Some(NodeId(1)));
+        rt.handle(Event::SetInputValue(NodeId(1), "é漢字".into()));
+        rt.handle(Event::TextSelectAll);
+        let (primitives, decorations) = rt.render_list_with_text_decorations();
+        assert!(
+            matches!(primitives.last(), Some(Primitive::Text(_, value)) if value == "é漢字" && !value.contains('│'))
+        );
+        assert_eq!(decorations[0].caret_byte_offset, Some("é漢字".len()));
+        assert_eq!(
+            decorations[0].selection_byte_range,
+            Some((0, "é漢字".len()))
+        );
     }
 
     #[test]

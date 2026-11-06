@@ -244,23 +244,42 @@ fn run_live() -> Result<(), String> {
             let (primitives, decorations) = rt.render_list_with_text_decorations();
             let decorated = decorations.iter().find(|item| item.node_id == id);
             let display = decorated.and_then(|item| match primitives.get(item.primitive_index) {
-                Some(Primitive::Text(_, value)) => Some((value.as_str(), item.caret_byte_offset.unwrap_or(cursor))),
+                Some(Primitive::Text(_, value)) => {
+                    Some((value.as_str(), item.caret_byte_offset.unwrap_or(cursor)))
+                }
                 _ => None,
             });
             let cursor_rect = rt
                 .frame()
                 .rect(id)
-                .map(|rect| display.map_or_else(|| text_input_cursor_rect(rect, text, cursor), |(shown, offset)| text_input_cursor_rect(rect, shown, offset)))
+                .map(|rect| {
+                    display.map_or_else(
+                        || text_input_cursor_rect(rect, text, cursor),
+                        |(shown, offset)| text_input_cursor_rect(rect, shown, offset),
+                    )
+                })
                 .unwrap_or((0, 0, 1, 20));
             win.set_text_input_state(true, text, cursor as u32, anchor as u32, cursor_rect);
-            let overlays = decorations.iter().map(|item| goya_wayland::TextOverlay {
-                primitive_index: item.primitive_index,
-                caret_byte_offset: item.caret_byte_offset,
-                selection_byte_range: item.selection_byte_range,
-                caret_rgb: [255, 220, 101],
-                selection_rgb: [55, 110, 210],
-            }).collect::<Vec<_>>();
-            let _ = win.present_with_text_overlays(&primitives, &[], &[], &[], &overlays, [235, 235, 240], [24, 24, 28], 2);
+            let overlays = decorations
+                .iter()
+                .map(|item| goya_wayland::TextOverlay {
+                    primitive_index: item.primitive_index,
+                    caret_byte_offset: item.caret_byte_offset,
+                    selection_byte_range: item.selection_byte_range,
+                    caret_rgb: [255, 220, 101],
+                    selection_rgb: [55, 110, 210],
+                })
+                .collect::<Vec<_>>();
+            let _ = win.present_with_text_overlays(
+                &primitives,
+                &[],
+                &[],
+                &[],
+                &overlays,
+                [235, 235, 240],
+                [24, 24, 28],
+                2,
+            );
         } else {
             win.set_text_input_state(false, "", 0, 0, (0, 0, 0, 0));
             let primitives = rt.render_list();
@@ -422,7 +441,7 @@ mod input_tests {
         assert_eq!(runtime.input_text(NodeId(4)), Some("é仮名日"));
         assert!(matches!(
             runtime.render_list().last(),
-            Some(Primitive::Text(_, value)) if value == "é仮名│日"
+            Some(Primitive::Text(_, value)) if value == "é仮名日"
         ));
         apply_text_event(
             &mut runtime,
@@ -443,7 +462,7 @@ mod input_tests {
         assert_eq!(runtime.input_text(NodeId(4)), Some("é仮日"));
         assert!(matches!(
             runtime.render_list().last(),
-            Some(Primitive::Text(_, value)) if value == "é仮か│な日"
+            Some(Primitive::Text(_, value)) if value == "é仮かな日"
         ));
     }
 }
