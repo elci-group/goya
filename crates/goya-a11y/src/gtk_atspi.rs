@@ -272,8 +272,11 @@ mod tests {
             accessible_name: "Submit".into(),
             enabled: true,
             focused: true,
+            editable: false,
+            focusable: true,
             hit_region: super::super::A11yRect::default(),
             parent: None,
+            live_text: None,
             semantics: super::super::SemanticAttributes::default(),
         };
         assert!(should_restore_focus(&node));
@@ -350,8 +353,11 @@ mod tests {
             accessible_name: "Volume".into(),
             enabled: true,
             focused: false,
+            editable: false,
+            focusable: true,
             hit_region: super::super::A11yRect::default(),
             parent: None,
+            live_text: None,
             semantics: super::super::SemanticAttributes {
                 value: Some("12".into()),
                 range: Some(range),

@@ -306,12 +306,39 @@ impl SessionView {
         self.sessions.get(idx)
     }
 
+    /// Wave 7 (GY-ZCODE-007): capture the full session-scoped transcript
+    /// state (tail, history, streaming buffer, scroll offset and the
+    /// in-flight/finished tool trackers). Called by
+    /// `MonitorHandle::switch_session` before `reset_transcript`.
+    pub fn snapshot_transcript(&self) -> SessionTranscript {
+        SessionTranscript {
+            tail: self.tail.clone(),
+            history: self.history.clone(),
+            streaming: self.streaming.clone(),
+            scroll: self.scroll.clone(),
+            in_flight_tools: self.in_flight_tools.clone(),
+            finished_tools: self.finished_tools.clone(),
+        }
+    }
+
+    /// Wave 7: replace the transcript state with `t`. Link state, the
+    /// sessions list, the selection index and the `markdown` toggle are
+    /// deliberately kept (list/global state, not transcript).
+    pub fn restore_transcript(&mut self, t: SessionTranscript) {
+        self.tail = t.tail;
+        self.history = t.history;
+        self.streaming = t.streaming;
+        self.scroll = t.scroll;
+        self.in_flight_tools = t.in_flight_tools;
+        self.finished_tools = t.finished_tools;
+    }
+
     /// Wave 6: clear all session-scoped transcript state — tail, history,
     /// streaming buffer, scroll position and the in-flight/finished tool
-    /// trackers. Called on session switch (per the frozen contract the
-    /// transcript is not retained per session yet). Link state, the
-    /// sessions list, the selection index and the `markdown` toggle are
-    /// deliberately kept.
+    /// trackers. Called on session switch; Wave 7 snapshots the transcript
+    /// BEFORE this reset so the state survives the switch in the
+    /// per-session LRU. Link state, the sessions list, the selection
+    /// index and the `markdown` toggle are deliberately kept.
     pub fn reset_transcript(&mut self) {
         self.tail.clear();
         self.history.clear();
