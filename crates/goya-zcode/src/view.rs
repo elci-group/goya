@@ -772,6 +772,10 @@ mod tests {
             delta: "stream".into(),
         });
         view.apply(&tool("t1", "read_file", ToolState::Started));
+        // Enough history for a non-zero scroll offset.
+        for i in 0..30 {
+            view.push_line(&format!("line {i:02}"));
+        }
         view.scroll_up(5);
         assert!(!view.history.is_empty());
         assert!(!view.tail.is_empty());

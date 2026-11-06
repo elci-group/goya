@@ -249,15 +249,6 @@ fn main() {
                         (text, 0, end)
                     });
                 }
-                goya_wayland::PlatformEvent::PreeditWithCursor {
-                    text,
-                    cursor_begin,
-                    cursor_end,
-                } => inputs.preedit = text.map(|text| (text, cursor_begin, cursor_end)),
-                goya_wayland::PlatformEvent::DeleteSurroundingText {
-                    before_bytes,
-                    after_bytes,
-                } => inputs.delete_surrounding(before_bytes, after_bytes),
                 goya_wayland::PlatformEvent::CommitText(text) => inputs.commit(&text),
                 goya_wayland::PlatformEvent::Resized(w, h) => {
                     println!("goya-scene: resized to {w}x{h} — relayout on next frame");
@@ -407,17 +398,6 @@ impl SceneInputs {
                 }
             }
             _ => {}
-        }
-    }
-
-    fn delete_surrounding(&mut self, before_bytes: u32, after_bytes: u32) {
-        self.preedit = None;
-        if let Some(buffer) = self
-            .focused
-            .as_ref()
-            .and_then(|name| self.buffers.get_mut(name))
-        {
-            buffer.delete_surrounding(before_bytes, after_bytes);
         }
     }
 

@@ -950,12 +950,12 @@ fn run_live(args: &Args, store: &mut SceneStore, last_mtime: &mut Option<SystemT
                             sync_text_input(&mut win, &composer, store.get());
                             dirty = true;
                         }
-                    Shortcut::Quit => {
-                        handle.stop.store(true, Ordering::Relaxed);
-                        dirty = true;
-                    }
-                    // Handled above via shortcut_switch_delta.
-                    Shortcut::SessionNext | Shortcut::SessionPrevious => {}
+                        Shortcut::Quit => {
+                            handle.stop.store(true, Ordering::Relaxed);
+                            dirty = true;
+                        }
+                        // Handled above via shortcut_switch_delta.
+                        Shortcut::SessionNext | Shortcut::SessionPrevious => {}
                     }
                 }
                 _ => {}
@@ -1044,40 +1044,32 @@ mod input_event_tests {
 
     #[test]
     fn ime_byte_delete_and_preedit_cursor_follow_composer_graphemes() {
+        // The upstream `PreeditWithCursor`/`DeleteSurroundingText`
+        // PlatformEvent variants were removed in the GY-ZCODE-006
+        // goya-wayland rework; the composer-side methods remain and are
+        // exercised directly here (previously these went through
+        // `feed_key`).
         let mut composer = Composer::new();
         composer.focused = true;
         composer.buffer.set_text("日本語");
         composer.buffer.move_end(false);
-        feed_key(
-            &mut composer,
-            &PlatformEvent::DeleteSurroundingText {
-                before_bytes: 3,
-                after_bytes: 0,
-            },
-        );
+        composer.delete_surrounding(3, 0);
         assert_eq!(composer.text(), "日本");
-        feed_key(
-            &mut composer,
-            &PlatformEvent::PreeditWithCursor {
-                text: Some("かな".into()),
-                cursor_begin: 3,
-                cursor_end: 6,
-            },
-        );
+        composer.set_preedit_with_cursor(Some("かな"), 3, 6);
         assert_eq!(composer.display(), "日本«か│な»");
     }
 
     // --- Wave 6 (GY-ZCODE-006): session switching ---
 
     #[test]
-    fn no_shortcut_maps_to_a_switch_until_j1_lands() {
+    fn shortcuts_map_to_switch_directions() {
         use super::shortcut_switch_delta;
         use goya_wayland::Shortcut;
+        assert_eq!(shortcut_switch_delta(Shortcut::SessionNext), Some(1));
+        assert_eq!(shortcut_switch_delta(Shortcut::SessionPrevious), Some(-1));
         assert_eq!(shortcut_switch_delta(Shortcut::Copy), None);
         assert_eq!(shortcut_switch_delta(Shortcut::Paste), None);
         assert_eq!(shortcut_switch_delta(Shortcut::Quit), None);
-        // GATE: Shortcut::SessionNext → Some(1) / SessionPrevious →
-        // Some(-1) once J1's variants exist.
     }
 
     #[test]
