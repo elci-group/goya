@@ -1820,6 +1820,7 @@ fn raster_primitive(
     height: i32,
     prim: &goya_runtime::Primitive,
     fills: &[Option<u32>],
+    fgs: &[Option<u32>],
     index: usize,
     fg: [u8; 3],
     glyph_px: u32,
@@ -1831,6 +1832,10 @@ fn raster_primitive(
         Some(rect) => intersect_pixel_clips(clip, Some(pixel_clip_for_rect(&rect, width, height))),
         None => clip,
     };
+    // GY-ZCODE-009: fgs overrides only the glyph colour; Panel/Button
+    // rectangle fills stay owned by `fills`. A Button's label is text, so its
+    // label colour override via `fgs` is honoured by design.
+    let text_fg = resolve_color(fgs, index, fg);
     match prim {
         goya_runtime::Primitive::Panel(_) => {}
         goya_runtime::Primitive::Text(rect, text) => {
@@ -1842,7 +1847,7 @@ fn raster_primitive(
                 height,
                 rect,
                 text,
-                fg,
+                text_fg,
                 glyph_px,
                 text_size_pt,
                 clip,
@@ -1857,7 +1862,7 @@ fn raster_primitive(
                 height,
                 rect,
                 text,
-                fg,
+                text_fg,
                 glyph_px,
                 text_size_pt,
                 clip,
@@ -1900,6 +1905,7 @@ fn raster_primitive_offset(
     height: i32,
     prim: &goya_runtime::Primitive,
     fills: &[Option<u32>],
+    fgs: &[Option<u32>],
     index: usize,
     fg: [u8; 3],
     glyph_px: u32,
@@ -1913,6 +1919,9 @@ fn raster_primitive_offset(
         width: r.width,
         height: r.height,
     };
+    // GY-ZCODE-009: same fgs-overrides-glyph-colour contract as
+    // raster_primitive, so serial and parallel tiles stay byte-identical.
+    let text_fg = resolve_color(fgs, index, fg);
     match prim {
         goya_runtime::Primitive::Panel(_) => {}
         goya_runtime::Primitive::Text(rect, text) => {
@@ -1925,7 +1934,7 @@ fn raster_primitive_offset(
                 height,
                 &rect,
                 text,
-                fg,
+                text_fg,
                 glyph_px,
                 None,
                 Some(clip),
@@ -1941,7 +1950,7 @@ fn raster_primitive_offset(
                 height,
                 &rect,
                 text,
-                fg,
+                text_fg,
                 glyph_px,
                 None,
                 Some(clip),

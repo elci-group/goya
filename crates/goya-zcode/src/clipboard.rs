@@ -2,12 +2,33 @@
 //! [`goya_clipboard::MemoryClipboard`] with a permissive capability policy
 //! and a local bounded ring of the last 8 entries.
 //!
-//! The monitor is a single-principal, single-process tool, so the policy
-//! allows everything (`AllowAllPolicy`); the capability check still runs
-//! (a `DenyAll` policy denies copies, see tests). System (Wayland
-//! data-device) clipboard integration is OUT of scope — blocked upstream
-//! (GY-WAYLAND-001 follow-through); Ctrl+C/Ctrl+V operate purely on this
-//! in-process ring.
+//! Wave 9 (GY-ZCODE-009) wires the system (Wayland data-device) clipboard:
+//! Copy places the line on BOTH the compositor selection
+//! (`win.set_clipboard_text`) and this ring; Paste asks the compositor
+//! (`win.request_clipboard_text`) and inserts the `ClipboardText` payload at
+//! the composer cursor when it arrives, falling back to the ring whenever
+//! the compositor answers `None` (or has no data device at all —
+//! `set_clipboard_text`/`request_clipboard_text` are safe no-ops there).
+//! The ring stays as the offline fallback everywhere the compositor does
+//! not answer.
+//!
+//! **None-ambiguity**: goya-wayland's `request_clipboard_text` collapses
+//! three different situations into `ClipboardText(None)` — no selection
+//! offer at all (absent/empty data device), a selection whose offer has no
+//! `text/plain` mime, and a selection whose payload is empty. The
+//! upstream event carries no way to distinguish them (checked: the
+//! data-device protocol would allow it, but the frozen
+//! `PlatformEvent::ClipboardText(Option<String>)` shape does not), so the
+//! monitor treats every `None` as "not usable" and falls back to the ring.
+//! The practical difference is nil: an empty selection inserts nothing
+//! anyway, and the ring is the record of what the user last copied here.
+
+use goya_clipboard::{
+    CapabilityPolicy, ClipboardProvider, CopyMode, CopyRequest, MemoryClipboard, PrincipalId,
+};
+use goya_provenance::SourceReference;
+use std::cell::RefCell;
+use std::collections::VecDeque;
 
 use goya_clipboard::{
     CapabilityPolicy, ClipboardProvider, CopyMode, CopyRequest, MemoryClipboard, PrincipalId,
