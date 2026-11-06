@@ -1237,6 +1237,50 @@ mod tests {
     }
 
     #[test]
+    fn composing_region_is_independent_of_selection_and_commit_is_atomic() {
+        let module = parse("input 1 Search\nroot 1").unwrap();
+        let mut rt = Runtime::new(
+            module,
+            Store::new(),
+            Constraints {
+                max_width: 400_000,
+                max_height: 300_000,
+            },
+        );
+        assert!(rt.focus_input(Some(NodeId(1))));
+        assert!(rt.handle(Event::SetInputValue(NodeId(1), "abcd".into())));
+        assert!(rt.handle(Event::SetInputSelection {
+            node: NodeId(1),
+            anchor_byte: 1,
+            cursor_byte: 2,
+        }));
+        assert!(rt.handle(Event::SetCompositionRegion {
+            node: NodeId(1),
+            start_byte: 3,
+            end_byte: 2,
+        }));
+        assert_eq!(rt.input_anchor_byte(NodeId(1)), Some(1));
+        assert_eq!(rt.input_cursor_byte(NodeId(1)), Some(2));
+        assert!(rt.handle(Event::ImeBatch {
+            preedit: Some(("X".into(), 1, 1)),
+            commit: None,
+            delete: None,
+        }));
+        assert!(matches!(
+            rt.render_list().last(),
+            Some(Primitive::Text(_, value)) if value == "abXd"
+        ));
+
+        assert!(rt.handle(Event::CommitInputText {
+            text: "Y".into(),
+            cursor_byte_in_text: 1,
+        }));
+        assert_eq!(rt.input_text(NodeId(1)), Some("abYd"));
+        assert_eq!(rt.input_cursor_byte(NodeId(1)), Some(3));
+        assert_eq!(rt.input_anchor_byte(NodeId(1)), Some(3));
+    }
+
+    #[test]
     fn input_render_keeps_text_unchanged_and_reports_focused_caret_and_preedit() {
         let module = parse("input 1 Search\nroot 1").unwrap();
         let mut rt = Runtime::new(
@@ -1278,6 +1322,10 @@ mod tests {
         assert_eq!(
             decorations[0].selection_byte_range,
             Some(("か".len(), "かな".len()))
+        );
+        assert_eq!(
+            decorations[0].composition_byte_range,
+            Some((0, "かな".len()))
         );
         assert!(rt.focus_input(None));
         assert!(matches!(
