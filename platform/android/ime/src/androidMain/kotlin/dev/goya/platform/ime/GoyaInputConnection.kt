@@ -36,6 +36,8 @@ fun interface GoyaCursorAnchorPublisher {
  * [GoyaEditorDispatcher], so snapshots and the mutation using them share one
  * serialized runtime-owner operation. Snapshot text, selection offsets, and
  * composing offsets all refer to the same displayed text, including preedit.
+ * The optional [onEditorAction] callback also runs synchronously on the
+ * runtime-owner thread; it must post View work to the View thread itself.
  */
 class GoyaInputConnection(
     private val targetView: View,
@@ -46,21 +48,36 @@ class GoyaInputConnection(
     private val onEditorAction: ((Int) -> Boolean)? = null,
     private val singleLine: Boolean = true,
 ) : BaseInputConnection(targetView, false) {
+    private val batchLock = Any()
     private var batchDepth = 0
+    private var selectionPending = false
     @Volatile
     private var closed = false
 
     override fun beginBatchEdit(): Boolean {
-        if (closed) return false
-        batchDepth += 1
-        return true
+        return synchronized(batchLock) {
+            if (closed) {
+                false
+            } else {
+                batchDepth += 1
+                true
+            }
+        }
     }
 
     override fun endBatchEdit(): Boolean {
-        if (closed || batchDepth == 0) return false
-        batchDepth -= 1
-        if (batchDepth == 0) publishSelection()
-        return true
+        val (accepted, shouldPublish) = synchronized(batchLock) {
+            if (closed || batchDepth == 0) {
+                false to false
+            } else {
+                batchDepth -= 1
+                val publish = batchDepth == 0 && selectionPending
+                if (publish) selectionPending = false
+                true to publish
+            }
+        }
+        if (shouldPublish) publishSelection()
+        return accepted
     }
 
     override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean =
@@ -245,16 +262,27 @@ class GoyaInputConnection(
 
     /** Stop accepting edits after the Android view detaches this connection. */
     fun invalidate() {
-        closed = true
-        batchDepth = 0
+        synchronized(batchLock) {
+            closed = true
+            batchDepth = 0
+            selectionPending = false
+        }
     }
 
     private inline fun edit(operation: () -> Boolean): Boolean {
-        if (closed) return false
-        val accepted = editorDispatcher.callSynchronously {
-            !closed && operation()
+        val (accepted, shouldPublish) = synchronized(batchLock) {
+            if (closed) {
+                false to false
+            } else {
+                val wasAccepted = editorDispatcher.callSynchronously {
+                    !closed && operation()
+                }
+                val publish = wasAccepted && batchDepth == 0
+                if (wasAccepted && batchDepth > 0) selectionPending = true
+                wasAccepted to publish
+            }
         }
-        if (accepted && batchDepth == 0) publishSelection()
+        if (shouldPublish) publishSelection()
         return accepted
     }
 
@@ -283,7 +311,17 @@ class GoyaInputConnection(
             }
         } ?: return
         targetView.post {
-            if (closed || !targetView.isAttachedToWindow) return@post
+            val canPublish = synchronized(batchLock) {
+                if (closed || !targetView.isAttachedToWindow) {
+                    false
+                } else if (batchDepth > 0) {
+                    selectionPending = true
+                    false
+                } else {
+                    true
+                }
+            }
+            if (!canPublish) return@post
             val manager = targetView.context
                 .getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
             manager?.updateSelection(
