@@ -4,13 +4,24 @@
 //! exposes scene geometry, and can create a stateful runtime. Platform hosts
 //! still own window creation and presentation.
 
-use goya_ir::Module;
-use goya_lang::{layout as scene_layout, lower, DrawNode, Lowered, ParseError, RectMp, Scene};
+use goya_ir::{ActionId, Module};
+use goya_lang::{
+    compile_d1_interactions, compile_d2_interactions, layout as scene_layout, lower,
+    CompiledD2Interaction, CompiledInteraction, DrawNode, Lowered, ParseError, RectMp, Scene,
+    TransitionError,
+};
 use goya_layout::Constraints;
 use goya_runtime::Runtime;
 use goya_state::Store;
 use std::fmt;
 use std::path::Path;
+
+pub use goya_executable::{
+    CapabilityLabel, D1Outcome, D1Snapshot, D1Value, D2Outcome, EffectJournal, EffectResult,
+    InputSnapshot, JournalEntry, JournalLimits,
+};
+pub use goya_lang::{CompiledD2Interaction as D2SceneInteraction, CompiledInteraction as D1SceneInteraction};
+pub use goya_vee::SubmitRequest as VeeSubmitRequest;
 
 /// SDK contract implemented by this crate.
 pub const SDK_CONTRACT: &str = "GY-SDK/1";
@@ -114,6 +125,64 @@ pub struct SceneFrame {
     pub nodes: Vec<DrawNode>,
 }
 
+/// All statically compiled authored interactions in a project.
+///
+/// Triggers refer to the same depth-first button `ActionId`s as the lowered
+/// module. D2 request construction consumes a caller-created journal; it
+/// never performs a host effect or submits to VEE automatically.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct CompiledInteractions {
+    d1: Vec<CompiledInteraction>,
+    d2: Vec<CompiledD2Interaction>,
+}
+
+impl CompiledInteractions {
+    pub fn d1(&self) -> &[CompiledInteraction] {
+        &self.d1
+    }
+
+    pub fn d2(&self) -> &[CompiledD2Interaction] {
+        &self.d2
+    }
+
+    /// Find the compiled interaction bound to a lowered button action.
+    pub fn for_trigger(&self, trigger: ActionId) -> Option<SceneInteractionRef<'_>> {
+        self.d1
+            .iter()
+            .find(|interaction| interaction.trigger() == trigger)
+            .map(SceneInteractionRef::D1)
+            .or_else(|| {
+                self.d2
+                    .iter()
+                    .find(|interaction| interaction.trigger() == trigger)
+                    .map(SceneInteractionRef::D2)
+            })
+    }
+}
+
+/// Borrowed interaction selected by its authored button trigger.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SceneInteractionRef<'a> {
+    D1(&'a CompiledInteraction),
+    D2(&'a CompiledD2Interaction),
+}
+
+impl SceneInteractionRef<'_> {
+    pub fn name(self) -> &'_ str {
+        match self {
+            Self::D1(interaction) => interaction.name(),
+            Self::D2(interaction) => interaction.name(),
+        }
+    }
+
+    pub fn trigger(self) -> ActionId {
+        match self {
+            Self::D1(interaction) => interaction.trigger(),
+            Self::D2(interaction) => interaction.trigger(),
+        }
+    }
+}
+
 impl SceneFrame {
     pub fn find(&self, name: &str) -> Option<&DrawNode> {
         self.nodes.iter().find(|node| node.name == name)
@@ -188,6 +257,16 @@ impl SceneProject {
                 rect: node.rect,
             })
             .collect()
+    }
+
+    /// Compile the approved D1 and D2 authored interaction subsets. This
+    /// validates all bindings across both classes and returns only verified
+    /// wrappers; D2 effects remain caller-supplied journal entries.
+    pub fn compile_interactions(&self) -> Result<CompiledInteractions, TransitionError> {
+        Ok(CompiledInteractions {
+            d1: compile_d1_interactions(&self.scene)?,
+            d2: compile_d2_interactions(&self.scene)?,
+        })
     }
 
     /// Create an event runtime over the canonical IR. Its flow layout is the
