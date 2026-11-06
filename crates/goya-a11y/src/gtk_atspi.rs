@@ -139,6 +139,11 @@ impl GtkAtspiBridge {
                                 }
                             }
                         } else {
+                            let previous_focus = widgets
+                                .borrow()
+                                .iter()
+                                .find(|(_, widget)| widget.has_focus())
+                                .map(|(id, _)| id.clone());
                             let saved = save_entry_state(&widgets.borrow());
                             while let Some(child) = content.children().first() {
                                 content.remove(child);
@@ -156,6 +161,10 @@ impl GtkAtspiBridge {
                             restore_entry_state(&saved, &widgets.borrow());
                             suppress_actions.set(false);
                             content.show_all();
+                            let focus = previous_focus
+                                .and_then(|id| widgets.borrow().get(&id).cloned())
+                                .filter(|widget| widget.is_sensitive() && widget.can_focus())
+                                .or(focus);
                             if let Some(widget) = focus {
                                 widget.grab_focus();
                             }
