@@ -274,6 +274,49 @@ mod tests {
         node.focused = false;
         assert!(!should_restore_focus(&node));
     }
+
+    #[test]
+    fn stable_structure_accepts_state_and_name_changes_without_rebuilding() {
+        let old = snapshot("Old window title");
+        let updated = snapshot("Updated window title");
+        assert!(same_structure(&old, &updated));
+        assert!(!projected_focus_changed(&old, &updated));
+    }
+
+    #[test]
+    fn structure_change_requires_reconciliation() {
+        let old = snapshot("Window");
+        let mut dig = Dig::new();
+        dig.put(
+            DdhNode {
+                id: "root".into(),
+                revision: 2,
+                role: SemanticRole::Window,
+                label: "Window".into(),
+                hit_region: goya_change::PixelRect::default(),
+                state: InteractionState { enabled: true, visible: true, focused: false },
+                actions: vec![],
+                exposed: true,
+                parent: None,
+            },
+            2,
+        );
+        dig.put(
+            DdhNode {
+                id: "child".into(),
+                revision: 2,
+                role: SemanticRole::Button,
+                label: "Go".into(),
+                hit_region: goya_change::PixelRect::default(),
+                state: InteractionState { enabled: true, visible: true, focused: false },
+                actions: vec!["press".into()],
+                exposed: true,
+                parent: Some("root".into()),
+            },
+            2,
+        );
+        assert!(!same_structure(&old, &A11yTree::from_dig(&dig)));
+    }
 }
 
 fn make_node(
@@ -408,11 +451,15 @@ fn update_widgets(tree: &A11yTree, widgets: &HashMap<String, Widget>) {
 }
 
 #[derive(Debug)]
-struct SavedEntryState { text: String, position: i32 }
+struct SavedEntryState { text: String, position: i32, selection: Option<(i32, i32)> }
 
 fn save_entry_state(widgets: &HashMap<String, Widget>) -> HashMap<String, SavedEntryState> {
     widgets.iter().filter_map(|(id, widget)| {
-        widget.downcast_ref::<Entry>().map(|entry| (id.clone(), SavedEntryState { text: entry.text().to_string(), position: entry.position() }))
+        widget.downcast_ref::<Entry>().map(|entry| (id.clone(), SavedEntryState {
+            text: entry.text().to_string(),
+            position: entry.position(),
+            selection: entry.selection_bounds(),
+        }))
     }).collect()
 }
 
@@ -420,7 +467,11 @@ fn restore_entry_state(saved: &HashMap<String, SavedEntryState>, widgets: &HashM
     for (id, state) in saved {
         if let Some(entry) = widgets.get(id).and_then(|widget| widget.downcast_ref::<Entry>()) {
             entry.set_text(&state.text);
-            entry.set_position(state.position);
+            if let Some((start, end)) = state.selection {
+                entry.select_region(start, end);
+            } else {
+                entry.set_position(state.position);
+            }
         }
     }
 }

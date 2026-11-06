@@ -1166,7 +1166,18 @@ fn raster_primitives(
         && policy != CsrPolicy::Serial
         && workers > 1
         && raster_parallel_tiles(
-            pixels, width, height, primitives, fills, fg, glyph_px, roi, dirty, policy, workers,
+            pixels,
+            width,
+            height,
+            primitives,
+            fills,
+            fg,
+            glyph_px,
+            roi,
+            dirty,
+            policy,
+            workers,
+            worker_plan,
         )
     {
         return;
@@ -1253,6 +1264,7 @@ fn raster_parallel_tiles(
     dirty: goya_change::PixelRect,
     policy: CsrPolicy,
     worker_budget: u32,
+    worker_plan: WorkerPlan,
 ) -> bool {
     if primitives.iter().any(|primitive| {
         matches!(
@@ -1305,8 +1317,7 @@ fn raster_parallel_tiles(
             },
         };
         let class = classifier.classify(&item);
-        let plan = raster_worker_plan(worker_budget as usize);
-        let target_worker = worker_for_class(class, &plan, worker as usize);
+        let target_worker = worker_for_class(class, &worker_plan, worker as usize);
         by_worker[target_worker].push(PixelClip { x0, y0, x1, y1 });
     }
 
