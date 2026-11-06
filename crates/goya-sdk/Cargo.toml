@@ -11,3 +11,5 @@ goya-ir.workspace = true
 goya-layout.workspace = true
 goya-runtime.workspace = true
 goya-state.workspace = true
+goya-executable.workspace = true
+goya-vee.workspace = true

@@ -792,11 +792,13 @@ dependencies = [
 name = "goya-sdk"
 version = "0.1.8"
 dependencies = [
+ "goya-executable",
  "goya-ir",
  "goya-lang",
  "goya-layout",
  "goya-runtime",
  "goya-state",
+ "goya-vee",
 ]
 
 [[package]]
