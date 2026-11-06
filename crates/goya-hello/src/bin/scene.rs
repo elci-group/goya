@@ -268,7 +268,7 @@ fn main() {
         let frame = layout(store.get(), 400.0, 150.0);
         let mut nodes = frame.scrolled_nodes(&scroll_offsets);
         inputs.sync_nodes(&frame);
-        inputs.apply_to_nodes(&mut nodes);
+        let text_overlays = inputs.apply_to_nodes(&mut nodes);
         inputs.update_text_input(&mut win, &nodes);
         let prims: Vec<Primitive> = nodes.iter().map(present_node).collect();
         let clips: Vec<Option<goya_layout::Rect>> = nodes
@@ -290,11 +290,12 @@ fn main() {
             })
             .collect();
         let fills: Vec<Option<u32>> = nodes.iter().map(|node| node.fill).collect();
-        let _ = win.present_clipped_with_text_sizes(
+        let _ = win.present_with_text_overlays(
             &prims,
             &fills,
             &clips,
             &text_sizes,
+            &text_overlays,
             [235, 235, 240],
             [20, 20, 28],
             3,
@@ -431,43 +432,60 @@ impl SceneInputs {
         }
     }
 
-    fn apply_to_nodes(&self, nodes: &mut [DrawNode]) {
-        for node in nodes.iter_mut().filter(|node| node.is_input) {
+    fn apply_to_nodes(&self, nodes: &mut [DrawNode]) -> Vec<goya_wayland::TextOverlay> {
+        let mut overlays = Vec::new();
+        for (primitive_index, node) in nodes.iter_mut().enumerate() {
+            if !node.is_input {
+                continue;
+            }
             let placeholder = node.text.clone().unwrap_or_default();
             let Some(buffer) = self.buffers.get(&node.name) else {
                 continue;
             };
             let focused = self.focused.as_deref() == Some(node.name.as_str());
-            if buffer.text().is_empty() && self.preedit.is_none() {
-                node.text = Some(if focused {
-                    format!("│{placeholder}")
-                } else {
-                    placeholder
-                });
-                continue;
-            }
             let text = buffer.text();
             let cursor = buffer.cursor_byte().min(text.len());
             let mut value = String::new();
             value.push_str(&text[..cursor]);
-            if let Some((preedit, cursor_begin, _)) = &self.preedit {
-                if focused && *cursor_begin >= 0 {
-                    let mut offset = (*cursor_begin as usize).min(preedit.len());
-                    while !preedit.is_char_boundary(offset) {
-                        offset -= 1;
-                    }
-                    value.push_str(&preedit[..offset]);
-                    value.push('│');
-                    value.push_str(&preedit[offset..]);
-                } else {
-                    value.push_str(preedit);
-                }
-            } else if focused {
-                value.push('│');
+            let preedit_start = value.len();
+            if let Some((preedit, _, _)) = &self.preedit {
+                value.push_str(preedit);
             }
             value.push_str(&text[cursor..]);
-            node.text = Some(value);
+            if text.is_empty() && self.preedit.is_none() {
+                node.text = Some(placeholder);
+            } else {
+                node.text = Some(value);
+            }
+            if focused {
+                let (caret_byte_offset, selection_byte_range) = match &self.preedit {
+                    Some((preedit, cursor_begin, cursor_end)) => {
+                        let begin = preedit
+                            .floor_char_boundary((*cursor_begin).max(0) as usize);
+                        let caret = preedit_start + begin;
+                        let end = preedit
+                            .floor_char_boundary((*cursor_end).max(0) as usize);
+                        let selection = (begin != end)
+                            .then_some((preedit_start + begin, preedit_start + end));
+                        (Some(caret), selection)
+                    }
+                    None => (
+                        Some(cursor),
+                        buffer
+                            .selection_bytes()
+                            .map(|selection| (selection.start, selection.end)),
+                    ),
+                };
+                overlays.push(goya_wayland::TextOverlay {
+                    primitive_index,
+                    caret_byte_offset,
+                    selection_byte_range,
+                    caret_rgb: [255, 220, 101],
+                    selection_rgb: [55, 110, 210],
+                });
+            }
         }
+        overlays
     }
 
     fn update_text_input(&self, window: &mut goya_wayland::GoyaWindow, nodes: &[DrawNode]) {
