@@ -1324,18 +1324,19 @@ impl GoyaWindow {
     /// pixels (from goya-change's quantised envelope); None = full frame.
     /// The slot is always fully rasterised (small surfaces); locality is
     /// expressed to the compositor via partial damage. See [`GoyaWindow::present`]
-    /// for the `fills` contract.
+    /// for the `fills` and `fgs` contracts.
     pub fn present_dirty(
         &mut self,
         primitives: &[goya_runtime::Primitive],
         fills: &[Option<u32>],
+        fgs: &[Option<u32>],
         fg: [u8; 3],
         bg: [u8; 3],
         glyph_px: u32,
         damage: Option<(i32, i32, i32, i32)>,
     ) -> Result<(), WaylandError> {
         self.present_internal(
-            primitives, fills, None, None, None, fg, bg, glyph_px, damage,
+            primitives, fills, fgs, None, None, None, fg, bg, glyph_px, damage,
         )
     }
 
