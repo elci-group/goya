@@ -283,6 +283,7 @@ mod tests {
             actions: vec!["press".into()],
             exposed: true,
             parent: Some("calc.window".into()),
+            semantics: SemanticAttributes::default(),
         }
     }
 

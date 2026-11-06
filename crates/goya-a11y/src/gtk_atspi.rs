@@ -217,7 +217,7 @@ fn populate(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use goya_ddh::{DdhNode, Dig, InteractionState, SemanticRole};
+    use goya_ddh::{DdhNode, Dig, InteractionState, SemanticAttributes, SemanticRole};
 
     fn snapshot(label: &str) -> A11yTree {
         let mut dig = Dig::new();
@@ -236,6 +236,7 @@ mod tests {
                 actions: vec![],
                 exposed: true,
                 parent: None,
+                semantics: SemanticAttributes::default(),
             },
             1,
         );
@@ -311,6 +312,7 @@ mod tests {
                 actions: vec![],
                 exposed: true,
                 parent: None,
+                semantics: SemanticAttributes::default(),
             },
             2,
         );
@@ -329,6 +331,7 @@ mod tests {
                 actions: vec!["press".into()],
                 exposed: true,
                 parent: Some("root".into()),
+                semantics: SemanticAttributes::default(),
             },
             2,
         );
