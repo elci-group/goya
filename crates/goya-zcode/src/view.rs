@@ -912,7 +912,7 @@ mod tests {
         fresh.markdown = false;
         fresh.restore_transcript(snap);
 
-        assert_eq!(fresh.history, vec!["kept".to_string()]);
+        assert_eq!(fresh.history, vec!["⚙ bash …".to_string(), "kept".to_string()]);
         assert!(fresh.in_flight_tools.contains(&"t9".to_string()));
         // Only transcript fields moved; the fresh view's own state stays.
         assert_eq!(fresh.sessions.len(), 1);

@@ -604,10 +604,12 @@ mod tests {
         c.set_preedit(Some("かな"));
 
         let snap = c.snapshot();
-        // Restore into a fresh (default) composer.
+        // Restore into a fresh (default) composer. At snapshot time the
+        // recall is active: the recalled entry is on the line, the
+        // original text is the stashed draft.
         let mut r = Composer::default();
         r.restore(snap.clone());
-        assert_eq!(r.text(), "second");
+        assert_eq!(r.text(), "first");
         assert_eq!(r.cursor_grapheme(), 5);
         assert_eq!(r.history, vec!["first".to_string()]);
         assert_eq!(r.history_pos, Some(0));
@@ -621,7 +623,7 @@ mod tests {
         // Snapshot stays intact for a second restore (Clone semantics).
         let mut r2 = Composer::default();
         r2.restore(snap);
-        assert_eq!(r2.text(), "second");
+        assert_eq!(r2.text(), "first");
     }
 
     #[test]
