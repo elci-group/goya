@@ -241,14 +241,11 @@ fn run_live() -> Result<(), String> {
             let text = rt.input_text(id).unwrap_or_default();
             let cursor = rt.input_cursor_byte(id).unwrap_or(text.len());
             let anchor = rt.input_anchor_byte(id).unwrap_or(cursor);
-            let cursor_rect = rt.frame().rect(id).map_or((0, 0, 1, 20), |rect| {
-                (
-                    (rect.x / goya_wayland::MP_PER_PX) as i32,
-                    (rect.y / goya_wayland::MP_PER_PX) as i32,
-                    (rect.width / goya_wayland::MP_PER_PX).max(1) as i32,
-                    (rect.height / goya_wayland::MP_PER_PX).max(1) as i32,
-                )
-            });
+            let cursor_rect = rt
+                .frame()
+                .rect(id)
+                .map(|rect| text_input_cursor_rect(rect, text, cursor))
+                .unwrap_or((0, 0, 1, 20));
             win.set_text_input_state(true, text, cursor as u32, anchor as u32, cursor_rect);
         } else {
             win.set_text_input_state(false, "", 0, 0, (0, 0, 0, 0));
@@ -263,6 +260,35 @@ fn run_live() -> Result<(), String> {
     };
     println!("goya-hello live: {frames} frames presented, count={count}");
     Ok(())
+}
+
+/// Return the IME candidate rectangle using the renderer's shaped text metrics.
+/// Layout rectangles are millipoints; text-input-v3 expects surface pixels.
+fn text_input_cursor_rect(
+    rect: goya_layout::Rect,
+    text: &str,
+    cursor_byte: usize,
+) -> (i32, i32, i32, i32) {
+    let width_px = (rect.width / goya_wayland::MP_PER_PX).max(1) as f32;
+    let height_px = (rect.height / goya_wayland::MP_PER_PX).max(1) as f32;
+    let caret = goya_wayland::measure_text_caret(
+        text,
+        (width_px - 4.0).max(1.0),
+        (height_px - 4.0).max(1.0),
+        14.0, // present() uses glyph_px=2, whose shaped fallback is 7 px/glyph
+        cursor_byte,
+    );
+    let (caret_x, caret_y, caret_height) = caret
+        .map(|caret| (caret.x_px, caret.y_px, caret.height_px))
+        .unwrap_or((0.0, 0.0, 14.0));
+    let left = (rect.x / goya_wayland::MP_PER_PX) as f32 + 2.0;
+    let top = (rect.y / goya_wayland::MP_PER_PX) as f32 + 2.0;
+    let right = ((rect.x + rect.width) / goya_wayland::MP_PER_PX) as f32 - 1.0;
+    let bottom = ((rect.y + rect.height) / goya_wayland::MP_PER_PX) as f32 - 1.0;
+    let x = (left + caret_x).clamp(left.min(right), right.max(left));
+    let y = (top + caret_y).clamp(top.min(bottom), bottom.max(top));
+    let h = caret_height.round().clamp(1.0, bottom.max(top) - y + 1.0);
+    (x.round() as i32, y.round() as i32, 1, h as i32)
 }
 
 fn apply_text_event(rt: &mut Runtime, event: goya_wayland::PlatformEvent) {
@@ -324,6 +350,18 @@ fn apply_text_event(rt: &mut Runtime, event: goya_wayland::PlatformEvent) {
 #[cfg(test)]
 mod input_tests {
     use super::*;
+
+    #[test]
+    fn ime_cursor_geometry_uses_wrapped_unicode_shaping() {
+        let rect = goya_layout::Rect { x: 10_000, y: 20_000, width: 15_000, height: 20_000 };
+        let text = "é漢字かな";
+        let start = text_input_cursor_rect(rect, text, 0);
+        let end = text_input_cursor_rect(rect, text, text.len());
+        let mid = text_input_cursor_rect(rect, text, "é漢".len());
+        assert_eq!(start.0, 42); // 10 pt * 4 px/pt + 2 px inset
+        assert!(mid.1 > start.1, "multibyte caret should move to a wrapped line");
+        assert!(end.1 >= mid.1);
+    }
 
     #[test]
     fn live_editor_routes_unicode_cursor_and_ime_events_to_the_focused_input() {

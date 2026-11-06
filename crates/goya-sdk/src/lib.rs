@@ -21,7 +21,9 @@ pub use goya_executable::{
     InputSnapshot, JournalEntry, JournalLimits,
 };
 pub use goya_ir::ActionId;
-pub use goya_lang::{CompiledD2Interaction as D2SceneInteraction, CompiledInteraction as D1SceneInteraction};
+pub use goya_lang::{
+    CompiledD2Interaction as D2SceneInteraction, CompiledInteraction as D1SceneInteraction,
+};
 pub use goya_vee::SubmitRequest as VeeSubmitRequest;
 
 /// SDK contract implemented by this crate.
@@ -290,6 +292,7 @@ pub fn validate(source: &str, viewport: Viewport) -> Result<(), SdkError> {
 mod tests {
     use super::*;
     use goya_runtime::Event;
+    use std::collections::BTreeMap;
 
     const SCENE: &str =
         "@ontology sdk { @button go { position: (0, 0, 0) extent: (120, 40, 0) text: \"Go\" } }";
@@ -335,5 +338,60 @@ mod tests {
     fn invalid_viewport_and_scene_fail_closed() {
         assert!(Viewport::new(f64::NAN, 20.0).is_err());
         assert!(SceneProject::from_source("not a scene", Viewport::default()).is_err());
+    }
+
+    #[test]
+    fn d1_facade_maps_button_trigger_and_executes_typed_transition() {
+        let source = "@ontology app { @button plus {} @interaction increment { trigger: button.plus.activate; class: D1; state { read count: int; write count: int; } input { amount: int; } set count = state.count + input.amount; } }";
+        let project = SceneProject::from_source(source, Viewport::default()).unwrap();
+        let interactions = project.compile_interactions().unwrap();
+        assert_eq!(interactions.d1().len(), 1);
+        assert!(interactions.d2().is_empty());
+        let interaction = interactions.for_trigger(ActionId(0)).unwrap();
+        assert_eq!(interaction.name(), "increment");
+        assert_eq!(interaction.trigger(), ActionId(0));
+        let SceneInteractionRef::D1(compiled) = interaction else {
+            panic!("D1 trigger resolved to a different interaction class");
+        };
+        let state =
+            D1Snapshot::new(7, BTreeMap::from([("count".to_owned(), D1Value::Int(4))])).unwrap();
+        let inputs =
+            InputSnapshot::new(BTreeMap::from([("amount".to_owned(), D1Value::Int(3))])).unwrap();
+        let outcome = compiled.execute(&state, &inputs).unwrap();
+        assert_eq!(outcome.next_state["count"], D1Value::Int(7));
+    }
+
+    #[test]
+    fn d2_facade_builds_request_from_explicit_journal_only() {
+        let source = "@ontology app { @button go {} @interaction fetch { trigger: button.go.activate; class: D2; effects { network; } requests { lookup: effect network capability \"network\" request \"static request\" result int64; } state { write count: int; } input { } set count = effect.lookup; } }";
+        let project = SceneProject::from_source(source, Viewport::default()).unwrap();
+        let interactions = project.compile_interactions().unwrap();
+        assert!(interactions.d1().is_empty());
+        let SceneInteractionRef::D2(compiled) = interactions.for_trigger(ActionId(0)).unwrap()
+        else {
+            panic!("D2 trigger resolved to a different interaction class");
+        };
+        assert_eq!(compiled.name(), "fetch");
+
+        let mut journal = EffectJournal::new_d2(
+            compiled.declaration(),
+            compiled.proof(),
+            compiled.capability_labels().iter().cloned(),
+            JournalLimits::default(),
+        )
+        .unwrap();
+        let label = CapabilityLabel::new("network").unwrap();
+        let result = EffectResult::Int64(41).encode().unwrap();
+        journal.record(&label, b"static request", &result).unwrap();
+        let state = D1Snapshot::new(
+            0,
+            BTreeMap::from([("count".to_owned(), D1Value::Int(0))]),
+        )
+        .unwrap();
+        let request = compiled
+            .to_vee_request(&state, &InputSnapshot::default(), &journal, "sdk-test")
+            .unwrap();
+        assert_eq!(request.language, "python");
+        assert!(request.source_code.contains("GOYA_D2_PROGRAM_HASH"));
     }
 }
