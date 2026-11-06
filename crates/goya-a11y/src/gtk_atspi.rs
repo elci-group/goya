@@ -372,11 +372,19 @@ fn make_node(
         }
         A11yRole::StaticText => Label::new(Some(&node.accessible_name)).upcast(),
         A11yRole::Button => {
-            let button = gtk::Button::with_label(&node.accessible_name);
+            let button: Widget = if node.semantics.selected.is_some() {
+                let button = gtk::ToggleButton::with_label(&node.accessible_name);
+                button.set_active(node.semantics.selected.unwrap_or(false));
+                button.upcast()
+            } else {
+                gtk::Button::with_label(&node.accessible_name).upcast()
+            };
             let action = on_action.clone();
             let action_id = id.clone();
-            button.connect_clicked(move |_| action(action_id.clone(), AtAction::Press));
-            button.upcast()
+            if let Some(button) = button.downcast_ref::<gtk::Button>() {
+                button.connect_clicked(move |_| action(action_id.clone(), AtAction::Press));
+            }
+            button
         }
         A11yRole::TextInput => {
             let entry = Entry::new();
@@ -396,7 +404,26 @@ fn make_node(
             entry.upcast()
         }
         A11yRole::Slider => {
-            let scale = Scale::with_range(Orientation::Horizontal, 0.0, 100.0, 1.0);
+            let range = node.semantics.range;
+            let (min, max, step) = range
+                .map(|r| (r.minimum, r.maximum, r.step))
+                .unwrap_or((0.0, 1.0, 0.1));
+            let scale = Scale::with_range(Orientation::Horizontal, min, max, step);
+            if let Some(range) = range {
+                if let Some(value) = node
+                    .semantics
+                    .value
+                    .as_deref()
+                    .and_then(|value| value.parse::<f64>().ok())
+                    .and_then(|value| range.clamp(value))
+                {
+                    scale.set_value(value);
+                }
+            } else {
+                // A slider without a declared bounded range cannot truthfully
+                // accept a value; keep it visible while disabling interaction.
+                scale.set_sensitive(false);
+            }
             scale.set_draw_value(true);
             let action = on_action.clone();
             let action_id = id.clone();
@@ -418,7 +445,9 @@ fn make_node(
     };
 
     widget.set_widget_name(&node.id);
-    widget.set_sensitive(node.enabled);
+    widget.set_sensitive(
+        node.enabled && (node.role != A11yRole::Slider || node.semantics.range.is_some()),
+    );
     if node.role.is_interactive() {
         widget.set_can_focus(true);
     }
@@ -426,6 +455,9 @@ fn make_node(
     // placeholder. Set an explicit ATK name as well for scales and groups.
     if let Some(accessible) = widget.accessible() {
         accessible.set_name(&node.accessible_name);
+        if let Some(description) = node.semantics.description.as_deref() {
+            accessible.set_description(description);
+        }
     }
     if should_restore_focus(node) {
         *focused = Some(widget.clone());
@@ -460,6 +492,9 @@ fn update_widgets(tree: &A11yTree, widgets: &HashMap<String, Widget>) {
         widget.set_sensitive(node.enabled);
         if let Some(accessible) = widget.accessible() {
             accessible.set_name(&node.accessible_name);
+            if let Some(description) = node.semantics.description.as_deref() {
+                accessible.set_description(description);
+            }
         }
         match node.role {
             A11yRole::StaticText => {
@@ -468,7 +503,12 @@ fn update_widgets(tree: &A11yTree, widgets: &HashMap<String, Widget>) {
                 }
             }
             A11yRole::Button => {
-                if let Some(button) = widget.downcast_ref::<gtk::Button>() {
+                if let Some(button) = widget.downcast_ref::<gtk::ToggleButton>() {
+                    button.set_label(&node.accessible_name);
+                    if let Some(selected) = node.semantics.selected {
+                        button.set_active(selected);
+                    }
+                } else if let Some(button) = widget.downcast_ref::<gtk::Button>() {
                     button.set_label(&node.accessible_name);
                 }
             }
