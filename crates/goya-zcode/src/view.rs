@@ -351,6 +351,7 @@ impl SessionView {
     /// Wave 7: true when no transcript state is held (the post-
     /// `reset_transcript` / default shape). Used by the agent retention
     /// tests; the trackers are private to this module.
+    #[cfg(test)]
     pub(crate) fn transcript_is_empty(&self) -> bool {
         self.tail.is_empty()
             && self.history.is_empty()
