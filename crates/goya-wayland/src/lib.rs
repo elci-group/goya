@@ -42,6 +42,7 @@ use rustix::mm::{mmap, munmap, MapFlags, ProtFlags};
 use std::fs::File;
 use std::io::Read;
 use std::os::fd::AsFd;
+use std::sync::OnceLock;
 use std::sync::{Mutex, OnceLock};
 use wayland_client::protocol::{
     wl_buffer::WlBuffer,
@@ -1202,16 +1203,15 @@ fn raster_primitives(
 /// HCAR remains advisory: all workers use OS-managed affinity and this plan
 /// neither pins threads nor promises a speedup.
 fn raster_worker_plan(worker_limit: usize) -> WorkerPlan {
-    #[cfg(target_os = "linux")]
-    let topology = CpuTopology::detect_linux();
-    #[cfg(not(target_os = "linux"))]
-    let topology: Option<CpuTopology> = None;
+    static PLAN: OnceLock<WorkerPlan> = OnceLock::new();
+    *PLAN.get_or_init(|| {
+        #[cfg(target_os = "linux")]
+        let topology = CpuTopology::detect_linux();
+        #[cfg(not(target_os = "linux"))]
+        let topology: Option<CpuTopology> = None;
 
-    WorkerPlan::from_topology(
-        topology.as_ref(),
-        worker_limit,
-        AffinityMode::OsManaged,
-    )
+        WorkerPlan::from_topology(topology.as_ref(), worker_limit, AffinityMode::OsManaged)
+    })
 }
 
 struct RasterConfig<'a> {
@@ -2880,6 +2880,26 @@ mod raster_tests {
             parallel_elapsed.as_nanos(),
             serial_elapsed.as_secs_f64() / parallel_elapsed.as_secs_f64()
         );
+    }
+}
+
+#[cfg(test)]
+mod hcar_worker_plan_tests {
+    use super::*;
+
+    #[test]
+    fn worker_lanes_assign_classes_deterministically() {
+        let plan = WorkerPlan {
+            performance_workers: 2,
+            efficiency_workers: 3,
+            general_workers: 1,
+            affinity_mode: AffinityMode::OsManaged,
+        };
+        assert_eq!(worker_for_class(CoreAssignment::Performance, &plan, 4), 0);
+        assert_eq!(worker_for_class(CoreAssignment::Performance, &plan, 5), 1);
+        assert_eq!(worker_for_class(CoreAssignment::Efficiency, &plan, 4), 3);
+        assert_eq!(worker_for_class(CoreAssignment::Efficiency, &plan, 5), 2);
+        assert_eq!(worker_for_class(CoreAssignment::General, &plan, 4), 5);
     }
 }
 
