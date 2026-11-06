@@ -45,8 +45,10 @@ required for changes). See GOYA directive §8.3.
   when the state revision advanced; unknown actions are inert. `TextBuffer`
   edits extended grapheme clusters, maintains selection and bounded undo/redo;
   declared `Node::Input` fields share this model for keyboard, IME batch, and
-  accessibility value updates. `ScrollState` provides clamped two-axis
-  content/viewport offsets.
+  accessibility value updates. Platform selection offsets are UTF-8 bytes and
+  snap to grapheme boundaries. Active IME preedit visually replaces the current
+  selection; `FinishComposition` commits it at the composing caret. `ScrollState`
+  provides clamped two-axis content/viewport offsets.
 
 ## Capability schema (Wave 1 form)
 
