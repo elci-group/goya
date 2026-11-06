@@ -466,29 +466,6 @@ fn wrap_text(text: &str, width: usize) -> Vec<String> {
     out
 }
 
-#[cfg(test)]
-mod scrolling_tests {
-    use super::{layout, ScrollOffsets};
-    use crate::parse;
-
-    #[test]
-    fn reconcile_clamps_stale_offsets_and_removes_missing_viewports() {
-        let first = parse("@ontology a { @cell root { extent: (400, 300, 0) @cell viewport { extent: (100, 80, 0) scroll: true @cell content { position: (0, 200, 0) extent: (20, 20, 0) } } } }").unwrap();
-        let first_frame = layout(&first, 400.0, 300.0);
-        let mut offsets = ScrollOffsets::default();
-        assert!(offsets.scroll_by(&first_frame, "viewport", 0, 500_000));
-        assert_eq!(offsets.get("viewport"), (0, 140_000));
-
-        let smaller = parse("@ontology a { @cell root { extent: (400, 300, 0) @cell viewport { extent: (100, 80, 0) scroll: true @cell content { position: (0, 100, 0) extent: (20, 20, 0) } } } }").unwrap();
-        offsets.reconcile(&layout(&smaller, 400.0, 300.0));
-        assert_eq!(offsets.get("viewport"), (0, 40_000));
-
-        let removed = parse("@ontology a { @cell root { extent: (400, 300, 0) } }").unwrap();
-        offsets.reconcile(&layout(&removed, 400.0, 300.0));
-        assert_eq!(offsets.get("viewport"), (0, 0));
-    }
-}
-
 fn resolve_rect(cell: &SceneCell, parent: RectMp, allow_overflow: bool) -> RectMp {
     // Extent first: proportional fraction of parent, else absolute points,
     // else a sensible default (half the parent, never negative).
@@ -565,4 +542,27 @@ pub fn hit_test_scrolled(frame: &Frame, offsets: &ScrollOffsets, x: i64, y: i64)
         }
     }
     None
+}
+
+#[cfg(test)]
+mod scrolling_tests {
+    use super::{layout, ScrollOffsets};
+    use crate::parse;
+
+    #[test]
+    fn reconcile_clamps_stale_offsets_and_removes_missing_viewports() {
+        let first = parse("@ontology a { @cell root { extent: (400, 300, 0) @cell viewport { extent: (100, 80, 0) scroll: true @cell content { position: (0, 200, 0) extent: (20, 20, 0) } } } }").unwrap();
+        let first_frame = layout(&first, 400.0, 300.0);
+        let mut offsets = ScrollOffsets::default();
+        assert!(offsets.scroll_by(&first_frame, "viewport", 0, 500_000));
+        assert_eq!(offsets.get("viewport"), (0, 140_000));
+
+        let smaller = parse("@ontology a { @cell root { extent: (400, 300, 0) @cell viewport { extent: (100, 80, 0) scroll: true @cell content { position: (0, 100, 0) extent: (20, 20, 0) } } } }").unwrap();
+        offsets.reconcile(&layout(&smaller, 400.0, 300.0));
+        assert_eq!(offsets.get("viewport"), (0, 40_000));
+
+        let removed = parse("@ontology a { @cell root { extent: (400, 300, 0) } }").unwrap();
+        offsets.reconcile(&layout(&removed, 400.0, 300.0));
+        assert_eq!(offsets.get("viewport"), (0, 0));
+    }
 }
