@@ -103,12 +103,74 @@ pub struct A11yNode {
     pub accessible_name: String,
     pub enabled: bool,
     pub focused: bool,
+    /// Text-editable state (GY-ZCODE-007 wave 7): true only for enabled
+    /// [`A11yRole::TextInput`] nodes. Mirrors how buttons carry no
+    /// explicit "pressable" flag — editability is derived from role and
+    /// enabled state at projection time, not hand-set by hosts.
+    pub editable: bool,
+    /// Focusable state: true for enabled interactive nodes. An input's
+    /// activation surface is focus (not press like a button), so
+    /// focusability is its pointer/keyboard hit affordance; the hit
+    /// region doubles as the focus-acquisition region.
+    pub focusable: bool,
     /// Interactive hit region in millipoints (identical to the DIG's).
     pub hit_region: A11yRect,
     /// DIG parent id (typed "contains" edge, preserved for reachability).
     pub parent: Option<String>,
+    /// Host-supplied live text overriding the placeholder-derived
+    /// accessible name (GY-ZCODE-007 wave 7). When the field is empty the
+    /// announced name falls back to the placeholder; hosts feed this on
+    /// each snapshot update as the user types.
+    pub live_text: Option<String>,
     /// Optional value and selection semantics copied from the DIG.
     pub semantics: SemanticAttributes,
+}
+
+impl A11yNode {
+    /// Build an input node from its placeholder (GY-ZCODE-007 wave 7).
+    ///
+    /// The DIG descriptor for a text input carries the placeholder in its
+    /// label field (the same slot buttons use for their caption), so the
+    /// placeholder is the default accessible name. Hit region, parent,
+    /// and focus mirror `from_ddh`; editable/focusable are derived, not
+    /// parameters.
+    pub fn input(
+        id: impl Into<String>,
+        placeholder: impl Into<String>,
+        parent: Option<&str>,
+        hit_region: A11yRect,
+        focused: bool,
+    ) -> A11yNode {
+        A11yNode {
+            id: id.into(),
+            role: A11yRole::TextInput,
+            accessible_name: placeholder.into(),
+            enabled: true,
+            focused,
+            editable: true,
+            focusable: true,
+            hit_region,
+            parent: parent.map(|p| p.to_string()),
+            live_text: None,
+            semantics: SemanticAttributes::default(),
+        }
+    }
+
+    /// Attach host-supplied live text (the current field contents) as an
+    /// override of the placeholder-derived name. Builder style so hosts
+    /// can update a projected node in place per snapshot.
+    pub fn with_live_text(mut self, text: impl Into<String>) -> A11yNode {
+        self.live_text = Some(text.into());
+        self
+    }
+
+    /// Name announced by assistive technology: live text when the host
+    /// supplies it, otherwise the placeholder-derived label. Screen
+    /// readers and `find_by_name` both resolve through this, so lookups
+    /// match what is announced.
+    pub fn resolved_name(&self) -> &str {
+        self.live_text.as_deref().unwrap_or(&self.accessible_name)
+    }
 }
 
 impl A11yNode {

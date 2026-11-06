@@ -399,3 +399,38 @@ gates, live acceptance (token-free default), evidence.
 | J1 | `goya-runtime`, `goya-wayland` | ImeBatch removal + SessionNext/Previous shortcuts + tests |
 | J2 | `goya-zcode` | SwitchSession command, session-scoped reset, cycling + bin wiring + tests |
 | gate | workspace | gates, live acceptance, evidence |
+
+## Wave 7 — per-session transcripts + a11y for inputs (GY-ZCODE-007)
+
+Same swarm convention; contract frozen before dispatch.
+
+1. **Per-session transcript retention (J1: `goya-zcode`).**
+   - `SessionView` transcript state (tail, history, streaming, scroll,
+     in-flight/finished tools) is saved on switch and restored on return,
+     keyed by sessionId in a bounded LRU (cap 8 sessions; evicting drops the
+     oldest transcript). `reset_transcript` semantics stay for sessions with
+     no saved state. Composer text+cursor is retained per session too.
+   - Owner: `MonitorHandle::switch_session` (existing single owner) —
+     snapshot before reset, restore after pin. Pure helpers + tests:
+     snapshot/restore round-trip, LRU eviction, composer retention.
+   - Live acceptance: switch away and back over a live session list and
+     observe retention (still token-free).
+2. **A11y for inputs (J2: `goya-a11y`).**
+   - The DIG node model gains input-node support: role Input, label =
+     placeholder (or live text when the host supplies it), editable state,
+     focusable. Extend the existing traversal/hit-region machinery
+     (investigate crate structure first; mirror how buttons are modeled).
+   - Tests follow crate style: DIG for a scene with cells/buttons/inputs
+     exposes input nodes with roles/labels/states; traversal visits them;
+     existing tests unchanged.
+   - Note for the gate: wiring the monitor's live a11y snapshot is a later
+     increment (needs host-side snapshot updates); this wave is the platform
+     vocabulary only.
+
+### Assignments
+
+| Agent | Crates (exclusive) | Deliverable |
+|---|---|---|
+| J1 | `goya-zcode` | per-session transcript + composer retention, LRU, tests |
+| J2 | `goya-a11y` | Input role/label/state in DIG + traversal + tests |
+| gate | workspace | gates, live retention acceptance, evidence |

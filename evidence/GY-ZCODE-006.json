@@ -1,0 +1,38 @@
+{
+  "work_package": "GY-ZCODE-006",
+  "title": "Swarm wave 6: multi-session switching + divergent-IME scrub (runtime/wayland/hello)",
+  "date": "2026-11-06",
+  "swarm": {
+    "convention": "GY-WAVE2-SWARM (concurrent agents, exclusive crate ownership, frozen interface contract, central integration gate)",
+    "contract": "docs/goya-zcode.md 'Wave 6' section frozen before dispatch",
+    "assignments": {
+      "J1": "goya-runtime + goya-wayland + goya-hello (scope extended by gate): full removal of the auto-committer's divergent IME surface — PlatformEvent::PreeditWithCursor/DeleteSurroundingText variants and plumbing, runtime Event::ImeBatch variant + handler + helper + test sites, goya-hello bridge arms; contract surface (Preedit/CommitText/TextInputState) preserved. Plus Shortcut::{SessionNext, SessionPrevious} on ctrl+Left/Right (105/106) with plain-arrow regression tests",
+      "J2": "goya-zcode: AgentCmd::SwitchSession (works while connection up/down/reconnecting; backoff skipped on switch), single-owner switch sequence (pin, abandon sends via SendLifecycle::disconnect, reset transcript, <n>/<m> switching status), SessionView.selected + cycle_selection (wrapping) + reset_transcript, bin wiring of SessionNext/Previous shortcuts"
+    }
+  },
+  "gate_record": {
+    "contract_correction": "The frozen contract claimed nothing outside goya-runtime consumed Event::ImeBatch; J1 verified that was false (goya-hello constructs it in 4 places — auto-committer leak) and correctly STOPPED. Gate granted J1 goya-hello (plus the wayland variant removal, discovered to span the same leak) and J1 completed the three-crate scrub.",
+    "gate_fixes": [
+      "clippy doc-lazy-continuation in lib.rs wave-6 docs (reformatted with proper module path links)",
+      "clippy field-assign-after-default and bool-literal-assert in two view tests",
+      "cargo fmt formatting-only pass"
+    ],
+    "verification": {
+      "cargo_build_workspace": "clean",
+      "cargo_test_workspace_lib_tests": "630 passed, 0 failed",
+      "cargo_clippy_workspace_all_targets_D_warnings": "clean",
+      "cargo_fmt_all_check": "clean",
+      "zcode_monitor_headless": "all 16 checks PASS (incl. session switch cycle/reset/index status)",
+      "zcode_monitor_stdin_dump_live": "link Connecting->Up, subscribed to live session; an incidental shim-missing run also exercised the link=Down + reconnect path",
+      "zcode_monitor_live_wayland": "window presented, 354 frames over 6s"
+    },
+    "scope_honesty": {
+      "transcript_reset": "Transcript is session-scoped and reset on switch; per-session history buffers are a documented later increment.",
+      "ime_scrub": "Removal only — the divergent design (delete-surrounding, preedit cursors, batch events) is gone; the contract IME surface (Preedit/CommitText/TextInputState) is what ships."
+    }
+  },
+  "notes": [
+    "kaptaind auto-committed agent work incrementally throughout (v2.10.x); gate verified the final tree via all workspace gates from the working tree.",
+    "Doctests excluded per known host rustdoc LLVM issue (README)."
+  ]
+}

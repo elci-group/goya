@@ -26,6 +26,50 @@ pub const HISTORY_CAP: usize = 16;
 /// rendered composer text inside the input node.
 pub const VIEW_WIDTH: usize = 30;
 
+/// Wave 7 (GY-ZCODE-007): per-session composer retention payload — text,
+/// cursor (UTF-8 byte offset, snapped to grapheme boundaries on restore),
+/// the bounded commit history as-is, the recall index and any stashed
+/// draft. Focus is deliberately NOT captured: a session switch always
+/// leaves the composer unfocused (frozen Wave 6 behavior).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ComposerSnapshot {
+    text: String,
+    cursor_byte: usize,
+    history: Vec<String>,
+    history_pos: Option<usize>,
+    draft: Option<String>,
+}
+
+impl Composer {
+    /// Wave 7: capture the editing state for per-session retention. Pure
+    /// read of the composer — the caller decides where the snapshot lives.
+    pub fn snapshot(&self) -> ComposerSnapshot {
+        ComposerSnapshot {
+            text: self.text().to_owned(),
+            cursor_byte: self.buffer.cursor_byte(),
+            history: self.history.clone(),
+            history_pos: self.history_pos,
+            draft: self.draft.clone(),
+        }
+    }
+
+    /// Wave 7: replace the editing state with `snap`. The buffer cursor is
+    /// re-snapped to grapheme boundaries by `set_selection`, so a byte
+    /// offset captured earlier is always safe. Focus, preedit and the
+    /// history recall cursor context (`history_pos` travels in the
+    /// snapshot; the preedit overlay does not — it is a live IME overlay,
+    /// never retained) follow the snapshot/`None` split above.
+    pub fn restore(&mut self, snap: ComposerSnapshot) {
+        self.buffer.set_text(snap.text);
+        self.buffer
+            .set_selection(snap.cursor_byte, snap.cursor_byte);
+        self.history = snap.history;
+        self.history_pos = snap.history_pos;
+        self.draft = snap.draft;
+        self.preedit = None;
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Composer {
     /// Shared platform-neutral editing state used by keyboard, IME, and
