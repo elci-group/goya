@@ -434,3 +434,40 @@ Same swarm convention; contract frozen before dispatch.
 | J1 | `goya-zcode` | per-session transcript + composer retention, LRU, tests |
 | J2 | `goya-a11y` | Input role/label/state in DIG + traversal + tests |
 | gate | workspace | gates, live retention acceptance, evidence |
+
+## Wave 8 — live a11y snapshot + system clipboard (GY-ZCODE-008)
+
+Same swarm convention; contract frozen before dispatch.
+
+1. **Monitor a11y snapshot (J1: `goya-zcode`).** Wire the monitor to
+   goya-a11y per the GY-ZCODE-007 gate recipe:
+   - Build a DIG for the monitor scene: header title (label), status
+     (role StatusText/label), transcript rows (labels = live row text),
+     composer (SemanticRole::Textbox, placeholder label, live_text = typed
+     text, focused = composer.focused, hit region from scene rect), quit
+     button (press action).
+   - Republish on change (dirty flag), not per frame; bounded update path
+     per goya-a11y's `run_with_updates` mechanism (inspect its API; if it
+     exposes only a full-tree publish, use that and note it).
+   - `--a11y-dump` bin flag: print the current DIG/A11yTree once per change
+     in dump mode (headless-verifiable acceptance; real screen-reader
+     verification remains operator territory).
+2. **System clipboard (J2: `goya-wayland`).** Wayland data-device:
+   - `GoyaWindow::set_clipboard_text(&mut self, text: &str)` — set the
+     selection source to a text/plain payload served from an in-memory
+     buffer on selection requests.
+   - `GoyaWindow::request_clipboard_text(&mut self)` — ask the compositor
+     for the current selection; the result arrives as
+     `PlatformEvent::ClipboardText(Option<String>)` (None = no text
+     selection). One outstanding request at a time.
+   - Pure buffer/state machine tests (offer parsing, request lifecycle);
+     live compositor interop remains operator-verified territory.
+3. **Gate.** Workspace gates; headless a11y acceptance; evidence.
+
+### Assignments
+
+| Agent | Crates (exclusive) | Deliverable |
+|---|---|---|
+| J1 | `goya-zcode` | DIG construction + republish + --a11y-dump + tests |
+| J2 | `goya-wayland` | data-device set/request + ClipboardText event + state-machine tests |
+| gate | workspace | gates, acceptance, evidence |

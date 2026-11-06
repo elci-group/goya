@@ -1,0 +1,36 @@
+{
+  "work_package": "GY-ZCODE-007",
+  "title": "Swarm wave 7: per-session transcript/composer retention + a11y input vocabulary",
+  "date": "2026-11-06",
+  "swarm": {
+    "convention": "GY-WAVE2-SWARM (concurrent agents, exclusive crate ownership, frozen interface contract, central integration gate)",
+    "contract": "docs/goya-zcode.md 'Wave 7' section frozen before dispatch",
+    "assignments": {
+      "J1": "goya-zcode: SessionTranscript snapshot/restore (tail/history/streaming/scroll/tool trackers), ComposerSnapshot (text/cursor/history/draft; preedit and focus deliberately not retained), SessionRetention bounded LRU (cap 8, insertion-order eviction) owned by MonitorHandle::switch_session; restore staged via on_session_acquired + take_composer_restore so the handle never owns composer instances",
+      "J2": "goya-a11y: DIG input vocabulary — A11yRole::TextInput with placeholder-in-label-slot, host-supplied live_text override (resolved_name shared by announcement and find_by_name), role-derived editable/focusable states, focus-as-activation with set_value/focus actions, traversal + hit-region parity with buttons"
+    }
+  },
+  "gate_record": {
+    "gate_fixes": [
+      "clippy clone-on-Copy in snapshot_transcript, field-assign-after-default in a view test, two formatting passes"
+    ],
+    "verification": {
+      "cargo_build_workspace": "clean",
+      "cargo_test_workspace_lib_tests": "643 passed, 0 failed",
+      "cargo_clippy_workspace_all_targets_D_warnings": "clean",
+      "cargo_fmt_all_check": "clean",
+      "zcode_monitor_headless": "all 17 checks PASS (incl. per-session transcript/composer save/restore cycle)",
+      "zcode_monitor_stdin_dump_live": "link Connecting->Up, subscribed to live session",
+      "zcode_monitor_live_wayland": "window presented, 357 frames over 6s"
+    },
+    "scope_honesty": {
+      "retention": "LRU cap 8; evicting a session drops its transcript. Preedit (live IME overlay) and composer focus are deliberately not retained.",
+      "a11y": "Platform vocabulary only this wave — wiring the monitor's live a11y snapshot (host feeding live_text/focused and republishing via run_with_updates) is a documented later increment."
+    }
+  },
+  "notes": [
+    "Deferred by design across waves: richer tool-call blocks (needs a UI-model design decision), proportional text/glyph metrics, system clipboard (upstream data-device), live a11y snapshot wiring.",
+    "Doctests excluded per known host rustdoc LLVM issue (README).",
+    "kaptaind auto-committed agent work incrementally (v2.12.x); gate verified the final tree via all workspace gates."
+  ]
+}

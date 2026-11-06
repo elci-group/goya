@@ -9,7 +9,10 @@ name = "zcode-monitor"
 path = "src/bin/zcode-monitor.rs"
 
 [dependencies]
+goya-a11y.workspace = true
+goya-change.workspace = true
 goya-chroma.workspace = true
+goya-ddh.workspace = true
 goya-clipboard.workspace = true
 goya-provenance.workspace = true
 goya-lang.workspace = true
