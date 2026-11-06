@@ -1885,6 +1885,7 @@ fn draw_shaped_glyphs(
     drew
 }
 
+#[allow(clippy::too_many_arguments)]
 fn raster_text_overlays(
     pixels: &mut [u32],
     width: i32,
@@ -2031,6 +2032,7 @@ fn caret_x_for_run(run: &cosmic_text::LayoutRun<'_>, cursor: cosmic_text::Cursor
     alternate
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_overlay_rect(
     pixels: &mut [u32],
     width: i32,
@@ -4185,8 +4187,8 @@ mod text_overlay_tests {
             Rect {
                 x: 0,
                 y: 0,
-                width: 24_000,
-                height: 30_000,
+                width: 6_000,
+                height: 7_500,
             },
             text.to_owned(),
         )
