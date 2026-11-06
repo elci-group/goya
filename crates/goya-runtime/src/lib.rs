@@ -349,6 +349,59 @@ impl TextBuffer {
         }
     }
 
+    fn delete_surrounding_excluding_selection(&mut self, before_bytes: u32, after_bytes: u32) {
+        let selection = self
+            .selection_bytes()
+            .unwrap_or(self.cursor..self.cursor);
+        let before_start = grapheme_boundary_at_or_before(
+            &self.text,
+            selection.start.saturating_sub(before_bytes as usize),
+        );
+        let after_raw_end = selection
+            .end
+            .saturating_add(after_bytes as usize)
+            .min(self.text.len());
+        let after_end = self
+            .text
+            .grapheme_indices(true)
+            .map(|(index, _)| index)
+            .find(|index| *index >= after_raw_end)
+            .unwrap_or(self.text.len());
+        let before_end = selection.start;
+        let after_start = selection.end;
+        let before_removed = before_end.saturating_sub(before_start);
+        let after_removed = after_end.saturating_sub(after_start);
+        if before_removed == 0 && after_removed == 0 {
+            return;
+        }
+
+        self.record_undo();
+        if after_removed > 0 {
+            self.text.replace_range(after_start..after_end, "");
+        }
+        if before_removed > 0 {
+            self.text.replace_range(before_start..before_end, "");
+        }
+        let adjust = |position: usize| {
+            let after_adjusted = if position <= after_start {
+                position
+            } else if position < after_end {
+                after_start
+            } else {
+                position - after_removed
+            };
+            if after_adjusted <= before_start {
+                after_adjusted
+            } else if after_adjusted < before_end {
+                before_start
+            } else {
+                after_adjusted - before_removed
+            }
+        };
+        self.cursor = adjust(self.cursor);
+        self.anchor = self.anchor.map(adjust);
+    }
+
     pub fn undo(&mut self) {
         self.restore_history(true);
     }
