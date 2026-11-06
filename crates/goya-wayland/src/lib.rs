@@ -1342,6 +1342,10 @@ impl GoyaWindow {
     /// The slot is always fully rasterised (small surfaces); locality is
     /// expressed to the compositor via partial damage. See [`GoyaWindow::present`]
     /// for the `fills` and `fgs` contracts.
+    // Parallel slices (fills/fgs) plus damage make this the one public
+    // setter that legitimately exceeds the arity lint; the internal raster
+    // paths carry the same allowance.
+    #[allow(clippy::too_many_arguments)]
     pub fn present_dirty(
         &mut self,
         primitives: &[goya_runtime::Primitive],
