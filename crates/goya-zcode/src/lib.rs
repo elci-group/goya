@@ -48,6 +48,20 @@
 //!   wires `Shortcut::{SessionNext, SessionPrevious}` (gated on J1's
 //!   goya-wayland variants; ctrl+Left/Right) to cycle + switch, and the
 //!   status line carries the `<n>/<m>` index.
+//! - Wave 7 (GY-ZCODE-007): per-session retention. Switching saves the
+//!   outgoing session's transcript
+//!   ([`view::SessionView::snapshot_transcript`] →
+//!   [`view::SessionTranscript`]: tail, history, streaming buffer, scroll
+//!   offset, in-flight/finished tool trackers) together with the
+//!   composer's editing state ([`composer::Composer::snapshot`] →
+//!   [`composer::ComposerSnapshot`]: text, cursor, history, recall index,
+//!   draft) in a bounded LRU (cap 8, oldest-inserted evicted) owned by
+//!   `agent::MonitorHandle::switch_session`. When a run acquires a
+//!   session, `MonitorHandle::on_session_acquired` restores the retained
+//!   transcript and stages the composer snapshot for the bin
+//!   (`take_composer_restore` — the composer instance lives in the host
+//!   binary, which applies `Composer::restore`); unknown sessions keep
+//!   the default empty transcript via `reset_transcript` semantics.
 
 pub mod agent;
 pub mod clipboard;
