@@ -195,14 +195,13 @@ fn key_special_to_action(name: &'static str) -> KeyAction {
     }
 }
 
-/// Wave 6: cycle direction of a session-switch shortcut. GATE (J1,
-/// goya-wayland): `Shortcut::{SessionNext, SessionPrevious}` (ctrl+Right /
-/// ctrl+Left) do not exist yet — uncomment the arms when the variants
-/// land; until then no shortcut maps to a switch.
+/// Wave 6 (GY-ZCODE-006): cycle direction of a session-switch shortcut.
+/// J1's `Shortcut::{SessionNext, SessionPrevious}` (ctrl+Right / ctrl+Left)
+/// landed mid-wave; the GATE arms are wired.
 fn shortcut_switch_delta(shortcut: Shortcut) -> Option<isize> {
     match shortcut {
-        // Shortcut::SessionNext => Some(1),
-        // Shortcut::SessionPrevious => Some(-1),
+        Shortcut::SessionNext => Some(1),
+        Shortcut::SessionPrevious => Some(-1),
         Shortcut::Copy | Shortcut::Paste | Shortcut::Quit => None,
     }
 }

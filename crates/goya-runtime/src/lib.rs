@@ -1492,20 +1492,13 @@ mod tests {
         }));
         assert_eq!(rt.input_anchor_byte(NodeId(1)), Some(1));
         assert_eq!(rt.input_cursor_byte(NodeId(1)), Some(2));
-        assert!(rt.handle(Event::ImeBatch {
-            preedit: Some(("X".into(), 1, 1)),
-            commit: None,
-            delete: None,
-        }));
+        // GY-ZCODE-006: `Event::ImeBatch` removed — the composition region is
+        // staged directly and the commit replaces it atomically.
         let snapshot = rt.input_snapshot(NodeId(1)).unwrap();
-        assert_eq!(snapshot.text, "abXd");
-        assert_eq!(snapshot.cursor_byte_offset, 3);
-        assert_eq!(snapshot.anchor_byte_offset, 3);
-        assert_eq!(snapshot.composition_byte_range, Some(2..3));
-        assert!(matches!(
-            rt.render_list().last(),
-            Some(Primitive::Text(_, value)) if value == "abXd"
-        ));
+        assert_eq!(snapshot.text, "abcd");
+        assert_eq!(snapshot.cursor_byte_offset, 2);
+        assert_eq!(snapshot.anchor_byte_offset, 1);
+        assert_eq!(snapshot.composition_byte_range, Some(2..2));
 
         assert!(rt.handle(Event::CommitInputText {
             text: "Y".into(),
@@ -1566,7 +1559,7 @@ mod tests {
     }
 
     #[test]
-    fn direct_edits_and_blur_finalize_preedit_before_changing_the_buffer() {
+    fn direct_edits_and_blur_clear_any_staged_composition_region() {
         let module = parse("input 1 Search\nroot 1").unwrap();
         let mut rt = Runtime::new(
             module,
@@ -1583,28 +1576,14 @@ mod tests {
             start_byte: 2,
             end_byte: 3,
         }));
-        assert!(rt.handle(Event::ImeBatch {
-            preedit: Some(("X".into(), 1, 1)),
-            commit: None,
-            delete: None,
-        }));
         assert!(rt.handle(Event::TextBackspace));
         assert_eq!(rt.input_text(NodeId(1)), Some("ab"));
-        assert!(matches!(
-            rt.render_list().last(),
-            Some(Primitive::Text(_, value)) if value == "ab"
-        ));
 
         assert!(rt.handle(Event::SetInputValue(NodeId(1), "abc".into())));
         assert!(rt.handle(Event::SetCompositionRegion {
             node: NodeId(1),
             start_byte: 2,
             end_byte: 3,
-        }));
-        assert!(rt.handle(Event::ImeBatch {
-            preedit: Some(("X".into(), 1, 1)),
-            commit: None,
-            delete: None,
         }));
         assert!(rt.focus_input(None));
         assert_eq!(rt.input_text(NodeId(1)), Some("abc"));
@@ -1613,54 +1592,6 @@ mod tests {
             rt.render_list().last(),
             Some(Primitive::Text(_, value)) if value == "abc"
         ));
-    }
-
-    #[test]
-    fn undo_and_surrounding_delete_finalize_composition_without_stale_ranges() {
-        let module = parse("input 1 Search\nroot 1").unwrap();
-        let mut rt = Runtime::new(
-            module,
-            Store::new(),
-            Constraints {
-                max_width: 400_000,
-                max_height: 300_000,
-            },
-        );
-        assert!(rt.focus_input(Some(NodeId(1))));
-        assert!(rt.handle(Event::SetInputValue(NodeId(1), "abc".into())));
-        assert!(rt.handle(Event::SetCompositionRegion {
-            node: NodeId(1),
-            start_byte: 2,
-            end_byte: 3,
-        }));
-        assert!(rt.handle(Event::ImeBatch {
-            preedit: Some(("X".into(), 1, 1)),
-            commit: None,
-            delete: None,
-        }));
-        assert!(rt.handle(Event::TextUndo));
-        assert_eq!(rt.input_text(NodeId(1)), Some("abc"));
-        assert!(rt.render_list().last().is_some());
-        assert!(rt.handle(Event::TextRedo));
-        assert_eq!(rt.input_text(NodeId(1)), Some("abX"));
-
-        assert!(rt.handle(Event::SetInputValue(NodeId(1), "abc".into())));
-        assert!(rt.handle(Event::SetCompositionRegion {
-            node: NodeId(1),
-            start_byte: 2,
-            end_byte: 3,
-        }));
-        assert!(rt.handle(Event::ImeBatch {
-            preedit: Some(("X".into(), 1, 1)),
-            commit: None,
-            delete: None,
-        }));
-        assert!(rt.handle(Event::DeleteInputSurrounding {
-            before_bytes: 1,
-            after_bytes: 0,
-        }));
-        assert_eq!(rt.input_text(NodeId(1)), Some("ab"));
-        assert!(rt.render_list().last().is_some());
     }
 
     #[test]
