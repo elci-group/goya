@@ -467,6 +467,120 @@ impl TextInputState {
     }
 }
 
+/// Mime preferred for clipboard reads, in negotiation priority order
+/// (GY-ZCODE-008 frozen contract): UTF-8-tagged text/plain first, then
+/// bare text/plain, otherwise no text offer exists.
+const TEXT_MIME_PREFERENCE: [&str; 2] = ["text/plain;charset=utf-8", "text/plain"];
+
+/// Pure mime negotiation (GY-ZCODE-008): pick the best text mime an offer
+/// advertises — `text/plain;charset=utf-8` beats bare `text/plain`; anything
+/// else (including an empty mime list) yields None.
+fn pick_text_mime(mimes: &[String]) -> Option<String> {
+    TEXT_MIME_PREFERENCE
+        .iter()
+        .find(|preferred| mimes.iter().any(|mime| mime == *preferred))
+        .map(|preferred| (*preferred).to_string())
+}
+
+/// Request lifecycle of a clipboard read: `Idle → Requested → Answered`.
+/// A second request while `Requested` is rejected (documented no-op at the
+/// [`GoyaWindow::request_clipboard_text`] surface).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum ClipboardRequestPhase {
+    #[default]
+    Idle,
+    Requested,
+    Answered,
+}
+
+/// Pure, compositor-free clipboard state (GY-ZCODE-008): the outgoing
+/// selection payload with its serving cursor, plus the pending-request
+/// state machine. Wayland plumbing feeds it; [`GoyaWindow::poll`] forwards
+/// the completed [`PlatformEvent::ClipboardText`].
+#[derive(Debug, Default)]
+struct ClipboardState {
+    /// Payload this client advertises for the selection (set path).
+    outgoing: Option<String>,
+    /// Serving cursor into `outgoing`: bytes already written for the
+    /// current `data_source.send` request.
+    served: usize,
+    /// Mimes advertised by the current selection offer (receive path).
+    selection_mimes: Vec<String>,
+    phase: ClipboardRequestPhase,
+}
+
+impl ClipboardState {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    /// Store a new outgoing payload and reset the serving cursor.
+    fn set_outgoing(&mut self, text: &str) {
+        self.outgoing = Some(text.to_owned());
+        self.served = 0;
+    }
+
+    /// Drop the outgoing payload (data-source cancelled or replaced).
+    fn take_outgoing(&mut self) -> Option<String> {
+        self.served = 0;
+        self.outgoing.take()
+    }
+
+    /// Record the mimes of the newly installed selection offer.
+    fn stage_selection_mimes(&mut self, mimes: Vec<String>) {
+        self.selection_mimes = mimes;
+    }
+
+    /// The mime to receive from the current selection, if it offers text.
+    fn receive_target(&self) -> Option<String> {
+        pick_text_mime(&self.selection_mimes)
+    }
+
+    /// Admit a clipboard read request. Returns false (rejected) only while
+    /// a request is already outstanding — one outstanding request at a time.
+    fn begin_request(&mut self) -> bool {
+        if self.phase == ClipboardRequestPhase::Requested {
+            return false;
+        }
+        self.phase = ClipboardRequestPhase::Requested;
+        true
+    }
+
+    /// Complete the outstanding request with `text`, producing the
+    /// [`PlatformEvent::ClipboardText`] to surface. Completing without an
+    /// outstanding request (or with one already answered) yields None.
+    fn complete_request(&mut self, text: Option<String>) -> Option<PlatformEvent> {
+        if self.phase != ClipboardRequestPhase::Requested {
+            return None;
+        }
+        self.phase = ClipboardRequestPhase::Answered;
+        Some(PlatformEvent::ClipboardText(text))
+    }
+
+    /// The selection changed underneath an outstanding request: resolve it
+    /// as "no text selection" so the caller is never left pending forever.
+    fn cancel_request(&mut self) -> Option<PlatformEvent> {
+        self.complete_request(None)
+    }
+
+    /// Next chunk of the outgoing payload for `data_source.send`, at most
+    /// `max` bytes, never splitting a UTF-8 scalar. Returns None when the
+    /// payload is exhausted (or absent). Advances the serving cursor.
+    fn serve_chunk(&mut self, max: usize) -> Option<&[u8]> {
+        let payload = self.outgoing.as_bytes()?;
+        if self.served >= payload.len() {
+            return None;
+        }
+        let start = self.served;
+        let mut end = payload.len().min(start.saturating_add(max.max(1)));
+        while !payload.is_char_boundary(end) {
+            end -= 1;
+        }
+        self.served = end;
+        Some(&payload[start..end])
+    }
+}
+
 /// Pure activation decision for the text-input enable/disable state.
 /// `None` means "no protocol traffic needed" — either the global is missing
 /// (`None` input) or the requested state already holds. Returning `Some(_)`
@@ -652,6 +766,15 @@ struct GoyaWindowInner {
     text_input: Option<ZwpTextInputV3>,
     text_input_enabled: bool,
     text_input_state: TextInputState,
+    data_device_manager: Option<WlDataDeviceManager>,
+    data_device: Option<WlDataDevice>,
+    data_source: Option<WlDataSource>,
+    /// Selection offer announced by `data_device.data_offer` whose mimes are
+    /// still arriving; moved to the clipboard read path by `selection`.
+    pending_offer: Option<WlDataOffer>,
+    /// Serial of the latest keyboard enter, required by `set_selection`.
+    keyboard_enter_serial: u32,
+    clipboard: ClipboardState,
     shift: bool,
     ctrl: bool,
     buffers: Option<BufferPair>,
@@ -705,6 +828,12 @@ impl GoyaWindowInner {
             text_input: None,
             text_input_enabled: false,
             text_input_state: TextInputState::new(),
+            data_device_manager: None,
+            data_device: None,
+            data_source: None,
+            pending_offer: None,
+            keyboard_enter_serial: 0,
+            clipboard: ClipboardState::new(),
             shift: false,
             ctrl: false,
             buffers: None,
