@@ -70,6 +70,113 @@ pub const WAYLAND_CONTRACT: &str = "GY-WAYLAND/1";
 /// Millipoints per pixel, matching goya-hello's 4 px per point.
 pub const MP_PER_PX: i64 = 250;
 
+/// Shaped text extent in surface-local pixels. Width is the widest visible
+/// shaped line; height is the accumulated height of visible layout runs.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TextExtent {
+    pub width_px: f32,
+    pub height_px: f32,
+    pub lines: usize,
+}
+
+/// Caret rectangle for a UTF-8 byte offset in shaped text, in surface-local
+/// pixels from the text box's top-left. Offsets snap backward to a grapheme
+/// boundary before querying cosmic-text.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TextCaret {
+    pub x_px: f32,
+    pub y_px: f32,
+    pub height_px: f32,
+}
+
+/// Shape text using Goya's renderer metrics and wrapping, returning extent
+/// in pixels. Invalid dimensions or font sizes return `None`.
+pub fn measure_text(text: &str, width_px: f32, height_px: f32, font_px: f32) -> Option<TextExtent> {
+    if !valid_text_dimensions(width_px, height_px, font_px) {
+        return None;
+    }
+    static SYSTEM: OnceLock<Mutex<FontSystem>> = OnceLock::new();
+    let Ok(mut font_system) = SYSTEM.get_or_init(|| Mutex::new(FontSystem::new())).lock() else {
+        return None;
+    };
+    let buffer = shape_text(&mut font_system, text, width_px, height_px, font_px);
+    let mut extent = TextExtent { width_px: 0.0, height_px: 0.0, lines: 0 };
+    for run in buffer.layout_runs() {
+        extent.width_px = extent.width_px.max(run.line_w);
+        extent.height_px = extent.height_px.max(run.line_top + run.line_height);
+        extent.lines += 1;
+    }
+    Some(extent)
+}
+
+/// Locate a UTF-8 byte offset in the same shaped layout used by rendering.
+/// Dimensions and font size are pixels; the result is local pixel geometry.
+/// Offsets beyond the end clamp to the end; offsets inside graphemes snap
+/// backward. Invalid dimensions/font sizes or lock poisoning return `None`.
+pub fn measure_text_caret(
+    text: &str,
+    width_px: f32,
+    height_px: f32,
+    font_px: f32,
+    byte_offset: usize,
+) -> Option<TextCaret> {
+    if !valid_text_dimensions(width_px, height_px, font_px) {
+        return None;
+    }
+    static SYSTEM: OnceLock<Mutex<FontSystem>> = OnceLock::new();
+    let Ok(mut font_system) = SYSTEM.get_or_init(|| Mutex::new(FontSystem::new())).lock() else {
+        return None;
+    };
+    let buffer = shape_text(&mut font_system, text, width_px, height_px, font_px);
+    let byte_offset = snap_grapheme_boundary(text, byte_offset.min(text.len()));
+    let cursor = text_cursor(&buffer, text, byte_offset)?;
+    for run in buffer.layout_runs() {
+        if let Some((x, _)) = run.highlight(cursor, cursor) {
+            return Some(TextCaret { x_px: x, y_px: run.line_top, height_px: run.line_height });
+        }
+    }
+    None
+}
+
+fn valid_text_dimensions(width: f32, height: f32, font: f32) -> bool {
+    width.is_finite() && width > 0.0 && height.is_finite() && height > 0.0
+        && font.is_finite() && font > 0.0
+}
+
+fn shape_text(font_system: &mut FontSystem, text: &str, width_px: f32, height_px: f32, font_px: f32) -> Buffer {
+    let mut buffer = Buffer::new(font_system, Metrics::new(font_px, (font_px * 1.4).max(font_px + 1.0)));
+    buffer.set_size(font_system, Some(width_px), Some(height_px));
+    buffer.set_wrap(font_system, Wrap::WordOrGlyph);
+    buffer.set_text(font_system, text, &Attrs::new(), Shaping::Advanced, None);
+    buffer.shape_until_scroll(font_system, true);
+    buffer
+}
+
+fn snap_grapheme_boundary(text: &str, offset: usize) -> usize {
+    if offset == text.len() || text.grapheme_indices(true).any(|(start, _)| start == offset) {
+        return offset;
+    }
+    text.grapheme_indices(true)
+        .map(|(start, _)| start)
+        .take_while(|start| *start < offset)
+        .last()
+        .unwrap_or(0)
+}
+
+fn text_cursor(buffer: &Buffer, text: &str, byte_offset: usize) -> Option<cosmic_text::Cursor> {
+    let mut base = 0usize;
+    for (line_i, line) in buffer.lines.iter().enumerate() {
+        let line_text = line.text();
+        let end = base.checked_add(line_text.len())?;
+        if byte_offset <= end {
+            return Some(cosmic_text::Cursor::new(line_i, byte_offset.saturating_sub(base)));
+        }
+        base = end.saturating_add(text.get(end..).and_then(|tail| tail.chars().next()).map_or(0, char::len_utf8));
+    }
+    let line_i = buffer.lines.len().checked_sub(1)?;
+    Some(cosmic_text::Cursor::new(line_i, buffer.lines[line_i].text().len()))
+}
+
 /// Pointer/button events translated from the compositor, surface-local.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PlatformEvent {
@@ -1609,14 +1716,9 @@ fn draw_shaped_glyphs(
         .filter(|size| size.is_finite() && *size > 0.0)
         .map(|size| size.clamp(0.25, 256.0) * 4.0)
         .unwrap_or(fallback_font_size);
-    let line_height = (font_size * 1.4).max(font_size + 1.0);
-    let mut buffer = Buffer::new(font_system, Metrics::new(font_size, line_height));
     let width = (r.width / MP_PER_PX - 4).max(1) as f32;
     let height = (r.height / MP_PER_PX - 4).max(1) as f32;
-    buffer.set_size(font_system, Some(width), Some(height));
-    buffer.set_wrap(font_system, Wrap::WordOrGlyph);
-    buffer.set_text(font_system, s, &Attrs::new(), Shaping::Advanced, None);
-    buffer.shape_until_scroll(font_system, true);
+    let buffer = shape_text(font_system, s, width, height, font_size);
 
     let (cx0, cy0, cx1, cy1) = match clip {
         Some(c) => (c.x0 as i64, c.y0 as i64, c.x1 as i64, c.y1 as i64),
