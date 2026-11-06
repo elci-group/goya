@@ -1298,8 +1298,8 @@ mod tests {
             .unwrap_or((0, 0));
         assert_eq!(len, (RETENTION_CAP, RETENTION_CAP), "bounded at the cap");
         // Saving again without eviction refreshes recency: re-save s0,
-        // then a 9th session evicts s1 (now the oldest), not s0.
-        handle.set_active_session(Some("next7".to_string()));
+        // then a 9th save evicts s1 (now the oldest), not s0.
+        handle.set_active_session(Some("s0".to_string()));
         if let Ok(mut view) = handle.view.lock() {
             view.reset_transcript();
             view.push_line("refreshed");
