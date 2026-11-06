@@ -350,9 +350,7 @@ impl TextBuffer {
     }
 
     fn delete_surrounding_excluding_selection(&mut self, before_bytes: u32, after_bytes: u32) {
-        let selection = self
-            .selection_bytes()
-            .unwrap_or(self.cursor..self.cursor);
+        let selection = self.selection_bytes().unwrap_or(self.cursor..self.cursor);
         let before_start = grapheme_boundary_at_or_before(
             &self.text,
             selection.start.saturating_sub(before_bytes as usize),
@@ -382,24 +380,26 @@ impl TextBuffer {
         if before_removed > 0 {
             self.text.replace_range(before_start..before_end, "");
         }
-        let adjust = |position: usize| {
-            let after_adjusted = if position <= after_start {
-                position
-            } else if position < after_end {
-                after_start
-            } else {
-                position - after_removed
-            };
-            if after_adjusted <= before_start {
-                after_adjusted
-            } else if after_adjusted < before_end {
-                before_start
-            } else {
-                after_adjusted - before_removed
-            }
-        };
-        self.cursor = adjust(self.cursor);
-        self.anchor = self.anchor.map(adjust);
+        self.cursor = adjust_deleted_position(
+            self.cursor,
+            after_start,
+            after_end,
+            after_removed,
+            before_start,
+            before_end,
+            before_removed,
+        );
+        self.anchor = self.anchor.map(|position| {
+            adjust_deleted_position(
+                position,
+                after_start,
+                after_end,
+                after_removed,
+                before_start,
+                before_end,
+                before_removed,
+            )
+        });
     }
 
     pub fn undo(&mut self) {
