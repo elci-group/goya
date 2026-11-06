@@ -11,8 +11,20 @@ import android.view.inputmethod.ExtractedText
 import android.view.inputmethod.ExtractedTextRequest
 import android.view.inputmethod.InputMethodManager
 
+/**
+ * Synchronously runs work on the single thread that owns the Goya runtime.
+ * Implementations run inline when already on that thread, otherwise marshal
+ * the operation and wait for its result. They must not return before it runs.
+ */
+interface GoyaEditorDispatcher {
+    fun <T> callSynchronously(operation: () -> T): T
+}
+
 fun interface GoyaCursorAnchorPublisher {
-    /** Return true only when the host has accepted responsibility for updates. */
+    /**
+     * Thread-safe request which schedules actual cursor-anchor publication on
+     * the View thread. Return true only when the host accepted that request.
+     */
     fun request(cursorUpdateMode: Int, cursorUpdateFilter: Int): Boolean
 }
 
@@ -21,20 +33,22 @@ fun interface GoyaCursorAnchorPublisher {
  *
  * This class owns no Editable and no committed text. Every read comes from a
  * fresh runtime-owned [EditorSnapshot], and every edit is forwarded through
- * [GoyaImeAdapter]. Snapshot text, selection offsets, and composing offsets all
- * refer to the same displayed text, including any active preedit. Calls must
- * remain serialized on the runtime's editor thread for the duration of each
- * method, as required by the bridge contract.
+ * [GoyaImeAdapter]. All reads and edits run synchronously through
+ * [GoyaEditorDispatcher], so snapshots and the mutation using them share one
+ * serialized runtime-owner operation. Snapshot text, selection offsets, and
+ * composing offsets all refer to the same displayed text, including preedit.
  */
 class GoyaInputConnection(
     private val targetView: View,
     private val adapter: GoyaImeAdapter,
     private val bridge: GoyaInputBridge,
+    private val editorDispatcher: GoyaEditorDispatcher,
     private val cursorAnchorPublisher: GoyaCursorAnchorPublisher? = null,
     private val onEditorAction: ((Int) -> Boolean)? = null,
     private val singleLine: Boolean = true,
 ) : BaseInputConnection(targetView, false) {
     private var batchDepth = 0
+    @Volatile
     private var closed = false
 
     override fun beginBatchEdit(): Boolean {
@@ -68,21 +82,38 @@ class GoyaInputConnection(
         beforeLength: Int,
         afterLength: Int,
     ): Boolean {
-        if (closed || beforeLength < 0 || afterLength < 0) return false
-        val snapshot = bridge.editorSnapshot() ?: return false
-        val anchor = utf16OffsetAtByte(snapshot.text, snapshot.anchorUtf8)
-        val cursor = utf16OffsetAtByte(snapshot.text, snapshot.cursorUtf8)
-        val selectionStart = minOf(anchor, cursor)
-        val selectionEnd = maxOf(anchor, cursor)
-        val beforeStart = offsetBeforeCodePoints(snapshot.text, selectionStart, beforeLength)
-            ?: return false
-        val afterEnd = offsetAfterCodePoints(snapshot.text, selectionEnd, afterLength)
-            ?: return false
         return edit {
-            adapter.deleteSurroundingText(
-                selectionStart - beforeStart,
-                afterEnd - selectionEnd,
-            )
+            if (beforeLength < 0 || afterLength < 0) {
+                false
+            } else {
+                val snapshot = bridge.editorSnapshot()
+                if (snapshot == null) {
+                    false
+                } else {
+                    val anchor = utf16OffsetAtByte(snapshot.text, snapshot.anchorUtf8)
+                    val cursor = utf16OffsetAtByte(snapshot.text, snapshot.cursorUtf8)
+                    val selectionStart = minOf(anchor, cursor)
+                    val selectionEnd = maxOf(anchor, cursor)
+                    val beforeStart = offsetBeforeCodePoints(
+                        snapshot.text,
+                        selectionStart,
+                        beforeLength,
+                    )
+                    val afterEnd = offsetAfterCodePoints(
+                        snapshot.text,
+                        selectionEnd,
+                        afterLength,
+                    )
+                    if (beforeStart == null || afterEnd == null) {
+                        false
+                    } else {
+                        adapter.deleteSurroundingText(
+                            selectionStart - beforeStart,
+                            afterEnd - selectionEnd,
+                        )
+                    }
+                }
+            }
         }
     }
 
@@ -92,12 +123,16 @@ class GoyaInputConnection(
     override fun requestCursorUpdates(cursorUpdateMode: Int, cursorUpdateFilter: Int): Boolean {
         if (closed) return false
         val publisher = cursorAnchorPublisher ?: return false
-        return adapter.requestCursorUpdates(cursorUpdateMode, cursorUpdateFilter) &&
-            publisher.request(cursorUpdateMode, cursorUpdateFilter)
+        val registered = editorDispatcher.callSynchronously {
+            !closed && adapter.requestCursorUpdates(cursorUpdateMode, cursorUpdateFilter)
+        }
+        return registered && publisher.request(cursorUpdateMode, cursorUpdateFilter)
     }
 
     override fun performEditorAction(actionCode: Int): Boolean =
-        !closed && (onEditorAction?.invoke(actionCode) ?: false)
+        !closed && editorDispatcher.callSynchronously {
+            !closed && (onEditorAction?.invoke(actionCode) ?: false)
+        }
 
     override fun closeConnection() {
         invalidate()
@@ -106,28 +141,58 @@ class GoyaInputConnection(
 
     override fun getTextBeforeCursor(length: Int, flags: Int): CharSequence? {
         if (closed || length < 0) return null
-        val snapshot = bridge.editorSnapshot() ?: return null
-        val cursor = utf16OffsetAtByte(snapshot.text, snapshot.cursorUtf8)
-        val start = safeUtf16Boundary(snapshot.text, cursor - length)
-        return snapshot.text.substring(start, cursor)
+        return editorDispatcher.callSynchronously {
+            if (closed) {
+                null
+            } else {
+                val snapshot = bridge.editorSnapshot()
+                if (snapshot == null) {
+                    null
+                } else {
+                    val cursor = utf16OffsetAtByte(snapshot.text, snapshot.cursorUtf8)
+                    val start = safeUtf16Boundary(snapshot.text, cursor - length)
+                    snapshot.text.substring(start, cursor)
+                }
+            }
+        }
     }
 
     override fun getTextAfterCursor(length: Int, flags: Int): CharSequence? {
         if (closed || length < 0) return null
-        val snapshot = bridge.editorSnapshot() ?: return null
-        val cursor = utf16OffsetAtByte(snapshot.text, snapshot.cursorUtf8)
-        val end = safeUtf16Boundary(snapshot.text, cursor + length)
-        return snapshot.text.substring(cursor, end)
+        return editorDispatcher.callSynchronously {
+            if (closed) {
+                null
+            } else {
+                val snapshot = bridge.editorSnapshot()
+                if (snapshot == null) {
+                    null
+                } else {
+                    val cursor = utf16OffsetAtByte(snapshot.text, snapshot.cursorUtf8)
+                    val end = safeUtf16Boundary(snapshot.text, cursor + length)
+                    snapshot.text.substring(cursor, end)
+                }
+            }
+        }
     }
 
     override fun getSelectedText(flags: Int): CharSequence? {
         if (closed) return null
-        val snapshot = bridge.editorSnapshot() ?: return null
-        val anchor = utf16OffsetAtByte(snapshot.text, snapshot.anchorUtf8)
-        val cursor = utf16OffsetAtByte(snapshot.text, snapshot.cursorUtf8)
-        val start = minOf(anchor, cursor)
-        val end = maxOf(anchor, cursor)
-        return if (start == end) null else snapshot.text.substring(start, end)
+        return editorDispatcher.callSynchronously {
+            if (closed) {
+                null
+            } else {
+                val snapshot = bridge.editorSnapshot()
+                if (snapshot == null) {
+                    null
+                } else {
+                    val anchor = utf16OffsetAtByte(snapshot.text, snapshot.anchorUtf8)
+                    val cursor = utf16OffsetAtByte(snapshot.text, snapshot.cursorUtf8)
+                    val start = minOf(anchor, cursor)
+                    val end = maxOf(anchor, cursor)
+                    if (start == end) null else snapshot.text.substring(start, end)
+                }
+            }
+        }
     }
 
     override fun getExtractedText(
@@ -135,24 +200,48 @@ class GoyaInputConnection(
         flags: Int,
     ): ExtractedText? {
         if (closed) return null
-        val snapshot = bridge.editorSnapshot() ?: return null
-        val result = ExtractedText()
-        result.text = snapshot.text
-        result.startOffset = 0
-        result.partialStartOffset = -1
-        result.partialEndOffset = -1
-        result.selectionStart = utf16OffsetAtByte(snapshot.text, snapshot.anchorUtf8)
-        result.selectionEnd = utf16OffsetAtByte(snapshot.text, snapshot.cursorUtf8)
-        result.flags = (if (singleLine) ExtractedText.FLAG_SINGLE_LINE else 0) or
-            if (snapshot.anchorUtf8 != snapshot.cursorUtf8) ExtractedText.FLAG_SELECTING else 0
-        return result
+        return editorDispatcher.callSynchronously {
+            if (closed) {
+                null
+            } else {
+                val snapshot = bridge.editorSnapshot()
+                if (snapshot == null) {
+                    null
+                } else {
+                    ExtractedText().apply {
+                        text = snapshot.text
+                        startOffset = 0
+                        partialStartOffset = -1
+                        partialEndOffset = -1
+                        selectionStart = utf16OffsetAtByte(snapshot.text, snapshot.anchorUtf8)
+                        selectionEnd = utf16OffsetAtByte(snapshot.text, snapshot.cursorUtf8)
+                        flags = (if (singleLine) ExtractedText.FLAG_SINGLE_LINE else 0) or
+                            if (snapshot.anchorUtf8 != snapshot.cursorUtf8) {
+                                ExtractedText.FLAG_SELECTING
+                            } else {
+                                0
+                            }
+                    }
+                }
+            }
+        }
     }
 
     override fun getCursorCapsMode(reqModes: Int): Int {
         if (closed) return 0
-        val snapshot = bridge.editorSnapshot() ?: return 0
-        val cursor = utf16OffsetAtByte(snapshot.text, snapshot.cursorUtf8)
-        return TextUtils.getCapsMode(snapshot.text, cursor, reqModes)
+        return editorDispatcher.callSynchronously {
+            if (closed) {
+                0
+            } else {
+                val snapshot = bridge.editorSnapshot()
+                if (snapshot == null) {
+                    0
+                } else {
+                    val cursor = utf16OffsetAtByte(snapshot.text, snapshot.cursorUtf8)
+                    TextUtils.getCapsMode(snapshot.text, cursor, reqModes)
+                }
+            }
+        }
     }
 
     /** Stop accepting edits after the Android view detaches this connection. */
@@ -163,37 +252,58 @@ class GoyaInputConnection(
 
     private inline fun edit(operation: () -> Boolean): Boolean {
         if (closed) return false
-        val accepted = operation()
+        val accepted = editorDispatcher.callSynchronously {
+            !closed && operation()
+        }
         if (accepted && batchDepth == 0) publishSelection()
         return accepted
     }
 
     private fun publishSelection() {
-        if (closed || !targetView.isAttachedToWindow) return
+        if (closed) return
+        val update = editorDispatcher.callSynchronously {
+            if (closed) {
+                null
+            } else {
+                bridge.editorSnapshot()?.let { snapshot ->
+                    SelectionUpdate(
+                        anchor = utf16OffsetAtByte(snapshot.text, snapshot.anchorUtf8),
+                        cursor = utf16OffsetAtByte(snapshot.text, snapshot.cursorUtf8),
+                        composingStart = if (snapshot.composingStartUtf8 >= 0) {
+                            utf16OffsetAtByte(snapshot.text, snapshot.composingStartUtf8)
+                        } else {
+                            -1
+                        },
+                        composingEnd = if (snapshot.composingEndUtf8 >= 0) {
+                            utf16OffsetAtByte(snapshot.text, snapshot.composingEndUtf8)
+                        } else {
+                            -1
+                        },
+                    )
+                }
+            }
+        } ?: return
         val handler = targetView.handler ?: return
-        val update = Runnable { publishSelectionOnViewThread() }
-        if (Looper.myLooper() == handler.looper) update.run() else handler.post(update)
+        handler.post {
+            if (closed || !targetView.isAttachedToWindow) return@post
+            val manager = targetView.context
+                .getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+            manager?.updateSelection(
+                targetView,
+                update.anchor,
+                update.cursor,
+                update.composingStart,
+                update.composingEnd,
+            )
+        }
     }
 
-    private fun publishSelectionOnViewThread() {
-        if (closed || !targetView.isAttachedToWindow) return
-        val snapshot = bridge.editorSnapshot() ?: return
-        val anchor = utf16OffsetAtByte(snapshot.text, snapshot.anchorUtf8)
-        val cursor = utf16OffsetAtByte(snapshot.text, snapshot.cursorUtf8)
-        val composingStart = if (snapshot.composingStartUtf8 >= 0) {
-            utf16OffsetAtByte(snapshot.text, snapshot.composingStartUtf8)
-        } else {
-            -1
-        }
-        val composingEnd = if (snapshot.composingEndUtf8 >= 0) {
-            utf16OffsetAtByte(snapshot.text, snapshot.composingEndUtf8)
-        } else {
-            -1
-        }
-        val manager = targetView.context
-            .getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
-        manager?.updateSelection(targetView, anchor, cursor, composingStart, composingEnd)
-    }
+    private data class SelectionUpdate(
+        val anchor: Int,
+        val cursor: Int,
+        val composingStart: Int,
+        val composingEnd: Int,
+    )
 
     companion object {
         /** Configure a plain text editor without creating an Android text buffer. */
