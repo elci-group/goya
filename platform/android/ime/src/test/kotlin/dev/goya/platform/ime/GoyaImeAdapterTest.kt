@@ -66,11 +66,9 @@ object GoyaImeAdapterTest {
         val text = "a🧠é"
         val bridge = RecordingBridge(EditorSnapshot(text, 7, 7))
         check(GoyaImeAdapter(bridge).deleteSurroundingText(2, 0))
-        val batch = bridge.batches.single()
         // Two UTF-16 units include the low surrogate and the final é. The
         // runtime expands the byte deletion to full grapheme boundaries.
-        check(batch.deleteBeforeUtf8 == 6)
-        check(batch.deleteAfterUtf8 == 0)
+        check(bridge.deletions.single() == (6 to 0))
     }
 
     private fun deletionPreservesSelectionAndUsesBothEndpoints() {
