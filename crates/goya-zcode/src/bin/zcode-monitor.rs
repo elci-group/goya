@@ -208,12 +208,14 @@ fn shortcut_switch_delta(shortcut: Shortcut) -> Option<isize> {
 
 /// Wave 6: session-switch action shared by the (gated) Shortcut path and
 /// the key_special mapping. Unfocuses the composer, cycles the sessions
-/// selection by `delta`, and delegates to `MonitorHandle::switch_session`,
-/// which enqueues `AgentCmd::SwitchSession`, resets the transcript and
-/// sets the `"<n>/<m> switching session…"` status — all synchronously, so
-/// the bin gets instant visual feedback (reset ownership lives in the
-/// agent handle; the run loop resets defensively on receipt too).
-/// Returns true when a switch was enqueued.
+/// selection by `delta`, snapshots the composer (Wave 7 retention — the
+/// composer instance lives here in the bin, so the snapshot travels into
+/// `MonitorHandle::switch_session`, the single retention owner), and
+/// delegates to `MonitorHandle::switch_session`, which retains the
+/// outgoing transcript+composer in the LRU, enqueues
+/// `AgentCmd::SwitchSession`, resets the transcript and sets the
+/// `"<n>/<m> switching session…"` status — all synchronously, so the bin
+/// gets instant visual feedback. Returns true when a switch was enqueued.
 fn handle_session_switch(
     handle: &agent::MonitorHandle,
     composer: &mut Composer,
@@ -226,7 +228,7 @@ fn handle_session_switch(
     });
     match target {
         Some(session_id) => {
-            handle.switch_session(session_id);
+            handle.switch_session(session_id, composer.snapshot());
             true
         }
         None => false,
@@ -849,6 +851,14 @@ fn run_live(args: &Args, store: &mut SceneStore, last_mtime: &mut Option<SystemT
             watch_swap(store, last_mtime);
         }
         let mut dirty = handle.take_dirty();
+        // Wave 7 (GY-ZCODE-007): the run loop staged a retained composer
+        // snapshot for the newly acquired session — apply it here (the
+        // composer instance lives in the bin; focus stays wherever the
+        // switch left it, i.e. unfocused).
+        if let Some(snap) = handle.take_composer_restore() {
+            composer.restore(snap);
+            dirty = true;
+        }
         for ev in win.poll() {
             match ev {
                 goya_wayland::PlatformEvent::PointerPress(x, y) => {
