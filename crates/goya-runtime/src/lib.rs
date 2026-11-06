@@ -896,7 +896,11 @@ impl Runtime {
                             caret_byte_offset = Some(0);
                         }
                     } else {
-                        let replacement = state.buffer.selection_bytes().unwrap_or(cursor..cursor);
+                        let replacement = if state.preedit.is_some() {
+                            state.buffer.selection_bytes().unwrap_or(cursor..cursor)
+                        } else {
+                            cursor..cursor
+                        };
                         value.push_str(&text[..replacement.start]);
                         if let Some((preedit, cursor_begin, _)) = &state.preedit {
                             let base = value.len();
