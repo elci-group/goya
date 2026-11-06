@@ -1480,6 +1480,11 @@ mod tests {
             commit: None,
             delete: None,
         }));
+        let snapshot = rt.input_snapshot(NodeId(1)).unwrap();
+        assert_eq!(snapshot.text, "abXd");
+        assert_eq!(snapshot.cursor_byte_offset, 3);
+        assert_eq!(snapshot.anchor_byte_offset, 3);
+        assert_eq!(snapshot.composition_byte_range, Some(2..3));
         assert!(matches!(
             rt.render_list().last(),
             Some(Primitive::Text(_, value)) if value == "abXd"
