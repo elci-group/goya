@@ -68,6 +68,42 @@ pub struct DdhNode {
     pub exposed: bool,
     /// DIG parent (typed "contains" edge).
     pub parent: Option<String>,
+    /// Optional current user-facing value, description, selection state, and
+    /// bounded numeric range projected by accessible hosts.
+    pub semantics: SemanticAttributes,
+}
+
+/// Optional value semantics shared with accessibility adapters. Missing
+/// values remain missing; adapters must not invent values or ranges.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct SemanticAttributes {
+    pub value: Option<String>,
+    pub description: Option<String>,
+    pub selected: Option<bool>,
+    pub range: Option<NumericRange>,
+}
+
+/// A validated bounded numeric range suitable for a slider.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct NumericRange {
+    pub minimum: f64,
+    pub maximum: f64,
+    pub step: f64,
+}
+
+impl NumericRange {
+    pub fn new(minimum: f64, maximum: f64, step: f64) -> Option<Self> {
+        (minimum.is_finite()
+            && maximum.is_finite()
+            && step.is_finite()
+            && minimum < maximum
+            && step > 0.0)
+            .then_some(Self { minimum, maximum, step })
+    }
+
+    pub fn clamp(&self, value: f64) -> Option<f64> {
+        value.is_finite().then(|| value.clamp(self.minimum, self.maximum))
+    }
 }
 
 /// The Deterministic Interaction Graph.
