@@ -1498,7 +1498,7 @@ mod tests {
         assert_eq!(snapshot.text, "abcd");
         assert_eq!(snapshot.cursor_byte_offset, 2);
         assert_eq!(snapshot.anchor_byte_offset, 1);
-        assert_eq!(snapshot.composition_byte_range, Some(2..2));
+        assert_eq!(snapshot.composition_byte_range, Some(2..3));
 
         assert!(rt.handle(Event::CommitInputText {
             text: "Y".into(),

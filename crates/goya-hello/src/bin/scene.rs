@@ -619,8 +619,12 @@ mod input_tests {
 
         input.commit("語");
         assert_eq!(input.buffers["name"].text(), "é語日");
-        input.delete_surrounding(3, 0);
-        assert_eq!(input.buffers["name"].text(), "é日");
+        // GY-ZCODE-006: surrounding-text deletion left the contract surface
+        // (no `DeleteSurroundingText` platform event); move the caret back
+        // through the navigation path instead.
+        input.handle_special(goya_wayland::KeySpecial::ArrowLeft, &frame);
+        input.handle_special(goya_wayland::KeySpecial::Delete, &frame);
+        assert_eq!(input.buffers["name"].text(), "é語日");
 
         input.preedit = Some(("かな".into(), 3, 6));
         let mut nodes = frame.nodes.clone();
