@@ -706,4 +706,101 @@ mod tests {
         let starts = view.history.iter().filter(|l| *l == "⚙ bash …").count();
         assert_eq!(starts, n as usize + 1);
     }
+
+    // --- Wave 6 (GY-ZCODE-006): multi-session switching ---
+
+    fn entry(id: &str) -> SessionEntry {
+        SessionEntry {
+            session_id: id.to_string(),
+            title: format!("title {id}"),
+            status: "idle".to_string(),
+        }
+    }
+
+    fn view_with_sessions() -> SessionView {
+        let mut view = SessionView::default();
+        view.sessions = vec![entry("a"), entry("b"), entry("c")];
+        view
+    }
+
+    #[test]
+    fn cycle_selection_wraps_forward_and_backward() {
+        let mut view = view_with_sessions();
+        assert_eq!(view.selected, 0);
+        assert_eq!(
+            view.cycle_selection(1).map(|e| e.session_id.as_str()),
+            Some("b")
+        );
+        assert_eq!(view.selected, 1);
+        // Backward from the first entry wraps to the last.
+        assert_eq!(
+            view.cycle_selection(-1).map(|e| e.session_id.as_str()),
+            Some("a")
+        );
+        assert_eq!(
+            view.cycle_selection(-1).map(|e| e.session_id.as_str()),
+            Some("c")
+        );
+        assert_eq!(view.selected, 2);
+        // Forward from the last entry wraps to the first.
+        assert_eq!(
+            view.cycle_selection(1).map(|e| e.session_id.as_str()),
+            Some("a")
+        );
+        // Large deltas keep wrapping.
+        assert_eq!(
+            view.cycle_selection(7).map(|e| e.session_id.as_str()),
+            Some("b")
+        );
+    }
+
+    #[test]
+    fn cycle_selection_on_empty_list_is_none() {
+        let mut view = SessionView::default();
+        assert!(view.cycle_selection(1).is_none());
+        assert!(view.cycle_selection(-1).is_none());
+        assert_eq!(view.selected, 0);
+    }
+
+    #[test]
+    fn reset_transcript_clears_session_scoped_state_only() {
+        let mut view = view_with_sessions();
+        view.link = LinkState::Up;
+        view.markdown = false;
+        view.apply(&ProjEvent::TurnStarted { input: "hi".into() });
+        view.apply(&ProjEvent::PartDelta {
+            delta: "stream".into(),
+        });
+        view.apply(&tool("t1", "read_file", ToolState::Started));
+        view.scroll_up(5);
+        assert!(!view.history.is_empty());
+        assert!(!view.tail.is_empty());
+        assert_eq!(view.scroll_from_bottom(), 5);
+
+        view.reset_transcript();
+        assert!(view.tail.is_empty());
+        assert!(view.history.is_empty());
+        assert!(view.streaming.is_empty());
+        assert!(view.in_flight_tools.is_empty());
+        assert!(view.finished_tools.is_empty());
+        assert_eq!(view.scroll_from_bottom(), 0);
+        assert_eq!(view.rows().iter().all(|r| r.is_empty()), true);
+        // Link, markdown toggle, sessions list and selection are kept.
+        assert_eq!(view.link, LinkState::Up);
+        assert!(!view.markdown);
+        assert_eq!(view.sessions.len(), 3);
+        assert_eq!(view.selected, 0);
+    }
+
+    #[test]
+    fn switching_status_shows_one_based_index() {
+        let mut view = view_with_sessions();
+        view.selected = 1;
+        assert_eq!(view.switching_status(), "2/3 switching session…");
+        assert_eq!(
+            SessionView::default().switching_status(),
+            "switching session…",
+            "empty list falls back to the bare hint"
+        );
+    }
 }

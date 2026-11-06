@@ -43,6 +43,13 @@ pub enum AgentCmd {
         session_id: String,
         ticket: Option<u64>,
     },
+    /// Wave 6 (GY-ZCODE-006): switch the pinned session. The run loop
+    /// tears down the current run/connection (works while up, down or
+    /// reconnecting) and starts a fresh run pinned to `session_id`
+    /// (fresh `session/list` + `session/subscribe`). Any in-flight send
+    /// is abandoned — its lifecycle is reset and the status hint becomes
+    /// `"<n>/<m> switching session…"` (see [`MonitorHandle::switch_session`]).
+    SwitchSession { session_id: String },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -146,6 +153,13 @@ pub struct MonitorHandle {
     cmd_rx: Arc<Mutex<Receiver<AgentCmd>>>,
     active_session_id: Arc<Mutex<Option<String>>>,
     send_lifecycle: Arc<Mutex<SendLifecycle>>,
+    /// Wave 6: session the run loop pins the next (re)connection to.
+    /// Consulted by the reconnect loop on every iteration, so a switch
+    /// takes effect whether the connection is up, down or reconnecting.
+    pinned_session: Arc<Mutex<Option<String>>>,
+    /// Wave 6: set by `switch_session` so the reconnect loop skips the
+    /// backoff delay and re-connects immediately.
+    switch_requested: Arc<AtomicBool>,
 }
 
 impl MonitorHandle {
@@ -159,6 +173,8 @@ impl MonitorHandle {
             cmd_rx: Arc::new(Mutex::new(rx)),
             active_session_id: Arc::new(Mutex::new(None)),
             send_lifecycle: Arc::new(Mutex::new(SendLifecycle::default())),
+            pinned_session: Arc::new(Mutex::new(None)),
+            switch_requested: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -247,6 +263,43 @@ impl MonitorHandle {
             Ok(cmd) => Some(cmd),
             Err(TryRecvError::Empty) | Err(TryRecvError::Disconnected) => None,
         }
+    }
+
+    /// Wave 6: switch the pinned session (`GY-ZCODE-006`). This is the
+    /// single owner of the switch/reset sequence:
+    /// 1. pin `session_id` — the reconnect loop starts the next run there;
+    /// 2. abandon any in-flight send (the `SendLifecycle` pending entry is
+    ///    reset — the stale "sending"/"busy" hint is replaced below);
+    /// 3. reset the transcript defensively (the bin already reset for
+    ///    instant feedback; one owner for the logic, two call sites);
+    /// 4. set the `"<n>/<m> switching session…"` status;
+    /// 5. flag the reconnect loop to skip its backoff;
+    /// 6. enqueue `AgentCmd::SwitchSession` so a live connection tears
+    ///    down within one poll interval.
+    pub fn switch_session(&self, session_id: String) {
+        if let Ok(mut pinned) = self.pinned_session.lock() {
+            *pinned = Some(session_id.clone());
+        }
+        if let Ok(mut lifecycle) = self.send_lifecycle.lock() {
+            lifecycle.disconnect(); // abandon the in-flight send
+        }
+        if let Ok(mut view) = self.view.lock() {
+            view.reset_transcript();
+            view.status = view.switching_status();
+        }
+        self.switch_requested.store(true, Ordering::Relaxed);
+        if self
+            .cmd_tx
+            .try_send(AgentCmd::SwitchSession { session_id })
+            .is_err()
+        {
+            self.set_status("switch unavailable — queue full");
+        }
+    }
+
+    /// Wave 6: the session the next run is pinned to.
+    pub fn pinned_session(&self) -> Option<String> {
+        self.pinned_session.lock().ok().and_then(|p| p.clone())
     }
 }
 
@@ -465,7 +518,24 @@ impl AgentRun {
                 Err(e) => return Err(format!("wait failed: {e}")),
             }
             while let Some(cmd) = self.handle.try_take_cmd() {
-                self.handle_cmd(&mut stdin, &target.session_id, cmd);
+                match cmd {
+                    // Wave 6: a switch tears the connection down; the
+                    // reconnect loop restarts immediately, pinned to the
+                    // new session. A switch to the already-pinned target
+                    // is a no-op (it can linger in the queue across a
+                    // reconnect).
+                    AgentCmd::SwitchSession { session_id } => {
+                        if session_id != target.session_id {
+                            if let Ok(mut view) = self.handle.view.lock() {
+                                view.reset_transcript();
+                                view.status = view.switching_status();
+                            }
+                            let _ = self.child.kill();
+                            return Ok(());
+                        }
+                    }
+                    cmd => self.handle_cmd(&mut stdin, &target.session_id, cmd),
+                }
             }
             std::thread::sleep(Duration::from_millis(POLL_INTERVAL_MS));
         }
@@ -756,9 +826,13 @@ pub fn spawn_agent(cli: &str, workspace: &Path, session: Option<String>) -> Moni
         if h.stop.load(Ordering::Relaxed) {
             return;
         }
+        // Wave 6: consult the pinned session on every iteration, so a
+        // switch applies whether the connection is up, down or
+        // reconnecting. `--session` seeds the initial pin.
+        let pinned = h.pinned_session().or_else(|| session.clone());
         match AgentRun::spawn(&cli, &workspace, h.clone()) {
             Ok(run) => {
-                let _ = run.run(session.clone());
+                let _ = run.run(pinned.clone());
             }
             Err(err) => {
                 if let Ok(mut v) = h.view.lock() {
@@ -770,6 +844,10 @@ pub fn spawn_agent(cli: &str, workspace: &Path, session: Option<String>) -> Moni
         for _ in 0..RECONNECT_DELAY_MS / 100 {
             if h.stop.load(Ordering::Relaxed) {
                 return;
+            }
+            // Wave 6: a session switch skips the reconnect backoff.
+            if h.switch_requested.swap(false, Ordering::Relaxed) {
+                break;
             }
             std::thread::sleep(Duration::from_millis(100));
         }
@@ -918,5 +996,77 @@ mod tests {
             Some("90abcdef"),
             "short id form is the last 8 chars"
         );
+    }
+
+    // --- Wave 6 (GY-ZCODE-006): session switching ---
+
+    #[test]
+    fn switch_session_abandons_in_flight_and_enqueues_switch() {
+        let handle = MonitorHandle::new();
+        assert_eq!(handle.pinned_session(), None, "no pin by default");
+        handle.set_active_session(Some("sess_a".to_string()));
+        // Admit an in-flight wire send first.
+        handle.send_text("hello".to_string(), true);
+        assert!(matches!(
+            handle.try_take_cmd(),
+            Some(AgentCmd::SendText { .. })
+        ));
+        handle.send_text("still pending".to_string(), true);
+        // Switch: the in-flight send is abandoned, the lifecycle resets,
+        // the view resets + shows the switching hint, the pin moves, the
+        // backoff is skipped, and a SwitchSession command is enqueued.
+        handle.switch_session("sess_b".to_string());
+        assert_eq!(handle.pinned_session().as_deref(), Some("sess_b"));
+        assert!(
+            handle
+                .send_lifecycle
+                .lock()
+                .map(|l| l.pending.is_none())
+                .unwrap_or(false),
+            "in-flight send abandoned on switch"
+        );
+        assert!(
+            handle.switch_requested.load(Ordering::Relaxed),
+            "reconnect backoff must be skipped"
+        );
+        assert_eq!(
+            handle.view.lock().map(|v| v.status.clone()).ok(),
+            Some("switching session…".to_string()),
+            "empty sessions list falls back to the bare hint"
+        );
+        assert!(
+            matches!(
+                handle.try_take_cmd(),
+                Some(AgentCmd::SwitchSession { ref session_id }) if session_id == "sess_b"
+            ),
+            "SwitchSession command enqueued"
+        );
+    }
+
+    #[test]
+    fn switch_session_resets_transcript_and_shows_index_hint() {
+        let handle = MonitorHandle::new();
+        if let Ok(mut view) = handle.view.lock() {
+            view.sessions = (0..3)
+                .map(|i| SessionEntry {
+                    session_id: format!("s{i}"),
+                    title: String::new(),
+                    status: String::new(),
+                })
+                .collect();
+            view.selected = 1;
+            view.push_line("old transcript line");
+        }
+        handle.switch_session("s2".to_string());
+        let (status, tail_empty) = handle
+            .view
+            .lock()
+            .map(|v| (v.status.clone(), v.tail.is_empty()))
+            .unwrap_or_default();
+        assert!(
+            tail_empty,
+            "agent-side switch resets the transcript defensively"
+        );
+        assert_eq!(status, "2/3 switching session…");
     }
 }

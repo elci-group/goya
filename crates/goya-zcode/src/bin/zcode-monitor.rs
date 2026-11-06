@@ -169,6 +169,13 @@ enum KeyAction {
     Composer(&'static str),
     PageUp,
     PageDown,
+    /// Wave 6 (GY-ZCODE-006): session switching. No `KeySpecial` source
+    /// exists yet — ctrl+Left/Right arrive (once J1 lands them) as
+    /// `Shortcut::{SessionPrevious, SessionNext}` through the shortcut
+    /// path (see `shortcut_switch_delta`). The entries are wired here
+    /// either way; until then they are a graceful no-op.
+    SessionNext,
+    SessionPrevious,
 }
 
 /// Map the `&str` names produced by [`special_name`] onto monitor actions.
@@ -179,7 +186,50 @@ fn key_special_to_action(name: &'static str) -> KeyAction {
     match name {
         "page_up" => KeyAction::PageUp,
         "page_down" => KeyAction::PageDown,
+        // GATE (GY-ZCODE-006): J1 lands Shortcut::{SessionNext,
+        // SessionPrevious} on ctrl+Right/Left; these entries stay inert
+        // until a key source produces the names.
+        "session_next" => KeyAction::SessionNext,
+        "session_previous" => KeyAction::SessionPrevious,
         other => KeyAction::Composer(other),
+    }
+}
+
+/// Wave 6: cycle direction of a session-switch shortcut. GATE (J1,
+/// goya-wayland): `Shortcut::{SessionNext, SessionPrevious}` (ctrl+Right /
+/// ctrl+Left) do not exist yet — uncomment the arms when the variants
+/// land; until then no shortcut maps to a switch.
+fn shortcut_switch_delta(shortcut: Shortcut) -> Option<isize> {
+    match shortcut {
+        // Shortcut::SessionNext => Some(1),
+        // Shortcut::SessionPrevious => Some(-1),
+        Shortcut::Copy | Shortcut::Paste | Shortcut::Quit => None,
+    }
+}
+
+/// Wave 6: session-switch action shared by the (gated) Shortcut path and
+/// the key_special mapping. Unfocuses the composer, cycles the sessions
+/// selection by `delta`, and delegates to `MonitorHandle::switch_session`,
+/// which enqueues `AgentCmd::SwitchSession`, resets the transcript and
+/// sets the `"<n>/<m> switching session…"` status — all synchronously, so
+/// the bin gets instant visual feedback (reset ownership lives in the
+/// agent handle; the run loop resets defensively on receipt too).
+/// Returns true when a switch was enqueued.
+fn handle_session_switch(
+    handle: &agent::MonitorHandle,
+    composer: &mut Composer,
+    delta: isize,
+) -> bool {
+    composer.focused = false;
+    let target = handle.view.lock().ok().and_then(|mut view| {
+        view.cycle_selection(delta).map(|entry| entry.session_id.clone())
+    });
+    match target {
+        Some(session_id) => {
+            handle.switch_session(session_id);
+            true
+        }
+        None => false,
     }
 }
 
@@ -246,8 +296,11 @@ fn feed_key(composer: &mut Composer, ev: &goya_wayland::PlatformEvent) -> Option
         goya_wayland::PlatformEvent::KeySpecial(s) => {
             match key_special_to_action(special_name(*s)) {
                 KeyAction::Composer(name) => composer.handle_special(name),
-                // Composer focused: page keys are inert for the view.
+                // Composer focused: page keys and session switches are
+                // inert for the view (switching unfocuses first; there is
+                // no key source for session names yet — GATE, Wave 6).
                 KeyAction::PageUp | KeyAction::PageDown => {}
+                KeyAction::SessionNext | KeyAction::SessionPrevious => {}
             }
             None
         }
@@ -287,6 +340,8 @@ fn scroll_history(handle: &agent::MonitorHandle, action: KeyAction) -> bool {
     let dir = match action {
         KeyAction::PageUp => -1i32,
         KeyAction::PageDown => 1,
+        // GATE (Wave 6): no key source yet; not a scroll action either.
+        KeyAction::SessionNext | KeyAction::SessionPrevious => return false,
         KeyAction::Composer(_) => return false,
     };
     if let Ok(mut view) = handle.view.lock() {
@@ -630,6 +685,57 @@ fn headless_acceptance(store: &SceneStore) {
     println!("composer preedit inline overlay [{}]", pass_str(preedit_ok));
     ok &= preedit_ok;
 
+    // Session-switch contract (GY-ZCODE-006): cycling over a synthetic
+    // session list wraps both directions; the switch action unfocuses the
+    // composer, enqueues SwitchSession for the selected id, resets the
+    // transcript and shows the <n>/<m> index in the status line.
+    let mut sv = SessionView::default();
+    sv.sessions = (0..3)
+        .map(|i| goya_zcode::view::SessionEntry {
+            session_id: format!("sess_{i}"),
+            title: format!("session {i}"),
+            status: "idle".into(),
+        })
+        .collect();
+    let fwd_ok = sv.cycle_selection(1).map(|e| e.session_id.clone()).as_deref() == Some("sess_1")
+        && sv.cycle_selection(1).map(|e| e.session_id.clone()).as_deref() == Some("sess_2")
+        && sv.cycle_selection(1).map(|e| e.session_id.clone()).as_deref() == Some("sess_0")
+        && sv.cycle_selection(-1).map(|e| e.session_id.clone()).as_deref() == Some("sess_2")
+        && sv.cycle_selection(-1).map(|e| e.session_id.clone()).as_deref() == Some("sess_1");
+    sv.push_line("old transcript");
+    sv.apply(&ProjEvent::PartDelta { delta: "stream".into() });
+    sv.reset_transcript();
+    let reset_ok = sv.tail.is_empty()
+        && sv.history.is_empty()
+        && sv.streaming.is_empty()
+        && sv.switching_status() == "2/3 switching session…";
+    let mut sw_composer = Composer::new();
+    sw_composer.focused = true;
+    let sw_handle = agent::MonitorHandle::new();
+    if let Ok(mut view) = sw_handle.view.lock() {
+        view.sessions = sv.sessions.clone();
+        view.selected = 0;
+        view.push_line("stale transcript");
+    }
+    let switched = handle_session_switch(&sw_handle, &mut sw_composer, -1);
+    let switch_ok = switched
+        && !sw_composer.focused
+        && matches!(
+            sw_handle.try_take_cmd(),
+            Some(agent::AgentCmd::SwitchSession { ref session_id }) if session_id == "sess_2"
+        )
+        && sw_handle
+            .view
+            .lock()
+            .map(|v| v.tail.is_empty() && v.status == "3/3 switching session…")
+            .unwrap_or(false);
+    let sess_ok = fwd_ok && reset_ok && switch_ok;
+    println!(
+        "session switch cycle/reset/index status [{}]",
+        pass_str(sess_ok)
+    );
+    ok &= sess_ok;
+
     if !ok {
         std::process::exit(1);
     }
@@ -800,7 +906,16 @@ fn run_live(args: &Args, store: &mut SceneStore, last_mtime: &mut Option<SystemT
                 }
                 goya_wayland::PlatformEvent::Resized(_, _) => dirty = true,
                 // GY-ZCODE-004: ctrl+c/v/q shortcuts from goya-wayland.
-                PlatformEvent::Shortcut(shortcut) => match shortcut {
+                PlatformEvent::Shortcut(shortcut) => {
+                    // Wave 6 (GY-ZCODE-006): ctrl+Left/Right session
+                    // switching — gated on J1's Shortcut variants; the
+                    // delta helper returns None for every shortcut until
+                    // they land, so this stays a no-op now.
+                    if let Some(delta) = shortcut_switch_delta(shortcut) {
+                        dirty |= handle_session_switch(&handle, &mut composer, delta);
+                        sync_text_input(&mut win, &composer, store.get());
+                    }
+                    match shortcut {
                     Shortcut::Copy => {
                         let last = handle.view.lock().ok().and_then(|view| {
                             view.rows().into_iter().rev().find(|row| !row.is_empty())
@@ -832,7 +947,8 @@ fn run_live(args: &Args, store: &mut SceneStore, last_mtime: &mut Option<SystemT
                         handle.stop.store(true, Ordering::Relaxed);
                         dirty = true;
                     }
-                },
+                    }
+                }
                 _ => {}
             }
         }
@@ -941,6 +1057,54 @@ mod input_event_tests {
         );
         assert_eq!(composer.display(), "日本«か│な»");
     }
+
+    // --- Wave 6 (GY-ZCODE-006): session switching ---
+
+    #[test]
+    fn no_shortcut_maps_to_a_switch_until_j1_lands() {
+        use super::shortcut_switch_delta;
+        use goya_wayland::Shortcut;
+        assert_eq!(shortcut_switch_delta(Shortcut::Copy), None);
+        assert_eq!(shortcut_switch_delta(Shortcut::Paste), None);
+        assert_eq!(shortcut_switch_delta(Shortcut::Quit), None);
+        // GATE: Shortcut::SessionNext → Some(1) / SessionPrevious →
+        // Some(-1) once J1's variants exist.
+    }
+
+    #[test]
+    fn session_switch_unfocuses_cycles_and_enqueues() {
+        use super::handle_session_switch;
+        use goya_zcode::agent::{AgentCmd, MonitorHandle};
+        use goya_zcode::view::SessionEntry;
+
+        let mut composer = Composer::new();
+        composer.focused = true;
+        let handle = MonitorHandle::new();
+        handle.view.lock().unwrap().sessions = (0..3)
+            .map(|i| SessionEntry {
+                session_id: format!("s{i}"),
+                title: String::new(),
+                status: String::new(),
+            })
+            .collect();
+        assert!(handle_session_switch(&handle, &mut composer, 1));
+        assert!(!composer.focused, "switch unfocuses the composer");
+        assert!(matches!(
+            handle.try_take_cmd(),
+            Some(AgentCmd::SwitchSession { ref session_id }) if session_id == "s1"
+        ));
+        // Wrap backward from the first entry.
+        assert!(handle_session_switch(&handle, &mut composer, -1));
+        assert!(matches!(
+            handle.try_take_cmd(),
+            Some(AgentCmd::SwitchSession { ref session_id }) if session_id == "s0"
+        ));
+        // Empty list: no switch is enqueued, composer stays unfocused.
+        handle.view.lock().unwrap().sessions.clear();
+        assert!(!handle_session_switch(&handle, &mut composer, 1));
+        assert!(handle.try_take_cmd().is_none());
+    }
+}
 
     #[test]
     fn unfocused_composer_ignores_unicode_and_ime_batches() {

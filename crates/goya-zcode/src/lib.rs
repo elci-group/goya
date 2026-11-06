@@ -35,6 +35,19 @@
 //!   `PlatformEvent::Preedit` (bracketed « … » overlay) and
 //!   `PlatformEvent::CommitText` (insert at cursor); the live host
 //!   activates the window text input iff the composer is focused.
+//! - Wave 6 (GY-ZCODE-006): multi-session switching. `AgentCmd::SwitchSession`
+//!   tears down the current run/connection (up, down or reconnecting) and
+//!   starts a fresh run pinned to the target session (fresh `session/list`
+//!   + `session/subscribe`; `MonitorHandle::switch_session` owns the
+//!   sequence: pin, abandon in-flight sends, reset transcript,
+//!   `"<n>/<m> switching session…"` status, skip the reconnect backoff).
+//!   [`view::SessionView`] gains a selection index
+//!   (`cycle_selection`, wrapping both directions) and
+//!   `reset_transcript` — the transcript is session-scoped and reset on
+//!   switch (per-session history buffers are a later increment). The bin
+//!   wires `Shortcut::{SessionNext, SessionPrevious}` (gated on J1's
+//!   goya-wayland variants; ctrl+Left/Right) to cycle + switch, and the
+//!   status line carries the `<n>/<m>` index.
 
 pub mod agent;
 pub mod clipboard;
