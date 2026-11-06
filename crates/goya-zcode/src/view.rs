@@ -851,4 +851,74 @@ mod tests {
             "empty list falls back to the bare hint"
         );
     }
+
+    // --- Wave 7 (GY-ZCODE-007): per-session transcript snapshot/restore ---
+
+    #[test]
+    fn transcript_snapshot_restore_round_trips() {
+        let mut view = view_with_sessions();
+        view.link = LinkState::Up;
+        view.markdown = false;
+        view.apply(&ProjEvent::TurnStarted { input: "q".into() });
+        view.apply(&ProjEvent::PartDelta {
+            delta: "streaming mid-turn".into(),
+        });
+        view.apply(&tool("t1", "read_file", ToolState::Started));
+        for i in 0..30 {
+            view.push_line(&format!("line {i:02}"));
+        }
+        view.scroll_up(4);
+        let before_rows = view.rows();
+        let before_from_bottom = view.scroll_from_bottom();
+
+        let snap = view.snapshot_transcript();
+        view.reset_transcript();
+        assert!(view.tail.is_empty() && view.history.is_empty());
+        assert!(view.in_flight_tools.is_empty());
+        view.restore_transcript(snap);
+
+        assert_eq!(view.rows(), before_rows, "rows restored exactly");
+        assert_eq!(view.scroll_from_bottom(), before_from_bottom);
+        assert_eq!(view.streaming, "streaming mid-turn");
+        assert!(view.in_flight_tools.contains(&"t1".to_string()));
+        // List/global state is untouched by restore.
+        assert_eq!(view.link, LinkState::Up);
+        assert!(!view.markdown);
+        assert_eq!(view.sessions.len(), 3);
+    }
+
+    #[test]
+    fn restore_into_default_leaves_global_state_alone() {
+        let mut saved = view_with_sessions();
+        saved.apply(&tool("t9", "bash", ToolState::Started));
+        saved.push_line("kept");
+        let snap = saved.snapshot_transcript();
+
+        let mut fresh = SessionView::default();
+        fresh.sessions = vec![entry("other")];
+        fresh.selected = 0;
+        fresh.markdown = false;
+        fresh.restore_transcript(snap);
+
+        assert_eq!(fresh.history, vec!["kept".to_string()]);
+        assert!(fresh.in_flight_tools.contains(&"t9".to_string()));
+        // Only transcript fields moved; the fresh view's own state stays.
+        assert_eq!(fresh.sessions.len(), 1);
+        assert_eq!(fresh.sessions[0].session_id, "other");
+        assert!(!fresh.markdown);
+    }
+
+    #[test]
+    fn default_transcript_restores_to_empty() {
+        let mut view = view_with_sessions();
+        view.push_line("stale");
+        view.restore_transcript(SessionTranscript::default());
+        assert!(view.tail.is_empty());
+        assert!(view.history.is_empty());
+        assert!(view.streaming.is_empty());
+        assert!(view.in_flight_tools.is_empty());
+        assert!(view.finished_tools.is_empty());
+        assert_eq!(view.scroll_from_bottom(), 0);
+        assert!(view.rows().iter().all(|r| r.is_empty()));
+    }
 }

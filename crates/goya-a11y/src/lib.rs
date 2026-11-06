@@ -577,6 +577,141 @@ mod tests {
     }
 
     #[test]
+    fn input_projection_carries_role_placeholder_and_states() {
+        // GY-ZCODE-007 wave 7: a DIG mixing cells (static text), buttons,
+        // and inputs projects inputs with role Input-equivalent
+        // (TextInput), the placeholder as accessible name, and derived
+        // editable/focusable states; hit region and traversal behave
+        // exactly as for buttons.
+        let mut dig = Dig::new();
+        dig.put(node("root", SemanticRole::Window, "Main", None), 1);
+        dig.put(
+            node("title", SemanticRole::Label, "Session", Some("root")),
+            1,
+        );
+        dig.put(node("send", SemanticRole::Button, "Send", Some("root")), 1);
+        let mut composer = node(
+            "composer",
+            SemanticRole::Textbox,
+            "Message", // placeholder in the DIG's label slot
+            Some("root"),
+        );
+        composer.state.focused = true;
+        composer.hit_region = goya_change::PixelRect {
+            x: 5,
+            y: 10,
+            width: 300,
+            height: 80,
+        };
+        dig.put(composer, 1);
+
+        let tree = A11yTree::from_dig(&dig);
+        let input = tree.get("composer").expect("composer projected");
+        assert_eq!(input.role, A11yRole::TextInput);
+        assert_eq!(input.accessible_name, "Message", "placeholder is the name");
+        assert_eq!(input.resolved_name(), "Message");
+        assert!(input.editable);
+        assert!(input.focusable);
+        assert!(input.focused);
+        assert_eq!(
+            input.hit_region,
+            A11yRect {
+                x: 5,
+                y: 10,
+                width: 300,
+                height: 80
+            }
+        );
+        // Traversal visits inputs alongside cells and buttons, same
+        // id-ordered walk as every other kind.
+        let roles: Vec<(String, A11yRole)> = tree
+            .iter()
+            .map(|n| (n.id.clone(), n.role))
+            .collect();
+        assert_eq!(
+            roles,
+            vec![
+                ("composer".into(), A11yRole::TextInput),
+                ("root".into(), A11yRole::Window),
+                ("send".into(), A11yRole::Button),
+                ("title".into(), A11yRole::StaticText),
+            ]
+        );
+        // An enabled input is keyboard-reachable like a button.
+        assert!(!tree.keyboard_reachable().contains(&"composer".to_string()));
+        // Activation surface = focus (not press), matching the button
+        // pattern where the action set is derived from the role.
+        assert_eq!(input.actions_for_at(), vec!["set_value", "focus"]);
+    }
+
+    #[test]
+    fn live_text_overrides_placeholder_for_announcement_and_lookup() {
+        let mut dig = Dig::new();
+        dig.put(node("root", SemanticRole::Window, "Main", None), 1);
+        let input = A11yNode::input(
+            "composer",
+            "Message",
+            Some("root"),
+            A11yRect::default(),
+            false,
+        )
+        .with_live_text("hello");
+        dig.put(
+            DdhNode {
+                id: input.id.clone(),
+                revision: 1,
+                role: SemanticRole::Textbox,
+                label: input.accessible_name.clone(),
+                hit_region: goya_change::PixelRect::default(),
+                state: InteractionState {
+                    enabled: true,
+                    visible: true,
+                    focused: false,
+                },
+                actions: vec![],
+                exposed: true,
+                parent: Some("root".into()),
+                semantics: SemanticAttributes::default(),
+            },
+            1,
+        );
+        let mut tree = A11yTree::from_dig(&dig);
+        // Host-side snapshot update: feed live text onto the projected
+        // node (later increments wire this from the monitor composer).
+        tree.nodes
+            .get_mut("composer")
+            .expect("composer present")
+            .live_text = Some("hello".into());
+
+        let node = tree.get("composer").expect("composer present");
+        assert_eq!(node.resolved_name(), "hello", "live text wins");
+        assert_eq!(node.accessible_name, "Message", "placeholder retained");
+        // Lookup matches the announced name, not the raw placeholder.
+        assert_eq!(
+            tree.find_by_name("hello").map(|n| n.id.as_str()),
+            Some("composer")
+        );
+        assert_eq!(tree.find_by_name("Message"), None);
+    }
+
+    #[test]
+    fn disabled_input_is_neither_editable_nor_focusable() {
+        let mut ddh = node("off", SemanticRole::Textbox, "Message", None);
+        ddh.state.enabled = false;
+        let projected = A11yNode::from_ddh(&ddh);
+        assert!(!projected.editable);
+        assert!(!projected.focusable);
+        // Enabled static text and buttons are focusable but never
+        // editable; editability is exclusive to TextInput.
+        let button = A11yNode::from_ddh(&node("b", SemanticRole::Button, "OK", None));
+        assert!(button.focusable);
+        assert!(!button.editable);
+        let label = A11yNode::from_ddh(&node("l", SemanticRole::Label, "Name", None));
+        assert!(!label.focusable);
+        assert!(!label.editable);
+    }
+
+    #[test]
     fn name_lookup_finds_exact_accessible_names() {
         let mut dig = Dig::new();
         dig.put(node("root", SemanticRole::Window, "Main", None), 1);

@@ -7,9 +7,10 @@
 //! are strict, so params must match exactly; response parsing is lenient
 //! (unknown fields are ignored, unknown event types are inert).
 
-use crate::view::{LinkState, ProjEvent, SessionEntry, SessionView, ToolState};
+use crate::composer::ComposerSnapshot;
+use crate::view::{LinkState, ProjEvent, SessionEntry, SessionTranscript, SessionView, ToolState};
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
@@ -25,6 +26,43 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 const RECONNECT_DELAY_MS: u64 = 5_000;
 const POLL_INTERVAL_MS: u64 = 200;
 const COMMAND_QUEUE_CAPACITY: usize = 8;
+
+/// Wave 7 (GY-ZCODE-007): retention capacity of the per-session
+/// transcript/composer LRU; the oldest session (by first-saved order) is
+/// evicted past the cap.
+pub const RETENTION_CAP: usize = 8;
+
+/// Wave 7: bounded LRU of per-session snapshots, insertion-ordered via a
+/// side `VecDeque` (no external LRU crate). Re-saving a session moves it
+/// to the newest slot.
+#[derive(Debug, Default)]
+struct SessionRetention {
+    map: HashMap<String, (SessionTranscript, ComposerSnapshot)>,
+    order: VecDeque<String>,
+}
+
+impl SessionRetention {
+    fn store(&mut self, session_id: String, snap: (SessionTranscript, ComposerSnapshot)) {
+        if let Some(pos) = self.order.iter().position(|k| k == &session_id) {
+            self.order.remove(pos);
+        }
+        self.map.insert(session_id.clone(), snap);
+        self.order.push_back(session_id);
+        while self.order.len() > RETENTION_CAP {
+            let Some(oldest) = self.order.pop_front() else {
+                break;
+            };
+            self.map.remove(&oldest);
+        }
+    }
+
+    fn take(&mut self, session_id: &str) -> Option<(SessionTranscript, ComposerSnapshot)> {
+        if let Some(pos) = self.order.iter().position(|k| k == session_id) {
+            self.order.remove(pos);
+        }
+        self.map.remove(session_id)
+    }
+}
 
 /// Pending request id → one-shot response channel.
 type PendingMap = Arc<Mutex<HashMap<u64, Sender<Result<Value, String>>>>>;
