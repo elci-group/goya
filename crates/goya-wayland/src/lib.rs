@@ -4132,3 +4132,76 @@ mod multiline_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod text_overlay_tests {
+    use super::{measure_text, raster_text_overlays, TextOverlay};
+    use goya_layout::Rect;
+    use goya_runtime::Primitive;
+
+    fn text_primitive(text: &str) -> Primitive {
+        Primitive::Text(
+            Rect {
+                x: 0,
+                y: 0,
+                width: 24_000,
+                height: 30_000,
+            },
+            text.to_owned(),
+        )
+    }
+
+    #[test]
+    fn overlays_draw_without_mutating_text_or_wrapping() {
+        let text = "alpha beta gamma delta";
+        let primitive = text_primitive(text);
+        let primitives = [primitive.clone()];
+        let before = measure_text(text, 20.0, 26.0, 12.0).unwrap();
+        let mut pixels = vec![0xff00_0000; 24 * 30];
+        raster_text_overlays(
+            &mut pixels,
+            24,
+            30,
+            &primitives,
+            None,
+            None,
+            &[TextOverlay {
+                primitive_index: 0,
+                caret_byte_offset: Some(8),
+                selection_byte_range: Some((0, 5)),
+                caret_rgb: [255, 255, 255],
+                selection_rgb: [40, 100, 240],
+            }],
+            2,
+            None,
+        );
+        assert!(pixels.iter().any(|pixel| *pixel != 0xff00_0000));
+        assert_eq!(primitives[0], primitive);
+        assert_eq!(measure_text(text, 20.0, 26.0, 12.0).unwrap(), before);
+    }
+
+    #[test]
+    fn selection_overlay_handles_rtl_and_utf8_cluster_boundaries() {
+        let text = "אבגד";
+        let primitives = [text_primitive(text)];
+        let mut pixels = vec![0xff00_0000; 24 * 30];
+        raster_text_overlays(
+            &mut pixels,
+            24,
+            30,
+            &primitives,
+            None,
+            None,
+            &[TextOverlay {
+                primitive_index: 0,
+                caret_byte_offset: Some(1),
+                selection_byte_range: Some((1, 7)),
+                caret_rgb: [255, 255, 255],
+                selection_rgb: [40, 100, 240],
+            }],
+            2,
+            None,
+        );
+        assert!(pixels.iter().any(|pixel| *pixel != 0xff00_0000));
+    }
+}
