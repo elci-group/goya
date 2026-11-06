@@ -4176,7 +4176,11 @@ mod clipboard_tests {
     #[test]
     fn utf8_tagged_mime_wins_over_bare_text_plain() {
         assert_eq!(
-            pick_text_mime(&mimes(&["text/plain", "UTF8_STRING", "text/plain;charset=utf-8"])),
+            pick_text_mime(&mimes(&[
+                "text/plain",
+                "UTF8_STRING",
+                "text/plain;charset=utf-8"
+            ])),
             Some("text/plain;charset=utf-8".to_string())
         );
         // Bare text/plain alone is still usable.
@@ -4224,10 +4228,7 @@ mod clipboard_tests {
     fn selection_change_resolves_pending_read_as_no_text() {
         let mut s = ClipboardState::new();
         s.begin_request();
-        assert_eq!(
-            s.cancel_request(),
-            Some(PlatformEvent::ClipboardText(None))
-        );
+        assert_eq!(s.cancel_request(), Some(PlatformEvent::ClipboardText(None)));
     }
 
     #[test]

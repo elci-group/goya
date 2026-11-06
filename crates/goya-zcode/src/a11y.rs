@@ -45,7 +45,7 @@
 use crate::composer::Composer;
 use crate::view::{LinkState, SessionView, TAIL_LINES};
 use goya_a11y::{A11yNode, A11yRect, A11yTree};
-use goya_ddh::{Dig, DdhNode, InteractionState, SemanticRole};
+use goya_ddh::{DdhNode, Dig, InteractionState, SemanticRole};
 use goya_lang::Frame;
 
 /// Root window object id.
@@ -128,7 +128,13 @@ pub fn status_text(view: &SessionView) -> String {
 }
 
 /// Minimal DIG node constructor: exposed, enabled, default semantics.
-fn dig_node(id: &str, role: SemanticRole, label: &str, parent: Option<&str>, r: A11yRect) -> DdhNode {
+fn dig_node(
+    id: &str,
+    role: SemanticRole,
+    label: &str,
+    parent: Option<&str>,
+    r: A11yRect,
+) -> DdhNode {
     DdhNode {
         id: id.to_string(),
         revision: 1,
@@ -160,7 +166,16 @@ fn dig_node(id: &str, role: SemanticRole, label: &str, parent: Option<&str>, r: 
 /// Empty transcript rows are skipped (see module docs).
 pub fn build_dig(view: &SessionView, composer: &Composer, rects: &MonitorSceneRects) -> Dig {
     let mut dig = Dig::new();
-    dig.put(dig_node(ROOT_ID, SemanticRole::Window, "zcode-monitor", None, A11yRect::default()), 1);
+    dig.put(
+        dig_node(
+            ROOT_ID,
+            SemanticRole::Window,
+            "zcode-monitor",
+            None,
+            A11yRect::default(),
+        ),
+        1,
+    );
     dig.put(
         dig_node(
             "title",
@@ -188,7 +203,13 @@ pub fn build_dig(view: &SessionView, composer: &Composer, rects: &MonitorSceneRe
         }
         let region = rects.rows.get(i).copied().unwrap_or_default();
         dig.put(
-            dig_node(&format!("row_{i:02}"), SemanticRole::Label, text, Some(ROOT_ID), region),
+            dig_node(
+                &format!("row_{i:02}"),
+                SemanticRole::Label,
+                text,
+                Some(ROOT_ID),
+                region,
+            ),
             1,
         );
     }
@@ -262,7 +283,8 @@ impl MonitorA11y {
             .iter()
             .map(|node| {
                 if node.id == COMPOSER_ID {
-                    node.clone().with_live_text(live.clone().unwrap_or_default())
+                    node.clone()
+                        .with_live_text(live.clone().unwrap_or_default())
                 } else {
                     node.clone()
                 }
