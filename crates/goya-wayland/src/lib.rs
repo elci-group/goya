@@ -32,7 +32,9 @@
 use cosmic_text::{Attrs, Buffer, Color, FontSystem, Metrics, Shaping, SwashCache, Wrap};
 use unicode_segmentation::UnicodeSegmentation;
 use goya_csr::{self, Policy as CsrPolicy};
-use goya_hcar::{AffinityMode, Classifier, CoreAssignment, WorkCost, WorkItem};
+use goya_hcar::{
+    AffinityMode, Classifier, CoreAssignment, CpuTopology, WorkerPlan, WorkCost, WorkItem,
+};
 use goya_layout::Rect;
 use rustix::fd::OwnedFd;
 use rustix::fs::{ftruncate, memfd_create, MemfdFlags};
@@ -1134,9 +1136,14 @@ fn raster_primitives(
         width: roi.x1.saturating_sub(roi.x0) as i32,
         height: roi.y1.saturating_sub(roi.y0) as i32,
     };
-    let workers = std::thread::available_parallelism()
-        .map(|n| n.get().min(MAX_RASTER_WORKERS as usize) as u32)
+    let worker_limit = std::thread::available_parallelism()
+        .map(|n| n.get().min(MAX_RASTER_WORKERS as usize))
         .unwrap_or(1);
+    let worker_plan = raster_worker_plan(worker_limit);
+    let workers = (worker_plan.performance_workers
+        + worker_plan.efficiency_workers
+        + worker_plan.general_workers)
+    .max(1) as u32;
     let policy = goya_csr::select_policy(
         u64::from(dirty.width.max(0) as u32) * u64::from(dirty.height.max(0) as u32),
         RASTER_TILE_SIZE,
@@ -1178,6 +1185,22 @@ fn raster_primitives(
             clip: Some(roi),
         },
     );
+}
+
+/// Derive a bounded worker budget from detected topology when available.
+/// HCAR remains advisory: all workers use OS-managed affinity and this plan
+/// neither pins threads nor promises a speedup.
+fn raster_worker_plan(worker_limit: usize) -> WorkerPlan {
+    #[cfg(target_os = "linux")]
+    let topology = CpuTopology::detect_linux();
+    #[cfg(not(target_os = "linux"))]
+    let topology: Option<CpuTopology> = None;
+
+    WorkerPlan::from_topology(
+        topology.as_ref(),
+        worker_limit,
+        AffinityMode::OsManaged,
+    )
 }
 
 struct RasterConfig<'a> {
@@ -1245,10 +1268,11 @@ fn raster_parallel_tiles(
         return false;
     }
 
-    // No P/E topology is detected or affinity applied here. HCAR classifies
-    // each tile as General, so explicitly enabled workers remain OS-managed.
+    // HCAR classifies tiles into deterministic worker lanes. Lane names are
+    // advisory scheduling groups; affinity stays OS-managed and no CPU
+    // placement or performance claim is implied.
     let classifier = Classifier {
-        heterogeneous: false,
+        heterogeneous: worker_budget > 1,
         affinity_mode: AffinityMode::OsManaged,
     };
     let mut by_worker: Vec<Vec<PixelClip>> = vec![Vec::new(); worker_budget as usize];
@@ -1280,10 +1304,10 @@ fn raster_parallel_tiles(
                 energy_e: 0.7,
             },
         };
-        if classifier.classify(&item) != CoreAssignment::General {
-            return false;
-        }
-        by_worker[worker as usize].push(PixelClip { x0, y0, x1, y1 });
+        let class = classifier.classify(&item);
+        let plan = raster_worker_plan(worker_budget as usize);
+        let target_worker = worker_for_class(class, &plan, worker as usize);
+        by_worker[target_worker].push(PixelClip { x0, y0, x1, y1 });
     }
 
     let expected_tiles: usize = by_worker.iter().map(Vec::len).sum();
@@ -1353,6 +1377,25 @@ fn raster_parallel_tiles(
         }
     }
     true
+}
+
+fn worker_for_class(class: CoreAssignment, plan: &WorkerPlan, fallback: usize) -> usize {
+    let (start, count) = match class {
+        CoreAssignment::Performance => (0, plan.performance_workers),
+        CoreAssignment::Efficiency => (plan.performance_workers, plan.efficiency_workers),
+        CoreAssignment::General => (
+            plan.performance_workers + plan.efficiency_workers,
+            plan.general_workers,
+        ),
+    };
+    if count == 0 {
+        fallback.min(
+            (plan.performance_workers + plan.efficiency_workers + plan.general_workers)
+                .saturating_sub(1),
+        )
+    } else {
+        start + fallback % count
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

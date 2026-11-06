@@ -377,7 +377,7 @@ fn projected_focus_changed(old: &A11yTree, new: &A11yTree) -> bool {
     let focused = |tree: &A11yTree| {
         tree.iter()
             .find(|node| should_restore_focus(node))
-            .map(|node| node.id.as_str())
+            .map(|node| node.id.clone())
     };
     focused(old) != focused(new)
 }
