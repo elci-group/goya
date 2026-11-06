@@ -572,6 +572,33 @@ mod input_tests {
     use super::*;
 
     #[test]
+    fn ime_cursor_rect_tracks_multibyte_wrapped_text_and_scroll_clip() {
+        let source =
+            "@ontology demo { @input name { extent: (15, 80, 0) text-size: 3 text: \"\" } }";
+        let scene = goya_lang::parse(source).unwrap();
+        let frame = layout(&scene, 100.0, 100.0);
+        let mut node = frame.find("name").unwrap().clone();
+        let mut buffer = TextBuffer::new("é漢字かな");
+        let end_rect = input_cursor_rect(&node, &buffer);
+        buffer.move_home(false);
+        let start_rect = input_cursor_rect(&node, &buffer);
+        assert!(
+            end_rect.1 > start_rect.1,
+            "shaped caret should follow wrapping"
+        );
+
+        node.rect.y -= 10_000;
+        node.clip = Some(RectMp {
+            x: 0,
+            y: 5_000,
+            width: 100_000,
+            height: 50_000,
+        });
+        let clipped = input_cursor_rect(&node, &buffer);
+        assert!(clipped.1 >= 20); // clip top (20 px) is respected
+    }
+
+    #[test]
     fn scene_input_routes_unicode_navigation_and_preedit_at_cursor() {
         let scene = goya_lang::parse(
             "@ontology demo { @input name { extent: (200, 40, 0) text: \"Search\" } }",

@@ -353,13 +353,21 @@ mod input_tests {
 
     #[test]
     fn ime_cursor_geometry_uses_wrapped_unicode_shaping() {
-        let rect = goya_layout::Rect { x: 10_000, y: 20_000, width: 15_000, height: 20_000 };
+        let rect = goya_layout::Rect {
+            x: 10_000,
+            y: 20_000,
+            width: 8_000,
+            height: 20_000,
+        };
         let text = "é漢字かな";
         let start = text_input_cursor_rect(rect, text, 0);
         let end = text_input_cursor_rect(rect, text, text.len());
-        let mid = text_input_cursor_rect(rect, text, "é漢".len());
+        let mid = text_input_cursor_rect(rect, text, "é漢字".len());
         assert_eq!(start.0, 42); // 10 pt * 4 px/pt + 2 px inset
-        assert!(mid.1 > start.1, "multibyte caret should move to a wrapped line");
+        assert!(
+            mid.1 > start.1,
+            "multibyte caret should move to a wrapped line"
+        );
         assert!(end.1 >= mid.1);
     }
 
