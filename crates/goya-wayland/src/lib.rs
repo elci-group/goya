@@ -1106,6 +1106,82 @@ impl GoyaWindow {
         true
     }
 
+    /// Place `text` on the compositor selection as a `text/plain` /
+    /// `text/plain;charset=utf-8` data source (GY-ZCODE-008). The payload is
+    /// kept in an in-memory buffer and served from there when the compositor
+    /// issues `data_source.send`. A safe no-op (documented) when the
+    /// compositor does not advertise `wl_data_device_manager` or the seat has
+    /// no data device.
+    pub fn set_clipboard_text(&mut self, text: &str) {
+        let (Some(manager), Some(device)) = (
+            self.state.data_device_manager.clone(),
+            self.state.data_device.clone(),
+        ) else {
+            // No data-device global: clipboard is unavailable, nothing to
+            // set. Mirrors the defensive text-input pattern.
+            return;
+        };
+        let qh = self.queue.handle();
+        let source = manager.create_data_source(&qh, ());
+        source.offer("text/plain".to_string());
+        source.offer("text/plain;charset=utf-8".to_string());
+        // Serial from the latest keyboard enter; compositors reject
+        // set_selection with a stale serial, which the operator-verified
+        // acceptance path covers.
+        device.set_selection(Some(&source), self.state.keyboard_enter_serial);
+        self.state.data_source = Some(source);
+        self.state.clipboard.set_outgoing(text);
+    }
+
+    /// Request the current selection's text (GY-ZCODE-008). The completed
+    /// value arrives as [`PlatformEvent::ClipboardText`] — `Some(text)` for a
+    /// text payload, `None` when there is no selection, the offer has no
+    /// text/plain mime, or the payload is empty. Exactly one request may be
+    /// outstanding; a second call while one is pending is a documented
+    /// no-op. Also a safe no-op without the data-device global. The read
+    /// blocks briefly on the compositor writing the payload into a pipe.
+    pub fn request_clipboard_text(&mut self) {
+        if self.state.data_device.is_none() {
+            return;
+        }
+        if !self.state.clipboard.begin_request() {
+            // A read is already outstanding; drop the duplicate (frozen
+            // contract: rejected, not queued).
+            return;
+        }
+        let Some(mime) = self.state.clipboard.receive_target() else {
+            // No selection offer (or no text mime): answered immediately.
+            if let Some(event) = self.state.clipboard.complete_request(None) {
+                self.state.events.push(event);
+            }
+            return;
+        };
+        let Some(offer) = self.state.pending_offer.clone() else {
+            // Selection mimes exist but the offer object was lost (compositor
+            // race); answer defensively rather than staying pending forever.
+            if let Some(event) = self.state.clipboard.complete_request(None) {
+                self.state.events.push(event);
+            }
+            return;
+        };
+        let Ok((read_fd, write_fd)) = pipe() else {
+            if let Some(event) = self.state.clipboard.complete_request(None) {
+                self.state.events.push(event);
+            }
+            return;
+        };
+        offer.receive(mime, write_fd);
+        // Flush so the compositor starts writing before we block on the pipe.
+        let _ = self.queue.flush();
+        let mut payload = Vec::new();
+        let _ = File::from(read_fd).read_to_end(&mut payload);
+        // Empty payload means the selection carried no usable text.
+        let text = String::from_utf8(payload).ok().filter(|t| !t.is_empty());
+        if let Some(event) = self.state.clipboard.complete_request(text) {
+            self.state.events.push(event);
+        }
+    }
+
     /// Map the runtime's render list into shared memory and present it.
     /// `glyph_px` is the glyph-pixel size in screen pixels (block scaling);
     /// 1 = tiny terminal-style text, 3–4 reads well at 4 px/pt geometry.
