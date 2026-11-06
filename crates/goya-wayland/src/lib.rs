@@ -1211,6 +1211,19 @@ impl GoyaWindow {
             clip,
             parallel_raster,
         );
+        if let Some(overlays) = text_overlays {
+            raster_text_overlays(
+                pixels,
+                width,
+                height,
+                primitives,
+                clips,
+                text_sizes_pt,
+                overlays,
+                glyph_px,
+                clip,
+            );
+        }
         // Opaque hint: the window always fills its bounds — the compositor
         // can skip blending against undefined content (flicker source).
         {
