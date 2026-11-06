@@ -824,6 +824,16 @@ impl Runtime {
                     range.start + grapheme_boundary_at_or_before(&inserted, cursor_byte_in_text);
                 state.buffer.set_selection(cursor, cursor);
             }),
+            Event::DeleteInputSurrounding {
+                before_bytes,
+                after_bytes,
+            } => self.edit_focused(|state| {
+                state.preedit = None;
+                state.composition_region = None;
+                state
+                    .buffer
+                    .delete_surrounding_excluding_selection(before_bytes, after_bytes);
+            }),
             Event::TextBackspace => self.edit_focused(|state| state.buffer.delete_backward()),
             Event::TextDelete => self.edit_focused(|state| state.buffer.delete_forward()),
             Event::TextMoveLeft { extend } => {
@@ -1337,6 +1347,33 @@ mod tests {
         assert_eq!(rt.input_text(NodeId(1)), Some("abYd"));
         assert_eq!(rt.input_cursor_byte(NodeId(1)), Some(3));
         assert_eq!(rt.input_anchor_byte(NodeId(1)), Some(3));
+    }
+
+    #[test]
+    fn platform_delete_surrounding_preserves_a_nonempty_selection() {
+        let module = parse("input 1 Search\nroot 1").unwrap();
+        let mut rt = Runtime::new(
+            module,
+            Store::new(),
+            Constraints {
+                max_width: 400_000,
+                max_height: 300_000,
+            },
+        );
+        assert!(rt.focus_input(Some(NodeId(1))));
+        assert!(rt.handle(Event::SetInputValue(NodeId(1), "abcde".into())));
+        assert!(rt.handle(Event::SetInputSelection {
+            node: NodeId(1),
+            anchor_byte: 3,
+            cursor_byte: 2,
+        }));
+        assert!(rt.handle(Event::DeleteInputSurrounding {
+            before_bytes: 1,
+            after_bytes: 1,
+        }));
+        assert_eq!(rt.input_text(NodeId(1)), Some("ace"));
+        assert_eq!(rt.input_cursor_byte(NodeId(1)), Some(1));
+        assert_eq!(rt.input_anchor_byte(NodeId(1)), Some(2));
     }
 
     #[test]
