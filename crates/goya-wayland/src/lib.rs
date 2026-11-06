@@ -63,7 +63,7 @@ use rustix::fs::{ftruncate, memfd_create, MemfdFlags};
 use rustix::mm::{mmap, munmap, MapFlags, ProtFlags};
 use rustix::pipe::pipe;
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::Read;
 use std::os::fd::AsFd;
 use std::sync::{Mutex, OnceLock};
 use unicode_segmentation::UnicodeSegmentation;
@@ -567,7 +567,7 @@ impl ClipboardState {
     /// `max` bytes, never splitting a UTF-8 scalar. Returns None when the
     /// payload is exhausted (or absent). Advances the serving cursor.
     fn serve_chunk(&mut self, max: usize) -> Option<&[u8]> {
-        let payload = self.outgoing.as_bytes()?;
+        let payload = self.outgoing.as_deref()?;
         if self.served >= payload.len() {
             return None;
         }
@@ -577,7 +577,7 @@ impl ClipboardState {
             end -= 1;
         }
         self.served = end;
-        Some(&payload[start..end])
+        Some(&payload.as_bytes()[start..end])
     }
 }
 
@@ -769,9 +769,12 @@ struct GoyaWindowInner {
     data_device_manager: Option<WlDataDeviceManager>,
     data_device: Option<WlDataDevice>,
     data_source: Option<WlDataSource>,
-    /// Selection offer announced by `data_device.data_offer` whose mimes are
-    /// still arriving; moved to the clipboard read path by `selection`.
+    /// Current selection offer: announced by `data_device.data_offer`, its
+    /// mimes still arriving in `pending_offer_mimes`, then confirmed by
+    /// `selection`. Receiving reads from this object.
     pending_offer: Option<WlDataOffer>,
+    /// Mimes announced for `pending_offer` so far.
+    pending_offer_mimes: Vec<String>,
     /// Serial of the latest keyboard enter, required by `set_selection`.
     keyboard_enter_serial: u32,
     clipboard: ClipboardState,
@@ -832,6 +835,7 @@ impl GoyaWindowInner {
             data_device: None,
             data_source: None,
             pending_offer: None,
+            pending_offer_mimes: Vec::new(),
             keyboard_enter_serial: 0,
             clipboard: ClipboardState::new(),
             shift: false,
@@ -1170,7 +1174,7 @@ impl GoyaWindow {
             }
             return;
         };
-        offer.receive(mime, write_fd);
+        offer.receive(mime, write_fd.as_fd());
         // Flush so the compositor starts writing before we block on the pipe.
         let _ = self.queue.flush();
         let mut payload = Vec::new();
@@ -2731,6 +2735,124 @@ impl Dispatch<ZwpTextInputV3, ()> for GoyaWindowInner {
     }
 }
 
+impl Dispatch<WlDataDeviceManager, ()> for GoyaWindowInner {
+    fn event(
+        _: &mut Self,
+        _: &WlDataDeviceManager,
+        _: wl_data_device_manager::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+    }
+}
+
+impl Dispatch<WlDataDevice, ()> for GoyaWindowInner {
+    fn event(
+        state: &mut Self,
+        _: &WlDataDevice,
+        event: wl_data_device::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        match event {
+            // The compositor creates a fresh offer before every `selection`;
+            // its `offer` mime announcements follow on the offer object.
+            wl_data_device::Event::DataOffer { id } => {
+                state.pending_offer = Some(id);
+                state.pending_offer_mimes.clear();
+            }
+            wl_data_device::Event::Selection { id } => {
+                match id {
+                    Some(offer) => {
+                        // Only accept the offer we saw announced; a foreign
+                        // offer (or missing announcements) carries unknown
+                        // mimes, so the read path must answer None, not guess.
+                        let known = state.pending_offer.as_ref() == Some(&offer);
+                        let mimes = if known {
+                            std::mem::take(&mut state.pending_offer_mimes)
+                        } else {
+                            state.pending_offer_mimes.clear();
+                            Vec::new()
+                        };
+                        state.pending_offer = Some(offer);
+                        state.clipboard.stage_selection_mimes(mimes);
+                    }
+                    None => {
+                        state.pending_offer = None;
+                        state.pending_offer_mimes.clear();
+                        state.clipboard.stage_selection_mimes(Vec::new());
+                    }
+                }
+                // Any selection change resolves an in-flight read as "no
+                // text" (answer None) so the caller never stays pending on
+                // stale state.
+                if let Some(resolved) = state.clipboard.cancel_request() {
+                    state.events.push(resolved);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+impl Dispatch<WlDataOffer, ()> for GoyaWindowInner {
+    fn event(
+        state: &mut Self,
+        offer: &WlDataOffer,
+        event: wl_data_offer::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        if let wl_data_offer::Event::Offer { mime_type } = event {
+            if state.pending_offer.as_ref() == Some(offer) {
+                state.pending_offer_mimes.push(mime_type);
+            }
+        }
+    }
+}
+
+impl Dispatch<WlDataSource, ()> for GoyaWindowInner {
+    fn event(
+        state: &mut Self,
+        source: &WlDataSource,
+        event: wl_data_source::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        match event {
+            // The compositor pasted our selection: serve the buffered
+            // payload in bounded chunks from the pure serving cursor.
+            wl_data_source::Event::Send { fd, .. } => {
+                let mut file = File::from(fd);
+                while let Some(chunk) = state.clipboard.serve_chunk(SEND_CHUNK_BYTES) {
+                    if std::io::Write::write_all(&mut file, chunk).is_err() {
+                        break;
+                    }
+                }
+            }
+            // The compositor replaced or dropped our selection; the source
+            // and its payload are dead. Keep the bound data_source alive
+            // only if it is a different object (defensive).
+            wl_data_source::Event::Cancelled => {
+                if state.data_source.as_ref() == Some(source) {
+                    state.data_source = None;
+                    state.clipboard.take_outgoing();
+                }
+                source.destroy();
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Upper bound for one `data_source.send` write, keeping pipe backpressure
+/// and buffer sizes bounded regardless of payload length.
+const SEND_CHUNK_BYTES: usize = 16 * 1024;
+
 /// US QWERTY evdev keycode → printable char, honouring shift.
 /// Subset contract: printable ASCII only; unlisted keys yield None.
 fn key_char(keycode: u32, shift: bool) -> Option<char> {
@@ -3133,6 +3255,10 @@ impl Dispatch<WlKeyboard, ()> for GoyaWindowInner {
         _: &QueueHandle<Self>,
     ) {
         match event {
+            // Serial required later by data_device.set_selection (GY-ZCODE-008).
+            wl_keyboard::Event::Enter { serial, .. } => {
+                state.keyboard_enter_serial = serial;
+            }
             wl_keyboard::Event::Keymap { format, fd, size } => {
                 if let Some(context) = state.xkb_context.as_ref() {
                     // Keep a previously accepted keymap if the compositor
@@ -4036,6 +4162,127 @@ mod text_input_tests {
                 PlatformEvent::Preedit(Some("p".into()))
             ]
         );
+    }
+}
+
+#[cfg(test)]
+mod clipboard_tests {
+    use super::{pick_text_mime, ClipboardRequestPhase, ClipboardState, PlatformEvent};
+
+    fn mimes(list: &[&str]) -> Vec<String> {
+        list.iter().map(|m| (*m).to_string()).collect()
+    }
+
+    #[test]
+    fn utf8_tagged_mime_wins_over_bare_text_plain() {
+        assert_eq!(
+            pick_text_mime(&mimes(&["text/plain", "UTF8_STRING", "text/plain;charset=utf-8"])),
+            Some("text/plain;charset=utf-8".to_string())
+        );
+        // Bare text/plain alone is still usable.
+        assert_eq!(
+            pick_text_mime(&mimes(&["image/png", "text/plain"])),
+            Some("text/plain".to_string())
+        );
+    }
+
+    #[test]
+    fn no_text_mime_or_empty_offer_negotiates_none() {
+        assert_eq!(pick_text_mime(&mimes(&["image/png", "UTF8_STRING"])), None);
+        assert_eq!(pick_text_mime(&[]), None);
+    }
+
+    #[test]
+    fn second_request_while_pending_is_rejected_then_admitted_after_answer() {
+        let mut s = ClipboardState::new();
+        assert_eq!(s.phase, ClipboardRequestPhase::Idle);
+        assert!(s.begin_request(), "first request is admitted");
+        assert!(!s.begin_request(), "pending request rejects duplicates");
+        // Completing surfaces exactly one ClipboardText event.
+        assert_eq!(
+            s.complete_request(Some("hi".into())),
+            Some(PlatformEvent::ClipboardText(Some("hi".into())))
+        );
+        assert_eq!(s.phase, ClipboardRequestPhase::Answered);
+        // Answered (not pending): a new request is admitted again.
+        assert!(s.begin_request());
+    }
+
+    #[test]
+    fn completing_or_cancelling_without_outstanding_request_yields_nothing() {
+        let mut s = ClipboardState::new();
+        assert_eq!(s.complete_request(Some("x".into())), None);
+        assert_eq!(s.cancel_request(), None);
+        s.begin_request();
+        s.complete_request(None);
+        // Double completion stays inert.
+        assert_eq!(s.complete_request(Some("y".into())), None);
+        assert_eq!(s.cancel_request(), None);
+    }
+
+    #[test]
+    fn selection_change_resolves_pending_read_as_no_text() {
+        let mut s = ClipboardState::new();
+        s.begin_request();
+        assert_eq!(
+            s.cancel_request(),
+            Some(PlatformEvent::ClipboardText(None))
+        );
+    }
+
+    #[test]
+    fn receive_target_needs_a_staged_text_mime() {
+        let mut s = ClipboardState::new();
+        assert_eq!(s.receive_target(), None);
+        s.stage_selection_mimes(mimes(&["text/plain;charset=utf-8"]));
+        assert_eq!(
+            s.receive_target(),
+            Some("text/plain;charset=utf-8".to_string())
+        );
+    }
+
+    #[test]
+    fn serve_chunk_walks_payload_and_never_splits_scalars() {
+        let mut s = ClipboardState::new();
+        // No payload: nothing to serve.
+        assert_eq!(s.serve_chunk(8), None);
+        s.set_outgoing("拼拼a");
+        let mut served = Vec::new();
+        while let Some(chunk) = s.serve_chunk(4) {
+            served.push(String::from_utf8(chunk.to_vec()).unwrap());
+        }
+        // 9 bytes / 4-byte budget: chunks must stay valid UTF-8 scalars.
+        assert_eq!(served, vec!["拼", "拼a"]);
+        // Exhausted payload serves nothing more.
+        assert_eq!(s.serve_chunk(8), None);
+    }
+
+    #[test]
+    fn fresh_payload_resets_the_serving_cursor() {
+        let mut s = ClipboardState::new();
+        s.set_outgoing("abcdef");
+        assert_eq!(s.serve_chunk(3), Some(b"abc".as_slice()));
+        s.set_outgoing("xy");
+        assert_eq!(s.serve_chunk(8), Some(b"xy".as_slice()));
+    }
+
+    #[test]
+    fn take_outgoing_drops_payload_and_resets_cursor() {
+        let mut s = ClipboardState::new();
+        s.set_outgoing("keep");
+        assert_eq!(s.take_outgoing().as_deref(), Some("keep"));
+        assert_eq!(s.take_outgoing(), None);
+        assert_eq!(s.serve_chunk(4), None);
+    }
+
+    #[test]
+    fn zero_or_max_budget_is_safe() {
+        let mut s = ClipboardState::new();
+        s.set_outgoing("ab");
+        // Degenerate budget still makes progress (never an infinite loop).
+        assert_eq!(s.serve_chunk(0), Some(b"a".as_slice()));
+        assert_eq!(s.serve_chunk(0), Some(b"b".as_slice()));
+        assert_eq!(s.serve_chunk(0), None);
     }
 }
 

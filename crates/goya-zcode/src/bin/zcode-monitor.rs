@@ -47,6 +47,9 @@ struct Args {
     /// GY-ZCODE-003: arming the wire send path. Default OFF — default
     /// acceptance and normal runs never spend tokens.
     allow_send: bool,
+    /// GY-ZCODE-008: in dump mode, print a one-line-per-node A11yTree
+    /// dump on each a11y republish (i.e. per dirty flag).
+    a11y_dump: bool,
 }
 
 #[derive(PartialEq)]
@@ -102,6 +105,7 @@ fn parse_args() -> Args {
         duration: parse_positive("--duration"),
         frames: parse_positive("--frames").map(|n| u32::try_from(n).unwrap_or(u32::MAX)),
         allow_send: argv.iter().any(|a| a == "--allow-send"),
+        a11y_dump: argv.iter().any(|a| a == "--a11y-dump"),
     }
 }
 
@@ -406,11 +410,15 @@ fn main() {
     let mut last_mtime = std::fs::metadata(SCENE_PATH)
         .ok()
         .and_then(|m| m.modified().ok());
+    // GY-ZCODE-008: a11y geometry is read ONCE from the startup frame
+    // (fixed 400x320 layout — see goya_zcode::a11y module docs); only
+    // content (labels, live text, focus) changes per republish.
+    let mut a11y = goya_zcode::a11y::MonitorA11y::new(&layout(store.get(), 400.0, 320.0));
 
     match args.mode {
         Mode::Headless => headless_acceptance(&store),
-        Mode::Dump => run_dump(&args, &mut store, &mut last_mtime),
-        Mode::Live => run_live(&args, &mut store, &mut last_mtime),
+        Mode::Dump => run_dump(&args, &mut store, &mut last_mtime, &mut a11y),
+        Mode::Live => run_live(&args, &mut store, &mut last_mtime, &mut a11y),
     }
 }
 
@@ -842,7 +850,12 @@ fn watch_swap(store: &mut SceneStore, last_mtime: &mut Option<SystemTime>) {
     }
 }
 
-fn run_dump(args: &Args, store: &mut SceneStore, last_mtime: &mut Option<SystemTime>) {
+fn run_dump(
+    args: &Args,
+    store: &mut SceneStore,
+    last_mtime: &mut Option<SystemTime>,
+    a11y: &mut goya_zcode::a11y::MonitorA11y,
+) {
     println!(
         "zcode-monitor: dumping projection (cli={}, workspace={})",
         args.cli,

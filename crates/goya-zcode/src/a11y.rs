@@ -214,26 +214,30 @@ pub fn build_dig(view: &SessionView, composer: &Composer, rects: &MonitorSceneRe
     dig
 }
 
-/// Project [`build_dig`] into an AT tree, attaching the composer's
-/// live text (only when non-empty — an empty field announces the
-/// placeholder, per the wave-7 resolved-name fallback).
+/// Project [`build_dig`] into the structural AT tree (live text is
+/// patched onto the node snapshot by [`MonitorA11y::republish`]; see
+/// its type docs for the upstream mutator gap).
 pub fn build_tree(view: &SessionView, composer: &Composer, rects: &MonitorSceneRects) -> A11yTree {
-    let dig = build_dig(view, composer, rects);
-    let mut tree = A11yTree::from_dig(&dig);
-    if !composer.text().is_empty() {
-        if let Some(node) = tree.get_mut(COMPOSER_ID) {
-            node.live_text = Some(composer.text().to_owned());
-        }
-    }
-    tree
+    A11yTree::from_dig(&build_dig(view, composer, rects))
 }
 
 /// Republish owner: holds the startup geometry, the latest tree and a
 /// publish counter (acceptance asserts one publish per dirty flag).
+///
+/// Upstream gap (documented, GY-ZCODE-008): `A11yTree` exposes no public
+/// per-node mutator — its node map is private, so `live_text` can only
+/// be set from inside goya-a11y today. goya-zcode therefore publishes
+/// the structural tree with `A11yTree::from_dig` AND keeps the
+/// AT-facing node snapshot ([`MonitorA11y::nodes`]) where the composer's
+/// live text is patched through `A11yNode`'s public fields
+/// (`A11yNode::with_live_text`). The dump and the headless acceptance
+/// read the node snapshot; if goya-a11y later grows a public
+/// `get_mut`/with-node update API, the patch step collapses into it.
 #[derive(Debug, Clone)]
 pub struct MonitorA11y {
     rects: MonitorSceneRects,
     tree: A11yTree,
+    nodes: Vec<A11yNode>,
     publishes: u64,
 }
 
@@ -243,21 +247,46 @@ impl MonitorA11y {
         MonitorA11y {
             rects: scene_rects(frame),
             tree: A11yTree::default(),
+            nodes: Vec::new(),
             publishes: 0,
         }
     }
 
-    /// Rebuild + republish the tree. Called by the host ONLY on the
-    /// dirty flag (view or composer change), never per frame.
-    pub fn republish(&mut self, view: &SessionView, composer: &Composer) -> &A11yTree {
-        self.tree = build_tree(view, composer, &self.rects);
+    /// Rebuild + republish. Called by the host ONLY on the dirty flag
+    /// (view or composer change), never per frame.
+    pub fn republish(&mut self, view: &SessionView, composer: &Composer) {
+        self.tree = A11yTree::from_dig(&build_dig(view, composer, &self.rects));
+        let live = (!composer.text().is_empty()).then(|| composer.text().to_owned());
+        self.nodes = self
+            .tree
+            .iter()
+            .map(|node| {
+                if node.id == COMPOSER_ID {
+                    node.clone().with_live_text(live.clone().unwrap_or_default())
+                } else {
+                    node.clone()
+                }
+            })
+            .collect();
+        // An empty live_text override announces the placeholder, matching
+        // the resolved-name fallback; normalize to None for clarity.
+        if live.is_none() {
+            if let Some(comp) = self.nodes.iter_mut().find(|n| n.id == COMPOSER_ID) {
+                comp.live_text = None;
+            }
+        }
         self.publishes += 1;
+    }
+
+    /// Latest published structural tree (no live text; see type docs).
+    pub fn tree(&self) -> &A11yTree {
         &self.tree
     }
 
-    /// Latest published tree.
-    pub fn tree(&self) -> &A11yTree {
-        &self.tree
+    /// Latest published AT-facing node snapshot (composer carries
+    /// `live_text`).
+    pub fn nodes(&self) -> &[A11yNode] {
+        &self.nodes
     }
 
     /// Number of republishes since startup (acceptance counter).
@@ -269,7 +298,7 @@ impl MonitorA11y {
     /// resolved (announced) name, states, actions — id-ordered.
     pub fn dump(&self) -> String {
         let mut out = String::new();
-        for node in self.tree.iter() {
+        for node in &self.nodes {
             out.push_str(&dump_line(node));
             out.push('\n');
         }
@@ -354,20 +383,32 @@ mod tests {
         Frame::default()
     }
 
+    fn fresh(rects: MonitorSceneRects) -> MonitorA11y {
+        MonitorA11y {
+            rects,
+            tree: A11yTree::default(),
+            nodes: Vec::new(),
+            publishes: 0,
+        }
+    }
+
     #[test]
     fn dig_dump_carries_composer_rows_and_quit() {
         let (view, composer) = synthetic_state();
         let rects = stub_rects();
-        let mut a11y = MonitorA11y {
-            rects: rects.clone(),
-            tree: A11yTree::default(),
-            publishes: 0,
+        let mut a11y = fresh(rects.clone());
+        a11y.republish(&view, &composer);
+        let find = |id: &str| {
+            a11y.nodes()
+                .iter()
+                .find(|n| n.id == id)
+                .cloned()
+                .unwrap_or_else(|| panic!("{id} projected"))
         };
-        let tree = a11y.republish(&view, &composer);
 
         // Composer: Textbox with placeholder name, live text override,
         // focused/editable/focusable states, scene hit region.
-        let comp = tree.get(COMPOSER_ID).expect("composer projected");
+        let comp = find(COMPOSER_ID);
         assert_eq!(comp.role, A11yRole::TextInput);
         assert_eq!(comp.accessible_name, "type here…");
         assert_eq!(comp.resolved_name(), "typing", "live text wins");
@@ -379,18 +420,12 @@ mod tests {
         assert_eq!(comp.actions_for_at(), vec!["set_value", "focus"]);
 
         // Rows carry their text; empty tail rows are omitted.
-        assert_eq!(
-            tree.get("row_00").expect("row_00").resolved_name(),
-            "> hello"
-        );
-        assert_eq!(
-            tree.get("row_01").expect("row_01").resolved_name(),
-            "final answer"
-        );
-        assert!(tree.get("row_02").is_none(), "empty rows are skipped");
+        assert_eq!(find("row_00").resolved_name(), "> hello");
+        assert_eq!(find("row_01").resolved_name(), "final answer");
+        assert!(a11y.nodes().iter().all(|n| n.id != "row_02"), "empty rows are skipped");
 
         // Quit: pressable button with its hit region.
-        let quit = tree.get(QUIT_ID).expect("quit projected");
+        let quit = find(QUIT_ID);
         assert_eq!(quit.role, A11yRole::Button);
         assert!(quit.focusable);
         assert_eq!(quit.actions_for_at(), vec!["press", "keyboard_activate"]);
@@ -399,7 +434,7 @@ mod tests {
         // The dump prints one line per node and mentions the key facts.
         let dump = a11y.dump();
         let lines: Vec<&str> = dump.lines().collect();
-        assert_eq!(lines.len(), tree.len(), "one line per node");
+        assert_eq!(lines.len(), a11y.nodes().len(), "one line per node");
         let comp_line = lines.iter().find(|l| l.starts_with(COMPOSER_ID)).unwrap();
         assert!(comp_line.contains("TextInput") && comp_line.contains("typing"));
         let quit_line = lines.iter().find(|l| l.starts_with(QUIT_ID)).unwrap();
@@ -409,11 +444,7 @@ mod tests {
     #[test]
     fn republish_fires_exactly_once_per_dirty() {
         let (view, composer) = synthetic_state();
-        let mut a11y = MonitorA11y {
-            rects: stub_rects(),
-            tree: A11yTree::default(),
-            publishes: 0,
-        };
+        let mut a11y = fresh(stub_rects());
         assert_eq!(a11y.publishes(), 0);
         a11y.republish(&view, &composer);
         assert_eq!(a11y.publishes(), 1, "one dirty → one republish");
@@ -423,8 +454,12 @@ mod tests {
         // live_text falls back to the placeholder).
         let mut committed = composer.clone();
         committed.handle_char('\n');
-        let tree = a11y.republish(&view, &committed);
-        let comp = tree.get(COMPOSER_ID).expect("composer present");
+        a11y.republish(&view, &committed);
+        let comp = a11y
+            .nodes()
+            .iter()
+            .find(|n| n.id == COMPOSER_ID)
+            .expect("composer present");
         assert_eq!(comp.live_text, None, "empty text → placeholder name");
         assert_eq!(comp.resolved_name(), "type here…");
         assert_eq!(a11y.publishes(), 3);
@@ -439,10 +474,14 @@ mod tests {
         assert_eq!(rects.composer, A11yRect::default());
         let mut a11y = MonitorA11y::new(&empty_frame());
         let (view, composer) = synthetic_state();
-        let tree = a11y.republish(&view, &composer);
+        a11y.republish(&view, &composer);
         // Degraded geometry still projects content with the scene-name
         // placeholder fallback for the composer label slot.
-        let comp = tree.get(COMPOSER_ID).expect("composer present");
+        let comp = a11y
+            .nodes()
+            .iter()
+            .find(|n| n.id == COMPOSER_ID)
+            .expect("composer present");
         assert_eq!(comp.resolved_name(), "typing");
         assert_eq!(a11y.publishes(), 1);
     }

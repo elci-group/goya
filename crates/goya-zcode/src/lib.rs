@@ -62,7 +62,17 @@
 //!   (`take_composer_restore` — the composer instance lives in the host
 //!   binary, which applies `Composer::restore`); unknown sessions keep
 //!   the default empty transcript via `reset_transcript` semantics.
+//! - Wave 8 (GY-ZCODE-008): live a11y snapshot. [`a11y`] builds the
+//!   monitor DIG from the live view + composer over scene geometry
+//!   captured once at startup (fixed 400x320 layout), republishes the
+//!   `A11yTree` only when the dirty flag fires (never per frame —
+//!   goya-a11y's incremental `run_with_updates` is GTK-only, so the
+//!   headless path is full-tree publish), and the bin's `--a11y-dump`
+//!   flag prints a compact one-line-per-node dump per republish
+//!   (headless-verifiable; real screen-reader bridging is upstream
+//!   goya-a11y AT-SPI territory).
 
+pub mod a11y;
 pub mod agent;
 pub mod clipboard;
 pub mod composer;
