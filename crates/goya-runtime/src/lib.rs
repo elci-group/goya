@@ -152,6 +152,31 @@ fn finite_or_zero(value: f64) -> f64 {
     }
 }
 
+fn adjust_deleted_position(
+    position: usize,
+    after_start: usize,
+    after_end: usize,
+    after_removed: usize,
+    before_start: usize,
+    before_end: usize,
+    before_removed: usize,
+) -> usize {
+    let after_adjusted = if position <= after_start {
+        position
+    } else if position < after_end {
+        after_start
+    } else {
+        position - after_removed
+    };
+    if after_adjusted <= before_start {
+        after_adjusted
+    } else if after_adjusted < before_end {
+        before_start
+    } else {
+        after_adjusted - before_removed
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct TextSnapshot {
     text: String,
