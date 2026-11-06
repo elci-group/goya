@@ -4436,7 +4436,10 @@ mod fill_tests {
 mod fgs_tests {
     //! GY-ZCODE-009: per-primitive text (fg) colour overrides, mirroring the
     //! wave-2 `fill_tests` structure exactly.
-    use super::{argb, raster_parallel_tiles, raster_primitives, raster_serial, resolve_color, RasterConfig, CsrPolicy, MP_PER_PX, PixelClip};
+    use super::{
+        argb, raster_parallel_tiles, raster_primitives, raster_serial, resolve_color, CsrPolicy,
+        PixelClip, RasterConfig, MP_PER_PX,
+    };
     use goya_layout::Rect;
 
     #[test]
@@ -4499,7 +4502,8 @@ mod fgs_tests {
         // Overriding with the flat colour itself is pixel-identical: proves
         // fgs replaces (not blends with) the glyph colour.
         assert_eq!(
-            overridden_blue, overridden_flat_blue_snapshot(),
+            overridden_blue,
+            overridden_flat_blue_snapshot(),
             "override must be a full replacement of the glyph colour"
         );
         // Wrong index: the override sits at index 1 but the scene has one
@@ -4543,7 +4547,10 @@ mod fgs_tests {
             width: 180 * MP_PER_PX,
             height: 120 * MP_PER_PX,
         };
-        let primitives = vec![goya_runtime::Primitive::Text(rect, "fgs parity".to_string())];
+        let primitives = vec![goya_runtime::Primitive::Text(
+            rect,
+            "fgs parity".to_string(),
+        )];
         let fgs = [Some(0x00FF7F)];
         let background = argb([4, 8, 12]);
         let mut serial = vec![background; (width * height) as usize];

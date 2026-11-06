@@ -542,6 +542,7 @@ fn main() {
             let _ = win.present_dirty(
                 &prims,
                 &fills,
+                &[],
                 [235, 235, 240],
                 [20, 20, 28],
                 fidelity.glyph_px.max(2),
