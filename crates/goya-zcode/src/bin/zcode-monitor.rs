@@ -222,7 +222,8 @@ fn handle_session_switch(
 ) -> bool {
     composer.focused = false;
     let target = handle.view.lock().ok().and_then(|mut view| {
-        view.cycle_selection(delta).map(|entry| entry.session_id.clone())
+        view.cycle_selection(delta)
+            .map(|entry| entry.session_id.clone())
     });
     match target {
         Some(session_id) => {
@@ -697,13 +698,35 @@ fn headless_acceptance(store: &SceneStore) {
             status: "idle".into(),
         })
         .collect();
-    let fwd_ok = sv.cycle_selection(1).map(|e| e.session_id.clone()).as_deref() == Some("sess_1")
-        && sv.cycle_selection(1).map(|e| e.session_id.clone()).as_deref() == Some("sess_2")
-        && sv.cycle_selection(1).map(|e| e.session_id.clone()).as_deref() == Some("sess_0")
-        && sv.cycle_selection(-1).map(|e| e.session_id.clone()).as_deref() == Some("sess_2")
-        && sv.cycle_selection(-1).map(|e| e.session_id.clone()).as_deref() == Some("sess_1");
+    let fwd_ok = sv
+        .cycle_selection(1)
+        .map(|e| e.session_id.clone())
+        .as_deref()
+        == Some("sess_1")
+        && sv
+            .cycle_selection(1)
+            .map(|e| e.session_id.clone())
+            .as_deref()
+            == Some("sess_2")
+        && sv
+            .cycle_selection(1)
+            .map(|e| e.session_id.clone())
+            .as_deref()
+            == Some("sess_0")
+        && sv
+            .cycle_selection(-1)
+            .map(|e| e.session_id.clone())
+            .as_deref()
+            == Some("sess_2")
+        && sv
+            .cycle_selection(-1)
+            .map(|e| e.session_id.clone())
+            .as_deref()
+            == Some("sess_1");
     sv.push_line("old transcript");
-    sv.apply(&ProjEvent::PartDelta { delta: "stream".into() });
+    sv.apply(&ProjEvent::PartDelta {
+        delta: "stream".into(),
+    });
     sv.reset_transcript();
     let reset_ok = sv.tail.is_empty()
         && sv.history.is_empty()
@@ -916,37 +939,37 @@ fn run_live(args: &Args, store: &mut SceneStore, last_mtime: &mut Option<SystemT
                         sync_text_input(&mut win, &composer, store.get());
                     }
                     match shortcut {
-                    Shortcut::Copy => {
-                        let last = handle.view.lock().ok().and_then(|view| {
-                            view.rows().into_iter().rev().find(|row| !row.is_empty())
-                        });
-                        let copied = last
-                            .map(|row| clipboard.copy_line(PrincipalId(1), &row))
-                            .unwrap_or(false);
-                        if let Ok(mut view) = handle.view.lock() {
-                            view.status = if copied {
-                                "copied".to_string()
-                            } else {
-                                "copy failed".to_string()
-                            };
+                        Shortcut::Copy => {
+                            let last = handle.view.lock().ok().and_then(|view| {
+                                view.rows().into_iter().rev().find(|row| !row.is_empty())
+                            });
+                            let copied = last
+                                .map(|row| clipboard.copy_line(PrincipalId(1), &row))
+                                .unwrap_or(false);
+                            if let Ok(mut view) = handle.view.lock() {
+                                view.status = if copied {
+                                    "copied".to_string()
+                                } else {
+                                    "copy failed".to_string()
+                                };
+                            }
+                            dirty = true;
                         }
-                        dirty = true;
-                    }
-                    Shortcut::Paste => {
-                        if let Some(text) = clipboard.paste_text() {
-                            for ch in text.chars() {
-                                if composer.handle_char(ch).is_some() {
-                                    break;
+                        Shortcut::Paste => {
+                            if let Some(text) = clipboard.paste_text() {
+                                for ch in text.chars() {
+                                    if composer.handle_char(ch).is_some() {
+                                        break;
+                                    }
                                 }
                             }
+                            sync_text_input(&mut win, &composer, store.get());
+                            dirty = true;
                         }
-                        sync_text_input(&mut win, &composer, store.get());
-                        dirty = true;
-                    }
-                    Shortcut::Quit => {
-                        handle.stop.store(true, Ordering::Relaxed);
-                        dirty = true;
-                    }
+                        Shortcut::Quit => {
+                            handle.stop.store(true, Ordering::Relaxed);
+                            dirty = true;
+                        }
                     }
                 }
                 _ => {}
@@ -1104,7 +1127,6 @@ mod input_event_tests {
         assert!(!handle_session_switch(&handle, &mut composer, 1));
         assert!(handle.try_take_cmd().is_none());
     }
-}
 
     #[test]
     fn unfocused_composer_ignores_unicode_and_ime_batches() {
