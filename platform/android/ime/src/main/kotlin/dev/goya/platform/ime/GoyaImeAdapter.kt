@@ -7,6 +7,8 @@ data class EditorSnapshot(
     val text: String,
     val anchorUtf8: Int,
     val cursorUtf8: Int,
+    val composingStartUtf8: Int = -1,
+    val composingEndUtf8: Int = -1,
 )
 
 /** Preedit cursor offsets and delete lengths use UTF-8 bytes, matching GY-RUNTIME/1. */

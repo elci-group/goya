@@ -130,12 +130,19 @@ class GoyaInputConnection(
         val snapshot = bridge.editorSnapshot() ?: return
         val anchor = utf16OffsetAtByte(snapshot.text, snapshot.anchorUtf8)
         val cursor = utf16OffsetAtByte(snapshot.text, snapshot.cursorUtf8)
+        val composingStart = if (snapshot.composingStartUtf8 >= 0) {
+            utf16OffsetAtByte(snapshot.text, snapshot.composingStartUtf8)
+        } else {
+            -1
+        }
+        val composingEnd = if (snapshot.composingEndUtf8 >= 0) {
+            utf16OffsetAtByte(snapshot.text, snapshot.composingEndUtf8)
+        } else {
+            -1
+        }
         val manager = targetView.context
             .getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
-        // EditorSnapshot currently exposes selection but not a composition
-        // range. The host must publish composition geometry through cursor
-        // anchor updates; -1 reports no composing span here.
-        manager?.updateSelection(targetView, anchor, cursor, -1, -1)
+        manager?.updateSelection(targetView, anchor, cursor, composingStart, composingEnd)
     }
 
     companion object {
