@@ -427,6 +427,8 @@ pub enum Event {
         anchor_byte: usize,
         cursor_byte: usize,
     },
+    /// Finalize any active IME preedit as committed text.
+    FinishComposition,
     TextBackspace,
     TextDelete,
     TextMoveLeft {
@@ -682,6 +684,22 @@ impl Runtime {
                     }
                 }
             }
+            Event::FinishComposition => self.edit_focused(|state| {
+                if let Some((text, cursor_begin, _)) = state.preedit.take() {
+                    let insertion_start = state
+                        .buffer
+                        .selection_bytes()
+                        .map_or(state.buffer.cursor_byte(), |range| range.start);
+                    state.buffer.insert(&text);
+                    let preedit_cursor = if cursor_begin >= 0 {
+                        grapheme_boundary_at_or_before(&text, cursor_begin as usize)
+                    } else {
+                        0
+                    };
+                    let cursor = insertion_start + preedit_cursor;
+                    state.buffer.set_selection(cursor, cursor);
+                }
+            }),
             Event::TextBackspace => self.edit_focused(|state| state.buffer.delete_backward()),
             Event::TextDelete => self.edit_focused(|state| state.buffer.delete_forward()),
             Event::TextMoveLeft { extend } => {
@@ -878,7 +896,11 @@ impl Runtime {
                             caret_byte_offset = Some(0);
                         }
                     } else {
-                        value.push_str(&text[..cursor]);
+                        let replacement = state
+                            .buffer
+                            .selection_bytes()
+                            .unwrap_or(cursor..cursor);
+                        value.push_str(&text[..replacement.start]);
                         if let Some((preedit, cursor_begin, _)) = &state.preedit {
                             let base = value.len();
                             value.push_str(preedit);
@@ -908,7 +930,7 @@ impl Runtime {
                             selection_byte_range =
                                 state.buffer.selection_bytes().map(|r| (r.start, r.end));
                         }
-                        value.push_str(&text[cursor..]);
+                        value.push_str(&text[replacement.end..]);
                     }
                     let primitive_index = out.len();
                     out.push(Primitive::Text(rect, value));
@@ -1086,6 +1108,43 @@ mod tests {
             cursor_byte: 0,
         }));
         assert_eq!(rt.input_cursor_byte(NodeId(2)), Some(12));
+    }
+
+    #[test]
+    fn ime_composition_replaces_selection_and_finish_commits_at_composing_cursor() {
+        let module = parse("input 1 Search\nroot 1").unwrap();
+        let mut rt = Runtime::new(
+            module,
+            Store::new(),
+            Constraints {
+                max_width: 400_000,
+                max_height: 300_000,
+            },
+        );
+        assert!(rt.focus_input(Some(NodeId(1))));
+        assert!(rt.handle(Event::SetInputValue(NodeId(1), "abc".into())));
+        assert!(rt.handle(Event::SetInputSelection {
+            node: NodeId(1),
+            anchor_byte: 1,
+            cursor_byte: 2,
+        }));
+        assert!(rt.handle(Event::ImeBatch {
+            preedit: Some(("かな".into(), 3, 6)),
+            commit: None,
+            delete: None,
+        }));
+        assert!(matches!(
+            rt.render_list().last(),
+            Some(Primitive::Text(_, value)) if value == "aかなc"
+        ));
+
+        assert!(rt.handle(Event::FinishComposition));
+        assert_eq!(rt.input_text(NodeId(1)), Some("aかなc"));
+        assert_eq!(rt.input_cursor_byte(NodeId(1)), Some(4));
+        assert!(matches!(
+            rt.render_list().last(),
+            Some(Primitive::Text(_, value)) if value == "aかなc"
+        ));
     }
 
     #[test]
