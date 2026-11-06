@@ -557,6 +557,14 @@ fn input_cursor_rect(node: &DrawNode, buffer: &TextBuffer) -> (i32, i32, i32, i3
     (x.round() as i32, y.round() as i32, 1, h as i32)
 }
 
+fn floor_char_boundary(text: &str, offset: usize) -> usize {
+    let mut offset = offset.min(text.len());
+    while !text.is_char_boundary(offset) {
+        offset -= 1;
+    }
+    offset
+}
+
 /// Convert a scene draw node into the renderer's primitive vocabulary.
 fn present_node(n: &DrawNode) -> Primitive {
     let rect = goya_layout::Rect {
@@ -638,7 +646,7 @@ mod input_tests {
 
         input.preedit = Some(("かな".into(), 3, 6));
         let mut nodes = frame.nodes.clone();
-        input.apply_to_nodes(&mut nodes);
+        let overlays = input.apply_to_nodes(&mut nodes);
         assert_eq!(
             nodes
                 .iter()
@@ -646,7 +654,35 @@ mod input_tests {
                 .unwrap()
                 .text
                 .as_deref(),
-            Some("éか│な日")
+            Some("éかな日")
         );
+        assert_eq!(overlays.len(), 1);
+        assert_eq!(overlays[0].caret_byte_offset, Some("éか".len()));
+        assert_eq!(overlays[0].selection_byte_range, Some(("éか".len(), "éかな".len())));+    }
+
+    #[test]
+    fn scene_input_overlays_follow_text_buffer_selection_and_focus() {
+        let scene = goya_lang::parse(
+            "@ontology demo { @input name { extent: (200, 40, 0) text: \"Search\" } }",
+        )
+        .unwrap();
+        let frame = layout(&scene, 300.0, 100.0);
+        let mut input = SceneInputs::default();
+        input.sync_nodes(&frame);
+        input.focus(Some("name".into()));
+        let buffer = input.buffers.get_mut("name").unwrap();
+        buffer.insert("é🙂");
+        buffer.select_all();
+
+        let mut nodes = frame.scrolled_nodes(&ScrollOffsets::default());
+        let overlays = input.apply_to_nodes(&mut nodes);
+        assert_eq!(overlays.len(), 1);
+        assert_eq!(overlays[0].caret_byte_offset, Some("é🙂".len()));
+        assert_eq!(overlays[0].selection_byte_range, Some((0, "é🙂".len())));
+        assert_eq!(nodes.iter().find(|node| node.name == "name").unwrap().text.as_deref(), Some("é🙂"));
+
+        input.focus(None);
+        let overlays = input.apply_to_nodes(&mut nodes);
+        assert!(overlays.is_empty());
     }
 }
