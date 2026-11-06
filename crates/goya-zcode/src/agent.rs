@@ -549,12 +549,17 @@ impl AgentRun {
     /// ChildStdin`. The loop blocks on the response (up to
     /// `REQUEST_TIMEOUT`), never on the command channel itself.
     fn handle_cmd(&self, stdin: &mut ChildStdin, session_id: &str, cmd: AgentCmd) {
+        // SwitchSession never reaches here: the run loop drains it before
+        // delegating (it tears the connection down instead).
         let AgentCmd::SendText {
             line,
             wire,
             session_id: queued_session_id,
             ticket,
-        } = cmd;
+        } = cmd
+        else {
+            return;
+        };
         if queued_session_id != session_id {
             if let Some(ticket) = ticket {
                 if let Ok(mut lifecycle) = self.send_lifecycle.lock() {

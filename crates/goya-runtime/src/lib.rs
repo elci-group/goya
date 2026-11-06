@@ -671,12 +671,6 @@ pub enum Event {
     TextSelectAll,
     TextUndo,
     TextRedo,
-    /// A compositor text-input-v3 batch, delivered after its `done` event.
-    ImeBatch {
-        preedit: Option<(String, i32, i32)>,
-        commit: Option<String>,
-        delete: Option<(u32, u32)>,
-    },
     /// Termination requested by the platform (window close, signal).
     Quit,
 }
@@ -1109,11 +1103,6 @@ impl Runtime {
             }
             Event::TextUndo => self.edit_focused_finishing_composition(|state| state.buffer.undo()),
             Event::TextRedo => self.edit_focused_finishing_composition(|state| state.buffer.redo()),
-            Event::ImeBatch {
-                preedit,
-                commit,
-                delete,
-            } => self.apply_ime_batch(preedit, commit, delete),
             Event::Activate(action) => {
                 self.dispatch(action);
                 if let Some(now_ns) = now_ns {
@@ -1190,40 +1179,6 @@ impl Runtime {
         self.edit_focused(|state| {
             finish_composition(state);
             edit(state);
-        });
-    }
-
-    fn apply_ime_batch(
-        &mut self,
-        preedit: Option<(String, i32, i32)>,
-        commit: Option<String>,
-        delete: Option<(u32, u32)>,
-    ) {
-        self.edit_focused(|state| {
-            if delete.is_some() {
-                finish_composition(state);
-            }
-            if let Some((before, after)) = delete {
-                state.buffer.delete_surrounding(before, after);
-            }
-            if let Some(text) = commit {
-                let range = state
-                    .composition_region
-                    .take()
-                    .or_else(|| state.buffer.selection_bytes())
-                    .unwrap_or_else(|| state.buffer.cursor_byte()..state.buffer.cursor_byte());
-                state.buffer.replace_range(range, &text);
-                state.preedit = None;
-            }
-            if let Some(value) = preedit {
-                if state.composition_region.is_none() {
-                    state.composition_region =
-                        Some(state.buffer.selection_bytes().unwrap_or_else(|| {
-                            state.buffer.cursor_byte()..state.buffer.cursor_byte()
-                        }));
-                }
-                state.preedit = (!value.0.is_empty()).then_some(value);
-            }
         });
     }
 
@@ -1467,35 +1422,13 @@ mod tests {
         assert_eq!(rt.input_anchor_byte(NodeId(2)), Some("e\u{301}".len()));
         assert!(rt.handle(Event::TextBackspace));
         assert_eq!(rt.input_text(NodeId(2)), Some(""));
-        assert!(rt.handle(Event::ImeBatch {
-            preedit: Some(("に".into(), 0, 3)),
-            commit: None,
-            delete: None,
-        }));
-        assert_eq!(rt.input_text(NodeId(2)), Some(""));
-        assert!(rt.handle(Event::ImeBatch {
-            preedit: None,
-            commit: Some("日".into()),
-            delete: None,
-        }));
+        // GY-ZCODE-006: the divergent `Event::ImeBatch` variant was removed —
+        // IME text reaches the buffer through explicit commit/edit events, so
+        // this regression now covers the shared keyboard edit path only.
+        assert!(rt.handle(Event::Character('日')));
         assert_eq!(rt.input_text(NodeId(2)), Some("日"));
         assert!(rt.handle(Event::TextMoveHome { extend: false }));
-        assert!(rt.handle(Event::ImeBatch {
-            preedit: Some(("に".into(), 0, 0)),
-            commit: None,
-            delete: None,
-        }));
-        assert_eq!(rt.input_text(NodeId(2)), Some("日"));
-        assert!(matches!(
-            rt.render_list().last(),
-            Some(Primitive::Text(_, value)) if value == "に日"
-        ));
-        assert!(rt.handle(Event::ImeBatch {
-            preedit: None,
-            commit: Some("日本".into()),
-            delete: None,
-        }));
-        assert_eq!(rt.input_text(NodeId(2)), Some("日本日"));
+        assert_eq!(rt.input_cursor_byte(NodeId(2)), Some(0));
         assert!(rt.handle(Event::SetInputValue(NodeId(2), "screen reader".into())));
         assert_eq!(rt.input_text(NodeId(2)), Some("screen reader"));
         assert_eq!(rt.input_cursor_byte(NodeId(2)), Some("screen reader".len()));
@@ -1532,43 +1465,6 @@ mod tests {
             cursor_byte: 0,
         }));
         assert_eq!(rt.input_cursor_byte(NodeId(2)), Some(12));
-    }
-
-    #[test]
-    fn ime_composition_replaces_selection_and_finish_commits_at_composing_cursor() {
-        let module = parse("input 1 Search\nroot 1").unwrap();
-        let mut rt = Runtime::new(
-            module,
-            Store::new(),
-            Constraints {
-                max_width: 400_000,
-                max_height: 300_000,
-            },
-        );
-        assert!(rt.focus_input(Some(NodeId(1))));
-        assert!(rt.handle(Event::SetInputValue(NodeId(1), "abc".into())));
-        assert!(rt.handle(Event::SetInputSelection {
-            node: NodeId(1),
-            anchor_byte: 1,
-            cursor_byte: 2,
-        }));
-        assert!(rt.handle(Event::ImeBatch {
-            preedit: Some(("かな".into(), 3, 6)),
-            commit: None,
-            delete: None,
-        }));
-        assert!(matches!(
-            rt.render_list().last(),
-            Some(Primitive::Text(_, value)) if value == "aかなc"
-        ));
-
-        assert!(rt.handle(Event::FinishComposition));
-        assert_eq!(rt.input_text(NodeId(1)), Some("aかなc"));
-        assert_eq!(rt.input_cursor_byte(NodeId(1)), Some(4));
-        assert!(matches!(
-            rt.render_list().last(),
-            Some(Primitive::Text(_, value)) if value == "aかなc"
-        ));
     }
 
     #[test]
