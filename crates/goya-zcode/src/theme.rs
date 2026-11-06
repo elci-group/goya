@@ -201,7 +201,7 @@ where
         // Text colour: name-level mapping first, then the text-level row
         // rules; buttons keep their fill semantics and never recolour.
         let fg = node_fg_override(name, status_text, palette)
-            .or_else(|| text.and_then(row_fg_override));
+            .or_else(|| text.and_then(|t| row_fg_override(t, palette)));
         fills.push(fill);
         fgs.push(fg);
     }

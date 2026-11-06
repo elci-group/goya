@@ -71,6 +71,20 @@
 //!   flag prints a compact one-line-per-node dump per republish
 //!   (headless-verifiable; real screen-reader bridging is upstream
 //!   goya-a11y AT-SPI territory).
+//! - Wave 9 (GY-ZCODE-009): system-clipboard-backed ring + per-node text
+//!   colours. [`clipboard`] grows the pure adapter decisions —
+//!   `plan_copy` (last non-empty row, ring + compositor-selection targets)
+//!   and `resolve_paste` (system payload wins, every
+//!   `ClipboardText(None)` falls back to the ring; the None-ambiguity —
+//!   absent data-device vs empty selection — is documented there, upstream
+//!   collapses all cases into `None`). The bin wires Ctrl+C to
+//!   `set_clipboard_text` + ring record and Ctrl+V to
+//!   `request_clipboard_text` with cursor insertion on the event.
+//!   [`theme`] adds the fg counterparts of the fill mappings:
+//!   `node_fg_override` (status ok/err/accent), `row_fg_override` (tool
+//!   ✓ ok / ✗ err, `■` headings accent, everything else flat) and
+//!   `override_slices`, which builds the per-primitive `fills` and `fgs`
+//!   slices in one pass for the render path.
 
 pub mod a11y;
 pub mod agent;

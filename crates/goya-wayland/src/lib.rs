@@ -53,6 +53,19 @@
 //! territory. goya-clipboard's in-memory ring (goya-zcode) can later be
 //! backed by these host calls — that wiring belongs to goya-zcode, not
 //! this crate.
+//!
+//! ## Per-node text colours (GY-ZCODE-009)
+//!
+//! [`GoyaWindow::present`] and [`GoyaWindow::present_dirty`] take a
+//! `fgs: &[Option<u32>]` slice indexed by primitive order, mirroring the
+//! wave-2 `fills` contract: `Some(0xRRGGBB)` replaces the glyph colour of
+//! the primitive at that index; `None`, a short slice, or an empty slice
+//! falls back to the flat `fg` argument. Only glyph colours are affected —
+//! Panel and Button rectangle fills remain owned by `fills`, though a
+//! Button's *label* (being text) honours an `fgs` override by design.
+//! With an empty slice both raster paths (serial and parallel tiles) stay
+//! byte-identical to the pre-wave-9 output; text scenes still rasterise
+//! serially, so parallel/serial parity is asserted with `fgs` present.
 
 use cosmic_text::{Attrs, Buffer, Color, FontSystem, Metrics, Shaping, SwashCache, Wrap};
 use goya_csr::{self, Policy as CsrPolicy};
@@ -3467,6 +3480,7 @@ mod raster_tests {
             &primitives,
             RasterConfig {
                 fills: &[],
+                fgs: &[],
                 fg: [255, 255, 255],
                 glyph_px: 1,
                 clips: None,
@@ -3492,6 +3506,7 @@ mod raster_tests {
             height,
             &primitives,
             &[],
+            &[],
             [255, 255, 255],
             1,
             roi,
@@ -3506,6 +3521,7 @@ mod raster_tests {
             width,
             height,
             &primitives,
+            &[],
             &[],
             [255; 3],
             1,
@@ -3562,6 +3578,7 @@ mod raster_tests {
                 &primitives,
                 RasterConfig {
                     fills: &[],
+                    fgs: &[],
                     fg: [255; 3],
                     glyph_px: 2,
                     clips: None,
@@ -3579,6 +3596,7 @@ mod raster_tests {
                 width,
                 height,
                 &primitives,
+                &[],
                 &[],
                 [255; 3],
                 2,
@@ -4367,6 +4385,7 @@ mod fill_tests {
             &primitives,
             RasterConfig {
                 fills: &[],
+                fgs: &[],
                 fg: [255; 3],
                 glyph_px: 1,
                 clips: None,
@@ -4383,6 +4402,7 @@ mod fill_tests {
             &primitives,
             RasterConfig {
                 fills: &[Some(0x1A2A3B)],
+                fgs: &[],
                 fg: [255; 3],
                 glyph_px: 1,
                 clips: None,
@@ -4400,6 +4420,7 @@ mod fill_tests {
             &primitives,
             RasterConfig {
                 fills: &[None, Some(0x1A2A3B)],
+                fgs: &[],
                 fg: [255; 3],
                 glyph_px: 1,
                 clips: None,
@@ -4408,6 +4429,184 @@ mod fill_tests {
             },
         );
         assert_eq!(buf[probe], default);
+    }
+}
+
+#[cfg(test)]
+mod fgs_tests {
+    //! GY-ZCODE-009: per-primitive text (fg) colour overrides, mirroring the
+    //! wave-2 `fill_tests` structure exactly.
+    use super::{argb, raster_parallel_tiles, raster_primitives, raster_serial, resolve_color, RasterConfig, CsrPolicy, MP_PER_PX, PixelClip};
+    use goya_layout::Rect;
+
+    #[test]
+    fn resolve_color_overrides_falls_back_and_ignores_wrong_index() {
+        let fgs = [Some(0x22AA88), None];
+        assert_eq!(resolve_color(&fgs, 0, [255, 255, 255]), [0x22, 0xAA, 0x88]);
+        assert_eq!(resolve_color(&fgs, 1, [255, 255, 255]), [255, 255, 255]);
+        // Short slice / empty slice fall back (caller may pass &[]).
+        assert_eq!(resolve_color(&[], 0, [10, 20, 30]), [10, 20, 30]);
+        assert_eq!(resolve_color(&fgs, 5, [7, 8, 9]), [7, 8, 9]);
+    }
+
+    fn text_scene() -> (i32, i32, Vec<goya_runtime::Primitive>, usize) {
+        let (width, height) = (64, 32);
+        let rect = Rect {
+            x: 0,
+            y: 0,
+            width: 40 * MP_PER_PX,
+            height: 20 * MP_PER_PX,
+        };
+        let primitives = vec![goya_runtime::Primitive::Text(rect, "xyz".to_string())];
+        (width, height, primitives, (width * height) as usize)
+    }
+
+    fn render_with_fgs(fgs: &[Option<u32>]) -> Vec<u32> {
+        let (width, height, primitives, len) = text_scene();
+        let mut buf = vec![0u32; len];
+        raster_serial(
+            &mut buf,
+            width,
+            height,
+            &primitives,
+            RasterConfig {
+                fills: &[],
+                fgs,
+                fg: [255; 3],
+                glyph_px: 1,
+                clips: None,
+                text_sizes_pt: None,
+                clip: None,
+            },
+        );
+        buf
+    }
+
+    #[test]
+    fn text_glyph_colour_reaches_rasterized_buffer() {
+        // Baseline: no fgs entry — glyphs drawn in the flat fg.
+        let flat = render_with_fgs(&[]);
+        let overridden_flat = render_with_fgs(&[Some(0x123456)]);
+        let overridden_blue = render_with_fgs(&[Some(0x0000FF)]);
+        let none_entry = render_with_fgs(&[None]);
+        // Short slice falls back: identical to the flat-fg render.
+        let short = render_with_fgs(&[None, Some(0x123456)]);
+        assert_eq!(flat, none_entry, "fgs[0]=None must keep the flat fg");
+        assert_eq!(flat, short, "short fgs slice must keep the flat fg");
+        // Overridden buffers must actually differ from the flat render
+        // (glyph pixels exist, so colour change is observable).
+        assert_ne!(flat, overridden_blue, "fgs[0] must change glyph pixels");
+        // Overriding with the flat colour itself is pixel-identical: proves
+        // fgs replaces (not blends with) the glyph colour.
+        assert_eq!(
+            overridden_blue, overridden_flat_blue_snapshot(),
+            "override must be a full replacement of the glyph colour"
+        );
+        // Wrong index: the override sits at index 1 but the scene has one
+        // primitive, so nothing changes.
+        let wrong_index = render_with_fgs(&[None, Some(0x123456)]);
+        assert_eq!(flat, wrong_index);
+        assert_ne!(flat, overridden_flat);
+    }
+
+    fn overridden_flat_blue_snapshot() -> Vec<u32> {
+        // Rendering with fgs=[Some(0x0000FF)] must be identical to rendering
+        // with flat fg [0, 0, 255] and no override.
+        let (width, height, primitives, len) = text_scene();
+        let mut buf = vec![0u32; len];
+        raster_serial(
+            &mut buf,
+            width,
+            height,
+            &primitives,
+            RasterConfig {
+                fills: &[],
+                fgs: &[],
+                fg: [0, 0, 255],
+                glyph_px: 1,
+                clips: None,
+                text_sizes_pt: None,
+                clip: None,
+            },
+        );
+        buf
+    }
+
+    #[test]
+    fn parallel_tiles_match_serial_with_fgs_present() {
+        // Text scenes stay serial (see raster_primitives), so exercise both
+        // paths through the public dispatcher and direct tile raster.
+        let (width, height) = (192, 128);
+        let rect = Rect {
+            x: 0,
+            y: 0,
+            width: 180 * MP_PER_PX,
+            height: 120 * MP_PER_PX,
+        };
+        let primitives = vec![goya_runtime::Primitive::Text(rect, "fgs parity".to_string())];
+        let fgs = [Some(0x00FF7F)];
+        let background = argb([4, 8, 12]);
+        let mut serial = vec![background; (width * height) as usize];
+        let mut parallel = serial.clone();
+        raster_serial(
+            &mut serial,
+            width,
+            height,
+            &primitives,
+            RasterConfig {
+                fills: &[],
+                fgs: &fgs,
+                fg: [255; 3],
+                glyph_px: 1,
+                clips: None,
+                text_sizes_pt: None,
+                clip: None,
+            },
+        );
+        // Direct parallel-tiles call defers text scenes to serial.
+        let roi = PixelClip {
+            x0: 0,
+            y0: 0,
+            x1: width as usize,
+            y1: height as usize,
+        };
+        let dirty = goya_change::PixelRect {
+            x: 0,
+            y: 0,
+            width,
+            height,
+        };
+        assert!(!raster_parallel_tiles(
+            &mut parallel,
+            width,
+            height,
+            &primitives,
+            &[],
+            &fgs,
+            [255, 255, 255],
+            1,
+            roi,
+            dirty,
+            CsrPolicy::QuadCorner,
+            4,
+        ));
+        // The public dispatcher serialises the text scene, so both buffers
+        // match byte-for-byte with fgs present.
+        raster_primitives(
+            &mut parallel,
+            width,
+            height,
+            &primitives,
+            &[],
+            &fgs,
+            [255, 255, 255],
+            1,
+            None,
+            None,
+            None,
+            true,
+        );
+        assert_eq!(parallel, serial);
     }
 }
 
@@ -4603,6 +4802,7 @@ mod multiline_tests {
             width,
             height,
             &primitives,
+            &[],
             &[],
             [255; 3],
             1,

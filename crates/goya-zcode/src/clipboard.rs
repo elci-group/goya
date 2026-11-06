@@ -30,13 +30,6 @@ use goya_provenance::SourceReference;
 use std::cell::RefCell;
 use std::collections::VecDeque;
 
-use goya_clipboard::{
-    CapabilityPolicy, ClipboardProvider, CopyMode, CopyRequest, MemoryClipboard, PrincipalId,
-};
-use goya_provenance::SourceReference;
-use std::cell::RefCell;
-use std::collections::VecDeque;
-
 /// Ring capacity: the monitor remembers the last 8 copied lines locally.
 pub const RING_CAP: usize = 8;
 
@@ -190,5 +183,58 @@ mod tests {
         assert!(!clip.copy_line(USER, "denied"));
         assert_eq!(clip.paste_text(), None);
         assert!(clip.ring().is_empty());
+    }
+
+    // --- Wave 9 (GY-ZCODE-009): system-clipboard-backed ring ---
+
+    #[test]
+    fn copy_picks_last_non_empty_row_and_targets_both_clipboards() {
+        use super::{plan_copy, CopyTarget};
+        let rows = vec![String::new(), "first".into(), String::new(), "last".into()];
+        assert_eq!(
+            plan_copy(&rows, true),
+            Some(CopyTarget::RingAndSystem("last".into()))
+        );
+        // Offline (no data-device): ring only — the fallback target.
+        assert_eq!(
+            plan_copy(&rows, false),
+            Some(CopyTarget::Ring("last".into()))
+        );
+        assert_eq!(plan_copy(&[String::new()], true), None);
+        assert_eq!(plan_copy(&[], true), None);
+    }
+
+    #[test]
+    fn paste_prefers_system_and_falls_back_to_ring_on_none() {
+        use super::resolve_paste;
+        // Compositor answered: system wins even when the ring is stale.
+        assert_eq!(
+            resolve_paste(Some("from system"), Some("from ring")),
+            Some("from system".into())
+        );
+        // None = no selection / no text mime / empty payload (ambiguous,
+        // see module docs): ring fallback.
+        assert_eq!(resolve_paste(None, Some("from ring")), Some("from ring".into()));
+        assert_eq!(resolve_paste(None, None), None);
+        // An empty system payload is as unusable as None.
+        assert_eq!(resolve_paste(Some(""), Some("from ring")), Some("from ring".into()));
+    }
+
+    #[test]
+    fn copy_plan_round_trips_through_the_ring() {
+        use super::{plan_copy, CopyTarget};
+        let policy = AllowAllPolicy;
+        let clip = MonitorClipboard::new(&policy);
+        let rows = vec!["transcript row".to_string()];
+        // The bin applies exactly this: record on the ring (always) and
+        // push to the compositor (set_clipboard_text, window side effect —
+        // untestable headless, hence the pure plan above).
+        if let Some(CopyTarget::RingAndSystem(line)) = plan_copy(&rows, true) {
+            assert!(clip.copy_line(USER, &line));
+            // set_clipboard_text(&line) would go here in the live path.
+        } else {
+            panic!("copy plan must carry a payload");
+        }
+        assert_eq!(clip.paste_text().as_deref(), Some("transcript row"));
     }
 }

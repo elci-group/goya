@@ -14,19 +14,28 @@
 //!
 //! Wave 4 (GY-ZCODE-004): ctrl+c/ctrl+v/ctrl+q arrive as
 //! `PlatformEvent::Shortcut` — Copy puts the last non-empty transcript row
-//! on the in-process clipboard ring, Paste inserts at the composer cursor,
-//! Quit exits. The chroma-derived palette (goya-chroma, AA-enforced)
-//! overrides scene fills per frame; header cells use the documented
-//! header fill and the status cell maps ok/err/accent by status text.
+//! on the clipboard, Paste inserts at the composer cursor, Quit exits. The
+//! chroma-derived palette (goya-chroma, AA-enforced) overrides scene fills
+//! per frame; header cells use the documented header fill and the status
+//! cell maps ok/err/accent by status text.
+//!
+//! Wave 9 (GY-ZCODE-009): the clipboard is now system-backed — Copy
+//! records on the ring AND sets the compositor selection
+//! (`set_clipboard_text`); Paste requests the compositor selection
+//! (`request_clipboard_text`) and the `ClipboardText` event inserts at the
+//! composer cursor, falling back to the ring on `None` (see the
+//! None-ambiguity note in the clipboard module docs). Per-node text
+//! colours ride the `fgs` slice (status ok/err/accent, tool ✓/✗, markdown
+//! headings accent).
 
 use goya_clipboard::PrincipalId;
 use goya_lang::{hit_test, layout, DrawNode, SceneStore};
 use goya_runtime::Primitive;
 use goya_wayland::{GoyaWindow, KeySpecial, PlatformEvent, Shortcut};
 use goya_zcode::agent::{self};
-use goya_zcode::clipboard::{AllowAllPolicy, MonitorClipboard};
+use goya_zcode::clipboard::{plan_copy, resolve_paste, AllowAllPolicy, CopyTarget, MonitorClipboard};
 use goya_zcode::composer::Composer;
-use goya_zcode::theme::{monitor_palette, node_fill_override, status_fill_override};
+use goya_zcode::theme::{monitor_palette, node_fill_override, override_slices, status_fill_override};
 use goya_zcode::view::{LinkState, ProjEvent, SessionView, ToolState, SCROLL_STEP, TAIL_LINES};
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
@@ -615,6 +624,31 @@ fn headless_acceptance(store: &SceneStore) {
     println!("clipboard copy/paste round-trip [{}]", pass_str(clip_ok));
     ok &= clip_ok;
 
+    // System-clipboard adapter contract (GY-ZCODE-009), compositor-free:
+    // the copy plan emits both the ring record and a set-clipboard marker
+    // (RingAndSystem) for the last non-empty row; the paste decision
+    // prefers the system payload and falls back to the ring on None
+    // (the documented ambiguity: absent data-device vs empty selection).
+    let sys_rows = vec![String::new(), "row nine".to_string()];
+    let copy_plan_ok = plan_copy(&sys_rows, true)
+        == Some(CopyTarget::RingAndSystem("row nine".to_string()))
+        && plan_copy(&sys_rows, false) == Some(CopyTarget::Ring("row nine".to_string()))
+        && plan_copy(&[String::new()], true).is_none();
+    let paste_plan_ok = resolve_paste(Some("sys"), Some("ring")) == Some("sys".to_string())
+        && resolve_paste(None, Some("ring")) == Some("ring".to_string())
+        && resolve_paste(None, None).is_none();
+    // Applying the plan through the real ring keeps the fallback live.
+    let plan_applied = match plan_copy(&sys_rows, true) {
+        Some(CopyTarget::RingAndSystem(line)) => clip.copy_line(user, &line),
+        _ => false,
+    } && clip.paste_text().as_deref() == Some("row nine");
+    let sys_clip_ok = copy_plan_ok && paste_plan_ok && plan_applied;
+    println!(
+        "system clipboard copy/paste adapter plan [{}]",
+        pass_str(sys_clip_ok)
+    );
+    ok &= sys_clip_ok;
+
     // Palette mapping contract (GY-ZCODE-004): pure, no display needed.
     let palette = monitor_palette();
     let pal_ok = node_fill_override("title", &palette) == Some(0x1e1e28)
@@ -624,6 +658,36 @@ fn headless_acceptance(store: &SceneStore) {
         && status_fill_override("running", &palette) == Some(rgb_u32_bin(palette.accent));
     println!("palette node/status fill mapping [{}]", pass_str(pal_ok));
     ok &= pal_ok;
+
+    // Text-colour mapping contract (GY-ZCODE-009): status text follows its
+    // fill mapping, tool ✓/✗ rows take ok/err, markdown headings accent,
+    // everything else stays flat. Checked through the same override_slices
+    // helper the live render path uses.
+    let fg_nodes: Vec<(&str, Option<&str>, Option<u32>)> = vec![
+        ("status", Some("idle"), None),
+        ("status", Some("error"), None),
+        ("status", Some("running"), None),
+        ("row_00", Some("⚙ read_file ✓"), None),
+        ("row_01", Some("⚙ write_file ✗"), None),
+        ("row_02", Some("■ REPORT"), None),
+        ("row_03", Some("plain response"), None),
+    ];
+    let (fg_fills, fgs) = override_slices(fg_nodes.clone(), "idle", &palette);
+    let fg_ok = fgs
+        == vec![
+            Some(rgb_u32_bin(palette.ok)),
+            Some(rgb_u32_bin(palette.err)),
+            Some(rgb_u32_bin(palette.accent)),
+            Some(rgb_u32_bin(palette.ok)),
+            Some(rgb_u32_bin(palette.err)),
+            Some(rgb_u32_bin(palette.accent)),
+            None,
+        ]
+        // Fills must still come out of the same pass unchanged.
+        && fg_fills[0] == status_fill_override("idle", &palette)
+        && fg_fills[1] == status_fill_override("error", &palette);
+    println!("text-colour status/tool/heading mapping [{}]", pass_str(fg_ok));
+    ok &= fg_ok;
 
     // Tool-row lifecycle contract (GY-ZCODE-005): started → progress
     // (folded) → completed emits exactly two lines; failed emits ✗.
@@ -1045,6 +1109,26 @@ fn run_live(
                     sync_text_input(&mut win, &composer, store.get());
                     dirty = true;
                 }
+                // Wave 9: the compositor's answer to request_clipboard_text
+                // (Ctrl+V). Some(text) inserts at the composer cursor;
+                // None (no selection / no text mime / empty payload —
+                // ambiguous upstream, see clipboard module docs) falls back
+                // to the ring.
+                goya_wayland::PlatformEvent::ClipboardText(text) => {
+                    if composer.focused {
+                        if let Some(insert) =
+                            resolve_paste(text.as_deref(), clipboard.paste_text().as_deref())
+                        {
+                            for ch in insert.chars() {
+                                if composer.handle_char(ch).is_some() {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    sync_text_input(&mut win, &composer, store.get());
+                    dirty = true;
+                }
                 goya_wayland::PlatformEvent::Resized(_, _) => dirty = true,
                 // GY-ZCODE-004: ctrl+c/v/q shortcuts from goya-wayland.
                 PlatformEvent::Shortcut(shortcut) => {
@@ -1057,12 +1141,27 @@ fn run_live(
                     }
                     match shortcut {
                         Shortcut::Copy => {
-                            let last = handle.view.lock().ok().and_then(|view| {
-                                view.rows().into_iter().rev().find(|row| !row.is_empty())
-                            });
-                            let copied = last
-                                .map(|row| clipboard.copy_line(PrincipalId(1), &row))
-                                .unwrap_or(false);
+                            // Wave 9: plan the copy purely (last non-empty
+                            // row + targets), then apply: ring record via
+                            // copy_line AND compositor selection via
+                            // set_clipboard_text (a safe no-op when the
+                            // compositor has no data device — the ring
+                            // remains the offline fallback).
+                            let rows = handle
+                                .view
+                                .lock()
+                                .map(|view| view.rows())
+                                .unwrap_or_default();
+                            let copied = match plan_copy(&rows, true) {
+                                Some(CopyTarget::RingAndSystem(line)) => {
+                                    win.set_clipboard_text(&line);
+                                    clipboard.copy_line(PrincipalId(1), &line)
+                                }
+                                Some(CopyTarget::Ring(line)) => {
+                                    clipboard.copy_line(PrincipalId(1), &line)
+                                }
+                                None => false,
+                            };
                             if let Ok(mut view) = handle.view.lock() {
                                 view.status = if copied {
                                     "copied".to_string()
@@ -1073,13 +1172,11 @@ fn run_live(
                             dirty = true;
                         }
                         Shortcut::Paste => {
-                            if let Some(text) = clipboard.paste_text() {
-                                for ch in text.chars() {
-                                    if composer.handle_char(ch).is_some() {
-                                        break;
-                                    }
-                                }
-                            }
+                            // Wave 9: ask the compositor; the insertion
+                            // happens when the ClipboardText event arrives
+                            // (see its arm below). Nothing is inserted here
+                            // — the ring fallback lives in resolve_paste.
+                            win.request_clipboard_text();
                             sync_text_input(&mut win, &composer, store.get());
                             dirty = true;
                         }
@@ -1113,18 +1210,19 @@ fn run_live(
             apply_composer_to_frame(&mut nodes, &composer);
             let prims: Vec<Primitive> = nodes.iter().map(present_node).collect();
             // GY-ZCODE-004: chroma-derived per-frame fill overrides take
-            // precedence; scene `fill:` values remain the defaults.
-            let fills: Vec<Option<u32>> = nodes
-                .iter()
-                .map(|node| {
-                    if node.name == "status" {
-                        status_fill_override(&status_text, &palette).or(node.fill)
-                    } else {
-                        node_fill_override(&node.name, &palette).or(node.fill)
-                    }
-                })
-                .collect();
-            let _ = win.present(&prims, &fills, palette.fg, palette.bg, 3);
+            // precedence; scene `fill:` values remain the defaults. Wave 9:
+            // the fg overrides are built alongside, in the same primitive
+            // order (status ok/err/accent, tool ✓/✗, headings accent).
+            let (fills, fgs) = override_slices(
+                nodes
+                    .iter()
+                    .map(|node| (node.name.as_str(), node.text.as_deref(), node.fill)),
+                &status_text,
+                &palette,
+            );
+            // GATE (GY-ZCODE-009) DONE: J1 landed the `fgs` parameter on
+            // present — the per-node text colours are live.
+            let _ = win.present(&prims, &fills, &fgs, palette.fg, palette.bg, 3);
         }
         if let Some(secs) = args.duration {
             if started.elapsed() >= Duration::from_secs(secs) {
