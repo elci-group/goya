@@ -1422,10 +1422,7 @@ mod tests {
             },
         );
         assert!(rt.focus_input(Some(NodeId(1))));
-        assert!(rt.handle(Event::SetInputValue(
-            NodeId(1),
-            "a👩‍💻z".into(),
-        )));
+        assert!(rt.handle(Event::SetInputValue(NodeId(1), "a👩‍💻z".into(),)));
         assert!(rt.handle(Event::SetCompositionRegion {
             node: NodeId(1),
             start_byte: 2,
