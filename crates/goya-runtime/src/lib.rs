@@ -729,7 +729,8 @@ impl Runtime {
                 .focused_input
                 .and_then(|id| self.text_inputs.get_mut(&id))
             {
-                finish_composition(previous);
+                previous.preedit = None;
+                previous.composition_region = None;
             }
         }
         self.focused_input = node;
@@ -915,12 +916,8 @@ impl Runtime {
             Event::TextSelectAll => {
                 self.edit_focused_finishing_composition(|state| state.buffer.select_all())
             }
-            Event::TextUndo => {
-                self.edit_focused_finishing_composition(|state| state.buffer.undo())
-            }
-            Event::TextRedo => {
-                self.edit_focused_finishing_composition(|state| state.buffer.redo())
-            }
+            Event::TextUndo => self.edit_focused_finishing_composition(|state| state.buffer.undo()),
+            Event::TextRedo => self.edit_focused_finishing_composition(|state| state.buffer.redo()),
             Event::ImeBatch {
                 preedit,
                 commit,
@@ -936,9 +933,7 @@ impl Runtime {
             }
             Event::Character('\u{8}') => {
                 if self.focused_input.is_some() {
-                    self.edit_focused_finishing_composition(|state| {
-                        state.buffer.delete_backward()
-                    });
+                    self.edit_focused_finishing_composition(|state| state.buffer.delete_backward());
                 } else {
                     self.append_text('\u{8}');
                 }
@@ -1000,10 +995,7 @@ impl Runtime {
         }
     }
 
-    fn edit_focused_finishing_composition(
-        &mut self,
-        edit: impl FnOnce(&mut TextFieldState),
-    ) {
+    fn edit_focused_finishing_composition(&mut self, edit: impl FnOnce(&mut TextFieldState)) {
         self.edit_focused(|state| {
             finish_composition(state);
             edit(state);
@@ -1479,6 +1471,104 @@ mod tests {
         assert_eq!(rt.input_text(NodeId(1)), Some("ace"));
         assert_eq!(rt.input_cursor_byte(NodeId(1)), Some(1));
         assert_eq!(rt.input_anchor_byte(NodeId(1)), Some(2));
+    }
+
+    #[test]
+    fn direct_edits_and_blur_finalize_preedit_before_changing_the_buffer() {
+        let module = parse("input 1 Search\nroot 1").unwrap();
+        let mut rt = Runtime::new(
+            module,
+            Store::new(),
+            Constraints {
+                max_width: 400_000,
+                max_height: 300_000,
+            },
+        );
+        assert!(rt.focus_input(Some(NodeId(1))));
+        assert!(rt.handle(Event::SetInputValue(NodeId(1), "abc".into())));
+        assert!(rt.handle(Event::SetCompositionRegion {
+            node: NodeId(1),
+            start_byte: 2,
+            end_byte: 3,
+        }));
+        assert!(rt.handle(Event::ImeBatch {
+            preedit: Some(("X".into(), 1, 1)),
+            commit: None,
+            delete: None,
+        }));
+        assert!(rt.handle(Event::TextBackspace));
+        assert_eq!(rt.input_text(NodeId(1)), Some("ab"));
+        assert!(matches!(
+            rt.render_list().last(),
+            Some(Primitive::Text(_, value)) if value == "ab"
+        ));
+
+        assert!(rt.handle(Event::SetInputValue(NodeId(1), "abc".into())));
+        assert!(rt.handle(Event::SetCompositionRegion {
+            node: NodeId(1),
+            start_byte: 2,
+            end_byte: 3,
+        }));
+        assert!(rt.handle(Event::ImeBatch {
+            preedit: Some(("X".into(), 1, 1)),
+            commit: None,
+            delete: None,
+        }));
+        assert!(rt.focus_input(None));
+        assert_eq!(rt.input_text(NodeId(1)), Some("abc"));
+        assert!(rt.render_list_with_text_decorations().1.is_empty());
+        assert!(matches!(
+            rt.render_list().last(),
+            Some(Primitive::Text(_, value)) if value == "abc"
+        ));
+    }
+
+    #[test]
+    fn undo_and_surrounding_delete_finalize_composition_without_stale_ranges() {
+        let module = parse("input 1 Search\nroot 1").unwrap();
+        let mut rt = Runtime::new(
+            module,
+            Store::new(),
+            Constraints {
+                max_width: 400_000,
+                max_height: 300_000,
+            },
+        );
+        assert!(rt.focus_input(Some(NodeId(1))));
+        assert!(rt.handle(Event::SetInputValue(NodeId(1), "abc".into())));
+        assert!(rt.handle(Event::SetCompositionRegion {
+            node: NodeId(1),
+            start_byte: 2,
+            end_byte: 3,
+        }));
+        assert!(rt.handle(Event::ImeBatch {
+            preedit: Some(("X".into(), 1, 1)),
+            commit: None,
+            delete: None,
+        }));
+        assert!(rt.handle(Event::TextUndo));
+        assert_eq!(rt.input_text(NodeId(1)), Some("abc"));
+        assert!(rt.render_list().last().is_some());
+        assert!(rt.handle(Event::TextRedo));
+        assert_eq!(rt.input_text(NodeId(1)), Some("abX"));
+
+        assert!(rt.handle(Event::SetInputValue(NodeId(1), "abc".into())));
+        assert!(rt.handle(Event::SetCompositionRegion {
+            node: NodeId(1),
+            start_byte: 2,
+            end_byte: 3,
+        }));
+        assert!(rt.handle(Event::ImeBatch {
+            preedit: Some(("X".into(), 1, 1)),
+            commit: None,
+            delete: None,
+        }));
+        assert!(rt.handle(Event::DeleteInputSurrounding {
+            before_bytes: 1,
+            after_bytes: 0,
+        }));
+        assert_eq!(rt.input_text(NodeId(1)), Some("ab"));
+        assert!(rt.render_list().last().is_some());
     }
 
     #[test]

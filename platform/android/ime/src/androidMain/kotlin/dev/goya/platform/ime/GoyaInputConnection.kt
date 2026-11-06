@@ -1,6 +1,7 @@
 package dev.goya.platform.ime
 
 import android.content.Context
+import android.text.InputType
 import android.text.TextUtils
 import android.view.View
 import android.view.inputmethod.BaseInputConnection
@@ -145,8 +146,8 @@ class GoyaInputConnection(
             multiline: Boolean = false,
             imeAction: Int = EditorInfo.IME_ACTION_DONE,
         ) {
-            outAttrs.inputType = EditorInfo.TYPE_CLASS_TEXT or
-                if (multiline) EditorInfo.TYPE_TEXT_FLAG_MULTI_LINE else 0
+            outAttrs.inputType = InputType.TYPE_CLASS_TEXT or
+                if (multiline) InputType.TYPE_TEXT_FLAG_MULTI_LINE else 0
             outAttrs.imeOptions = imeAction
         }
     }
