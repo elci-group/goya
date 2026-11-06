@@ -1019,7 +1019,17 @@ impl GoyaWindow {
         bg: [u8; 3],
         glyph_px: u32,
     ) -> Result<(), WaylandError> {
-        self.present_internal(primitives, fills, Some(clips), None, None, fg, bg, glyph_px, None)
+        self.present_internal(
+            primitives,
+            fills,
+            Some(clips),
+            None,
+            None,
+            fg,
+            bg,
+            glyph_px,
+            None,
+        )
     }
 
     /// Present with both per-primitive clips and text sizes. The slices use
@@ -1116,7 +1126,9 @@ impl GoyaWindow {
         glyph_px: u32,
         damage: Option<(i32, i32, i32, i32)>,
     ) -> Result<(), WaylandError> {
-        self.present_internal(primitives, fills, None, None, None, fg, bg, glyph_px, damage)
+        self.present_internal(
+            primitives, fills, None, None, None, fg, bg, glyph_px, damage,
+        )
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1871,6 +1883,162 @@ fn draw_shaped_glyphs(
         }
     });
     drew
+}
+
+fn raster_text_overlays(
+    pixels: &mut [u32],
+    width: i32,
+    height: i32,
+    primitives: &[goya_runtime::Primitive],
+    clips: Option<&[Option<Rect>]>,
+    text_sizes_pt: Option<&[Option<f32>]>,
+    overlays: &[TextOverlay],
+    glyph_px: u32,
+    damage: Option<PixelClip>,
+) {
+    static TEXT: OnceLock<Mutex<FontSystem>> = OnceLock::new();
+    let Ok(mut font_system) = TEXT.get_or_init(|| Mutex::new(FontSystem::new())).lock() else {
+        return;
+    };
+    for overlay in overlays {
+        let Some(primitive) = primitives.get(overlay.primitive_index) else {
+            continue;
+        };
+        let (rect, text) = match primitive {
+            goya_runtime::Primitive::Text(rect, text)
+            | goya_runtime::Primitive::Button(rect, text) => (rect, text.as_str()),
+            goya_runtime::Primitive::Panel(_) => continue,
+        };
+        let size_pt = text_sizes_pt
+            .and_then(|sizes| sizes.get(overlay.primitive_index).copied().flatten())
+            .filter(|size| size.is_finite() && *size > 0.0);
+        let font_px = size_pt
+            .map(|size| size.clamp(0.25, 256.0) * 4.0)
+            .unwrap_or((glyph_px.max(1) as f32) * 7.0);
+        let text_width = (rect.width / MP_PER_PX - 4).max(1) as f32;
+        let text_height = (rect.height / MP_PER_PX - 4).max(1) as f32;
+        let buffer = shape_text(&mut font_system, text, text_width, text_height, font_px);
+        let node_clip = clips
+            .and_then(|items| items.get(overlay.primitive_index).copied().flatten())
+            .map(|clip| pixel_clip_for_rect(&clip, width, height));
+        let clip = intersect_pixel_clips(
+            damage,
+            intersect_pixel_clips(node_clip, Some(pixel_clip_for_rect(rect, width, height))),
+        );
+        let origin_x = (rect.x / MP_PER_PX + 2) as f32;
+        let origin_y = (rect.y / MP_PER_PX + 2) as f32;
+
+        if let Some((start, end)) = overlay.selection_byte_range {
+            let start = snap_grapheme_boundary(text, start.min(text.len()));
+            let end = snap_grapheme_boundary(text, end.min(text.len()));
+            if start != end {
+                if let (Some(start_cursor), Some(end_cursor)) = (
+                    text_cursor(&buffer, text, start),
+                    text_cursor(&buffer, text, end),
+                ) {
+                    let (start_cursor, end_cursor) = if start_cursor <= end_cursor {
+                        (start_cursor, end_cursor)
+                    } else {
+                        (end_cursor, start_cursor)
+                    };
+                    for run in buffer.layout_runs() {
+                        if let Some((x, span)) = run.highlight(start_cursor, end_cursor) {
+                            draw_overlay_rect(
+                                pixels,
+                                width,
+                                height,
+                                origin_x + x,
+                                origin_y + run.line_top,
+                                span.max(1.0),
+                                run.line_height,
+                                overlay.selection_rgb,
+                                112,
+                                clip,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Some(offset) = overlay.caret_byte_offset {
+            let offset = snap_grapheme_boundary(text, offset.min(text.len()));
+            if let Some(cursor) = text_cursor(&buffer, text, offset) {
+                let mut caret = None;
+                for run in buffer.layout_runs() {
+                    if let Some((x, _)) = run.highlight(cursor, cursor) {
+                        caret = Some((origin_x + x, origin_y + run.line_top, run.line_height));
+                        break;
+                    }
+                }
+                if let Some((x, y, caret_height)) = caret {
+                    draw_overlay_rect(
+                        pixels,
+                        width,
+                        height,
+                        x,
+                        y,
+                        1.0,
+                        caret_height,
+                        overlay.caret_rgb,
+                        255,
+                        clip,
+                    );
+                }
+            }
+        }
+    }
+}
+
+fn draw_overlay_rect(
+    pixels: &mut [u32],
+    width: i32,
+    height: i32,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    rgb: [u8; 3],
+    alpha: u8,
+    clip: Option<PixelClip>,
+) {
+    if ![x, y, w, h].into_iter().all(f32::is_finite) || w <= 0.0 || h <= 0.0 {
+        return;
+    }
+    let (cx0, cy0, cx1, cy1) = clip.map_or(
+        (
+            0usize,
+            0usize,
+            width.max(0) as usize,
+            height.max(0) as usize,
+        ),
+        |c| (c.x0, c.y0, c.x1, c.y1),
+    );
+    let x0 = (x.floor() as i64).clamp(cx0 as i64, cx1 as i64);
+    let y0 = (y.floor() as i64).clamp(cy0 as i64, cy1 as i64);
+    let x1 = ((x + w).ceil() as i64).clamp(cx0 as i64, cx1 as i64);
+    let y1 = ((y + h).ceil() as i64).clamp(cy0 as i64, cy1 as i64);
+    for py in y0..y1 {
+        for px in x0..x1 {
+            if px < 0 || py < 0 || px >= i64::from(width) || py >= i64::from(height) {
+                continue;
+            }
+            let index = py as usize * width as usize + px as usize;
+            if index >= pixels.len() {
+                continue;
+            }
+            let dst = pixels[index];
+            let a = u32::from(alpha);
+            let inv = 255 - a;
+            let blend = |src: u8, shift: u32| {
+                (u32::from(src) * a + ((dst >> shift) & 0xff) * inv + 127) / 255
+            };
+            pixels[index] = 0xff00_0000
+                | (blend(rgb[0], 16) << 16)
+                | (blend(rgb[1], 8) << 8)
+                | blend(rgb[2], 0);
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -383,11 +383,8 @@ mod tests {
         let label = CapabilityLabel::new("network").unwrap();
         let result = EffectResult::Int64(41).encode().unwrap();
         journal.record(&label, b"static request", &result).unwrap();
-        let state = D1Snapshot::new(
-            0,
-            BTreeMap::from([("count".to_owned(), D1Value::Int(0))]),
-        )
-        .unwrap();
+        let state =
+            D1Snapshot::new(0, BTreeMap::from([("count".to_owned(), D1Value::Int(0))])).unwrap();
         let request = compiled
             .to_vee_request(&state, &InputSnapshot::default(), &journal, "sdk-test")
             .unwrap();
