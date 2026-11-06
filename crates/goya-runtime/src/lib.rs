@@ -67,6 +67,18 @@ mod text_and_scroll_tests {
     }
 
     #[test]
+    fn platform_selection_expands_outward_when_offsets_split_graphemes() {
+        let mut text = TextBuffer::new("a👩‍💻e\u{301}z");
+        text.set_selection(3, 14);
+        assert_eq!(text.anchor_byte(), 1);
+        assert_eq!(text.cursor_byte(), 15);
+
+        text.set_selection(14, 3);
+        assert_eq!(text.anchor_byte(), 15);
+        assert_eq!(text.cursor_byte(), 1);
+    }
+
+    #[test]
     fn scroll_state_clamps_geometry_and_rejects_non_finite_values() {
         let mut scroll = ScrollState::default();
         scroll.set_geometry(100.0, 500.0, 40.0, 100.0);
@@ -234,8 +246,20 @@ impl TextBuffer {
     /// Set selection endpoints from platform-provided UTF-8 byte offsets.
     /// Invalid, out-of-range, and mid-grapheme positions are snapped safely.
     pub fn set_selection(&mut self, anchor_byte: usize, cursor_byte: usize) {
-        let anchor = grapheme_boundary_at_or_before(&self.text, anchor_byte);
-        let cursor = grapheme_boundary_at_or_before(&self.text, cursor_byte);
+        let (anchor, cursor) = match anchor_byte.cmp(&cursor_byte) {
+            std::cmp::Ordering::Less => (
+                grapheme_boundary_at_or_before(&self.text, anchor_byte),
+                grapheme_boundary_at_or_after(&self.text, cursor_byte),
+            ),
+            std::cmp::Ordering::Greater => (
+                grapheme_boundary_at_or_after(&self.text, anchor_byte),
+                grapheme_boundary_at_or_before(&self.text, cursor_byte),
+            ),
+            std::cmp::Ordering::Equal => {
+                let caret = grapheme_boundary_at_or_before(&self.text, anchor_byte);
+                (caret, caret)
+            }
+        };
         self.cursor = cursor;
         self.anchor = (anchor != cursor).then_some(anchor);
     }
@@ -492,6 +516,16 @@ fn grapheme_boundary_at_or_before(text: &str, byte: usize) -> usize {
         .take_while(|index| *index <= byte)
         .last()
         .unwrap_or(0)
+}
+
+fn grapheme_boundary_at_or_after(text: &str, byte: usize) -> usize {
+    if byte >= text.len() {
+        return text.len();
+    }
+    text.grapheme_indices(true)
+        .map(|(index, _)| index)
+        .find(|index| *index >= byte)
+        .unwrap_or(text.len())
 }
 
 /// Contract identifier implemented by this crate.
@@ -826,9 +860,11 @@ impl Runtime {
                 if self.focused_input == Some(node) {
                     if let Some(state) = self.text_inputs.get_mut(&node) {
                         finish_composition(state);
-                        let start = grapheme_boundary_at_or_before(&state.buffer.text, start_byte);
-                        let end = grapheme_boundary_at_or_before(&state.buffer.text, end_byte);
-                        let region = start.min(end)..start.max(end);
+                        let raw_start = start_byte.min(end_byte);
+                        let raw_end = start_byte.max(end_byte);
+                        let start = grapheme_boundary_at_or_before(&state.buffer.text, raw_start);
+                        let end = grapheme_boundary_at_or_after(&state.buffer.text, raw_end);
+                        let region = start..end;
                         state.composition_region = (region.start < region.end).then_some(region);
                     }
                 }
@@ -1372,6 +1408,31 @@ mod tests {
         assert_eq!(rt.input_text(NodeId(1)), Some("abYd"));
         assert_eq!(rt.input_cursor_byte(NodeId(1)), Some(3));
         assert_eq!(rt.input_anchor_byte(NodeId(1)), Some(3));
+    }
+
+    #[test]
+    fn platform_composition_region_expands_to_cover_partial_graphemes() {
+        let module = parse("input 1 Search\nroot 1").unwrap();
+        let mut rt = Runtime::new(
+            module,
+            Store::new(),
+            Constraints {
+                max_width: 400_000,
+                max_height: 300_000,
+            },
+        );
+        assert!(rt.focus_input(Some(NodeId(1))));
+        assert!(rt.handle(Event::SetInputValue(
+            NodeId(1),
+            "a👩‍💻z".into(),
+        )));
+        assert!(rt.handle(Event::SetCompositionRegion {
+            node: NodeId(1),
+            start_byte: 2,
+            end_byte: 3,
+        }));
+        let decorations = rt.render_list_with_text_decorations().1;
+        assert_eq!(decorations[0].composition_byte_range, Some((1, 12)));
     }
 
     #[test]
