@@ -2910,9 +2910,9 @@ fn shortcut_from_key(ctrl: bool, keycode: u32) -> Option<Shortcut> {
         return None;
     }
     match keycode {
-        46 => Some(Shortcut::Copy),            // KEY_C
-        47 => Some(Shortcut::Paste),           // KEY_V
-        16 => Some(Shortcut::Quit),            // KEY_Q
+        46 => Some(Shortcut::Copy),             // KEY_C
+        47 => Some(Shortcut::Paste),            // KEY_V
+        16 => Some(Shortcut::Quit),             // KEY_Q
         105 => Some(Shortcut::SessionPrevious), // KEY_LEFT
         106 => Some(Shortcut::SessionNext),     // KEY_RIGHT
         _ => None,
@@ -3548,14 +3548,14 @@ mod shortcut_tests {
         assert_eq!(shortcut_from_key(true, 46), Some(Shortcut::Copy)); // KEY_C
         assert_eq!(shortcut_from_key(true, 47), Some(Shortcut::Paste)); // KEY_V
         assert_eq!(shortcut_from_key(true, 16), Some(Shortcut::Quit)); // KEY_Q
-        // GY-ZCODE-006: ctrl+Left/Right cycle sessions.
+                                                                       // GY-ZCODE-006: ctrl+Left/Right cycle sessions.
         assert_eq!(
             shortcut_from_key(true, 105),
             Some(Shortcut::SessionPrevious)
         ); // KEY_LEFT
         assert_eq!(shortcut_from_key(true, 106), Some(Shortcut::SessionNext)); // KEY_RIGHT
-        // Non-ctrl presses of the same keys stay plain text / KeySpecial,
-        // not shortcuts.
+                                                                               // Non-ctrl presses of the same keys stay plain text / KeySpecial,
+                                                                               // not shortcuts.
         assert_eq!(shortcut_from_key(false, 46), None);
         assert_eq!(shortcut_from_key(false, 47), None);
         assert_eq!(shortcut_from_key(false, 16), None);
