@@ -866,6 +866,7 @@ dependencies = [
  "goya-layout",
  "goya-runtime",
  "rustix 0.38.44",
+ "unicode-segmentation",
  "wayland-client",
  "wayland-protocols",
  "xkbcommon",

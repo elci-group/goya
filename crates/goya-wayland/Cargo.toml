@@ -15,3 +15,4 @@ wayland-protocols = { version = "0.32", features = ["client", "unstable"] }
 rustix = { version = "0.38", features = ["fs", "mm", "std"] }
 xkbcommon = { version = "0.9", default-features = false, features = ["wayland"] }
 cosmic-text.workspace = true
+unicode-segmentation.workspace = true
