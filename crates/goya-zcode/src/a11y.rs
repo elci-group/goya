@@ -419,10 +419,14 @@ mod tests {
         assert_eq!(comp.hit_region, rects.composer);
         assert_eq!(comp.actions_for_at(), vec!["set_value", "focus"]);
 
-        // Rows carry their text; empty tail rows are omitted.
-        assert_eq!(find("row_00").resolved_name(), "> hello");
-        assert_eq!(find("row_01").resolved_name(), "final answer");
-        assert!(a11y.nodes().iter().all(|n| n.id != "row_02"), "empty rows are skipped");
+        // Rows carry their text; empty tail rows are omitted. Two lines
+        // sit at the bottom of the 14-row window (rows() pads the front).
+        assert_eq!(find("row_12").resolved_name(), "> hello");
+        assert_eq!(find("row_13").resolved_name(), "final answer");
+        assert!(
+            a11y.nodes().iter().all(|n| !n.id.starts_with("row_0")),
+            "empty rows are skipped"
+        );
 
         // Quit: pressable button with its hit region.
         let quit = find(QUIT_ID);

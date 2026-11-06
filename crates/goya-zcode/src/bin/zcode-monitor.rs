@@ -838,8 +838,8 @@ fn headless_acceptance(store: &SceneStore) {
             && n.editable
             && n.focusable
     }) == Some(true);
-    let rows_ok = node("row_00").map(|n| n.resolved_name() == "> acceptance input") == Some(true)
-        && node("row_01").map(|n| n.resolved_name() == "final answer") == Some(true);
+    let rows_ok = node("row_12").map(|n| n.resolved_name() == "> acceptance input") == Some(true)
+        && node("row_13").map(|n| n.resolved_name() == "final answer") == Some(true);
     let quit_ok = node("quit").map(|n| n.role == goya_a11y::A11yRole::Button && n.focusable)
         == Some(true);
     a11y.republish(&av, &ac);
