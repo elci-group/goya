@@ -752,7 +752,8 @@ pub struct GoyaWindow {
 impl GoyaWindowInner {
     /// Compositor-free key press handling (GY-ZCODE-004): resolve one pressed
     /// evdev keycode against the current modifier state into platform events.
-    /// Order matters: ctrl+c/v/q map to `PlatformEvent::Shortcut` first;
+    /// Order matters: ctrl+c/v/q and ctrl+Left/Right map to
+    /// `PlatformEvent::Shortcut` first;
     /// otherwise navigation keeps its `KeySpecial` semantics and text keys go
     /// through XKB Compose → `KeyChar`, byte-identical to the pre-shortcut
     /// behavior. Other ctrl combos produce no events (the char path returns
@@ -3547,18 +3548,27 @@ mod shortcut_tests {
         assert_eq!(shortcut_from_key(true, 46), Some(Shortcut::Copy)); // KEY_C
         assert_eq!(shortcut_from_key(true, 47), Some(Shortcut::Paste)); // KEY_V
         assert_eq!(shortcut_from_key(true, 16), Some(Shortcut::Quit)); // KEY_Q
-                                                                       // Non-ctrl presses of the same keys stay plain text, not shortcuts.
+        // GY-ZCODE-006: ctrl+Left/Right cycle sessions.
+        assert_eq!(
+            shortcut_from_key(true, 105),
+            Some(Shortcut::SessionPrevious)
+        ); // KEY_LEFT
+        assert_eq!(shortcut_from_key(true, 106), Some(Shortcut::SessionNext)); // KEY_RIGHT
+        // Non-ctrl presses of the same keys stay plain text / KeySpecial,
+        // not shortcuts.
         assert_eq!(shortcut_from_key(false, 46), None);
         assert_eq!(shortcut_from_key(false, 47), None);
         assert_eq!(shortcut_from_key(false, 16), None);
+        assert_eq!(shortcut_from_key(false, 105), None);
+        assert_eq!(shortcut_from_key(false, 106), None);
         assert_eq!(shortcut_from_key(false, 999), None);
     }
 
     #[test]
     fn other_ctrl_combos_stay_inert() {
-        // Ctrl held, but not c/v/q: helper must yield None for letters,
-        // digits, navigation codes and unknown codes alike.
-        for kc in [16 - 1, 30, 31, 32, 44, 45, 48, 2, 11, 57, 1, 105, 999, 0] {
+        // Ctrl held, but not c/v/q or Left/Right: helper must yield None for
+        // letters, digits, navigation codes and unknown codes alike.
+        for kc in [16 - 1, 30, 31, 32, 44, 45, 48, 2, 11, 57, 1, 999, 0] {
             assert_eq!(
                 shortcut_from_key(true, kc),
                 None,
@@ -3624,7 +3634,6 @@ mod shortcut_tests {
 
         inner.events.clear();
         inner.shift = false;
-        inner.ctrl = true;
         inner.handle_key_press(106); // Right
         assert_eq!(
             inner.events,
@@ -3632,9 +3641,41 @@ mod shortcut_tests {
                 key: super::KeySpecial::ArrowRight,
                 modifiers: KeyModifiers {
                     shift: false,
-                    ctrl: true,
+                    ctrl: false,
                 },
             }]
+        );
+        // GY-ZCODE-006 regression: plain (non-ctrl) arrows keep their
+        // KeySpecial semantics — no shortcuts without the ctrl modifier.
+        let mut inner = inner_with_ctrl(false);
+        inner.handle_key_press(105);
+        assert_eq!(
+            inner.events,
+            vec![PlatformEvent::KeySpecial(super::KeySpecial::ArrowLeft)]
+        );
+        inner.events.clear();
+        inner.handle_key_press(106);
+        assert_eq!(
+            inner.events,
+            vec![PlatformEvent::KeySpecial(super::KeySpecial::ArrowRight)]
+        );
+    }
+
+    #[test]
+    fn xkb_path_emits_session_shortcuts_for_ctrl_arrows() {
+        // GY-ZCODE-006: with ctrl held, Left/Right become session-switch
+        // shortcuts instead of KeySpecial navigation events.
+        let mut inner = inner_with_ctrl(true);
+        inner.handle_key_press(105); // KEY_LEFT
+        assert_eq!(
+            inner.events,
+            vec![PlatformEvent::Shortcut(Shortcut::SessionPrevious)]
+        );
+        inner.events.clear();
+        inner.handle_key_press(106); // KEY_RIGHT
+        assert_eq!(
+            inner.events,
+            vec![PlatformEvent::Shortcut(Shortcut::SessionNext)]
         );
     }
 
