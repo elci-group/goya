@@ -1256,7 +1256,7 @@ mod tests {
         let handle = seeded_handle("sess_a");
         handle.switch_session("sess_b".to_string(), ComposerSnapshot::default());
         handle.on_session_acquired("never-seen");
-        let state = handle.view.lock().map(|v| v.transcript_is_empty());
+        let state = handle.view.lock().ok().map(|v| v.transcript_is_empty());
         assert_eq!(
             state,
             Some(true),
