@@ -23,15 +23,21 @@ data class Preedit(val text: String, val cursorBeginUtf8: Int, val cursorEndUtf8
  * Narrow JNI boundary used by an Android InputConnection wrapper.
  *
  * The Rust runtime remains the source of truth for text, selection, undo and
- * grapheme behavior. Snapshots are read-only and must be obtained afresh for
- * each operation. `setSelectionUtf8` and cursor-anchor requests are explicit
- * because Android offsets/counts are UTF-16 while GY-RUNTIME/1 selection and
- * IME offsets use UTF-8 bytes. `setSelectionUtf8` maps to the runtime's
- * grapheme-safe SetInputSelection event. Cursor-anchor requests go to the
- * Android host, which publishes geometry from its latest render.
+ * grapheme behavior. Implementations dispatch synchronously against the
+ * focused node: `setComposingRegionUtf8` maps to SetCompositionRegion,
+ * `commitInputText` to CommitInputText, `deleteInputSurrounding` to
+ * DeleteInputSurrounding, and `finishComposition` to FinishComposition.
+ * `setSelectionUtf8` maps to SetInputSelection. Cursor-anchor requests go to
+ * the Android host, which publishes geometry from its latest render.
+ *
+ * The Android host must call adapter methods on the runtime's single
+ * serialized editor thread. In particular, snapshot, UTF-16 conversion and
+ * DeleteInputSurrounding dispatch must not be interleaved with another edit;
+ * the host must hold its editor serialization across the whole adapter call.
+ * Commit avoids this snapshot/mutation race by using one atomic runtime event.
  */
 interface GoyaInputBridge {
-    /** These calls are synchronous and serialized with editor snapshots and mutations. */
+    /** Synchronous read from the runtime-owned editor state. */
     fun editorSnapshot(): EditorSnapshot?
     fun applyImeBatch(batch: ImeBatch): Boolean
     fun setSelectionUtf8(anchor: Int, cursor: Int): Boolean
