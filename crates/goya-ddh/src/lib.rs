@@ -293,6 +293,18 @@ mod tests {
         }
     }
 
+    #[test]
+    fn numeric_range_rejects_invalid_bounds_and_steps() {
+        assert!(NumericRange::new(0.0, 0.0, 1.0).is_none());
+        assert!(NumericRange::new(2.0, 1.0, 1.0).is_none());
+        assert!(NumericRange::new(0.0, 1.0, 0.0).is_none());
+        assert!(NumericRange::new(0.0, f64::INFINITY, 0.1).is_none());
+        assert_eq!(
+            NumericRange::new(-1.0, 1.0, 0.25).unwrap().clamp(2.0),
+            Some(1.0)
+        );
+    }
+
     fn dig() -> Dig {
         let mut d = Dig::new();
         d.put(button("calc.btn_8", "8", 290, 700, 1), 1);
