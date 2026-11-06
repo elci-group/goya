@@ -11,6 +11,7 @@ use gtk::{
     Widget,
 };
 use std::fmt;
+use std::collections::HashMap;
 use std::sync::mpsc;
 use std::time::Duration;
 
@@ -84,6 +85,8 @@ impl GtkAtspiBridge {
         let app = Application::new(Some(&app_id), Default::default());
         let tree = std::rc::Rc::new(std::cell::RefCell::new(self.tree.clone()));
         let updates = std::rc::Rc::new(std::cell::RefCell::new(updates));
+        let widgets = std::rc::Rc::new(std::cell::RefCell::new(HashMap::new()));
+        let suppress_actions = std::rc::Rc::new(std::cell::Cell::new(false));
         let title = self.title.clone();
         let on_action: std::rc::Rc<dyn Fn(String, AtAction)> = std::rc::Rc::new(on_action);
 
@@ -96,7 +99,13 @@ impl GtkAtspiBridge {
             content.set_margin_bottom(12);
             content.set_margin_start(12);
             content.set_margin_end(12);
-            let initial_focus = populate(&content, &tree.borrow(), &on_action);
+            let initial_focus = populate(
+                &content,
+                &tree.borrow(),
+                &on_action,
+                &mut widgets.borrow_mut(),
+                suppress_actions.clone(),
+            );
             window.add(&content);
             window.show_all();
             if let Some(widget) = initial_focus {
@@ -109,23 +118,49 @@ impl GtkAtspiBridge {
                 let tree = tree.clone();
                 let content = content.clone();
                 let on_action = on_action.clone();
+                let widgets = widgets.clone();
+                let suppress_actions = suppress_actions.clone();
                 gtk::glib::timeout_add_local(Duration::from_millis(40), move || {
                     let latest = match take_latest(&updates) {
                         Ok(snapshot) => snapshot,
                         Err(()) => return gtk::glib::ControlFlow::Break,
                     };
                     if let Some(snapshot) = latest {
-                        *tree.borrow_mut() = snapshot;
-                        while let Some(child) = content.children().first() {
-                            content.remove(child);
+                        let mut current_tree = tree.borrow_mut();
+                        if same_structure(&current_tree, &snapshot) {
+                            update_widgets(&snapshot, &widgets.borrow());
+                            if projected_focus_changed(&current_tree, &snapshot) {
+                                if let Some(widget) = snapshot
+                                    .iter()
+                                    .find(|node| should_restore_focus(node))
+                                    .and_then(|node| widgets.borrow().get(&node.id).cloned())
+                                {
+                                    widget.grab_focus();
+                                }
+                            }
+                        } else {
+                            let saved = save_entry_state(&widgets.borrow());
+                            while let Some(child) = content.children().first() {
+                                content.remove(child);
+                            }
+                            widgets.borrow_mut().clear();
+                            *current_tree = snapshot.clone();
+                            let focus = populate(
+                                &content,
+                                &current_tree,
+                                &on_action,
+                                &mut widgets.borrow_mut(),
+                                suppress_actions.clone(),
+                            );
+                            suppress_actions.set(true);
+                            restore_entry_state(&saved, &widgets.borrow());
+                            suppress_actions.set(false);
+                            content.show_all();
+                            if let Some(widget) = focus {
+                                widget.grab_focus();
+                            }
                         }
-                        let focus = populate(&content, &tree.borrow(), &on_action);
-                        content.show_all();
-                        if let Some(widget) = focus {
-                            // Rebuilt controls are not focusable until the
-                            // replacement snapshot has been shown.
-                            widget.grab_focus();
-                        }
+                        *current_tree = snapshot;
                     }
                     gtk::glib::ControlFlow::Continue
                 });
@@ -152,10 +187,19 @@ fn populate(
     content: &GtkBox,
     tree: &A11yTree,
     on_action: &std::rc::Rc<dyn Fn(String, AtAction)>,
+    widgets: &mut HashMap<String, Widget>,
+    suppress_actions: std::rc::Rc<std::cell::Cell<bool>>,
 ) -> Option<Widget> {
     let mut focused = None;
     for root in tree.nodes.values().filter(|node| node.parent.is_none()) {
-        let widget = make_node(tree, root, on_action, &mut focused);
+        let widget = make_node(
+            tree,
+            root,
+            on_action,
+            &mut focused,
+            widgets,
+            suppress_actions.clone(),
+        );
         content.pack_start(&widget, false, false, 0);
     }
     focused
@@ -237,6 +281,8 @@ fn make_node(
     node: &A11yNode,
     on_action: &std::rc::Rc<dyn Fn(String, AtAction)>,
     focused: &mut Option<Widget>,
+    widgets: &mut HashMap<String, Widget>,
+    suppress_actions: std::rc::Rc<std::cell::Cell<bool>>,
 ) -> Widget {
     let id = node.id.clone();
     let child_nodes: Vec<_> = tree
@@ -249,7 +295,7 @@ fn make_node(
         A11yRole::Window | A11yRole::Group => {
             let panel = GtkBox::new(Orientation::Vertical, 6);
             for child in child_nodes {
-                let child = make_node(tree, child, on_action, focused);
+                let child = make_node(tree, child, on_action, focused, widgets, suppress_actions.clone());
                 panel.pack_start(&child, false, false, 0);
             }
             panel.upcast()
@@ -267,7 +313,11 @@ fn make_node(
             entry.set_placeholder_text(Some(&node.accessible_name));
             let action = on_action.clone();
             let action_id = id.clone();
+            let suppress = suppress_actions.clone();
             entry.connect_changed(move |entry| {
+                if suppress.get() {
+                    return;
+                }
                 action(
                     action_id.clone(),
                     AtAction::SetValue(entry.text().to_string()),
@@ -310,7 +360,69 @@ fn make_node(
     if should_restore_focus(node) {
         *focused = Some(widget.clone());
     }
+    widgets.insert(node.id.clone(), widget.clone());
     widget
+}
+
+fn same_structure(old: &A11yTree, new: &A11yTree) -> bool {
+    old.nodes.len() == new.nodes.len()
+        && old.nodes.iter().all(|(id, node)| {
+            new.nodes
+                .get(id)
+                .is_some_and(|other| node.role == other.role && node.parent == other.parent)
+        })
+}
+
+fn projected_focus_changed(old: &A11yTree, new: &A11yTree) -> bool {
+    let focused = |tree: &A11yTree| {
+        tree.iter()
+            .find(|node| should_restore_focus(node))
+            .map(|node| node.id.as_str())
+    };
+    focused(old) != focused(new)
+}
+
+fn update_widgets(tree: &A11yTree, widgets: &HashMap<String, Widget>) {
+    for node in tree.iter() {
+        let Some(widget) = widgets.get(&node.id) else { continue };
+        widget.set_sensitive(node.enabled);
+        if let Some(accessible) = widget.accessible() {
+            accessible.set_name(&node.accessible_name);
+        }
+        match node.role {
+            A11yRole::StaticText => {
+                if let Some(label) = widget.downcast_ref::<Label>() { label.set_text(&node.accessible_name); }
+            }
+            A11yRole::Button => {
+                if let Some(button) = widget.downcast_ref::<gtk::Button>() { button.set_label(&node.accessible_name); }
+            }
+            A11yRole::TextInput => {
+                if let Some(entry) = widget.downcast_ref::<Entry>() { entry.set_placeholder_text(Some(&node.accessible_name)); }
+            }
+            A11yRole::MenuItem => {
+                if let Some(item) = widget.downcast_ref::<MenuItem>() { item.set_label(&node.accessible_name); }
+            }
+            A11yRole::Window | A11yRole::Group | A11yRole::Slider => {}
+        }
+    }
+}
+
+#[derive(Debug)]
+struct SavedEntryState { text: String, position: i32 }
+
+fn save_entry_state(widgets: &HashMap<String, Widget>) -> HashMap<String, SavedEntryState> {
+    widgets.iter().filter_map(|(id, widget)| {
+        widget.downcast_ref::<Entry>().map(|entry| (id.clone(), SavedEntryState { text: entry.text().to_string(), position: entry.position() }))
+    }).collect()
+}
+
+fn restore_entry_state(saved: &HashMap<String, SavedEntryState>, widgets: &HashMap<String, Widget>) {
+    for (id, state) in saved {
+        if let Some(entry) = widgets.get(id).and_then(|widget| widget.downcast_ref::<Entry>()) {
+            entry.set_text(&state.text);
+            entry.set_position(state.position);
+        }
+    }
 }
 
 fn should_restore_focus(node: &A11yNode) -> bool {
