@@ -4,7 +4,7 @@
 //! exposes scene geometry, and can create a stateful runtime. Platform hosts
 //! still own window creation and presentation.
 
-use goya_ir::{ActionId, Module};
+use goya_ir::Module;
 use goya_lang::{
     compile_d1_interactions, compile_d2_interactions, layout as scene_layout, lower,
     CompiledD2Interaction, CompiledInteraction, DrawNode, Lowered, ParseError, RectMp, Scene,
@@ -20,6 +20,7 @@ pub use goya_executable::{
     CapabilityLabel, D1Outcome, D1Snapshot, D1Value, D2Outcome, EffectJournal, EffectResult,
     InputSnapshot, JournalEntry, JournalLimits,
 };
+pub use goya_ir::ActionId;
 pub use goya_lang::{CompiledD2Interaction as D2SceneInteraction, CompiledInteraction as D1SceneInteraction};
 pub use goya_vee::SubmitRequest as VeeSubmitRequest;
 
@@ -167,8 +168,8 @@ pub enum SceneInteractionRef<'a> {
     D2(&'a CompiledD2Interaction),
 }
 
-impl SceneInteractionRef<'_> {
-    pub fn name(self) -> &'_ str {
+impl<'a> SceneInteractionRef<'a> {
+    pub fn name(self) -> &'a str {
         match self {
             Self::D1(interaction) => interaction.name(),
             Self::D2(interaction) => interaction.name(),
