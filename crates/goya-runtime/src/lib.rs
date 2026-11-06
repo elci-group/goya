@@ -527,6 +527,27 @@ struct TextFieldState {
     composition_region: Option<std::ops::Range<usize>>,
 }
 
+fn finish_composition(state: &mut TextFieldState) {
+    let Some((text, cursor_begin, _)) = state.preedit.take() else {
+        state.composition_region = None;
+        return;
+    };
+    let range = state
+        .composition_region
+        .take()
+        .or_else(|| state.buffer.selection_bytes())
+        .unwrap_or_else(|| state.buffer.cursor_byte()..state.buffer.cursor_byte());
+    let insertion_start = range.start;
+    state.buffer.replace_range(range, &text);
+    let preedit_cursor = if cursor_begin >= 0 {
+        grapheme_boundary_at_or_before(&text, cursor_begin as usize)
+    } else {
+        0
+    };
+    let cursor = insertion_start + preedit_cursor;
+    state.buffer.set_selection(cursor, cursor);
+}
+
 impl Runtime {
     pub fn new(module: Module, store: Store, constraints: Constraints) -> Self {
         let text_inputs = module
