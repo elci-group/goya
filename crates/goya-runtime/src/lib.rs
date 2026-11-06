@@ -54,6 +54,19 @@ mod text_and_scroll_tests {
     }
 
     #[test]
+    fn platform_selection_offsets_snap_to_extended_graphemes() {
+        let mut text = TextBuffer::new("a👩‍💻e\u{301}z");
+        text.set_selection(15, 14);
+        assert_eq!(text.anchor_byte(), 15);
+        assert_eq!(text.cursor_byte(), 12);
+        assert_eq!(text.selection_bytes(), Some(12..15));
+
+        text.set_selection(usize::MAX, usize::MAX);
+        assert_eq!(text.cursor_byte(), text.text().len());
+        assert_eq!(text.selection_bytes(), None);
+    }
+
+    #[test]
     fn scroll_state_clamps_geometry_and_rejects_non_finite_values() {
         let mut scroll = ScrollState::default();
         scroll.set_geometry(100.0, 500.0, 40.0, 100.0);
@@ -1044,6 +1057,35 @@ mod tests {
             rt.render_list().last(),
             Some(Primitive::Text(_, value)) if value == "screen reader"
         ));
+    }
+
+    #[test]
+    fn platform_can_set_selection_only_on_the_focused_input() {
+        let module = parse("column 1 2 3\ninput 2 First\ninput 3 Second\nroot 1").unwrap();
+        let mut rt = Runtime::new(
+            module,
+            Store::new(),
+            Constraints {
+                max_width: 400_000,
+                max_height: 300_000,
+            },
+        );
+        assert!(rt.focus_input(Some(NodeId(2))));
+        assert!(rt.handle(Event::SetInputValue(NodeId(2), "a👩‍💻e\u{301}z".into(),)));
+        assert!(rt.handle(Event::SetInputSelection {
+            node: NodeId(2),
+            anchor_byte: 15,
+            cursor_byte: 14,
+        }));
+        assert_eq!(rt.input_anchor_byte(NodeId(2)), Some(15));
+        assert_eq!(rt.input_cursor_byte(NodeId(2)), Some(12));
+
+        assert!(rt.handle(Event::SetInputSelection {
+            node: NodeId(3),
+            anchor_byte: 0,
+            cursor_byte: 0,
+        }));
+        assert_eq!(rt.input_cursor_byte(NodeId(2)), Some(12));
     }
 
     #[test]
