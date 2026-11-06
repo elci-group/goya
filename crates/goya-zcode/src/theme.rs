@@ -278,4 +278,93 @@ mod tests {
             Some(rgb_u32(p.accent))
         );
     }
+
+    // --- Wave 9 (GY-ZCODE-009): per-node text colours ---
+
+    #[test]
+    fn status_text_maps_ok_err_accent_like_its_fill() {
+        let p = monitor_palette();
+        assert_eq!(node_fg_override("status", "idle", &p), Some(rgb_u32(p.ok)));
+        assert_eq!(
+            node_fg_override("status", "error", &p),
+            Some(rgb_u32(p.err))
+        );
+        assert_eq!(
+            node_fg_override("status", "running", &p),
+            Some(rgb_u32(p.accent))
+        );
+        assert_eq!(node_fg_override("status", "idle", &p), status_fill_override("idle", &p));
+    }
+
+    #[test]
+    fn non_status_names_keep_flat_fg() {
+        let p = monitor_palette();
+        assert_eq!(node_fg_override("title", "idle", &p), None);
+        assert_eq!(node_fg_override("row_00", "running", &p), None);
+        assert_eq!(node_fg_override("quit", "idle", &p), None);
+        assert_eq!(node_fg_override("composer", "idle", &p), None);
+    }
+
+    #[test]
+    fn tool_rows_colour_by_terminal_marker() {
+        let p = monitor_palette();
+        assert_eq!(row_fg_override("⚙ read_file ✓", &p), Some(rgb_u32(p.ok)));
+        assert_eq!(row_fg_override("⚙ write_file ✗", &p), Some(rgb_u32(p.err)));
+        // In-flight (… form) and non-tool rows stay flat even when they
+        // contain the gear glyph or end with ✓-like characters elsewhere.
+        assert_eq!(row_fg_override("⚙ read_file …", &p), None);
+        assert_eq!(row_fg_override("⚙ read_file", &p), None);
+        assert_eq!(row_fg_override("done ✓", &p), None);
+    }
+
+    #[test]
+    fn markdown_headings_take_accent_and_other_rows_stay_flat() {
+        let p = monitor_palette();
+        assert_eq!(row_fg_override("■ REPORT", &p), Some(rgb_u32(p.accent)));
+        assert_eq!(row_fg_override("■", &p), None, "no trailing space, not a heading row");
+        assert_eq!(row_fg_override("> user input", &p), None);
+        assert_eq!(row_fg_override("|   let a = 1;", &p), None);
+        assert_eq!(row_fg_override("• bullet one", &p), None);
+        assert_eq!(row_fg_override("", &p), None);
+    }
+
+    #[test]
+    fn override_slices_match_fill_semantics_and_primitive_order() {
+        let p = monitor_palette();
+        let nodes: Vec<(&str, Option<&str>, Option<u32>)> = vec![
+            ("title", Some("monitor"), None),
+            ("status", Some("running"), None),
+            ("row_00", Some("⚙ read ✓"), Some(0x101010)),
+            ("row_01", Some("■ HEADING"), None),
+            ("row_02", Some("plain row"), None),
+            ("quit", None, Some(0x222222)),
+        ];
+        let (fills, fgs) = override_slices(nodes, "running", &p);
+        // fills: exact Wave 4 render-path semantics (status by text, others
+        // by name, scene fill fallback), same order as the input.
+        assert_eq!(
+            fills,
+            vec![
+                Some(0x1e1e28),
+                Some(rgb_u32(p.accent)),
+                Some(0x101010),
+                None,
+                None,
+                Some(0x222222),
+            ]
+        );
+        // fgs: status accent by mapping; tool ✓ ok; heading accent; flat
+        // elsewhere (buttons/panels None).
+        assert_eq!(
+            fgs,
+            vec![
+                None,
+                Some(rgb_u32(p.accent)),
+                Some(rgb_u32(p.ok)),
+                Some(rgb_u32(p.accent)),
+                None,
+                None,
+            ]
+        );
+    }
 }
