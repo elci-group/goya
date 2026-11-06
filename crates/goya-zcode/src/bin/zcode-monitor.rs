@@ -662,30 +662,34 @@ fn headless_acceptance(store: &SceneStore) {
     // Text-colour mapping contract (GY-ZCODE-009): status text follows its
     // fill mapping, tool ✓/✗ rows take ok/err, markdown headings accent,
     // everything else stays flat. Checked through the same override_slices
-    // helper the live render path uses.
-    let fg_nodes: Vec<(&str, Option<&str>, Option<u32>)> = vec![
-        ("status", Some("idle"), None),
-        ("status", Some("error"), None),
-        ("status", Some("running"), None),
+    // helper the live render path uses; status is per-frame, so each
+    // status state gets its own pass.
+    let status_of = |status: &str, name: &str| {
+        override_slices(
+            vec![(name, Some("status"), None)],
+            status,
+            &palette,
+        )
+        .1[0]
+    };
+    let rows: Vec<(&str, Option<&str>, Option<u32>)> = vec![
         ("row_00", Some("⚙ read_file ✓"), None),
         ("row_01", Some("⚙ write_file ✗"), None),
         ("row_02", Some("■ REPORT"), None),
         ("row_03", Some("plain response"), None),
     ];
-    let (fg_fills, fgs) = override_slices(fg_nodes.clone(), "idle", &palette);
-    let fg_ok = fgs
-        == vec![
-            Some(rgb_u32_bin(palette.ok)),
-            Some(rgb_u32_bin(palette.err)),
-            Some(rgb_u32_bin(palette.accent)),
-            Some(rgb_u32_bin(palette.ok)),
-            Some(rgb_u32_bin(palette.err)),
-            Some(rgb_u32_bin(palette.accent)),
-            None,
-        ]
-        // Fills must still come out of the same pass unchanged.
-        && fg_fills[0] == status_fill_override("idle", &palette)
-        && fg_fills[1] == status_fill_override("error", &palette);
+    let (_, row_fgs) = override_slices(rows, "running", &palette);
+    let fg_ok = status_of("idle", "status") == Some(rgb_u32_bin(palette.ok))
+        && status_of("error", "status") == Some(rgb_u32_bin(palette.err))
+        && status_of("running", "status") == Some(rgb_u32_bin(palette.accent))
+        && status_of("running", "title").is_none()
+        && row_fgs
+            == vec![
+                Some(rgb_u32_bin(palette.ok)),
+                Some(rgb_u32_bin(palette.err)),
+                Some(rgb_u32_bin(palette.accent)),
+                None,
+            ];
     println!("text-colour status/tool/heading mapping [{}]", pass_str(fg_ok));
     ok &= fg_ok;
 
