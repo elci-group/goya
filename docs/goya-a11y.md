@@ -22,7 +22,23 @@ bridge.run(|node_id, action| match action {
 ```
 
 The bridge creates GTK labels, buttons, menu items, entries, and sliders from
-the projected DIG. GTK exposes these through ATK/AT-SPI; keyboard focus follows
+the projected DIG.
+
+## Text inputs (GY-ZCODE-007 wave 7)
+
+Text inputs project as `TextInput` nodes. The DIG label slot carries the
+placeholder, which is the default accessible name; a host may attach live
+text (the field's current contents) via `A11yNode::live_text` /
+`A11yNode::with_live_text`, and both screen-reader announcement and
+`A11yTree::find_by_name` resolve through `A11yNode::resolved_name` so
+lookups match what is announced. `editable` and `focusable` are derived at
+projection (enabled text inputs only), never hand-set. An input's
+activation surface is focus rather than press — its AT action set is
+`set_value` + `focus`, mirroring how buttons expose `press` +
+`keyboard_activate`. Wiring the monitor's composer into live snapshots is
+a later increment: the host must supply per-snapshot `live_text` updates
+(placeholder when empty) alongside the existing tree projection.
+ GTK exposes these through ATK/AT-SPI; keyboard focus follows
 the projected tree's stable node order, disabled nodes are insensitive, and
 activation/value callbacks carry the stable Goya node id back to the host.
 Only nodes in the exported A11yTree are exposed, so hidden DIG nodes remain

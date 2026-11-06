@@ -1166,7 +1166,7 @@ mod tests {
             view.selected = 1;
             view.push_line("old transcript line");
         }
-        handle.switch_session("s2".to_string());
+        handle.switch_session("s2".to_string(), ComposerSnapshot::default());
         let (status, tail_empty) = handle
             .view
             .lock()
@@ -1177,5 +1177,165 @@ mod tests {
             "agent-side switch resets the transcript defensively"
         );
         assert_eq!(status, "2/3 switching session…");
+    }
+
+    // --- Wave 7 (GY-ZCODE-007): per-session transcript + composer retention ---
+
+    fn composer_with(text: &str) -> ComposerSnapshot {
+        let mut c = crate::composer::Composer::default();
+        c.focused = true;
+        for ch in text.chars() {
+            c.handle_char(ch);
+        }
+        c.snapshot()
+    }
+
+    fn seeded_handle(active: &str) -> MonitorHandle {
+        let handle = MonitorHandle::new();
+        handle.set_active_session(Some(active.to_string()));
+        if let Ok(mut view) = handle.view.lock() {
+            view.push_line(&format!("transcript of {active}"));
+            view.push_line("second line");
+        }
+        handle
+    }
+
+    #[test]
+    fn switch_away_and_back_retains_transcript_and_composer() {
+        let handle = seeded_handle("sess_a");
+        let composer_snap = composer_with("draft for a");
+
+        // Switch away: sess_a's state is retained, the view resets.
+        handle.switch_session("sess_b".to_string(), composer_snap);
+        let clean = handle
+            .view
+            .lock()
+            .map(|v| v.tail.is_empty() && v.history.is_empty())
+            .unwrap_or(false);
+        assert!(clean, "switch resets the view before restore");
+        assert_eq!(handle.take_composer_restore(), None, "nothing staged yet");
+
+        // Run acquires sess_b (never seen): default empty transcript.
+        handle.on_session_acquired("sess_b");
+        let default_state = handle.view.lock().map(|v| {
+            (
+                v.history.is_empty(),
+                v.scroll_from_bottom() == 0,
+            )
+        });
+        assert_eq!(default_state, Some((true, true)));
+        assert_eq!(handle.take_composer_restore(), None);
+
+        // Switch back to sess_a (the bin snapshots its now-cleared
+        // composer), then the run re-acquires sess_a: full restore.
+        handle.set_active_session(Some("sess_b".to_string()));
+        handle.switch_session("sess_a".to_string(), composer_with(""));
+        handle.on_session_acquired("sess_a");
+        let restored = handle.view.lock().map(|v| {
+            (
+                v.history.clone(),
+                v.scroll_from_bottom() == 0,
+            )
+        });
+        assert_eq!(
+            restored,
+            Some((
+                vec![
+                    "transcript of sess_a".to_string(),
+                    "second line".to_string()
+                ],
+                true
+            )),
+            "transcript restored on return"
+        );
+        let composer = handle.take_composer_restore();
+        assert!(
+            matches!(&composer, Some(s) if s == &composer_with("draft for a")),
+            "retained composer snapshot staged on restore: {composer:?}"
+        );
+        // Drained.
+        assert_eq!(handle.take_composer_restore(), None);
+    }
+
+    #[test]
+    fn unknown_session_restore_leaves_default_empty_transcript() {
+        let handle = seeded_handle("sess_a");
+        handle.switch_session("sess_b".to_string(), ComposerSnapshot::default());
+        handle.on_session_acquired("never-seen");
+        let state = handle.view.lock().map(|v| {
+            (
+                v.tail.is_empty(),
+                v.history.is_empty(),
+                v.streaming.is_empty(),
+                v.in_flight_tools.is_empty(),
+                v.finished_tools.is_empty(),
+                v.scroll_from_bottom() == 0,
+            )
+        });
+        assert_eq!(
+            state,
+            Some((true, true, true, true, true, true)),
+            "no retained snapshot: view keeps the default empty transcript"
+        );
+        assert_eq!(handle.take_composer_restore(), None);
+    }
+
+    #[test]
+    fn retention_lru_evicts_oldest_at_cap() {
+        let handle = MonitorHandle::new();
+        for i in 0..RETENTION_CAP {
+            handle.set_active_session(Some(format!("s{i}")));
+            if let Ok(mut view) = handle.view.lock() {
+                view.reset_transcript();
+                view.push_line(&format!("line of s{i}"));
+            }
+            handle.switch_session(format!("next{i}"), ComposerSnapshot::default());
+        }
+        let len = handle
+            .retention
+            .lock()
+            .map(|r| (r.map.len(), r.order.len()))
+            .unwrap_or((0, 0));
+        assert_eq!(len, (RETENTION_CAP, RETENTION_CAP), "bounded at the cap");
+        // Saving again without eviction refreshes recency: re-save s0,
+        // then a 9th session evicts s1 (now the oldest), not s0.
+        handle.set_active_session(Some("next7".to_string()));
+        if let Ok(mut view) = handle.view.lock() {
+            view.reset_transcript();
+            view.push_line("refreshed");
+        }
+        handle.switch_session("resaved".to_string(), ComposerSnapshot::default());
+        handle.set_active_session(Some("resaved".to_string()));
+        handle.switch_session("s9th".to_string(), ComposerSnapshot::default());
+        let keys = handle.retention.lock().map(|r| r.order.clone()).unwrap_or_default();
+        assert_eq!(keys.len(), RETENTION_CAP);
+        assert!(
+            !keys.contains(&"s1".to_string()),
+            "oldest-inserted session evicted: {keys:?}"
+        );
+        assert!(
+            keys.contains(&"s0".to_string()),
+            "re-saved session stays: {keys:?}"
+        );
+        // The evicted session restores nothing.
+        handle.on_session_acquired("s1");
+        assert_eq!(handle.take_composer_restore(), None);
+    }
+
+    #[test]
+    fn switch_without_active_session_still_switches_but_stores_nothing() {
+        let handle = MonitorHandle::new();
+        handle.switch_session("sess_x".to_string(), composer_with("typed"));
+        assert_eq!(handle.pinned_session().as_deref(), Some("sess_x"));
+        let len = handle
+            .retention
+            .lock()
+            .map(|r| r.map.len())
+            .unwrap_or(0);
+        assert_eq!(len, 0, "no active session — nothing to key the snapshot on");
+        assert!(matches!(
+            handle.try_take_cmd(),
+            Some(AgentCmd::SwitchSession { ref session_id }) if session_id == "sess_x"
+        ));
     }
 }
