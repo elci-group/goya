@@ -109,6 +109,43 @@ impl<'a> MonitorClipboard<'a> {
     }
 }
 
+/// Wave 9 (GY-ZCODE-009): where a Copy action's payload goes.
+/// `RingAndSystem` is the normal path (ring record + compositor
+/// selection); `RingOnly` is the offline fallback when no system clipboard
+/// exists (no compositor / no data-device global).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CopyTarget {
+    Ring(String),
+    RingAndSystem(String),
+}
+
+/// Wave 9: pure Copy decision — pick the copy payload and its targets
+/// from the transcript rows. The payload is the last non-empty row
+/// (Wave 4 selection rule); `Some` when there is one. The bin applies the
+/// plan (`MonitorClipboard::copy_line` for the ring, `set_clipboard_text`
+/// for the system half) so the shortcut path stays testable without a
+/// window.
+pub fn plan_copy(rows: &[String], system_available: bool) -> Option<CopyTarget> {
+    let line = rows.iter().rev().find(|row| !row.is_empty())?.clone();
+    Some(if system_available {
+        CopyTarget::RingAndSystem(line)
+    } else {
+        CopyTarget::Ring(line)
+    })
+}
+
+/// Wave 9: pure Paste decision — given the compositor's `ClipboardText`
+/// answer (or `None` when absent/no data device) and the ring's most
+/// recent entry, what text is inserted at the composer cursor? The system
+/// payload wins; every `None` (see the None-ambiguity note in the module
+/// docs) falls back to the ring; both empty yields nothing to insert.
+pub fn resolve_paste(system: Option<&str>, ring: Option<&str>) -> Option<String> {
+    system
+        .filter(|t| !t.is_empty())
+        .map(str::to_string)
+        .or_else(|| ring.map(str::to_string))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
