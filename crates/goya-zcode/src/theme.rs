@@ -136,6 +136,78 @@ pub fn status_fill_override(status: &str, palette: &MonitorPalette) -> Option<u3
     Some(rgb_u32(color))
 }
 
+/// Wave 9 (GY-ZCODE-009): per-node text-colour override, the fg sibling of
+/// [`node_fill_override`]. The status node's text follows the same
+/// ok/err/accent mapping as its fill (the status colour is decided by the
+/// status text, not the node name); every other node keeps the flat scene
+/// foreground (`None`). Transcript-row text rules live in
+/// [`row_fg_override`] because they depend on the row's *text*, which this
+/// name-level function does not see — the render path composes both
+/// (see [`override_slices`]).
+pub fn node_fg_override(name: &str, view_status: &str, palette: &MonitorPalette) -> Option<u32> {
+    match name {
+        "status" => status_fill_override(view_status, palette),
+        _ => None,
+    }
+}
+
+/// Wave 9: text-based fg override for transcript rows. Tool-report lines
+/// (`⚙ <tool> …` / `⚙ <tool> ✓` / `⚙ <tool> ✗`, see the Wave 5 view
+/// contract) take ok tones on success and err tones on failure; markdown
+/// heading rows (rendered as `■ TITLE`) take the accent. Everything else —
+/// plain chat rows, code gutters, bullets, the composer — keeps the flat
+/// scene foreground (`None`).
+pub fn row_fg_override(text: &str, palette: &MonitorPalette) -> Option<u32> {
+    if text.starts_with("⚙ ") {
+        if text.ends_with('✓') {
+            Some(rgb_u32(palette.ok))
+        } else if text.ends_with('✗') {
+            Some(rgb_u32(palette.err))
+        } else {
+            // In-flight tool row (the "…" form): no recolour until it is
+            // terminal.
+            None
+        }
+    } else if text.starts_with("■ ") {
+        Some(rgb_u32(palette.accent))
+    } else {
+        None
+    }
+}
+
+/// Wave 9: build the per-primitive `fills` and `fgs` override slices in one
+/// pass, in primitive order. Nodes are `(name, text, scene fill)` triples —
+/// kept generic so this module stays free of goya-lang types. `fills`
+/// mirrors the Wave 4 render-path semantics exactly (status by status text,
+/// others by name, scene fill as the fallback); `fgs` composes
+/// [`node_fg_override`] (name level) with [`row_fg_override`] (text level,
+/// text primitives only) — `None` keeps the flat fg argument downstream.
+pub fn override_slices<'a, I>(
+    nodes: I,
+    status_text: &str,
+    palette: &MonitorPalette,
+) -> (Vec<Option<u32>>, Vec<Option<u32>>)
+where
+    I: IntoIterator<Item = (&'a str, Option<&'a str>, Option<u32>)>,
+{
+    let mut fills = Vec::new();
+    let mut fgs = Vec::new();
+    for (name, text, scene_fill) in nodes {
+        let fill = if name == "status" {
+            status_fill_override(status_text, palette).or(scene_fill)
+        } else {
+            node_fill_override(name, palette).or(scene_fill)
+        };
+        // Text colour: name-level mapping first, then the text-level row
+        // rules; buttons keep their fill semantics and never recolour.
+        let fg = node_fg_override(name, status_text, palette)
+            .or_else(|| text.and_then(row_fg_override));
+        fills.push(fill);
+        fgs.push(fg);
+    }
+    (fills, fgs)
+}
+
 fn rgb_u32(c: [u8; 3]) -> u32 {
     ((c[0] as u32) << 16) | ((c[1] as u32) << 8) | c[2] as u32
 }

@@ -1230,6 +1230,7 @@ impl GoyaWindow {
         self.present_internal(
             primitives,
             fills,
+            &[],
             Some(clips),
             None,
             None,
@@ -1257,6 +1258,7 @@ impl GoyaWindow {
         self.present_internal(
             primitives,
             fills,
+            &[],
             Some(clips),
             Some(text_sizes_pt),
             None,
@@ -1282,6 +1284,7 @@ impl GoyaWindow {
         self.present_internal(
             primitives,
             fills,
+            &[],
             None,
             Some(text_sizes_pt),
             None,
@@ -1310,6 +1313,7 @@ impl GoyaWindow {
         self.present_internal(
             primitives,
             fills,
+            &[],
             Some(clips),
             Some(text_sizes_pt),
             Some(overlays),
@@ -1345,6 +1349,7 @@ impl GoyaWindow {
         &mut self,
         primitives: &[goya_runtime::Primitive],
         fills: &[Option<u32>],
+        fgs: &[Option<u32>],
         clips: Option<&[Option<Rect>]>,
         text_sizes_pt: Option<&[Option<f32>]>,
         text_overlays: Option<&[TextOverlay]>,
@@ -1425,6 +1430,7 @@ impl GoyaWindow {
             height,
             primitives,
             fills,
+            fgs,
             fg,
             glyph_px,
             clips,
@@ -1560,6 +1566,7 @@ fn raster_primitives(
     height: i32,
     primitives: &[goya_runtime::Primitive],
     fills: &[Option<u32>],
+    fgs: &[Option<u32>],
     fg: [u8; 3],
     glyph_px: u32,
     clips: Option<&[Option<Rect>]>,
@@ -1604,7 +1611,8 @@ fn raster_primitives(
         && policy != CsrPolicy::Serial
         && workers > 1
         && raster_parallel_tiles(
-            pixels, width, height, primitives, fills, fg, glyph_px, roi, dirty, policy, workers,
+            pixels, width, height, primitives, fills, fgs, fg, glyph_px, roi, dirty, policy,
+            workers,
         )
     {
         return;
@@ -1616,6 +1624,7 @@ fn raster_primitives(
         primitives,
         RasterConfig {
             fills,
+            fgs,
             fg,
             glyph_px,
             clips,
@@ -1627,6 +1636,7 @@ fn raster_primitives(
 
 struct RasterConfig<'a> {
     fills: &'a [Option<u32>],
+    fgs: &'a [Option<u32>],
     fg: [u8; 3],
     glyph_px: u32,
     clips: Option<&'a [Option<Rect>]>,
@@ -1648,6 +1658,7 @@ fn raster_serial(
             height,
             prim,
             config.fills,
+            config.fgs,
             i,
             config.fg,
             config.glyph_px,
@@ -1669,6 +1680,7 @@ fn raster_parallel_tiles(
     height: i32,
     primitives: &[goya_runtime::Primitive],
     fills: &[Option<u32>],
+    fgs: &[Option<u32>],
     fg: [u8; 3],
     glyph_px: u32,
     roi: PixelClip,
@@ -1763,6 +1775,7 @@ fn raster_parallel_tiles(
                                     tile_h as i32,
                                     prim,
                                     fills,
+                                    fgs,
                                     i,
                                     fg,
                                     glyph_px,
