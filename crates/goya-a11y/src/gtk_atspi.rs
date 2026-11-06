@@ -10,8 +10,8 @@ use gtk::{
     Application, ApplicationWindow, Box as GtkBox, Entry, Label, MenuItem, Orientation, Scale,
     Widget,
 };
-use std::fmt;
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::mpsc;
 use std::time::Duration;
 
@@ -303,7 +303,11 @@ mod tests {
                 role: SemanticRole::Window,
                 label: "Window".into(),
                 hit_region: goya_change::PixelRect::default(),
-                state: InteractionState { enabled: true, visible: true, focused: false },
+                state: InteractionState {
+                    enabled: true,
+                    visible: true,
+                    focused: false,
+                },
                 actions: vec![],
                 exposed: true,
                 parent: None,
@@ -317,7 +321,11 @@ mod tests {
                 role: SemanticRole::Button,
                 label: "Go".into(),
                 hit_region: goya_change::PixelRect::default(),
-                state: InteractionState { enabled: true, visible: true, focused: false },
+                state: InteractionState {
+                    enabled: true,
+                    visible: true,
+                    focused: false,
+                },
                 actions: vec!["press".into()],
                 exposed: true,
                 parent: Some("root".into()),
@@ -347,7 +355,14 @@ fn make_node(
         A11yRole::Window | A11yRole::Group => {
             let panel = GtkBox::new(Orientation::Vertical, 6);
             for child in child_nodes {
-                let child = make_node(tree, child, on_action, focused, widgets, suppress_actions.clone());
+                let child = make_node(
+                    tree,
+                    child,
+                    on_action,
+                    focused,
+                    widgets,
+                    suppress_actions.clone(),
+                );
                 panel.pack_start(&child, false, false, 0);
             }
             panel.upcast()
@@ -436,23 +451,33 @@ fn projected_focus_changed(old: &A11yTree, new: &A11yTree) -> bool {
 
 fn update_widgets(tree: &A11yTree, widgets: &HashMap<String, Widget>) {
     for node in tree.iter() {
-        let Some(widget) = widgets.get(&node.id) else { continue };
+        let Some(widget) = widgets.get(&node.id) else {
+            continue;
+        };
         widget.set_sensitive(node.enabled);
         if let Some(accessible) = widget.accessible() {
             accessible.set_name(&node.accessible_name);
         }
         match node.role {
             A11yRole::StaticText => {
-                if let Some(label) = widget.downcast_ref::<Label>() { label.set_text(&node.accessible_name); }
+                if let Some(label) = widget.downcast_ref::<Label>() {
+                    label.set_text(&node.accessible_name);
+                }
             }
             A11yRole::Button => {
-                if let Some(button) = widget.downcast_ref::<gtk::Button>() { button.set_label(&node.accessible_name); }
+                if let Some(button) = widget.downcast_ref::<gtk::Button>() {
+                    button.set_label(&node.accessible_name);
+                }
             }
             A11yRole::TextInput => {
-                if let Some(entry) = widget.downcast_ref::<Entry>() { entry.set_placeholder_text(Some(&node.accessible_name)); }
+                if let Some(entry) = widget.downcast_ref::<Entry>() {
+                    entry.set_placeholder_text(Some(&node.accessible_name));
+                }
             }
             A11yRole::MenuItem => {
-                if let Some(item) = widget.downcast_ref::<MenuItem>() { item.set_label(&node.accessible_name); }
+                if let Some(item) = widget.downcast_ref::<MenuItem>() {
+                    item.set_label(&node.accessible_name);
+                }
             }
             A11yRole::Window | A11yRole::Group | A11yRole::Slider => {}
         }
@@ -460,21 +485,39 @@ fn update_widgets(tree: &A11yTree, widgets: &HashMap<String, Widget>) {
 }
 
 #[derive(Debug)]
-struct SavedEntryState { text: String, position: i32, selection: Option<(i32, i32)> }
-
-fn save_entry_state(widgets: &HashMap<String, Widget>) -> HashMap<String, SavedEntryState> {
-    widgets.iter().filter_map(|(id, widget)| {
-        widget.downcast_ref::<Entry>().map(|entry| (id.clone(), SavedEntryState {
-            text: entry.text().to_string(),
-            position: entry.position(),
-            selection: entry.selection_bounds(),
-        }))
-    }).collect()
+struct SavedEntryState {
+    text: String,
+    position: i32,
+    selection: Option<(i32, i32)>,
 }
 
-fn restore_entry_state(saved: &HashMap<String, SavedEntryState>, widgets: &HashMap<String, Widget>) {
+fn save_entry_state(widgets: &HashMap<String, Widget>) -> HashMap<String, SavedEntryState> {
+    widgets
+        .iter()
+        .filter_map(|(id, widget)| {
+            widget.downcast_ref::<Entry>().map(|entry| {
+                (
+                    id.clone(),
+                    SavedEntryState {
+                        text: entry.text().to_string(),
+                        position: entry.position(),
+                        selection: entry.selection_bounds(),
+                    },
+                )
+            })
+        })
+        .collect()
+}
+
+fn restore_entry_state(
+    saved: &HashMap<String, SavedEntryState>,
+    widgets: &HashMap<String, Widget>,
+) {
     for (id, state) in saved {
-        if let Some(entry) = widgets.get(id).and_then(|widget| widget.downcast_ref::<Entry>()) {
+        if let Some(entry) = widgets
+            .get(id)
+            .and_then(|widget| widget.downcast_ref::<Entry>())
+        {
             entry.set_text(&state.text);
             if let Some((start, end)) = state.selection {
                 entry.select_region(start, end);

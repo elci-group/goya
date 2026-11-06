@@ -2770,6 +2770,12 @@ mod raster_tests {
             dirty,
             CsrPolicy::QuadCorner,
             4,
+            WorkerPlan {
+                performance_workers: 0,
+                efficiency_workers: 0,
+                general_workers: 4,
+                affinity_mode: AffinityMode::OsManaged,
+            },
         ));
         assert_eq!(parallel, vec![background; (width * height) as usize]);
         // The public raster dispatcher falls back to serial for text scenes.
@@ -2858,6 +2864,12 @@ mod raster_tests {
                 dirty,
                 CsrPolicy::QuadCorner,
                 4,
+                WorkerPlan {
+                    performance_workers: 0,
+                    efficiency_workers: 0,
+                    general_workers: 4,
+                    affinity_mode: AffinityMode::OsManaged,
+                },
             ));
         }
         let parallel_elapsed = start.elapsed();
