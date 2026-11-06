@@ -585,4 +585,73 @@ mod tests {
         assert_eq!(c.handle_char('x'), None);
         assert_eq!(c.text(), "a汉字xb");
     }
+
+    // --- Wave 7 (GY-ZCODE-007): per-session composer retention ---
+
+    #[test]
+    fn composer_snapshot_restore_round_trips_editing_state() {
+        let mut c = focused();
+        for ch in "first\n".chars() {
+            c.handle_char(ch);
+        }
+        for ch in "second".chars() {
+            c.handle_char(ch);
+        }
+        // Cursor mid-text, a live recall (draft stashed) and a preedit
+        // overlay: all capture-relevant state except focus/preedit.
+        c.handle_special("arrow_left");
+        c.handle_special("arrow_up");
+        c.set_preedit(Some("かな"));
+
+        let snap = c.snapshot();
+        // Restore into a fresh (default) composer.
+        let mut r = Composer::default();
+        r.restore(snap.clone());
+        assert_eq!(r.text(), "second");
+        assert_eq!(r.cursor_grapheme(), 5);
+        assert_eq!(r.history, vec!["first".to_string()]);
+        assert_eq!(r.history_pos, Some(0));
+        assert_eq!(r.draft, Some("second".to_string()));
+        // Preedit is a live overlay, never retained.
+        assert_eq!(r.preedit, None);
+        assert!(!r.display().contains('«'));
+        // Focus is not captured either: a restored composer stays
+        // unfocused when the target was default.
+        assert!(!r.focused);
+        // Snapshot stays intact for a second restore (Clone semantics).
+        let mut r2 = Composer::default();
+        r2.restore(snap);
+        assert_eq!(r2.text(), "second");
+    }
+
+    #[test]
+    fn composer_restore_rebounds_cursor_within_new_text() {
+        let mut c = focused();
+        for ch in "héllo".chars() {
+            c.handle_char(ch);
+        }
+        c.handle_special("home");
+        let snap = c.snapshot();
+        // Restoring into a composer holding different (longer) text must
+        // not panic: the byte cursor snaps to a grapheme boundary.
+        let mut r = focused();
+        r.buffer.set_text("日本語テキスト");
+        r.restore(snap);
+        assert_eq!(r.text(), "héllo");
+        assert_eq!(r.cursor_grapheme(), 0);
+    }
+
+    #[test]
+    fn default_snapshot_restores_to_empty_composer() {
+        let mut c = focused();
+        for ch in "junk".chars() {
+            c.handle_char(ch);
+        }
+        c.restore(ComposerSnapshot::default());
+        assert_eq!(c.text(), "");
+        assert_eq!(c.cursor_grapheme(), 0);
+        assert!(c.history.is_empty());
+        assert_eq!(c.history_pos, None);
+        assert_eq!(c.draft, None);
+    }
 }

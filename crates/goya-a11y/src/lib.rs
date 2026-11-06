@@ -9,6 +9,12 @@
 //! This crate:
 //! - projects [`goya_ddh::DdhNode`]s into [`A11yNode`]s with AT roles,
 //!   accessible names, state and a keyboard-operable action set;
+//! - models text inputs (GY-ZCODE-007 wave 7) as [`A11yRole::TextInput`]
+//!   nodes whose accessible name is the placeholder (the DIG label slot)
+//!   with an optional host-supplied [`A11yNode::live_text`] override;
+//!   `editable`/`focusable` states are derived at projection, and an
+//!   input's activation surface is focus — unlike a button's press —
+//!   which [`A11yNode::actions_for_at`] already exposes as `"focus"`;
 //! - validates perceptual requirements against `goya-chroma` (WCAG
 //!   contrast) and the RARS text-protection policy (legibility guard).
 
@@ -182,8 +188,11 @@ impl A11yNode {
             accessible_name: node.label.clone(),
             enabled: node.state.enabled,
             focused: node.state.focused,
+            editable: node.state.enabled && node.role == SemanticRole::Textbox,
+            focusable: node.state.enabled && map_role(node.role).is_interactive(),
             hit_region: A11yRect::from_parts(r.x, r.y, r.width, r.height),
             parent: node.parent.clone(),
+            live_text: None,
             semantics: node.semantics.clone(),
         }
     }
@@ -243,7 +252,9 @@ impl A11yTree {
     /// Screen-reader lookup by accessible name (exact match, first in id
     /// order). This is the AT analogue of `ddh.find`.
     pub fn find_by_name(&self, name: &str) -> Option<&A11yNode> {
-        self.nodes.values().find(|n| n.accessible_name == name)
+        self.nodes
+            .values()
+            .find(|n| n.resolved_name() == name)
     }
 
     /// Keyboard-operability audit: every ENABLED interactive node
