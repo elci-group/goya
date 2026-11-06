@@ -49,11 +49,12 @@ required for changes). See GOYA directive §8.3.
   UTF-8 bytes; selection and composition ranges expand to complete graphemes.
   A composition region is independent of the selection; active IME preedit
   visually replaces that region, falling back to the selection or caret when
-  no region is set.
-  `FinishComposition` commits the preedit, and `CommitInputText` applies text
-  and its caret position atomically. Platform surrounding deletion preserves
-  the selected range. `ScrollState` provides clamped two-axis content/viewport
-  offsets.
+  no region is set. `input_snapshot` returns displayed text (including
+  preedit), selection, caret, and composition offsets in that same text.
+  `FinishComposition` commits the preedit, while focus loss cancels it.
+  `CommitInputText` applies text and its caret position atomically. Platform
+  surrounding deletion preserves the selected range. `ScrollState` provides
+  clamped two-axis content/viewport offsets.
 
 ## Capability schema (Wave 1 form)
 

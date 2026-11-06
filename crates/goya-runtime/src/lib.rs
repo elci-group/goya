@@ -769,10 +769,7 @@ impl Runtime {
         }
     }
 
-    pub fn input_composition_range(
-        &self,
-        node: NodeId,
-    ) -> Option<std::ops::Range<usize>> {
+    pub fn input_composition_range(&self, node: NodeId) -> Option<std::ops::Range<usize>> {
         self.input_snapshot(node)?.composition_byte_range
     }
 
