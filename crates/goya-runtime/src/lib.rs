@@ -617,6 +617,16 @@ pub struct TextDecoration {
     pub composition_byte_range: Option<(usize, usize)>,
 }
 
+/// Snapshot presented to a platform editor/IME adapter. Text includes active
+/// preedit so all offsets refer to the exact view the platform sees.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InputSnapshot {
+    pub text: String,
+    pub anchor_byte_offset: usize,
+    pub cursor_byte_offset: usize,
+    pub composition_byte_range: Option<std::ops::Range<usize>>,
+}
+
 /// Interactive scene target under a pointer, preserving draw order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HitTarget {
@@ -704,6 +714,66 @@ impl Runtime {
 
     pub fn input_text(&self, node: NodeId) -> Option<&str> {
         self.text_inputs.get(&node).map(|state| state.buffer.text())
+    }
+
+    /// Read the currently displayed editor text and its selection/IME offsets.
+    /// The returned text includes an active preedit and is owned by the snapshot.
+    pub fn input_snapshot(&self, node: NodeId) -> Option<InputSnapshot> {
+        let state = self.text_inputs.get(&node)?;
+        let buffer_text = state.buffer.text();
+        if let Some((preedit, cursor_begin, cursor_end)) = &state.preedit {
+            let replacement = state
+                .composition_region
+                .clone()
+                .or_else(|| state.buffer.selection_bytes())
+                .unwrap_or_else(|| state.buffer.cursor_byte()..state.buffer.cursor_byte());
+            let capacity = buffer_text
+                .len()
+                .saturating_sub(replacement.len())
+                .saturating_add(preedit.len());
+            let mut text = String::with_capacity(capacity);
+            text.push_str(&buffer_text[..replacement.start]);
+            let preedit_start = if *cursor_begin >= 0 {
+                grapheme_boundary_at_or_before(preedit, *cursor_begin as usize)
+            } else {
+                0
+            };
+            let preedit_end = if *cursor_end >= 0 {
+                grapheme_boundary_at_or_before(preedit, *cursor_end as usize)
+            } else {
+                preedit_start
+            };
+            let composition_start = text.len();
+            text.push_str(preedit);
+            let composition_end = text.len();
+            text.push_str(&buffer_text[replacement.end..]);
+            let cursor = composition_start + preedit_start;
+            let anchor = if preedit_start == preedit_end {
+                cursor
+            } else {
+                composition_start + preedit_end
+            };
+            Some(InputSnapshot {
+                text,
+                anchor_byte_offset: anchor,
+                cursor_byte_offset: cursor,
+                composition_byte_range: Some(composition_start..composition_end),
+            })
+        } else {
+            Some(InputSnapshot {
+                text: buffer_text.to_owned(),
+                anchor_byte_offset: state.buffer.anchor_byte(),
+                cursor_byte_offset: state.buffer.cursor_byte(),
+                composition_byte_range: state.composition_region.clone(),
+            })
+        }
+    }
+
+    pub fn input_composition_range(
+        &self,
+        node: NodeId,
+    ) -> Option<std::ops::Range<usize>> {
+        self.input_snapshot(node)?.composition_byte_range
     }
 
     /// UTF-8 byte cursor and selection anchor for compositor surrounding-text
