@@ -30,6 +30,29 @@
 //! only the compositor-free state machine and no-op paths. Whether a given
 //! desktop (wlroots, GNOME, KDE) actually delivers text-input-v3 traffic is
 //! an operator-verified acceptance item, not covered by tests here.
+//!
+//! ## System clipboard (GY-ZCODE-008)
+//!
+//! The client side of the core `wl_data_device_manager` stack is bound on
+//! the same registry path: the manager global is bound when present, a
+//! `wl_data_device` is created against the seat, and
+//! [`GoyaWindow::set_clipboard_text`] serves a `text/plain` (plus
+//! `text/plain;charset=utf-8`) selection from an in-memory payload; the
+//! compositor's `data_source.send` requests are answered with chunked
+//! writes from the pure [`ClipboardState`] serving cursor.
+//! [`GoyaWindow::request_clipboard_text`] asks the compositor for the
+//! current selection and completes as
+//! [`PlatformEvent::ClipboardText`] (None = no text selection or the
+//! offer carries no text/plain mime). Exactly one request may be
+//! outstanding; a second call while one is pending is a documented no-op.
+//!
+//! When the compositor does not advertise `wl_data_device_manager` both
+//! methods are safe no-ops (the same defensive pattern as the
+//! text-input global). Whether a given desktop actually delivers
+//! selection traffic round-trip is operator-verified acceptance
+//! territory. goya-clipboard's in-memory ring (goya-zcode) can later be
+//! backed by these host calls — that wiring belongs to goya-zcode, not
+//! this crate.
 
 use cosmic_text::{Attrs, Buffer, Color, FontSystem, Metrics, Shaping, SwashCache, Wrap};
 use goya_csr::{self, Policy as CsrPolicy};
@@ -38,14 +61,19 @@ use goya_layout::Rect;
 use rustix::fd::OwnedFd;
 use rustix::fs::{ftruncate, memfd_create, MemfdFlags};
 use rustix::mm::{mmap, munmap, MapFlags, ProtFlags};
+use rustix::pipe::pipe;
 use std::fs::File;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::os::fd::AsFd;
 use std::sync::{Mutex, OnceLock};
 use unicode_segmentation::UnicodeSegmentation;
 use wayland_client::protocol::{
     wl_buffer::WlBuffer,
     wl_compositor::WlCompositor,
+    wl_data_device::{self, WlDataDevice},
+    wl_data_device_manager::{self, WlDataDeviceManager},
+    wl_data_offer::{self, WlDataOffer},
+    wl_data_source::{self, WlDataSource},
     wl_keyboard::{self, WlKeyboard},
     wl_pointer::{self, WlPointer},
     wl_region::WlRegion,
@@ -283,6 +311,11 @@ pub enum PlatformEvent {
     /// synthesized as [`PlatformEvent::KeyChar`] events — hosts insert it at
     /// their own cursor. Applied after the protocol `done` frame.
     CommitText(String),
+    /// Completed clipboard read (GY-ZCODE-008): `Some(text)` is the current
+    /// selection's text/plain payload, `None` means no text selection exists
+    /// (or the offer carries no text/plain mime, or the payload was empty).
+    /// Delivered by [`GoyaWindow::request_clipboard_text`].
+    ClipboardText(Option<String>),
     /// Compositor resized the window to new pixel dimensions.
     Resized(i32, i32),
     Configured,
