@@ -214,10 +214,16 @@ mod tests {
         );
         // None = no selection / no text mime / empty payload (ambiguous,
         // see module docs): ring fallback.
-        assert_eq!(resolve_paste(None, Some("from ring")), Some("from ring".into()));
+        assert_eq!(
+            resolve_paste(None, Some("from ring")),
+            Some("from ring".into())
+        );
         assert_eq!(resolve_paste(None, None), None);
         // An empty system payload is as unusable as None.
-        assert_eq!(resolve_paste(Some(""), Some("from ring")), Some("from ring".into()));
+        assert_eq!(
+            resolve_paste(Some(""), Some("from ring")),
+            Some("from ring".into())
+        );
     }
 
     #[test]

@@ -293,7 +293,10 @@ mod tests {
             node_fg_override("status", "running", &p),
             Some(rgb_u32(p.accent))
         );
-        assert_eq!(node_fg_override("status", "idle", &p), status_fill_override("idle", &p));
+        assert_eq!(
+            node_fg_override("status", "idle", &p),
+            status_fill_override("idle", &p)
+        );
     }
 
     #[test]
@@ -321,7 +324,11 @@ mod tests {
     fn markdown_headings_take_accent_and_other_rows_stay_flat() {
         let p = monitor_palette();
         assert_eq!(row_fg_override("■ REPORT", &p), Some(rgb_u32(p.accent)));
-        assert_eq!(row_fg_override("■", &p), None, "no trailing space, not a heading row");
+        assert_eq!(
+            row_fg_override("■", &p),
+            None,
+            "no trailing space, not a heading row"
+        );
         assert_eq!(row_fg_override("> user input", &p), None);
         assert_eq!(row_fg_override("|   let a = 1;", &p), None);
         assert_eq!(row_fg_override("• bullet one", &p), None);

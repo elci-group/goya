@@ -33,9 +33,13 @@ use goya_lang::{hit_test, layout, DrawNode, SceneStore};
 use goya_runtime::Primitive;
 use goya_wayland::{GoyaWindow, KeySpecial, PlatformEvent, Shortcut};
 use goya_zcode::agent::{self};
-use goya_zcode::clipboard::{plan_copy, resolve_paste, AllowAllPolicy, CopyTarget, MonitorClipboard};
+use goya_zcode::clipboard::{
+    plan_copy, resolve_paste, AllowAllPolicy, CopyTarget, MonitorClipboard,
+};
 use goya_zcode::composer::Composer;
-use goya_zcode::theme::{monitor_palette, node_fill_override, override_slices, status_fill_override};
+use goya_zcode::theme::{
+    monitor_palette, node_fill_override, override_slices, status_fill_override,
+};
 use goya_zcode::view::{LinkState, ProjEvent, SessionView, ToolState, SCROLL_STEP, TAIL_LINES};
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
@@ -665,12 +669,7 @@ fn headless_acceptance(store: &SceneStore) {
     // helper the live render path uses; status is per-frame, so each
     // status state gets its own pass.
     let status_of = |status: &str, name: &str| {
-        override_slices(
-            vec![(name, Some("status"), None)],
-            status,
-            &palette,
-        )
-        .1[0]
+        override_slices(vec![(name, Some("status"), None)], status, &palette).1[0]
     };
     let rows: Vec<(&str, Option<&str>, Option<u32>)> = vec![
         ("row_00", Some("⚙ read_file ✓"), None),
@@ -690,7 +689,10 @@ fn headless_acceptance(store: &SceneStore) {
                 Some(rgb_u32_bin(palette.accent)),
                 None,
             ];
-    println!("text-colour status/tool/heading mapping [{}]", pass_str(fg_ok));
+    println!(
+        "text-colour status/tool/heading mapping [{}]",
+        pass_str(fg_ok)
+    );
     ok &= fg_ok;
 
     // Tool-row lifecycle contract (GY-ZCODE-005): started → progress
