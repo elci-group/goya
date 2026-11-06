@@ -460,13 +460,11 @@ impl SceneInputs {
             if focused {
                 let (caret_byte_offset, selection_byte_range) = match &self.preedit {
                     Some((preedit, cursor_begin, cursor_end)) => {
-                        let begin = preedit
-                            .floor_char_boundary((*cursor_begin).max(0) as usize);
+                        let begin = floor_char_boundary(preedit, (*cursor_begin).max(0) as usize);
                         let caret = preedit_start + begin;
-                        let end = preedit
-                            .floor_char_boundary((*cursor_end).max(0) as usize);
-                        let selection = (begin != end)
-                            .then_some((preedit_start + begin, preedit_start + end));
+                        let end = floor_char_boundary(preedit, (*cursor_end).max(0) as usize);
+                        let selection =
+                            (begin != end).then_some((preedit_start + begin, preedit_start + end));
                         (Some(caret), selection)
                     }
                     None => (
@@ -658,7 +656,11 @@ mod input_tests {
         );
         assert_eq!(overlays.len(), 1);
         assert_eq!(overlays[0].caret_byte_offset, Some("éか".len()));
-        assert_eq!(overlays[0].selection_byte_range, Some(("éか".len(), "éかな".len())));+    }
+        assert_eq!(
+            overlays[0].selection_byte_range,
+            Some(("éか".len(), "éかな".len()))
+        );
+    }
 
     #[test]
     fn scene_input_overlays_follow_text_buffer_selection_and_focus() {
@@ -679,7 +681,15 @@ mod input_tests {
         assert_eq!(overlays.len(), 1);
         assert_eq!(overlays[0].caret_byte_offset, Some("é🙂".len()));
         assert_eq!(overlays[0].selection_byte_range, Some((0, "é🙂".len())));
-        assert_eq!(nodes.iter().find(|node| node.name == "name").unwrap().text.as_deref(), Some("é🙂"));
+        assert_eq!(
+            nodes
+                .iter()
+                .find(|node| node.name == "name")
+                .unwrap()
+                .text
+                .as_deref(),
+            Some("é🙂")
+        );
 
         input.focus(None);
         let overlays = input.apply_to_nodes(&mut nodes);

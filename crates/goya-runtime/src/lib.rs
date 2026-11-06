@@ -433,6 +433,17 @@ pub enum Primitive {
     Button(Rect, String),
 }
 
+/// Focus decoration for an input primitive. Offsets are UTF-8 byte offsets
+/// into the corresponding `Primitive::Text` value; hosts can translate this
+/// platform-neutral description into native caret/selection drawing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextDecoration {
+    pub node_id: NodeId,
+    pub primitive_index: usize,
+    pub caret_byte_offset: Option<usize>,
+    pub selection_byte_range: Option<(usize, usize)>,
+}
+
 /// Interactive scene target under a pointer, preserving draw order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HitTarget {
@@ -772,12 +783,25 @@ impl Runtime {
 
     /// Produce the render primitive list for the current frame.
     pub fn render_list(&self) -> Vec<Primitive> {
-        let mut out = Vec::new();
-        self.emit(self.module.root, &mut out);
-        out
+        self.render_list_with_text_decorations().0
     }
 
-    fn emit(&self, id: Option<NodeId>, out: &mut Vec<Primitive>) {
+    /// Produce primitives and text decorations with stable primitive indices.
+    pub fn render_list_with_text_decorations(
+        &self,
+    ) -> (Vec<Primitive>, Vec<TextDecoration>) {
+        let mut out = Vec::new();
+        let mut decorations = Vec::new();
+        self.emit(self.module.root, &mut out, &mut decorations);
+        (out, decorations)
+    }
+
+    fn emit(
+        &self,
+        id: Option<NodeId>,
+        out: &mut Vec<Primitive>,
+        decorations: &mut Vec<TextDecoration>,
+    ) {
         let Some(id) = id else { return };
         let Some(node) = self.module.node(id) else {
             return;
@@ -792,7 +816,7 @@ impl Runtime {
             Node::Column { children } | Node::Row { children } => {
                 out.push(Primitive::Panel(rect));
                 for child in children {
-                    self.emit(Some(*child), out);
+                    self.emit(Some(*child), out, decorations);
                 }
             }
             Node::Text { content } => out.push(Primitive::Text(rect, content.clone())),
@@ -804,34 +828,38 @@ impl Runtime {
                     let text = state.buffer.text();
                     let cursor = state.buffer.cursor_byte().min(text.len());
                     let mut value = String::with_capacity(
-                        text.len()
-                            + placeholder.len()
-                            + state.preedit.as_ref().map_or(0, |p| p.0.len())
-                            + usize::from(focused) * '│'.len_utf8(),
+                        text.len() + placeholder.len() + state.preedit.as_ref().map_or(0, |p| p.0.len()),
                     );
+                    let mut caret_byte_offset = None;
+                    let mut selection_byte_range = None;
                     if text.is_empty() && state.preedit.is_none() {
-                        if focused {
-                            value.push('│');
-                        }
                         value.push_str(placeholder);
+                        if focused { caret_byte_offset = Some(0); }
                     } else {
                         value.push_str(&text[..cursor]);
                         if let Some((preedit, cursor_begin, _)) = &state.preedit {
-                            if focused && *cursor_begin >= 0 {
-                                let offset =
-                                    grapheme_boundary_at_or_before(preedit, *cursor_begin as usize);
-                                value.push_str(&preedit[..offset]);
-                                value.push('│');
-                                value.push_str(&preedit[offset..]);
-                            } else {
-                                value.push_str(preedit);
+                            let base = value.len();
+                            value.push_str(preedit);
+                            if focused {
+                                let start = if *cursor_begin >= 0 { grapheme_boundary_at_or_before(preedit, *cursor_begin as usize) } else { 0 };
+                                let end = if state.preedit.as_ref().is_some_and(|(_, _, end)| *end >= 0) {
+                                    let end = state.preedit.as_ref().unwrap().2 as usize;
+                                    grapheme_boundary_at_or_before(preedit, end)
+                                } else { start };
+                                caret_byte_offset = Some(base + start);
+                                if end > start { selection_byte_range = Some((base + start, base + end)); }
                             }
                         } else if focused {
-                            value.push('│');
+                            caret_byte_offset = Some(value.len());
+                            selection_byte_range = state.buffer.selection_bytes().map(|r| (r.start, r.end));
                         }
                         value.push_str(&text[cursor..]);
                     }
+                    let primitive_index = out.len();
                     out.push(Primitive::Text(rect, value));
+                    if focused {
+                        decorations.push(TextDecoration { node_id: id, primitive_index, caret_byte_offset, selection_byte_range });
+                    }
                 } else {
                     out.push(Primitive::Text(rect, placeholder.clone()));
                 }
