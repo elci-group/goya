@@ -39,7 +39,8 @@ class GoyaInputView @JvmOverloads constructor(
      * Bind this view to one runtime input node. The focus callback must
      * forward View focus changes to the runtime's input-focus dispatch. It is
      * invoked synchronously through [editorDispatcher]. Call this method on
-     * the View thread.
+     * the View thread. The editor-action callback is invoked synchronously on
+     * the runtime owner thread and should schedule View work when needed.
      */
     fun bindInput(
         adapter: GoyaImeAdapter,
@@ -51,7 +52,9 @@ class GoyaInputView @JvmOverloads constructor(
         onEditorAction: ((Int) -> Boolean)? = null,
         cursorAnchorPublisher: GoyaCursorAnchorPublisher? = null,
     ) {
-        if (runtimeFocused) dispatchRuntimeFocus(false)
+        if (runtimeFocused) {
+            dispatchRuntimeFocus(false)
+        }
         activeConnection?.invalidate()
         this.adapter = adapter
         this.bridge = bridge
@@ -100,9 +103,12 @@ class GoyaInputView @JvmOverloads constructor(
         previouslyFocusedRect: android.graphics.Rect?,
     ) {
         if (!focused) {
-            dispatchRuntimeFocus(false)
-            activeConnection?.invalidate()
-            activeConnection = null
+            try {
+                dispatchRuntimeFocus(false)
+            } finally {
+                activeConnection?.invalidate()
+                activeConnection = null
+            }
         }
         super.onFocusChanged(focused, direction, previouslyFocusedRect)
         if (focused) dispatchRuntimeFocus(true)
@@ -130,17 +136,23 @@ class GoyaInputView @JvmOverloads constructor(
     }
 
     override fun onDetachedFromWindow() {
-        dispatchRuntimeFocus(false)
-        activeConnection?.invalidate()
-        activeConnection = null
-        super.onDetachedFromWindow()
+        try {
+            dispatchRuntimeFocus(false)
+        } finally {
+            activeConnection?.invalidate()
+            activeConnection = null
+            super.onDetachedFromWindow()
+        }
     }
 
     private fun dispatchRuntimeFocus(focused: Boolean) {
         if (runtimeFocused == focused) return
         val dispatcher = editorDispatcher ?: return
-        dispatcher.callSynchronously { focusChanged?.invoke(focused) }
-        runtimeFocused = focused
+        try {
+            dispatcher.callSynchronously { focusChanged?.invoke(focused) }
+        } finally {
+            runtimeFocused = focused
+        }
     }
 
     /** Request focus and ask Android to display the currently selected IME. */
