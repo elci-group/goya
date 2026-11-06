@@ -98,11 +98,17 @@ impl NumericRange {
             && step.is_finite()
             && minimum < maximum
             && step > 0.0)
-            .then_some(Self { minimum, maximum, step })
+            .then_some(Self {
+                minimum,
+                maximum,
+                step,
+            })
     }
 
     pub fn clamp(&self, value: f64) -> Option<f64> {
-        value.is_finite().then(|| value.clamp(self.minimum, self.maximum))
+        value
+            .is_finite()
+            .then(|| value.clamp(self.minimum, self.maximum))
     }
 }
 

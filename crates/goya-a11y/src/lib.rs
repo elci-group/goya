@@ -330,6 +330,20 @@ mod tests {
     }
 
     #[test]
+    fn projection_carries_value_description_selection_and_range() {
+        let mut ddh = node("volume", SemanticRole::Slider, "Volume", None);
+        ddh.semantics = SemanticAttributes {
+            value: Some("0.75".into()),
+            description: Some("Output level".into()),
+            selected: Some(true),
+            range: goya_ddh::NumericRange::new(0.0, 1.0, 0.05),
+        };
+        let projected = A11yNode::from_ddh(&ddh);
+        assert_eq!(projected.semantics, ddh.semantics);
+        assert_eq!(projected.actions_for_at(), vec!["set_value", "focus"]);
+    }
+
+    #[test]
     fn hidden_nodes_are_excluded_from_the_at_tree() {
         let mut dig = Dig::new();
         dig.put(node("root", SemanticRole::Window, "Main", None), 1);

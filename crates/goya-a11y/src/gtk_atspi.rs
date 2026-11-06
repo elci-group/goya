@@ -398,7 +398,10 @@ fn make_node(
             panel.upcast()
         }
         A11yRole::StaticText => Label::new(Some(
-            node.semantics.value.as_deref().unwrap_or(&node.accessible_name),
+            node.semantics
+                .value
+                .as_deref()
+                .unwrap_or(&node.accessible_name),
         ))
         .upcast(),
         A11yRole::Button => {
@@ -496,14 +499,11 @@ fn make_node(
 fn same_structure(old: &A11yTree, new: &A11yTree) -> bool {
     old.nodes.len() == new.nodes.len()
         && old.nodes.iter().all(|(id, node)| {
-            new.nodes
-                .get(id)
-                .is_some_and(|other| {
-                    node.role == other.role
-                        && node.parent == other.parent
-                        && node.semantics.selected.is_some()
-                            == other.semantics.selected.is_some()
-                })
+            new.nodes.get(id).is_some_and(|other| {
+                node.role == other.role
+                    && node.parent == other.parent
+                    && node.semantics.selected.is_some() == other.semantics.selected.is_some()
+            })
         })
 }
 
@@ -552,7 +552,9 @@ fn update_widgets(old: &A11yTree, tree: &A11yTree, widgets: &HashMap<String, Wid
             A11yRole::TextInput => {
                 if let Some(entry) = widget.downcast_ref::<Entry>() {
                     entry.set_placeholder_text(Some(&node.accessible_name));
-                    let old_value = old.get(&node.id).and_then(|old| old.semantics.value.as_deref());
+                    let old_value = old
+                        .get(&node.id)
+                        .and_then(|old| old.semantics.value.as_deref());
                     if node.semantics.value.as_deref() != old_value {
                         if let Some(value) = node.semantics.value.as_deref() {
                             let position = entry.position();
