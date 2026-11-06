@@ -46,9 +46,10 @@ required for changes). See GOYA directive §8.3.
   edits extended grapheme clusters, maintains selection and bounded undo/redo;
   declared `Node::Input` fields share this model for keyboard, IME batch, and
   accessibility value updates. Platform selection and composition offsets are
-  UTF-8 bytes and snap to grapheme boundaries. A composition region is
-  independent of the selection; active IME preedit visually replaces that
-  region, falling back to the selection or caret when no region is set.
+  UTF-8 bytes; selection and composition ranges expand to complete graphemes.
+  A composition region is independent of the selection; active IME preedit
+  visually replaces that region, falling back to the selection or caret when
+  no region is set.
   `FinishComposition` commits the preedit, and `CommitInputText` applies text
   and its caret position atomically. Platform surrounding deletion preserves
   the selected range. `ScrollState` provides clamped two-axis content/viewport
