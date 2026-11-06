@@ -74,6 +74,22 @@ pub enum ToolState {
     Failed,
 }
 
+/// Wave 7 (GY-ZCODE-007): session-scoped transcript state, saved by
+/// [`SessionView::snapshot_transcript`] on switch and restored by
+/// [`SessionView::restore_transcript`] on return. Everything the switch
+/// previously dropped via `reset_transcript` travels here; link state,
+/// the sessions list, the selection index and the `markdown` toggle stay
+/// with the view (list/global state, not transcript).
+#[derive(Clone, Debug, Default)]
+pub struct SessionTranscript {
+    tail: VecDeque<String>,
+    history: Vec<String>,
+    streaming: String,
+    scroll: ScrollState,
+    in_flight_tools: VecDeque<String>,
+    finished_tools: VecDeque<String>,
+}
+
 #[derive(Clone, Debug)]
 pub struct SessionView {
     pub link: LinkState,

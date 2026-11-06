@@ -202,7 +202,9 @@ impl A11yNode {
     /// Keyboard operability is mandatory for interactive roles: buttons
     /// are always keyboard-activatable, so `keyboard_activate` is exposed
     /// unconditionally for them regardless of the DIG's declared pointer
-    /// actions. Static text exposes no actions — it is read-only.
+    /// actions. Text inputs activate by acquiring focus (`"focus"`) and
+    /// accept value updates (`"set_value"`), mirroring the GTK bridge's
+    /// entry mapping. Static text exposes no actions — it is read-only.
     pub fn actions_for_at(&self) -> Vec<&'static str> {
         match self.role {
             A11yRole::Button => vec!["press", "keyboard_activate"],
