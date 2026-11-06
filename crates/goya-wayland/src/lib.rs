@@ -3586,7 +3586,10 @@ mod fill_tests {
 
 #[cfg(test)]
 mod multiline_tests {
-    use super::{argb, draw_bitmap_glyphs, draw_glyphs, raster_primitives, MP_PER_PX};
+    use super::{
+        argb, draw_bitmap_glyphs, draw_glyphs, measure_text, measure_text_caret,
+        raster_primitives, snap_grapheme_boundary, MP_PER_PX,
+    };
     use goya_layout::Rect;
 
     fn rect(x: i64, y: i64, w: i64, h: i64) -> Rect {
@@ -3596,6 +3599,28 @@ mod multiline_tests {
             width: w * MP_PER_PX,
             height: h * MP_PER_PX,
         }
+    }
+
+    #[test]
+    fn measured_extent_and_caret_follow_wrapped_shaped_layout() {
+        let text = "alpha beta gamma delta";
+        let extent = measure_text(text, 48.0, 180.0, 14.0).unwrap();
+        assert!(extent.lines >= 2);
+        assert!(extent.width_px <= 48.0);
+        let first = measure_text_caret(text, 48.0, 180.0, 14.0, 1).unwrap();
+        let later = measure_text_caret(text, 48.0, 180.0, 14.0, text.len()).unwrap();
+        assert!(first.height_px > 0.0);
+        assert!(later.y_px > first.y_px, "{first:?} -> {later:?}");
+    }
+
+    #[test]
+    fn text_metrics_snap_offsets_to_grapheme_boundaries() {
+        let text = "a\u{301}👩‍💻z";
+        assert_eq!(snap_grapheme_boundary(text, 2), 0);
+        assert_eq!(snap_grapheme_boundary(text, 3), 3);
+        assert_eq!(snap_grapheme_boundary(text, 7), 3);
+        assert_eq!(snap_grapheme_boundary(text, text.len() + 20), text.len());
+        assert!(measure_text(text, 0.0, 50.0, 12.0).is_none());
     }
 
     #[test]
