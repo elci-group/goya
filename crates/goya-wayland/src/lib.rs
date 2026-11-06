@@ -30,7 +30,6 @@
 //! an operator-verified acceptance item, not covered by tests here.
 
 use cosmic_text::{Attrs, Buffer, Color, FontSystem, Metrics, Shaping, SwashCache, Wrap};
-use unicode_segmentation::UnicodeSegmentation;
 use goya_csr::{self, Policy as CsrPolicy};
 use goya_hcar::{AffinityMode, Classifier, CoreAssignment, WorkCost, WorkItem};
 use goya_layout::Rect;
@@ -41,6 +40,7 @@ use std::fs::File;
 use std::io::Read;
 use std::os::fd::AsFd;
 use std::sync::{Mutex, OnceLock};
+use unicode_segmentation::UnicodeSegmentation;
 use wayland_client::protocol::{
     wl_buffer::WlBuffer,
     wl_compositor::WlCompositor,
@@ -100,7 +100,11 @@ pub fn measure_text(text: &str, width_px: f32, height_px: f32, font_px: f32) -> 
         return None;
     };
     let buffer = shape_text(&mut font_system, text, width_px, height_px, font_px);
-    let mut extent = TextExtent { width_px: 0.0, height_px: 0.0, lines: 0 };
+    let mut extent = TextExtent {
+        width_px: 0.0,
+        height_px: 0.0,
+        lines: 0,
+    };
     for run in buffer.layout_runs() {
         extent.width_px = extent.width_px.max(run.line_w);
         extent.height_px = extent.height_px.max(run.line_top + run.line_height);
@@ -128,23 +132,47 @@ pub fn measure_text_caret(
         return None;
     };
     let buffer = shape_text(&mut font_system, text, width_px, height_px, font_px);
+    if text.is_empty() {
+        return Some(TextCaret {
+            x_px: 0.0,
+            y_px: 0.0,
+            height_px: (font_px * 1.4).max(font_px + 1.0),
+        });
+    }
     let byte_offset = snap_grapheme_boundary(text, byte_offset.min(text.len()));
     let cursor = text_cursor(&buffer, text, byte_offset)?;
     for run in buffer.layout_runs() {
         if let Some((x, _)) = run.highlight(cursor, cursor) {
-            return Some(TextCaret { x_px: x, y_px: run.line_top, height_px: run.line_height });
+            return Some(TextCaret {
+                x_px: x,
+                y_px: run.line_top,
+                height_px: run.line_height,
+            });
         }
     }
     None
 }
 
 fn valid_text_dimensions(width: f32, height: f32, font: f32) -> bool {
-    width.is_finite() && width > 0.0 && height.is_finite() && height > 0.0
-        && font.is_finite() && font > 0.0
+    width.is_finite()
+        && width > 0.0
+        && height.is_finite()
+        && height > 0.0
+        && font.is_finite()
+        && font > 0.0
 }
 
-fn shape_text(font_system: &mut FontSystem, text: &str, width_px: f32, height_px: f32, font_px: f32) -> Buffer {
-    let mut buffer = Buffer::new(font_system, Metrics::new(font_px, (font_px * 1.4).max(font_px + 1.0)));
+fn shape_text(
+    font_system: &mut FontSystem,
+    text: &str,
+    width_px: f32,
+    height_px: f32,
+    font_px: f32,
+) -> Buffer {
+    let mut buffer = Buffer::new(
+        font_system,
+        Metrics::new(font_px, (font_px * 1.4).max(font_px + 1.0)),
+    );
     buffer.set_size(font_system, Some(width_px), Some(height_px));
     buffer.set_wrap(font_system, Wrap::WordOrGlyph);
     buffer.set_text(font_system, text, &Attrs::new(), Shaping::Advanced, None);
@@ -153,7 +181,11 @@ fn shape_text(font_system: &mut FontSystem, text: &str, width_px: f32, height_px
 }
 
 fn snap_grapheme_boundary(text: &str, offset: usize) -> usize {
-    if offset == text.len() || text.grapheme_indices(true).any(|(start, _)| start == offset) {
+    if offset == text.len()
+        || text
+            .grapheme_indices(true)
+            .any(|(start, _)| start == offset)
+    {
         return offset;
     }
     text.grapheme_indices(true)
@@ -169,12 +201,22 @@ fn text_cursor(buffer: &Buffer, text: &str, byte_offset: usize) -> Option<cosmic
         let line_text = line.text();
         let end = base.checked_add(line_text.len())?;
         if byte_offset <= end {
-            return Some(cosmic_text::Cursor::new(line_i, byte_offset.saturating_sub(base)));
+            return Some(cosmic_text::Cursor::new(
+                line_i,
+                byte_offset.saturating_sub(base),
+            ));
         }
-        base = end.saturating_add(text.get(end..).and_then(|tail| tail.chars().next()).map_or(0, char::len_utf8));
+        base = end.saturating_add(
+            text.get(end..)
+                .and_then(|tail| tail.chars().next())
+                .map_or(0, char::len_utf8),
+        );
     }
     let line_i = buffer.lines.len().checked_sub(1)?;
-    Some(cosmic_text::Cursor::new(line_i, buffer.lines[line_i].text().len()))
+    Some(cosmic_text::Cursor::new(
+        line_i,
+        buffer.lines[line_i].text().len(),
+    ))
 }
 
 /// Pointer/button events translated from the compositor, surface-local.
@@ -203,7 +245,10 @@ pub enum PlatformEvent {
     /// Positive values mean up/left, matching [`PlatformEvent::PointerScroll`].
     /// Horizontal and vertical axes are emitted independently as Wayland
     /// reports them; consumers should accumulate fractional values.
-    PointerScrollDelta { x: f64, y: f64 },
+    PointerScrollDelta {
+        x: f64,
+        y: f64,
+    },
     /// Ctrl+c / ctrl+v / ctrl+q (GY-ZCODE-004). Only produced by the xkb
     /// state path; the keymap-free evdev fallback tracks no ctrl modifier
     /// and therefore never emits shortcuts.
@@ -698,10 +743,8 @@ impl GoyaWindowInner {
                 ctrl: self.ctrl,
             };
             if modifiers.shift || modifiers.ctrl {
-                self.events.push(PlatformEvent::KeySpecialWithModifiers {
-                    key: ks,
-                    modifiers,
-                });
+                self.events
+                    .push(PlatformEvent::KeySpecialWithModifiers { key: ks, modifiers });
             } else {
                 self.events.push(PlatformEvent::KeySpecial(ks));
             }
@@ -2717,7 +2760,9 @@ impl Dispatch<WlPointer, ()> for GoyaWindowInner {
                     state.events.push(PlatformEvent::PointerScroll(lines));
                 }
                 if let Some((x, y)) = scroll_delta(wl_pointer::Axis::VerticalScroll, value) {
-                    state.events.push(PlatformEvent::PointerScrollDelta { x, y });
+                    state
+                        .events
+                        .push(PlatformEvent::PointerScrollDelta { x, y });
                 }
             }
             wl_pointer::Event::Axis {
@@ -2726,7 +2771,9 @@ impl Dispatch<WlPointer, ()> for GoyaWindowInner {
                 ..
             } => {
                 if let Some((x, y)) = scroll_delta(wl_pointer::Axis::HorizontalScroll, value) {
-                    state.events.push(PlatformEvent::PointerScrollDelta { x, y });
+                    state
+                        .events
+                        .push(PlatformEvent::PointerScrollDelta { x, y });
                 }
             }
             wl_pointer::Event::Leave { .. } => state.last_pointer = None,
@@ -3192,8 +3239,14 @@ mod key_special_tests {
             Some((1.5, 0.0))
         );
         assert_eq!(scroll_delta(wl_pointer::Axis::VerticalScroll, 0.0), None);
-        assert_eq!(scroll_delta(wl_pointer::Axis::VerticalScroll, f64::NAN), None);
-        assert_eq!(scroll_delta(wl_pointer::Axis::VerticalScroll, f64::INFINITY), None);
+        assert_eq!(
+            scroll_delta(wl_pointer::Axis::VerticalScroll, f64::NAN),
+            None
+        );
+        assert_eq!(
+            scroll_delta(wl_pointer::Axis::VerticalScroll, f64::INFINITY),
+            None
+        );
     }
 }
 
@@ -3587,8 +3640,8 @@ mod fill_tests {
 #[cfg(test)]
 mod multiline_tests {
     use super::{
-        argb, draw_bitmap_glyphs, draw_glyphs, measure_text, measure_text_caret,
-        raster_primitives, snap_grapheme_boundary, MP_PER_PX,
+        argb, draw_bitmap_glyphs, draw_glyphs, measure_text, measure_text_caret, raster_primitives,
+        snap_grapheme_boundary, MP_PER_PX,
     };
     use goya_layout::Rect;
 
@@ -3611,6 +3664,18 @@ mod multiline_tests {
         let later = measure_text_caret(text, 48.0, 180.0, 14.0, text.len()).unwrap();
         assert!(first.height_px > 0.0);
         assert!(later.y_px > first.y_px, "{first:?} -> {later:?}");
+    }
+
+    #[test]
+    fn measured_caret_handles_empty_text_line_ends_and_newlines() {
+        let empty = measure_text_caret("", 80.0, 40.0, 12.0, 0).unwrap();
+        assert_eq!(empty.x_px, 0.0);
+        let text = "abc\ndef";
+        let before_newline = measure_text_caret(text, 80.0, 60.0, 12.0, 3).unwrap();
+        let after_newline = measure_text_caret(text, 80.0, 60.0, 12.0, 4).unwrap();
+        assert!(after_newline.y_px > before_newline.y_px);
+        let far_past_end = measure_text_caret(text, 80.0, 60.0, 12.0, usize::MAX).unwrap();
+        assert!(far_past_end.x_px.is_finite());
     }
 
     #[test]

@@ -334,9 +334,7 @@ mod tests {
     #[test]
     fn wrap_hard_splits_only_between_grapheme_clusters() {
         let family = "👨‍👩‍👧‍👦";
-        let src = format!(
-            "@ontology s {{ @cell t {{ text: \"éx {family}y\" wrap: 1 }} }}"
-        );
+        let src = format!("@ontology s {{ @cell t {{ text: \"éx {family}y\" wrap: 1 }} }}");
         let scene = parse(&src).unwrap();
         let text = layout(&scene, 800.0, 600.0).find("t").unwrap().text.clone();
         assert_eq!(text.as_deref(), Some("é\nx\n👨‍👩‍👧‍👦\ny"));
