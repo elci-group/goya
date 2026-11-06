@@ -1932,24 +1932,40 @@ fn raster_text_overlays(
             let start = snap_grapheme_boundary(text, start.min(text.len()));
             let end = snap_grapheme_boundary(text, end.min(text.len()));
             if start != end {
+                let (start, end) = if start < end {
+                    (start, end)
+                } else {
+                    (end, start)
+                };
                 if let (Some(start_cursor), Some(end_cursor)) = (
                     text_cursor(&buffer, text, start),
                     text_cursor(&buffer, text, end),
                 ) {
-                    let (start_cursor, end_cursor) = if start_cursor <= end_cursor {
-                        (start_cursor, end_cursor)
-                    } else {
-                        (end_cursor, start_cursor)
-                    };
                     for run in buffer.layout_runs() {
-                        if let Some((x, span)) = run.highlight(start_cursor, end_cursor) {
+                        if run.line_i < start_cursor.line || run.line_i > end_cursor.line {
+                            continue;
+                        }
+                        let line_start = if run.line_i == start_cursor.line {
+                            start_cursor.index
+                        } else {
+                            0
+                        };
+                        let line_end = if run.line_i == end_cursor.line {
+                            end_cursor.index
+                        } else {
+                            run.text.len()
+                        };
+                        for glyph in run.glyphs {
+                            if glyph.end <= line_start || glyph.start >= line_end {
+                                continue;
+                            }
                             draw_overlay_rect(
                                 pixels,
                                 width,
                                 height,
-                                origin_x + x,
+                                origin_x + glyph.x,
                                 origin_y + run.line_top,
-                                span.max(1.0),
+                                glyph.w.max(1.0),
                                 run.line_height,
                                 overlay.selection_rgb,
                                 112,
@@ -1966,7 +1982,7 @@ fn raster_text_overlays(
             if let Some(cursor) = text_cursor(&buffer, text, offset) {
                 let mut caret = None;
                 for run in buffer.layout_runs() {
-                    if let Some((x, _)) = run.highlight(cursor, cursor) {
+                    if let Some(x) = caret_x_for_run(&run, cursor) {
                         caret = Some((origin_x + x, origin_y + run.line_top, run.line_height));
                         break;
                     }
@@ -1988,6 +2004,31 @@ fn raster_text_overlays(
             }
         }
     }
+}
+
+fn caret_x_for_run(run: &cosmic_text::LayoutRun<'_>, cursor: cosmic_text::Cursor) -> Option<f32> {
+    if run.line_i != cursor.line {
+        return None;
+    }
+    let mut alternate = None;
+    for glyph in run.glyphs {
+        let ltr = glyph.level.is_ltr();
+        if cursor.index == glyph.start {
+            let x = if ltr { glyph.x } else { glyph.x + glyph.w };
+            if cursor.affinity == cosmic_text::Affinity::After {
+                return Some(x);
+            }
+            alternate = Some(x);
+        }
+        if cursor.index == glyph.end {
+            let x = if ltr { glyph.x + glyph.w } else { glyph.x };
+            if cursor.affinity == cosmic_text::Affinity::Before {
+                return Some(x);
+            }
+            alternate = Some(x);
+        }
+    }
+    alternate
 }
 
 fn draw_overlay_rect(
