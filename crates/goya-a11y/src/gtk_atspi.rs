@@ -397,7 +397,10 @@ fn make_node(
             }
             panel.upcast()
         }
-        A11yRole::StaticText => Label::new(Some(&node.accessible_name)).upcast(),
+        A11yRole::StaticText => Label::new(Some(
+            node.semantics.value.as_deref().unwrap_or(&node.accessible_name),
+        ))
+        .upcast(),
         A11yRole::Button => {
             let button: Widget = if node.semantics.selected.is_some() {
                 let button = gtk::ToggleButton::with_label(&node.accessible_name);
@@ -495,7 +498,12 @@ fn same_structure(old: &A11yTree, new: &A11yTree) -> bool {
         && old.nodes.iter().all(|(id, node)| {
             new.nodes
                 .get(id)
-                .is_some_and(|other| node.role == other.role && node.parent == other.parent)
+                .is_some_and(|other| {
+                    node.role == other.role
+                        && node.parent == other.parent
+                        && node.semantics.selected.is_some()
+                            == other.semantics.selected.is_some()
+                })
         })
 }
 
@@ -523,7 +531,12 @@ fn update_widgets(old: &A11yTree, tree: &A11yTree, widgets: &HashMap<String, Wid
         match node.role {
             A11yRole::StaticText => {
                 if let Some(label) = widget.downcast_ref::<Label>() {
-                    label.set_text(&node.accessible_name);
+                    label.set_text(
+                        node.semantics
+                            .value
+                            .as_deref()
+                            .unwrap_or(&node.accessible_name),
+                    );
                 }
             }
             A11yRole::Button => {
