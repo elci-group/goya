@@ -398,6 +398,13 @@ pub enum Event {
     FocusInput(Option<NodeId>),
     /// Replace the focused field's value (used by accessibility adapters).
     SetInputValue(NodeId, String),
+    /// Set a focused input's selection using UTF-8 byte offsets. Offsets are
+    /// clamped to extended-grapheme boundaries before they reach the buffer.
+    SetInputSelection {
+        node: NodeId,
+        anchor_byte: usize,
+        cursor_byte: usize,
+    },
     TextBackspace,
     TextDelete,
     TextMoveLeft {
