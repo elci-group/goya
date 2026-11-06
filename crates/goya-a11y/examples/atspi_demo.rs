@@ -1,7 +1,7 @@
 use goya_a11y::gtk_atspi::{AtAction, GtkAtspiBridge};
 use goya_a11y::A11yTree;
 use goya_change::PixelRect;
-use goya_ddh::{DdhNode, Dig, InteractionState, SemanticRole};
+use goya_ddh::{DdhNode, Dig, InteractionState, SemanticAttributes, SemanticRole};
 
 fn node(id: &str, role: SemanticRole, label: &str, parent: Option<&str>) -> DdhNode {
     DdhNode {
@@ -22,6 +22,7 @@ fn node(id: &str, role: SemanticRole, label: &str, parent: Option<&str>) -> DdhN
         actions: vec!["press".into()],
         exposed: true,
         parent: parent.map(str::to_owned),
+        semantics: SemanticAttributes::default(),
     }
 }
 

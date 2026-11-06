@@ -136,7 +136,8 @@ impl A11yNode {
         match self.role {
             A11yRole::Button => vec!["press", "keyboard_activate"],
             A11yRole::TextInput => vec!["set_value", "focus"],
-            A11yRole::Slider => vec!["set_value", "focus"],
+            A11yRole::Slider if self.semantics.range.is_some() => vec!["set_value", "focus"],
+            A11yRole::Slider => vec!["focus"],
             A11yRole::MenuItem => vec!["invoke", "focus"],
             A11yRole::Window | A11yRole::Group | A11yRole::StaticText => Vec::new(),
         }

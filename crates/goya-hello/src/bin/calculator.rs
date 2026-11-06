@@ -688,7 +688,7 @@ fn _anchor_check(a: Anchor) -> bool {
 /// screenshots. Mode B (direct semantic invocation) with Mode A lease
 /// checks.
 fn ddh_acceptance(store: &mut SceneStore) -> Result<(), String> {
-    use goya_ddh::{DdhNode, Dig, InteractionState, InvocationResult, SemanticRole};
+    use goya_ddh::{DdhNode, Dig, InteractionState, InvocationResult, SemanticAttributes, SemanticRole};
 
     // Build the DIG from the resolved scene: buttons + display.
     let frame = layout(store.get(), 100.0, 170.0);
@@ -739,6 +739,7 @@ fn ddh_acceptance(store: &mut SceneStore) -> Result<(), String> {
             actions: vec!["press".into()],
             exposed: true,
             parent: Some("calc.window".into()),
+            semantics: SemanticAttributes::default(),
         };
         // Semantic descriptor cost: what an agent reads to operate.
         semantic_bytes += format!(
@@ -796,6 +797,7 @@ fn ddh_acceptance(store: &mut SceneStore) -> Result<(), String> {
             actions: vec!["read".into()],
             exposed: true,
             parent: Some("calc.window".into()),
+            semantics: SemanticAttributes { value: Some(result.clone()), ..Default::default() },
         },
         2,
     );
