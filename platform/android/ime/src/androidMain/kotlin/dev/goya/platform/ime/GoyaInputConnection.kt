@@ -53,6 +53,28 @@ class GoyaInputConnection(
     override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean =
         edit { adapter.deleteSurroundingText(beforeLength, afterLength) }
 
+    override fun deleteSurroundingTextInCodePoints(
+        beforeLength: Int,
+        afterLength: Int,
+    ): Boolean {
+        if (closed || beforeLength < 0 || afterLength < 0) return false
+        val snapshot = bridge.editorSnapshot() ?: return false
+        val anchor = utf16OffsetAtByte(snapshot.text, snapshot.anchorUtf8)
+        val cursor = utf16OffsetAtByte(snapshot.text, snapshot.cursorUtf8)
+        val selectionStart = minOf(anchor, cursor)
+        val selectionEnd = maxOf(anchor, cursor)
+        val beforeStart = offsetBeforeCodePoints(snapshot.text, selectionStart, beforeLength)
+            ?: return false
+        val afterEnd = offsetAfterCodePoints(snapshot.text, selectionEnd, afterLength)
+            ?: return false
+        return edit {
+            adapter.deleteSurroundingText(
+                selectionStart - beforeStart,
+                afterEnd - selectionEnd,
+            )
+        }
+    }
+
     override fun setSelection(start: Int, end: Int): Boolean =
         edit { adapter.setSelection(start, end) }
 
@@ -180,4 +202,41 @@ private fun safeUtf16Boundary(text: String, requested: Int): Int {
         index > 0 && index < text.length &&
         Character.isHighSurrogate(text[index - 1]) && Character.isLowSurrogate(text[index])
     ) index - 1 else index
+}
+
+private fun offsetBeforeCodePoints(text: String, offset: Int, count: Int): Int? {
+    var position = offset
+    var remaining = count
+    while (remaining > 0 && position > 0) {
+        val current = text[position - 1]
+        when {
+            Character.isLowSurrogate(current) -> {
+                if (position < 2 || !Character.isHighSurrogate(text[position - 2])) return null
+                position -= 2
+            }
+            Character.isHighSurrogate(current) -> return null
+            else -> position -= 1
+        }
+        remaining -= 1
+    }
+    return position
+}
+
+private fun offsetAfterCodePoints(text: String, offset: Int, count: Int): Int? {
+    var position = offset
+    var remaining = count
+    while (remaining > 0 && position < text.length) {
+        val current = text[position]
+        when {
+            Character.isHighSurrogate(current) -> {
+                if (position + 1 >= text.length ||
+                    !Character.isLowSurrogate(text[position + 1])) return null
+                position += 2
+            }
+            Character.isLowSurrogate(current) -> return null
+            else -> position += 1
+        }
+        remaining -= 1
+    }
+    return position
 }
