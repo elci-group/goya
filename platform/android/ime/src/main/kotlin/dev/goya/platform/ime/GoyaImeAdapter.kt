@@ -34,6 +34,9 @@ interface GoyaInputBridge {
     fun editorSnapshot(): EditorSnapshot?
     fun applyImeBatch(batch: ImeBatch): Boolean
     fun setSelectionUtf8(anchor: Int, cursor: Int): Boolean
+    /** Mark an existing text range composing without moving selection or changing text. */
+    fun setComposingRegionUtf8(start: Int, end: Int): Boolean
+    fun finishComposition(): Boolean
     fun requestCursorAnchorUpdates(mode: Int, filter: Int): Boolean
 }
 
@@ -78,7 +81,12 @@ class GoyaImeAdapter(private val bridge: GoyaInputBridge) {
     fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
         if (beforeLength < 0 || afterLength < 0) return false
         val snapshot = bridge.editorSnapshot() ?: return false
+        val anchorByte = clampUtf8Boundary(snapshot.text, snapshot.anchorUtf8)
         val cursorByte = clampUtf8Boundary(snapshot.text, snapshot.cursorUtf8)
+        // Goya's current delete event is relative to its active cursor and
+        // cannot express Android's selection-excluding before/after ranges.
+        // Refuse the request instead of deleting selected text or the wrong side.
+        if (anchorByte != cursorByte) return false
         val cursorUtf16 = utf16OffsetAtByte(snapshot.text, cursorByte)
         val beforeUtf16 = safeUtf16Boundary(snapshot.text, cursorUtf16 - beforeLength)
         val afterUtf16 = safeUtf16Boundary(snapshot.text, cursorUtf16 + afterLength)
@@ -96,6 +104,20 @@ class GoyaImeAdapter(private val bridge: GoyaInputBridge) {
         val cursor = byteOffsetAtUtf16(snapshot.text, end)
         return bridge.setSelectionUtf8(anchor, cursor)
     }
+
+    /** Mark an existing range as composing; reversed endpoints are equivalent. */
+    fun setComposingRegion(start: Int, end: Int): Boolean {
+        val snapshot = bridge.editorSnapshot() ?: return false
+        val first = byteOffsetAtUtf16(snapshot.text, start)
+        val second = byteOffsetAtUtf16(snapshot.text, end)
+        val regionStart = minOf(first, second)
+        val regionEnd = maxOf(first, second)
+        if (regionStart == regionEnd) return finishComposingText()
+        return bridge.setComposingRegionUtf8(regionStart, regionEnd)
+    }
+
+    /** Finish an active preedit through GY-RUNTIME/1 Event::FinishComposition. */
+    fun finishComposingText(): Boolean = bridge.finishComposition()
 
     /** Called from InputConnection.requestCursorUpdates; geometry comes from the host's latest render. */
     fun requestCursorUpdates(mode: Int, filter: Int): Boolean =
