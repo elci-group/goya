@@ -215,6 +215,16 @@ impl TextBuffer {
         self.anchor = (anchor != cursor).then_some(anchor);
     }
 
+    fn replace_range(&mut self, range: std::ops::Range<usize>, inserted: &str) {
+        if range.is_empty() && inserted.is_empty() {
+            return;
+        }
+        self.record_undo();
+        self.text.replace_range(range.clone(), inserted);
+        self.cursor = range.start + inserted.len();
+        self.anchor = None;
+    }
+
     pub fn select_all(&mut self) {
         self.anchor = Some(0);
         self.cursor = self.text.len();
@@ -835,15 +845,31 @@ impl Runtime {
         self.edit_focused(|state| {
             if delete.is_some() {
                 state.preedit = None;
+                state.composition_region = None;
             }
             if let Some((before, after)) = delete {
                 state.buffer.delete_surrounding(before, after);
             }
             if let Some(text) = commit {
-                state.buffer.insert(&text);
+                let range = state
+                    .composition_region
+                    .take()
+                    .or_else(|| state.buffer.selection_bytes())
+                    .unwrap_or_else(|| state.buffer.cursor_byte()..state.buffer.cursor_byte());
+                state.buffer.replace_range(range, &text);
                 state.preedit = None;
             }
             if let Some(value) = preedit {
+                if state.composition_region.is_none() {
+                    state.composition_region = Some(
+                        state
+                            .buffer
+                            .selection_bytes()
+                            .unwrap_or_else(|| {
+                                state.buffer.cursor_byte()..state.buffer.cursor_byte()
+                            }),
+                    );
+                }
                 state.preedit = (!value.0.is_empty()).then_some(value);
             }
         });
