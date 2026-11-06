@@ -89,6 +89,19 @@ pub struct TextCaret {
     pub height_px: f32,
 }
 
+/// Optional caret and selection decoration for a text primitive. All offsets
+/// are UTF-8 byte offsets into the primitive's original string. Selection is
+/// rendered as a translucent overlay and the caret as a solid vertical bar;
+/// neither marker is inserted into the shaped text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TextOverlay {
+    pub primitive_index: usize,
+    pub caret_byte_offset: Option<usize>,
+    pub selection_byte_range: Option<(usize, usize)>,
+    pub caret_rgb: [u8; 3],
+    pub selection_rgb: [u8; 3],
+}
+
 /// Shape text using Goya's renderer metrics and wrapping, returning extent
 /// in pixels. Invalid dimensions or font sizes return `None`.
 pub fn measure_text(text: &str, width_px: f32, height_px: f32, font_px: f32) -> Option<TextExtent> {

@@ -578,7 +578,7 @@ mod input_tests {
         let scene = goya_lang::parse(source).unwrap();
         let frame = layout(&scene, 100.0, 100.0);
         let mut node = frame.find("name").unwrap().clone();
-        let mut buffer = TextBuffer::new("é漢字かな");
+        let mut buffer = TextBuffer::new("é漢字かな漢字かな");
         let end_rect = input_cursor_rect(&node, &buffer);
         buffer.move_home(false);
         let start_rect = input_cursor_rect(&node, &buffer);
