@@ -729,7 +729,7 @@ impl Runtime {
                 .focused_input
                 .and_then(|id| self.text_inputs.get_mut(&id))
             {
-                previous.preedit = None;
+                finish_composition(previous);
             }
         }
         self.focused_input = node;
@@ -889,29 +889,38 @@ impl Runtime {
                 before_bytes,
                 after_bytes,
             } => self.edit_focused(|state| {
-                state.preedit = None;
-                state.composition_region = None;
+                finish_composition(state);
                 state
                     .buffer
                     .delete_surrounding_excluding_selection(before_bytes, after_bytes);
             }),
-            Event::TextBackspace => self.edit_focused(|state| state.buffer.delete_backward()),
-            Event::TextDelete => self.edit_focused(|state| state.buffer.delete_forward()),
+            Event::TextBackspace => {
+                self.edit_focused_finishing_composition(|state| state.buffer.delete_backward())
+            }
+            Event::TextDelete => {
+                self.edit_focused_finishing_composition(|state| state.buffer.delete_forward())
+            }
             Event::TextMoveLeft { extend } => {
-                self.edit_focused(|state| state.buffer.move_left(extend))
+                self.edit_focused_finishing_composition(|state| state.buffer.move_left(extend))
             }
             Event::TextMoveRight { extend } => {
-                self.edit_focused(|state| state.buffer.move_right(extend))
+                self.edit_focused_finishing_composition(|state| state.buffer.move_right(extend))
             }
             Event::TextMoveHome { extend } => {
-                self.edit_focused(|state| state.buffer.move_home(extend))
+                self.edit_focused_finishing_composition(|state| state.buffer.move_home(extend))
             }
             Event::TextMoveEnd { extend } => {
-                self.edit_focused(|state| state.buffer.move_end(extend))
+                self.edit_focused_finishing_composition(|state| state.buffer.move_end(extend))
             }
-            Event::TextSelectAll => self.edit_focused(|state| state.buffer.select_all()),
-            Event::TextUndo => self.edit_focused(|state| state.buffer.undo()),
-            Event::TextRedo => self.edit_focused(|state| state.buffer.redo()),
+            Event::TextSelectAll => {
+                self.edit_focused_finishing_composition(|state| state.buffer.select_all())
+            }
+            Event::TextUndo => {
+                self.edit_focused_finishing_composition(|state| state.buffer.undo())
+            }
+            Event::TextRedo => {
+                self.edit_focused_finishing_composition(|state| state.buffer.redo())
+            }
             Event::ImeBatch {
                 preedit,
                 commit,
@@ -927,13 +936,17 @@ impl Runtime {
             }
             Event::Character('\u{8}') => {
                 if self.focused_input.is_some() {
-                    self.edit_focused(|state| state.buffer.delete_backward());
+                    self.edit_focused_finishing_composition(|state| {
+                        state.buffer.delete_backward()
+                    });
                 } else {
                     self.append_text('\u{8}');
                 }
             }
             Event::Character(c) if !c.is_control() && self.focused_input.is_some() => {
-                self.edit_focused(|state| state.buffer.insert(&c.to_string()));
+                self.edit_focused_finishing_composition(|state| {
+                    state.buffer.insert(&c.to_string())
+                });
             }
             Event::Character(_) if self.focused_input.is_some() => {}
             Event::Character(c) => self.append_text(c),
@@ -987,6 +1000,16 @@ impl Runtime {
         }
     }
 
+    fn edit_focused_finishing_composition(
+        &mut self,
+        edit: impl FnOnce(&mut TextFieldState),
+    ) {
+        self.edit_focused(|state| {
+            finish_composition(state);
+            edit(state);
+        });
+    }
+
     fn apply_ime_batch(
         &mut self,
         preedit: Option<(String, i32, i32)>,
@@ -995,8 +1018,7 @@ impl Runtime {
     ) {
         self.edit_focused(|state| {
             if delete.is_some() {
-                state.preedit = None;
-                state.composition_region = None;
+                finish_composition(state);
             }
             if let Some((before, after)) = delete {
                 state.buffer.delete_surrounding(before, after);
