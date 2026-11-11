@@ -356,7 +356,7 @@ impl MeasuredHrtfProfile {
             return Err(HrtfProfileError::MissingHeader);
         }
         let mut sample_rate_hz = None;
-        let mut responses = Vec::new();
+        let mut responses: Vec<OwnedHrtfResponse> = Vec::new();
         for raw_line in lines {
             let line = raw_line.split('#').next().unwrap_or("").trim();
             if line.is_empty() {
