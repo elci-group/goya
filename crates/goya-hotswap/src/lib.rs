@@ -570,24 +570,7 @@ impl ReconciledSupervisor {
         current_schema: u64,
         current_policy: u64,
     ) -> Result<(u64, InterfaceDiff), SwapRejection> {
-        let diff = if let Some(active) = self.active_interface() {
-            reconcile_interfaces(active, &candidate_interface).map_err(|issues| SwapRejection {
-                stage: SwapStage::Interface,
-                reason: format!("interface incompatibility: {issues:?}"),
-            })?
-        } else {
-            let mut diff = InterfaceDiff::default();
-            diff.added_exports
-                .extend(candidate_interface.exports.keys().cloned());
-            // Validate the first manifest too; it has no predecessor to diff.
-            reconcile_interfaces(&InterfaceContract::default(), &candidate_interface).map_err(
-                |issues| SwapRejection {
-                    stage: SwapStage::Interface,
-                    reason: format!("invalid candidate interface: {issues:?}"),
-                },
-            )?;
-            diff
-        };
+        let diff = self.preview_interface(&candidate_interface)?;
 
         let mut staged = self.swaps.clone();
         let revision =
@@ -595,6 +578,61 @@ impl ReconciledSupervisor {
         self.swaps = staged;
         self.interfaces.push(candidate_interface);
         Ok((revision, diff))
+    }
+
+    /// Reconcile `candidate_interface`, migrate persisted state, and activate
+    /// only after `commit` publishes the migrated snapshot.
+    ///
+    /// An interface rejection or a failed migration/commit leaves both the
+    /// executable supervisor and the interface history unchanged.
+    pub fn propose_migrated_swap<E>(
+        &mut self,
+        candidate: SwapCandidate,
+        candidate_interface: InterfaceContract,
+        stored: &goya_state::Map,
+        migrations: &[state_migration::StateMigration],
+        origination: &[String],
+        current_schema: u64,
+        current_policy: u64,
+        commit: impl FnOnce(&goya_state::Map) -> Result<(), E>,
+    ) -> Result<(u64, InterfaceDiff), MigratedSwapError<E>> {
+        let diff = self
+            .preview_interface(&candidate_interface)
+            .map_err(MigratedSwapError::Swap)?;
+        let revision = self.swaps.propose_migrated_swap(
+            candidate,
+            stored,
+            migrations,
+            origination,
+            current_schema,
+            current_policy,
+            commit,
+        )?;
+        self.interfaces.push(candidate_interface);
+        Ok((revision, diff))
+    }
+
+    fn preview_interface(
+        &self,
+        candidate_interface: &InterfaceContract,
+    ) -> Result<InterfaceDiff, SwapRejection> {
+        if let Some(active) = self.active_interface() {
+            reconcile_interfaces(active, candidate_interface).map_err(|issues| SwapRejection {
+                stage: SwapStage::Interface,
+                reason: format!("interface incompatibility: {issues:?}"),
+            })
+        } else {
+            let mut diff = InterfaceDiff::default();
+            diff.added_exports
+                .extend(candidate_interface.exports.keys().cloned());
+            reconcile_interfaces(&InterfaceContract::default(), candidate_interface).map_err(
+                |issues| SwapRejection {
+                    stage: SwapStage::Interface,
+                    reason: format!("invalid candidate interface: {issues:?}"),
+                },
+            )?;
+            Ok(diff)
+        }
     }
 
     /// Roll back executable and interface state atomically.
@@ -1014,5 +1052,157 @@ mod tests {
         supervisor.rollback().expect("rollback");
         assert_eq!(supervisor.active_interface(), Some(&first));
         assert_eq!(supervisor.active().unwrap().artifact.proof.process, "v1");
+    }
+
+    #[test]
+    fn migrated_upgrade_activates_only_after_state_commit() {
+        use goya_state::{Map, Store, Value};
+        use state_migration::{StateMigration, StateMigrationOp};
+
+        let mut supervisor = SwapSupervisor::new();
+        supervisor
+            .propose_swap(candidate("v1", 1), &origination(), SCHEMA, POLICY)
+            .unwrap();
+        let stored = Map::from([("count".into(), Value::Int(4))]);
+        let store = Store::new();
+        {
+            let tx = store.begin().unwrap();
+            assert!(tx.stage_snapshot(&stored));
+            tx.commit(|_| true).unwrap();
+        }
+        let migrations = [StateMigration {
+            from_version: 1,
+            to_version: 2,
+            operations: vec![StateMigrationOp::Rename {
+                from: "count".into(),
+                to: "total".into(),
+            }],
+        }];
+
+        let error = supervisor
+            .propose_migrated_swap(
+                candidate("v2", 2),
+                &stored,
+                &migrations,
+                &origination(),
+                SCHEMA,
+                POLICY,
+                |_| Err("rejected"),
+            )
+            .expect_err("failed publish");
+        assert!(matches!(error, MigratedSwapError::Commit("rejected")));
+        assert_eq!(supervisor.active().unwrap().state_contract_version, 1);
+        assert_eq!(store.get("count"), Some(Value::Int(4)));
+        assert_eq!(store.revision(), 1);
+
+        let mut commit_called = false;
+        let error = supervisor
+            .propose_migrated_swap(
+                candidate("v2", 2),
+                &stored,
+                &[],
+                &origination(),
+                SCHEMA,
+                POLICY,
+                |_| {
+                    commit_called = true;
+                    Ok::<(), &str>(())
+                },
+            )
+            .expect_err("missing migration");
+        assert!(matches!(error, MigratedSwapError::Migration(_)));
+        assert!(!commit_called);
+        assert_eq!(supervisor.revision(), 1);
+
+        let rev = supervisor
+            .propose_migrated_swap(
+                candidate("v2", 2),
+                &stored,
+                &migrations,
+                &origination(),
+                SCHEMA,
+                POLICY,
+                |migrated| {
+                    let tx = store.begin().unwrap();
+                    assert!(tx.stage_snapshot(migrated));
+                    tx.commit(|_| true).map_err(|_| "commit")
+                },
+            )
+            .expect("upgrade");
+        assert_eq!(rev, 2);
+        assert_eq!(
+            supervisor.active().unwrap().state_contract_version,
+            2
+        );
+        assert_eq!(
+            supervisor.active().unwrap().artifact.proof.process,
+            "v2"
+        );
+        assert_eq!(store.get("total"), Some(Value::Int(4)));
+        assert_eq!(store.get("count"), None);
+        assert_eq!(store.revision(), 2);
+    }
+
+    #[test]
+    fn reconciled_migration_rejects_breaking_interface_before_commit() {
+        use goya_state::{Map, Value};
+        use state_migration::{StateMigration, StateMigrationOp};
+
+        let mut supervisor = ReconciledSupervisor::new();
+        supervisor
+            .propose_swap(
+                candidate("v1", 1),
+                interface("clock"),
+                &origination(),
+                SCHEMA,
+                POLICY,
+            )
+            .unwrap();
+        let stored = Map::from([("count".into(), Value::Int(1))]);
+        let migrations = [StateMigration {
+            from_version: 1,
+            to_version: 2,
+            operations: vec![StateMigrationOp::SetDefault {
+                key: "extra".into(),
+                value: Value::Bool(true),
+            }],
+        }];
+        let mut breaking = interface("clock");
+        breaking.exports.remove("compute");
+        let mut committed = false;
+        let error = supervisor
+            .propose_migrated_swap(
+                candidate("v2", 2),
+                breaking,
+                &stored,
+                &migrations,
+                &origination(),
+                SCHEMA,
+                POLICY,
+                |_| {
+                    committed = true;
+                    Ok::<(), &str>(())
+                },
+            )
+            .expect_err("removed export");
+        assert!(matches!(error, MigratedSwapError::Swap(_)));
+        assert!(!committed);
+        assert_eq!(supervisor.revision(), 1);
+
+        let (rev, diff) = supervisor
+            .propose_migrated_swap(
+                candidate("v2", 2),
+                interface("clock"),
+                &stored,
+                &migrations,
+                &origination(),
+                SCHEMA,
+                POLICY,
+                |_| Ok::<(), &str>(()),
+            )
+            .unwrap();
+        assert_eq!(rev, 2);
+        assert!(diff.retained_exports.iter().any(|name| name == "compute"));
+        assert_eq!(supervisor.active().unwrap().state_contract_version, 2);
     }
 }
