@@ -485,7 +485,8 @@ mod tests {
 
     #[test]
     fn input_buttons_keep_action_order_and_button_children_do_not_panic() {
-        let src = "@ontology app { @input box { @button inner {} } @button outer { @cell hidden {} } }";
+        let src =
+            "@ontology app { @input box { @button inner {} } @button outer { @cell hidden {} } }";
         let scene = parse(src).unwrap();
         assert_eq!(scene.root.name, "app");
         let lowered = lower(&scene, 800.0, 600.0).unwrap();

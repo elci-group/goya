@@ -1089,13 +1089,9 @@ mod tests {
             current_policy: POLICY,
         };
         let error = supervisor
-            .propose_migrated_swap(
-                candidate("v2", 2),
-                &stored,
-                &migrations,
-                context,
-                |_| Err("rejected"),
-            )
+            .propose_migrated_swap(candidate("v2", 2), &stored, &migrations, context, |_| {
+                Err("rejected")
+            })
             .expect_err("failed publish");
         assert!(matches!(error, MigratedSwapError::Commit("rejected")));
         assert_eq!(supervisor.active().unwrap().state_contract_version, 1);
