@@ -253,13 +253,13 @@ impl Frame {
     /// Maximum horizontal and vertical offsets for a scroll viewport,
     /// measured from all descendants in the same scene coordinate space.
     pub fn scroll_limits(&self, name: &str) -> (i64, i64) {
-        let Some(viewport) = self.find(name).filter(|node| node.scroll) else {
+        let Some(viewport_index) = self.index.get(name).copied() else {
             return (0, 0);
         };
-        let viewport_index = self.index.get(name).copied()?;
-        // `find` above already required a scroll node; re-read by index so a
-        // later duplicate name cannot replace the viewport.
         let viewport = &self.nodes[viewport_index];
+        if !viewport.scroll {
+            return (0, 0);
+        }
         let mut content_right = viewport.rect.x.saturating_add(viewport.rect.width);
         let mut content_bottom = viewport.rect.y.saturating_add(viewport.rect.height);
         for (index, node) in self.nodes.iter().enumerate() {
@@ -295,23 +295,16 @@ impl Frame {
     pub fn scrolled_nodes(&self, offsets: &ScrollOffsets) -> Vec<DrawNode> {
         self.nodes
             .iter()
-            .map(|node| {
+            .enumerate()
+            .map(|(index, node)| {
                 let mut translated = node.clone();
                 let mut shift_x = 0i64;
                 let mut shift_y = 0i64;
                 let mut clips: Vec<RectMp> = Vec::new();
-                let mut chain = Vec::new();
-                let mut parent = node.parent.as_deref();
-                while let Some(parent_name) = parent {
-                    if let Some(parent_node) = self.find(parent_name) {
-                        chain.push(parent_node);
-                        parent = parent_node.parent.as_deref();
-                    } else {
-                        break;
-                    }
-                }
+                let mut chain = self.ancestor_indexes(index);
                 chain.reverse();
-                for ancestor in chain {
+                for ancestor_index in chain {
+                    let ancestor = &self.nodes[ancestor_index];
                     let visual_rect = RectMp {
                         x: ancestor.rect.x - shift_x,
                         y: ancestor.rect.y - shift_y,
@@ -346,8 +339,9 @@ impl Frame {
             })
     }
 
-    fn insert(&mut self, node: DrawNode) {
+    fn insert(&mut self, node: DrawNode, parent: Option<usize>) {
         self.index.insert(node.name.clone(), self.nodes.len());
+        self.parent_index.push(parent);
         self.nodes.push(node);
     }
 }
@@ -364,7 +358,7 @@ pub fn layout(scene: &Scene, width_pt: f64, height_pt: f64) -> Frame {
         width: (width_pt * MP) as i64,
         height: (height_pt * MP) as i64,
     };
-    resolve_cell(&scene.root, vp, &mut frame, None, false);
+    resolve_cell(&scene.root, vp, &mut frame, None, None, false);
     frame
 }
 
@@ -373,6 +367,7 @@ fn resolve_cell(
     parent_rect: RectMp,
     frame: &mut Frame,
     parent_name: Option<&str>,
+    parent_index: Option<usize>,
     allow_overflow: bool,
 ) {
     let rect = resolve_rect(cell, parent_rect, allow_overflow);
@@ -384,23 +379,34 @@ fn resolve_cell(
         (Some(width), Some(t)) => Some(wrap_text(t, *width as usize).join("\n")),
         _ => cell.text.clone(),
     };
-    frame.insert(DrawNode {
-        name: cell.name.clone(),
-        parent: parent_name.map(str::to_owned),
-        is_button: cell.kind == CellKind::Button,
-        is_input: cell.is_input,
-        rect,
-        clip: None,
-        fill: cell.fill,
-        stroke: cell.stroke,
-        stroke_width: cell.stroke_width,
-        text,
-        text_size: cell.text_size,
-        anchor: cell.anchor.unwrap_or(Anchor::Start),
-        scroll: cell.scroll,
-    });
+    let index = frame.nodes.len();
+    frame.insert(
+        DrawNode {
+            name: cell.name.clone(),
+            parent: parent_name.map(str::to_owned),
+            is_button: cell.kind == CellKind::Button,
+            is_input: cell.is_input,
+            rect,
+            clip: None,
+            fill: cell.fill,
+            stroke: cell.stroke,
+            stroke_width: cell.stroke_width,
+            text,
+            text_size: cell.text_size,
+            anchor: cell.anchor.unwrap_or(Anchor::Start),
+            scroll: cell.scroll,
+        },
+        parent_index,
+    );
     for child in &cell.children {
-        resolve_cell(child, rect, frame, Some(&cell.name), cell.scroll);
+        resolve_cell(
+            child,
+            rect,
+            frame,
+            Some(&cell.name),
+            Some(index),
+            cell.scroll,
+        );
     }
 }
 
@@ -486,11 +492,11 @@ fn resolve_rect(cell: &SceneCell, parent: RectMp, allow_overflow: bool) -> RectM
     // else a sensible default (half the parent, never negative).
     let (w, h) = if let Some(e) = cell.extent_p {
         (
-            (e.x.clamp(0.0, 1.0) * parent.width as f64) as i64,
-            (e.y.clamp(0.0, 1.0) * parent.height as f64) as i64,
+            scale_mp(e.x.clamp(0.0, 1.0) * parent.width as f64),
+            scale_mp(e.y.clamp(0.0, 1.0) * parent.height as f64),
         )
     } else if let Some(e) = cell.extent {
-        ((e.x * MP) as i64, (e.y * MP) as i64)
+        (scale_mp(e.x * MP), scale_mp(e.y * MP))
     } else {
         // Undeclared extent fills the parent — cells are surfaces by default.
         (parent.width, parent.height)
@@ -500,24 +506,33 @@ fn resolve_rect(cell: &SceneCell, parent: RectMp, allow_overflow: bool) -> RectM
     // from the parent origin. Both clamp into the parent.
     let (x, y) = if let Some(p) = cell.position_p {
         (
-            parent.x + (p.x.clamp(0.0, 1.0) * parent.width as f64) as i64,
-            parent.y + (p.y.clamp(0.0, 1.0) * parent.height as f64) as i64,
+            parent
+                .x
+                .saturating_add(scale_mp(p.x.clamp(0.0, 1.0) * parent.width as f64)),
+            parent
+                .y
+                .saturating_add(scale_mp(p.y.clamp(0.0, 1.0) * parent.height as f64)),
         )
     } else if let Some(p) = cell.position {
-        (parent.x + (p.x * MP) as i64, parent.y + (p.y * MP) as i64)
+        (
+            parent.x.saturating_add(scale_mp(p.x * MP)),
+            parent.y.saturating_add(scale_mp(p.y * MP)),
+        )
     } else {
         (parent.x, parent.y)
     };
+    let parent_right = parent.x.saturating_add(parent.width);
+    let parent_bottom = parent.y.saturating_add(parent.height);
     // Clamp inside the parent (non-negative offsets only).
     let x = if allow_overflow {
         x.max(parent.x)
     } else {
-        x.max(parent.x).min(parent.x + parent.width)
+        x.max(parent.x).min(parent_right)
     };
     let y = if allow_overflow {
         y.max(parent.y)
     } else {
-        y.max(parent.y).min(parent.y + parent.height)
+        y.max(parent.y).min(parent_bottom)
     };
     RectMp {
         x,
@@ -525,14 +540,26 @@ fn resolve_rect(cell: &SceneCell, parent: RectMp, allow_overflow: bool) -> RectM
         width: if allow_overflow {
             w
         } else {
-            w.min(parent.x + parent.width - x).max(0)
+            w.min(parent_right.saturating_sub(x)).max(0)
         },
         height: if allow_overflow {
             h
         } else {
-            h.min(parent.y + parent.height - y).max(0)
+            h.min(parent_bottom.saturating_sub(y)).max(0)
         },
     }
+}
+
+fn scale_mp(value: f64) -> i64 {
+    if !value.is_finite() {
+        return if value.is_sign_negative() {
+            i64::MIN
+        } else {
+            i64::MAX
+        };
+    }
+    // Out-of-range finite values saturate; this cast does not panic.
+    value as i64
 }
 
 /// Topmost interactive element under a point (millipoints), searching
@@ -547,10 +574,7 @@ pub fn hit_test_scrolled(frame: &Frame, offsets: &ScrollOffsets, x: i64, y: i64)
         // Interactive: buttons activate; inputs are focus targets (host-side
         // focus state, Wave 2 composer).
         if (node.is_button || node.is_input)
-            && x >= node.rect.x
-            && x < node.rect.x + node.rect.width
-            && y >= node.rect.y
-            && y < node.rect.y + node.rect.height
+            && contains_point(node.rect, x, y)
             && node.clip.is_none_or(|clip| contains_point(clip, x, y))
         {
             return Some(node.name.clone());
