@@ -9,7 +9,7 @@
 use std::ffi::OsString;
 use std::fmt;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Output};
 
 /// Adapter contract implemented by this crate.
@@ -203,15 +203,50 @@ fn validate_input(input: &Path) -> Result<PathBuf, TovError> {
 }
 
 fn validate_output(input: &Path, output: &Path) -> Result<(), TovError> {
-    if output.as_os_str().is_empty() || input == output {
+    if output.as_os_str().is_empty() || paths_alias(input, output) {
         return Err(TovError::InvalidOutput(output.into()));
     }
-    if let Some(parent) = output.parent() {
-        if !parent.as_os_str().is_empty() && !parent.is_dir() {
-            return Err(TovError::InvalidOutput(output.into()));
+    match output.parent() {
+        // A relative path with no directory component writes into the current
+        // directory. The filesystem root has no parent directory to create in.
+        Some(parent) if parent.as_os_str().is_empty() => Ok(()),
+        Some(parent) if parent.is_dir() => Ok(()),
+        _ => Err(TovError::InvalidOutput(output.into())),
+    }
+}
+
+/// True when both paths name the same file.
+///
+/// `.` and `..` are folded lexically, and existing symlinks are resolved.
+/// This rejects `tov build app.tov -o ./app.tov` before the compiler runs.
+fn paths_alias(input: &Path, output: &Path) -> bool {
+    if input == output {
+        return true;
+    }
+    if lexical_absolute(input) == lexical_absolute(output) {
+        return true;
+    }
+    matches!(
+        (fs::canonicalize(input), fs::canonicalize(output)),
+        (Ok(input), Ok(output)) if input == output
+    )
+}
+
+fn lexical_absolute(path: &Path) -> PathBuf {
+    let absolute = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+    let mut normalized = PathBuf::new();
+    for component in absolute.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !normalized.pop() {
+                    normalized.push(component);
+                }
+            }
+            other => normalized.push(other),
         }
     }
-    Ok(())
+    normalized
 }
 
 fn arguments(operation: TovOperation, input: &Path, output: Option<&Path>) -> Vec<OsString> {
@@ -316,10 +351,79 @@ mod tests {
 
     #[test]
     fn rejects_input_output_alias() {
-        let path = Path::new("app.tov");
+        let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
         assert!(matches!(
-            validate_output(path, path),
+            validate_output(&manifest, &manifest),
             Err(TovError::InvalidOutput(_))
         ));
+        let dotted = Path::new(env!("CARGO_MANIFEST_DIR")).join("./Cargo.toml");
+        let parented = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/../Cargo.toml");
+        assert!(matches!(
+            validate_output(&manifest, &dotted),
+            Err(TovError::InvalidOutput(_))
+        ));
+        assert!(matches!(
+            validate_output(&manifest, &parented),
+            Err(TovError::InvalidOutput(_))
+        ));
+        assert!(matches!(
+            validate_output(&manifest, Path::new("")),
+            Err(TovError::InvalidOutput(_))
+        ));
+        assert!(matches!(
+            validate_output(&manifest, Path::new("/")),
+            Err(TovError::InvalidOutput(_))
+        ));
+        let missing_parent = Path::new(env!("CARGO_MANIFEST_DIR")).join("missing-parent/app");
+        assert!(matches!(
+            validate_output(&manifest, &missing_parent),
+            Err(TovError::InvalidOutput(_))
+        ));
+    }
+
+    #[test]
+    fn rejects_missing_input_before_launch() {
+        let adapter = TovAdapter::with_executable("/definitely/not/a/tov/compiler");
+        let missing = Path::new(env!("CARGO_MANIFEST_DIR")).join("no-such-input.tov");
+        let error = adapter.check(&missing).unwrap_err();
+        assert!(matches!(error, TovError::InvalidInput(_)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn build_reports_artifact_and_rejects_aliases_and_empty_output() {
+        use std::os::unix::fs::symlink;
+
+        let fake = FakeCli::new("printf 'xyz' > \"$4\"\necho built");
+        let dir = fake.0.parent().unwrap();
+        let input = dir.join("app.tov");
+        fs::write(&input, "source").unwrap();
+        let link = dir.join("link.tov");
+        symlink(&input, &link).unwrap();
+        let adapter = TovAdapter::with_executable(&fake.0);
+
+        let alias = adapter.build(&link, &input).unwrap_err();
+        assert!(matches!(alias, TovError::InvalidOutput(_)));
+
+        let output = dir.join("app");
+        let report = adapter.build(&input, &output).unwrap();
+        let artifact = report.artifact.expect("build artifact");
+        assert_eq!(report.operation, TovOperation::Build);
+        assert_eq!(artifact.path, output);
+        assert_eq!(artifact.bytes, 3);
+        assert!(report.stdout.contains("built"));
+
+        let check = adapter.check(&input).unwrap();
+        assert_eq!(check.operation, TovOperation::Check);
+        assert!(check.artifact.is_none());
+
+        let empty = FakeCli::new(": > \"$4\"");
+        let empty_input = empty.0.parent().unwrap().join("app.tov");
+        fs::write(&empty_input, "source").unwrap();
+        let empty_output = empty.0.parent().unwrap().join("app");
+        let missing = TovAdapter::with_executable(&empty.0)
+            .build(&empty_input, &empty_output)
+            .unwrap_err();
+        assert!(matches!(missing, TovError::MissingArtifact(_)));
     }
 }
