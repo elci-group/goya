@@ -225,7 +225,7 @@ mod tests {
                     1,
                     vec![StateMigrationOp::Rename {
                         from: "missing".into(),
-                        to: "kept".into(),
+                        to: "other".into(),
                     }],
                 )],
             ),
@@ -270,7 +270,7 @@ mod tests {
                     },
                     StateMigrationOp::Rename {
                         from: "missing".into(),
-                        to: "taken".into(),
+                        to: "fresh".into(),
                     },
                 ],
             )],

@@ -327,10 +327,12 @@ impl SwapSupervisor {
             });
         }
 
-        self.revision().checked_add(1).ok_or_else(|| SwapRejection {
-            stage: SwapStage::Revision,
-            reason: "supervisor revision counter is exhausted".into(),
-        })?;
+        self.revision()
+            .checked_add(1)
+            .ok_or_else(|| SwapRejection {
+                stage: SwapStage::Revision,
+                reason: "supervisor revision counter is exhausted".into(),
+            })?;
         Ok(())
     }
 
@@ -1130,14 +1132,8 @@ mod tests {
             )
             .expect("upgrade");
         assert_eq!(rev, 2);
-        assert_eq!(
-            supervisor.active().unwrap().state_contract_version,
-            2
-        );
-        assert_eq!(
-            supervisor.active().unwrap().artifact.proof.process,
-            "v2"
-        );
+        assert_eq!(supervisor.active().unwrap().state_contract_version, 2);
+        assert_eq!(supervisor.active().unwrap().artifact.proof.process, "v2");
         assert_eq!(store.get("total"), Some(Value::Int(4)));
         assert_eq!(store.get("count"), None);
         assert_eq!(store.revision(), 2);

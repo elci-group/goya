@@ -215,7 +215,7 @@ mod tests {
 
         let tx = store.begin().unwrap();
         assert!(tx.stage_snapshot(&migrated));
-        tx.commit(nonneg).unwrap();
+        tx.commit(|_| true).unwrap();
         assert_eq!(store.get("total"), Some(Value::Int(4)));
         assert_eq!(store.get("count"), None);
         assert_eq!(store.revision(), 2);
