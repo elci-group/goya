@@ -52,9 +52,16 @@ def convert(source: Path, max_responses: int, max_taps: int) -> str:
         azimuth, elevation = float(positions[index, 0]), float(positions[index, 1])
         if not math.isfinite(azimuth) or not math.isfinite(elevation):
             raise SystemExit(f"invalid direction in measurement {index}")
+        # SOFA spherical azimuth is positive toward the listener's left.
+        # Goya azimuth is positive toward the listener's right.
+        azimuth = -azimuth
         azimuth = ((azimuth + 180.0) % 360.0) - 180.0
+        if abs(azimuth - 180.0) < 1e-9:
+            azimuth = -180.0
         if abs(elevation) > 90.0:
             raise SystemExit(f"elevation out of range in measurement {index}")
+        if abs(abs(elevation) - 90.0) < 1e-9:
+            azimuth = 0.0
         key = (round(azimuth, 5), round(elevation, 5))
         if key in seen:
             continue

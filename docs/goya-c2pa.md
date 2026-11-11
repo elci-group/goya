@@ -57,8 +57,12 @@ println!("{}", result.report.stdout);
 
 Both files are optional. The trust-anchor file is PEM, and the allowed-list
 file contains specific manifest signing certificates that c2patool may
-implicitly trust. This API clears c2patool's trust-related environment
-overrides so only the supplied paths affect the invocation. Its result keeps
+implicitly trust. This API clears `C2PATOOL_TRUST_ANCHORS`,
+`C2PATOOL_ALLOWED_LIST`, `C2PATOOL_TRUST_CONFIG`, `C2PATOOL_TRUST_LIST_URI`,
+and `C2PATOOL_SETTINGS`, and passes `--settings` pointing at an empty
+temporary directory. That keeps current c2patool from mixing in trust
+sidecars stored beside the user's settings file, so only the supplied paths
+affect the invocation. Its result keeps
 the raw validation report and the policy inputs separate; a successful
 process exit is not reduced to either “signature valid” or “signer trusted.”
 Callers must interpret c2patool's individual validation results according to

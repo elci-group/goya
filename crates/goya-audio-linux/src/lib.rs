@@ -245,8 +245,8 @@ impl PwCatOutput {
     /// Sample rate the WAV header advertises; the DSP path must match.
     pub const SAMPLE_RATE: u32 = 48_000;
 
-    /// Try to spawn a player. Returns `None` when no player binary exists
-    /// or spawn fails — callers continue without audio.
+    /// Try to spawn a player. When no player binary can be started, returns
+    /// an output in `DeviceState::Unavailable` so the application stays up.
     pub fn spawn() -> Option<Self> {
         Self::spawn_with_channels(1)
     }
@@ -262,28 +262,18 @@ impl PwCatOutput {
         if !(1..=8).contains(&channels) {
             return None;
         }
-        let players: [[&str; 3]; 3] = [
-            ["pw-cat", "--playback", "-"],
-            ["paplay", "-", "-"],
-            ["aplay", "-q", "-"],
+        // `paplay` on this platform is `pacat`: a bare `-` is a filename, and
+        // two of them are rejected. Playback with `--file-format=wav` reads
+        // the WAV header from stdin. A player that exits before accepting
+        // the header is skipped so the next candidate can run.
+        let players: [&[&str]; 3] = [
+            &["pw-cat", "--playback", "-"],
+            &["paplay", "--playback", "--file-format=wav"],
+            &["aplay", "-q", "-"],
         ];
-        for prog in players {
-            let mut cmd = std::process::Command::new(prog[0]);
-            cmd.args(&prog[1..])
-                .stdin(std::process::Stdio::piped())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null());
-            if let Ok(mut child) = cmd.spawn() {
-                let stdin = child.stdin.take();
-                let mut out = PwCatOutput {
-                    child: Some(child),
-                    stdin,
-                    state: DeviceState::Available,
-                    written: 0,
-                    channels,
-                };
-                out.write_wav_header(Self::SAMPLE_RATE, channels);
-                return Some(out);
+        for argv in players {
+            if let Some(player) = spawn_player(argv, channels) {
+                return Some(player);
             }
         }
         let fallback = PwCatOutput {
@@ -296,9 +286,9 @@ impl PwCatOutput {
         Some(fallback)
     }
 
-    fn write_wav_header(&mut self, sample_rate: u32, channels: u16) {
-        let h = wav_header(sample_rate, channels);
-        let _ = self.push_raw(&h);
+    fn write_wav_header(&mut self, sample_rate: u32, channels: u16) -> std::io::Result<()> {
+        let header = wav_header(sample_rate, channels);
+        self.push_raw(&header).map(|_| ())
     }
 
     fn push_raw(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
@@ -325,29 +315,104 @@ impl PwCatOutput {
     }
 }
 
-fn wav_header(sample_rate: u32, channels: u16) -> [u8; 44] {
-    // Streamed IEEE float WAV header with a placeholder data length. Players
-    // accept this form while the pipe remains open; channel count lets the
-    // stereo FIR output reach the playback device without being interpreted
-    // as a mono sequence.
+fn spawn_player(argv: &[&str], channels: u16) -> Option<PwCatOutput> {
+    let mut child = std::process::Command::new(argv.first()?)
+        .args(&argv[1..])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .ok()?;
+    let stdin = child.stdin.take();
+    if matches!(child.try_wait(), Ok(Some(_))) {
+        let _ = child.wait();
+        return None;
+    }
+    let mut out = PwCatOutput {
+        child: Some(child),
+        stdin,
+        state: DeviceState::Available,
+        written: 0,
+        channels,
+    };
+    if out
+        .write_wav_header(PwCatOutput::SAMPLE_RATE, channels)
+        .is_err()
+    {
+        return None;
+    }
+    if out
+        .child
+        .as_mut()
+        .and_then(|child| child.try_wait().ok())
+        .flatten()
+        .is_some()
+    {
+        return None;
+    }
+    Some(out)
+}
+
+fn wav_header(sample_rate: u32, channels: u16) -> Vec<u8> {
+    // Mono and stereo stay on the 44-byte IEEE-float header. Wider layouts
+    // use WAVEFORMATEXTENSIBLE so players map 7.1 as FL FR FC LFE RL RR SL SR
+    // instead of guessing from the channel count.
     let byte_rate = sample_rate
         .saturating_mul(u32::from(channels))
         .saturating_mul(4);
-    let mut h = [0u8; 44];
-    h[0..4].copy_from_slice(b"RIFF");
-    h[4..8].copy_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
-    h[8..12].copy_from_slice(b"WAVE");
-    h[12..16].copy_from_slice(b"fmt ");
-    h[16..20].copy_from_slice(&16u32.to_le_bytes());
-    h[20..22].copy_from_slice(&3u16.to_le_bytes()); // IEEE float
-    h[22..24].copy_from_slice(&channels.to_le_bytes());
-    h[24..28].copy_from_slice(&sample_rate.to_le_bytes());
-    h[28..32].copy_from_slice(&byte_rate.to_le_bytes());
-    h[32..34].copy_from_slice(&channels.saturating_mul(4).to_le_bytes());
-    h[34..36].copy_from_slice(&32u16.to_le_bytes());
-    h[36..40].copy_from_slice(b"data");
-    h[40..44].copy_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
-    h
+    let block_align = channels.saturating_mul(4);
+    if let Some(mask) = extensible_channel_mask(channels) {
+        let mut h = vec![0u8; 68];
+        h[0..4].copy_from_slice(b"RIFF");
+        h[4..8].copy_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
+        h[8..12].copy_from_slice(b"WAVE");
+        h[12..16].copy_from_slice(b"fmt ");
+        h[16..20].copy_from_slice(&40u32.to_le_bytes());
+        h[20..22].copy_from_slice(&0xFFFE_u16.to_le_bytes());
+        h[22..24].copy_from_slice(&channels.to_le_bytes());
+        h[24..28].copy_from_slice(&sample_rate.to_le_bytes());
+        h[28..32].copy_from_slice(&byte_rate.to_le_bytes());
+        h[32..34].copy_from_slice(&block_align.to_le_bytes());
+        h[34..36].copy_from_slice(&32u16.to_le_bytes());
+        h[36..38].copy_from_slice(&22u16.to_le_bytes());
+        h[38..40].copy_from_slice(&32u16.to_le_bytes());
+        h[40..44].copy_from_slice(&mask.to_le_bytes());
+        h[44..60].copy_from_slice(&[
+            0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x80, 0x00, 0x00, 0xaa, 0x00, 0x38,
+            0x9b, 0x71,
+        ]);
+        h[60..64].copy_from_slice(b"data");
+        h[64..68].copy_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
+        h
+    } else {
+        let mut h = vec![0u8; 44];
+        h[0..4].copy_from_slice(b"RIFF");
+        h[4..8].copy_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
+        h[8..12].copy_from_slice(b"WAVE");
+        h[12..16].copy_from_slice(b"fmt ");
+        h[16..20].copy_from_slice(&16u32.to_le_bytes());
+        h[20..22].copy_from_slice(&3u16.to_le_bytes());
+        h[22..24].copy_from_slice(&channels.to_le_bytes());
+        h[24..28].copy_from_slice(&sample_rate.to_le_bytes());
+        h[28..32].copy_from_slice(&byte_rate.to_le_bytes());
+        h[32..34].copy_from_slice(&block_align.to_le_bytes());
+        h[34..36].copy_from_slice(&32u16.to_le_bytes());
+        h[36..40].copy_from_slice(b"data");
+        h[40..44].copy_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
+        h
+    }
+}
+
+fn extensible_channel_mask(channels: u16) -> Option<u32> {
+    match channels {
+        3 => Some(0x7),
+        4 => Some(0x33),
+        5 => Some(0x37),
+        6 => Some(0x3F),
+        7 => Some(0x13F),
+        8 => Some(0x63F),
+        _ => None,
+    }
 }
 
 impl AudioOutput for PwCatOutput {
@@ -449,6 +514,16 @@ mod pwcat_tests {
         );
         assert_eq!(u16::from_le_bytes([header[32], header[33]]), 8);
         assert_eq!(u16::from_le_bytes([header[34], header[35]]), 32);
+        assert_eq!(header.len(), 44);
+    }
+
+    #[test]
+    fn eight_channel_header_uses_the_standard_surround_mask() {
+        let header = wav_header(PwCatOutput::SAMPLE_RATE, 8);
+        assert_eq!(header.len(), 68);
+        assert_eq!(u16::from_le_bytes([header[20], header[21]]), 0xFFFE);
+        assert_eq!(u32::from_le_bytes(header[40..44].try_into().unwrap()), 0x63F);
+        assert_eq!(&header[60..64], b"data");
     }
 
     #[test]

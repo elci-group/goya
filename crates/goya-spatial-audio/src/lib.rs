@@ -822,6 +822,22 @@ mod tests {
             Err(HrtfProfileError::DuplicateDirection)
         ));
         assert!(matches!(
+            MeasuredHrtfProfile::from_text(
+                "GY-HRTF/1\nsample_rate_hz=48000\n180,0,1,1\n-180,0,1,1"
+            ),
+            Err(HrtfProfileError::DuplicateDirection)
+        ));
+        assert!(matches!(
+            MeasuredHrtfProfile::from_text(
+                "GY-HRTF/1\nsample_rate_hz=48000\n0,90,1,1\n45,90,1,1"
+            ),
+            Err(HrtfProfileError::DuplicateDirection)
+        ));
+        assert!(MeasuredHrtfProfile::from_text(
+            "GY-HRTF/1\nsample_rate_hz=48000\n0,89,1,1\n1,89,1,1"
+        )
+        .is_ok());
+        assert!(matches!(
             MeasuredHrtfProfile::from_text("GY-HRTF/1\nsample_rate_hz=48000\n0,0,NaN,1"),
             Err(HrtfProfileError::InvalidTaps)
         ));

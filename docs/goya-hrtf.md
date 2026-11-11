@@ -51,7 +51,10 @@ This repository includes a 64-direction, 128-tap excerpt from `subj_Z.sofa`
 at `crates/goya-spatial-audio/fixtures/viking-v2-subj-Z-first-64.gy-hrtf`.
 The converter deterministically selects the first 64 measurement rows in SOFA
 file order, skipping duplicate directions, and truncates each ear's response
-to the first 128 taps. It does not resample or normalize coefficients. Source
+to the first 128 taps. It does not resample or normalize coefficients. SOFA
+azimuth is positive toward the listener's left, so the converter negates it
+into Goya's right-positive azimuth, stores +180° as -180°, and writes
+elevation ±90° with azimuth 0. Source
 archive `HRTFs.zip` SHA-256:
 `90971278359d667b962cc7f1d14ff5e8b8755349ebfc158245ec9b4a3a347fb0`;
 source file `subj_Z.sofa` SHA-256:
