@@ -78,7 +78,8 @@ impl Store {
     }
 }
 
-/// Open transaction. Stage writes with `set`; `commit` validates an invariant
+/// Open transaction. Stage writes with `set`, or replace the staged snapshot
+/// with [`Transaction::stage_snapshot`]; `commit` validates an invariant
 /// against the staged snapshot before publishing; dropping without `commit`
 /// rolls back to the last committed revision.
 pub struct Transaction<'a> {
@@ -104,6 +105,20 @@ impl Transaction<'_> {
         if let Some(scratch) = &mut guard.scratch {
             scratch.insert(key.to_string(), value);
         }
+    }
+
+    /// Replace the staged snapshot with `snapshot`, including key removals.
+    ///
+    /// Earlier `set` calls in this transaction are discarded. Returns `false`
+    /// when no transaction is open. The committed revision is unchanged until
+    /// `commit` succeeds.
+    pub fn stage_snapshot(&self, snapshot: &Map) -> bool {
+        let mut guard = self.store.inner.lock().unwrap_or_else(|p| p.into_inner());
+        if guard.scratch.is_none() {
+            return false;
+        }
+        guard.scratch = Some(snapshot.clone());
+        true
     }
 
     /// Publish staged writes if `invariant` holds for the staged snapshot.
@@ -177,6 +192,33 @@ mod tests {
         tx.set("count", Value::Int(3));
         tx.commit(nonneg).unwrap();
         assert_eq!(store.get("count"), Some(Value::Int(3)));
+    }
+
+    #[test]
+    fn stage_snapshot_publishes_removals_only_after_commit() {
+        let store = Store::new();
+        let tx = store.begin().unwrap();
+        tx.set("count", Value::Int(4));
+        tx.set("theme", Value::Text("dark".into()));
+        tx.commit(nonneg).unwrap();
+
+        let migrated = Map::from([("total".into(), Value::Int(4))]);
+        {
+            let tx = store.begin().unwrap();
+            assert!(tx.stage_snapshot(&migrated));
+            assert_eq!(store.get("total"), Some(Value::Int(4)));
+            assert_eq!(store.get("count"), None);
+        }
+        assert_eq!(store.get("count"), Some(Value::Int(4)));
+        assert_eq!(store.get("theme"), Some(Value::Text("dark".into())));
+        assert_eq!(store.revision(), 1);
+
+        let tx = store.begin().unwrap();
+        assert!(tx.stage_snapshot(&migrated));
+        tx.commit(nonneg).unwrap();
+        assert_eq!(store.get("total"), Some(Value::Int(4)));
+        assert_eq!(store.get("count"), None);
+        assert_eq!(store.revision(), 2);
     }
 
     #[test]

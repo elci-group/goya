@@ -199,4 +199,88 @@ mod tests {
             Err(MigrationError::MissingStep { expected_from: 1 })
         );
     }
+
+    #[test]
+    fn invalid_step_and_missing_source_drop_the_staged_map() {
+        let state = Map::from([("kept".into(), Value::Int(1))]);
+        assert_eq!(
+            migrate_state(
+                &state,
+                1,
+                3,
+                &[StateMigration {
+                    from_version: 1,
+                    to_version: 3,
+                    operations: vec![],
+                }],
+            ),
+            Err(MigrationError::InvalidStep { from: 1, to: 3 })
+        );
+        assert_eq!(
+            migrate_state(
+                &state,
+                1,
+                2,
+                &[step(
+                    1,
+                    vec![StateMigrationOp::Rename {
+                        from: "missing".into(),
+                        to: "kept".into(),
+                    }],
+                )],
+            ),
+            Err(MigrationError::MissingSource {
+                key: "missing".into(),
+            })
+        );
+        assert_eq!(state.get("kept"), Some(&Value::Int(1)));
+    }
+
+    #[test]
+    fn set_default_keeps_an_existing_value_and_a_later_failure_discards_earlier_edits() {
+        let state = Map::from([
+            ("enabled".into(), Value::Bool(false)),
+            ("taken".into(), Value::Int(9)),
+        ]);
+        let kept = migrate_state(
+            &state,
+            1,
+            2,
+            &[step(
+                1,
+                vec![StateMigrationOp::SetDefault {
+                    key: "enabled".into(),
+                    value: Value::Bool(true),
+                }],
+            )],
+        )
+        .unwrap();
+        assert_eq!(kept.get("enabled"), Some(&Value::Bool(false)));
+
+        let result = migrate_state(
+            &state,
+            1,
+            2,
+            &[step(
+                1,
+                vec![
+                    StateMigrationOp::Rename {
+                        from: "enabled".into(),
+                        to: "flag".into(),
+                    },
+                    StateMigrationOp::Rename {
+                        from: "missing".into(),
+                        to: "taken".into(),
+                    },
+                ],
+            )],
+        );
+        assert_eq!(
+            result,
+            Err(MigrationError::MissingSource {
+                key: "missing".into(),
+            })
+        );
+        assert_eq!(state.get("enabled"), Some(&Value::Bool(false)));
+    }
 }
