@@ -50,7 +50,8 @@ derived exports.
 This repository includes a 64-direction, 128-tap excerpt from `subj_Z.sofa`
 at `crates/goya-spatial-audio/fixtures/viking-v2-subj-Z-first-64.gy-hrtf`.
 The converter deterministically selects the first 64 measurement rows in SOFA
-file order, skipping duplicate directions, and truncates each ear's response
+file order, skipping a later row when it is the same physical direction as an
+earlier one under the loader's degree identity, and truncates each ear's response
 to the first 128 taps. It does not resample or normalize coefficients. SOFA
 azimuth is positive toward the listener's left, so the converter negates it
 into Goya's right-positive azimuth, stores +180° as -180°, and writes
