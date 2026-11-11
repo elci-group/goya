@@ -1,8 +1,9 @@
 //! Bounded deterministic D1 state-transition VM.
 //!
 //! This VM accepts only an explicitly state-contract-backed D1 process. It
-//! reads immutable, caller-supplied snapshots and produces a new snapshot;
-//! it never mutates a store or performs host I/O.
+//! reads immutable, caller-supplied snapshots and produces a new snapshot.
+//! [`D1Program::apply_to_store`] is the only store adapter: one transaction,
+//! declared keys, and the caller's invariant. The VM performs no other host I/O.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -174,20 +175,7 @@ impl D1Program {
         }
         let proof_bytes = reader.string(MAX_PROOF_BYTES)?;
         let proof = decode_proof(proof_bytes.as_bytes())?;
-        if proof.class != DeterminismClass::StateDeterministic
-            || proof.process.is_empty()
-            || proof.process.len() > 128
-            || proof.compiler_version.len() > 256
-            || proof.target.len() > 256
-            || proof
-                .process
-                .chars()
-                .chain(proof.compiler_version.chars())
-                .chain(proof.target.chars())
-                .any(char::is_control)
-        {
-            return Err(D1Error::InvalidProgramProof);
-        }
+        admit_proof(&proof)?;
         let contract = StateContract {
             read_keys: reader.key_set()?,
             write_keys: reader.key_set()?,
@@ -267,13 +255,7 @@ impl D1Program {
         if proof.class != verified.class {
             return Err(D1Error::ProofClassMismatch);
         }
-        if declaration.name.len() > 128
-            || proof.process.len() > 128
-            || proof.compiler_version.len() > 256
-            || proof.target.len() > 256
-        {
-            return Err(D1Error::ProgramTooLarge);
-        }
+        admit_proof(proof)?;
         if instructions.len() > MAX_INSTRUCTIONS {
             return Err(D1Error::TooManyInstructions);
         }
@@ -743,6 +725,27 @@ impl<'a> D1Reader<'a> {
     }
 }
 
+/// Proof strings that `decode` accepts. `compile` uses the same predicate so
+/// it does not emit a program the canonical decoder rejects.
+fn admit_proof(proof: &ExecutionProof) -> Result<(), D1Error> {
+    let text_ok = proof.class == DeterminismClass::StateDeterministic
+        && !proof.process.is_empty()
+        && proof.process.len() <= 128
+        && proof.compiler_version.len() <= 256
+        && proof.target.len() <= 256
+        && !proof
+            .process
+            .chars()
+            .chain(proof.compiler_version.chars())
+            .chain(proof.target.chars())
+            .any(char::is_control);
+    if text_ok {
+        Ok(())
+    } else {
+        Err(D1Error::InvalidProgramProof)
+    }
+}
+
 fn decode_proof(bytes: &[u8]) -> Result<ExecutionProof, D1Error> {
     let text = std::str::from_utf8(bytes).map_err(|_| D1Error::InvalidProgramProof)?;
     let mut lines = text.split_terminator('\n');
@@ -895,17 +898,26 @@ fn map_size(values: &BTreeMap<String, D1Value>) -> Result<usize, D1Error> {
     })
 }
 
+fn register_cost(name: &str, value: &D1Value) -> Option<usize> {
+    name.len().checked_add(value_size(value))
+}
+
+/// The budget is the live map: each register name is charged once, and an
+/// overwrite replaces the previous value's bytes.
 fn store_register(
     registers: &mut BTreeMap<String, D1Value>,
     current_bytes: &mut usize,
     name: &str,
     value: D1Value,
 ) -> Result<(), D1Error> {
-    let old_size = registers.get(name).map_or(0, value_size);
+    let added = register_cost(name, &value).ok_or(D1Error::RegisterLimit)?;
+    let removed = match registers.get(name) {
+        Some(old) => register_cost(name, old).ok_or(D1Error::RegisterLimit)?,
+        None => 0,
+    };
     let next_size = current_bytes
-        .checked_sub(old_size)
-        .and_then(|n| n.checked_add(name.len()))
-        .and_then(|n| n.checked_add(value_size(&value)))
+        .checked_sub(removed)
+        .and_then(|size| size.checked_add(added))
         .ok_or(D1Error::RegisterLimit)?;
     if next_size > MAX_REGISTER_BYTES {
         return Err(D1Error::RegisterLimit);
@@ -1270,5 +1282,143 @@ mod tests {
             compiled.execute(&state, &inputs),
             Err(D1Error::ArithmeticOverflow)
         );
+    }
+
+    #[test]
+    fn compile_rejects_proof_text_that_decode_rejects() {
+        let cases = [
+            ("", "0.1.0", "goya-d1-vm-v1"),
+            ("cou\nter", "0.1.0", "goya-d1-vm-v1"),
+            ("counter", "0.1.0\n", "goya-d1-vm-v1"),
+            ("counter", "0.1.0", "goya\u{0007}"),
+            ("counter", &"v".repeat(257), "goya-d1-vm-v1"),
+        ];
+        for (process, compiler_version, target) in cases {
+            let mut decl = declaration();
+            decl.name = process.to_string();
+            let mut sample = proof();
+            sample.process = process.to_string();
+            sample.compiler_version = compiler_version.to_string();
+            sample.target = target.to_string();
+            assert_eq!(
+                D1Program::compile(&decl, &sample, contract(), vec![]).err(),
+                Some(D1Error::InvalidProgramProof),
+                "process={process:?} compiler={compiler_version:?} target={target:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn register_budget_counts_each_live_name_once() {
+        let name = "a".repeat(128);
+        let value = D1Value::Int(7);
+        let mut registers = BTreeMap::new();
+        let mut bytes = 0usize;
+        // Enough overwrites for the old counter, which added `name.len()` on
+        // every write, to pass `MAX_REGISTER_BYTES` while one live register remains.
+        for _ in 0..=8191 {
+            store_register(&mut registers, &mut bytes, &name, value.clone()).unwrap();
+        }
+        assert_eq!(registers.len(), 1);
+        assert_eq!(bytes, name.len() + value_size(&value));
+
+        let text = D1Value::Text("q".repeat(MAX_TEXT_BYTES));
+        let mut registers = BTreeMap::new();
+        let mut bytes = 0usize;
+        for index in 0..16 {
+            let key = format!("r{index:x}");
+            let result = store_register(&mut registers, &mut bytes, &key, text.clone());
+            if index < 15 {
+                result.expect("fifteen max-size registers fit");
+            } else {
+                assert_eq!(result.err(), Some(D1Error::RegisterLimit));
+            }
+        }
+        assert_eq!(registers.len(), 15);
+        assert!(bytes <= MAX_REGISTER_BYTES);
+    }
+
+    #[test]
+    fn execution_enforces_the_live_register_cap() {
+        let text = D1Value::Text("q".repeat(MAX_TEXT_BYTES));
+        let empty = StateContract::new(
+            Vec::<String>::new(),
+            Vec::<String>::new(),
+            Vec::<String>::new(),
+        )
+        .unwrap();
+        let state = D1Snapshot::new(0, BTreeMap::new()).unwrap();
+        let within = (0..9)
+            .map(|index| D1Instruction::Constant {
+                dst: format!("r{index}"),
+                value: text.clone(),
+            })
+            .collect();
+        let accepted = D1Program::compile(&declaration(), &proof(), empty.clone(), within).unwrap();
+        assert_eq!(
+            accepted
+                .execute(&state, &InputSnapshot::default())
+                .unwrap()
+                .registers
+                .len(),
+            9
+        );
+
+        let past = (0..16)
+            .map(|index| D1Instruction::Constant {
+                dst: format!("r{index:x}"),
+                value: text.clone(),
+            })
+            .collect();
+        let rejected = D1Program::compile(&declaration(), &proof(), empty, past).unwrap();
+        assert_eq!(
+            rejected.execute(&state, &InputSnapshot::default()),
+            Err(D1Error::RegisterLimit)
+        );
+    }
+
+    #[test]
+    fn apply_to_store_publishes_one_revision_or_leaves_the_store_unchanged() {
+        let store = Store::new();
+        let program = program();
+        let inputs =
+            InputSnapshot::new(BTreeMap::from([("increment".into(), D1Value::Int(3))])).unwrap();
+
+        assert_eq!(
+            program.apply_to_store(&store, &inputs, |_| true).err(),
+            Some(D1ApplyError::MissingStateKey("count".into()))
+        );
+        assert_eq!(store.revision(), 0);
+        assert_eq!(store.get("count"), None);
+
+        {
+            let tx = store.begin().unwrap();
+            tx.set("count", StateValue::Int(7));
+            tx.commit(|_| true).unwrap();
+        }
+        assert_eq!(store.revision(), 1);
+
+        let held = store.begin().unwrap();
+        assert_eq!(
+            program.apply_to_store(&store, &inputs, |_| true).err(),
+            Some(D1ApplyError::StoreBusy)
+        );
+        drop(held);
+        assert_eq!(store.get("count"), Some(StateValue::Int(7)));
+        assert_eq!(store.revision(), 1);
+
+        assert_eq!(
+            program.apply_to_store(&store, &inputs, |_| false).err(),
+            Some(D1ApplyError::CommitRejected)
+        );
+        assert_eq!(store.get("count"), Some(StateValue::Int(7)));
+        assert_eq!(store.revision(), 1);
+
+        let outcome = program.apply_to_store(&store, &inputs, |_| true).unwrap();
+        assert_eq!(outcome.next_state["count"], D1Value::Int(10));
+        assert_eq!(outcome.revision_before, 1);
+        assert_eq!(outcome.revision_after, 2);
+        assert_eq!(store.get("count"), Some(StateValue::Int(10)));
+        assert_eq!(store.revision(), 2);
     }
 }

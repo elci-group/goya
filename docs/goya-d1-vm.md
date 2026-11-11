@@ -15,8 +15,8 @@ process name and D1 class. D1 declarations with host effects are rejected.
 - The current instruction set supports constants, state/input reads,
   checked integer addition, and state writes. Registers are local to one
   execution. There are no loops, clocks, RNG, system calls, or I/O.
-- Execution returns a new state map and increments its revision once. It
-  never mutates a store. The caller may apply the result transactionally.
+- Execution returns a new state map and increments its revision once.
+  `execute` and `replay` do not touch a store.
 - `D1Program::apply_to_store` is the optional store adapter: it reserves one
   transaction, captures the declared state keys with their revision, executes
   with explicit inputs, stages only declared writes, and commits once against
@@ -30,18 +30,10 @@ process name and D1 class. D1 declarations with host effects are rejected.
 
 ## Bounds and exclusions
 
-## Typed GY-LANG bridge
-
-`goya-lang::CompiledInteraction::to_vee_request` checks the source-authored
-state/input/output scalar types, then builds the existing bounded VEE worker
-request from its private verified `D1Program`. It returns a `SubmitRequest`;
-it does not connect to VEE or submit anything. This preserves the source type
-contract without exposing the raw VM program. The resulting worker still
-applies the D1 VM's exact key-set, arithmetic, and outcome-hash checks.
-
 - At most 256 distinct contract/snapshot keys, 4,096 instructions, 64 KiB per
   text value, 1 MiB combined state/input snapshots, 2 MiB encoded program,
-  and 1 MiB register data per execution.
+  and 1 MiB of live register data per execution. A register name is counted
+  once; overwriting a register replaces its previous value in that budget.
 - Integer addition and revision increments fail on overflow.
 - This is a local deterministic transition model. `apply_to_store` is its
   only `goya-state::Store` integration: one transaction, declared keys, and
@@ -52,3 +44,12 @@ applies the D1 VM's exact key-set, arithmetic, and outcome-hash checks.
 - SHA-256 outcomes are unkeyed integrity identifiers, not attestations from a
   trusted signer. A caller that accepts stored outcome hashes must establish
   trust in their source separately.
+
+## Typed GY-LANG bridge
+
+`goya-lang::CompiledInteraction::to_vee_request` checks the source-authored
+state/input/output scalar types, then builds the existing bounded VEE worker
+request from its private verified `D1Program`. It returns a `SubmitRequest`;
+it does not connect to VEE or submit anything. This preserves the source type
+contract without exposing the raw VM program. The resulting worker still
+applies the D1 VM's exact key-set, arithmetic, and outcome-hash checks.
