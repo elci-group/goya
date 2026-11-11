@@ -8,7 +8,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .next()
         .ok_or("missing Git remote or local repository path")?;
     let binary = args.next().ok_or("missing installed application binary")?;
-    let remote = remote.to_string_lossy();
     let grant = CapabilityGrant::new([Capability::InspectUpdate]);
     let report = TheosisClient::new(executable).check(&remote, &binary, &grant)?;
     println!("Theosis check: {}", report.trim());

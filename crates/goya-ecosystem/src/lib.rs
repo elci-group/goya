@@ -12,6 +12,7 @@ use std::fmt;
 use std::fs;
 use std::future::Future;
 use std::io::Write;
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::{Command, Stdio};
@@ -283,12 +284,13 @@ fn export_cell(
         out.push_str(&format!("{indent}    text:::parent[{id}]::value[{text}]"));
         if let Some(size) = cell.text_size {
             let cell_height = parent_h * h;
-            if !size.is_finite() || cell_height <= 0.0 {
+            let ratio = size / cell_height;
+            if !size.is_finite() || cell_height <= 0.0 || !ratio.is_finite() {
                 return Err(IntegrationError::InvalidInput(
                     "text size must be finite and its cell height positive",
                 ));
             }
-            out.push_str(&format!("::size[{}]", number(size / cell_height)));
+            out.push_str(&format!("::size[{}]", number(ratio)));
         }
         if let Some(color) = cell.fill {
             out.push_str(&format!("::color[#{color:06x}]"));
@@ -403,18 +405,27 @@ impl Form3Agent {
                     IntegrationError::Launch(e)
                 }
             })?;
-        child
+        let write_error = child
             .stdin
             .take()
-            .ok_or(IntegrationError::InvalidReply("stdin unavailable"))?
-            .write_all(format!("{json_line}\n").as_bytes())
-            .map_err(IntegrationError::Launch)?;
+            .ok_or(IntegrationError::InvalidReply("stdin unavailable"))
+            .and_then(|mut stdin| {
+                stdin
+                    .write_all(format!("{json_line}\n").as_bytes())
+                    .map_err(IntegrationError::Launch)
+            })
+            .err();
         let output = child.wait_with_output().map_err(IntegrationError::Launch)?;
+        // A companion that rejects the request must surface its exit status
+        // even when the write also failed, usually with EPIPE.
         if !output.status.success() {
             return Err(IntegrationError::Failed {
                 status: output.status.code(),
                 stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
             });
+        }
+        if let Some(error) = write_error {
+            return Err(error);
         }
         if output.stdout.len() > self.max_reply_bytes {
             return Err(IntegrationError::InvalidReply("reply exceeds 1 MiB"));
@@ -502,18 +513,24 @@ impl TheosisClient {
 
     pub fn check(
         &self,
-        remote: &str,
+        remote: impl AsRef<OsStr>,
         binary: &Path,
         grant: &CapabilityGrant,
     ) -> Result<String, IntegrationError> {
         grant.require(Capability::InspectUpdate)?;
-        let binary = binary.to_string_lossy();
-        self.invoke(["check", "--remote", remote, "--binary", &binary, "--json"])
+        self.invoke([
+            OsStr::new("check"),
+            OsStr::new("--remote"),
+            remote.as_ref(),
+            OsStr::new("--binary"),
+            binary.as_os_str(),
+            OsStr::new("--json"),
+        ])
     }
 
     pub fn update(
         &self,
-        remote: &str,
+        remote: impl AsRef<OsStr>,
         reference: &str,
         binary: &Path,
         install_dir: &Path,
@@ -523,25 +540,23 @@ impl TheosisClient {
         if reference.is_empty() {
             return Err(IntegrationError::InvalidInput("Theosis ref is empty"));
         }
-        let binary = binary.to_string_lossy();
-        let install_dir = install_dir.to_string_lossy();
         self.invoke([
-            "update",
-            "--remote",
-            remote,
-            "--ref",
-            reference,
-            "--binary",
-            &binary,
-            "--install-dir",
-            &install_dir,
-            "--json",
+            OsStr::new("update"),
+            OsStr::new("--remote"),
+            remote.as_ref(),
+            OsStr::new("--ref"),
+            OsStr::new(reference),
+            OsStr::new("--binary"),
+            binary.as_os_str(),
+            OsStr::new("--install-dir"),
+            install_dir.as_os_str(),
+            OsStr::new("--json"),
         ])
     }
 
-    fn invoke<'a>(
+    fn invoke(
         &self,
-        args: impl IntoIterator<Item = &'a str>,
+        args: impl IntoIterator<Item = impl AsRef<OsStr>>,
     ) -> Result<String, IntegrationError> {
         let output = Command::new(&self.executable)
             .args(args)
@@ -553,17 +568,21 @@ impl TheosisClient {
                     IntegrationError::Launch(e)
                 }
             })?;
-        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-        if output.status.success() {
-            Ok(stdout)
-        } else {
-            Err(IntegrationError::Failed {
+        if !output.status.success() {
+            return Err(IntegrationError::Failed {
                 status: output.status.code(),
                 stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-            })
+            });
         }
+        if output.stdout.len() > THEOSIS_MAX_REPLY_BYTES {
+            return Err(IntegrationError::InvalidReply("reply exceeds 1 MiB"));
+        }
+        String::from_utf8(output.stdout)
+            .map_err(|_| IntegrationError::InvalidReply("reply is not UTF-8"))
     }
 }
+
+const THEOSIS_MAX_REPLY_BYTES: usize = 1024 * 1024;
 
 #[cfg(test)]
 mod tests {
@@ -653,5 +672,146 @@ mod tests {
             .request("{}", &grant(Capability::FormatOutput))
             .unwrap_err();
         assert!(matches!(error, IntegrationError::Unavailable(_)));
+    }
+
+    #[test]
+    fn rugid_text_size_ratio_must_stay_finite() {
+        let cell = SceneCell {
+            name: "label".into(),
+            kind: CellKind::Cell,
+            is_input: false,
+            position: None,
+            extent: Some(goya_lang::Vec3 {
+                x: 10.0,
+                y: 1e-320,
+                z: 0.0,
+            }),
+            position_p: None,
+            extent_p: None,
+            fill: None,
+            stroke: None,
+            stroke_width: None,
+            text: Some("Hi".into()),
+            text_size: Some(12.0),
+            anchor: None,
+            wrap: None,
+            scroll: false,
+            children: Vec::new(),
+        };
+        let mut rdf = String::new();
+        let error = export_cell(&cell, "window", 100.0, 100.0, 1, &mut rdf, &mut Vec::new());
+        assert!(matches!(error, Err(IntegrationError::InvalidInput(_))));
+        assert!(!rdf.contains("inf"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn form3_nonzero_exit_wins_over_a_closed_stdin() {
+        let dir = std::env::temp_dir().join(format!(
+            "goya-form3-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&dir).unwrap();
+        let ready = dir.join("ready");
+        let release = dir.join("release");
+        unix_mkfifo(&ready);
+        unix_mkfifo(&release);
+        let tool = dir.join("form3");
+        fs::write(
+            &tool,
+            format!(
+                "#!/bin/sh\nexec 0<&-\nprintf x > '{}'\nread _ < '{}'\nexit 3\n",
+                ready.display(),
+                release.display()
+            ),
+        )
+        .unwrap();
+        unix_chmod(&tool);
+        let agent = Form3Agent::new(&tool);
+        let grant = grant(Capability::FormatOutput);
+        let worker = std::thread::spawn(move || agent.request("{}", &grant));
+        std::io::Read::read_exact(&mut std::fs::File::open(&ready).unwrap(), &mut [0]).unwrap();
+        std::fs::write(&release, b"go\n").unwrap();
+        let error = worker.join().unwrap().unwrap_err();
+        assert!(matches!(
+            error,
+            IntegrationError::Failed {
+                status: Some(3),
+                ..
+            }
+        ));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn theosis_preserves_non_utf8_paths_and_rejects_invalid_replies() {
+        use std::os::unix::ffi::OsStringExt;
+        let dir = std::env::temp_dir().join(format!(
+            "goya-theosis-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&dir).unwrap();
+        let argfile = dir.join("args");
+        let tool = dir.join("theosis");
+        fs::write(
+            &tool,
+            format!(
+                "#!/usr/bin/env python3\nimport os, sys\nopen({:?}, 'wb').write(os.fsencode(sys.argv[5]))\nsys.stdout.write('{{}}\\n')\n",
+                argfile
+            ),
+        )
+        .unwrap();
+        unix_chmod(&tool);
+        let binary = dir.join(std::ffi::OsString::from_vec(b"app-\xff".to_vec()));
+        fs::write(&binary, b"bin").unwrap();
+        let reply = TheosisClient::new(&tool)
+            .check("origin", &binary, &grant(Capability::InspectUpdate))
+            .unwrap();
+        assert_eq!(reply, "{}");
+        assert_eq!(fs::read(&argfile).unwrap(), b"app-\xff");
+
+        fs::write(&tool, "#!/bin/sh\nprintf '\\xff'\n").unwrap();
+        unix_chmod(&tool);
+        let error = TheosisClient::new(&tool)
+            .check("origin", Path::new("app"), &grant(Capability::InspectUpdate))
+            .unwrap_err();
+        assert!(matches!(error, IntegrationError::InvalidReply(_)));
+
+        fs::write(
+            &tool,
+            "#!/bin/sh\nhead -c 1048577 /dev/zero | tr '\\0' a\n",
+        )
+        .unwrap();
+        unix_chmod(&tool);
+        let error = TheosisClient::new(&tool)
+            .check("origin", Path::new("app"), &grant(Capability::InspectUpdate))
+            .unwrap_err();
+        assert!(matches!(error, IntegrationError::InvalidReply(_)));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    fn unix_mkfifo(path: &Path) {
+        let _ = std::process::Command::new("mkfifo")
+            .arg(path)
+            .status()
+            .unwrap();
+    }
+
+    #[cfg(unix)]
+    fn unix_chmod(path: &Path) {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = fs::metadata(path).unwrap().permissions();
+        permissions.set_mode(0o700);
+        fs::set_permissions(path, permissions).unwrap();
     }
 }
