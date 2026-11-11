@@ -405,6 +405,26 @@ mod tests {
         }
     }
 
+    #[test]
+    fn duplicate_ancestor_names_and_huge_offsets_stay_total() {
+        let scene = parse(
+            "@ontology a { @cell go { extent: (100, 100, 0) scroll: true @button go { extent: (10, 10, 0) } } }",
+        )
+        .unwrap();
+        let frame = layout(&scene, 100.0, 100.0);
+        assert_eq!(hit_test(&frame, 1_000, 1_000).as_deref(), Some("go"));
+        assert_eq!(frame.scroll_limits("go"), frame.scroll_limits("go"));
+
+        let huge = parse(
+            "@ontology a { @cell root { extent: (10, 10, 0) @cell child { position: (10000000000000000, 0, 0) extent: (1, 1, 0) } } }",
+        )
+        .unwrap();
+        let frame = layout(&huge, 10.0, 10.0);
+        let _ = hit_test(&frame, 0, 0);
+        let _ = frame.scroll_limits("root");
+        assert!(lower(&huge, 10.0, 10.0).is_ok());
+    }
+
     /// Deterministic mutation fuzzing: parse + layout must be total.
     #[test]
     fn fuzz_parse_never_panics() {
@@ -436,9 +456,10 @@ mod tests {
                     input = String::from_utf8_lossy(&bytes).into_owned();
                 }
             }
-            let parsed = std::panic::catch_unwind(|| parse(&input));
-            if let Ok(Ok(scene)) = parsed {
-                let _ = std::panic::catch_unwind(|| layout(&scene, 800.0, 600.0));
+            if let Ok(scene) = parse(&input) {
+                let frame = layout(&scene, 800.0, 600.0);
+                let _ = hit_test(&frame, 0, 0);
+                let _ = lower(&scene, 800.0, 600.0);
             }
         }
     }

@@ -174,21 +174,32 @@ impl<'a> Lowerer<'a> {
 
         let (id, role) = match cell.kind {
             CellKind::Button => {
+                // Traversal stops at buttons. Layout still emitted descendants,
+                // so their frame slots are consumed to keep later rects aligned.
                 let id = self.push(Node::Button {
                     label: cell.text.clone().unwrap_or_default(),
                     on_activate: ActionId(self.next_action),
                 });
                 self.next_action += 1;
+                self.skip_descendant_frames(cell);
                 children = Vec::new();
                 (id, Role::Button)
             }
             CellKind::Input => {
                 // Editable field: the placeholder is the scene `text:` value;
                 // focus and typed content are host-side state (Wave 2).
+                // Children are lowered so buttons inside an input keep the
+                // same depth-first ActionIds as interaction compilation.
+                // `Node::Input` has no child list; the node table records them.
                 let id = self.push(Node::Input {
                     placeholder: cell.text.clone().unwrap_or_default(),
                 });
-                children = Vec::new();
+                let mut kid_keys = Vec::new();
+                for child in &cell.children {
+                    let (child_key, _) = self.lower_cell(child, Some(&key));
+                    kid_keys.push(child_key);
+                }
+                children = kid_keys;
                 (id, Role::Input)
             }
             CellKind::Cell => {
@@ -247,6 +258,13 @@ impl<'a> Lowerer<'a> {
             },
         );
         (key, id)
+    }
+
+    fn skip_descendant_frames(&mut self, cell: &SceneCell) {
+        for child in &cell.children {
+            let _ = self.resolved_rect();
+            self.skip_descendant_frames(child);
+        }
     }
 }
 
@@ -463,5 +481,23 @@ mod tests {
         for rec in lowered.table.values() {
             assert_eq!(rec.explicit_rect_mp, None, "undeclared geometry stays None");
         }
+    }
+
+    #[test]
+    fn input_buttons_keep_action_order_and_button_children_do_not_panic() {
+        let src = "@ontology app { @input box { @button inner {} } @button outer { @cell hidden {} } }";
+        let scene = parse(src).unwrap();
+        assert_eq!(scene.root.name, "app");
+        let lowered = lower(&scene, 800.0, 600.0).unwrap();
+        let mut actions = Vec::new();
+        for (_, node) in &lowered.module.nodes {
+            if let Node::Button { on_activate, .. } = node {
+                actions.push(*on_activate);
+            }
+        }
+        assert_eq!(actions, vec![ActionId(0), ActionId(1)]);
+        assert!(lowered.table.contains_key("inner"));
+        assert!(lowered.table.contains_key("outer"));
+        assert!(!lowered.table.contains_key("hidden"));
     }
 }

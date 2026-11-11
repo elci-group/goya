@@ -256,12 +256,12 @@ impl Frame {
         let Some(viewport_index) = self.index.get(name).copied() else {
             return (0, 0);
         };
-        let viewport = &self.nodes[viewport_index];
-        if !viewport.scroll {
+        let viewport = self.nodes[viewport_index].rect;
+        if !self.nodes[viewport_index].scroll {
             return (0, 0);
         }
-        let mut content_right = viewport.rect.x.saturating_add(viewport.rect.width);
-        let mut content_bottom = viewport.rect.y.saturating_add(viewport.rect.height);
+        let mut content_right = viewport.x.saturating_add(viewport.width);
+        let mut content_bottom = viewport.y.saturating_add(viewport.height);
         for (index, node) in self.nodes.iter().enumerate() {
             if self
                 .ancestor_indexes(index)
@@ -273,8 +273,8 @@ impl Frame {
             }
         }
         (
-            content_right.saturating_sub(viewport.rect.x.saturating_add(viewport.rect.width)),
-            content_bottom.saturating_sub(viewport.rect.y.saturating_add(viewport.rect.height)),
+            content_right.saturating_sub(viewport.x.saturating_add(viewport.width)),
+            content_bottom.saturating_sub(viewport.y.saturating_add(viewport.height)),
         )
     }
 
