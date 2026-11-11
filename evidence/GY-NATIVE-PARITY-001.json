@@ -1,0 +1,125 @@
+{
+  "id": "GY-NATIVE-PARITY-001",
+  "date": "2026-11-06",
+  "status": "development-foundation-verified; full parity and release gates open",
+  "integration": {
+    "integrated_files": 46,
+    "preserved": {
+      "crates/goya-zcode/src/agent.rs": "2c38d3f05a76d83803dabc6c80215402c9109cdfc015d5924615a38d70a435e9",
+      "crates/goya-zcode/src/bin/zcode-monitor.rs": "df7dac64108825a9ddf48349b44efa2cf0d7f0304b692178b6f23ea4058ae698",
+      "crates/goya-zcode/src/lib.rs": "bc34871986dd7eceefcbc09e6941618b4c3560996c635fe6985dda1ea9fb8b78",
+      "crates/goya-zcode/src/view.rs": "3b9013353c746205e5b4c0e7e15f43563fc46734ef8d847d63d252e84242f885",
+      "docs/contracts.md": "aa992c0c19923c48d49adfd0c75539bbe00c7a2d64574822bad685142cbf7b1f",
+      "docs/goya-zcode.md": "27ef314729ae44a5efd9469eafe6ea64660a9e6310fa66d179e805c688b46258",
+      "evidence/GY-ZCODE-009.json": "4d3a660f10e41955ea5f4480d50a19af6eb4ff983f7b12cace67ade0e236f022"
+    }
+  },
+  "source_sha256": {
+    "Cargo.toml": "521d80643e803db6c05304ba39eabfaab73831324b167da8db6a4e75e8eedd94",
+    "Cargo.lock": "82ce76c49d9093bc12013f48d9ab4cb1fbcfbb3618abbcc79270993fb290e0f4",
+    "crates/goya-wayland/src/lib.rs": "3463e812f188a88dfd81a1f24849face67cc27930928cbd6cdec4c9aca18ce44",
+    "crates/goya-zcode-native/Cargo.toml": "d764af1c002aaf718d953662a8e3160581d6b57529e6ce2f7644d392df1fe287",
+    "crates/goya-zcode-native/tests/protocol_parity.rs": "2e5c3cc7abb9c16390244d22580299939382cc1d290521be233a939812ead6ff",
+    "crates/goya-zcode-native/src/lib.rs": "5fa85bac1931a6158c91d03fb0667891fbc563ca2cf2f73c61b06af8e6608589",
+    "crates/goya-zcode-native/src/view.rs": "e07d3956b3440ce4092c9053aecbac7d7b64d6ddd70c9f0420cbf79e60dede9c",
+    "crates/goya-zcode-native/src/a11y.rs": "020ac0fee961f29fb720aed224cb23f582bfa38b53b1529ca64335869fc5c799",
+    "crates/goya-zcode-native/src/layout.rs": "934859571ed4176103e085ba431491f9a661194cdf9efbd67512cd19ee57ca08",
+    "crates/goya-zcode-native/src/composer.rs": "73b2e1fe645778ae55f830de00405da24e115783ffa9b4487babff10f99c42bb",
+    "crates/goya-zcode-native/src/agent.rs": "0e1a8e86137c61b1a6705dae7afeb4293b0e1de935f9a770f62235ddb1c412a8",
+    "crates/goya-zcode-native/src/protocol.rs": "8ffac7f4ac054090c15c57f80f92c769763b895b92ba0d52dcf9cddb8387817f",
+    "crates/goya-zcode-native/src/theme.rs": "54eea5deffb93fc991ee9535d22e85a04a7af081954d341846142c09fb1596cd",
+    "crates/goya-zcode-native/src/clipboard.rs": "d9379d8412f1b7600ce050e8821d750c33a7938132159472d7b00f35bc9cebcd",
+    "crates/goya-zcode-native/src/markdown.rs": "a7de9622c167461eef3648bfeccf8ecebe861d60cc879bd18c2c700e3a0df4b5",
+    "crates/goya-zcode-native/tests/fixtures/fake-app-server.py": "c298c0122bc7b29b249aa9acaebf756e17f07bd6183732db06228fc3b4d11ed9",
+    "crates/goya-zcode-native/src/bin/zcode-native.rs": "648b40ba3057658d5655e2758a5838869dcd91de55fd83c260a5cf00cef1e4cf",
+    "crates/goya-webview/Cargo.toml": "8cd7a88f8787a73b8eca192d961559d1dc15c4366e3a340a4887a75b7c4b4dd8",
+    "crates/goya-webview/tests/controller.rs": "5f3beae1e4a52afaec4bc701e0bc4ac7281c97c28112fcf6277989263fc5eaa8",
+    "crates/goya-webview/src/lib.rs": "9c264a5be2fc05845eb3c098e98cc927b1ea64d7fb95356b3b4547c9be4966cf",
+    "crates/goya-webview/src/bin/goya-browser.rs": "66798d6c373bd4228e89b5fa2e6d9bd1569847f62523be071b8e073a1aec79d5",
+    "crates/goya-document/Cargo.toml": "de4c1d664fe60a6fea20af2f3e60a348da7877d2c3d571f6d8454fee75fadc44",
+    "crates/goya-document/tests/render_pdf.rs": "339ca1b0a2080d3e62c26a82372dca10a2e624a7d9b05e6c049f636e145ae70c",
+    "crates/goya-document/src/lib.rs": "2718f2286b647a8a8628155782fc091a82c7c199bdd2895e40a5eb9418dce024",
+    "crates/goya-document/src/bin/goya-document.rs": "22f7bbe1b210af871012a2aca7b2dbf9d6ba2c8c2d58be709d68635e5024a5d3",
+    "crates/goya-plugin-host/Cargo.toml": "cdea81d9f4ba5ff3e045985d73704eabcd941815b800693995fa13f578bb252e",
+    "crates/goya-plugin-host/tests/host.rs": "cd87beacbd74e24ae657c2e0320ab099d7b2e637cddfe6215c5d1489095be17c",
+    "crates/goya-plugin-host/examples/native-plugin.rs": "e2cf8f5f3a6305e034f6e9e5391d14e9552126ac7868da8e09ff37adb7991c14",
+    "crates/goya-plugin-host/src/lib.rs": "fbd673cb3f2bcb710e9340b3bff79f9acdde5618ba60899373208fb0150da3fa",
+    "crates/goya-plugin-host/fixtures/style.css": "449ea52032c434351177fc71d61f844fd9bfa52d024ea11868955531f9b299b3",
+    "crates/goya-plugin-host/fixtures/index.html": "59ee5783a1f3198d8283e0c6bed5584102c66feebbabd136b78b5ffffdad29b8"
+  },
+  "checks": {
+    "cargo_test_workspace_lib_tests_offline": "PASS in /home/sal/goya: 821 passed, 0 failed, 4 ignored across 65 test binaries; three ignored engine checks separately invoked and passed",
+    "cargo_clippy_workspace_all_targets_D_warnings": "PASS in /home/sal/goya",
+    "cargo_build_workspace_examples_bins_offline": "PASS",
+    "cargo_fmt_check": "PASS in /home/sal/goya",
+    "authoritative_drowzy_schema_fixtures": "PASS: 22 cases, 17 valid, 5 invalid; engineering runner 7 checks",
+    "explicit_real_engine_tests": "PASS in /home/sal/goya: sandboxed Chrome 152.0.7977.64, Poppler PDF worker, isolated browser plugin",
+    "drowzy_freshness": "PASS: main ahead 16, behind 0",
+    "drowzy_architecture_changed": "PASS: 0 violations",
+    "drowzy_typecheck": "FAIL: 5 pre-existing errors in ZCodeAppLogo and desktopBranchIntegrationIntelligenceIpc",
+    "drowzy_lint": "PASS: 84 warnings, 0 errors",
+    "uni_fail_under_80": "FAIL: provisional 73/100, see companion summary",
+    "deliver_strict_allow_commands": "PASS: 6 required files and 2 executable protocol/GUI gates in /home/sal/goya"
+  },
+  "native_window_checks": [
+    {
+      "command": [
+        "/tmp/goya-parity-swarm/build/integration/debug/zcode-native",
+        "--live",
+        "--duration",
+        "3",
+        "--workspace",
+        "/tmp/goya-parity-runtime",
+        "--session",
+        "synthetic-session",
+        "--cli",
+        "/tmp/goya-parity-integration/crates/goya-zcode-native/tests/fixtures/fake-app-server.py"
+      ],
+      "exit_code": 0,
+      "stdout": "zcode-native: live ended after 177 frames\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "/tmp/goya-parity-swarm/build/integration/debug/goya-browser",
+        "http://127.0.0.1:44151/webview-fixture.html",
+        "--duration",
+        "3"
+      ],
+      "exit_code": 0,
+      "stdout": "native browser presentation PASS: 3 frames\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "/tmp/goya-parity-swarm/build/integration/debug/goya-document",
+        "--file",
+        "/tmp/goya-parity-integration/fixtures/documents/one-page.pdf",
+        "--live",
+        "--duration",
+        "3"
+      ],
+      "exit_code": 0,
+      "stdout": "native document presentation PASS: 92 frames\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "/tmp/goya-parity-swarm/build/integration/debug/examples/native-plugin"
+      ],
+      "exit_code": 0,
+      "stdout": "native plugin presentation PASS: 185 frames; Host RPC bridge remains unimplemented\n",
+      "stderr": ""
+    }
+  ],
+  "open_gates": [
+    "Existing window-scoped Host attachment and remote identity routing",
+    "Full session/workspace shell, permissions, questions, queue controls and task workflows",
+    "Plugin Host RPC, lifecycle UI, revocation during live service operations",
+    "Document text selection, accessibility, Office and media viewers",
+    "Browser chrome, accessibility, managed engine packaging and supported platform qualification",
+    "Desktop continuous and mobile replayable end-to-end evidence",
+    "uni score and release audit findings"
+  ],
+  "agent_execution": "Three requested Luna agents produced independent work packages. Their usage limit ended further delegation; root reviewed, repaired, verified and integrated."
+}

@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Goya Webview local fixture</title>
+    <style>
+      :root { color-scheme: dark; font: 16px sans-serif; }
+      body { margin: 0; padding: 24px; color: #f4f7fb; background: #162033; }
+      button, input { margin-top: 16px; padding: 10px 14px; font: inherit; }
+      button { position: fixed; left: 24px; top: 150px; }
+      #status { display: block; margin-top: 20px; color: #9de3bc; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Goya native browser viewport</h1>
+      <p>This local page verifies Chromium rendering and native pointer input.</p>
+      <button id="toggle" type="button" aria-label="Change fixture color">Change color</button>
+      <label for="text">Text input</label>
+      <input id="text" type="text" autocomplete="off">
+      <output id="status" role="status" aria-live="polite">color: navy</output>
+    </main>
+    <script>
+      const button = document.querySelector("#toggle");
+      const status = document.querySelector("#status");
+      button.addEventListener("click", () => {
+        const changed = document.body.dataset.changed !== "true";
+        document.body.dataset.changed = String(changed);
+        document.body.style.background = changed ? "#6b241f" : "#162033";
+        status.value = changed ? "color: red" : "color: navy";
+        status.textContent = status.value;
+      });
+    </script>
+  </body>
+</html>

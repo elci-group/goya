@@ -239,6 +239,19 @@ impl A11yTree {
         self.nodes.get(id)
     }
 
+    /// Update an existing text input in the snapshot exported to AT.
+    /// Missing IDs and non-text nodes do not mutate the tree.
+    pub fn set_live_text(&mut self, id: &str, text: Option<String>) -> bool {
+        let Some(node) = self.nodes.get_mut(id) else {
+            return false;
+        };
+        if node.role != A11yRole::TextInput {
+            return false;
+        }
+        node.live_text = text.filter(|value| !value.is_empty());
+        true
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = &A11yNode> {
         self.nodes.values()
     }
@@ -371,6 +384,35 @@ mod tests {
 
     fn oklch_grey(l: f64) -> Oklch {
         Oklch { l, c: 0.0, h: 0.0 }
+    }
+
+    #[test]
+    fn live_text_update_does_not_create_or_retype_nodes() {
+        let mut tree = A11yTree::default();
+        assert!(!tree.set_live_text("missing", Some("value".into())));
+        assert!(tree.is_empty());
+        let mut input = A11yNode::from_ddh(&DdhNode {
+            id: "input".into(),
+            revision: 1,
+            role: SemanticRole::Textbox,
+            label: "Message".into(),
+            hit_region: goya_change::PixelRect::default(),
+            state: InteractionState {
+                enabled: true,
+                visible: true,
+                focused: false,
+            },
+            actions: vec![],
+            exposed: true,
+            parent: None,
+            semantics: Default::default(),
+        });
+        input.live_text = None;
+        tree.nodes.insert("input".into(), input);
+        assert!(tree.set_live_text("input", Some("typed".into())));
+        assert_eq!(tree.find_by_name("typed").unwrap().id, "input");
+        assert!(tree.set_live_text("input", Some(String::new())));
+        assert_eq!(tree.get("input").unwrap().resolved_name(), "Message");
     }
 
     #[test]

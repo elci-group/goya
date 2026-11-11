@@ -1,0 +1,498 @@
+[
+  {
+    "id": "subscribe.conversation",
+    "schema": "v4ConversationSubscribeParamsSchema",
+    "valid": true,
+    "value": {
+      "topic": "conversation/synthetic-session",
+      "connectionId": "synthetic-connection",
+      "clientMode": "desktop-continuous",
+      "workspace": {
+        "workspacePath": "/synthetic/workspace",
+        "workspaceKey": "/synthetic/workspace"
+      }
+    }
+  },
+  {
+    "id": "subscribe.index",
+    "schema": "v4ConversationSubscribeParamsSchema",
+    "valid": true,
+    "value": {
+      "topic": "sessions-index//synthetic/workspace",
+      "connectionId": "synthetic-connection",
+      "clientMode": "desktop-continuous",
+      "workspace": {
+        "workspacePath": "/synthetic/workspace",
+        "workspaceKey": "/synthetic/workspace"
+      }
+    }
+  },
+  {
+    "id": "subscribe.extra-field",
+    "schema": "v4ConversationSubscribeParamsSchema",
+    "valid": false,
+    "value": {
+      "topic": "conversation/synthetic-session",
+      "connectionId": "synthetic-connection",
+      "clientMode": "desktop-continuous",
+      "deliveryKind": "desktop-continuous"
+    }
+  },
+  {
+    "id": "command.send",
+    "schema": "parseCommandEnvelope",
+    "valid": true,
+    "value": {
+      "commandId": "019a5c00-0000-7000-8000-000000000001",
+      "clientId": "synthetic-client",
+      "sessionId": "synthetic-session",
+      "baseRevision": 0,
+      "type": "sendText",
+      "payload": {
+        "text": "synthetic input"
+      },
+      "inputOrigin": "desktop",
+      "issuedAt": 0
+    }
+  },
+  {
+    "id": "command.bad-payload",
+    "schema": "parseCommandEnvelope",
+    "valid": false,
+    "value": {
+      "commandId": "019a5c00-0000-7000-8000-000000000001",
+      "clientId": "synthetic-client",
+      "sessionId": "synthetic-session",
+      "baseRevision": 0,
+      "type": "sendText",
+      "payload": {
+        "text": 17
+      },
+      "issuedAt": 0
+    }
+  },
+  {
+    "id": "command.accepted",
+    "schema": "commandAckSchema",
+    "valid": true,
+    "value": {
+      "commandId": "019a5c00-0000-7000-8000-000000000001",
+      "status": "accepted",
+      "revisionAtDecision": 1
+    }
+  },
+  {
+    "id": "command.invalid-outcome",
+    "schema": "commandAckSchema",
+    "valid": false,
+    "value": {
+      "commandId": "synthetic-command",
+      "status": "success",
+      "revisionAtDecision": 1
+    }
+  },
+  {
+    "id": "query.command",
+    "schema": "commandsQueryParamsSchema",
+    "valid": true,
+    "value": {
+      "commands": [
+        {
+          "sessionId": "synthetic-session",
+          "commandId": "019a5c00-0000-7000-8000-000000000001"
+        }
+      ]
+    }
+  },
+  {
+    "id": "query.empty",
+    "schema": "commandsQueryParamsSchema",
+    "valid": false,
+    "value": {
+      "commands": []
+    }
+  },
+  {
+    "id": "query.unknown",
+    "schema": "commandsQueryResultSchema",
+    "valid": true,
+    "value": {
+      "results": [
+        {
+          "key": {
+            "sessionId": "synthetic-session",
+            "commandId": "019a5c00-0000-7000-8000-000000000001"
+          },
+          "result": "unknown"
+        }
+      ]
+    }
+  },
+  {
+    "id": "index.snapshot",
+    "schema": "sessionsIndexSnapshotSchema",
+    "valid": true,
+    "value": {
+      "protocolVersion": 1,
+      "workspaceId": "/synthetic/workspace",
+      "logEpoch": "synthetic-index-epoch",
+      "sessions": [
+        {
+          "sessionId": "synthetic-session",
+          "workspaceId": "/synthetic/workspace",
+          "title": "Synthetic session",
+          "phase": "completedSuccess",
+          "sessionEnded": true,
+          "hasBackgroundWork": false,
+          "lastActivityAt": 0,
+          "createdAt": 0
+        }
+      ]
+    }
+  },
+  {
+    "id": "row.user",
+    "schema": "conversationRowSchema",
+    "valid": true,
+    "value": {
+      "rowId": 1,
+      "turnId": "synthetic-turn",
+      "createdAt": 0,
+      "createdAtSeq": 1,
+      "kind": "userInput",
+      "text": "Persisted synthetic input",
+      "origin": "realUser"
+    }
+  },
+  {
+    "id": "delta.remove",
+    "schema": "conversationDeltaSchema",
+    "valid": true,
+    "value": {
+      "op": "row.removed",
+      "fromRowId": 2
+    }
+  },
+  {
+    "id": "delta.remove-wrong-key",
+    "schema": "conversationDeltaSchema",
+    "valid": false,
+    "value": {
+      "op": "row.removed",
+      "rowId": 2
+    }
+  },
+  {
+    "id": "conversation.snapshot",
+    "schema": "conversationSnapshotSchema",
+    "valid": true,
+    "value": {
+      "protocolVersion": 1,
+      "sessionId": "synthetic-session",
+      "logEpoch": "synthetic-epoch",
+      "seq": 1,
+      "revision": 1,
+      "control": {
+        "phase": "completedSuccess",
+        "sessionEnded": true,
+        "canStop": false,
+        "stopState": "idle",
+        "stopTargetKind": "unknown",
+        "activeWorks": [],
+        "lastError": null,
+        "apiRetry": null
+      },
+      "availability": {
+        "fork": {
+          "allowed": true
+        },
+        "compact": {
+          "allowed": true
+        },
+        "switchModelConfig": {
+          "allowed": true
+        },
+        "setFollowupMode": {
+          "allowed": true
+        },
+        "queueEdit": {
+          "allowed": true
+        },
+        "sendQueuedNow": {
+          "allowed": true
+        },
+        "pauseGoal": {
+          "allowed": false,
+          "reasonCode": "guard.noGoal"
+        },
+        "resumeGoal": {
+          "allowed": false,
+          "reasonCode": "guard.noGoal"
+        }
+      },
+      "inputRouting": {
+        "mode": "startNow"
+      },
+      "meta": {
+        "title": "Synthetic session",
+        "titleSource": "custom"
+      },
+      "config": {
+        "provider": "synthetic",
+        "model": "synthetic",
+        "thought": "",
+        "followupMode": "queue"
+      },
+      "usage": {
+        "contextWindow": null,
+        "cumulative": {
+          "inputTokens": 0,
+          "outputTokens": 0,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0
+        }
+      },
+      "queue": {
+        "items": [],
+        "autoDrain": true
+      },
+      "pendingInteractions": [],
+      "pendingCommands": [],
+      "backgroundWorks": [],
+      "goal": null,
+      "plan": null,
+      "rows": {
+        "window": [
+          {
+            "rowId": 1,
+            "turnId": "synthetic-turn",
+            "createdAt": 0,
+            "createdAtSeq": 1,
+            "kind": "userInput",
+            "text": "Persisted synthetic input",
+            "origin": "realUser"
+          }
+        ],
+        "totalCount": 1,
+        "firstRowId": 1
+      }
+    }
+  },
+  {
+    "id": "wire.conversation.complete",
+    "schema": "conversationTopicWireFrameSchema",
+    "valid": true,
+    "value": {
+      "wireVersion": 3,
+      "kind": "complete",
+      "deliveryKind": "initial",
+      "logicalFrameId": "synthetic-frame",
+      "logicalFrameOrdinal": 1,
+      "topic": "conversation/synthetic-session",
+      "subscriptionId": "synthetic-subscription",
+      "frame": {
+        "topic": "conversation/synthetic-session",
+        "subscriptionId": "synthetic-subscription",
+        "fromSeq": 0,
+        "toSeq": 1,
+        "sentAt": 0,
+        "payload": {
+          "kind": "snapshot",
+          "snapshot": {
+            "protocolVersion": 1,
+            "sessionId": "synthetic-session",
+            "logEpoch": "synthetic-epoch",
+            "seq": 1,
+            "revision": 1,
+            "control": {
+              "phase": "completedSuccess",
+              "sessionEnded": true,
+              "canStop": false,
+              "stopState": "idle",
+              "stopTargetKind": "unknown",
+              "activeWorks": [],
+              "lastError": null,
+              "apiRetry": null
+            },
+            "availability": {
+              "fork": {
+                "allowed": true
+              },
+              "compact": {
+                "allowed": true
+              },
+              "switchModelConfig": {
+                "allowed": true
+              },
+              "setFollowupMode": {
+                "allowed": true
+              },
+              "queueEdit": {
+                "allowed": true
+              },
+              "sendQueuedNow": {
+                "allowed": true
+              },
+              "pauseGoal": {
+                "allowed": false,
+                "reasonCode": "guard.noGoal"
+              },
+              "resumeGoal": {
+                "allowed": false,
+                "reasonCode": "guard.noGoal"
+              }
+            },
+            "inputRouting": {
+              "mode": "startNow"
+            },
+            "meta": {
+              "title": "Synthetic session",
+              "titleSource": "custom"
+            },
+            "config": {
+              "provider": "synthetic",
+              "model": "synthetic",
+              "thought": "",
+              "followupMode": "queue"
+            },
+            "usage": {
+              "contextWindow": null,
+              "cumulative": {
+                "inputTokens": 0,
+                "outputTokens": 0,
+                "cacheReadTokens": 0,
+                "cacheWriteTokens": 0
+              }
+            },
+            "queue": {
+              "items": [],
+              "autoDrain": true
+            },
+            "pendingInteractions": [],
+            "pendingCommands": [],
+            "backgroundWorks": [],
+            "goal": null,
+            "plan": null,
+            "rows": {
+              "window": [
+                {
+                  "rowId": 1,
+                  "turnId": "synthetic-turn",
+                  "createdAt": 0,
+                  "createdAtSeq": 1,
+                  "kind": "userInput",
+                  "text": "Persisted synthetic input",
+                  "origin": "realUser"
+                }
+              ],
+              "totalCount": 1,
+              "firstRowId": 1
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "subscribe.ack",
+    "schema": "v4ConversationSubscribeResultSchema",
+    "valid": true,
+    "value": {
+      "ack": {
+        "subscriptionId": "synthetic-subscription",
+        "mode": "snapshot",
+        "logEpoch": "synthetic-epoch"
+      }
+    }
+  },
+  {
+    "id": "resync.request",
+    "schema": "v4ConversationResyncParamsSchema",
+    "valid": true,
+    "value": {
+      "topic": "conversation/synthetic-session",
+      "connectionId": "synthetic-connection",
+      "subscriptionId": "synthetic-subscription",
+      "base": {
+        "logEpoch": "synthetic-epoch",
+        "seq": 1
+      }
+    }
+  },
+  {
+    "id": "rows.range.request",
+    "schema": "v4ConversationRowsRangeParamsSchema",
+    "valid": true,
+    "value": {
+      "sessionId": "synthetic-session",
+      "beforeRowId": 2,
+      "limit": 200
+    }
+  },
+  {
+    "id": "rows.range.result",
+    "schema": "v4ConversationRowsRangeResultSchema",
+    "valid": true,
+    "value": {
+      "rows": [
+        {
+          "rowId": 1,
+          "turnId": "synthetic-turn",
+          "createdAt": 0,
+          "createdAtSeq": 1,
+          "kind": "userInput",
+          "text": "Persisted synthetic input",
+          "origin": "realUser"
+        }
+      ],
+      "atSeq": 1,
+      "atRevision": 1,
+      "atLogEpoch": "synthetic-epoch",
+      "hasMore": false
+    }
+  },
+  {
+    "id": "wire.conversation.fragment.0",
+    "schema": "conversationTopicWireFrameSchema",
+    "valid": true,
+    "value": {
+      "wireVersion": 3,
+      "deliveryKind": "initial",
+      "logicalFrameId": "synthetic-frame",
+      "logicalFrameOrdinal": 1,
+      "topic": "conversation/synthetic-session",
+      "subscriptionId": "synthetic-subscription",
+      "kind": "fragment",
+      "fragmentIndex": 0,
+      "fragmentCount": 2,
+      "logicalBytes": 1379,
+      "checksum": {
+        "algorithm": "crc32",
+        "value": "ddae8140"
+      },
+      "dataBase64": "eyJ0b3BpYyI6ImNvbnZlcnNhdGlvbi9zeW50aGV0aWMtc2Vzc2lvbiIsInN1YnNjcmlwdGlvbklkIjoic3ludGhldGljLXN1YnNjcmlwdGlvbiIsImZyb21TZXEiOjAsInRvU2VxIjoxLCJzZW50QXQiOjAsInBheWxvYWQiOnsia2luZCI6InNuYXBzaG90Iiwic25hcHNob3QiOnsicHJvdG9jb2xWZXJzaW9uIjoxLCJzZXNzaW9uSWQiOiJzeW50aGV0aWMtc2Vzc2lvbiIsImxvZ0Vwb2NoIjoic3ludGhldGljLWVwb2NoIiwic2VxIjoxLCJyZXZpc2lvbiI6MSwiY29udHJvbCI6eyJwaGFzZSI6ImNvbXBsZXRlZFN1Y2Nlc3MiLCJzZXNzaW9uRW5kZWQiOnRydWUsImNhblN0b3AiOmZhbHNlLCJzdG9wU3RhdGUiOiJpZGxlIiwic3RvcFRhcmdldEtpbmQiOiJ1bmtub3duIiwiYWN0aXZlV29ya3MiOltdLCJsYXN0RXJyb3IiOm51bGwsImFwaVJldHJ5IjpudWxsfSwiYXZhaWxhYmlsaXR5Ijp7ImZvcmsiOnsiYWxsb3dlZCI6dHJ1ZX0sImNvbXBhY3QiOnsiYWxsb3dlZCI6dHJ1ZX0sInN3aXRjaE1vZGVsQ29uZmlnIjp7ImFsbG93ZWQiOnRydWV9LCJzZXRGb2xsb3d1cE1vZGUiOnsiYWxsb3dlZCI6dHJ1ZX0sInF1ZXVlRWRpdCI6eyJhbGxvd2VkIjp0cnVlfSwic2VuZFF1ZXVlZE5vdyI6eyJhbGxvd2VkIjp0cnVlfSwicGF1c2VHb2FsIjp7ImFsbG93ZWQiOmZhbHNlLCJyZWFzb25Db2RlIjoiZ3VhcmQubm9Hb2FsIn0="
+    }
+  },
+  {
+    "id": "wire.conversation.fragment.1",
+    "schema": "conversationTopicWireFrameSchema",
+    "valid": true,
+    "value": {
+      "wireVersion": 3,
+      "deliveryKind": "initial",
+      "logicalFrameId": "synthetic-frame",
+      "logicalFrameOrdinal": 1,
+      "topic": "conversation/synthetic-session",
+      "subscriptionId": "synthetic-subscription",
+      "kind": "fragment",
+      "fragmentIndex": 1,
+      "fragmentCount": 2,
+      "logicalBytes": 1379,
+      "checksum": {
+        "algorithm": "crc32",
+        "value": "ddae8140"
+      },
+      "dataBase64": "LCJyZXN1bWVHb2FsIjp7ImFsbG93ZWQiOmZhbHNlLCJyZWFzb25Db2RlIjoiZ3VhcmQubm9Hb2FsIn19LCJpbnB1dFJvdXRpbmciOnsibW9kZSI6InN0YXJ0Tm93In0sIm1ldGEiOnsidGl0bGUiOiJTeW50aGV0aWMgc2Vzc2lvbiIsInRpdGxlU291cmNlIjoiY3VzdG9tIn0sImNvbmZpZyI6eyJwcm92aWRlciI6InN5bnRoZXRpYyIsIm1vZGVsIjoic3ludGhldGljIiwidGhvdWdodCI6IiIsImZvbGxvd3VwTW9kZSI6InF1ZXVlIn0sInVzYWdlIjp7ImNvbnRleHRXaW5kb3ciOm51bGwsImN1bXVsYXRpdmUiOnsiaW5wdXRUb2tlbnMiOjAsIm91dHB1dFRva2VucyI6MCwiY2FjaGVSZWFkVG9rZW5zIjowLCJjYWNoZVdyaXRlVG9rZW5zIjowfX0sInF1ZXVlIjp7Iml0ZW1zIjpbXSwiYXV0b0RyYWluIjp0cnVlfSwicGVuZGluZ0ludGVyYWN0aW9ucyI6W10sInBlbmRpbmdDb21tYW5kcyI6W10sImJhY2tncm91bmRXb3JrcyI6W10sImdvYWwiOm51bGwsInBsYW4iOm51bGwsInJvd3MiOnsid2luZG93IjpbeyJyb3dJZCI6MSwidHVybklkIjoic3ludGhldGljLXR1cm4iLCJjcmVhdGVkQXQiOjAsImNyZWF0ZWRBdFNlcSI6MSwia2luZCI6InVzZXJJbnB1dCIsInRleHQiOiJQZXJzaXN0ZWQgc3ludGhldGljIGlucHV0Iiwib3JpZ2luIjoicmVhbFVzZXIifV0sInRvdGFsQ291bnQiOjEsImZpcnN0Um93SWQiOjF9fX19"
+    }
+  }
+]

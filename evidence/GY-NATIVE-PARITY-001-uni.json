@@ -1,0 +1,454 @@
+{
+  "schema": "uni.report/v3",
+  "target": "/tmp/goya-parity-integration",
+  "generated_at": "2026-11-06T20:17:07.474205632+00:00",
+  "tools_dir": "/home/sal",
+  "overall": {
+    "score": 73.0,
+    "grade": "C",
+    "graded_tools": 9,
+    "total_tools": 17,
+    "weights": [
+      [
+        "amber",
+        1.0
+      ],
+      [
+        "chakra",
+        1.0
+      ],
+      [
+        "edwardian",
+        1.0
+      ],
+      [
+        "ferret",
+        1.0
+      ],
+      [
+        "fract",
+        1.0
+      ],
+      [
+        "lwoodz",
+        1.0
+      ],
+      [
+        "tempcheq",
+        1.0
+      ],
+      [
+        "viva-palestina",
+        1.0
+      ],
+      [
+        "wilder",
+        1.0
+      ]
+    ],
+    "provisional": true
+  },
+  "suite": {
+    "required_tools": 14,
+    "available_tools": 14,
+    "executed_tools": 14,
+    "valid_results": 14,
+    "analysis_coverage": 0.33932142857142855,
+    "confidence": 0.49118012422360247
+  },
+  "integrity": {
+    "status": "healthy",
+    "score": 100.0,
+    "grade": "A+",
+    "defects": []
+  },
+  "tools": [
+    {
+      "tool": "amber",
+      "purpose": "dependency bloat / replaceability",
+      "status": "warn",
+      "availability": "installed",
+      "execution": "succeeded",
+      "evidence": {
+        "coverage": null,
+        "confidence": null,
+        "observations": 50
+      },
+      "score": 85.6,
+      "grade": "B",
+      "exit_code": 1,
+      "duration_ms": 38571,
+      "summary": "50 dependencies analyzed: 6 keep/security-block, 12 propose, 32 proceed",
+      "findings": [
+        "base64: security_block (replaceability 54)",
+        "ed25519-dalek: security_block (replaceability 45)",
+        "rand_core: security_block (replaceability 20)",
+        "serde: security_block (replaceability 20)",
+        "sha2: security_block (replaceability 20)"
+      ],
+      "note": null
+    },
+    {
+      "tool": "ami",
+      "purpose": "project profile completeness (market-intelligence readiness)",
+      "status": "skipped",
+      "availability": "not_checked",
+      "execution": "skipped",
+      "evidence": {
+        "coverage": null,
+        "confidence": null,
+        "observations": null
+      },
+      "score": null,
+      "grade": null,
+      "exit_code": null,
+      "duration_ms": null,
+      "summary": "skipped",
+      "findings": [],
+      "note": "ami is opt-in because project profiling is not code health; use `--only ami` when its installed build exposes JSON output"
+    },
+    {
+      "tool": "bart",
+      "purpose": "filesystem size & hotspots (informational)",
+      "status": "ok",
+      "availability": "installed",
+      "execution": "succeeded",
+      "evidence": {
+        "coverage": null,
+        "confidence": null,
+        "observations": null
+      },
+      "score": null,
+      "grade": null,
+      "exit_code": 0,
+      "duration_ms": 42,
+      "summary": "250 files, 3.5 MB under root",
+      "findings": [
+        "/tmp/goya-parity-integration/crates: 2.8 MB",
+        "/tmp/goya-parity-integration/platform: 197.8 KB",
+        "/tmp/goya-parity-integration/docs: 171.2 KB",
+        "/tmp/goya-parity-integration/evidence: 93.7 KB",
+        "/tmp/goya-parity-integration/Cargo.lock: 56.7 KB"
+      ],
+      "note": "informational only \u2014 bart measures disk usage, not code health"
+    },
+    {
+      "tool": "catskin",
+      "purpose": "verified-equivalent code rewrite candidates (informational)",
+      "status": "ok",
+      "availability": "installed",
+      "execution": "succeeded",
+      "evidence": {
+        "coverage": null,
+        "confidence": null,
+        "observations": 16
+      },
+      "score": null,
+      "grade": null,
+      "exit_code": 0,
+      "duration_ms": 5648,
+      "summary": "16 file(s) parsed, 0 of 0 attempted rewrite(s) verified equivalent",
+      "findings": [],
+      "note": "informational only \u2014 catskin surfaces verified-equivalent rewrite candidates, not a project-health defect"
+    },
+    {
+      "tool": "chakra",
+      "purpose": "data-flow / architecture map coverage",
+      "status": "ok",
+      "availability": "installed",
+      "execution": "succeeded",
+      "evidence": {
+        "coverage": 0.452,
+        "confidence": 1.0,
+        "observations": 704
+      },
+      "score": 100.0,
+      "grade": "A+",
+      "exit_code": 0,
+      "duration_ms": 116,
+      "summary": "233 nodes, 704 flows; analyzer completeness 100.0% (113/113 supported-language files), 45.2% of all 250 files, confidence 100.0%",
+      "findings": [
+        "704 flow(s) with provenance=observed"
+      ],
+      "note": null
+    },
+    {
+      "tool": "edwardian",
+      "purpose": "Windows release-readiness: platform-dependency findings, dimension scores, and remediation directives (analysis; revision/fork commands are opt-in, not run by `uni analyze`)",
+      "status": "fail",
+      "availability": "installed",
+      "execution": "succeeded",
+      "evidence": {
+        "coverage": 0.6,
+        "confidence": 0.62,
+        "observations": 62
+      },
+      "score": 62.0,
+      "grade": "D-",
+      "exit_code": 0,
+      "duration_ms": 675,
+      "summary": "Windows readiness 62/100 (BLOCKED), 8 blocker(s), 3/10 dimension(s) below 50, 62 finding(s), 56 remediation directive(s)",
+      "findings": [
+        "FND-00018 [blocker/shell] invocation of an absolute unix shell path",
+        "FND-00027 [blocker/shell] invocation of an absolute unix shell path",
+        "FND-00044 [blocker/service] systemd service integration",
+        "FND-00051 [blocker/shell] script with unix shebang cannot run natively on Windows",
+        "FND-00052 [blocker/shell] invocation of an absolute unix shell path"
+      ],
+      "note": null
+    },
+    {
+      "tool": "ferret",
+      "purpose": "repository-specific review findings (hunt)",
+      "status": "warn",
+      "availability": "installed",
+      "execution": "succeeded",
+      "evidence": {
+        "coverage": null,
+        "confidence": null,
+        "observations": null
+      },
+      "score": 80.0,
+      "grade": "B-",
+      "exit_code": 0,
+      "duration_ms": 288,
+      "summary": "20 review findings across 146 hunks: 0 critical, 0 major, 20 minor, 0 info",
+      "findings": [
+        "[Minor] c120410eb77214a2 \u2014 Large hunk (105 lines) in Cargo.toml \u2014 consider splitting",
+        "[Minor] 6e6751c8da76cb27 \u2014 Debug print left in crates/goya-a11y/examples/atspi_demo.rs",
+        "[Minor] 688bba9691556fbc \u2014 Large hunk (655 lines) in crates/goya-a11y/src/gtk_atspi.rs \u2014 consider splitting",
+        "[Minor] 688bba9691556fbc \u2014 Function returns Result but doesn't use `?` in crates/goya-a11y/src/gtk_atspi.rs",
+        "[Minor] 2d366ac8993c7377 \u2014 Large hunk (731 lines) in crates/goya-a11y/src/lib.rs \u2014 consider splitting",
+        "[Minor] 1d039ea8a6cd088d \u2014 Large hunk (310 lines) in crates/goya-artifact/src/lib.rs \u2014 consider splitting",
+        "[Minor] c3d94ac007ad3ecf \u2014 Large hunk (168 lines) in crates/goya-audio-dsp/src/lib.rs \u2014 consider splitting",
+        "[Minor] 8049e4fa7c5a99cd \u2014 Large hunk (151 lines) in crates/goya-audio-dsp/src/mixer.rs \u2014 consider splitting",
+        "[Minor] c96d3c71a1c67513 \u2014 Debug print left in crates/goya-audio-linux/examples/audio_smoke.rs",
+        "[Minor] fa661f11a73d01f0 \u2014 Large hunk (467 lines) in crates/goya-audio-linux/src/lib.rs \u2014 consider splitting"
+      ],
+      "note": "score deducts 20/8/1/0.25 points per critical/major/minor/info finding; findings describe project health, not analyzer execution failure"
+    },
+    {
+      "tool": "fract",
+      "purpose": "module entropy, cohesion, duplication",
+      "status": "warn",
+      "availability": "installed",
+      "execution": "succeeded",
+      "evidence": {
+        "coverage": null,
+        "confidence": null,
+        "observations": null
+      },
+      "score": 84.28571428571429,
+      "grade": "B",
+      "exit_code": 0,
+      "duration_ms": 237,
+      "summary": "112 modules indexed: 0 excellent, 68 healthy, 44 warning, 0 critical",
+      "findings": [
+        "crates/goya-zcode-native/src/bin/zcode-native.rs: entropy 0.82 \u2014 Within entropy budget (0.82)",
+        "crates/goya-zcode/src/bin/zcode-monitor.rs: entropy 0.82 \u2014 Within entropy budget (0.82)",
+        "crates/goya-vee/src/lib.rs: entropy 0.80 \u2014 Within entropy budget (0.80)",
+        "crates/goya-wayland/src/lib.rs: entropy 0.79 \u2014 Within entropy budget (0.79)",
+        "crates/goya-zcode-native/src/agent.rs: entropy 0.78 \u2014 Within entropy budget (0.78)"
+      ],
+      "note": null
+    },
+    {
+      "tool": "isopod",
+      "purpose": "ISO27001/27002 compliance posture",
+      "status": "fail",
+      "availability": "installed",
+      "execution": "succeeded",
+      "evidence": {
+        "coverage": 0.21428571428571427,
+        "confidence": 0.21428571428571427,
+        "observations": 3
+      },
+      "score": null,
+      "grade": null,
+      "exit_code": 1,
+      "duration_ms": 3609,
+      "summary": "3/14 controls assessed (21.4% coverage): 0 pass, 0 warn, 3 fail, 11 unknown",
+      "findings": [
+        "FAIL: Configuration management",
+        "FAIL: Logging",
+        "FAIL: Security testing in development and acceptance"
+      ],
+      "note": "coverage is 21.4%; compliance is ungraded below the 80% evidence threshold, and UNKNOWN controls are not treated as failures"
+    },
+    {
+      "tool": "jeenome",
+      "purpose": "behavioural trace analysis (opt-in)",
+      "status": "skipped",
+      "availability": "not_checked",
+      "execution": "skipped",
+      "evidence": {
+        "coverage": null,
+        "confidence": null,
+        "observations": null
+      },
+      "score": null,
+      "grade": null,
+      "exit_code": null,
+      "duration_ms": null,
+      "summary": "skipped",
+      "findings": [],
+      "note": "jeenome is opt-in (needs an strace trace, not just a project path); pass --jeenome to include it"
+    },
+    {
+      "tool": "lwoodz",
+      "purpose": "license / SPDX compliance",
+      "status": "warn",
+      "availability": "installed",
+      "execution": "succeeded",
+      "evidence": {
+        "coverage": null,
+        "confidence": null,
+        "observations": null
+      },
+      "score": 82.14285714285714,
+      "grade": "B-",
+      "exit_code": 0,
+      "duration_ms": 937,
+      "summary": "license=MIT, spdx_valid=true, header coverage 0/112, 0 incompatible / 22 warning issues among 154 deps",
+      "findings": [
+        "curve25519-dalek-derive [warning]: Dependency 'curve25519-dalek-derive' (MIT/Apache-2.0) may impose additional obligations when combined with 'MIT'. Review copyleft / attribution requirements.",
+        "downcast-rs [warning]: Dependency 'downcast-rs' (MIT/Apache-2.0) may impose additional obligations when combined with 'MIT'. Review copyleft / attribution requirements.",
+        "icu_collections [warning]: Dependency 'icu_collections' (Unicode-3.0) may impose additional obligations when combined with 'MIT'. Review copyleft / attribution requirements.",
+        "icu_locale_core [warning]: Dependency 'icu_locale_core' (Unicode-3.0) may impose additional obligations when combined with 'MIT'. Review copyleft / attribution requirements.",
+        "icu_normalizer [warning]: Dependency 'icu_normalizer' (Unicode-3.0) may impose additional obligations when combined with 'MIT'. Review copyleft / attribution requirements."
+      ],
+      "note": "advisory warning deductions are proportional to dependency count; missing licenses and incompatible dependencies remain hard findings"
+    },
+    {
+      "tool": "scrawny",
+      "purpose": "review-hostility of current changes",
+      "status": "warn",
+      "availability": "installed",
+      "execution": "succeeded",
+      "evidence": {
+        "coverage": null,
+        "confidence": 0.13043478260869565,
+        "observations": 10
+      },
+      "score": null,
+      "grade": null,
+      "exit_code": 0,
+      "duration_ms": 395,
+      "summary": "review load 96/100, cohesion 13%, 4 concern types across 10 files",
+      "findings": [
+        "Behavioural: 1444 lines across 110 changes",
+        "Mechanical: 636 lines across 35 changes",
+        "Documentation: 123 lines across 9 changes",
+        "Configuration: 5 lines across 2 changes"
+      ],
+      "note": "Advisory only: review difficulty describes the current changes, not project health; excluded from the overall score and failure cap."
+    },
+    {
+      "tool": "tempcheq",
+      "purpose": "LLM sampling-temperature correctness",
+      "status": "ok",
+      "availability": "installed",
+      "execution": "succeeded",
+      "evidence": {
+        "coverage": null,
+        "confidence": null,
+        "observations": 2
+      },
+      "score": 100.0,
+      "grade": "A+",
+      "exit_code": 0,
+      "duration_ms": 635,
+      "summary": "2 inference actions: 0 material deviations, 2 implicit/default temperatures",
+      "findings": [],
+      "note": null
+    },
+    {
+      "tool": "traci",
+      "purpose": "observability/telemetry completeness",
+      "status": "fail",
+      "availability": "installed",
+      "execution": "succeeded",
+      "evidence": {
+        "coverage": null,
+        "confidence": null,
+        "observations": 1182
+      },
+      "score": null,
+      "grade": null,
+      "exit_code": 2,
+      "duration_ms": 38,
+      "summary": "110 files, 1182 observability diagnostics: 273 critical, 820 error-severity, 89 warning-severity, 0 info",
+      "findings": [
+        "[observability/critical] TRC007 /tmp/goya-parity-integration/crates/goya-audio-linux/src/lib.rs:443 \u2014 panic path cannot be reconstructed from telemetry",
+        "[observability/critical] TRC007 /tmp/goya-parity-integration/crates/goya-audio-linux/src/lib.rs:447 \u2014 panic path cannot be reconstructed from telemetry",
+        "[observability/critical] TRC007 /tmp/goya-parity-integration/crates/goya-bench/src/lib.rs:577 \u2014 panic path cannot be reconstructed from telemetry",
+        "[observability/critical] TRC007 /tmp/goya-parity-integration/crates/goya-document/tests/render_pdf.rs:21 \u2014 panic path cannot be reconstructed from telemetry",
+        "[observability/critical] TRC007 /tmp/goya-parity-integration/crates/goya-executable/src/d2_journal.rs:281 \u2014 panic path cannot be reconstructed from telemetry"
+      ],
+      "note": "observability diagnostics are not assigned a project-health score because Traci does not expose a total opportunity/coverage denominator; traci.toml was missing; Poka could not configure the target (poka init exited Some(1): Error: unknown tool 'traci' (known: claude, codex, dreams, deliver, github, goglz, orbweaver, python)); assessment still ran"
+    },
+    {
+      "tool": "vamos",
+      "purpose": "terminal workflow regression coverage",
+      "status": "skipped",
+      "availability": "not_checked",
+      "execution": "skipped",
+      "evidence": {
+        "coverage": null,
+        "confidence": null,
+        "observations": null
+      },
+      "score": null,
+      "grade": null,
+      "exit_code": null,
+      "duration_ms": null,
+      "summary": "skipped",
+      "findings": [],
+      "note": "no .vamos/suite.toml in project root; add an explicit workflow suite to enable Vamos regression checks"
+    },
+    {
+      "tool": "viva-palestina",
+      "purpose": "ethical vendor / dependency policy compliance",
+      "status": "ok",
+      "availability": "installed",
+      "execution": "succeeded",
+      "evidence": {
+        "coverage": null,
+        "confidence": null,
+        "observations": null
+      },
+      "score": 100.0,
+      "grade": "A+",
+      "exit_code": 0,
+      "duration_ms": 160,
+      "summary": "no dependencies discovered",
+      "findings": [],
+      "note": null
+    },
+    {
+      "tool": "wilder",
+      "purpose": "repository evidence & coverage orchestration",
+      "status": "ok",
+      "availability": "installed",
+      "execution": "succeeded",
+      "evidence": {
+        "coverage": 0.091,
+        "confidence": null,
+        "observations": 11
+      },
+      "score": 96.0,
+      "grade": "A",
+      "exit_code": 2,
+      "duration_ms": 661,
+      "summary": "coverage 9.1% (2/22 domains), 0 critical / 0 high / 1 medium / 0 low findings",
+      "findings": [
+        "WLD-HYGIENE-0BE5E4B1 [MEDIUM/HIGH] Oversized repository file",
+        "WLD-SEM-2328E40C [INFO/HIGH] Unsafe Rust surface",
+        "WLD-SEM-2D70D905 [INFO/HIGH] Unsafe Rust surface",
+        "WLD-SEM-6EECE8E9 [INFO/HIGH] Unsafe Rust surface",
+        "WLD-SEM-E9027953 [INFO/HIGH] Unsafe Rust surface"
+      ],
+      "note": "analysis incomplete (exit 2): 2/22 domains covered"
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+[package]
+name = "goya-zcode-native"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "zcode-native"
+path = "src/bin/zcode-native.rs"
+
+[dependencies]
+goya-a11y.workspace = true
+goya-change.workspace = true
+goya-chroma.workspace = true
+goya-ddh.workspace = true
+goya-clipboard.workspace = true
+goya-provenance.workspace = true
+goya-lang.workspace = true
+goya-layout.workspace = true
+goya-runtime.workspace = true
+goya-wayland.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+unicode-segmentation.workspace = true
+
+[features]
+default = []
+atspi = ["goya-a11y/atspi-gtk"]
+
+[[bin]]
+name = "zcode-a11y-bridge"
+path = "src/bin/zcode-a11y-bridge.rs"
+required-features = ["atspi"]

@@ -1,0 +1,45 @@
+[[file]]
+path = "docs/protocol-parity.md"
+required = true
+min_size_bytes = 500
+
+[[file]]
+path = "docs/gui-parity.md"
+required = true
+min_size_bytes = 500
+
+[[file]]
+path = "crates/goya-zcode-native/src/protocol.rs"
+required = true
+min_size_bytes = 1000
+forbid_regex = ["unimplemented!", "todo!"]
+
+[[file]]
+path = "crates/goya-zcode-native/src/layout.rs"
+required = true
+min_size_bytes = 1000
+forbid_regex = ["unimplemented!", "todo!"]
+
+[[file]]
+path = "tools/verify-zcode-fixtures.mts"
+required = true
+min_size_bytes = 1000
+
+[[file]]
+path = "fixtures/zcode-v4/cases.json"
+required = true
+min_size_bytes = 1000
+
+[[command]]
+name = "native-protocol-and-layout-regressions"
+cmd = ["cargo", "test", "-p", "goya-zcode-native", "--lib", "--tests", "--offline"]
+expect_exit = 0
+timeout_secs = 120
+stdout_contains = ["test result: ok"]
+
+[[command]]
+name = "headless-native-acceptance"
+cmd = ["cargo", "run", "-p", "goya-zcode-native", "--bin", "zcode-native", "--offline"]
+expect_exit = 0
+timeout_secs = 120
+stdout_contains = ["headless acceptance PASS"]

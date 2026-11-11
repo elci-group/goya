@@ -58,11 +58,26 @@ pub enum ProjEvent {
     /// [`ToolState::Started`] by the mapper — the monitor's line model is
     /// append-only and cannot update rows in place, so progress deltas are
     /// deliberately not rendered (frozen Wave 5 contract).
+    ///
+    /// Wave 10 (GY-ZCODE-010): optional `stats` — duration/output size as
+    /// seen on the wire (`progress` payloads carry `elapsedMs`/`outputBytes`;
+    /// terminal payloads may carry their own, else the view folds the
+    /// last-seen progress stats into the terminal summary row).
     ToolUpdate {
         id: String,
         tool: String,
         state: ToolState,
+        stats: Option<ToolStats>,
     },
+}
+
+/// Wave 10 (GY-ZCODE-010): execution stats for one tool call, extracted by
+/// `agent::map_event` from the `tool.updated` payload (`elapsedMs`,
+/// `outputBytes`). Both optional — omit what the wire did not provide.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ToolStats {
+    pub duration_ms: Option<u64>,
+    pub output_bytes: Option<u64>,
 }
 
 /// Lifecycle state of a tool call in [`ProjEvent::ToolUpdate`].
@@ -80,13 +95,23 @@ pub enum ToolState {
 /// previously dropped via `reset_transcript` travels here; link state,
 /// the sessions list, the selection index and the `markdown` toggle stay
 /// with the view (list/global state, not transcript).
+/// One in-flight tool in [`SessionView`]'s tracker: the dedup id plus the
+/// last-seen [`ToolStats`] (Wave 10 — progress stats fold here so the
+/// terminal row can summarise them even when the terminal payload itself
+/// carries no stats).
+#[derive(Clone, Debug, Default)]
+struct TrackedTool {
+    id: String,
+    stats: Option<ToolStats>,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct SessionTranscript {
     tail: VecDeque<String>,
     history: Vec<String>,
     streaming: String,
     scroll: ScrollState,
-    in_flight_tools: VecDeque<String>,
+    in_flight_tools: VecDeque<TrackedTool>,
     finished_tools: VecDeque<String>,
 }
 
@@ -113,7 +138,8 @@ pub struct SessionView {
     /// Wave 5 (GY-ZCODE-005): tool ids with an open `⚙ …` row, oldest
     /// first; capped at [`TOOL_TRACK_CAP`] (oldest evicted). `progress`
     /// updates fold onto these instead of emitting duplicate lines.
-    in_flight_tools: VecDeque<String>,
+    /// Wave 10: each entry carries the last-seen [`ToolStats`].
+    in_flight_tools: VecDeque<TrackedTool>,
     /// Wave 5: tool ids that already emitted a terminal (`✓`/`✗`) line;
     /// anything after that is inert. Same cap/eviction as above.
     finished_tools: VecDeque<String>,
@@ -258,7 +284,12 @@ impl SessionView {
                 self.push_line(&format!("[error] {message}"));
                 self.status = "error".to_string();
             }
-            ProjEvent::ToolUpdate { id, tool, state } => {
+            ProjEvent::ToolUpdate {
+                id,
+                tool,
+                state,
+                stats,
+            } => {
                 // Dedup: once a terminal line exists for this id, nothing
                 // further is emitted; progress on an in-flight tool folds
                 // into its existing row (append-only line model).
@@ -268,24 +299,49 @@ impl SessionView {
                 match state {
                     ToolState::Scheduled => {} // silent — avoid noise
                     ToolState::Started => {
-                        if self.in_flight_tools.contains(id) {
+                        if let Some(open) = self.in_flight_tools.iter_mut().find(|t| t.id == *id) {
+                            // Wave 10: progress fold — refresh the
+                            // last-seen stats, emit nothing new.
+                            if stats.is_some() {
+                                open.stats = *stats;
+                            }
                             return; // progress fold / duplicate start
                         }
                         self.push_line(&format!("⚙ {tool} …"));
-                        track_tool(&mut self.in_flight_tools, id);
+                        track_tool(
+                            &mut self.in_flight_tools,
+                            TrackedTool {
+                                id: id.to_string(),
+                                stats: *stats,
+                            },
+                        );
                     }
                     ToolState::Completed | ToolState::Failed => {
                         // Terminal lines only close tools we saw start;
                         // unsolicited completions render nothing.
-                        let open = self.in_flight_tools.iter().position(|t| t == id);
+                        let open = self.in_flight_tools.iter().position(|t| t.id == *id);
                         if let Some(pos) = open {
-                            self.in_flight_tools.remove(pos);
+                            let tracked = self.in_flight_tools.remove(pos);
                             let mark = match state {
                                 ToolState::Failed => "✗",
                                 _ => "✓",
                             };
-                            self.push_line(&format!("⚙ {tool} {mark}"));
-                            track_tool(&mut self.finished_tools, id);
+                            // Wave 10: terminal summary — the event's own
+                            // stats win, else the last-seen progress stats
+                            // carried by the tracker. Missing fields (or a
+                            // fully missing summary) are omitted.
+                            let summary = stats
+                                .or(tracked.as_ref().and_then(|t| t.stats))
+                                .and_then(|s| format_tool_stats(&s));
+                            let line = match summary {
+                                Some(s) => format!("⚙ {tool} {mark} ({s})"),
+                                None => format!("⚙ {tool} {mark}"),
+                            };
+                            // The summary must never widen the row past
+                            // the fixed line width (no wrapping on tool
+                            // rows — clamp instead).
+                            self.push_line(&truncate_chars(&line, LINE_WIDTH));
+                            track_tool(&mut self.finished_tools, id.to_string());
                         }
                     }
                 }
@@ -418,13 +474,46 @@ impl SessionView {
     }
 }
 
-/// Record a tool id in a bounded tracker, evicting the oldest entry once
+/// Record a tool in a bounded tracker, evicting the oldest entry once
 /// [`TOOL_TRACK_CAP`] is reached (duplicate ids are the caller's concern).
-fn track_tool(set: &mut VecDeque<String>, id: &str) {
+fn track_tool<T>(set: &mut VecDeque<T>, tool: T) {
     if set.len() >= TOOL_TRACK_CAP {
         set.pop_front();
     }
-    set.push_back(id.to_string());
+    set.push_back(tool);
+}
+
+/// Wave 10 (GY-ZCODE-010): render a tool summary — `(3.4s, 12.3KB)`.
+/// Fields the wire did not provide are omitted; `None` overall when
+/// nothing was provided (no summary at all).
+fn format_tool_stats(stats: &ToolStats) -> Option<String> {
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(ms) = stats.duration_ms {
+        parts.push(format!("{:.1}s", ms as f64 / 1000.0));
+    }
+    if let Some(bytes) = stats.output_bytes {
+        parts.push(format_bytes(bytes));
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join(", "))
+    }
+}
+
+/// Byte size with 1 decimal above the byte range: `0B`, `1023B`,
+/// `1.0KB`, `1.0MB` (MB is the top unit — monitor rows never need more).
+fn format_bytes(bytes: u64) -> String {
+    const KIB: f64 = 1024.0;
+    const MIB: f64 = 1024.0 * 1024.0;
+    let b = bytes as f64;
+    if b >= MIB {
+        format!("{:.1}MB", b / MIB)
+    } else if b >= KIB {
+        format!("{:.1}KB", b / KIB)
+    } else {
+        format!("{bytes}B")
+    }
 }
 
 /// Greedy wrap at `width` characters, breaking mid-word when a single
@@ -681,6 +770,16 @@ mod tests {
             id: id.to_string(),
             tool: tool.to_string(),
             state,
+            stats: None,
+        }
+    }
+
+    fn tool_with_stats(id: &str, tool: &str, state: ToolState, stats: ToolStats) -> ProjEvent {
+        ProjEvent::ToolUpdate {
+            id: id.to_string(),
+            tool: tool.to_string(),
+            state,
+            stats: Some(stats),
         }
     }
 
@@ -751,9 +850,12 @@ mod tests {
             view.apply(&tool(&format!("t{i}"), "bash", ToolState::Started));
         }
         assert_eq!(view.in_flight_tools.len(), TOOL_TRACK_CAP);
-        assert_eq!(view.in_flight_tools.front().map(String::as_str), Some("t5"));
         assert_eq!(
-            view.in_flight_tools.back().map(String::as_str),
+            view.in_flight_tools.front().map(|t| t.id.as_str()),
+            Some("t5")
+        );
+        assert_eq!(
+            view.in_flight_tools.back().map(|t| t.id.as_str()),
             Some(format!("t{}", n - 1).as_str())
         );
         // The evicted oldest id can start a fresh row again (the other
@@ -761,6 +863,159 @@ mod tests {
         view.apply(&tool("t0", "bash", ToolState::Started));
         let starts = view.history.iter().filter(|l| *l == "⚙ bash …").count();
         assert_eq!(starts, n as usize + 1);
+    }
+
+    // --- Wave 10 (GY-ZCODE-010): tool-row stats summary ---
+
+    #[test]
+    fn progress_stats_carry_into_terminal_summary() {
+        let mut view = SessionView::default();
+        view.apply(&tool("t1", "bash", ToolState::Started));
+        // Progress arrives as a stats-bearing Started (agent.rs folding).
+        view.apply(&tool_with_stats(
+            "t1",
+            "bash",
+            ToolState::Started,
+            ToolStats {
+                duration_ms: Some(3_400),
+                output_bytes: Some(12_600),
+            },
+        ));
+        // Still exactly one open row; the progress emitted nothing.
+        let gear: Vec<&String> = view.history.iter().filter(|l| l.contains('⚙')).collect();
+        assert_eq!(gear, vec!["⚙ bash …"]);
+        // Terminal payload without its own stats falls back to the
+        // last-seen progress stats carried by the tracker.
+        view.apply(&tool("t1", "bash", ToolState::Completed));
+        let gear: Vec<&String> = view.history.iter().filter(|l| l.contains('⚙')).collect();
+        assert_eq!(gear, vec!["⚙ bash …", "⚙ bash ✓ (3.4s, 12.3KB)"]);
+    }
+
+    #[test]
+    fn terminal_stats_win_over_last_seen_progress() {
+        let mut view = SessionView::default();
+        view.apply(&tool_with_stats(
+            "t1",
+            "bash",
+            ToolState::Started,
+            ToolStats {
+                duration_ms: Some(1_000),
+                output_bytes: None,
+            },
+        ));
+        view.apply(&tool_with_stats(
+            "t1",
+            "bash",
+            ToolState::Completed,
+            ToolStats {
+                duration_ms: Some(2_500),
+                output_bytes: None,
+            },
+        ));
+        assert!(view.history.contains(&"⚙ bash ✓ (2.5s)".to_string()));
+    }
+
+    #[test]
+    fn missing_stats_omits_summary_entirely() {
+        let mut view = SessionView::default();
+        // No progress stats, terminal without stats: plain rows.
+        view.apply(&tool("t1", "read_file", ToolState::Started));
+        view.apply(&tool("t1", "read_file", ToolState::Completed));
+        assert!(view.history.contains(&"⚙ read_file ✓".to_string()));
+        // Stats with both fields None also renders plain.
+        view.apply(&tool("t2", "write_file", ToolState::Started));
+        view.apply(&tool_with_stats(
+            "t2",
+            "write_file",
+            ToolState::Completed,
+            ToolStats::default(),
+        ));
+        assert!(view.history.contains(&"⚙ write_file ✓".to_string()));
+    }
+
+    #[test]
+    fn stats_formatting_boundaries() {
+        let f = |s: ToolStats| format_tool_stats(&s);
+        // Duration: sub-second, exact, fractional.
+        assert_eq!(
+            f(ToolStats {
+                duration_ms: Some(400),
+                output_bytes: None
+            }),
+            Some("0.4s".into())
+        );
+        assert_eq!(
+            f(ToolStats {
+                duration_ms: Some(3_400),
+                output_bytes: None
+            }),
+            Some("3.4s".into())
+        );
+        assert_eq!(
+            f(ToolStats {
+                duration_ms: Some(0),
+                output_bytes: None
+            }),
+            Some("0.0s".into())
+        );
+        // Bytes: 0, just under/over the KiB boundary, MiB top unit.
+        assert_eq!(format_bytes(0), "0B");
+        assert_eq!(format_bytes(1023), "1023B");
+        assert_eq!(format_bytes(1024), "1.0KB");
+        assert_eq!(format_bytes(12_600), "12.3KB");
+        assert_eq!(format_bytes(1024 * 1024), "1.0MB");
+        assert_eq!(format_bytes(5 * 1024 * 1024 + 600_000), "5.6MB");
+        // Combined order: duration first, then bytes.
+        assert_eq!(
+            f(ToolStats {
+                duration_ms: Some(1_050),
+                output_bytes: Some(1024)
+            }),
+            Some("1.1s, 1.0KB".into())
+        );
+    }
+
+    #[test]
+    fn stats_line_is_clamped_to_line_width() {
+        let mut view = SessionView::default();
+        view.apply(&tool("t1", "bash", ToolState::Started));
+        view.apply(&tool_with_stats(
+            "t1",
+            "bash",
+            ToolState::Completed,
+            ToolStats {
+                duration_ms: Some(3_400),
+                output_bytes: Some(12_600),
+            },
+        ));
+        // Every committed line (the summary included) fits LINE_WIDTH.
+        for line in &view.history {
+            assert!(
+                line.chars().count() <= LINE_WIDTH,
+                "line exceeds LINE_WIDTH: {line}"
+            );
+        }
+        // An oversized tool name still clamps (truncate_chars marks it).
+        let mut view = SessionView::default();
+        let huge_tool = "t".repeat(LINE_WIDTH);
+        view.apply(&tool("t1", &huge_tool, ToolState::Started));
+        view.apply(&tool_with_stats(
+            "t1",
+            &huge_tool,
+            ToolState::Completed,
+            ToolStats {
+                duration_ms: Some(3_400),
+                output_bytes: Some(12_600),
+            },
+        ));
+        for line in &view.history {
+            assert!(line.chars().count() <= LINE_WIDTH);
+        }
+        // Exactly one terminal line came out (clamped, not wrapped — the
+        // summary pushes past the width, so truncate_chars cut the row
+        // and marked it with `~`).
+        let done = view.history.iter().filter(|l| l.ends_with('~')).count();
+        assert_eq!(done, 1);
     }
 
     // --- Wave 6 (GY-ZCODE-006): multi-session switching ---
@@ -893,7 +1148,7 @@ mod tests {
         assert_eq!(view.rows(), before_rows, "rows restored exactly");
         assert_eq!(view.scroll_from_bottom(), before_from_bottom);
         assert_eq!(view.streaming, "streaming mid-turn");
-        assert!(view.in_flight_tools.contains(&"t1".to_string()));
+        assert!(view.in_flight_tools.iter().any(|t| t.id == "t1"));
         // List/global state is untouched by restore.
         assert_eq!(view.link, LinkState::Up);
         assert!(!view.markdown);
@@ -919,7 +1174,7 @@ mod tests {
             fresh.history,
             vec!["⚙ bash …".to_string(), "kept".to_string()]
         );
-        assert!(fresh.in_flight_tools.contains(&"t9".to_string()));
+        assert!(fresh.in_flight_tools.iter().any(|t| t.id == "t9"));
         // Only transcript fields moved; the fresh view's own state stays.
         assert_eq!(fresh.sessions.len(), 1);
         assert_eq!(fresh.sessions[0].session_id, "other");

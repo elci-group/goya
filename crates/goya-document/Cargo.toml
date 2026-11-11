@@ -1,0 +1,12 @@
+[package]
+name = "goya-document"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+goya-wayland.workspace = true
+
+[[bin]]
+name = "goya-document"
+path = "src/bin/goya-document.rs"

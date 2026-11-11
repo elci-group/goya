@@ -702,17 +702,20 @@ fn headless_acceptance(store: &SceneStore) {
         id: "call_1".into(),
         tool: "read_file".into(),
         state: ToolState::Started,
+        stats: None,
     });
     // progress arrives as a repeated Started (agent.rs folds the kind).
     tv.apply(&ProjEvent::ToolUpdate {
         id: "call_1".into(),
         tool: "read_file".into(),
         state: ToolState::Started,
+        stats: None,
     });
     tv.apply(&ProjEvent::ToolUpdate {
         id: "call_1".into(),
         tool: "read_file".into(),
         state: ToolState::Completed,
+        stats: None,
     });
     let gear: Vec<&String> = tv.history.iter().filter(|l| l.contains('⚙')).collect();
     let tool_ok = gear == vec!["⚙ read_file …", "⚙ read_file ✓"];
@@ -721,11 +724,13 @@ fn headless_acceptance(store: &SceneStore) {
         id: "call_2".into(),
         tool: "write_file".into(),
         state: ToolState::Started,
+        stats: None,
     });
     tv.apply(&ProjEvent::ToolUpdate {
         id: "call_2".into(),
         tool: "write_file".into(),
         state: ToolState::Failed,
+        stats: None,
     });
     // After a terminal line, anything further is inert.
     let before = tv.history.clone();
@@ -733,6 +738,7 @@ fn headless_acceptance(store: &SceneStore) {
         id: "call_1".into(),
         tool: "read_file".into(),
         state: ToolState::Started,
+        stats: None,
     });
     let tool_ok =
         tool_ok && tv.history.contains(&"⚙ write_file ✗".to_string()) && tv.history == before;
@@ -741,6 +747,72 @@ fn headless_acceptance(store: &SceneStore) {
         pass_str(tool_ok)
     );
     ok &= tool_ok;
+
+    // Tool-row stats summary (GY-ZCODE-010): progress stats carried by
+    // the in-flight tracker surface in the terminal row `(3.4s, 12.3KB)`;
+    // missing stats omit the summary; rows stay within LINE_WIDTH.
+    let mut st = SessionView::default();
+    st.apply(&ProjEvent::ToolUpdate {
+        id: "call_s".into(),
+        tool: "bash".into(),
+        state: ToolState::Started,
+        stats: None,
+    });
+    st.apply(&ProjEvent::ToolUpdate {
+        id: "call_s".into(),
+        tool: "bash".into(),
+        state: ToolState::Started,
+        stats: Some(goya_zcode::view::ToolStats {
+            duration_ms: Some(3_400),
+            output_bytes: Some(12_600),
+        }),
+    });
+    st.apply(&ProjEvent::ToolUpdate {
+        id: "call_s".into(),
+        tool: "bash".into(),
+        state: ToolState::Completed,
+        stats: None,
+    });
+    let stats_ok = st.history.contains(&"⚙ bash ✓ (3.4s, 12.3KB)".to_string())
+        && st
+            .history
+            .iter()
+            .all(|l| l.chars().count() <= goya_zcode::view::LINE_WIDTH);
+    let mut bare = SessionView::default();
+    bare.apply(&ProjEvent::ToolUpdate {
+        id: "t".into(),
+        tool: "read_file".into(),
+        state: ToolState::Started,
+        stats: None,
+    });
+    bare.apply(&ProjEvent::ToolUpdate {
+        id: "t".into(),
+        tool: "read_file".into(),
+        state: ToolState::Completed,
+        stats: None,
+    });
+    let stats_ok = stats_ok && bare.history.contains(&"⚙ read_file ✓".to_string());
+    println!("tool-row stats summary + clamp [{}]", pass_str(stats_ok));
+    ok &= stats_ok;
+
+    // Malformed-frame robustness (GY-ZCODE-010): the pure frame-routing
+    // decision stays defined over the mutation corpus — responses route,
+    // noise is inert, nothing panics (the byte-level reader loop that
+    // consumes these outcomes is mutation-tested in agent.rs).
+    let classify = |s: &str| {
+        serde_json::from_str::<serde_json::Value>(s)
+            .map(|msg| agent::classify_frame(&msg))
+            .unwrap_or(agent::FrameAction::Ignore)
+    };
+    let frame_ok = classify(r#"{"id":3,"result":{}}"#) == agent::FrameAction::Response(3)
+        && classify(r#"{"id":"x","result":{}}"#) == agent::FrameAction::Response(0)
+        && classify(r#"{"method":"session/event","params":{}}"#)
+            == agent::FrameAction::SessionEvent
+        && classify("[]") == agent::FrameAction::Ignore
+        && classify("{}") == agent::FrameAction::Ignore
+        && classify(r#"{"method":"unknown"}"#) == agent::FrameAction::Ignore;
+    println!("malformed-frame classify corpus [{}]", pass_str(frame_ok));
+    ok &= frame_ok;
 
     // Preedit display contract (GY-ZCODE-005): inline bracketed overlay,
     // cleared on Preedit(None), never committed into the buffer text.

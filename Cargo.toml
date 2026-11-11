@@ -44,6 +44,10 @@ members = [
     "crates/goya-sdk",
     "crates/goya-studio",
     "crates/goya-zcode",
+    "crates/goya-zcode-native",
+    "crates/goya-document",
+    "crates/goya-webview",
+    "crates/goya-plugin-host",
 ]
 
 [workspace.package]
@@ -92,6 +96,7 @@ goya-bench = { path = "crates/goya-bench" }
 goya-tov = { path = "crates/goya-tov" }
 goya-ecosystem = { path = "crates/goya-ecosystem" }
 goya-sdk = { path = "crates/goya-sdk" }
+goya-webview = { path = "crates/goya-webview" }
 goya-studio = { path = "crates/goya-studio" }
 unicode-segmentation = "1.12"
 cosmic-text = "0.17"

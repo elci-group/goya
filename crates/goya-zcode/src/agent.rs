@@ -8,10 +8,12 @@
 //! (unknown fields are ignored, unknown event types are inert).
 
 use crate::composer::ComposerSnapshot;
-use crate::view::{LinkState, ProjEvent, SessionEntry, SessionTranscript, SessionView, ToolState};
+use crate::view::{
+    LinkState, ProjEvent, SessionEntry, SessionTranscript, SessionView, ToolState, ToolStats,
+};
 use serde_json::{json, Value};
 use std::collections::{HashMap, VecDeque};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -26,6 +28,13 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 const RECONNECT_DELAY_MS: u64 = 5_000;
 const POLL_INTERVAL_MS: u64 = 200;
 const COMMAND_QUEUE_CAPACITY: usize = 8;
+
+/// Wave 10 (GY-ZCODE-010): per-line read bound for the NDJSON reader.
+/// Any stdout line longer than this is dropped whole (the link state and
+/// the frame counters are untouched) instead of letting a runaway frame
+/// grow the buffer without bound. Legitimate protocol frames — session
+/// events with previews/tails — stay far below 1 MiB.
+pub const LINE_READ_CAP: usize = 1024 * 1024;
 
 /// Wave 7 (GY-ZCODE-007): retention capacity of the per-session
 /// transcript/composer LRU; the oldest session (by first-saved order) is
@@ -712,11 +721,72 @@ impl AgentRun {
     }
 }
 
+/// Wave 10 (GY-ZCODE-010): routing decision for one decoded JSON frame,
+/// extracted from `read_frames` so the mutation corpus can be exercised
+/// headless (pure function, no shared state).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FrameAction {
+    /// A response frame (`{id, result|error}`) — route to the pending
+    /// request with this id (non-numeric/absent ids route to 0, which
+    /// never matches a real request: defined, inert outcome).
+    Response(u64),
+    /// A `session/event` notification — apply to the view (subject to the
+    /// session filter; a missing/unknown envelope is inert there).
+    SessionEvent,
+    /// Anything else (non-object frames, unknown methods, `{}`) — inert.
+    Ignore,
+}
+
+/// Classify one frame. Responses win over notifications (the wire never
+/// sends both, but `id` + `result`/`error` is unambiguous).
+pub fn classify_frame(msg: &Value) -> FrameAction {
+    if msg.get("id").is_some() && (msg.get("result").is_some() || msg.get("error").is_some()) {
+        return FrameAction::Response(msg.get("id").and_then(Value::as_u64).unwrap_or(0));
+    }
+    if msg.get("method").and_then(Value::as_str) == Some("session/event") {
+        return FrameAction::SessionEvent;
+    }
+    FrameAction::Ignore
+}
+
+/// What one stdout line means for the reader loop.
+#[derive(Clone, Debug, PartialEq)]
+enum LineOutcome {
+    /// A decoded JSON frame — route by [`classify_frame`].
+    Frame(Value),
+    /// Non-JSON on stdout: the child lacks the protocol boundary. The
+    /// reader stops and the link is marked Down.
+    Fatal(&'static str),
+    /// Drop the line silently (blank, invalid UTF-8) — link unchanged.
+    Dropped,
+}
+
+/// Decode one raw stdout line (bytes, newline already stripped).
+fn parse_line(bytes: &[u8]) -> LineOutcome {
+    // Invalid UTF-8 on stdout is malformed transport, not necessarily a
+    // broken peer: drop the line, keep the link.
+    let Ok(line) = std::str::from_utf8(bytes) else {
+        return LineOutcome::Dropped;
+    };
+    if line.trim().is_empty() {
+        return LineOutcome::Dropped;
+    }
+    match serde_json::from_str::<Value>(line) {
+        Ok(msg) => LineOutcome::Frame(msg),
+        Err(_) => LineOutcome::Fatal("non-JSON frame on stdout"),
+    }
+}
+
 /// Reader loop: route responses to pending requests, apply
 /// `session/event` notifications to the view. Other notifications are
-/// inert; a non-JSON line means the child lacks the protocol boundary.
-fn read_frames(
-    reader: BufReader<std::process::ChildStdout>,
+/// inert; a non-JSON line means the child lacks the protocol boundary
+/// (link Down). Lines longer than [`LINE_READ_CAP`] are dropped whole —
+/// the remainder of the overlong line is drained so the next frame is
+/// still parsed; invalid UTF-8 lines are dropped with the link intact.
+/// Generic over the reader so the mutation tests drive the exact loop
+/// over in-memory cursors.
+fn read_frames<R: BufRead>(
+    mut reader: R,
     pending: PendingMap,
     view: Arc<Mutex<SessionView>>,
     dirty: Arc<AtomicBool>,
@@ -724,70 +794,104 @@ fn read_frames(
     session_filter: Arc<Mutex<Option<String>>>,
     send_lifecycle: Arc<Mutex<SendLifecycle>>,
 ) {
-    for line in reader.lines() {
+    let mut buf: Vec<u8> = Vec::with_capacity(4096);
+    loop {
         if stop.load(Ordering::Relaxed) {
             return;
         }
-        let Ok(line) = line else { return };
-        if line.trim().is_empty() {
+        buf.clear();
+        // Read at most cap+1 bytes: an exactly-cap line still fits, an
+        // overlong one is detected by `cap+1 bytes without a newline`.
+        let read = reader
+            .by_ref()
+            .take(LINE_READ_CAP as u64 + 1)
+            .read_until(b'\n', &mut buf);
+        match read {
+            Ok(0) | Err(_) => return, // stdout closed / read error
+            Ok(_) => {}
+        }
+        let terminated = buf.last() == Some(&b'\n');
+        if !terminated && buf.len() > LINE_READ_CAP {
+            // Overlong line: drop it whole and drain the remainder up to
+            // the next newline (or EOF) so the next frame survives.
+            let mut sink = Vec::with_capacity(8192);
+            loop {
+                sink.clear();
+                match reader.read_until(b'\n', &mut sink) {
+                    Ok(0) | Err(_) => return,
+                    Ok(_) if sink.last() == Some(&b'\n') => break,
+                    Ok(_) => {}
+                }
+            }
             continue;
         }
-        let Ok(msg) = serde_json::from_str::<Value>(&line) else {
-            if let Ok(mut v) = view.lock() {
-                v.link = LinkState::Down("non-JSON frame on stdout".into());
+        if terminated {
+            buf.pop();
+            if buf.last() == Some(&b'\r') {
+                buf.pop();
             }
-            dirty.store(true, Ordering::Relaxed);
-            return;
-        };
-        if msg.get("id").is_some() && (msg.get("result").is_some() || msg.get("error").is_some()) {
-            let id = msg["id"].as_u64().unwrap_or(0);
-            let sender = pending.lock().expect("pending map poisoned").remove(&id);
-            if let Some(sender) = sender {
-                let payload = if let Some(err) = msg.get("error") {
-                    // Keep the code in the status text: "-32010: …" is the
-                    // contract for "a prompt is already running".
-                    Err(
-                        match (
-                            err.get("code").and_then(Value::as_i64),
-                            err.get("message").and_then(Value::as_str),
+        }
+        match parse_line(&buf) {
+            LineOutcome::Dropped => continue,
+            LineOutcome::Fatal(reason) => {
+                if let Ok(mut v) = view.lock() {
+                    v.link = LinkState::Down(reason.into());
+                }
+                dirty.store(true, Ordering::Relaxed);
+                return;
+            }
+            LineOutcome::Frame(msg) => match classify_frame(&msg) {
+                FrameAction::Ignore => {}
+                FrameAction::Response(id) => {
+                    let sender = pending.lock().expect("pending map poisoned").remove(&id);
+                    if let Some(sender) = sender {
+                        let payload = if let Some(err) = msg.get("error") {
+                            // Keep the code in the status text: "-32010: …"
+                            // is the contract for "a prompt is already
+                            // running".
+                            Err(
+                                match (
+                                    err.get("code").and_then(Value::as_i64),
+                                    err.get("message").and_then(Value::as_str),
+                                ) {
+                                    (Some(code), Some(m)) => format!("{code}: {m}"),
+                                    (_, Some(m)) => m.to_string(),
+                                    (_, None) => err.to_string(),
+                                },
+                            )
+                        } else {
+                            Ok(msg["result"].clone())
+                        };
+                        let _ = sender.send(payload);
+                    }
+                }
+                FrameAction::SessionEvent => {
+                    let envelope = msg.get("params").unwrap_or(&Value::Null);
+                    let matches_session = session_filter
+                        .lock()
+                        .ok()
+                        .and_then(|filter| filter.clone())
+                        .is_none_or(|id| {
+                            envelope.get("sessionId").and_then(Value::as_str) == Some(id.as_str())
+                        });
+                    if matches_session {
+                        if let (Some(session_id), Some(kind)) = (
+                            envelope.get("sessionId").and_then(Value::as_str),
+                            envelope.get("type").and_then(Value::as_str),
                         ) {
-                            (Some(code), Some(m)) => format!("{code}: {m}"),
-                            (_, Some(m)) => m.to_string(),
-                            (_, None) => err.to_string(),
-                        },
-                    )
-                } else {
-                    Ok(msg["result"].clone())
-                };
-                let _ = sender.send(payload);
-            }
-            continue;
-        }
-        if msg.get("method").and_then(Value::as_str) == Some("session/event") {
-            let envelope = msg.get("params").unwrap_or(&Value::Null);
-            let matches_session = session_filter
-                .lock()
-                .ok()
-                .and_then(|filter| filter.clone())
-                .is_none_or(|id| {
-                    envelope.get("sessionId").and_then(Value::as_str) == Some(id.as_str())
-                });
-            if matches_session {
-                if let (Some(session_id), Some(kind)) = (
-                    envelope.get("sessionId").and_then(Value::as_str),
-                    envelope.get("type").and_then(Value::as_str),
-                ) {
-                    if let Ok(mut lifecycle) = send_lifecycle.lock() {
-                        lifecycle.event(session_id, kind);
+                            if let Ok(mut lifecycle) = send_lifecycle.lock() {
+                                lifecycle.event(session_id, kind);
+                            }
+                        }
+                        if let Some(event) = map_event(envelope) {
+                            if let Ok(mut v) = view.lock() {
+                                v.apply(&event);
+                            }
+                            dirty.store(true, Ordering::Relaxed);
+                        }
                     }
                 }
-                if let Some(event) = map_event(envelope) {
-                    if let Ok(mut v) = view.lock() {
-                        v.apply(&event);
-                    }
-                    dirty.store(true, Ordering::Relaxed);
-                }
-            }
+            },
         }
     }
 }
@@ -852,6 +956,13 @@ fn map_event(envelope: &Value) -> Option<ProjEvent> {
 /// short form of the id; the raw id travels in `ProjEvent::ToolUpdate.id`
 /// for the view's dedup (kept separate from the display name on purpose:
 /// ids must be unique even when names collide).
+///
+/// Wave 10 (GY-ZCODE-010): `progress` payloads carry `elapsedMs` and
+/// `outputBytes` (schema-verified names); both are optional and folded
+/// into the Started mapping as [`ToolStats`]. Terminal payloads
+/// (`completed`/`failed`) have no stats fields in the schema, so their
+/// stats are `None` here — the view folds the last-seen progress stats
+/// from its per-tool tracker into the terminal summary row.
 fn map_tool_update(payload: &Value) -> Option<ProjEvent> {
     let id = payload.get("toolCallId").and_then(Value::as_str)?;
     if id.is_empty() {
@@ -867,6 +978,7 @@ fn map_tool_update(payload: &Value) -> Option<ProjEvent> {
         // Unknown kinds are inert (schema may grow).
         _ => return None,
     };
+    let stats = extract_tool_stats(payload);
     let tool = payload
         .get("toolName")
         .and_then(Value::as_str)
@@ -883,6 +995,22 @@ fn map_tool_update(payload: &Value) -> Option<ProjEvent> {
         id: id.to_string(),
         tool,
         state,
+        stats,
+    })
+}
+
+/// Wave 10: pull `elapsedMs` / `outputBytes` (both optional non-negative
+/// numbers per the drowzy schema) into [`ToolStats`]; fields the payload
+/// omits stay `None`.
+fn extract_tool_stats(payload: &Value) -> Option<ToolStats> {
+    let duration_ms = payload.get("elapsedMs").and_then(Value::as_u64);
+    let output_bytes = payload.get("outputBytes").and_then(Value::as_u64);
+    if duration_ms.is_none() && output_bytes.is_none() {
+        return None;
+    }
+    Some(ToolStats {
+        duration_ms,
+        output_bytes,
     })
 }
 
@@ -1045,13 +1173,14 @@ mod tests {
                 id: "call_abcdefghij".into(),
                 tool: "read_file".into(),
                 state: ToolState::Started,
+                stats: None,
             })
         );
         // Progress folds onto Started.
         assert_eq!(
             map_event(&env("progress")),
             map_event(&env("started")),
-            "progress must fold into Started"
+            "progress without stats must fold into a bare Started"
         );
         assert_eq!(
             map_event(&env("completed")),
@@ -1059,6 +1188,7 @@ mod tests {
                 id: "call_abcdefghij".into(),
                 tool: "read_file".into(),
                 state: ToolState::Completed,
+                stats: None,
             })
         );
         // Unknown kinds are inert.
@@ -1093,6 +1223,7 @@ mod tests {
                 id: "call_1234567890abcdef".into(),
                 tool: "reading src".into(),
                 state: ToolState::Started,
+                stats: None,
             })
         );
         let ev = map_event(&envelope(Value::Null));
@@ -1105,6 +1236,259 @@ mod tests {
             Some("90abcdef"),
             "short id form is the last 8 chars"
         );
+    }
+
+    // --- Wave 10 (GY-ZCODE-010): progress stats + reader robustness ---
+
+    #[test]
+    fn progress_payload_stats_fold_into_started_mapping() {
+        let env = serde_json::json!({
+            "type": "tool.updated",
+            "payload": {
+                "kind": "progress",
+                "toolCallId": "call_stats",
+                "toolName": "bash",
+                "elapsedMs": 3400,
+                "outputBytes": 12600,
+                "pid": 42,
+            }
+        });
+        assert_eq!(
+            map_event(&env),
+            Some(ProjEvent::ToolUpdate {
+                id: "call_stats".into(),
+                tool: "bash".into(),
+                state: ToolState::Started,
+                stats: Some(crate::view::ToolStats {
+                    duration_ms: Some(3_400),
+                    output_bytes: Some(12_600),
+                }),
+            }),
+            "elapsedMs/outputBytes fold into the Started mapping"
+        );
+        // Partial stats: only the provided field travels.
+        let partial = serde_json::json!({
+            "type": "tool.updated",
+            "payload": {"kind": "progress", "toolCallId": "c", "elapsedMs": 100}
+        });
+        assert_eq!(
+            map_event(&partial),
+            Some(ProjEvent::ToolUpdate {
+                id: "c".into(),
+                tool: "c".into(),
+                state: ToolState::Started,
+                stats: Some(crate::view::ToolStats {
+                    duration_ms: Some(100),
+                    output_bytes: None,
+                }),
+            })
+        );
+        // Terminal payloads carry no stats fields (schema) — None; the
+        // view supplies last-seen progress stats from its tracker.
+        let terminal = serde_json::json!({
+            "type": "tool.updated",
+            "payload": {"kind": "failed", "toolCallId": "c"}
+        });
+        assert_eq!(
+            map_event(&terminal),
+            Some(ProjEvent::ToolUpdate {
+                id: "c".into(),
+                tool: "c".into(),
+                state: ToolState::Failed,
+                stats: None,
+            })
+        );
+    }
+
+    /// Feed raw stdout bytes through the exact reader loop against an
+    /// in-memory cursor; returns the shared view.
+    fn feed_frames(pending: &PendingMap, input: &[u8]) -> Arc<Mutex<SessionView>> {
+        let view = Arc::new(Mutex::new(SessionView::default()));
+        read_frames(
+            std::io::Cursor::new(input.to_vec()),
+            Arc::clone(pending),
+            Arc::clone(&view),
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(Mutex::new(None)),
+            Arc::new(Mutex::new(SendLifecycle::default())),
+        );
+        view
+    }
+
+    fn link_of(view: &Arc<Mutex<SessionView>>) -> LinkState {
+        view.lock().expect("view").link.clone()
+    }
+
+    /// Mutation corpus over the reader path: every malformed input must
+    /// leave a defined link state, never panic or wedge (the loop here
+    /// terminates because the cursor reaches EOF).
+    #[test]
+    fn overlong_line_dropped_and_next_frame_survives() {
+        let pending: PendingMap = Arc::new(Mutex::new(HashMap::new()));
+        let (tx, rx) = channel();
+        pending.lock().expect("pending").insert(7, tx);
+        // Overlong head (cap + 100 bytes, no newline), then the real frame.
+        let mut input = Vec::new();
+        input.extend(std::iter::repeat_n(b'x', LINE_READ_CAP + 100));
+        input.push(b'\n');
+        input.extend_from_slice(br#"{"id":7,"result":{"accepted":true}}"#);
+        input.push(b'\n');
+        let view = feed_frames(&pending, &input);
+        assert_eq!(
+            link_of(&view),
+            LinkState::Connecting,
+            "dropped overlong line must not touch the link"
+        );
+        assert!(
+            matches!(rx.try_recv(), Ok(Ok(v)) if v.get("accepted").and_then(Value::as_bool) == Some(true)),
+            "the frame after the overlong line is still routed"
+        );
+    }
+
+    #[test]
+    fn invalid_utf8_line_dropped_link_intact() {
+        let pending: PendingMap = Arc::new(Mutex::new(HashMap::new()));
+        let mut input: Vec<u8> = vec![0xff, 0xfe, b' ', b'n', b'o', b't', b' ', b'j', b's', b'\n'];
+        input.extend_from_slice(br#"{"id":1,"result":{}}"#);
+        input.push(b'\n');
+        let (tx, rx) = channel();
+        pending.lock().expect("pending").insert(1, tx);
+        let view = feed_frames(&pending, &input);
+        assert_eq!(link_of(&view), LinkState::Connecting);
+        assert!(rx.try_recv().is_ok(), "valid frame after bad UTF-8 routed");
+    }
+
+    #[test]
+    fn non_json_line_marks_link_down() {
+        let pending: PendingMap = Arc::new(Mutex::new(HashMap::new()));
+        let view = feed_frames(&pending, b"hello there\n");
+        assert_eq!(
+            link_of(&view),
+            LinkState::Down("non-JSON frame on stdout".into()),
+            "valid UTF-8 non-JSON keeps the protocol-boundary contract"
+        );
+    }
+
+    #[test]
+    fn non_object_frames_are_inert() {
+        let pending: PendingMap = Arc::new(Mutex::new(HashMap::new()));
+        let mut input = Vec::new();
+        for frame in ["[1,2,3]", "\"just a string\"", "42", "true", "null"] {
+            input.extend_from_slice(frame.as_bytes());
+            input.push(b'\n');
+        }
+        input.extend_from_slice(br#"{"method":"session/other"}"#);
+        input.push(b'\n');
+        let view = feed_frames(&pending, &input);
+        assert_eq!(
+            link_of(&view),
+            LinkState::Connecting,
+            "non-object / unknown-method frames are inert"
+        );
+    }
+
+    #[test]
+    fn deep_nested_json_never_panics() {
+        // A nested-params probe within serde's parse depth: fully inert.
+        let mut nested = String::new();
+        for _ in 0..64 {
+            nested.push_str("{\"a\":");
+        }
+        nested.push('1');
+        for _ in 0..64 {
+            nested.push('}');
+        }
+        let frame = format!(r#"{{"method":"session/event","params":{nested}}}"#);
+        let pending: PendingMap = Arc::new(Mutex::new(HashMap::new()));
+        let view = feed_frames(&pending, frame.as_bytes());
+        assert_eq!(link_of(&view), LinkState::Connecting);
+        // Pathological depth beyond serde's parse guard is rejected as
+        // non-JSON (defined Down), never a panic or a hang.
+        let mut crazy = String::new();
+        for _ in 0..2_000 {
+            crazy.push('[');
+        }
+        for _ in 0..2_000 {
+            crazy.push(']');
+        }
+        let view = feed_frames(&pending, crazy.as_bytes());
+        assert!(
+            matches!(link_of(&view), LinkState::Down(_)),
+            "serde parse guard yields the defined non-JSON path"
+        );
+    }
+
+    #[test]
+    fn huge_id_routes_to_pending_request() {
+        let pending: PendingMap = Arc::new(Mutex::new(HashMap::new()));
+        let (tx, rx) = channel();
+        pending.lock().expect("pending").insert(u64::MAX, tx);
+        let view = feed_frames(
+            &pending,
+            br#"{"id":18446744073709551615,"result":{"ok":true}}"#,
+        );
+        assert_eq!(link_of(&view), LinkState::Connecting);
+        assert!(
+            matches!(rx.try_recv(), Ok(Ok(v)) if v.get("ok").and_then(Value::as_bool) == Some(true)),
+            "u64::MAX id routes to the matching pending request"
+        );
+    }
+
+    #[test]
+    fn missing_method_or_params_are_inert() {
+        let pending: PendingMap = Arc::new(Mutex::new(HashMap::new()));
+        let input = br#"{}
+{"method":"session/event"}
+{"method":"session/event","params":{}}
+{"method":"session/event","params":{"sessionId":"s1","type":"tool.updated"}}
+"#;
+        let view = feed_frames(&pending, input);
+        assert_eq!(link_of(&view), LinkState::Connecting);
+        assert!(
+            view.lock().expect("view").history.is_empty(),
+            "envelopes without a decodable payload emit nothing"
+        );
+    }
+
+    #[test]
+    fn classify_frame_corpus_is_defined() {
+        let c = |s: &str| classify_frame(&serde_json::from_str::<Value>(s).expect("json"));
+        // Response shapes.
+        assert_eq!(c(r#"{"id":3,"result":{}}"#), FrameAction::Response(3));
+        assert_eq!(
+            c(r#"{"id":4,"error":{"code":-1,"message":"m"}}"#),
+            FrameAction::Response(4)
+        );
+        // Non-numeric id: routes to the inert 0 bucket, not a panic.
+        assert_eq!(c(r#"{"id":"str","result":{}}"#), FrameAction::Response(0));
+        // Notifications / noise.
+        assert_eq!(
+            c(r#"{"method":"session/event","params":{}}"#),
+            FrameAction::SessionEvent
+        );
+        assert_eq!(c(r#"{"method":"other"}"#), FrameAction::Ignore);
+        assert_eq!(c("{}"), FrameAction::Ignore);
+        assert_eq!(c("[]"), FrameAction::Ignore);
+        // Response wins over a same-frame method field.
+        assert_eq!(
+            c(r#"{"id":9,"result":{},"method":"session/event"}"#),
+            FrameAction::Response(9)
+        );
+    }
+
+    #[test]
+    fn parse_line_drop_and_fatal_paths() {
+        assert_eq!(parse_line(b"   \n"), LineOutcome::Dropped);
+        assert_eq!(parse_line(b"\xff\xfe\xfd"), LineOutcome::Dropped);
+        assert_eq!(
+            parse_line(b"not json"),
+            LineOutcome::Fatal("non-JSON frame on stdout")
+        );
+        assert!(matches!(
+            parse_line(br#"{"id":1,"result":null}"#),
+            LineOutcome::Frame(_)
+        ));
     }
 
     // --- Wave 6 (GY-ZCODE-006): session switching ---

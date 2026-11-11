@@ -1,0 +1,38 @@
+{
+  "work_package": "GY-ZCODE-009",
+  "title": "Swarm wave 9: per-node text colors + system-clipboard-backed ring",
+  "date": "2026-11-06",
+  "swarm": {
+    "convention": "GY-WAVE2-SWARM (concurrent agents, exclusive crate ownership, frozen interface contract, central integration gate)",
+    "contract": "docs/goya-zcode.md 'Wave 9' section frozen before dispatch",
+    "assignments": {
+      "J1": "goya-wayland: fgs: &[Option<u32>] slice (per-primitive text color: Text glyphs + Button labels; fills keep rectangle ownership) threaded through serial + parallel-tile raster exactly mirroring wave-2 fills; resolve_color helper; byte-level override-vs-blend and parallel/serial equivalence tests; other present_* variants keep frozen signatures via internal &[]",
+      "J2": "goya-zcode: Copy → win.set_clipboard_text + ring simultaneously (RingOnly variant for offline); Paste → request_clipboard_text, ClipboardText(Some) inserted at cursor, None falls back to ring (None-ambiguity documented upstream); node_fg_override/row_fg_override (status ok/err/accent, tool ✓ ok / ✗ err, markdown heading accent) composed with fills via override_slices; J1's signature landed mid-flight and was consumed directly — no stale GATE"
+    }
+  },
+  "gate_record": {
+    "goya_hello_migration": "Migrated all present/present_dirty call sites (buttons, clock, calendar, fusion, file_manager, music_player, calculator present_dirty, main) — inserted &[] fgs after fills; &[] preserves exact pre-wave-9 behavior",
+    "gate_fixes": [
+      "present_dirty exceeded clippy arity lint after the fgs parameter — added #[allow(clippy::too_many_arguments)] with a comment (consistent with internal raster paths)",
+      "cargo fmt formatting-only pass"
+    ],
+    "verification": {
+      "cargo_build_workspace": "clean",
+      "cargo_test_workspace_lib_tests": "668 passed, 0 failed",
+      "cargo_clippy_workspace_all_targets_D_warnings": "clean",
+      "cargo_fmt_all_check": "clean",
+      "zcode_monitor_headless": "all checks PASS (incl. new system clipboard adapter plan + text-colour mapping checks)",
+      "zcode_monitor_stdin_dump_live": "link Connecting->Up, subscribed to live session",
+      "zcode_monitor_live_wayland": "window presented with palette-driven fills and per-node text colors, 350 frames over 6s",
+      "calculator_exemplar": "ALL EXEMPLAR CHECKS PASS (post-migration)"
+    },
+    "scope_honesty": {
+      "clipboard": "None-ambiguity (no-selection vs no-device vs empty payload) is collapsed upstream into ClipboardText(None); ring fallback covers all cases, documented in clipboard.rs.",
+      "text_colors": "Per-node glyph color only; no per-glyph ranges (bold spans inside a line remain single-color)."
+    }
+  },
+  "notes": [
+    "Doctests excluded per known host rustdoc LLVM issue (README).",
+    "kaptaind auto-committed agent work incrementally (v2.15.x) and had grown goya-hello with new exemplar bins (file_manager/clock/calendar/music_player) since wave 2 — all migrated at the gate."
+  ]
+}

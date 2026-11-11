@@ -19,17 +19,33 @@
 //! The client side of `zwp_text_input_v3` is implemented on the standard
 //! registry path: the global is bound when present, the text-input object is
 //! created against the seat, and [`GoyaWindow::set_text_input_active`] gates
-//! enable/disable around editable focus (disabled by default). Preedit and
-//! commit updates are queued by the pure [`TextInputState`] machine and
-//! delivered as [`PlatformEvent::Preedit`] / [`PlatformEvent::CommitText`]
-//! after the protocol `done` frame; commit text arrives whole and is never
-//! synthesized into [`PlatformEvent::KeyChar`] events.
+//! enable/disable around editable focus (disabled by default). Preedit,
+//! delete-surrounding, and commit updates are staged by the pure
+//! [`TextInputState`] machine and emitted only after `done`. Each batch clears
+//! the previously applied preedit, deletes requested surrounding UTF-8 bytes,
+//! applies commits in arrival order, then installs the new preedit and its
+//! byte cursor/selection range. Legacy callers may still stage plain
+//! [`PlatformEvent::Preedit`]; native cursor-bearing updates use
+//! [`PlatformEvent::PreeditWithCursor`] and deletes use
+//! [`PlatformEvent::DeleteSurroundingText`]. Commit text arrives whole and is
+//! never synthesized into [`PlatformEvent::KeyChar`] events.
 //!
-//! Full IME operation (candidate windows, actual CJK composition) is
+//! Actual IME operation (candidate windows and CJK composition) is
 //! compositor- and input-method-dependent: unit tests in this crate cover
 //! only the compositor-free state machine and no-op paths. Whether a given
-//! desktop (wlroots, GNOME, KDE) actually delivers text-input-v3 traffic is
-//! an operator-verified acceptance item, not covered by tests here.
+//! desktop (wlroots, GNOME, KDE) delivers useful text-input-v3 traffic is an
+//! operator-verified acceptance item, not covered by tests here.
+//!
+//! ## Native pixel surfaces
+//!
+//! [`GoyaWindow::present_rgba`] presents tightly packed, top-down, straight-
+//! alpha RGBA8 frames whose dimensions exactly match the current configured
+//! surface. The method validates checked byte arithmetic, exact input length,
+//! and a 16 MP cap, composites alpha over the most recent primitive-frame
+//! background (black before the first primitive frame) directly into a
+//! released SHM slot and follows the existing `wl_buffer` attach/release
+//! ownership path. It rejects stale-size frames instead of scaling them;
+//! producers should wait for the next [`PlatformEvent::Resized`] dimensions.
 //!
 //! ## System clipboard (GY-ZCODE-008)
 //!
@@ -112,6 +128,155 @@ pub const WAYLAND_CONTRACT: &str = "GY-WAYLAND/1";
 
 /// Millipoints per pixel, matching goya-hello's 4 px per point.
 pub const MP_PER_PX: i64 = 250;
+fn legacy_text_input_event(event: PlatformEvent, extended: bool) -> Option<PlatformEvent> {
+    match event {
+        PlatformEvent::PreeditWithCursor { text, .. } if !extended => {
+            Some(PlatformEvent::Preedit(Some(text)))
+        }
+        PlatformEvent::DeleteSurroundingText { .. } if !extended => None,
+        event => Some(event),
+    }
+}
+
+#[cfg(test)]
+mod composited_layer_tests {
+    use super::*;
+
+    #[test]
+    fn clips_negative_origin_and_alpha_blends_into_native_background() {
+        let mut dst = vec![0xff00_0000; 12];
+        let rgba = [255, 0, 0, 255, 0, 255, 0, 128, 0, 0, 255, 255];
+        let layer = RgbaLayer {
+            x: -1,
+            y: 1,
+            width: 3,
+            height: 1,
+            stride: 12,
+            rgba: &rgba,
+            clip: Some(PixelRect {
+                x: 0,
+                y: 1,
+                width: 1,
+                height: 1,
+            }),
+        };
+        validate_rgba_layer(layer, 4, 3).unwrap();
+        composite_layer(&mut dst, 4, 3, layer);
+        assert_eq!(dst[4 + 0], 0xff00_8000); // half-alpha green over black
+        assert_eq!(dst[4 + 1], 0xff00_0000); // clip excludes blue
+        assert_eq!(dst[0], 0xff00_0000); // negative source red stays clipped
+    }
+
+    #[test]
+    fn rejects_bad_stride_length_and_pixel_caps_before_composition() {
+        let data = [0u8; 4];
+        let short = RgbaLayer {
+            x: 0,
+            y: 0,
+            width: 1,
+            height: 1,
+            stride: 3,
+            rgba: &data,
+            clip: None,
+        };
+        assert!(validate_rgba_layer(short, 1, 1).is_err());
+        let large = RgbaLayer {
+            x: 0,
+            y: 0,
+            width: (MAX_RGBA_PIXELS + 1) as u32,
+            height: 1,
+            stride: (MAX_RGBA_PIXELS + 1) * 4,
+            rgba: &[],
+            clip: None,
+        };
+        assert!(matches!(
+            validate_rgba_layer(large, 1, 1),
+            Err(WaylandError::PixelBufferTooLarge { .. })
+        ));
+    }
+}
+
+/// Maximum pixel count accepted by [`GoyaWindow::present_rgba`].
+pub const MAX_RGBA_PIXELS: usize = 16 * 1024 * 1024;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PixelRect {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct RgbaLayer<'a> {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    pub stride: usize,
+    pub rgba: &'a [u8],
+    pub clip: Option<PixelRect>,
+}
+
+fn validate_rgba_layer(
+    layer: RgbaLayer<'_>,
+    _surface_width: i32,
+    _surface_height: i32,
+) -> Result<(), WaylandError> {
+    let pixels = usize::try_from(layer.width)
+        .ok()
+        .and_then(|w| {
+            usize::try_from(layer.height)
+                .ok()
+                .and_then(|h| w.checked_mul(h))
+        })
+        .ok_or(WaylandError::PixelBufferTooLarge {
+            width: layer.width,
+            height: layer.height,
+        })?;
+    if layer.width == 0
+        || layer.height == 0
+        || pixels > MAX_RGBA_PIXELS
+        || layer.stride < layer.width as usize * 4
+    {
+        return Err(WaylandError::PixelBufferTooLarge {
+            width: layer.width,
+            height: layer.height,
+        });
+    }
+    let expected = layer.stride.checked_mul(layer.height as usize).ok_or(
+        WaylandError::PixelBufferTooLarge {
+            width: layer.width,
+            height: layer.height,
+        },
+    )?;
+    if expected > MAX_RGBA_PIXELS * 4 {
+        return Err(WaylandError::PixelBufferTooLarge {
+            width: layer.width,
+            height: layer.height,
+        });
+    }
+    if layer.rgba.len() != expected {
+        return Err(WaylandError::PixelBufferLength {
+            expected,
+            actual: layer.rgba.len(),
+        });
+    }
+    if let Some(clip) = layer.clip {
+        if clip.width == 0
+            || clip.height == 0
+            || i64::from(clip.x)
+                .checked_add(i64::from(clip.width))
+                .is_none()
+            || i64::from(clip.y)
+                .checked_add(i64::from(clip.height))
+                .is_none()
+        {
+            return Err(WaylandError::InvalidPixelLayer);
+        }
+    }
+    Ok(())
+}
 
 /// Shaped text extent in surface-local pixels. Width is the widest visible
 /// shaped line; height is the accumulated height of visible layout runs.
@@ -291,6 +456,8 @@ pub enum PlatformEvent {
     PointerRelease(f64, f64),
     /// Printable Unicode character generated by the compositor's XKB keymap.
     KeyChar(char),
+    /// Opt-in browser navigation shortcuts from the native keyboard.
+    BrowserNavigation(BrowserNavigation),
     /// Non-printable navigation/editing key (see [`KeySpecial`]).
     KeySpecial(KeySpecial),
     /// Navigation/editing key with the XKB modifiers active at key press.
@@ -320,10 +487,24 @@ pub enum PlatformEvent {
     /// IME preedit text (GY-ZCODE-005), applied after the protocol `done`
     /// frame. `None` clears an existing preedit.
     Preedit(Option<String>),
+    /// Native text-input-v3 preedit with byte cursor/selection endpoints.
+    /// Kept separate from [`PlatformEvent::Preedit`] so existing hosts remain
+    /// source-compatible while richer hosts can preserve the exact range.
+    PreeditWithCursor {
+        text: String,
+        cursor_begin: i32,
+        cursor_end: i32,
+    },
     /// Whole commit string from the IME (GY-ZCODE-005). This is never
     /// synthesized as [`PlatformEvent::KeyChar`] events — hosts insert it at
     /// their own cursor. Applied after the protocol `done` frame.
     CommitText(String),
+    /// Delete UTF-8 bytes around the current editor selection, as requested
+    /// by text-input-v3. Delivered only after the corresponding `done` frame.
+    DeleteSurroundingText {
+        before_bytes: u32,
+        after_bytes: u32,
+    },
     /// Completed clipboard read (GY-ZCODE-008): `Some(text)` is the current
     /// selection's text/plain payload, `None` means no text selection exists
     /// (or the offer carries no text/plain mime, or the payload was empty).
@@ -349,6 +530,14 @@ pub enum Shortcut {
     SessionNext,
     /// ctrl+Left (evdev 105): switch to the previous session (GY-ZCODE-006).
     SessionPrevious,
+}
+
+/// Navigation operations emitted only by opted-in browser windows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BrowserNavigation {
+    Back,
+    Forward,
+    Reload,
 }
 
 /// Navigation/editing keys emitted as [`PlatformEvent::KeySpecial`].
@@ -400,11 +589,16 @@ pub struct TextInputState {
     /// Preedit staged by the latest `preedit_string` (None = this frame
     /// clears the preedit). Replaced, not accumulated, per protocol.
     pub pending_preedit: Option<String>,
+    pending_preedit_cursor: Option<(i32, i32)>,
     preedit_received: bool,
     /// Commit strings staged by `commit_string`, flushed in arrival order.
     pub committed: Vec<String>,
     /// Preedit the host currently has applied (updated on drain).
     pub applied_preedit: Option<String>,
+    /// Native preedit cursor range currently applied by the host.
+    pub applied_preedit_cursor: Option<(i32, i32)>,
+    /// Delete-surrounding requests staged in compositor arrival order.
+    deleted_surrounding: Vec<(u32, u32)>,
     events: Vec<PlatformEvent>,
     armed: bool,
 }
@@ -417,7 +611,28 @@ impl TextInputState {
     /// Stage a `preedit_string` frame update. `None` stages a clear.
     pub fn feed_preedit(&mut self, preedit: Option<String>) {
         self.pending_preedit = preedit;
+        self.pending_preedit_cursor = None;
         self.preedit_received = true;
+    }
+
+    /// Stage a native preedit string and its UTF-8 byte cursor/selection
+    /// endpoints. Values are preserved verbatim for the editor to snap to
+    /// grapheme boundaries at its own buffer boundary.
+    pub fn feed_preedit_with_cursor(
+        &mut self,
+        preedit: Option<String>,
+        cursor_begin: i32,
+        cursor_end: i32,
+    ) {
+        self.pending_preedit = preedit;
+        self.pending_preedit_cursor = Some((cursor_begin, cursor_end));
+        self.preedit_received = true;
+    }
+
+    /// Stage one text-input-v3 delete-surrounding request. It is ignored by
+    /// consumers until the matching `done` event drains the batch.
+    pub fn feed_delete_surrounding(&mut self, before_bytes: u32, after_bytes: u32) {
+        self.deleted_surrounding.push((before_bytes, after_bytes));
     }
 
     /// Stage a `commit_string` frame update. Commit text arrives whole —
@@ -436,7 +651,10 @@ impl TextInputState {
     /// clear (`preedit_string` with no text) also arms when a preedit is
     /// currently applied — clearing is a visible frame change.
     pub fn feed_done(&mut self) {
-        if self.preedit_received || !self.committed.is_empty() {
+        if self.preedit_received
+            || !self.committed.is_empty()
+            || !self.deleted_surrounding.is_empty()
+        {
             self.armed = true;
         }
     }
@@ -445,23 +663,35 @@ impl TextInputState {
     /// data is discarded.
     pub fn feed_leave(&mut self) {
         self.pending_preedit = None;
+        self.pending_preedit_cursor = None;
         self.preedit_received = false;
         self.committed.clear();
+        self.deleted_surrounding.clear();
         self.armed = false;
         if self.applied_preedit.is_some() {
             self.events.push(PlatformEvent::Preedit(None));
             self.applied_preedit = None;
+            self.applied_preedit_cursor = None;
         }
     }
 
     /// Emit the armed protocol frame in text-input-v3 order: clear existing
-    /// preedit, apply commits, then install preedit. Draining without an
-    /// armed frame is a no-op.
+    /// preedit, delete surrounding bytes, apply commits, then install preedit
+    /// and its cursor range. Draining without an armed frame is a no-op.
     pub fn drain(&mut self) -> Vec<PlatformEvent> {
         if self.armed {
-            let has_update = self.preedit_received || !self.committed.is_empty();
+            let has_update = self.preedit_received
+                || !self.committed.is_empty()
+                || !self.deleted_surrounding.is_empty();
             if has_update && self.applied_preedit.take().is_some() {
                 self.events.push(PlatformEvent::Preedit(None));
+                self.applied_preedit_cursor = None;
+            }
+            for (before_bytes, after_bytes) in self.deleted_surrounding.drain(..) {
+                self.events.push(PlatformEvent::DeleteSurroundingText {
+                    before_bytes,
+                    after_bytes,
+                });
             }
             for text in self.committed.drain(..) {
                 self.events.push(PlatformEvent::CommitText(text));
@@ -469,9 +699,22 @@ impl TextInputState {
             if self.preedit_received {
                 let preedit = self.pending_preedit.take();
                 if let Some(text) = preedit.as_ref().filter(|text| !text.is_empty()) {
-                    self.events.push(PlatformEvent::Preedit(Some(text.clone())));
+                    if let Some((cursor_begin, cursor_end)) = self.pending_preedit_cursor {
+                        self.events.push(PlatformEvent::PreeditWithCursor {
+                            text: text.clone(),
+                            cursor_begin,
+                            cursor_end,
+                        });
+                    } else {
+                        self.events.push(PlatformEvent::Preedit(Some(text.clone())));
+                    }
                 }
                 self.applied_preedit = preedit.filter(|text| !text.is_empty());
+                self.applied_preedit_cursor = self
+                    .applied_preedit
+                    .as_ref()
+                    .and(self.pending_preedit_cursor);
+                self.pending_preedit_cursor = None;
             }
             self.preedit_received = false;
             self.armed = false;
@@ -630,6 +873,24 @@ pub enum WaylandError {
     NoDisplay,
     MissingGlobal(&'static str),
     ShmSetup(&'static str),
+    /// RGBA dimensions do not match the currently configured surface size.
+    PixelSurfaceMismatch {
+        width: u32,
+        height: u32,
+        surface_width: i32,
+        surface_height: i32,
+    },
+    /// RGBA dimensions exceed the checked 16 MP surface cap or overflow size arithmetic.
+    PixelBufferTooLarge {
+        width: u32,
+        height: u32,
+    },
+    /// The tightly-packed RGBA byte slice does not have exactly 4 bytes per pixel.
+    PixelBufferLength {
+        expected: usize,
+        actual: usize,
+    },
+    InvalidPixelLayer,
 }
 
 impl std::fmt::Display for WaylandError {
@@ -638,6 +899,23 @@ impl std::fmt::Display for WaylandError {
             WaylandError::NoDisplay => write!(f, "no Wayland display reachable"),
             WaylandError::MissingGlobal(g) => write!(f, "compositor lacks {g}"),
             WaylandError::ShmSetup(e) => write!(f, "shared memory setup failed: {e}"),
+            WaylandError::PixelSurfaceMismatch {
+                width,
+                height,
+                surface_width,
+                surface_height,
+            } => write!(
+                f,
+                "RGBA size {width}x{height} does not match surface {surface_width}x{surface_height}"
+            ),
+            WaylandError::PixelBufferTooLarge { width, height } => {
+                write!(f, "RGBA surface {width}x{height} exceeds the pixel limit")
+            }
+            WaylandError::PixelBufferLength { expected, actual } => write!(
+                f,
+                "RGBA buffer has {actual} bytes; expected exactly {expected}"
+            ),
+            WaylandError::InvalidPixelLayer => write!(f, "invalid RGBA layer geometry or stride"),
         }
     }
 }
@@ -793,12 +1071,18 @@ struct GoyaWindowInner {
     clipboard: ClipboardState,
     shift: bool,
     ctrl: bool,
+    alt: bool,
+    browser_navigation_keys: bool,
     buffers: Option<BufferPair>,
     region: Option<WlRegion>,
     ack_serial: u32,
     /// Explicitly opt into general-core parallel tile raster. No core
     /// affinity is requested; Linux remains responsible for placement.
     parallel_raster: bool,
+    /// Background used by the most recent primitive frame for alpha-compositing
+    /// pixels supplied through `present_rgba`.
+    background_rgb: [u8; 3],
+    extended_text_input_events: bool,
 }
 
 impl GoyaWindowInner {
@@ -853,10 +1137,14 @@ impl GoyaWindowInner {
             clipboard: ClipboardState::new(),
             shift: false,
             ctrl: false,
+            alt: false,
+            browser_navigation_keys: false,
             buffers: None,
             region: None,
             ack_serial: 0,
             parallel_raster: false,
+            background_rgb: [0, 0, 0],
+            extended_text_input_events: false,
         }
     }
 }
@@ -878,6 +1166,20 @@ impl GoyaWindowInner {
     /// behavior. Other ctrl combos produce no events (the char path returns
     /// nothing while ctrl is held).
     fn handle_key_press(&mut self, key: u32) {
+        if self.browser_navigation_keys {
+            let navigation = match key {
+                105 if self.alt && !self.ctrl => Some(BrowserNavigation::Back),
+                106 if self.alt && !self.ctrl => Some(BrowserNavigation::Forward),
+                19 if self.ctrl && !self.alt => Some(BrowserNavigation::Reload),
+                63 if !self.ctrl && !self.alt => Some(BrowserNavigation::Reload),
+                _ => None,
+            };
+            if let Some(navigation) = navigation {
+                self.events
+                    .push(PlatformEvent::BrowserNavigation(navigation));
+                return;
+            }
+        }
         if let Some(shortcut) = shortcut_from_key(self.ctrl, key) {
             self.events.push(PlatformEvent::Shortcut(shortcut));
             return;
@@ -1222,7 +1524,59 @@ impl GoyaWindow {
         glyph_px: u32,
     ) -> Result<(), WaylandError> {
         self.present_internal(
-            primitives, fills, fgs, None, None, None, fg, bg, glyph_px, None,
+            primitives, fills, fgs, None, None, None, fg, bg, glyph_px, None, None, None,
+        )
+    }
+
+    /// Present a tightly packed, top-down straight-alpha RGBA8 surface.
+    /// Dimensions must match the current surface exactly; resizing belongs to
+    /// the compositor configure path and the producer must render that size.
+    /// The input is validated before any SHM write and is capped at
+    /// [`MAX_RGBA_PIXELS`]. Pixels are copied into a released SHM slot using
+    /// the same ownership and attach/commit path as [`GoyaWindow::present`].
+    pub fn present_rgba(
+        &mut self,
+        rgba: &[u8],
+        width: u32,
+        height: u32,
+    ) -> Result<(), WaylandError> {
+        validate_rgba_surface(rgba, width, height, self.state.width, self.state.height)?;
+        let background = self.state.background_rgb;
+        self.present_internal(
+            &[],
+            &[],
+            &[],
+            None,
+            None,
+            None,
+            [0, 0, 0],
+            background,
+            1,
+            None,
+            Some(rgba),
+            None,
+        )
+    }
+
+    /// Render native scene primitives and then one clipped RGBA8 content pane
+    /// in the same SHM frame. The borrowed source is sampled directly; no
+    /// full-window intermediate RGBA buffer is created.
+    #[allow(clippy::too_many_arguments)]
+    pub fn present_composited(
+        &mut self,
+        primitives: &[goya_runtime::Primitive],
+        fills: &[Option<u32>],
+        fgs: &[Option<u32>],
+        fg: [u8; 3],
+        bg: [u8; 3],
+        glyph_px: u32,
+        layer: Option<RgbaLayer<'_>>,
+    ) -> Result<(), WaylandError> {
+        if let Some(layer) = layer {
+            validate_rgba_layer(layer, self.state.width, self.state.height)?;
+        }
+        self.present_internal(
+            primitives, fills, fgs, None, None, None, fg, bg, glyph_px, None, None, layer,
         )
     }
 
@@ -1250,6 +1604,8 @@ impl GoyaWindow {
             fg,
             bg,
             glyph_px,
+            None,
+            None,
             None,
         )
     }
@@ -1279,6 +1635,8 @@ impl GoyaWindow {
             bg,
             glyph_px,
             None,
+            None,
+            None,
         )
     }
 
@@ -1304,6 +1662,8 @@ impl GoyaWindow {
             fg,
             bg,
             glyph_px,
+            None,
+            None,
             None,
         )
     }
@@ -1334,6 +1694,8 @@ impl GoyaWindow {
             bg,
             glyph_px,
             None,
+            None,
+            None,
         )
     }
 
@@ -1357,7 +1719,35 @@ impl GoyaWindow {
         damage: Option<(i32, i32, i32, i32)>,
     ) -> Result<(), WaylandError> {
         self.present_internal(
-            primitives, fills, fgs, None, None, None, fg, bg, glyph_px, damage,
+            primitives, fills, fgs, None, None, None, fg, bg, glyph_px, damage, None, None,
+        )
+    }
+
+    /// Preserve per-node foregrounds and authored text sizes in one frame.
+    #[allow(clippy::too_many_arguments)]
+    pub fn present_styled(
+        &mut self,
+        primitives: &[goya_runtime::Primitive],
+        fills: &[Option<u32>],
+        fgs: &[Option<u32>],
+        text_sizes_pt: &[Option<f32>],
+        fg: [u8; 3],
+        bg: [u8; 3],
+        glyph_px: u32,
+    ) -> Result<(), WaylandError> {
+        self.present_internal(
+            primitives,
+            fills,
+            fgs,
+            None,
+            Some(text_sizes_pt),
+            None,
+            fg,
+            bg,
+            glyph_px,
+            None,
+            None,
+            None,
         )
     }
 
@@ -1374,7 +1764,10 @@ impl GoyaWindow {
         bg: [u8; 3],
         glyph_px: u32,
         damage: Option<(i32, i32, i32, i32)>,
+        rgba_pixels: Option<&[u8]>,
+        rgba_layer: Option<RgbaLayer<'_>>,
     ) -> Result<(), WaylandError> {
+        self.state.background_rgb = bg;
         if self.state.buffers.is_none() {
             let shm = self
                 .state
@@ -1420,53 +1813,68 @@ impl GoyaWindow {
         let parallel_raster = self.state.parallel_raster;
         let (width, height) = (self.state.width, self.state.height);
         let pixels = pair.slots[idx].pixels_mut();
-        match damage {
-            Some((dx, dy, dw, dh)) => {
-                // Clear the damage area with the background first.
-                let drect = goya_layout::Rect {
-                    x: i64::from(dx) * MP_PER_PX,
-                    y: i64::from(dy) * MP_PER_PX,
-                    width: i64::from(dw) * MP_PER_PX,
-                    height: i64::from(dh) * MP_PER_PX,
-                };
-                fill_rect(pixels, width, height, &drect, bg);
+        if let Some(raw_pixels) = rgba_pixels {
+            if raw_pixels.len() != pixels.len().saturating_mul(4) {
+                return Err(WaylandError::PixelBufferLength {
+                    expected: pixels.len().saturating_mul(4),
+                    actual: raw_pixels.len(),
+                });
             }
-            None => {
-                pixels.fill(argb(bg));
+            for (destination, source) in pixels.iter_mut().zip(raw_pixels.chunks_exact(4)) {
+                *destination = rgba_pixel_to_argb8888(source, bg);
             }
-        }
-        let clip = damage.map(|(dx, dy, dw, dh)| PixelClip {
-            x0: dx.max(0) as usize,
-            y0: dy.max(0) as usize,
-            x1: (dx + dw).min(self.state.width).max(0) as usize,
-            y1: (dy + dh).min(self.state.height).max(0) as usize,
-        });
-        raster_primitives(
-            pixels,
-            width,
-            height,
-            primitives,
-            fills,
-            fgs,
-            fg,
-            glyph_px,
-            clips,
-            text_sizes_pt,
-            clip,
-            parallel_raster,
-        );
-        if let Some(overlays) = text_overlays {
-            raster_text_overlays(
+        } else {
+            match damage {
+                Some((dx, dy, dw, dh)) => {
+                    // Clear the damage area with the background first.
+                    let drect = goya_layout::Rect {
+                        x: i64::from(dx) * MP_PER_PX,
+                        y: i64::from(dy) * MP_PER_PX,
+                        width: i64::from(dw) * MP_PER_PX,
+                        height: i64::from(dh) * MP_PER_PX,
+                    };
+                    fill_rect(pixels, width, height, &drect, bg);
+                }
+                None => {
+                    pixels.fill(argb(bg));
+                }
+            }
+            let clip = damage.map(|(dx, dy, dw, dh)| PixelClip {
+                x0: dx.max(0) as usize,
+                y0: dy.max(0) as usize,
+                x1: (dx + dw).min(self.state.width).max(0) as usize,
+                y1: (dy + dh).min(self.state.height).max(0) as usize,
+            });
+            raster_primitives(
                 pixels,
                 width,
                 height,
                 primitives,
+                fills,
+                fgs,
+                fg,
+                glyph_px,
                 clips,
                 text_sizes_pt,
-                overlays,
-                glyph_px,
                 clip,
+                parallel_raster,
             );
+            if let Some(overlays) = text_overlays {
+                raster_text_overlays(
+                    pixels,
+                    width,
+                    height,
+                    primitives,
+                    clips,
+                    text_sizes_pt,
+                    overlays,
+                    glyph_px,
+                    clip,
+                );
+            }
+            if let Some(layer) = rgba_layer {
+                composite_layer(pixels, width, height, layer);
+            }
         }
         // Opaque hint: the window always fills its bounds — the compositor
         // can skip blending against undefined content (flicker source).
@@ -1507,12 +1915,24 @@ impl GoyaWindow {
     /// Text-input-v3 preedit/commit frames are drained from the pure
     /// [`TextInputState`] machine here, after `done` dispatch, so upstream
     /// consumers always see atomically applied IME updates.
+    /// Opt into cursor-aware preedit and surrounding-text deletion events.
+    /// Enable Alt+Left/Right and Ctrl+R/F5 browser navigation events.
+    pub fn set_browser_navigation_keys(&mut self, enabled: bool) {
+        self.state.browser_navigation_keys = enabled;
+    }
+
+    pub fn set_extended_text_input_events(&mut self, enabled: bool) {
+        self.state.extended_text_input_events = enabled;
+    }
+
     pub fn poll(&mut self) -> Vec<PlatformEvent> {
         let _ = self.queue.dispatch_pending(&mut self.state);
         let _ = self.queue.flush();
         let drained = self.state.text_input_state.drain();
         let mut events = std::mem::take(&mut self.state.events);
-        events.extend(drained);
+        events.extend(drained.into_iter().filter_map(|event| {
+            legacy_text_input_event(event, self.state.extended_text_input_events)
+        }));
         events
     }
 
@@ -1538,6 +1958,41 @@ impl GoyaWindow {
     }
 }
 
+fn composite_layer(pixels: &mut [u32], width: i32, height: i32, layer: RgbaLayer<'_>) {
+    let mut x0 = i64::from(layer.x).max(0);
+    let mut y0 = i64::from(layer.y).max(0);
+    let mut x1 = (i64::from(layer.x) + i64::from(layer.width)).min(i64::from(width));
+    let mut y1 = (i64::from(layer.y) + i64::from(layer.height)).min(i64::from(height));
+    if let Some(clip) = layer.clip {
+        x0 = x0.max(i64::from(clip.x));
+        y0 = y0.max(i64::from(clip.y));
+        x1 = x1.min(i64::from(clip.x) + i64::from(clip.width));
+        y1 = y1.min(i64::from(clip.y) + i64::from(clip.height));
+    }
+    if x0 >= x1 || y0 >= y1 {
+        return;
+    }
+    for dy in y0..y1 {
+        for dx in x0..x1 {
+            let sx = (dx - i64::from(layer.x)) as usize;
+            let sy = (dy - i64::from(layer.y)) as usize;
+            let source = &layer.rgba[sy * layer.stride + sx * 4..sy * layer.stride + sx * 4 + 4];
+            let alpha = u32::from(source[3]);
+            let dst = &mut pixels[dy as usize * width as usize + dx as usize];
+            let old = dst.to_le_bytes();
+            let blend = |src: u8, back: u8| {
+                ((u32::from(src) * alpha + u32::from(back) * (255 - alpha) + 127) / 255) as u8
+            };
+            *dst = u32::from_le_bytes([
+                blend(source[0], old[2]),
+                blend(source[1], old[1]),
+                blend(source[2], old[0]),
+                255,
+            ]);
+        }
+    }
+}
+
 fn utf8_byte_offset(text: &str, requested: u32) -> i32 {
     let mut offset = (requested as usize).min(text.len()).min(i32::MAX as usize);
     while !text.is_char_boundary(offset) {
@@ -1548,6 +2003,109 @@ fn utf8_byte_offset(text: &str, requested: u32) -> i32 {
 
 fn argb(rgb: [u8; 3]) -> u32 {
     0xFF00_0000 | ((rgb[2] as u32) << 16) | ((rgb[1] as u32) << 8) | rgb[0] as u32
+}
+
+fn checked_rgba_len(width: u32, height: u32) -> Result<(usize, usize), WaylandError> {
+    let Some(pixel_count) = (width as usize).checked_mul(height as usize) else {
+        return Err(WaylandError::PixelBufferTooLarge { width, height });
+    };
+    let Some(byte_len) = pixel_count.checked_mul(4) else {
+        return Err(WaylandError::PixelBufferTooLarge { width, height });
+    };
+    if width == 0 || height == 0 || pixel_count > MAX_RGBA_PIXELS {
+        return Err(WaylandError::PixelBufferTooLarge { width, height });
+    }
+    Ok((pixel_count, byte_len))
+}
+
+fn validate_rgba_surface(
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+    surface_width: i32,
+    surface_height: i32,
+) -> Result<usize, WaylandError> {
+    let (_, expected) = checked_rgba_len(width, height)?;
+    if width != surface_width.max(0) as u32 || height != surface_height.max(0) as u32 {
+        return Err(WaylandError::PixelSurfaceMismatch {
+            width,
+            height,
+            surface_width,
+            surface_height,
+        });
+    }
+    if rgba.len() != expected {
+        return Err(WaylandError::PixelBufferLength {
+            expected,
+            actual: rgba.len(),
+        });
+    }
+    Ok(expected)
+}
+
+/// Convert tightly packed, top-down straight-alpha RGBA8 into the opaque word
+/// layout used by the primitive rasterizer, compositing against the current
+/// background before the buffer is advertised as opaque.
+fn rgba_pixel_to_argb8888(pixel: &[u8], background: [u8; 3]) -> u32 {
+    let alpha = u32::from(pixel[3]);
+    let inverse = 255 - alpha;
+    let blend = |channel: usize| {
+        ((u32::from(pixel[channel]) * alpha + u32::from(background[channel]) * inverse + 127) / 255)
+            as u8
+    };
+    argb([blend(0), blend(1), blend(2)])
+}
+
+#[cfg(test)]
+mod pixel_surface_tests {
+    use super::{
+        argb, checked_rgba_len, rgba_pixel_to_argb8888, validate_rgba_surface, WaylandError,
+        MAX_RGBA_PIXELS,
+    };
+
+    #[test]
+    fn straight_alpha_rgba_composites_over_background() {
+        let background = [0, 0, 255];
+        let pixels = [
+            rgba_pixel_to_argb8888(&[255, 0, 0, 128], background),
+            rgba_pixel_to_argb8888(&[12, 34, 56, 255], background),
+            rgba_pixel_to_argb8888(&[1, 2, 3, 0], background),
+        ];
+        assert_eq!(
+            pixels,
+            [argb([128, 0, 127]), argb([12, 34, 56]), argb(background)]
+        );
+    }
+
+    #[test]
+    fn pixel_surface_validation_checks_dimensions_length_and_limits() {
+        assert_eq!(validate_rgba_surface(&[0; 8], 2, 1, 2, 1), Ok(8));
+        assert_eq!(
+            validate_rgba_surface(&[0; 7], 2, 1, 2, 1),
+            Err(WaylandError::PixelBufferLength {
+                expected: 8,
+                actual: 7,
+            })
+        );
+        assert!(matches!(
+            validate_rgba_surface(&[0; 8], 2, 1, 1, 2),
+            Err(WaylandError::PixelSurfaceMismatch { .. })
+        ));
+        assert_eq!(
+            checked_rgba_len((MAX_RGBA_PIXELS as u32) + 1, 1),
+            Err(WaylandError::PixelBufferTooLarge {
+                width: (MAX_RGBA_PIXELS as u32) + 1,
+                height: 1,
+            })
+        );
+        assert_eq!(
+            checked_rgba_len(u32::MAX, u32::MAX),
+            Err(WaylandError::PixelBufferTooLarge {
+                width: u32::MAX,
+                height: u32::MAX,
+            })
+        );
+    }
 }
 
 /// Resolve a primitive's fill colour for its index `i` (GY-WAVE2 contract):
@@ -2759,6 +3317,31 @@ impl Dispatch<ZwpTextInputManagerV3, ()> for GoyaWindowInner {
     }
 }
 
+/// Map native text-input-v3 callbacks into the staged batch. Kept separate
+/// from the Wayland dispatch trait so the real adapter mapping is exercised
+/// without a compositor in platform tests.
+fn stage_text_input_event(state: &mut TextInputState, event: zwp_text_input_v3::Event) {
+    match event {
+        zwp_text_input_v3::Event::PreeditString {
+            text,
+            cursor_begin,
+            cursor_end,
+        } => state.feed_preedit_with_cursor(text, cursor_begin, cursor_end),
+        zwp_text_input_v3::Event::CommitString { text } => state.feed_commit(text),
+        zwp_text_input_v3::Event::DeleteSurroundingText {
+            before_length,
+            after_length,
+        } => state.feed_delete_surrounding(before_length, after_length),
+        zwp_text_input_v3::Event::Done { .. } => state.feed_done(),
+        zwp_text_input_v3::Event::Leave { .. } => state.feed_leave(),
+        zwp_text_input_v3::Event::Enter { .. }
+        | zwp_text_input_v3::Event::Language { .. }
+        | zwp_text_input_v3::Event::Action { .. }
+        | zwp_text_input_v3::Event::PreeditHint { .. } => {}
+        _ => {}
+    }
+}
+
 impl Dispatch<ZwpTextInputV3, ()> for GoyaWindowInner {
     fn event(
         state: &mut Self,
@@ -2768,29 +3351,7 @@ impl Dispatch<ZwpTextInputV3, ()> for GoyaWindowInner {
         _: &Connection,
         _: &QueueHandle<Self>,
     ) {
-        match event {
-            // GY-ZCODE-006: the caret/selection endpoints of
-            // `preedit_string` are dropped on the floor — the contract
-            // surface is `Preedit(Option<String>)` only; hosts derive their
-            // own caret geometry from the preedit text.
-            zwp_text_input_v3::Event::PreeditString { text, .. } => {
-                state.text_input_state.feed_preedit(text);
-            }
-            zwp_text_input_v3::Event::CommitString { text } => {
-                state.text_input_state.feed_commit(text);
-            }
-            zwp_text_input_v3::Event::Done { .. } => {
-                state.text_input_state.feed_done();
-            }
-            zwp_text_input_v3::Event::Leave { .. } => {
-                state.text_input_state.feed_leave();
-            }
-            zwp_text_input_v3::Event::Enter { .. }
-            | zwp_text_input_v3::Event::Language { .. }
-            | zwp_text_input_v3::Event::Action { .. }
-            | zwp_text_input_v3::Event::PreeditHint { .. } => {}
-            _ => {}
-        }
+        stage_text_input_event(&mut state.text_input_state, event);
     }
 }
 
@@ -3338,6 +3899,10 @@ impl Dispatch<WlKeyboard, ()> for GoyaWindowInner {
                 state.ctrl = mods_depressed & 0x4 != 0; // ControlMask
                 if let Some(xkb_state) = state.xkb_state.as_mut() {
                     xkb_state.update_mask(mods_depressed, mods_latched, mods_locked, 0, 0, group);
+                    state.alt = xkb_state.mod_name_is_active(
+                        xkbcommon::xkb::MOD_NAME_ALT,
+                        xkbcommon::xkb::STATE_MODS_EFFECTIVE,
+                    );
                 }
             }
             wl_keyboard::Event::Key {
@@ -4063,7 +4628,8 @@ mod shortcut_tests {
 
 #[cfg(test)]
 mod text_input_tests {
-    use super::{text_input_activation, PlatformEvent, TextInputState};
+    use super::zwp_text_input_v3;
+    use super::{stage_text_input_event, text_input_activation, PlatformEvent, TextInputState};
 
     #[test]
     fn preedit_stays_staged_until_done_then_applies_once() {
@@ -4226,6 +4792,73 @@ mod text_input_tests {
                 PlatformEvent::Preedit(Some("p".into()))
             ]
         );
+    }
+
+    #[test]
+    fn native_handler_preserves_preedit_range_and_protocol_done_order() {
+        let mut state = TextInputState::new();
+        stage_text_input_event(
+            &mut state,
+            zwp_text_input_v3::Event::PreeditString {
+                text: Some("old".into()),
+                cursor_begin: 1,
+                cursor_end: 2,
+            },
+        );
+        stage_text_input_event(&mut state, zwp_text_input_v3::Event::Done { serial: 1 });
+        assert_eq!(
+            state.drain(),
+            vec![PlatformEvent::PreeditWithCursor {
+                text: "old".into(),
+                cursor_begin: 1,
+                cursor_end: 2,
+            }]
+        );
+        assert_eq!(state.applied_preedit_cursor, Some((1, 2)));
+
+        // Intentionally feed callbacks in a different arrival order: done
+        // applies the protocol-defined sequence, not callback order.
+        stage_text_input_event(
+            &mut state,
+            zwp_text_input_v3::Event::PreeditString {
+                text: Some("かな".into()),
+                cursor_begin: 3,
+                cursor_end: 6,
+            },
+        );
+        stage_text_input_event(
+            &mut state,
+            zwp_text_input_v3::Event::CommitString {
+                text: Some("字".into()),
+            },
+        );
+        stage_text_input_event(
+            &mut state,
+            zwp_text_input_v3::Event::DeleteSurroundingText {
+                before_length: 2,
+                after_length: 1,
+            },
+        );
+        assert!(state.drain().is_empty(), "native updates wait for done");
+        stage_text_input_event(&mut state, zwp_text_input_v3::Event::Done { serial: 2 });
+        assert_eq!(
+            state.drain(),
+            vec![
+                PlatformEvent::Preedit(None),
+                PlatformEvent::DeleteSurroundingText {
+                    before_bytes: 2,
+                    after_bytes: 1,
+                },
+                PlatformEvent::CommitText("字".into()),
+                PlatformEvent::PreeditWithCursor {
+                    text: "かな".into(),
+                    cursor_begin: 3,
+                    cursor_end: 6,
+                },
+            ]
+        );
+        assert_eq!(state.applied_preedit.as_deref(), Some("かな"));
+        assert_eq!(state.applied_preedit_cursor, Some((3, 6)));
     }
 }
 
@@ -4955,5 +5588,69 @@ mod text_overlay_tests {
             None,
         );
         assert!(pixels.iter().any(|pixel| *pixel != 0xff00_0000));
+    }
+}
+
+#[cfg(test)]
+mod legacy_ime_compatibility {
+    use super::*;
+    #[test]
+    fn legacy_windows_receive_preedit_and_native_windows_keep_cursor() {
+        let event = || PlatformEvent::PreeditWithCursor {
+            text: "compose".into(),
+            cursor_begin: 1,
+            cursor_end: 2,
+        };
+        assert!(
+            matches!(legacy_text_input_event(event(), false), Some(PlatformEvent::Preedit(text)) if text.as_deref() == Some("compose"))
+        );
+        assert!(matches!(
+            legacy_text_input_event(event(), true),
+            Some(PlatformEvent::PreeditWithCursor {
+                cursor_begin: 1,
+                cursor_end: 2,
+                ..
+            })
+        ));
+    }
+}
+
+#[cfg(test)]
+mod browser_navigation_compatibility {
+    use super::*;
+    #[test]
+    fn navigation_is_opt_in_and_preserves_session_shortcuts() {
+        let mut inner = GoyaWindowInner::new(400, 240);
+        inner.ctrl = true;
+        inner.handle_key_press(106);
+        assert_eq!(
+            inner.events.pop(),
+            Some(PlatformEvent::Shortcut(Shortcut::SessionNext))
+        );
+        inner.browser_navigation_keys = true;
+        inner.handle_key_press(106);
+        assert_eq!(
+            inner.events.pop(),
+            Some(PlatformEvent::Shortcut(Shortcut::SessionNext))
+        );
+        inner.ctrl = false;
+        inner.alt = true;
+        inner.handle_key_press(105);
+        assert_eq!(
+            inner.events.pop(),
+            Some(PlatformEvent::BrowserNavigation(BrowserNavigation::Back))
+        );
+        inner.handle_key_press(106);
+        assert_eq!(
+            inner.events.pop(),
+            Some(PlatformEvent::BrowserNavigation(BrowserNavigation::Forward))
+        );
+        inner.alt = false;
+        inner.ctrl = true;
+        inner.handle_key_press(19);
+        assert_eq!(
+            inner.events.pop(),
+            Some(PlatformEvent::BrowserNavigation(BrowserNavigation::Reload))
+        );
     }
 }

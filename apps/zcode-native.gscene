@@ -1,0 +1,100 @@
+// ============================================================
+// zcode-native.gscene — native ZCode session shell.
+//
+// Contract (docs/gui-parity.md): the host overrides `title`,
+// `status` and the viewport-sized transcript rows with live text.
+// `row_00`/`row_01` are alternating style templates expanded by the
+// resize-aware host layout. Workflow controls bind to the active v4 owner
+// projection; the UI never edits queue or interaction facts locally.
+//
+// Run it:
+//   cargo run --bin zcode-native -- --live --workspace /path/to/ws
+// ============================================================
+
+@ontology zcode_monitor {
+
+    @cell window {
+        position: (0, 0, 0)
+        // The host resolves the root against the configured surface size.
+        fill: #14141c
+
+        // ---- Header -------------------------------------------
+        @cell header {
+            position: (0, 0, 0)
+            extent: (400, 28, 0)
+            fill: #1e1e28
+
+            @cell title {
+                position: (30, 7, 0)
+                extent: (236, 14, 0)
+                text: "zcode monitor"
+                text-size: 10
+                fill: #9aa0b0
+            }
+
+            @cell status {
+                position_p: (0.97, 0.5, 0)
+                extent: (90, 14, 0)
+                text: "connecting"
+                text-size: 9
+                fill: #00cc66
+                text-anchor: end
+            }
+
+            @button session_prev { position: (5, 4, 0); extent: (18, 20, 0); fill: #30303b; text: "‹"; text-size: 12 }
+            @button session_next { position: (268, 4, 0); extent: (18, 20, 0); fill: #30303b; text: "›"; text-size: 12 }
+        }
+
+        // ---- Transcript row templates (host expands on resize) --
+        @cell row_00 { position: (6, 32, 0);   extent: (388, 18, 0); fill: #1c1c24; text: ""; text-size: 9 }
+        @cell row_01 { position: (6, 50, 0);   extent: (388, 18, 0); fill: #202028; text: ""; text-size: 9 }
+        @cell row_02 { position: (6, 68, 0);   extent: (388, 18, 0); fill: #1c1c24; text: ""; text-size: 9 }
+        @cell row_03 { position: (6, 86, 0);   extent: (388, 18, 0); fill: #202028; text: ""; text-size: 9 }
+        @cell row_04 { position: (6, 104, 0);  extent: (388, 18, 0); fill: #1c1c24; text: ""; text-size: 9 }
+        @cell row_05 { position: (6, 122, 0);  extent: (388, 18, 0); fill: #202028; text: ""; text-size: 9 }
+        @cell row_06 { position: (6, 140, 0);  extent: (388, 18, 0); fill: #1c1c24; text: ""; text-size: 9 }
+        @cell row_07 { position: (6, 158, 0);  extent: (388, 18, 0); fill: #202028; text: ""; text-size: 9 }
+        @cell row_08 { position: (6, 176, 0);  extent: (388, 18, 0); fill: #1c1c24; text: ""; text-size: 9 }
+        @cell row_09 { position: (6, 194, 0);  extent: (388, 18, 0); fill: #202028; text: ""; text-size: 9 }
+        @cell row_10 { position: (6, 212, 0);  extent: (388, 18, 0); fill: #1c1c24; text: ""; text-size: 9 }
+        @cell row_11 { position: (6, 230, 0);  extent: (388, 18, 0); fill: #202028; text: ""; text-size: 9 }
+        @cell row_12 { position: (6, 248, 0);  extent: (388, 18, 0); fill: #1c1c24; text: ""; text-size: 9 }
+        @cell row_13 { position: (6, 266, 0);  extent: (388, 18, 0); fill: #202028; text: ""; text-size: 9 }
+
+        // ---- Footer and workflow controls ----------------------
+        @input composer {
+            position: (6, 244, 0)
+            extent: (388, 24, 0)
+            fill: #101016
+            stroke: #3a3a46
+            stroke-width: 1
+            text: "type here…"
+            text-size: 9
+        }
+
+        @button queue_mode { position: (6, 270, 0); extent: (72, 20, 0); fill: #30303b; text: "Queue"; text-size: 8 }
+        @button guide_mode { position: (82, 270, 0); extent: (72, 20, 0); fill: #30303b; text: "Guide"; text-size: 8 }
+        @button send { position: (160, 270, 0); extent: (72, 20, 0); fill: #275b46; text: "Send"; text-size: 8 }
+        @button queue_auto_drain { position: (238, 270, 0); extent: (104, 20, 0); fill: #30303b; text: "Pause queue"; text-size: 8 }
+        @button quit { position: (346, 270, 0); extent: (48, 20, 0); fill: #8a2a2a; text: "Quit"; text-size: 8 }
+
+        @cell workflow_title { position: (6, 218, 0); extent: (388, 12, 0); text: ""; text-size: 8; fill: #f0c66a }
+        @cell workflow_detail { position: (6, 230, 0); extent: (388, 12, 0); text: ""; text-size: 7; fill: #9aa0b0 }
+
+        @button queue_remove_00 { position: (6, 294, 0); extent: (94, 18, 0); fill: #30303b; text: ""; text-size: 7 }
+        @button queue_remove_01 { position: (102, 294, 0); extent: (94, 18, 0); fill: #30303b; text: ""; text-size: 7 }
+        @button queue_remove_02 { position: (198, 294, 0); extent: (94, 18, 0); fill: #30303b; text: ""; text-size: 7 }
+        @button queue_remove_03 { position: (294, 294, 0); extent: (100, 18, 0); fill: #30303b; text: ""; text-size: 7 }
+        @button permission_allow { position: (6, 294, 0); extent: (92, 18, 0); fill: #275b46; text: ""; text-size: 7 }
+        @button permission_deny { position: (102, 294, 0); extent: (92, 18, 0); fill: #713838; text: ""; text-size: 7 }
+        @button permission_option_00 { position: (6, 294, 0); extent: (92, 18, 0); fill: #30303b; text: ""; text-size: 7 }
+        @button permission_option_01 { position: (102, 294, 0); extent: (92, 18, 0); fill: #30303b; text: ""; text-size: 7 }
+        @button permission_option_02 { position: (198, 294, 0); extent: (92, 18, 0); fill: #30303b; text: ""; text-size: 7 }
+        @button permission_option_03 { position: (294, 294, 0); extent: (100, 18, 0); fill: #30303b; text: ""; text-size: 7 }
+        @button question_option_00 { position: (6, 294, 0); extent: (92, 18, 0); fill: #30303b; text: ""; text-size: 7 }
+        @button question_option_01 { position: (102, 294, 0); extent: (92, 18, 0); fill: #30303b; text: ""; text-size: 7 }
+        @button question_option_02 { position: (198, 294, 0); extent: (92, 18, 0); fill: #30303b; text: ""; text-size: 7 }
+        @button question_option_03 { position: (294, 294, 0); extent: (100, 18, 0); fill: #30303b; text: ""; text-size: 7 }
+        @button question_submit { position: (294, 294, 0); extent: (100, 18, 0); fill: #275b46; text: "Submit"; text-size: 7 }
+    }
+}

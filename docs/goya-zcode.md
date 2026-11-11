@@ -1,8 +1,10 @@
 # goya-zcode — ZCode session monitor contract (GY-ZCODE/1)
 
 Status: Candidate. This document is the spec for the `goya-zcode` crate and its
-`zcode-monitor` host binary: a read-only native Goya window that mirrors a live
-ZCode (drowzy) agent session.
+`zcode-monitor` host binary: a native Goya window that mirrors a live
+ZCode (drowzy) agent session. Increment 1 was read-only; waves 2–10 (see
+below) added a send-capable composer, scrolling history, theming, clipboard,
+IME input, tool rows, and multi-session switching.
 
 ## Motivation
 
@@ -12,6 +14,21 @@ wrapping, no scrolling, and non-ASCII glyph rendering). This contract defines
 the narrowest useful slice that exercises the full integration path:
 `.gscene` UI + external data source + live per-frame text override + Wayland
 presentation.
+
+## Wave summary
+
+| Wave | Evidence | Packages | Headline capability |
+|---|---|---|---|
+| 1 | `GY-ZCODE-001.json` | `goya-zcode` | Session monitor pilot: NDJSON client, live streaming transcript tail |
+| 2 | `GY-ZCODE-002.json` | `goya-ir`, `goya-lang`, `goya-wayland`, `goya-zcode` | Input node + shortcuts groundwork + composer (KeySpecial, per-node fills, multi-line text) |
+| 3 | `GY-ZCODE-003.json` | `goya-wayland`, `goya-zcode`, `goya-lang`, `goya-sdk`, `goya-studio` | Send path + scrollable history, real xkb Unicode input, deterministic `wrap:`, studio authoring |
+| 4 | `GY-ZCODE-004.json` | `goya-chroma`, `goya-wayland`, `goya-zcode` | AA-checked palette theming, Ctrl+C/V clipboard ring, markdown blocks |
+| 5 | `GY-ZCODE-005.json` | `goya-wayland`, `goya-zcode` | zwp_text_input_v3 IME path (Preedit/CommitText), `tool.updated` transcript rows |
+| 6 | `GY-ZCODE-006.json` | `goya-runtime`, `goya-wayland`, `goya-zcode`, `goya-hello` | Multi-session switching (ctrl+Left/Right) + divergent-IME scrub |
+| 7 | `GY-ZCODE-007.json` | `goya-zcode`, `goya-a11y` | Per-session transcript/composer retention (LRU), a11y input vocabulary |
+| 8 | `GY-ZCODE-008.json` | `goya-zcode`, `goya-wayland` | Live a11y snapshot (`--a11y-dump`), Wayland data-device system clipboard |
+| 9 | `GY-ZCODE-009.json` | `goya-wayland`, `goya-zcode` | Per-node text colors (`fgs` slice), system-clipboard-backed ring |
+| 10 | `GY-ZCODE-010.json` | `goya-zcode`, docs | Tool-row progress stats, protocol robustness tests, docs consolidation |
 
 ## Inputs
 
@@ -67,7 +84,8 @@ each frame before conversion to primitives (calculator `with_result` pattern).
 ## Host binary
 
 `zcode-monitor [--cli <path>] [--workspace <path>] [--session <id>]
-               [--live | --stdin-dump] [--watch] [--frames <n>] [--duration <seconds>]`
+               [--live | --stdin-dump] [--watch] [--frames <n>] [--duration <seconds>]
+               [--allow-send] [--a11y-dump]`
 
 - Default (headless acceptance): parse scene, run projection unit checks,
   print PASS/FAIL, exit non-zero on failure — same shape as `goya-scene`.
@@ -79,6 +97,10 @@ each frame before conversion to primitives (calculator `with_result` pattern).
 - `--duration <seconds>`: stop either live or dump mode after the requested
   duration. Both numeric options require positive integers; conflicting live
   and dump modes are rejected.
+- `--allow-send`: arm the `session/send` path (wave 3). Off by default; see
+  the Wave 3 section.
+- `--a11y-dump`: print the current DIG/A11yTree once per change in dump mode
+  (wave 8).
 
 ## Acceptance
 
@@ -89,11 +111,20 @@ each frame before conversion to primitives (calculator `with_result` pattern).
 
 ## Explicit non-goals
 
-- Sending composed text to a session. The current composer is local-only and
-  commits entries to the transcript with a `[local]` marker.
-- Scrolling (only tail-N virtualization exists here).
-- Theming plumbing to the renderer (colors are flat bg/fg per frame).
+As stated at increment 1; the first three have since been superseded by later
+waves (send path and scrolling in wave 3, theming in wave 4 — see the wave
+summary above):
+
+- ~~Sending composed text to a session~~ (wave 3, opt-in via `--allow-send`).
+  The increment-1 composer was local-only with a `[local]` marker; that echo
+  was retired by the wire send.
+- ~~Scrolling~~ (wave 3: bounded history + PageUp/PageDown/wheel scroll).
+- ~~Theming plumbing to the renderer~~ (wave 4: palette-driven fills; wave 9
+  adds per-node text colors).
 - Web, phone remote, and any replacement of the existing desktop frontend.
+- Still deferred across waves: proportional text/glyph metrics, richer
+  tool-call blocks (needs a UI-model design decision), GTK AT-SPI bridge,
+  and operator verification of real screen-reader/clipboard interop.
 
 ## Wave 2 — platform gaps closed by swarm (GY-ZCODE-002)
 
@@ -512,3 +543,38 @@ Same swarm convention; contract frozen before dispatch.
 | J1 | `goya-wayland` | `fgs` slice + raster per-node text color + tests |
 | J2 | `goya-zcode` | system-clipboard-backed ring + text-color mapping + tests |
 | gate | workspace | gates, goya-hello call-site migration, acceptance, evidence |
+
+## Wave 10 — tool-row enrichment, protocol robustness, docs consolidation (GY-ZCODE-010)
+
+Same swarm convention; contract frozen before dispatch.
+
+1. **Tool-row enrichment (J1: `goya-zcode`).**
+   - Track last-seen progress per in-flight tool (elapsedMs, outputBytes
+     from the `progress` payload — bounded per-tool state in the existing
+     tracker). Terminal lines append the summary: `⚙ tool ✓ (3.4s, 12.3KB)`;
+     omit missing fields; keep the line within LINE_WIDTH.
+   - `ProjEvent::ToolUpdate` gains an optional `stats: Option<ToolStats>`
+     field (duration_ms, output_bytes as provided); Started folds progress
+     stats without emitting new lines (existing fold semantics).
+   - Tests: progress→terminal summary rendering, missing-stats omission,
+     width clamping, existing dedup/fold tests unchanged.
+2. **Protocol robustness (J1: `goya-zcode`).**
+   - Hand-rolled deterministic mutation tests (goya-ir fuzz style, no new
+     deps) for the reader path: overlong lines (cap ~1 MiB, reject), invalid
+     UTF-8, deep nesting, non-object frames, huge id values, missing
+     method/params — each must leave the link in a defined state and never
+     panic or wedge the loop. A LINE_READ cap is added to the reader if
+     absent (document the bound).
+3. **Docs consolidation (J2: docs only — no crate changes).**
+   - README: status section updated with the wave 1-10 milestone list and
+     the monitor's capability summary; docs/goya-zcode.md gains a wave
+     summary table (wave → packages → evidence file); stale references
+     swept (e.g. wave-2/3 GATE comments now landed).
+
+### Assignments
+
+| Agent | Crates (exclusive) | Deliverable |
+|---|---|---|
+| J1 | `goya-zcode` | tool-row stats enrichment + reader robustness tests/cap + tests |
+| J2 | docs/ + README.md only | wave summary table + README status refresh + stale-reference sweep |
+| gate | workspace | gates, acceptance, evidence |

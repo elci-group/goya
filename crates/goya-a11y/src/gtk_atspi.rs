@@ -115,6 +115,7 @@ impl GtkAtspiBridge {
             }
 
             if let Some(updates) = updates.borrow_mut().take() {
+                let app_for_updates = app.clone();
                 let tree = tree.clone();
                 let content = content.clone();
                 let on_action = on_action.clone();
@@ -123,7 +124,11 @@ impl GtkAtspiBridge {
                 gtk::glib::timeout_add_local(Duration::from_millis(40), move || {
                     let latest = match take_latest(&updates) {
                         Ok(snapshot) => snapshot,
-                        Err(()) => return gtk::glib::ControlFlow::Break,
+                        Err(()) => {
+                            // 语义 owner 断开后退出镜像，避免留下可交互的过期窗口。
+                            app_for_updates.quit();
+                            return gtk::glib::ControlFlow::Break;
+                        }
                     };
                     if let Some(snapshot) = latest {
                         let mut current_tree = tree.borrow_mut();
@@ -428,9 +433,8 @@ fn make_node(
         A11yRole::TextInput => {
             let entry = Entry::new();
             entry.set_placeholder_text(Some(&node.accessible_name));
-            if let Some(value) = node.semantics.value.as_deref() {
-                entry.set_text(value);
-            }
+            // 输入实时值来自同一语义快照；仅看通用 value 会漏掉 composer.live_text。
+            entry.set_text(text_input_value(node));
             let action = on_action.clone();
             let action_id = id.clone();
             let suppress = suppress_actions.clone();
@@ -522,6 +526,13 @@ fn projected_focus_changed(old: &A11yTree, new: &A11yTree) -> bool {
     focused(old) != focused(new)
 }
 
+fn text_input_value(node: &A11yNode) -> &str {
+    node.live_text
+        .as_deref()
+        .or(node.semantics.value.as_deref())
+        .unwrap_or("")
+}
+
 fn update_widgets(old: &A11yTree, tree: &A11yTree, widgets: &HashMap<String, Widget>) {
     for node in tree.iter() {
         let Some(widget) = widgets.get(&node.id) else {
@@ -558,19 +569,17 @@ fn update_widgets(old: &A11yTree, tree: &A11yTree, widgets: &HashMap<String, Wid
             A11yRole::TextInput => {
                 if let Some(entry) = widget.downcast_ref::<Entry>() {
                     entry.set_placeholder_text(Some(&node.accessible_name));
-                    let old_value = old
-                        .get(&node.id)
-                        .and_then(|old| old.semantics.value.as_deref());
-                    if node.semantics.value.as_deref() != old_value {
-                        if let Some(value) = node.semantics.value.as_deref() {
-                            let position = entry.position();
-                            let selection = entry.selection_bounds();
-                            entry.set_text(value);
-                            if let Some((start, end)) = selection {
-                                entry.select_region(start, end);
-                            } else {
-                                entry.set_position(position.min(value.chars().count() as i32));
-                            }
+                    let old_value = old.get(&node.id).map(text_input_value).unwrap_or("");
+                    let value = text_input_value(node);
+                    if value != old_value {
+                        let position = entry.position();
+                        let selection = entry.selection_bounds();
+                        entry.set_text(value);
+                        let length = value.chars().count() as i32;
+                        if let Some((start, end)) = selection {
+                            entry.select_region(start.min(length), end.min(length));
+                        } else {
+                            entry.set_position(position.min(length));
                         }
                     }
                 }

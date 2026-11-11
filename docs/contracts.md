@@ -223,10 +223,12 @@ Status: Candidate (Swarm D — Platform). Completes GY-WAYLAND-001, the gate to 
   locale-based XKB Compose for dead-key sequences. The built-in US mapping is
   retained as a bounded fallback.
 - IME: when `zwp_text_input_manager_v3` is present, callers enable the text
-  input for focused fields and provide surrounding text, UTF-8 cursor/anchor
-  byte offsets, and a surface-local cursor rectangle. Preedit, deletion,
-  commit, and `done` serial are emitted as one ordered `ImeBatch`. Without
-  this optional protocol, XKB/Compose remains available.
+  input for focused fields via `set_text_input_active`. The compositor's
+  preedit and commit_string arrive as `PlatformEvent::Preedit(Option<String>)`
+  and `PlatformEvent::CommitText(String)` (commit text is delivered whole, not
+  synthesized as KeyChar events); hosts insert at their own cursor. An earlier
+  divergent `ImeBatch` design was removed in GY-ZCODE-006. Without this
+  optional protocol, XKB/Compose remains available.
 
 ## Direction-aware spacer refinement (GY-LAYOUT/1 amendment)
 

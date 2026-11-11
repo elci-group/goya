@@ -85,6 +85,21 @@
 //!   ✓ ok / ✗ err, `■` headings accent, everything else flat) and
 //!   `override_slices`, which builds the per-primitive `fills` and `fgs`
 //!   slices in one pass for the render path.
+//! - Wave 10 (GY-ZCODE-010): tool-row stats + reader robustness.
+//!   [`view::ProjEvent::ToolUpdate`] gains `stats: Option<ToolStats>`
+//!   (`elapsedMs` / `outputBytes` from the `tool.updated` `progress`
+//!   payload, folded into the Started mapping by `agent::map_event`).
+//!   The in-flight tool tracker stores the last-seen stats per tool so
+//!   the terminal row summarises them — `⚙ tool ✓ (3.4s, 12.3KB)` —
+//!   even when the terminal payload itself carries none; missing fields
+//!   (or a fully missing summary) are omitted and the row is clamped to
+//!   `view::LINE_WIDTH`. The NDJSON reader reads at most
+//!   [`agent::LINE_READ_CAP`] (1 MiB) per line: overlong lines are
+//!   dropped whole (remainder drained, link state unchanged), invalid
+//!   UTF-8 lines drop inertly, and the routing decision is the pure
+//!   [`agent::classify_frame`] — covered headless by a hand-rolled
+//!   mutation corpus (overlong, invalid UTF-8, non-object, deep
+//!   nesting, huge ids, missing method/params).
 
 pub mod a11y;
 pub mod agent;
