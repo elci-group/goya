@@ -795,7 +795,7 @@ mod tests {
         assert_eq!(args[6], "--settings");
         assert!(args[7].ends_with("c2pa.toml"));
         assert!(args[7].contains("goya-c2pa-trust-"));
-        assert!(args.iter().any(|line| *line == "ENV:"));
+        assert!(args.contains(&"ENV:"));
         assert!(!result.report.stdout.contains("ambient-anchors"));
         assert!(!result.report.stdout.contains("example.invalid"));
         assert_eq!(result.trust_options, options);
