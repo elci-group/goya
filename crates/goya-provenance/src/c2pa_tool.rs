@@ -793,12 +793,8 @@ mod tests {
         assert_eq!(args[4], "--allowed_list");
         assert_eq!(args[5], allowed.to_str().unwrap());
         assert_eq!(args[6], "--settings");
-        let settings = Path::new(args[7]);
-        assert_eq!(
-            settings.file_name().and_then(|name| name.to_str()),
-            Some("c2pa.toml")
-        );
-        assert!(settings.parent().is_some_and(|dir| dir.is_dir()));
+        assert!(args[7].ends_with("c2pa.toml"));
+        assert!(args[7].contains("goya-c2pa-trust-"));
         assert!(args.iter().any(|line| *line == "ENV:"));
         assert!(!result.report.stdout.contains("ambient-anchors"));
         assert!(!result.report.stdout.contains("example.invalid"));
