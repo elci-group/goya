@@ -43,10 +43,12 @@ applies the D1 VM's exact key-set, arithmetic, and outcome-hash checks.
   text value, 1 MiB combined state/input snapshots, 2 MiB encoded program,
   and 1 MiB register data per execution.
 - Integer addition and revision increments fail on overflow.
-- This is a local deterministic transition model. It does not integrate with
-  `goya-state::Store`, persist snapshots, authenticate proof signatures, or
-  implement all of Rust or a general-purpose language. D2 effects are handled
-  by the separate journal primitive and are not executed by this VM.
+- This is a local deterministic transition model. `apply_to_store` is its
+  only `goya-state::Store` integration: one transaction, declared keys, and
+  the caller's invariant. It does not persist snapshots on its own,
+  authenticate proof signatures, or implement all of Rust or a
+  general-purpose language. D2 effects are handled by the separate journal
+  primitive and are not executed by this VM.
 - SHA-256 outcomes are unkeyed integrity identifiers, not attestations from a
   trusted signer. A caller that accepts stored outcome hashes must establish
   trust in their source separately.

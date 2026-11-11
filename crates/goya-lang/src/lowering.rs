@@ -172,7 +172,11 @@ impl<'a> Lowerer<'a> {
             cell.position.or(cell.position_p).is_some() && cell.extent.or(cell.extent_p).is_some();
         let children: Vec<NodeKey>;
 
-        let (id, role) = match cell.kind {
+        // `semantic` is the node the scene name denotes. `link` is what the
+        // parent points at. They differ only when an input has children:
+        // `Node::Input` cannot list children, so a synthetic column keeps
+        // those children reachable for the D0 bytecode compiler.
+        let (semantic, link, role) = match cell.kind {
             CellKind::Button => {
                 // Traversal stops at buttons. Layout still emitted descendants,
                 // so their frame slots are consumed to keep later rects aligned.
@@ -183,24 +187,35 @@ impl<'a> Lowerer<'a> {
                 self.next_action += 1;
                 self.skip_descendant_frames(cell);
                 children = Vec::new();
-                (id, Role::Button)
+                (id, id, Role::Button)
             }
             CellKind::Input => {
                 // Editable field: the placeholder is the scene `text:` value;
                 // focus and typed content are host-side state (Wave 2).
                 // Children are lowered so buttons inside an input keep the
                 // same depth-first ActionIds as interaction compilation.
-                // `Node::Input` has no child list; the node table records them.
-                let id = self.push(Node::Input {
+                let input_id = self.push(Node::Input {
                     placeholder: cell.text.clone().unwrap_or_default(),
                 });
                 let mut kid_keys = Vec::new();
+                let mut kid_ids = Vec::new();
                 for child in &cell.children {
-                    let (child_key, _) = self.lower_cell(child, Some(&key));
+                    let (child_key, child_id) = self.lower_cell(child, Some(&key));
                     kid_keys.push(child_key);
+                    kid_ids.push(child_id);
                 }
+                let link = if kid_ids.is_empty() {
+                    input_id
+                } else {
+                    let mut column_children = Vec::with_capacity(kid_ids.len() + 1);
+                    column_children.push(input_id);
+                    column_children.extend(kid_ids);
+                    self.push(Node::Column {
+                        children: column_children,
+                    })
+                };
                 children = kid_keys;
-                (id, Role::Input)
+                (input_id, link, Role::Input)
             }
             CellKind::Cell => {
                 let id;
@@ -243,21 +258,21 @@ impl<'a> Lowerer<'a> {
                     children = kid_keys;
                     role = Role::Cell;
                 }
-                (id, role)
+                (id, id, role)
             }
         };
 
         self.table.insert(
             key.clone(),
             NodeRecord {
-                ir_node: id,
+                ir_node: semantic,
                 role,
                 parent: parent_key.map(str::to_string),
                 explicit_rect_mp: explicit(rect, has_explicit_rect),
                 children,
             },
         );
-        (key, id)
+        (key, link)
     }
 
     fn skip_descendant_frames(&mut self, cell: &SceneCell) {
@@ -500,5 +515,12 @@ mod tests {
         assert!(lowered.table.contains_key("inner"));
         assert!(lowered.table.contains_key("outer"));
         assert!(!lowered.table.contains_key("hidden"));
+        let box_record = lowered.table.get("box").unwrap();
+        assert!(matches!(
+            lowered.module.node(box_record.ir_node),
+            Some(Node::Input { .. })
+        ));
+        let bytecode = goya_executable::compile_module(&lowered.module).expect("reachable D0 tree");
+        goya_executable::execute(&bytecode).expect("reference VM accepts the lowered scene");
     }
 }

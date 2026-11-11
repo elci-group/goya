@@ -635,7 +635,7 @@ settings action (owner-side).
 
 ### Deferred (recorded, not forgotten)
 - Typography: cosmic-text shaping/rasterisation, wrapping, per-node size and clipping are implemented in `goya-wayland`. Bitmap fallback wrapping now preserves grapheme clusters. Remaining work is shared shaped-layout geometry (text extent, caret, selection, hit testing), font/fallback policy, accurate IME cursor placement, and glyph-level/live acceptance. The original `evidence/GY-WAVE1-001.json` 5x7 statement is a historical Wave-1 snapshot; it does not describe the current renderer.
-- GY-LANG lowering to the shared `goya_ir::Module` and `NodeTable` is implemented and consumed by the SDK. This does not change the `GY-IR/1` contract identifier. The remaining compiler work is to expose the approved authored D1/D2 interaction subsets through the public SDK facade; branches, loops, comparisons, other expression forms, and authored D0 remain out of scope pending a separately versioned language contract and architecture decision.
+- GY-LANG lowering to the shared `goya_ir::Module` and `NodeTable` is implemented and consumed by the SDK, and `SceneProject::compile_interactions` exposes the approved D1/D2 subsets. A lowered module is a complete tree: an `@input` with children is linked through a synthetic column because `Node::Input` has no child list, so `compile_module` can admit it. This does not change the `GY-IR/1` contract identifier. Branches, loops, comparisons, other expression forms, and authored D0 remain out of scope pending a separately versioned language contract and architecture decision.
 - HCAR hardware topology/dispatch — needs real P/E hardware profiling.
 
 ---
