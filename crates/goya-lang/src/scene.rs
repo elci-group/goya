@@ -196,6 +196,9 @@ pub struct DrawNode {
 pub struct Frame {
     pub nodes: Vec<DrawNode>,
     index: BTreeMap<String, usize>,
+    /// Parent node index for each entry in `nodes`. Name lookup is not used
+    /// for this walk: a descendant may reuse an ancestor's name.
+    parent_index: Vec<Option<usize>>,
 }
 
 /// Per-scene scroll offsets in millipoints. Offsets are keyed by stable cell
@@ -253,26 +256,38 @@ impl Frame {
         let Some(viewport) = self.find(name).filter(|node| node.scroll) else {
             return (0, 0);
         };
-        let mut content_right = viewport.rect.x + viewport.rect.width;
-        let mut content_bottom = viewport.rect.y + viewport.rect.height;
-        for node in &self.nodes {
-            let mut parent = node.parent.as_deref();
-            while let Some(parent_name) = parent {
-                if parent_name == name {
-                    content_right = content_right.max(node.rect.x.saturating_add(node.rect.width));
-                    content_bottom =
-                        content_bottom.max(node.rect.y.saturating_add(node.rect.height));
-                    break;
-                }
-                parent = self
-                    .find(parent_name)
-                    .and_then(|parent| parent.parent.as_deref());
+        let viewport_index = self.index.get(name).copied()?;
+        // `find` above already required a scroll node; re-read by index so a
+        // later duplicate name cannot replace the viewport.
+        let viewport = &self.nodes[viewport_index];
+        let mut content_right = viewport.rect.x.saturating_add(viewport.rect.width);
+        let mut content_bottom = viewport.rect.y.saturating_add(viewport.rect.height);
+        for (index, node) in self.nodes.iter().enumerate() {
+            if self
+                .ancestor_indexes(index)
+                .iter()
+                .any(|parent| *parent == viewport_index)
+            {
+                content_right = content_right.max(node.rect.x.saturating_add(node.rect.width));
+                content_bottom = content_bottom.max(node.rect.y.saturating_add(node.rect.height));
             }
         }
         (
-            content_right.saturating_sub(viewport.rect.x + viewport.rect.width),
-            content_bottom.saturating_sub(viewport.rect.y + viewport.rect.height),
+            content_right.saturating_sub(viewport.rect.x.saturating_add(viewport.rect.width)),
+            content_bottom.saturating_sub(viewport.rect.y.saturating_add(viewport.rect.height)),
         )
+    }
+
+    fn ancestor_indexes(&self, mut index: usize) -> Vec<usize> {
+        let mut chain = Vec::new();
+        while let Some(parent) = self.parent_index.get(index).copied().flatten() {
+            if chain.contains(&parent) {
+                break;
+            }
+            chain.push(parent);
+            index = parent;
+        }
+        chain
     }
 
     /// Return draw nodes translated by all ancestor scroll offsets and

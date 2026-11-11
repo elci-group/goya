@@ -45,6 +45,7 @@ pub fn parse(source: &str) -> Result<Scene, ParseError> {
     }
     // Collapse the anonymous ontology wrapper when it holds exactly one
     // named cell and no own properties — the wrapper is syntax, not scene.
+    // Otherwise the wrapper keeps the ontology name so lowering has a root.
     if root.children.len() == 1
         && root.position.is_none()
         && root.extent.is_none()
@@ -61,6 +62,8 @@ pub fn parse(source: &str) -> Result<Scene, ParseError> {
         && !root.is_input
     {
         root = root.children.remove(0);
+    } else if root.name.is_empty() {
+        root.name = name.clone();
     }
     Ok(Scene {
         name,
