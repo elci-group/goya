@@ -56,6 +56,17 @@ impl SwapCandidate {
     }
 }
 
+/// Schema, policy, and origination inputs shared by swap proposals.
+#[derive(Clone, Copy)]
+pub struct SwapContext<'a> {
+    /// Capabilities the originating unit already holds.
+    pub origination: &'a [String],
+    /// Schema version the candidate must match.
+    pub current_schema: u64,
+    /// Policy version the candidate must match.
+    pub current_policy: u64,
+}
+
 /// The currently active unit, the revision at which it was activated, and
 /// the state contract bound it established.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -220,9 +231,7 @@ impl SwapSupervisor {
         candidate: SwapCandidate,
         stored: &goya_state::Map,
         migrations: &[state_migration::StateMigration],
-        origination: &[String],
-        current_schema: u64,
-        current_policy: u64,
+        context: SwapContext<'_>,
         commit: impl FnOnce(&goya_state::Map) -> Result<(), E>,
     ) -> Result<u64, MigratedSwapError<E>> {
         let active_version = self
@@ -237,9 +246,9 @@ impl SwapSupervisor {
             })?;
         self.screen(
             &candidate,
-            origination,
-            current_schema,
-            current_policy,
+            context.origination,
+            context.current_schema,
+            context.current_policy,
             ContractRule::Upgrade,
         )
         .map_err(MigratedSwapError::Swap)?;
@@ -593,23 +602,15 @@ impl ReconciledSupervisor {
         candidate_interface: InterfaceContract,
         stored: &goya_state::Map,
         migrations: &[state_migration::StateMigration],
-        origination: &[String],
-        current_schema: u64,
-        current_policy: u64,
+        context: SwapContext<'_>,
         commit: impl FnOnce(&goya_state::Map) -> Result<(), E>,
     ) -> Result<(u64, InterfaceDiff), MigratedSwapError<E>> {
         let diff = self
             .preview_interface(&candidate_interface)
             .map_err(MigratedSwapError::Swap)?;
-        let revision = self.swaps.propose_migrated_swap(
-            candidate,
-            stored,
-            migrations,
-            origination,
-            current_schema,
-            current_policy,
-            commit,
-        )?;
+        let revision = self
+            .swaps
+            .propose_migrated_swap(candidate, stored, migrations, context, commit)?;
         self.interfaces.push(candidate_interface);
         Ok((revision, diff))
     }
@@ -1081,14 +1082,17 @@ mod tests {
             }],
         }];
 
+        let context = SwapContext {
+            origination: &origination(),
+            current_schema: SCHEMA,
+            current_policy: POLICY,
+        };
         let error = supervisor
             .propose_migrated_swap(
                 candidate("v2", 2),
                 &stored,
                 &migrations,
-                &origination(),
-                SCHEMA,
-                POLICY,
+                context,
                 |_| Err("rejected"),
             )
             .expect_err("failed publish");
@@ -1099,18 +1103,10 @@ mod tests {
 
         let mut commit_called = false;
         let error = supervisor
-            .propose_migrated_swap(
-                candidate("v2", 2),
-                &stored,
-                &[],
-                &origination(),
-                SCHEMA,
-                POLICY,
-                |_| {
-                    commit_called = true;
-                    Ok::<(), &str>(())
-                },
-            )
+            .propose_migrated_swap(candidate("v2", 2), &stored, &[], context, |_| {
+                commit_called = true;
+                Ok::<(), &str>(())
+            })
             .expect_err("missing migration");
         assert!(matches!(error, MigratedSwapError::Migration(_)));
         assert!(!commit_called);
@@ -1121,9 +1117,7 @@ mod tests {
                 candidate("v2", 2),
                 &stored,
                 &migrations,
-                &origination(),
-                SCHEMA,
-                POLICY,
+                context,
                 |migrated| {
                     let tx = store.begin().unwrap();
                     assert!(tx.stage_snapshot(migrated));
@@ -1166,15 +1160,18 @@ mod tests {
         let mut breaking = interface("clock");
         breaking.exports.remove("compute");
         let mut committed = false;
+        let context = SwapContext {
+            origination: &origination(),
+            current_schema: SCHEMA,
+            current_policy: POLICY,
+        };
         let error = supervisor
             .propose_migrated_swap(
                 candidate("v2", 2),
                 breaking,
                 &stored,
                 &migrations,
-                &origination(),
-                SCHEMA,
-                POLICY,
+                context,
                 |_| {
                     committed = true;
                     Ok::<(), &str>(())
@@ -1191,9 +1188,7 @@ mod tests {
                 interface("clock"),
                 &stored,
                 &migrations,
-                &origination(),
-                SCHEMA,
-                POLICY,
+                context,
                 |_| Ok::<(), &str>(()),
             )
             .unwrap();
