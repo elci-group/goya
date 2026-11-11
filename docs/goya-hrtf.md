@@ -60,7 +60,7 @@ archive `HRTFs.zip` SHA-256:
 source file `subj_Z.sofa` SHA-256:
 `8206dffb8f40b141bdc16b34bce0800bd02ddb3f7fe4a9d68c3e7cc749cd633a`;
 converted fixture SHA-256:
-`0cc278de50a5496e4437b71b3a1eb81e6991f4c9872a62e40e0714cbfb03fc47`.
+`dc590c59bffc461c4d7404fb06fde717e2bf572bd2f889950df5cc551deb37eb`.
 The fixture is under the same CC BY 4.0 terms; its attribution is Simone
 Spagnol, Riccardo Miccini, and Rúnar Unnthórsson, “The Viking HRTF dataset
 v2,” Zenodo (2020), DOI 10.5281/zenodo.4160401, CC BY 4.0. The checked-in
