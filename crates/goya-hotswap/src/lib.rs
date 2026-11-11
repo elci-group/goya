@@ -1082,8 +1082,9 @@ mod tests {
             }],
         }];
 
+        let origin = origination();
         let context = SwapContext {
-            origination: &origination(),
+            origination: &origin,
             current_schema: SCHEMA,
             current_policy: POLICY,
         };
@@ -1160,8 +1161,9 @@ mod tests {
         let mut breaking = interface("clock");
         breaking.exports.remove("compute");
         let mut committed = false;
+        let origin = origination();
         let context = SwapContext {
-            origination: &origination(),
+            origination: &origin,
             current_schema: SCHEMA,
             current_policy: POLICY,
         };
