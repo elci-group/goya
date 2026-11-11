@@ -779,7 +779,11 @@ mod tests {
         assert_eq!(reply.trim(), "{}");
         assert_eq!(fs::read(&argfile).unwrap(), binary.as_os_str().as_bytes());
 
-        fs::write(&tool, "#!/bin/sh\nprintf '\\xff'\n").unwrap();
+        fs::write(
+            &tool,
+            "#!/bin/sh\npython3 -c 'import sys; sys.stdout.buffer.write(b\"\\xff\")'\n",
+        )
+        .unwrap();
         unix_chmod(&tool);
         let error = TheosisClient::new(&tool)
             .check(
