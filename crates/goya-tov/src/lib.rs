@@ -293,7 +293,12 @@ mod tests {
                 std::env::temp_dir().join(format!("goya-tov-test-{}-{stamp}", std::process::id()));
             fs::create_dir_all(&dir).unwrap();
             let path = dir.join("tov");
-            fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+            {
+                use std::io::Write;
+                let mut file = fs::File::create(&path).unwrap();
+                write!(file, "#!/bin/sh\n{body}\n").unwrap();
+                file.sync_all().unwrap();
+            }
             fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
             Self(path)
         }
