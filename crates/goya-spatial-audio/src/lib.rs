@@ -392,11 +392,10 @@ impl MeasuredHrtfProfile {
                 .map_err(|_| HrtfProfileError::InvalidDirection)?;
             let direction = Direction::new(azimuth, elevation)
                 .map_err(|_| HrtfProfileError::InvalidDirection)?;
-            if responses.iter().any(|entry: &OwnedHrtfResponse| {
-                let a = entry.direction.vector();
-                let b = direction.vector();
-                a[0] * b[0] + a[1] * b[1] + a[2] * b[2] > 1.0 - 1e-6
-            }) {
+            if responses
+                .iter()
+                .any(|entry| same_measured_direction(entry.direction, direction))
+            {
                 return Err(HrtfProfileError::DuplicateDirection);
             }
             let left = parse_hrtf_taps(fields[2])?;
@@ -422,6 +421,22 @@ impl MeasuredHrtfProfile {
     pub fn sample_rate_hz(&self) -> u32 {
         self.sample_rate_hz
     }
+}
+
+/// Physical identity for measured rows. ±180° are one azimuth, and every
+/// azimuth at elevation ±90° is one pole. Nearby but distinct elevations,
+/// including a 1° azimuth step at 89°, stay distinct: an f32 unit-vector
+/// dot rounds those vectors to 1.
+fn same_measured_direction(left: Direction, right: Direction) -> bool {
+    if left.elevation_deg.abs() == 90.0
+        && right.elevation_deg.abs() == 90.0
+        && left.elevation_deg.signum() == right.elevation_deg.signum()
+    {
+        return true;
+    }
+    let azimuth_delta = (left.azimuth_deg - right.azimuth_deg).abs() % 360.0;
+    let azimuth_delta = azimuth_delta.min(360.0 - azimuth_delta);
+    azimuth_delta < 1e-3 && (left.elevation_deg - right.elevation_deg).abs() < 1e-3
 }
 
 fn parse_hrtf_taps(field: &str) -> Result<Vec<f32>, HrtfProfileError> {
