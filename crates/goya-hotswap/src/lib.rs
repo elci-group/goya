@@ -110,6 +110,27 @@ pub struct SwapRejection {
     pub reason: String,
 }
 
+/// Failure while migrating persisted state and then activating the candidate.
+#[derive(Debug)]
+pub enum MigratedSwapError<E> {
+    /// The migration chain did not produce a snapshot for the candidate.
+    Migration(state_migration::MigrationError),
+    /// A swap check rejected the candidate before or instead of activation.
+    Swap(SwapRejection),
+    /// The caller refused to publish the migrated snapshot. The supervisor
+    /// was left unchanged.
+    Commit(E),
+}
+
+/// How [`SwapSupervisor::screen`] treats the state-contract version.
+#[derive(Clone, Copy)]
+enum ContractRule {
+    /// Candidate version must be less than or equal to the active bound.
+    Compatible,
+    /// Candidate version must be strictly newer than the active bound.
+    Upgrade,
+}
+
 /// Why a rollback could not be performed.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum RollbackError {
@@ -168,6 +189,7 @@ impl SwapSupervisor {
     ///
     /// On success a [`SwapRecord`] is appended and the new revision is
     /// returned. On any failure the supervisor is left completely untouched.
+    /// A higher state-contract version uses [`Self::propose_migrated_swap`].
     pub fn propose_swap(
         &mut self,
         candidate: SwapCandidate,
@@ -175,7 +197,71 @@ impl SwapSupervisor {
         current_schema: u64,
         current_policy: u64,
     ) -> Result<u64, SwapRejection> {
-        // Stage 1: staleness (invariant #6 companion).
+        self.screen(
+            &candidate,
+            origination,
+            current_schema,
+            current_policy,
+            ContractRule::Compatible,
+        )?;
+        Ok(self.commit_candidate(candidate))
+    }
+
+    /// Migrate `stored` from the active contract version up to the candidate,
+    /// publish that snapshot, and only then activate the candidate.
+    ///
+    /// Swap checks run before `commit`. `commit` receives the migrated map and
+    /// must publish it (for example with [`goya_state::Transaction::stage_snapshot`])
+    /// before returning `Ok`. A migration error, a rejected swap check, or a
+    /// failed `commit` leaves the supervisor untouched. An unmigrated higher
+    /// version remains rejected by [`Self::propose_swap`].
+    pub fn propose_migrated_swap<E>(
+        &mut self,
+        candidate: SwapCandidate,
+        stored: &goya_state::Map,
+        migrations: &[state_migration::StateMigration],
+        origination: &[String],
+        current_schema: u64,
+        current_policy: u64,
+        commit: impl FnOnce(&goya_state::Map) -> Result<(), E>,
+    ) -> Result<u64, MigratedSwapError<E>> {
+        let active_version = self
+            .active
+            .as_ref()
+            .map(|unit| unit.state_contract_version)
+            .ok_or_else(|| {
+                MigratedSwapError::Swap(SwapRejection {
+                    stage: SwapStage::StateContract,
+                    reason: "state migration requires an active contract version".into(),
+                })
+            })?;
+        self.screen(
+            &candidate,
+            origination,
+            current_schema,
+            current_policy,
+            ContractRule::Upgrade,
+        )
+        .map_err(MigratedSwapError::Swap)?;
+        let migrated = state_migration::migrate_state(
+            stored,
+            active_version,
+            candidate.state_contract_version,
+            migrations,
+        )
+        .map_err(MigratedSwapError::Migration)?;
+        commit(&migrated).map_err(MigratedSwapError::Commit)?;
+        Ok(self.commit_candidate(candidate))
+    }
+
+    fn screen(
+        &self,
+        candidate: &SwapCandidate,
+        origination: &[String],
+        current_schema: u64,
+        current_policy: u64,
+        contract: ContractRule,
+    ) -> Result<(), SwapRejection> {
         if is_stale(&candidate.artifact, current_schema, current_policy) {
             return Err(SwapRejection {
                 stage: SwapStage::Staleness,
@@ -189,7 +275,6 @@ impl SwapSupervisor {
             });
         }
 
-        // Stage 2: capability non-escalation (invariant #7).
         if !validate_capability_escalation(origination, &candidate.artifact) {
             return Err(SwapRejection {
                 stage: SwapStage::Capability,
@@ -197,21 +282,41 @@ impl SwapSupervisor {
             });
         }
 
-        // Stage 3: state contract compatibility. The first swap is free;
-        // afterwards the candidate may not raise the contract version.
-        if let Some(active) = &self.active {
-            if candidate.state_contract_version > active.state_contract_version {
-                return Err(SwapRejection {
-                    stage: SwapStage::StateContract,
-                    reason: format!(
-                        "candidate state contract v{} exceeds active bound v{}",
-                        candidate.state_contract_version, active.state_contract_version
-                    ),
-                });
+        match contract {
+            ContractRule::Compatible => {
+                if let Some(active) = &self.active {
+                    if candidate.state_contract_version > active.state_contract_version {
+                        return Err(SwapRejection {
+                            stage: SwapStage::StateContract,
+                            reason: format!(
+                                "candidate state contract v{} exceeds active bound v{}",
+                                candidate.state_contract_version, active.state_contract_version
+                            ),
+                        });
+                    }
+                }
             }
+            ContractRule::Upgrade => match &self.active {
+                Some(active)
+                    if candidate.state_contract_version > active.state_contract_version => {}
+                Some(active) => {
+                    return Err(SwapRejection {
+                        stage: SwapStage::StateContract,
+                        reason: format!(
+                            "candidate state contract v{} is not an upgrade from v{}",
+                            candidate.state_contract_version, active.state_contract_version
+                        ),
+                    });
+                }
+                None => {
+                    return Err(SwapRejection {
+                        stage: SwapStage::StateContract,
+                        reason: "state migration requires an active contract version".into(),
+                    });
+                }
+            },
         }
 
-        // Stage 4: application version floor.
         if candidate.current_app_version < candidate.min_app_version {
             return Err(SwapRejection {
                 stage: SwapStage::AppVersion,
@@ -222,17 +327,18 @@ impl SwapSupervisor {
             });
         }
 
-        // Resolve the next revision before mutating anything. A long-lived
-        // supervisor must fail closed instead of wrapping its identity counter.
+        self.revision().checked_add(1).ok_or_else(|| SwapRejection {
+            stage: SwapStage::Revision,
+            reason: "supervisor revision counter is exhausted".into(),
+        })?;
+        Ok(())
+    }
+
+    fn commit_candidate(&mut self, candidate: SwapCandidate) -> u64 {
         let rev = self
             .revision()
             .checked_add(1)
-            .ok_or_else(|| SwapRejection {
-                stage: SwapStage::Revision,
-                reason: "supervisor revision counter is exhausted".into(),
-            })?;
-
-        // All checks passed: commit the transaction.
+            .expect("revision overflow is rejected before commit");
         let from = self.active.take().map(|unit| unit.artifact);
         self.history.push(SwapRecord {
             from,
@@ -245,7 +351,7 @@ impl SwapSupervisor {
             activated_at_rev: rev,
             state_contract_version: candidate.state_contract_version,
         });
-        Ok(rev)
+        rev
     }
 
     /// Roll back to the previous artifact by popping the most recent swap
