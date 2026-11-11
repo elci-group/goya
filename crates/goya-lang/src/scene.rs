@@ -263,11 +263,7 @@ impl Frame {
         let mut content_right = viewport.x.saturating_add(viewport.width);
         let mut content_bottom = viewport.y.saturating_add(viewport.height);
         for (index, node) in self.nodes.iter().enumerate() {
-            if self
-                .ancestor_indexes(index)
-                .iter()
-                .any(|parent| *parent == viewport_index)
-            {
+            if self.ancestor_indexes(index).contains(&viewport_index) {
                 content_right = content_right.max(node.rect.x.saturating_add(node.rect.width));
                 content_bottom = content_bottom.max(node.rect.y.saturating_add(node.rect.height));
             }
