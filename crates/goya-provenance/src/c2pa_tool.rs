@@ -775,10 +775,7 @@ mod tests {
         .map(|key| (key, std::env::var(key).ok()));
         std::env::set_var("C2PATOOL_TRUST_ANCHORS", "/tmp/ambient-anchors.pem");
         std::env::set_var("C2PATOOL_SETTINGS", "/tmp/ambient/c2pa.toml");
-        std::env::set_var(
-            "C2PATOOL_TRUST_LIST_URI",
-            "https://example.invalid/trust",
-        );
+        std::env::set_var("C2PATOOL_TRUST_LIST_URI", "https://example.invalid/trust");
         let result = C2paTool::with_executable(&tool.0)
             .verify_asset(&asset, &options)
             .unwrap();
@@ -797,7 +794,10 @@ mod tests {
         assert_eq!(args[5], allowed.to_str().unwrap());
         assert_eq!(args[6], "--settings");
         let settings = Path::new(args[7]);
-        assert_eq!(settings.file_name().and_then(|name| name.to_str()), Some("c2pa.toml"));
+        assert_eq!(
+            settings.file_name().and_then(|name| name.to_str()),
+            Some("c2pa.toml")
+        );
         assert!(settings.parent().is_some_and(|dir| dir.is_dir()));
         assert!(args.iter().any(|line| *line == "ENV:"));
         assert!(!result.report.stdout.contains("ambient-anchors"));

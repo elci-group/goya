@@ -198,7 +198,11 @@ fn take_latest(updates: &mpsc::Receiver<A11yTree>) -> Result<Option<A11yTree>, (
             Ok(snapshot) => latest = Some(snapshot),
             Err(mpsc::TryRecvError::Empty) => return Ok(latest),
             Err(mpsc::TryRecvError::Disconnected) => {
-                return if latest.is_some() { Ok(latest) } else { Err(()) };
+                return if latest.is_some() {
+                    Ok(latest)
+                } else {
+                    Err(())
+                };
             }
         }
     }
@@ -290,7 +294,10 @@ mod tests {
 
     #[test]
     fn rebuild_focus_prefers_the_snapshot_target() {
-        assert_eq!(projected_focus_or_previous(Some("next"), Some("old")), Some("next"));
+        assert_eq!(
+            projected_focus_or_previous(Some("next"), Some("old")),
+            Some("next")
+        );
         assert_eq!(projected_focus_or_previous(None, Some("old")), Some("old"));
         assert_eq!(projected_focus_or_previous::<&str>(None, None), None);
     }

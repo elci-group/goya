@@ -828,9 +828,7 @@ mod tests {
             Err(HrtfProfileError::DuplicateDirection)
         ));
         assert!(matches!(
-            MeasuredHrtfProfile::from_text(
-                "GY-HRTF/1\nsample_rate_hz=48000\n0,90,1,1\n45,90,1,1"
-            ),
+            MeasuredHrtfProfile::from_text("GY-HRTF/1\nsample_rate_hz=48000\n0,90,1,1\n45,90,1,1"),
             Err(HrtfProfileError::DuplicateDirection)
         ));
         assert!(MeasuredHrtfProfile::from_text(

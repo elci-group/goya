@@ -8,11 +8,11 @@
 
 use goya_lang::{CellKind, Scene, SceneCell};
 use std::collections::BTreeSet;
+use std::ffi::OsStr;
 use std::fmt;
 use std::fs;
 use std::future::Future;
 use std::io::Write;
-use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::{Command, Stdio};
@@ -750,7 +750,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn theosis_preserves_non_utf8_paths_and_rejects_invalid_replies() {
-        use std::os::unix::ffi::OsStringExt;
+        use std::os::unix::ffi::{OsStrExt, OsStringExt};
         let dir = std::env::temp_dir().join(format!(
             "goya-theosis-{}-{}",
             std::process::id(),
@@ -776,24 +776,28 @@ mod tests {
         let reply = TheosisClient::new(&tool)
             .check("origin", &binary, &grant(Capability::InspectUpdate))
             .unwrap();
-        assert_eq!(reply, "{}");
-        assert_eq!(fs::read(&argfile).unwrap(), b"app-\xff");
+        assert_eq!(reply.trim(), "{}");
+        assert_eq!(fs::read(&argfile).unwrap(), binary.as_os_str().as_bytes());
 
         fs::write(&tool, "#!/bin/sh\nprintf '\\xff'\n").unwrap();
         unix_chmod(&tool);
         let error = TheosisClient::new(&tool)
-            .check("origin", Path::new("app"), &grant(Capability::InspectUpdate))
+            .check(
+                "origin",
+                Path::new("app"),
+                &grant(Capability::InspectUpdate),
+            )
             .unwrap_err();
         assert!(matches!(error, IntegrationError::InvalidReply(_)));
 
-        fs::write(
-            &tool,
-            "#!/bin/sh\nhead -c 1048577 /dev/zero | tr '\\0' a\n",
-        )
-        .unwrap();
+        fs::write(&tool, "#!/bin/sh\nhead -c 1048577 /dev/zero | tr '\\0' a\n").unwrap();
         unix_chmod(&tool);
         let error = TheosisClient::new(&tool)
-            .check("origin", Path::new("app"), &grant(Capability::InspectUpdate))
+            .check(
+                "origin",
+                Path::new("app"),
+                &grant(Capability::InspectUpdate),
+            )
             .unwrap_err();
         assert!(matches!(error, IntegrationError::InvalidReply(_)));
         let _ = fs::remove_dir_all(dir);

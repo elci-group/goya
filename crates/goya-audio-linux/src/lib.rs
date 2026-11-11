@@ -522,7 +522,10 @@ mod pwcat_tests {
         let header = wav_header(PwCatOutput::SAMPLE_RATE, 8);
         assert_eq!(header.len(), 68);
         assert_eq!(u16::from_le_bytes([header[20], header[21]]), 0xFFFE);
-        assert_eq!(u32::from_le_bytes(header[40..44].try_into().unwrap()), 0x63F);
+        assert_eq!(
+            u32::from_le_bytes(header[40..44].try_into().unwrap()),
+            0x63F
+        );
         assert_eq!(&header[60..64], b"data");
     }
 
