@@ -168,10 +168,13 @@ impl GtkAtspiBridge {
                             restore_entry_state(&saved, &widgets.borrow());
                             suppress_actions.set(false);
                             content.show_all();
-                            let focus = previous_focus
+                            let previous = previous_focus
                                 .and_then(|id| widgets.borrow().get(&id).cloned())
-                                .filter(|widget| widget.is_sensitive() && widget.can_focus())
-                                .or(focus);
+                                .filter(|widget| widget.is_sensitive() && widget.can_focus());
+                            // The snapshot's focused node wins. The previous
+                            // widget is only a fallback when this snapshot
+                            // marks no enabled interactive focus target.
+                            let focus = projected_focus_or_previous(focus, previous);
                             if let Some(widget) = focus {
                                 widget.grab_focus();
                             }
@@ -194,7 +197,9 @@ fn take_latest(updates: &mpsc::Receiver<A11yTree>) -> Result<Option<A11yTree>, (
         match updates.try_recv() {
             Ok(snapshot) => latest = Some(snapshot),
             Err(mpsc::TryRecvError::Empty) => return Ok(latest),
-            Err(mpsc::TryRecvError::Disconnected) => return Err(()),
+            Err(mpsc::TryRecvError::Disconnected) => {
+                return if latest.is_some() { Ok(latest) } else { Err(()) };
+            }
         }
     }
 }
@@ -267,6 +272,27 @@ mod tests {
         assert!(take_latest(&rx).unwrap().is_none());
         drop(tx);
         assert!(take_latest(&rx).is_err());
+
+        let (tx, rx) = mpsc::channel();
+        tx.send(snapshot("queued")).unwrap();
+        drop(tx);
+        assert_eq!(
+            take_latest(&rx)
+                .unwrap()
+                .unwrap()
+                .get("root")
+                .unwrap()
+                .accessible_name,
+            "queued"
+        );
+        assert!(take_latest(&rx).is_err());
+    }
+
+    #[test]
+    fn rebuild_focus_prefers_the_snapshot_target() {
+        assert_eq!(projected_focus_or_previous(Some("next"), Some("old")), Some("next"));
+        assert_eq!(projected_focus_or_previous(None, Some("old")), Some("old"));
+        assert_eq!(projected_focus_or_previous::<&str>(None, None), None);
     }
 
     #[test]
@@ -515,6 +541,10 @@ fn same_structure(old: &A11yTree, new: &A11yTree) -> bool {
                     && node.semantics.selected.is_some() == other.semantics.selected.is_some()
             })
         })
+}
+
+fn projected_focus_or_previous<T>(projected: Option<T>, previous: Option<T>) -> Option<T> {
+    projected.or(previous)
 }
 
 fn projected_focus_changed(old: &A11yTree, new: &A11yTree) -> bool {

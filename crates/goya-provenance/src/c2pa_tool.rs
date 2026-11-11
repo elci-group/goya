@@ -271,6 +271,13 @@ impl C2paTool {
         let asset = asset.as_ref();
         validate_asset(asset)?;
         validate_trust_options(trust_options)?;
+        let settings_dir = std::env::temp_dir().join(format!(
+            "goya-c2pa-trust-{}-{}",
+            std::process::id(),
+            TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&settings_dir).map_err(C2paToolError::Launch)?;
+        let settings = settings_dir.join("c2pa.toml");
         let mut command = Command::new(&self.executable);
         command.arg(asset).arg("trust");
         if let Some(path) = &trust_options.trust_anchors {
@@ -279,11 +286,20 @@ impl C2paTool {
         if let Some(path) = &trust_options.allowed_list {
             command.arg("--allowed_list").arg(path);
         }
+        // Current c2patool loads trust sidecars from the `--settings` parent
+        // and from C2PATOOL_* variables. An empty directory keeps verification
+        // on the paths passed above.
         command
+            .arg("--settings")
+            .arg(&settings)
             .env_remove("C2PATOOL_TRUST_ANCHORS")
             .env_remove("C2PATOOL_ALLOWED_LIST")
-            .env_remove("C2PATOOL_TRUST_CONFIG");
-        let output = self.run(command)?;
+            .env_remove("C2PATOOL_TRUST_CONFIG")
+            .env_remove("C2PATOOL_TRUST_LIST_URI")
+            .env_remove("C2PATOOL_SETTINGS");
+        let output = self.run(command);
+        let _ = fs::remove_dir_all(&settings_dir);
+        let output = output?;
         Ok(C2paVerificationReport {
             report: report(output, None, None),
             trust_options: trust_options.clone(),
@@ -744,14 +760,34 @@ mod tests {
         fs::write(&asset, b"asset").unwrap();
         fs::write(&anchors, b"anchor cert").unwrap();
         fs::write(&allowed, b"allowed cert").unwrap();
-        let tool = FakeTool::new("printf '%s\\n' \"$@\"");
+        let tool = FakeTool::new(
+            "printf '%s\\n' \"$@\"; printf 'ENV:%s\\n' \"$C2PATOOL_TRUST_ANCHORS\" \"$C2PATOOL_SETTINGS\" \"$C2PATOOL_TRUST_LIST_URI\"",
+        );
         let options = C2paTrustOptions {
             trust_anchors: Some(anchors.clone()),
             allowed_list: Some(allowed.clone()),
         };
+        let previous = [
+            "C2PATOOL_TRUST_ANCHORS",
+            "C2PATOOL_SETTINGS",
+            "C2PATOOL_TRUST_LIST_URI",
+        ]
+        .map(|key| (key, std::env::var(key).ok()));
+        std::env::set_var("C2PATOOL_TRUST_ANCHORS", "/tmp/ambient-anchors.pem");
+        std::env::set_var("C2PATOOL_SETTINGS", "/tmp/ambient/c2pa.toml");
+        std::env::set_var(
+            "C2PATOOL_TRUST_LIST_URI",
+            "https://example.invalid/trust",
+        );
         let result = C2paTool::with_executable(&tool.0)
             .verify_asset(&asset, &options)
             .unwrap();
+        for (key, value) in previous {
+            match value {
+                Some(value) => std::env::set_var(key, value),
+                None => std::env::remove_var(key),
+            }
+        }
         let args: Vec<_> = result.report.stdout.lines().collect();
         assert_eq!(args[0], asset.to_str().unwrap());
         assert_eq!(args[1], "trust");
@@ -759,6 +795,13 @@ mod tests {
         assert_eq!(args[3], anchors.to_str().unwrap());
         assert_eq!(args[4], "--allowed_list");
         assert_eq!(args[5], allowed.to_str().unwrap());
+        assert_eq!(args[6], "--settings");
+        let settings = Path::new(args[7]);
+        assert_eq!(settings.file_name().and_then(|name| name.to_str()), Some("c2pa.toml"));
+        assert!(settings.parent().is_some_and(|dir| dir.is_dir()));
+        assert!(args.iter().any(|line| *line == "ENV:"));
+        assert!(!result.report.stdout.contains("ambient-anchors"));
+        assert!(!result.report.stdout.contains("example.invalid"));
         assert_eq!(result.trust_options, options);
         // The API returns c2patool's distinct validation text and policy; it
         // deliberately provides no aggregate trust/signature boolean.
