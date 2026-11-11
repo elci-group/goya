@@ -17,10 +17,12 @@ required for changes). See GOYA directive §8.3.
 
 - Provides: `Store` (Clone, thread-safe), `Transaction`, `Value`
   (Int/Text/Bool), `CommitRejected`.
-- Protocol: `begin()` → `set()`* → `commit(invariant)`; drop without commit =
-  rollback. Single-writer enforced (`begin` returns `None` if a transaction
-  is open). Committed snapshot is never mutated in place; commit swaps the
-  staged copy atomically and bumps `revision()` only on success.
+- Protocol: `begin()` → `set()`* or one `stage_snapshot()` → `commit(invariant)`;
+  drop without commit = rollback. `stage_snapshot` replaces the staged map,
+  so a hot-swap migration can remove and rename keys. Single-writer enforced
+  (`begin` returns `None` if a transaction is open). Committed snapshot is
+  never mutated in place; commit swaps the staged copy atomically and bumps
+  `revision()` only on success.
 - Invariants: reads outside a transaction always observe the last committed
   revision; a rejected commit leaves state and revision untouched.
 
@@ -261,8 +263,12 @@ one-version steps to a cloned `goya_state::Map`. Steps can rename a key,
 remove a key, or add a default value. A chain must cover every version from
 the stored version to the candidate's target version; gaps, invalid version
 steps, missing rename sources, and rename collisions fail without returning
-partial state. Callers can stage the returned snapshot in their state
-transaction and activate the replacement only after that transaction succeeds.
+partial state. `SwapSupervisor::propose_swap` still rejects an unmigrated
+higher state-contract version. `propose_migrated_swap` (and the reconciled
+supervisor's matching method) runs the chain, asks the caller to publish the
+snapshot with `Transaction::stage_snapshot` and `commit`, and activates the
+candidate only after that commit returns `Ok`. A failed check, migration, or
+commit leaves the supervisor unchanged.
 
 ## Assurance note
 

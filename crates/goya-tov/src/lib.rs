@@ -413,9 +413,13 @@ mod tests {
         assert_eq!(artifact.bytes, 3);
         assert!(report.stdout.contains("built"));
 
-        let check = adapter.check(&input).unwrap();
+        let check_cli = FakeCli::new("echo checked");
+        let check = TovAdapter::with_executable(&check_cli.0)
+            .check(&input)
+            .unwrap();
         assert_eq!(check.operation, TovOperation::Check);
         assert!(check.artifact.is_none());
+        assert!(check.stdout.contains("checked"));
 
         let empty = FakeCli::new(": > \"$4\"");
         let empty_input = empty.0.parent().unwrap().join("app.tov");

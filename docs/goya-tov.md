@@ -19,7 +19,10 @@ Use `TovAdapter::with_executable` to select a particular Tov installation.
 When the CLI is unavailable the adapter returns `TovError::ToolUnavailable`
 with an installation hint. Non-zero compiler status returns `TovError::Failed`
 with stdout/stderr; build success is accepted only when the requested output
-exists as a non-empty regular file.
+exists as a non-empty regular file. An output path that is empty, has no
+parent directory, or names the input (including `.` / `..` forms and an
+existing symlink to that input) is `TovError::InvalidOutput` and does not
+launch the compiler.
 
 This is a compiler-process adapter, not a Rust linkage to Tov's internals.
 That boundary avoids a machine-specific path dependency and tracks the public
