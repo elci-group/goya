@@ -114,6 +114,60 @@ fn is_answer_control(id: &str) -> bool {
         || id.starts_with("question_option_")
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorkflowActiveWork {
+    pub kind: String,
+    pub foreground_execution_id: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorkflowControlState {
+    pub can_stop: bool,
+    pub stop_state: String,
+    pub active_works: Vec<WorkflowActiveWork>,
+}
+
+impl Default for WorkflowControlState {
+    fn default() -> Self {
+        Self {
+            can_stop: false,
+            stop_state: "idle".into(),
+            active_works: Vec::new(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct WorkflowAvailability {
+    pub compact: bool,
+    pub send_queued_now: bool,
+    pub pause_goal: bool,
+    pub resume_goal: bool,
+    pub queue_edit: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorkflowGoal {
+    pub status: String,
+    pub objective: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorkflowPlanItem {
+    pub id: String,
+    pub content: String,
+    pub status: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorkflowBackgroundWork {
+    pub work_id: String,
+    pub kind: String,
+    pub title: String,
+    pub status: String,
+    pub cancellable: bool,
+}
+
 /// Render-ready, non-authoritative view of fields owned by the v4 snapshot.
 /// Mutations are never applied to this value locally; the agent replaces it
 /// after receiving a newer owner projection.
@@ -122,6 +176,11 @@ pub struct WorkflowState {
     pub queue_items: Vec<WorkflowQueueItem>,
     pub auto_drain: bool,
     pub interactions: Vec<WorkflowInteraction>,
+    pub control: WorkflowControlState,
+    pub availability: WorkflowAvailability,
+    pub goal: Option<WorkflowGoal>,
+    pub plan: Option<Vec<WorkflowPlanItem>>,
+    pub background_works: Vec<WorkflowBackgroundWork>,
 }
 
 /// Neutral projection input; `agent` maps wire events onto these variants
@@ -392,7 +451,97 @@ impl SessionView {
                 });
             }
         }
+        self.push_session_operation_controls(&mut controls);
         controls
+    }
+
+    /// Queue removal and answer controls stay ahead of these ids so layout
+    /// keeps their existing slots. Each pending id disables only itself.
+    fn push_session_operation_controls(&self, controls: &mut Vec<WorkflowControl>) {
+        let session_active = !self.sessions.is_empty();
+        let stop_ready = self.workflow.control.can_stop
+            || self.workflow.control.stop_state == "stoppable";
+        controls.push(WorkflowControl {
+            id: "stop".into(),
+            label: "Stop".into(),
+            enabled: self.control_enabled(session_active && stop_ready, "stop"),
+        });
+        let goal_status = self
+            .workflow
+            .goal
+            .as_ref()
+            .map(|goal| goal.status.as_str());
+        controls.push(WorkflowControl {
+            id: "goal_pause".into(),
+            label: "Pause goal".into(),
+            enabled: self.control_enabled(
+                self.workflow.availability.pause_goal
+                    && matches!(goal_status, Some("active" | "verifying")),
+                "goal_pause",
+            ),
+        });
+        controls.push(WorkflowControl {
+            id: "goal_resume".into(),
+            label: "Resume goal".into(),
+            enabled: self.control_enabled(
+                self.workflow.availability.resume_goal && matches!(goal_status, Some("paused")),
+                "goal_resume",
+            ),
+        });
+        controls.push(WorkflowControl {
+            id: "compact_session".into(),
+            label: "Compact session".into(),
+            enabled: self.control_enabled(self.workflow.availability.compact, "compact_session"),
+        });
+        for (index, item) in self.workflow.queue_items.iter().take(4).enumerate() {
+            let now_id = format!("queue_now_{index:02}");
+            let now_enabled = self.control_enabled(
+                self.workflow.availability.send_queued_now && !item.queue_item_id.is_empty(),
+                &now_id,
+            );
+            controls.push(WorkflowControl {
+                id: now_id,
+                label: format!(
+                    "Send queued input now: {}",
+                    truncate_chars(&item.text, 36)
+                ),
+                enabled: now_enabled,
+            });
+            let earlier_id = format!("queue_earlier_{index:02}");
+            let previous_id = index.checked_sub(1).and_then(|previous| {
+                self.workflow
+                    .queue_items
+                    .get(previous)
+                    .map(|previous| previous.queue_item_id.as_str())
+            });
+            let earlier_enabled = self.control_enabled(
+                self.workflow.availability.queue_edit
+                    && !item.queue_item_id.is_empty()
+                    && index > 0
+                    && previous_id.is_some_and(|id| !id.is_empty()),
+                &earlier_id,
+            );
+            controls.push(WorkflowControl {
+                id: earlier_id,
+                label: format!(
+                    "Move queued input earlier: {}",
+                    truncate_chars(&item.text, 36)
+                ),
+                enabled: earlier_enabled,
+            });
+        }
+        for (index, work) in self.workflow.background_works.iter().take(4).enumerate() {
+            let id = format!("work_cancel_{index:02}");
+            let enabled = self.control_enabled(work.cancellable && work.status == "running", &id);
+            controls.push(WorkflowControl {
+                id,
+                label: format!(
+                    "Cancel background work: {}",
+                    truncate_chars(&work.title, 36)
+                ),
+                enabled,
+            });
+        }
     }
 
     /// Wrap and append a line to the tail and the scrollback, keeping
@@ -1302,6 +1451,7 @@ mod tests {
                 free_text: false,
                 unsupported_reason: None,
             }],
+            ..Default::default()
         });
         let controls = view.workflow_controls();
         assert!(controls
@@ -1361,6 +1511,7 @@ mod tests {
                 free_text: false,
                 unsupported_reason: None,
             }],
+            ..Default::default()
         });
         assert_eq!(
             answer_control_id(view.workflow.interactions.first().unwrap(), 1),
