@@ -2011,6 +2011,31 @@ impl GoyaWindow {
         if let Some(toplevel) = &self.state.toplevel { toplevel.destroy(); true } else { false }
     }
 
+    /// Apply an app-level window action through the native host and detected
+    /// Linux desktop adapter. `NewTab` remains app-owned and is unsupported.
+    pub fn manage_window(&mut self, action: window_management::WindowAction)
+        -> Result<(), window_management::WindowManagementError>
+    {
+        use window_management::{WindowAction, WindowManagementError};
+        match action {
+            WindowAction::Close => {
+                self.state.close_requested = true;
+                self.state.events.push(PlatformEvent::CloseRequested);
+                Ok(())
+            }
+            WindowAction::Maximize => {
+                if self.request_maximize() { return Ok(()); }
+                #[cfg(target_os = "linux")]
+                if let Some(mut manager) = window_management::platform::native() {
+                    return window_management::WindowManager::request(&mut manager, action);
+                }
+                Err(WindowManagementError::Unsupported(action))
+            }
+            WindowAction::Minimize | WindowAction::NewTab =>
+                Err(WindowManagementError::Unsupported(action)),
+        }
+    }
+
     /// Compositor width in pixels (fixed in this minimal scope).
     pub fn size(&self) -> (i32, i32) {
         (self.state.width, self.state.height)

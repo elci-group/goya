@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/neptune",
     "crates/goya-ir",
     "crates/goya-state",
     "crates/goya-layout",
