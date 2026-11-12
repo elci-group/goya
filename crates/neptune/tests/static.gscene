@@ -1,0 +1,1 @@
+@ontology example { @cell root { id: "root" text: "Hello" } }

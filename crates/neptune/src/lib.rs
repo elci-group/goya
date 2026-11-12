@@ -257,7 +257,11 @@ mod tests {
     fn unsupported_property_is_reported_at_original_bytes() {
         let source = "@ontology demo { @cell root { id: \"root\" text: \"é\" } }";
         let diagnostics = inspect(source).unwrap();
-        let range = diagnostics.iter().find(|d| d.message.contains("'text'")).and_then(|d| d.range).unwrap();
+        let range = diagnostics
+            .iter()
+            .find(|d| d.message.contains("'text'"))
+            .and_then(|d| d.range)
+            .unwrap();
         assert_eq!(&source[range.start..range.end], "text: \"é\"");
         assert!(diagnostics.iter().any(|d| d.range.is_none()));
     }
@@ -277,7 +281,9 @@ mod tests {
 
     #[test]
     fn diagnostic_output_is_bounded() {
-        let children: String = (0..300).map(|i| format!("@cell a {{ id: \"item{i}\" text: \"x\" }} ")).collect();
+        let children: String = (0..300)
+            .map(|i| format!("@cell a {{ id: \"item{i}\" text: \"x\" }} "))
+            .collect();
         let source = format!("@ontology x {{ @cell root {{ id: \"root\" {children} }} }}");
         let diagnostics = inspect(&source).unwrap();
         assert_eq!(diagnostics.len(), MAX_DIAGNOSTICS);

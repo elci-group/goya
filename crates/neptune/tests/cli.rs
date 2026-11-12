@@ -20,7 +20,7 @@ fn missing_input_has_machine_readable_failure() {
 
 #[test]
 fn valid_scene_inspects_but_fails_target_check() {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/clock.gscene");
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/static.gscene");
     for (command, success) in [("inspect", true), ("check", false)] {
         let output = Command::new(env!("CARGO_BIN_EXE_neptune"))
             .args([command, path, "--target", "ios", "--format", "json"])
