@@ -132,6 +132,7 @@ fn main() -> ExitCode {
             Some("NPT-E1003") => "The source exceeds the nesting limit of 128.",
             Some("NPT-E1004") => "The diagnostic limit was reached; fix reported issues and check again.",
             Some("NPT-E1005") => "The source preview could not be written. Use a new output directory and check permissions.",
+            Some("NPT-E1006") => "Supply a canonical project-relative module path ending in .gscene.",
             Some("NPT-E2104") => "The source requires an iOS mapping that Neptune has not admitted. Remove the construct or wait for an admitted implementation.",
             Some("GY-E1000") => "Goya could not parse the source. Correct the syntax at the reported line.",
             Some("GY-E1001") => "Goya does not preserve this property. Remove it or use a supported property.",
@@ -150,6 +151,7 @@ fn main() -> ExitCode {
     let mut json = false;
     let mut target = false;
     let mut out = None;
+    let mut module = None;
     for option in args[3..].chunks(2) {
         if option.len() != 2 {
             eprintln!("missing option value");
@@ -161,10 +163,17 @@ fn main() -> ExitCode {
             target = true;
         } else if option[0] == "--out" && args[1] == "preview" && out.is_none() {
             out = Some(std::path::PathBuf::from(&option[1]));
+        } else if option[0] == "--module" && args[1] == "preview" && module.is_none() {
+            module = option[1].to_str();
+            if module.is_none() { eprintln!("module path must be UTF-8"); return ExitCode::from(2); }
         } else {
             eprintln!("unknown or duplicate option");
             return ExitCode::from(2);
         }
+    }
+    if args[1] == "preview" && module.is_none() {
+        eprintln!("preview requires --module <project-relative-path.gscene>");
+        return ExitCode::from(2);
     }
     let mut bytes = Vec::new();
     match File::open(&args[2]).and_then(|file| {
@@ -189,7 +198,7 @@ fn main() -> ExitCode {
         return match neptune::preview_static_text(&source) {
             Ok(preview) => {
                 if let Some(path) = &out {
-                    let bundle = match neptune::preview_bundle(&source) {
+                    let bundle = match neptune::preview_bundle(&source, module.unwrap_or_default()) {
                         Ok(bundle) => bundle,
                         Err(diagnostic) => {
                             return input_error(
@@ -234,7 +243,7 @@ fn main() -> ExitCode {
                     return ExitCode::SUCCESS;
                 }
                 if json {
-                    match neptune::preview_bundle(&source) {
+                    match neptune::preview_bundle(&source, module.unwrap_or_default()) {
                         Ok(bundle) => print!("{bundle}"),
                         Err(diagnostic) => {
                             return input_error(
@@ -246,6 +255,7 @@ fn main() -> ExitCode {
                         }
                     }
                 } else {
+                    if let Err(diagnostic) = neptune::preview_bundle(&source, module.unwrap_or_default()) { eprintln!("{}: {}", diagnostic.code, diagnostic.message); return ExitCode::FAILURE; }
                     eprintln!("Source preview only; Apple validation not run");
                     print!("{}", preview.swift);
                 }

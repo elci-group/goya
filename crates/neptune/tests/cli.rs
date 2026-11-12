@@ -43,7 +43,7 @@ fn preview_bytes_are_independent_of_process_working_directory() {
     for directory in ["/", "/tmp", env!("CARGO_MANIFEST_DIR")] {
         let output = Command::new(env!("CARGO_BIN_EXE_neptune"))
             .current_dir(directory)
-            .args(["preview", path, "--format", "json"])
+            .args(["preview", path, "--module", "tests/static.gscene", "--format", "json"])
             .output()
             .unwrap();
         assert!(
@@ -99,7 +99,7 @@ fn preview_writes_new_directory_and_refuses_overwrite() {
     assert!(!output_dir.exists());
     let run = || {
         Command::new(env!("CARGO_BIN_EXE_neptune"))
-            .args(["preview", fixture, "--out"])
+            .args(["preview", fixture, "--module", "tests/static.gscene", "--out"])
             .arg(&output_dir)
             .args(["--format", "json"])
             .output()

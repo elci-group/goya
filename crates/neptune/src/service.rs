@@ -36,7 +36,7 @@ impl Session {
         if object.keys().any(|key| {
             !matches!(
                 key.as_str(),
-                "schema_version" | "job_id" | "operation" | "source"
+                "schema_version" | "job_id" | "operation" | "source" | "module"
             )
         }) {
             return error(Some(id), "protocol", "unknown request field");
@@ -58,7 +58,8 @@ impl Session {
             return error(Some(id), "ingest", "source must be a UTF-8 string");
         };
         if operation == "preview" {
-            return match crate::preview_bundle(source) {
+            let Some(module) = object.get("module").and_then(Value::as_str) else { return error(Some(id), "protocol", "preview requires a module path"); };
+            return match crate::preview_bundle(source, module) {
                 Ok(bundle) => match serde_json::from_str::<Value>(&bundle) {
                     Ok(bundle) => {
                         json!({"schema_version":"1","job_id":id,"sequence":1,"stage":"preview","status":"PASS","result":bundle})
