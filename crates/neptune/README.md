@@ -6,6 +6,8 @@ Neptune currently provides an experimental Swift source preview for one `.gscene
 
 `neptune preview <file> --out <new-directory>` writes `App.swift`, `source-map.json`, `capabilities.json`, and `build-report.json`. The parent directory must exist and the output directory must not exist; existing output is never overwritten. If writing fails after directory creation, a partial directory may remain. This output is a source preview, and the report records that Apple validation has not run.
 
+`neptune verify-preview <directory> [--format json]` checks that the three generated artifacts match their hashes in the report. This checks consistency only: a report and artifacts can be changed together, and no signature, Apple compilation, or device behavior is verified.
+
 ## Local service protocol, version 1
 
 Run `neptune serve` and send one JSON object per line to stdin. Each line must be at most 256 KiB including its newline. The service emits one JSON event per request on stdout and processes requests sequentially. Close stdin to end the session. A malformed JSON line gets a protocol failure; an oversized or unterminated line ends the session with failure.

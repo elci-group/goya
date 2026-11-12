@@ -101,13 +101,25 @@ fn main() -> ExitCode {
         let json = args.len() == 5;
         return match neptune::artifacts::verify_preview(std::path::Path::new(&args[2])) {
             Ok(()) => {
-                if json { println!("{}", serde_json::json!({"schema_version":"1","operation":"verify-preview","integrity":"PASS","authenticity":"NOT_CHECKED","apple_validation":"NOT_RUN"})); }
-                else { println!("Preview artifact hashes match; authenticity and Apple validation were not checked"); }
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({"schema_version":"1","operation":"verify-preview","integrity":"PASS","authenticity":"NOT_CHECKED","apple_validation":"NOT_RUN"})
+                    );
+                } else {
+                    println!("Preview artifact hashes match; authenticity and Apple validation were not checked");
+                }
                 ExitCode::SUCCESS
             }
             Err(error) => {
-                if json { println!("{}", serde_json::json!({"schema_version":"1","operation":"verify-preview","integrity":"FAIL","message":error.to_string(),"apple_validation":"NOT_RUN"})); }
-                else { eprintln!("Preview integrity check failed: {error}"); }
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({"schema_version":"1","operation":"verify-preview","integrity":"FAIL","message":error.to_string(),"apple_validation":"NOT_RUN"})
+                    );
+                } else {
+                    eprintln!("Preview integrity check failed: {error}");
+                }
                 ExitCode::FAILURE
             }
         };
@@ -201,8 +213,14 @@ fn main() -> ExitCode {
                         return ExitCode::FAILURE;
                     }
                     if let Err(error) = neptune::artifacts::verify_preview(path) {
-                        if json { println!("{}", serde_json::json!({"schema_version":"1","operation":"preview","verification":"FAILED","stage":"integrity","message":error.to_string()})); }
-                        else { eprintln!("Preview integrity check failed: {error}"); }
+                        if json {
+                            println!(
+                                "{}",
+                                serde_json::json!({"schema_version":"1","operation":"preview","verification":"FAILED","stage":"integrity","message":error.to_string()})
+                            );
+                        } else {
+                            eprintln!("Preview integrity check failed: {error}");
+                        }
                         return ExitCode::FAILURE;
                     }
                     if json {

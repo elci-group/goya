@@ -121,8 +121,14 @@ fn preview_writes_new_directory_and_refuses_overwrite() {
     let second = run();
     assert!(!second.status.success());
     assert_eq!(swift, std::fs::read(output_dir.join("App.swift")).unwrap());
-    let verify = || Command::new(env!("CARGO_BIN_EXE_neptune"))
-        .arg("verify-preview").arg(&output_dir).args(["--format", "json"]).output().unwrap();
+    let verify = || {
+        Command::new(env!("CARGO_BIN_EXE_neptune"))
+            .arg("verify-preview")
+            .arg(&output_dir)
+            .args(["--format", "json"])
+            .output()
+            .unwrap()
+    };
     let checked = verify();
     assert!(checked.status.success());
     let response: serde_json::Value = serde_json::from_slice(&checked.stdout).unwrap();
