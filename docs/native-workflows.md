@@ -75,11 +75,23 @@ card locally.
    focused keyboard actions, accessible names, disabled/pending states, and
    small-window layout without a live model/provider.
 
-## Current interface gate
+## Current interface
 
-The present native `ConversationProjection` validates rows/revision/control
-but does not retain `queue` or `pendingInteractions`; `AgentCmd` currently
-supports only text submission and session switching. Workflow controls must
-not ship as visual mockups. They become enabled when the native projection and
-public command bridge expose the canonical v4 data and supported owner
-requests. Command/API ownership remains in the host attachment/runtime layer.
+`ConversationProjection` retains canonical `queue` and `pendingInteractions`
+and replaces `SessionView.workflow` only from an accepted snapshot or
+contiguous `state.updated` patch. `deleteQueueItem`, `setAutoDrain`, and
+`resolveInteraction` are public session commands. They carry the active
+session id, stable command id, and current projection revision. The UI does
+not splice queue items, clear cards, or change auto-drain locally.
+
+A second permission choice keeps its own control when the first choice
+already uses Allow. Unsupported shapes stay visible and expose no answer
+control. While any owner control is pending, further owner controls and
+answer submission do not enqueue. The next accepted projection, or the
+command outcome when no newer projection arrives, clears that pending state.
+
+Headless `zcode-native` acceptance covers rendered control ids, pointer hit
+targets, keyboard activation through the same handler, accessible names,
+disabled and pending states, and the small-window layout. Project and task
+management, files, Git, PTY, settings, accounts, and phone recovery remain
+separate parity work.
