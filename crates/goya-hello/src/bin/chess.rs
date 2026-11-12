@@ -245,19 +245,50 @@ fn pseudo(board: &[Option<Piece>; 64], from: usize, piece: Piece) -> Vec<usize> 
             }
         }
         Kind::Knight => {
-            for (df, dr) in [(1, 2), (2, 1), (2, -1), (1, -2), (-1, -2), (-2, -1), (-2, 1), (-1, 2)]
-            {
+            for (df, dr) in [
+                (1, 2),
+                (2, 1),
+                (2, -1),
+                (1, -2),
+                (-1, -2),
+                (-2, -1),
+                (-2, 1),
+                (-1, 2),
+            ] {
                 push_empty_or_enemy(board, piece.side, at(file + df, rank + dr), &mut out);
             }
         }
-        Kind::Mitre => slide(board, piece.side, file, rank, &[(1, 1), (1, -1), (-1, 1), (-1, -1)], &mut out),
-        Kind::Rook => slide(board, piece.side, file, rank, &[(1, 0), (-1, 0), (0, 1), (0, -1)], &mut out),
+        Kind::Mitre => slide(
+            board,
+            piece.side,
+            file,
+            rank,
+            &[(1, 1), (1, -1), (-1, 1), (-1, -1)],
+            &mut out,
+        ),
+        Kind::Rook => slide(
+            board,
+            piece.side,
+            file,
+            rank,
+            &[(1, 0), (-1, 0), (0, 1), (0, -1)],
+            &mut out,
+        ),
         Kind::Lady => slide(
             board,
             piece.side,
             file,
             rank,
-            &[(1, 1), (1, -1), (-1, 1), (-1, -1), (1, 0), (-1, 0), (0, 1), (0, -1)],
+            &[
+                (1, 1),
+                (1, -1),
+                (-1, 1),
+                (-1, -1),
+                (1, 0),
+                (-1, 0),
+                (0, 1),
+                (0, -1),
+            ],
             &mut out,
         ),
         Kind::Ruler => {
@@ -321,8 +352,7 @@ fn attacked(board: &[Option<Piece>; 64], side: Side) -> bool {
     };
     let enemy = other(side);
     (0..64).any(|from| {
-        board[from].is_some_and(|piece| piece.side == enemy)
-            && attacks_square(board, from, ruler)
+        board[from].is_some_and(|piece| piece.side == enemy) && attacks_square(board, from, ruler)
     })
 }
 
@@ -345,7 +375,8 @@ fn attacks_square(board: &[Option<Piece>; 64], from: usize, target: usize) -> bo
 fn square_at(px: i32, py: i32) -> Option<usize> {
     let x = i64::from(px) / 4;
     let y = i64::from(py) / 4;
-    if !(ORIGIN_X..ORIGIN_X + 8 * SQUARE).contains(&x) || !(ORIGIN_Y..ORIGIN_Y + 8 * SQUARE).contains(&y)
+    if !(ORIGIN_X..ORIGIN_X + 8 * SQUARE).contains(&x)
+        || !(ORIGIN_Y..ORIGIN_Y + 8 * SQUARE).contains(&y)
     {
         return None;
     }
@@ -359,7 +390,11 @@ fn with_state(mut nodes: Vec<goya_lang::DrawNode>, game: &Game) -> Vec<goya_lang
     for node in &mut nodes {
         if node.name == "status_text" {
             node.text = Some(game.status.clone());
-        } else if let Some(index) = node.name.strip_prefix("sq_").and_then(|rest| rest.parse().ok()) {
+        } else if let Some(index) = node
+            .name
+            .strip_prefix("sq_")
+            .and_then(|rest| rest.parse().ok())
+        {
             if index < 64 {
                 node.text = Some(game.label_at(index));
                 if game.selected == Some(index) {
@@ -472,15 +507,39 @@ fn self_test(store: &mut SceneStore) {
     }
 
     let mut game = Game::empty();
-    game.place(28, Piece { side: Side::Light, kind: Kind::Man });
-    game.place(35, Piece { side: Side::Night, kind: Kind::Man });
+    game.place(
+        28,
+        Piece {
+            side: Side::Light,
+            kind: Kind::Man,
+        },
+    );
+    game.place(
+        35,
+        Piece {
+            side: Side::Night,
+            kind: Kind::Man,
+        },
+    );
     if !game.try_move(28, 35) || game.board[35].is_none() {
         failures.push("capture rejected".into());
     }
 
     let mut game = Game::empty();
-    game.place(4, Piece { side: Side::Light, kind: Kind::Ruler });
-    game.place(0, Piece { side: Side::Night, kind: Kind::Rook });
+    game.place(
+        4,
+        Piece {
+            side: Side::Light,
+            kind: Kind::Ruler,
+        },
+    );
+    game.place(
+        0,
+        Piece {
+            side: Side::Night,
+            kind: Kind::Rook,
+        },
+    );
     if game.try_move(4, 3) {
         failures.push("ruler stayed on an attacked rank".into());
     }

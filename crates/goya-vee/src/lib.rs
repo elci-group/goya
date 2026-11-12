@@ -1980,9 +1980,9 @@ mod tests {
             .source_code
             .contains("('text', 1, 'hi \\'there\\'\\\\\\nworld'),"));
         assert!(first.source_code.contains("GOYA_EDC_BYTECODE_VERSION = 1"));
-        assert!(first.source_code.contains(
-            "raw = json.dumps(value, ensure_ascii=False, separators=(',', ':'))"
-        ));
+        assert!(first
+            .source_code
+            .contains("raw = json.dumps(value, ensure_ascii=False, separators=(',', ':'))"));
         assert!(first.source_code.contains("print(_ref_json(_root))"));
         assert!(!first.source_code.contains("exec("));
         assert!(!first.source_code.contains("subprocess"));

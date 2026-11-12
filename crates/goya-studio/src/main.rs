@@ -1087,7 +1087,11 @@ mod tests {
             "Accept-Language: en-US,en;q=0.9".to_string(),
         ];
         assert_eq!(headers.len(), 18);
-        format!("POST {path} HTTP/1.1\r\n{}\r\n\r\n{body}", headers.join("\r\n")).into_bytes()
+        format!(
+            "POST {path} HTTP/1.1\r\n{}\r\n\r\n{body}",
+            headers.join("\r\n")
+        )
+        .into_bytes()
     }
 
     #[test]
@@ -1227,9 +1231,7 @@ mod tests {
         assert!(html.contains("data-name=\"café\""));
         assert!(html.contains("data-name=\"确定\""));
         assert!(html.contains("data-kind=\"button\""));
-        assert!(html.contains(
-            "/^@(cell|button|input)\\s+([\\p{L}_][\\p{L}\\p{N}_-]*)\\s*\\{/u"
-        ));
+        assert!(html.contains("/^@(cell|button|input)\\s+([\\p{L}_][\\p{L}\\p{N}_-]*)\\s*\\{/u"));
     }
 
     #[test]
@@ -1251,17 +1253,17 @@ mod tests {
             .2
             .contains("Scene structure changed; reload the editor"));
         assert!(initial.2.contains("data-name=\"ok\""));
-        assert!(initial.2.contains(
-            "/^@(cell|button|input)\\s+([\\p{L}_][\\p{L}\\p{N}_-]*)\\s*\\{/u"
-        ));
+        assert!(initial
+            .2
+            .contains("/^@(cell|button|input)\\s+([\\p{L}_][\\p{L}\\p{N}_-]*)\\s*\\{/u"));
         assert!(!initial.2.contains("[A-Za-z_][A-Za-z0-9_-]*"));
-        assert!(initial.2.contains("b.name!==o.dataset.name||b.kind!==o.dataset.kind"));
+        assert!(initial
+            .2
+            .contains("b.name!==o.dataset.name||b.kind!==o.dataset.kind"));
         assert!(initial.2.contains("sandbox=\"allow-scripts\""));
         assert!(initial.2.contains("e.source!==frame.contentWindow"));
         assert!(initial.2.contains("dragPositionOnly=true"));
-        assert!(initial
-            .2
-            .contains("else if(positionOnly){rebuilt+=m[0];"));
+        assert!(initial.2.contains("else if(positionOnly){rebuilt+=m[0];"));
         assert!(
             initial.2.contains(
                 "source.value=editBlock(source.value,b,pm,em,v,dragPositionOnly);inspectorSource=source.value;"
@@ -1509,9 +1511,7 @@ mod tests {
         let source = "@ontology demo { @button ok { text: \"keep position: (9, 9, 9)\"; fill: #112233; position: (1, 2, 8); extent: (4, 5, 7) } }";
         let project = SceneProject::from_source(source, Viewport::default()).unwrap();
         let html = render_editor(&project, "<p></p>", "rev");
-        let start = html
-            .find("function blocks(text)")
-            .expect("block scanner");
+        let start = html.find("function blocks(text)").expect("block scanner");
         let end = start
             + html[start..]
                 .find("document.querySelector('#apply').onclick")
@@ -1621,9 +1621,8 @@ process.stdout.write([applied, dragged, multi, lead, leadDrag].join('\n---GOYA-E
         position: (f64, f64, f64),
         extent: (f64, f64, f64),
     ) {
-        let project = SceneProject::from_source(source, Viewport::default()).unwrap_or_else(|error| {
-            panic!("edited scene no longer parses ({error}): {source}")
-        });
+        let project = SceneProject::from_source(source, Viewport::default())
+            .unwrap_or_else(|error| panic!("edited scene no longer parses ({error}): {source}"));
         let cell = &project.scene().root;
         let found_position = cell.position.expect("position");
         let found_extent = cell.extent.expect("extent");
