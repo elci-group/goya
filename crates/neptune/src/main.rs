@@ -75,14 +75,27 @@ fn main() -> ExitCode {
         return match neptune::preview_static_text(&source) {
             Ok(preview) => {
                 if json {
-                    println!("{}", serde_json::json!({"schema_version":"1", "operation":"preview", "verification":"SOURCE_PREVIEW", "swift":preview.swift, "source_map":[{"source":{"start_byte":preview.source_range.start,"end_byte":preview.source_range.end},"swift":{"start_byte":preview.swift_range.start,"end_byte":preview.swift_range.end}}]}));
+                    println!(
+                        "{}",
+                        serde_json::json!({"schema_version":"1", "operation":"preview", "verification":"SOURCE_PREVIEW", "swift":preview.swift, "source_map":[{"source":{"start_byte":preview.source_range.start,"end_byte":preview.source_range.end},"swift":{"start_byte":preview.swift_range.start,"end_byte":preview.swift_range.end}}]})
+                    );
                 } else {
                     eprintln!("Source preview only; Apple validation not run");
                     print!("{}", preview.swift);
                 }
                 ExitCode::SUCCESS
             }
-            Err(diagnostic) => input_error(json, &args[1], diagnostic.code, &diagnostic.message),
+            Err(diagnostic) => {
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({"schema_version":"1", "operation":"preview", "verification":"FAILED", "diagnostics":[{"code":diagnostic.code,"message":diagnostic.message,"source_range":diagnostic.range.map(|r| serde_json::json!({"start_byte":r.start,"end_byte":r.end}))}]})
+                    );
+                } else {
+                    eprintln!("{}: {}", diagnostic.code, diagnostic.message);
+                }
+                ExitCode::FAILURE
+            }
         };
     }
     match neptune::inspect(&source) {

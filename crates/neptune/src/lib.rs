@@ -51,30 +51,73 @@ pub fn preview_static_text(source: &str) -> Result<SourcePreview, Diagnostic> {
     // Run the bounded frontend before using the strict parsed result.
     inspect(source)?;
     let parsed = parse_strict(source).map_err(|error| Diagnostic {
-        code: error.code, message: error.to_string(),
+        code: error.code,
+        message: error.to_string(),
         range: (error.range.end > error.range.start).then_some(error.range),
     })?;
-    let cells: Vec<_> = parsed.entries.iter().filter(|entry| entry.kind == "cell").collect();
-    let properties: Vec<_> = parsed.entries.iter().filter(|entry| entry.kind == "property").collect();
-    if cells.len() != 1 || properties.len() != 1 || properties[0].name != "text"
-        || parsed.entries.len() != 2 || !parsed.scene.interactions.is_empty()
-        || !parsed.scene.root.children.is_empty() || cells[0].scene_path.as_deref() != Some(&[])
+    let cells: Vec<_> = parsed
+        .entries
+        .iter()
+        .filter(|entry| entry.kind == "cell")
+        .collect();
+    let properties: Vec<_> = parsed
+        .entries
+        .iter()
+        .filter(|entry| entry.kind == "property")
+        .collect();
+    if cells.len() != 1
+        || properties.len() != 1
+        || properties[0].name != "text"
+        || parsed.entries.len() != 2
+        || !parsed.scene.interactions.is_empty()
+        || !parsed.scene.root.children.is_empty()
+        || cells[0].scene_path.as_deref() != Some(&[])
     {
-        return Err(Diagnostic { code: "NPT-E2104", message: "source preview supports exactly one text-only cell".into(), range: None });
+        return Err(Diagnostic {
+            code: "NPT-E2104",
+            message: "source preview supports exactly one text-only cell".into(),
+            range: None,
+        });
     }
     let lowered = goya_lang::lower(&parsed.scene, 1.0, 1.0).map_err(|error| Diagnostic {
-        code: "NPT-E2104", message: error.to_string(), range: None,
+        code: "NPT-E2104",
+        message: error.to_string(),
+        range: None,
     })?;
-    let text = parsed.scene.root.text.as_ref().ok_or_else(|| Diagnostic { code: "NPT-E2104", message: "text is required".into(), range: Some(properties[0].range) })?;
-    if !lowered.module.nodes.iter().any(|(_, node)| matches!(node, goya_ir::Node::Text { content } if content == text)) {
-        return Err(Diagnostic { code: "NPT-E2104", message: "shared IR did not preserve the text".into(), range: Some(properties[0].range) });
+    let text = parsed.scene.root.text.as_ref().ok_or_else(|| Diagnostic {
+        code: "NPT-E2104",
+        message: "text is required".into(),
+        range: Some(properties[0].range),
+    })?;
+    if !lowered
+        .module
+        .nodes
+        .iter()
+        .any(|(_, node)| matches!(node, goya_ir::Node::Text { content } if content == text))
+    {
+        return Err(Diagnostic {
+            code: "NPT-E2104",
+            message: "shared IR did not preserve the text".into(),
+            range: Some(properties[0].range),
+        });
     }
-    let expr = swift::Expr::Call { callee: swift::Identifier::new("Text").expect("fixed Swift identifier"), arguments: vec![swift::Argument { label: None, value: swift::Expr::StringLiteral(text.clone()) }] }.render();
+    let expr = swift::Expr::Call {
+        callee: swift::Identifier::new("Text").expect("fixed Swift identifier"),
+        arguments: vec![swift::Argument {
+            label: None,
+            value: swift::Expr::StringLiteral(text.clone()),
+        }],
+    }
+    .render();
     let prefix = "import SwiftUI\n\n@main\nstruct NeptuneApp: App {\n    var body: some Scene {\n        WindowGroup {\n            ";
     let suffix = "\n        }\n    }\n}\n";
     let start = prefix.len();
     let end = start + expr.len();
-    Ok(SourcePreview { swift: format!("{prefix}{expr}{suffix}"), source_range: properties[0].range, swift_range: SourceRange { start, end } })
+    Ok(SourcePreview {
+        swift: format!("{prefix}{expr}{suffix}"),
+        source_range: properties[0].range,
+        swift_range: SourceRange { start, end },
+    })
 }
 
 /// Parse with Goya and report unsupported target semantics.
@@ -236,5 +279,25 @@ mod tests {
         assert_eq!(error.code, "GY-E1001");
         let range = error.range.unwrap();
         assert!(source[range.start..range.end].starts_with("mystery"));
+    }
+
+    #[test]
+    fn preview_maps_text_and_rejects_unhandled_properties() {
+        let source = "@ontology x { @cell root { text: \"é\\(name)\" } }";
+        let preview = preview_static_text(source).unwrap();
+        assert_eq!(
+            &source[preview.source_range.start..preview.source_range.end],
+            "text: \"é\\(name)\""
+        );
+        assert_eq!(
+            &preview.swift[preview.swift_range.start..preview.swift_range.end],
+            "Text(\"é\\\\(name)\")"
+        );
+        assert_eq!(preview, preview_static_text(source).unwrap());
+        assert!(
+            preview_static_text("@ontology x { @cell root { text: \"hi\" fill: #ffffff } }")
+                .is_err()
+        );
+        assert!(preview_static_text("@ontology x { @button b { text: \"hi\" } }").is_err());
     }
 }
