@@ -36,6 +36,9 @@ impl LinuxWindowManager {
     }
 }
 
+/// Build the detected Linux backend, if the current desktop is recognized.
+pub fn native() -> Option<LinuxWindowManager> { LinuxWindowManager::detect() }
+
 const LINUX_CAPABILITIES: &[WindowCapability] = &[WindowCapability::Maximize];
 
 impl WindowManager for LinuxWindowManager {

@@ -51,6 +51,8 @@ mod tests {
             .filter(|entry| entry.kind == "cell")
             .collect();
         assert_eq!(cells.len(), 2);
+        assert_eq!(cells[0].scene_path, Some(vec![0]));
+        assert_eq!(cells[1].scene_path, Some(vec![1]));
         assert_eq!(
             &source[cells[0].range.start..cells[0].range.end],
             "@cell same { text: \"é\" }"
@@ -69,6 +71,17 @@ mod tests {
             "text: \"é\""
         );
         assert!(parse_with_source_map("@ontology broken { @cell x {").is_err());
+        let nested = parse_with_source_map(
+            "@ontology a { @cell root { @cell x { @cell x { text: \"hi\" } } } }",
+        )
+        .unwrap();
+        let paths: Vec<_> = nested
+            .entries
+            .iter()
+            .filter(|e| e.kind == "cell")
+            .map(|e| e.scene_path.clone().unwrap())
+            .collect();
+        assert_eq!(paths, vec![vec![], vec![0], vec![0, 0]]);
     }
 
     const HELLO: &str = "\

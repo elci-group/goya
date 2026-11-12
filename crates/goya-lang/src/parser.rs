@@ -103,7 +103,10 @@ pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
     let mut stack: Vec<(usize, Vec<usize>, usize)> = Vec::new();
     let mut root_children = 0usize;
     for entry in &mut p.entries {
-        while stack.last().is_some_and(|(end, _, _)| *end <= entry.range.start) {
+        while stack
+            .last()
+            .is_some_and(|(end, _, _)| *end <= entry.range.start)
+        {
             stack.pop();
         }
         if matches!(entry.kind.as_str(), "cell" | "button" | "input") {
@@ -118,11 +121,18 @@ pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
                 path
             };
             stack.push((entry.range.end, path.clone(), 0));
-            if collapse_root { path.remove(0); }
+            if collapse_root {
+                path.remove(0);
+            }
             entry.scene_path = Some(path);
         } else if entry.kind == "property" {
-            let mut path = stack.last().map(|(_, path, _)| path.clone()).unwrap_or_default();
-            if collapse_root && !path.is_empty() { path.remove(0); }
+            let mut path = stack
+                .last()
+                .map(|(_, path, _)| path.clone())
+                .unwrap_or_default();
+            if collapse_root && !path.is_empty() {
+                path.remove(0);
+            }
             entry.scene_path = Some(path);
         }
     }
@@ -295,6 +305,7 @@ impl P {
                     self.entries.push(SourceEntry {
                         kind: "property".into(),
                         name: token.text,
+                        scene_path: None,
                         range: SourceRange {
                             start: token.byte_start,
                             end: self.tokens[self.i - 1].byte_end,
