@@ -15,7 +15,9 @@ separate internal signature format and is **not** a C2PA manifest.
   implement c2patool's signer subprocess protocol. Also provide its PEM
   certificate-chain path and a `C2paSigningAlgorithm`; c2patool v0.9.12
   requires both `sign_cert` and `alg` in the manifest definition when using
-  `--signer-path`. Goya deliberately does not select c2patool's development
+  `--signer-path`. c2patool resolves a relative `sign_cert` against the
+  manifest file, and that file lives in a temporary directory, so Goya writes
+  an absolute path. Goya deliberately does not select c2patool's development
   test key or put private keys in the manifest definition.
 - Use an asset format supported by the installed C2PA tool. The destination
   extension must match the source format. Existing destinations are rejected

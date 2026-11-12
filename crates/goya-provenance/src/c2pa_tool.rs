@@ -216,10 +216,8 @@ impl C2paTool {
         validate_certificate(signer_certificate)?;
         validate_output(asset, output, overwrite)?;
 
-        let certificate_path = signer_certificate
-            .to_str()
-            .ok_or_else(|| C2paToolError::InvalidCertificate(signer_certificate.into()))?;
-        let manifest = TemporaryManifest::create(claims, certificate_path, algorithm)
+        let certificate_path = certificate_path_for_manifest(signer_certificate)?;
+        let manifest = TemporaryManifest::create(claims, &certificate_path, algorithm)
             .map_err(C2paToolError::TemporaryManifest)?;
         let mut command = Command::new(&self.executable);
         command
@@ -455,6 +453,20 @@ fn validate_certificate(path: &Path) -> Result<(), C2paToolError> {
         }
         _ => Err(C2paToolError::InvalidCertificate(path.into())),
     }
+}
+
+/// c2patool joins a relative `sign_cert` onto the manifest file's directory.
+/// That directory is temporary, so the manifest must name an absolute path.
+fn certificate_path_for_manifest(path: &Path) -> Result<String, C2paToolError> {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        fs::canonicalize(path).map_err(|_| C2paToolError::InvalidCertificate(path.into()))?
+    };
+    absolute
+        .into_os_string()
+        .into_string()
+        .map_err(|_| C2paToolError::InvalidCertificate(path.into()))
 }
 
 fn validate_output(asset: &Path, output: &Path, overwrite: bool) -> Result<(), C2paToolError> {
@@ -706,7 +718,68 @@ mod tests {
         assert!(args.contains(&format!("\"sign_cert\":\"{}\"", certificate.display())));
         assert!(args.contains("--signer-path"));
         assert!(!args.contains("--force"));
+        assert!(!args.lines().any(|line| line == "--settings"));
         assert!(!output.exists() || fs::metadata(output).unwrap().len() > 0);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn relative_sign_cert_is_embedded_as_an_absolute_path() {
+        let relative_dir = PathBuf::from(format!(
+            "goya-c2pa-relcert-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&relative_dir).unwrap();
+        struct RemoveDir(PathBuf);
+        impl Drop for RemoveDir {
+            fn drop(&mut self) {
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+        let _cleanup = RemoveDir(relative_dir.clone());
+        let relative = relative_dir.join("chain.pem");
+        fs::write(
+            &relative,
+            b"-----BEGIN CERTIFICATE-----\nplaceholder\n-----END CERTIFICATE-----\n",
+        )
+        .unwrap();
+        let absolute = fs::canonicalize(&relative).unwrap();
+
+        let dir = unique_temp("sign-rel");
+        fs::create_dir(&dir).unwrap();
+        let asset = dir.join("source.bin");
+        let output = dir.join("signed.bin");
+        let signer = dir.join("signer");
+        fs::write(&asset, b"asset").unwrap();
+        fs::write(&signer, b"signer executable placeholder").unwrap();
+        let tool = FakeTool::new(
+            "out=\"\"\nmanifest=\"\"\nprev=\"\"\nfor arg in \"$@\"; do if [ \"$prev\" = --output ]; then out=\"$arg\"; fi; if [ \"$prev\" = --manifest ]; then manifest=\"$arg\"; fi; prev=\"$arg\"; done\nprintf signed > \"$out\"\ncat \"$manifest\"\nprintf '%s\\n' \"$@\"",
+        );
+        let result = C2paTool::with_executable(&tool.0)
+            .sign_asset(
+                &asset,
+                &output,
+                &signer,
+                &relative,
+                C2paSigningAlgorithm::Es256,
+                &test_claims(),
+                false,
+            )
+            .unwrap();
+        let absolute = absolute.to_str().expect("absolute cert path is utf-8");
+        assert!(result
+            .stdout
+            .contains(&format!("\"sign_cert\":\"{absolute}\"")));
+        assert!(!result
+            .stdout
+            .contains(&format!("\"sign_cert\":\"{}\"", relative.display())));
+        assert!(!result.stdout.contains("private_key"));
+        assert!(!result.stdout.lines().any(|line| line == "--settings"));
         fs::remove_dir_all(dir).unwrap();
     }
 
