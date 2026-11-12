@@ -690,7 +690,7 @@ fn submit_address(
             status.clear();
             *address_focus = false;
             if commands
-                .send_timeout(BrowserCommand::NavigateUrl(url), Duration::from_millis(200))
+                .try_send(BrowserCommand::NavigateUrl(url))
                 .is_err()
             {
                 *status = "The page engine is busy.".into();
@@ -746,7 +746,7 @@ fn toolbar_primitives(
         width: i64::from(w) * 250,
         height: i64::from(h) * 250,
     };
-    let columns = (width.saturating_sub(152) / 12).max(8);
+    let columns = usize::from((width.saturating_sub(152) / 12).max(8));
     let mut primitives = vec![
         Primitive::Panel(rect(0, 0, width, TOOLBAR_HEIGHT)),
         Primitive::Button(rect(4, 6, 32, 40), "<".into()),
