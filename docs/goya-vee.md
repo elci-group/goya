@@ -98,8 +98,8 @@ the reference-VM-equivalent JSON line
 `{"kind":"text","node":1,"content":"D0 live result"}` in its stdout
 text artifact. VEE prefixed Landlock warnings in that artifact and labeled it
 `Plain`, because the diagnostics preceded the JSON. D0 result semantics are
-now covered alongside D1/D2; sandbox isolation still fell back to rlimits
-only in this environment.
+now covered alongside D1/D2. On that date sandbox isolation fell back to
+rlimits after Landlock returned `Operation not permitted`.
 
 On 2026-11-04, the locally checked out VEE source at
 `/home/sal/vico-desktop/src-tauri/vico-vee` was built with its validated
@@ -144,5 +144,18 @@ the expected next state (`count` 12 for D1, `count` 4 for D2). The D2 request
 used only the caller-provided journal and granted no VEE capabilities. The
 instance used isolated temporary data/config/pattern-store paths, disabled
 authentication only for loopback, and disabled mDNS. Landlock setup returned
-`Operation not permitted`, so this test verifies worker behavior under VEE's
-rlimit fallback only; it does not establish production sandbox coverage.
+`Operation not permitted`, so that run verified worker behavior under VEE's
+rlimit fallback only.
+
+On 2026-11-12 both opt-in smokes were repeated against a rebuilt local VEE
+on `127.0.0.1:18997` (temporary data, config, and pattern store; loopback
+auth disabled; mDNS disabled). VEE now sets `PR_SET_NO_NEW_PRIVS` before
+`landlock_restrict_self`, and grants read+execute on `/bin`, `/usr`, `/lib`,
+and `/lib64`, plus read on `/etc`, `/dev/null`, `/dev/urandom`, and
+`/dev/zero`. The D0 test and `compiled_source_live_vee_submit_when_enabled`
+both reached `Completed`. The server log had no Landlock setup failure. A
+VEE child test in the same build reported `restrict_self=ok`, an allowed
+read inside the work directory, and a denied read outside it. This is
+Landlock confinement on kernel 6.18 (ABI 7) with the workers still
+completing. It does not certify every production deployment: a host without
+Landlock, or an older VEE build, still falls back to rlimits.

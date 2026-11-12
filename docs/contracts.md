@@ -247,7 +247,7 @@ three-button acceptance geometry depends on it.
 | PipeWire audio adapter (`goya-audio-linux` backend) | 2a (implemented) | real ARSEM output; host/device smoke recorded |
 | Hot-swap interface reconciliation + Tov CLI adapter | 2b (implemented) | release 0.2; CLI and compatibility tests |
 | EDC canonical lowering + D0 bytecode/reference VM + D1/D2 journals | 2c (implemented) | Lowered scenes are complete trees and compile through the D0 reference VM, including an `@input` whose children are linked by a synthetic column. Authored source covers the bounded single-button D1 and static-journal D2 subsets; canonical decoders, journals, the SDK facade, and the loopback VEE smokes are in place. Branches, loops, comparisons, and authored D0 belong to a separate language contract. |
-| VEE submission API + bounded D0 data bridge | 3a (implemented, partial) | D0/D1/D2 workers and authored typed D1/D2 requests passed local loopback submit/status/result E2E; VEE's D0 stdout artifact may prefix sandbox diagnostics; local Landlock was unavailable, so live smokes used rlimit isolation only |
+| VEE submission API + bounded D0 data bridge | 3a (implemented) | D0 and authored D1/D2 loopback smokes completed on 2026-11-12 with Landlock enforced on this host. VEE sets `no_new_privs` before `landlock_restrict_self` and still allows the system interpreter and loader to execute; a child test denies reads outside the work directory. The 2026-11-04 smokes fell back to rlimits after `EPERM`. Production coverage still depends on the deployed kernel and VEE build. D0 stdout may prefix sandbox diagnostics |
 | RUGID / 3form / Mesut / Theosis adapters | 3b (implemented) | release 0.3–0.4; local companion-tool smokes |
 | C2PA signing + explicit trust-aware verification | 3c (implemented, partial) | official-tool signing and an ephemeral trusted-root verification smoke passed; production signer identity, trust anchors/allowlist, and key custody remain release-owner decisions |
 | HRTF profile loader + multichannel output | 3d (implemented, partial) | bounded SOFA converter and attributed 64-direction Viking HRTF fixture are included; additional subjects/full-dataset evaluation remains caller-supplied |
@@ -404,9 +404,10 @@ Consequences for the DAG:
   bounded D0/D1/D2 workers are available. Typed D1/D2 source wrappers
   construct bounded worker requests after validating authored scalar types;
   an opt-in loopback smoke has also submitted both requests and verified the
-  returned state. Broader source-language features remain open. Live sandbox
-  evidence is limited to this environment's rlimit fallback because Landlock
-  setup returned `Operation not permitted`.
+  returned state. Broader source-language features remain open. On 2026-11-12
+  the D0 and authored D1/D2 loopback smokes completed with Landlock enforced
+  on this host. The 2026-11-04 runs fell back to rlimits after `EPERM`.
+  Production coverage still depends on the deployed kernel and VEE build.
 - The Wave-1 evidence table row for Vico Vee is superseded by this section.
 
 ---

@@ -61,10 +61,13 @@ and advanced revision 5 to 6. Its program, input, and outcome hashes were
 `334527df00d3bd99771c6b7d59cbb87efbee989a4569c7331f47cdc6d5cd185a`,
 `d9914bb941607e8e603de0ecc9169b7ff46170d007a2ad8f5b2219e5b163904c`, and
 `ed8fe5c14d5e53adbf968467dccf6babb90c013feb7f7bd16e9ff929662db2ea`.
-The request granted no VEE capabilities. In this environment Landlock setup
+The request granted no VEE capabilities. On that date Landlock setup
 failed with `Operation not permitted`; VEE continued with its rlimit sandbox
-layer only. This confirms local worker submit/status/result behavior, not
-production Landlock or other production sandbox coverage. The D1 result and
+layer only. A 2026-11-12 rebuild sets `no_new_privs` before
+`landlock_restrict_self` and keeps the system interpreter executable; the
+repeated D0 and authored D1/D2 loopback smokes then completed with Landlock
+enforced on this host. That still depends on the deployed kernel and VEE
+build. The D1 result and
 full D0/D1/D2 smoke details are in
 [goya-vee.md](goya-vee.md#local-d0d1d2-live-smoke). The D0 worker also passed
 local submit/status/result validation; VEE retained its expected JSON line in
