@@ -307,12 +307,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     let mut generation = 0u64;
     let mut last_size = surface_size;
+    let mut content_size = initial_size;
     let mut latest_frame: Option<(u64, RgbaFrame)> = None;
+    let mut frame_serial = 0u64;
+    let mut presented_serial = 0u64;
     let mut last_pointer = (0.0, 0.0);
-    let mut address = url;
+    let mut address = AddressEdit::new(url);
     let mut address_focus = false;
+    let mut status = String::new();
     let mut page_pointer = false;
     let mut running = true;
+    let mut engine_alive = true;
+    let mut chrome_dirty = true;
     let started = Instant::now();
     let mut presented = 0_u64;
     let outcome = (|| -> Result<(), Box<dyn std::error::Error>> {
@@ -320,6 +326,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             && !window.close_requested()
             && duration.is_none_or(|limit| started.elapsed() < limit)
         {
+            let mut typed_this_frame = String::new();
             for event in window.poll() {
                 match event {
                     PlatformEvent::CloseRequested => running = false,
@@ -329,11 +336,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         {
                             let size = ViewportSize { width, height };
                             if width != 0 && height != 0 && size != last_size {
-                                let content = content_viewport(size)?;
-                                generation = generation.saturating_add(1);
-                                last_size = size;
-                                queue_resize(&pending_resize, generation, content);
-                                latest_frame = None;
+                                match content_viewport(size) {
+                                    Ok(content) => {
+                                        generation = generation.saturating_add(1);
+                                        last_size = size;
+                                        content_size = content;
+                                        queue_resize(&pending_resize, generation, content);
+                                        latest_frame = None;
+                                    }
+                                    Err(_) => {
+                                        status = "This window size is outside the page viewport limits.".into();
+                                    }
+                                }
+                                chrome_dirty = true;
                             }
                         }
                     }
@@ -350,8 +365,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     PlatformEvent::PointerPress(x, y) => {
                         last_pointer = (x, y);
                         if y < f64::from(TOOLBAR_HEIGHT) {
-                            let _ = toolbar_action(x, &mut address_focus, &command_tx);
+                            let _ = toolbar_action(x, &mut address, &mut address_focus, &command_tx);
+                            chrome_dirty = true;
                         } else {
+                            if address_focus {
+                                address_focus = false;
+                                chrome_dirty = true;
+                            }
                             page_pointer = true;
                             if let Some((x, y)) = content_coordinates(x, y) {
                                 let _ = command_tx.try_send(BrowserCommand::Pointer(
@@ -398,18 +418,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     }
                     PlatformEvent::KeyChar('\n' | '\r') if address_focus => {
-                        address_focus = false;
-                        let _ = command_tx.try_send(BrowserCommand::NavigateUrl(address.clone()));
+                        submit_address(&address, &command_tx, &mut status, &mut address_focus);
+                        chrome_dirty = true;
                     }
                     PlatformEvent::KeyChar('\u{8}') if address_focus => {
-                        address.pop();
+                        address.backspace();
+                        chrome_dirty = true;
                     }
                     PlatformEvent::KeyChar('\n' | '\r') => dispatch_key(&command_tx, "Enter", 0),
                     PlatformEvent::KeyChar('\u{8}') => dispatch_key(&command_tx, "Backspace", 0),
                     PlatformEvent::KeyChar('\t') => dispatch_key(&command_tx, "Tab", 0),
                     PlatformEvent::KeyChar(character) => {
                         if address_focus {
-                            address.push(character);
+                            address.insert(character);
+                            typed_this_frame.push(character);
+                            chrome_dirty = true;
                         } else {
                             let _ =
                                 command_tx.try_send(BrowserCommand::Text(character.to_string()));
@@ -417,14 +440,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     PlatformEvent::KeySpecial(KeySpecial::Escape) if address_focus => {
                         address_focus = false;
+                        address.collapse();
+                        chrome_dirty = true;
                     }
                     PlatformEvent::KeySpecial(key) if address_focus => {
-                        if key == KeySpecial::Delete {
-                            address.clear();
-                        }
+                        edit_address_key(&mut address, key);
+                        chrome_dirty = true;
                     }
                     PlatformEvent::KeySpecial(key) => {
                         dispatch_key(&command_tx, special_key(key), 0)
+                    }
+                    PlatformEvent::KeySpecialWithModifiers { key, modifiers } if address_focus => {
+                        edit_address_key(&mut address, key);
+                        chrome_dirty = true;
+                        let _ = modifiers;
                     }
                     PlatformEvent::KeySpecialWithModifiers { key, modifiers } => {
                         dispatch_key(&command_tx, special_key(key), modifier_bits(modifiers));
@@ -438,6 +467,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     PlatformEvent::BrowserNavigation(action) => {
                         let _ = command_tx.try_send(BrowserCommand::Navigate(action));
                     }
+                    PlatformEvent::Preedit(_) if address_focus => {}
+                    PlatformEvent::PreeditWithCursor { .. } if address_focus => {}
                     PlatformEvent::Preedit(text) => {
                         let text = text.unwrap_or_default();
                         let cursor = i32::try_from(text.len()).unwrap_or(i32::MAX);
@@ -462,18 +493,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     PlatformEvent::CommitText(text) => {
                         if address_focus {
-                            address.push_str(&text);
+                            apply_address_commit(
+                                &mut address,
+                                &text,
+                                &typed_this_frame,
+                                &command_tx,
+                                &mut status,
+                                &mut address_focus,
+                            );
+                            chrome_dirty = true;
                         } else {
                             let _ = command_tx.try_send(BrowserCommand::Text(text));
+                            let _ = command_tx.try_send(BrowserCommand::CompositionRange {
+                                text: String::new(),
+                                selection_start: 0,
+                                selection_end: 0,
+                            });
                         }
-                        let _ = command_tx.try_send(BrowserCommand::CompositionRange {
-                            text: String::new(),
-                            selection_start: 0,
-                            selection_end: 0,
-                        });
                     }
                     PlatformEvent::ClipboardText(Some(text)) if address_focus => {
-                        address.push_str(&text)
+                        address.insert_str(&text);
+                        chrome_dirty = true;
                     }
                     PlatformEvent::ClipboardText(Some(text)) => {
                         let _ = command_tx.try_send(BrowserCommand::Text(text));
@@ -491,53 +531,70 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         frame,
                     }) => {
                         latest_frame = Some((frame_generation, frame));
+                        frame_serial = frame_serial.saturating_add(1);
                     }
                     Ok(WorkerEvent::Selection(text)) => window.set_clipboard_text(&text),
                     Ok(WorkerEvent::Failure(message)) => eprintln!("goya-browser: {message}"),
+                    Ok(WorkerEvent::Navigated(url)) => {
+                        if !address_focus {
+                            address = AddressEdit::new(url);
+                        }
+                        status.clear();
+                        chrome_dirty = true;
+                    }
+                    Ok(WorkerEvent::Notice(message)) => {
+                        status = message;
+                        chrome_dirty = true;
+                    }
                     Err(TryRecvError::Empty) => break,
-                    Err(TryRecvError::Disconnected) => return Err("browser worker exited".into()),
+                    Err(TryRecvError::Disconnected) => {
+                        if engine_alive {
+                            status = "The page engine stopped. Close the window to exit.".into();
+                            engine_alive = false;
+                            chrome_dirty = true;
+                        }
+                        break;
+                    }
                 }
             }
-            let (width, height) = window.size();
-            let content_height = (height - TOOLBAR_HEIGHT as i32).max(0) as u32;
-            let layer = latest_frame.as_ref().and_then(|(frame_generation, frame)| {
-                frame_matches(
-                    *frame_generation,
-                    generation,
-                    frame,
-                    ViewportSize {
-                        width: width.max(0) as u32,
-                        height: content_height,
-                    },
-                )
-                .then_some(RgbaLayer {
-                    x: 0,
-                    y: TOOLBAR_HEIGHT as i32,
-                    width: frame.width,
-                    height: frame.height,
-                    stride: frame.stride as usize,
-                    rgba: &frame.rgba,
-                    clip: Some(PixelRect {
-                        x: 0,
-                        y: TOOLBAR_HEIGHT as i32,
-                        width: width.max(0) as u32,
-                        height: content_height,
-                    }),
-                })
-            });
-            let (primitives, fills) =
-                toolbar_primitives(width.max(0) as u32, &address, address_focus);
-            window.present_composited(
-                &primitives,
-                &fills,
-                &[],
-                [245, 247, 250],
-                [19, 24, 32],
-                1,
-                layer,
-            )?;
-            presented += 1;
-            thread::sleep(Duration::from_millis(8));
+            if chrome_dirty || frame_serial != presented_serial {
+                let (width, height) = window.size();
+                let content_height = (height - TOOLBAR_HEIGHT as i32).max(0) as u32;
+                let layer = latest_frame.as_ref().and_then(|(frame_generation, frame)| {
+                    frame_matches(*frame_generation, generation, frame, content_size).then_some(
+                        RgbaLayer {
+                            x: 0,
+                            y: TOOLBAR_HEIGHT as i32,
+                            width: frame.width,
+                            height: frame.height,
+                            stride: frame.stride as usize,
+                            rgba: &frame.rgba,
+                            clip: Some(PixelRect {
+                                x: 0,
+                                y: TOOLBAR_HEIGHT as i32,
+                                width: width.max(0) as u32,
+                                height: content_height,
+                            }),
+                        },
+                    )
+                });
+                let (primitives, fills) =
+                    toolbar_primitives(width.max(0) as u32, &address, address_focus, &status);
+                window.present_composited(
+                    &primitives,
+                    &fills,
+                    &[],
+                    [245, 247, 250],
+                    [19, 24, 32],
+                    2,
+                    layer,
+                )?;
+                presented_serial = frame_serial;
+                chrome_dirty = false;
+                presented += 1;
+            }
+            window.pump(1);
+            thread::sleep(Duration::from_millis(16));
         }
         if duration.is_some() && presented == 0 {
             return Err("no native browser frame presented".into());
@@ -566,15 +623,12 @@ fn byte_offset_to_utf16(text: &str, offset: i32) -> i32 {
 }
 
 fn content_viewport(surface: ViewportSize) -> Result<ViewportSize, BrowserError> {
+    let width = surface.width.min(MAX_VIEWPORT_EDGE);
     let height = surface
         .height
-        .checked_sub(TOOLBAR_HEIGHT)
-        .ok_or(BrowserError::ViewportTooLarge)?;
-    let viewport = ViewportSize {
-        width: surface.width,
-        height,
-    };
-    viewport.validate()
+        .saturating_sub(TOOLBAR_HEIGHT)
+        .min(MAX_VIEWPORT_EDGE);
+    ViewportSize { width, height }.validate()
 }
 
 fn content_coordinates(x: f64, y: f64) -> Option<(f64, f64)> {
@@ -591,7 +645,12 @@ fn frame_matches(
         && frame.height == viewport.height
 }
 
-fn toolbar_action(x: f64, address_focus: &mut bool, commands: &SyncSender<BrowserCommand>) -> bool {
+fn toolbar_action(
+    x: f64,
+    address: &mut AddressEdit,
+    address_focus: &mut bool,
+    commands: &SyncSender<BrowserCommand>,
+) -> bool {
     match x as i32 {
         0..=39 => {
             let _ = commands.try_send(BrowserCommand::Navigate(BrowserNavigation::Back));
@@ -610,16 +669,79 @@ fn toolbar_action(x: f64, address_focus: &mut bool, commands: &SyncSender<Browse
         }
         132.. => {
             *address_focus = true;
+            address.select_all();
             true
         }
         _ => false,
     }
 }
 
+fn submit_address(
+    address: &AddressEdit,
+    commands: &SyncSender<BrowserCommand>,
+    status: &mut String,
+    address_focus: &mut bool,
+) {
+    match normalize_navigation_input(&address.text) {
+        Ok(url) => {
+            status.clear();
+            *address_focus = false;
+            if commands
+                .send_timeout(
+                    BrowserCommand::NavigateUrl(url),
+                    Duration::from_millis(200),
+                )
+                .is_err()
+            {
+                *status = "The page engine is busy.".into();
+                *address_focus = true;
+            }
+        }
+        Err(error) => *status = error.to_string(),
+    }
+}
+
+fn apply_address_commit(
+    address: &mut AddressEdit,
+    text: &str,
+    typed_this_frame: &str,
+    commands: &SyncSender<BrowserCommand>,
+    status: &mut String,
+    address_focus: &mut bool,
+) {
+    let submit = text == "\n"
+        || text == "\r"
+        || text.ends_with('\n')
+        || text.ends_with('\r');
+    let body = text.trim_end_matches(['\n', '\r']);
+    if !body.is_empty() && !commit_duplicates(typed_this_frame, body) {
+        address.insert_str(body);
+    }
+    if submit {
+        submit_address(address, commands, status, address_focus);
+    }
+}
+
+fn commit_duplicates(typed: &str, commit: &str) -> bool {
+    !typed.is_empty() && (commit == typed || typed.ends_with(commit) || commit.ends_with(typed))
+}
+
+fn edit_address_key(address: &mut AddressEdit, key: KeySpecial) {
+    match key {
+        KeySpecial::Delete => address.delete_forward(),
+        KeySpecial::ArrowLeft => address.move_by(-1),
+        KeySpecial::ArrowRight => address.move_by(1),
+        KeySpecial::Home => address.move_home(),
+        KeySpecial::End => address.move_end(),
+        _ => {}
+    }
+}
+
 fn toolbar_primitives(
     width: u32,
-    address: &str,
+    address: &AddressEdit,
     focused: bool,
+    status: &str,
 ) -> (Vec<Primitive>, Vec<Option<u32>>) {
     let rect = |x: u32, y: u32, w: u32, h: u32| Rect {
         x: i64::from(x) * 250,
