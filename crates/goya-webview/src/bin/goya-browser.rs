@@ -345,7 +345,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         latest_frame = None;
                                     }
                                     Err(_) => {
-                                        status = "This window size is outside the page viewport limits.".into();
+                                        status =
+                                            "This window size is outside the page viewport limits."
+                                                .into();
                                     }
                                 }
                                 chrome_dirty = true;
@@ -365,7 +367,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     PlatformEvent::PointerPress(x, y) => {
                         last_pointer = (x, y);
                         if y < f64::from(TOOLBAR_HEIGHT) {
-                            let _ = toolbar_action(x, &mut address, &mut address_focus, &command_tx);
+                            let _ =
+                                toolbar_action(x, &mut address, &mut address_focus, &command_tx);
                             chrome_dirty = true;
                         } else {
                             if address_focus {
@@ -687,10 +690,7 @@ fn submit_address(
             status.clear();
             *address_focus = false;
             if commands
-                .send_timeout(
-                    BrowserCommand::NavigateUrl(url),
-                    Duration::from_millis(200),
-                )
+                .send_timeout(BrowserCommand::NavigateUrl(url), Duration::from_millis(200))
                 .is_err()
             {
                 *status = "The page engine is busy.".into();
@@ -709,10 +709,7 @@ fn apply_address_commit(
     status: &mut String,
     address_focus: &mut bool,
 ) {
-    let submit = text == "\n"
-        || text == "\r"
-        || text.ends_with('\n')
-        || text.ends_with('\r');
+    let submit = text == "\n" || text == "\r" || text.ends_with('\n') || text.ends_with('\r');
     let body = text.trim_end_matches(['\n', '\r']);
     if !body.is_empty() && !commit_duplicates(typed_this_frame, body) {
         address.insert_str(body);
@@ -1029,14 +1026,7 @@ mod tests {
         );
         assert_eq!(address.text, "ac");
         assert!(receiver.try_recv().is_err());
-        apply_address_commit(
-            &mut address,
-            "\n",
-            "",
-            &commands,
-            &mut status,
-            &mut focused,
-        );
+        apply_address_commit(&mut address, "\n", "", &commands, &mut status, &mut focused);
         assert!(!focused);
         assert!(matches!(
             receiver.recv_timeout(Duration::from_millis(50)),
