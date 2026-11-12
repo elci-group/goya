@@ -165,7 +165,10 @@ fn main() -> ExitCode {
             out = Some(std::path::PathBuf::from(&option[1]));
         } else if option[0] == "--module" && args[1] == "preview" && module.is_none() {
             module = option[1].to_str();
-            if module.is_none() { eprintln!("module path must be UTF-8"); return ExitCode::from(2); }
+            if module.is_none() {
+                eprintln!("module path must be UTF-8");
+                return ExitCode::from(2);
+            }
         } else {
             eprintln!("unknown or duplicate option");
             return ExitCode::from(2);
@@ -198,7 +201,8 @@ fn main() -> ExitCode {
         return match neptune::preview_static_text(&source) {
             Ok(preview) => {
                 if let Some(path) = &out {
-                    let bundle = match neptune::preview_bundle(&source, module.unwrap_or_default()) {
+                    let bundle = match neptune::preview_bundle(&source, module.unwrap_or_default())
+                    {
                         Ok(bundle) => bundle,
                         Err(diagnostic) => {
                             return input_error(
@@ -255,7 +259,12 @@ fn main() -> ExitCode {
                         }
                     }
                 } else {
-                    if let Err(diagnostic) = neptune::preview_bundle(&source, module.unwrap_or_default()) { eprintln!("{}: {}", diagnostic.code, diagnostic.message); return ExitCode::FAILURE; }
+                    if let Err(diagnostic) =
+                        neptune::preview_bundle(&source, module.unwrap_or_default())
+                    {
+                        eprintln!("{}: {}", diagnostic.code, diagnostic.message);
+                        return ExitCode::FAILURE;
+                    }
                     eprintln!("Source preview only; Apple validation not run");
                     print!("{}", preview.swift);
                 }

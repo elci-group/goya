@@ -58,7 +58,9 @@ impl Session {
             return error(Some(id), "ingest", "source must be a UTF-8 string");
         };
         if operation == "preview" {
-            let Some(module) = object.get("module").and_then(Value::as_str) else { return error(Some(id), "protocol", "preview requires a module path"); };
+            let Some(module) = object.get("module").and_then(Value::as_str) else {
+                return error(Some(id), "protocol", "preview requires a module path");
+            };
             return match crate::preview_bundle(source, module) {
                 Ok(bundle) => match serde_json::from_str::<Value>(&bundle) {
                     Ok(bundle) => {

@@ -52,8 +52,22 @@ pub struct SourcePreview {
 /// Canonical JSON package for the experimental source preview. Hashes cover
 /// the exact UTF-8 bytes of the source and the included artifact strings.
 pub fn preview_bundle(source: &str, module: &str) -> Result<String, Diagnostic> {
-    if module.len() > 1024 || !module.ends_with(".gscene") || module.split('/').any(|part| part.is_empty() || part == "." || part == ".." || !part.bytes().all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-' | b'.'))) {
-        return Err(Diagnostic { code: "NPT-E1006", message: "module must be a canonical project-relative ASCII .gscene path".into(), range: None });
+    if module.len() > 1024
+        || !module.ends_with(".gscene")
+        || module.split('/').any(|part| {
+            part.is_empty()
+                || part == "."
+                || part == ".."
+                || !part
+                    .bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-' | b'.'))
+        })
+    {
+        return Err(Diagnostic {
+            code: "NPT-E1006",
+            message: "module must be a canonical project-relative ASCII .gscene path".into(),
+            range: None,
+        });
     }
     let preview = preview_static_text(source)?;
     let map = serde_json::json!({"schema_version":"2", "mappings":[{"semantic_id":{"module":module,"declared_id":preview.declared_id},"source":{"start_byte":preview.source_range.start,"end_byte":preview.source_range.end},"swift":{"start_byte":preview.swift_range.start,"end_byte":preview.swift_range.end}}]}).to_string() + "\n";
@@ -353,10 +367,22 @@ mod tests {
         assert_eq!(first, preview_bundle(source, "app/main.gscene").unwrap());
         let bundle: serde_json::Value = serde_json::from_str(&first).unwrap();
         let swift = bundle["artifacts"]["App.swift"].as_str().unwrap();
-        let map: serde_json::Value = serde_json::from_str(bundle["artifacts"]["source-map.json"].as_str().unwrap()).unwrap();
-        assert_eq!(map["mappings"][0]["semantic_id"]["module"], "app/main.gscene");
+        let map: serde_json::Value =
+            serde_json::from_str(bundle["artifacts"]["source-map.json"].as_str().unwrap()).unwrap();
+        assert_eq!(
+            map["mappings"][0]["semantic_id"]["module"],
+            "app/main.gscene"
+        );
         assert_eq!(map["mappings"][0]["semantic_id"]["declared_id"], "root");
-        for invalid in ["/abs.gscene", "../x.gscene", "a//b.gscene", "a\\b.gscene", "a/./b.gscene"] { assert!(preview_bundle(source, invalid).is_err()); }
+        for invalid in [
+            "/abs.gscene",
+            "../x.gscene",
+            "a//b.gscene",
+            "a\\b.gscene",
+            "a/./b.gscene",
+        ] {
+            assert!(preview_bundle(source, invalid).is_err());
+        }
         assert_eq!(
             bundle["report"]["artifact_sha256"]["App.swift"],
             format!("{:x}", Sha256::digest(swift.as_bytes()))
