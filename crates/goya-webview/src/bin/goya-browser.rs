@@ -784,6 +784,69 @@ fn edit_address_key(address: &mut AddressEdit, key: KeySpecial) {
     }
 }
 
+struct AddressIme {
+    active: bool,
+    text: String,
+    cursor: u32,
+    anchor: u32,
+    width: i32,
+}
+
+impl AddressIme {
+    fn inactive() -> Self {
+        Self {
+            active: false,
+            text: String::new(),
+            cursor: 0,
+            anchor: 0,
+            width: 0,
+        }
+    }
+}
+
+fn sync_address_ime(
+    window: &mut GoyaWindow,
+    address: &AddressEdit,
+    focused: bool,
+    ime: &mut AddressIme,
+) {
+    let width = window.size().0;
+    let cursor = u32::try_from(address.cursor.min(address.text.len())).unwrap_or(u32::MAX);
+    let anchor = u32::try_from(address.anchor.min(address.text.len())).unwrap_or(u32::MAX);
+    if ime.active == focused
+        && (!focused
+            || (ime.text == address.text
+                && ime.cursor == cursor
+                && ime.anchor == anchor
+                && ime.width == width))
+    {
+        return;
+    }
+    if focused {
+        let field_width = (width - 152).max(32);
+        window.set_text_input_state_with_purpose(
+            true,
+            &address.text,
+            cursor,
+            anchor,
+            (140, 4, field_width, 24),
+            TextInputPurpose::Url,
+            false,
+        );
+        ime.text = address.text.clone();
+        ime.cursor = cursor;
+        ime.anchor = anchor;
+        ime.width = width;
+    } else {
+        window.set_text_input_active(false);
+        ime.text.clear();
+        ime.cursor = 0;
+        ime.anchor = 0;
+        ime.width = 0;
+    }
+    ime.active = focused;
+}
+
 fn toolbar_primitives(
     width: u32,
     address: &AddressEdit,
@@ -1082,6 +1145,25 @@ mod tests {
             receiver.recv_timeout(Duration::from_millis(50)),
             Ok(BrowserCommand::NavigateUrl(url)) if url == "https://ac"
         ));
+    }
+
+    #[test]
+    fn scroll_and_motion_collapse_to_the_latest_update() {
+        let mut follow = PointerFollow::default();
+        follow_motion(&mut follow, 10.0, 80.0);
+        follow_motion(&mut follow, 30.0, 90.0);
+        follow_scroll(&mut follow, 30.0, 90.0, 0.0, -80.0);
+        follow_scroll(&mut follow, 36.0, 110.0, 4.0, -40.0);
+        assert_eq!(follow.motion, Some((30.0, 90.0)));
+        assert_eq!(follow.scroll, Some((36.0, 110.0, 4.0, -120.0)));
+
+        let pending = Arc::new(Mutex::new(follow));
+        assert_eq!(
+            take_pointer(&pending).scroll,
+            Some((36.0, 110.0, 4.0, -120.0))
+        );
+        assert!(take_pointer(&pending).motion.is_none());
+        assert!(take_pointer(&pending).scroll.is_none());
     }
 
     #[test]
