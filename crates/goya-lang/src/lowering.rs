@@ -53,6 +53,8 @@ pub struct NodeRecord {
     pub role: Role,
     /// Authored stable identity. Synthetic nodes inherit the owning identity.
     pub semantic_id: Option<String>,
+    /// Stable authored action identity for a button handler, when declared.
+    pub action_id: Option<String>,
     /// Owning cell's key, if any (synthetic text rows point at their cell).
     pub parent: Option<NodeKey>,
     /// The resolved rect in millipoints, present only when the cell declared
@@ -234,6 +236,7 @@ impl<'a> Lowerer<'a> {
                             ir_node: text_id,
                             role: Role::Text,
                             semantic_id: cell.authored_id.clone(),
+                            action_id: None,
                             parent: Some(key.clone()),
                             explicit_rect_mp: explicit(rect, has_explicit_rect),
                             children: Vec::new(),
@@ -271,6 +274,11 @@ impl<'a> Lowerer<'a> {
                 ir_node: semantic,
                 role,
                 semantic_id: cell.authored_id.clone(),
+                action_id: if cell.kind == CellKind::Button {
+                    self.scene_interaction_id(&cell.name)
+                } else {
+                    None
+                },
                 parent: parent_key.map(str::to_string),
                 explicit_rect_mp: explicit(rect, has_explicit_rect),
                 children,
