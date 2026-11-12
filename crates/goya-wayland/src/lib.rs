@@ -1765,12 +1765,12 @@ impl GoyaWindow {
         )
     }
 
-    #[allow(clippy::too_many_arguments)]
     /// Whether the latest present attached a buffer and committed the surface.
     pub fn frame_committed(&self) -> bool {
         self.state.frame_committed
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn present_internal(
         &mut self,
         primitives: &[goya_runtime::Primitive],

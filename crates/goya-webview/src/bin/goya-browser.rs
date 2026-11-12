@@ -2,6 +2,7 @@ use goya_layout::Rect;
 use goya_runtime::Primitive;
 use goya_wayland::{
     BrowserNavigation, GoyaWindow, KeyModifiers, KeySpecial, PlatformEvent, Shortcut,
+    TextInputPurpose,
 };
 use goya_wayland::{PixelRect, RgbaLayer};
 use goya_webview::{
@@ -48,6 +49,49 @@ fn queue_resize(pending: &PendingResize, generation: u64, size: ViewportSize) {
 
 fn take_resize(pending: &PendingResize) -> Option<ResizeRequest> {
     pending.lock().ok()?.take()
+}
+
+/// Latest pointer motion and the sum of wheel deltas since the worker last
+/// looked. These stay off the command channel so a moving pointer cannot
+/// drop Enter, clicks, or navigation.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct PointerFollow {
+    motion: Option<(f64, f64)>,
+    scroll: Option<(f64, f64, f64, f64)>,
+}
+
+type PendingPointer = Arc<Mutex<PointerFollow>>;
+
+fn note_motion(pending: &PendingPointer, x: f64, y: f64) {
+    if let Ok(mut follow) = pending.lock() {
+        follow_motion(&mut follow, x, y);
+    }
+}
+
+fn note_scroll(pending: &PendingPointer, x: f64, y: f64, delta_x: f64, delta_y: f64) {
+    if let Ok(mut follow) = pending.lock() {
+        follow_scroll(&mut follow, x, y, delta_x, delta_y);
+    }
+}
+
+fn take_pointer(pending: &PendingPointer) -> PointerFollow {
+    pending
+        .lock()
+        .ok()
+        .map(|mut follow| std::mem::take(&mut *follow))
+        .unwrap_or_default()
+}
+
+fn follow_motion(follow: &mut PointerFollow, x: f64, y: f64) {
+    follow.motion = Some((x, y));
+}
+
+fn follow_scroll(follow: &mut PointerFollow, x: f64, y: f64, delta_x: f64, delta_y: f64) {
+    let (delta_x, delta_y) = match follow.scroll {
+        Some((_, _, previous_x, previous_y)) => (previous_x + delta_x, previous_y + delta_y),
+        None => (delta_x, delta_y),
+    };
+    follow.scroll = Some((x, y, delta_x, delta_y));
 }
 
 fn shutdown_requested(stopping: &AtomicBool) -> bool {
@@ -117,6 +161,7 @@ fn spawn_browser_worker(
     events: SyncSender<WorkerEvent>,
     stopping: Arc<AtomicBool>,
     pending_resize: PendingResize,
+    pending_pointer: PendingPointer,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
         let mut browser = match BrowserSession::launch(BrowserConfig {
@@ -150,7 +195,6 @@ fn spawn_browser_worker(
                     }
                     Err(error) => {
                         try_report(&events, WorkerEvent::Failure(error.to_string()));
-                        return;
                     }
                 }
             }
@@ -230,6 +274,24 @@ fn spawn_browser_worker(
             if stopped {
                 break;
             }
+            let follow = take_pointer(&pending_pointer);
+            if let Some((x, y)) = follow.motion {
+                match browser.dispatch_pointer(PointerAction::Move { x, y }) {
+                    Ok(()) => dirty = true,
+                    Err(error) => try_report(&events, WorkerEvent::Failure(error.to_string())),
+                }
+            }
+            if let Some((x, y, delta_x, delta_y)) = follow.scroll {
+                match browser.dispatch_pointer(PointerAction::Scroll {
+                    x,
+                    y,
+                    delta_x,
+                    delta_y,
+                }) {
+                    Ok(()) => dirty = true,
+                    Err(error) => try_report(&events, WorkerEvent::Failure(error.to_string())),
+                }
+            }
             let interval = if dirty { ACTIVE_FRAME } else { IDLE_FRAME };
             if last_capture.elapsed() >= interval {
                 match browser.capture_frame() {
@@ -290,12 +352,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let initial_size = content_viewport(surface_size)?;
     window.set_extended_text_input_events(true);
-    window.set_text_input_active(true);
     window.set_browser_navigation_keys(true);
     let (command_tx, command_rx) = mpsc::sync_channel(64);
     let (event_tx, event_rx) = mpsc::sync_channel(4);
     let stopping = Arc::new(AtomicBool::new(false));
     let pending_resize = Arc::new(Mutex::new(None));
+    let pending_pointer = Arc::new(Mutex::new(PointerFollow::default()));
     let browser_thread = spawn_browser_worker(
         url.clone(),
         initial_size,
@@ -303,6 +365,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         event_tx,
         stopping.clone(),
         pending_resize.clone(),
+        pending_pointer.clone(),
     );
     let mut generation = 0u64;
     let mut last_size = surface_size;
@@ -318,6 +381,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut running = true;
     let mut engine_alive = true;
     let mut chrome_dirty = true;
+    let mut address_ime = AddressIme::inactive();
     let started = Instant::now();
     let mut presented = 0_u64;
     let outcome = (|| -> Result<(), Box<dyn std::error::Error>> {
@@ -357,9 +421,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         last_pointer = (x, y);
                         if page_pointer {
                             if let Some((x, y)) = content_coordinates(x, y) {
-                                let _ = command_tx.try_send(BrowserCommand::Pointer(
-                                    PointerAction::Move { x, y },
-                                ));
+                                note_motion(&pending_pointer, x, y);
                             }
                         }
                     }
@@ -395,28 +457,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     PlatformEvent::PointerScroll(lines) => {
                         let (x, y) = last_pointer;
-                        if y >= f64::from(TOOLBAR_HEIGHT) {
-                            let _ = command_tx.try_send(BrowserCommand::Pointer(
-                                PointerAction::Scroll {
-                                    x,
-                                    y: y - f64::from(TOOLBAR_HEIGHT),
-                                    delta_x: 0.0,
-                                    delta_y: f64::from(-lines) * 80.0,
-                                },
-                            ));
+                        if let Some((x, y)) = content_coordinates(x, y) {
+                            note_scroll(&pending_pointer, x, y, 0.0, f64::from(-lines) * 80.0);
                         }
                     }
                     PlatformEvent::PointerScrollDelta { x, y } => {
                         let (pointer_x, pointer_y) = last_pointer;
-                        if pointer_y >= f64::from(TOOLBAR_HEIGHT) {
-                            let _ = command_tx.try_send(BrowserCommand::Pointer(
-                                PointerAction::Scroll {
-                                    x: pointer_x,
-                                    y: pointer_y - f64::from(TOOLBAR_HEIGHT),
-                                    delta_x: -x,
-                                    delta_y: -y,
-                                },
-                            ));
+                        if let Some((pointer_x, pointer_y)) =
+                            content_coordinates(pointer_x, pointer_y)
+                        {
+                            note_scroll(&pending_pointer, pointer_x, pointer_y, -x, -y);
                         }
                     }
                     PlatformEvent::KeyChar('\n' | '\r') if address_focus => {
@@ -523,7 +573,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     PlatformEvent::DeleteSurroundingText { .. } => {
                         let _ = command_tx.try_send(BrowserCommand::UnsupportedSurroundingDelete);
                     }
-                    PlatformEvent::ClipboardText(None) | PlatformEvent::Configured => {}
+                    PlatformEvent::ClipboardText(None) => {}
+                    PlatformEvent::Configured => chrome_dirty = true,
                 }
             }
             loop {
@@ -559,6 +610,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
             }
+            sync_address_ime(&mut window, &address, address_focus, &mut address_ime);
             if chrome_dirty || frame_serial != presented_serial {
                 let (width, height) = window.size();
                 let content_height = (height - TOOLBAR_HEIGHT as i32).max(0) as u32;
@@ -591,9 +643,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     2,
                     layer,
                 )?;
-                presented_serial = frame_serial;
-                chrome_dirty = false;
-                presented += 1;
+                if window.frame_committed() {
+                    presented_serial = frame_serial;
+                    chrome_dirty = false;
+                    presented += 1;
+                }
             }
             window.pump(1);
             thread::sleep(Duration::from_millis(16));
