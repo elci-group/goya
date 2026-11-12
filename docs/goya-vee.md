@@ -122,11 +122,11 @@ the generated D1 and D2 Python worker sources and polled each status to
   outcome `ed8fe5c14d5e53adbf968467dccf6babb90c013feb7f7bd16e9ff929662db2ea`.
 
 Both returned worker payloads contained the expected typed state/register
-values and hashes. In this environment VEE logged that Landlock setup failed
+values and hashes. On that date VEE logged that Landlock setup failed
 with `Operation not permitted` and continued with the rlimit sandbox layer
-only. This confirms the local submit/status/result path and worker behavior
-under that environment; it does not establish production Landlock or other
-production sandbox coverage, nor validate remote deployment configuration.
+only. That confirmed the local submit/status/result path under the rlimit
+fallback. It did not by itself establish Landlock or production deployment
+coverage.
 
 The typed authored-source path has a separate opt-in acceptance in
 `goya-lang`:
