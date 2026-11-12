@@ -33,6 +33,9 @@ pub enum Anchor {
 #[derive(Debug, Clone)]
 pub struct SceneCell {
     pub name: String,
+    /// Optional authored identity. Strict handoff admission requires this to
+    /// be present and unique; display names and tree positions are not IDs.
+    pub authored_id: Option<String>,
     pub kind: CellKind,
     /// True for `@input` cells (mirrors [`CellKind::Input`]).
     pub is_input: bool,
