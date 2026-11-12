@@ -21,6 +21,10 @@ fn usage() {
 const MAX_REQUEST_BYTES: usize = 8 * 1024;
 const MAX_SCENE_BYTES: u64 = 128 * 1024;
 const MAX_PREVIEW_NODES: usize = 512;
+// Chrome's same-origin preview/save fetch sends about 18 headers (the usual
+// client hints plus Content-Type, Origin, and If-Match). A cap of 16 rejects
+// those requests before validation or the revision check.
+const MAX_HEADER_LINES: usize = 32;
 static SAVE_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 fn read_scene_source(path: &Path) -> Result<String, String> {
@@ -208,7 +212,7 @@ fn parse_request_head(header: &[u8]) -> Result<RequestHead, RequestError> {
     if request.next().is_some() || !matches!(version, "HTTP/1.0" | "HTTP/1.1") {
         return Err(request_error("400 Bad Request", "Invalid request line"));
     }
-    if lines.clone().count() > 16 {
+    if lines.clone().count() > MAX_HEADER_LINES {
         return Err(request_error("400 Bad Request", "Too many headers"));
     }
     let (mut host, mut origin, mut content_type, mut if_match, mut content_length) =
@@ -1061,6 +1065,33 @@ mod tests {
         format!("POST {path} HTTP/1.1\r\nHost: {HOST}\r\nOrigin: http://{HOST}\r\nContent-Type: text/plain;charset=utf-8\r\nIf-Match: {revision}\r\nContent-Length: {}\r\n\r\n{body}", body.len()).into_bytes()
     }
 
+    /// Header block measured from a Chrome same-origin `fetch` POST that sets
+    /// `Content-Type` and `If-Match`, which is what Save scene sends.
+    fn browser_post(path: &str, body: &str, revision: &str) -> Vec<u8> {
+        let headers = [
+            format!("Host: {HOST}"),
+            "Connection: keep-alive".to_string(),
+            format!("Content-Length: {}", body.len()),
+            "Cache-Control: max-age=0".to_string(),
+            "sec-ch-ua-platform: \"Linux\"".to_string(),
+            "User-Agent: Mozilla/5.0".to_string(),
+            "sec-ch-ua: \"Chromium\";v=\"130\", \"Not?A_Brand\";v=\"99\"".to_string(),
+            "Content-Type: text/plain;charset=utf-8".to_string(),
+            format!("If-Match: {revision}"),
+            "sec-ch-ua-mobile: ?0".to_string(),
+            "Accept: */*".to_string(),
+            format!("Origin: http://{HOST}"),
+            "Sec-Fetch-Site: same-origin".to_string(),
+            "Sec-Fetch-Mode: cors".to_string(),
+            "Sec-Fetch-Dest: empty".to_string(),
+            format!("Referer: http://{HOST}/"),
+            "Accept-Encoding: gzip, deflate, br, zstd".to_string(),
+            "Accept-Language: en-US,en;q=0.9".to_string(),
+        ];
+        assert_eq!(headers.len(), 18);
+        format!("POST {path} HTTP/1.1\r\n{}\r\n\r\n{body}", headers.join("\r\n")).into_bytes()
+    }
+
     #[test]
     fn check_summary_counts_input_nodes() {
         let scene = "@ontology demo { @cell root { position: (0, 0, 0) extent: (800, 600, 0) @button ok { position: (0, 0, 0) extent: (80, 40, 0) text: \"hello\" } @input name { position: (0, 100, 0) extent: (200, 40, 0) text: \"Your name\" } } }";
@@ -1167,6 +1198,25 @@ mod tests {
                 .unwrap_err()
                 .status,
             "413 Payload Too Large"
+        );
+        let browser_preview = browser_post("/preview", SCENE, &scene_revision(SCENE.as_bytes()));
+        let parsed = parse_request(&browser_preview).unwrap();
+        assert_eq!(
+            parsed.if_match.as_deref(),
+            Some(scene_revision(SCENE.as_bytes()).as_str())
+        );
+        assert_eq!(
+            route_request(&browser_preview, HOST, SCENE, "preview").0,
+            "200 OK"
+        );
+        let mut too_many = format!("POST /preview HTTP/1.1\r\nHost: {HOST}\r\n");
+        for index in 0..MAX_HEADER_LINES {
+            too_many.push_str(&format!("X-Extra-{index}: 1\r\n"));
+        }
+        too_many.push_str("\r\n");
+        assert_eq!(
+            parse_request(too_many.as_bytes()).unwrap_err().message,
+            "Too many headers"
         );
     }
 
