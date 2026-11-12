@@ -31,6 +31,9 @@ pub struct Token {
     pub kind: TokenKind,
     pub text: String,
     pub line: usize,
+    /// UTF-8 byte range in the original source (end-exclusive).
+    pub byte_start: usize,
+    pub byte_end: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -51,6 +54,7 @@ impl std::error::Error for LexError {}
 pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
     let mut tokens = Vec::new();
     let chars: Vec<char> = source.chars().collect();
+    let byte_offsets: Vec<usize> = source.char_indices().map(|(offset, _)| offset).chain(std::iter::once(source.len())).collect();
     let mut i = 0usize;
     let mut line = 1usize;
     while i < chars.len() {
@@ -67,27 +71,30 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
                 }
             }
             '{' | '}' | '(' | ')' | ':' | ';' | ',' => {
-                push_token(&mut tokens, &chars, &mut i, &mut line)?;
+                push_token(&mut tokens, &chars, &byte_offsets, &mut i, &mut line)?;
             }
             _ => {
-                push_token(&mut tokens, &chars, &mut i, &mut line)?;
+                push_token(&mut tokens, &chars, &byte_offsets, &mut i, &mut line)?;
             }
         }
     }
     Ok(tokens)
 }
 
-fn t(kind: TokenKind, text: &str, line: usize) -> Token {
+fn t(kind: TokenKind, text: &str, line: usize, start: usize, end: usize) -> Token {
     Token {
         kind,
         text: text.to_string(),
         line,
+        byte_start: start,
+        byte_end: end,
     }
 }
 
 fn push_token(
     tokens: &mut Vec<Token>,
     chars: &[char],
+    byte_offsets: &[usize],
     i: &mut usize,
     line: &mut usize,
 ) -> Result<(), LexError> {
@@ -113,7 +120,7 @@ fn push_token(
         _ => None,
     };
     if let Some(kind) = simple {
-        tokens.push(t(kind, &c.to_string(), *line));
+        tokens.push(t(kind, &c.to_string(), *line, byte_offsets[*i], byte_offsets[*i + 1]));
         *i += 1;
         return Ok(());
     }
@@ -125,11 +132,12 @@ fn push_token(
             *i += 1;
         }
         let text: String = chars[start..*i].iter().collect();
-        tokens.push(t(TokenKind::Hex, &text, *line));
+        tokens.push(t(TokenKind::Hex, &text, *line, byte_offsets[start], byte_offsets[*i]));
         return Ok(());
     }
     if c == '"' {
         let start_line = *line;
+        let start = *i;
         *i += 1;
         let mut s = String::new();
         while *i < chars.len() && chars[*i] != '"' {
@@ -143,7 +151,7 @@ fn push_token(
             return Err(LexError { line: start_line });
         }
         *i += 1; // closing quote
-        tokens.push(t(TokenKind::Str, &s, start_line));
+        tokens.push(t(TokenKind::Str, &s, start_line, byte_offsets[start], byte_offsets[*i]));
         return Ok(());
     }
     if c == '+' || c == '-' || c.is_ascii_digit() || c == '.' {
@@ -157,7 +165,7 @@ fn push_token(
             *i += 1;
         }
         let text: String = chars[start..*i].iter().collect();
-        tokens.push(t(TokenKind::Number, &text, *line));
+        tokens.push(t(TokenKind::Number, &text, *line, byte_offsets[start], byte_offsets[*i]));
         return Ok(());
     }
     if c.is_alphabetic() || c == '_' || c == '@' {
@@ -179,6 +187,8 @@ fn push_token(
             },
             &text,
             *line,
+            byte_offsets[start],
+            byte_offsets[*i],
         ));
         return Ok(());
     }
