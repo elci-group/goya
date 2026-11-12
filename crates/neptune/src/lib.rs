@@ -140,7 +140,16 @@ pub fn preview_static_text(source: &str) -> Result<SourcePreview, Diagnostic> {
     let end = start + expr.len();
     Ok(SourcePreview {
         swift: format!("{prefix}{expr}{suffix}"),
-        declared_id: parsed.scene.root.authored_id.clone().expect("strict frontend validates authored ID"),
+        declared_id: parsed
+            .scene
+            .root
+            .authored_id
+            .clone()
+            .ok_or_else(|| Diagnostic {
+                code: "NPT-E2104",
+                message: "source node lacks an authored ID".into(),
+                range: Some(cells[0].range),
+            })?,
         source_range: text_range,
         swift_range: SourceRange { start, end },
     })
