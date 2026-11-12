@@ -94,15 +94,27 @@ fn service_stream_reports_separate_job_results() {
 #[test]
 fn preview_writes_new_directory_and_refuses_overwrite() {
     let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/static.gscene");
-    let output_dir = std::env::temp_dir().join(format!("neptune-preview-test-{}", std::process::id()));
+    let output_dir =
+        std::env::temp_dir().join(format!("neptune-preview-test-{}", std::process::id()));
     assert!(!output_dir.exists());
-    let run = || Command::new(env!("CARGO_BIN_EXE_neptune"))
-        .args(["preview", fixture, "--out"]).arg(&output_dir).args(["--format", "json"])
-        .output().unwrap();
+    let run = || {
+        Command::new(env!("CARGO_BIN_EXE_neptune"))
+            .args(["preview", fixture, "--out"])
+            .arg(&output_dir)
+            .args(["--format", "json"])
+            .output()
+            .unwrap()
+    };
     let first = run();
-    assert!(first.status.success(), "{}", String::from_utf8_lossy(&first.stderr));
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
     let swift = std::fs::read(output_dir.join("App.swift")).unwrap();
-    let report: serde_json::Value = serde_json::from_slice(&std::fs::read(output_dir.join("build-report.json")).unwrap()).unwrap();
+    let report: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(output_dir.join("build-report.json")).unwrap())
+            .unwrap();
     assert_eq!(report["stages"]["apple_validation"], "NOT_RUN");
     assert!(output_dir.join("source-map.json").is_file());
     assert!(output_dir.join("capabilities.json").is_file());
