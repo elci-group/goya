@@ -277,19 +277,22 @@ impl C2paTool {
         fs::create_dir(&settings_dir).map_err(C2paToolError::Launch)?;
         let settings = settings_dir.join("c2pa.toml");
         let mut command = Command::new(&self.executable);
-        command.arg(asset).arg("trust");
+        // `--settings` is a parent flag. c2patool's clap parser rejects it
+        // after the `trust` subcommand, which would skip this isolation.
+        // Sidecars load from the settings path's parent, so that directory
+        // stays empty and only the paths below affect trust.
+        command
+            .arg("--settings")
+            .arg(&settings)
+            .arg(asset)
+            .arg("trust");
         if let Some(path) = &trust_options.trust_anchors {
             command.arg("--trust_anchors").arg(path);
         }
         if let Some(path) = &trust_options.allowed_list {
             command.arg("--allowed_list").arg(path);
         }
-        // Current c2patool loads trust sidecars from the `--settings` parent
-        // and from C2PATOOL_* variables. An empty directory keeps verification
-        // on the paths passed above.
         command
-            .arg("--settings")
-            .arg(&settings)
             .env_remove("C2PATOOL_TRUST_ANCHORS")
             .env_remove("C2PATOOL_ALLOWED_LIST")
             .env_remove("C2PATOOL_TRUST_CONFIG")
@@ -859,21 +862,49 @@ mod tests {
             }
         }
         let args: Vec<_> = result.report.stdout.lines().collect();
-        assert_eq!(args[0], asset.to_str().unwrap());
-        assert_eq!(args[1], "trust");
-        assert_eq!(args[2], "--trust_anchors");
-        assert_eq!(args[3], anchors.to_str().unwrap());
-        assert_eq!(args[4], "--allowed_list");
-        assert_eq!(args[5], allowed.to_str().unwrap());
-        assert_eq!(args[6], "--settings");
-        assert!(args[7].ends_with("c2pa.toml"));
-        assert!(args[7].contains("goya-c2pa-trust-"));
+        assert_eq!(args[0], "--settings");
+        assert!(args[1].ends_with("c2pa.toml"));
+        assert!(args[1].contains("goya-c2pa-trust-"));
+        assert_eq!(args[2], asset.to_str().unwrap());
+        assert_eq!(args[3], "trust");
+        assert_eq!(args[4], "--trust_anchors");
+        assert_eq!(args[5], anchors.to_str().unwrap());
+        assert_eq!(args[6], "--allowed_list");
+        assert_eq!(args[7], allowed.to_str().unwrap());
         assert!(args.contains(&"ENV:"));
         assert!(!result.report.stdout.contains("ambient-anchors"));
         assert!(!result.report.stdout.contains("example.invalid"));
         assert_eq!(result.trust_options, options);
         // The API returns c2patool's distinct validation text and policy; it
         // deliberately provides no aggregate trust/signature boolean.
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn settings_flag_precedes_trust_subcommand() {
+        // c2patool declares `--settings` on the parent command. Clap rejects
+        // it after `trust`, so the flag must precede the subcommand.
+        let dir = unique_temp("verify-settings-order");
+        fs::create_dir(&dir).unwrap();
+        let asset = dir.join("asset.jpg");
+        fs::write(&asset, b"asset").unwrap();
+        let tool = FakeTool::new("printf '%s\\n' \"$@\"");
+        let result = C2paTool::with_executable(&tool.0)
+            .verify_asset(&asset, &C2paTrustOptions::default())
+            .unwrap();
+        let args: Vec<_> = result.report.stdout.lines().collect();
+        let settings_at = args
+            .iter()
+            .position(|line| *line == "--settings")
+            .expect("missing --settings");
+        let trust_at = args
+            .iter()
+            .position(|line| *line == "trust")
+            .expect("missing trust subcommand");
+        assert!(settings_at < trust_at);
+        assert!(args[settings_at + 1].ends_with("c2pa.toml"));
+        assert!(args[settings_at + 1].contains("goya-c2pa-trust-"));
         fs::remove_dir_all(dir).unwrap();
     }
 

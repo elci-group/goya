@@ -72,9 +72,8 @@ impl EffectResult {
     }
 
     fn decode(expected: EffectResultType, bytes: &[u8]) -> Result<Self, D2Error> {
-        if bytes.len() > MAX_RESULT_BYTES {
-            return Err(D2Error::ResultTooLarge);
-        }
+        // The 64 KiB cap is the typed payload. Text framing is a tag plus a
+        // u32 length, so the encoded buffer is larger than the payload.
         match (expected, bytes) {
             (EffectResultType::Int64, [1, rest @ ..]) if rest.len() == 8 => Ok(Self::Int64(
                 i64::from_le_bytes(rest.try_into().map_err(|_| D2Error::MalformedResult)?),
@@ -85,7 +84,10 @@ impl EffectResult {
                         .try_into()
                         .map_err(|_| D2Error::MalformedResult)?,
                 ) as usize;
-                if size > MAX_RESULT_BYTES || length.len() != 4 + size {
+                if size > MAX_RESULT_BYTES {
+                    return Err(D2Error::ResultTooLarge);
+                }
+                if length.len() != 4 + size {
                     return Err(D2Error::MalformedResult);
                 }
                 let text =
@@ -1117,6 +1119,72 @@ mod tests {
             Err(D2Error::Journal(JournalError::UnconsumedEntries {
                 remaining: 1
             }))
+        );
+    }
+
+    #[test]
+    fn max_text_effect_result_round_trips_through_replay() {
+        let text = "y".repeat(64 * 1024);
+        let encoded = EffectResult::Text(text.clone()).encode().unwrap();
+        assert!(encoded.len() > 64 * 1024);
+        assert_eq!(
+            EffectResult::decode(EffectResultType::Text, &encoded),
+            Ok(EffectResult::Text(text.clone()))
+        );
+
+        let mut journal = EffectJournal::new_d2(
+            &declaration(),
+            &proof(),
+            [capability()],
+            crate::JournalLimits::new(8, 1024 * 1024, 8 * 1024 * 1024).unwrap(),
+        )
+        .unwrap();
+        journal
+            .record(&capability(), b"GET /note", &encoded)
+            .unwrap();
+        let program = D2Program::compile(
+            &declaration(),
+            &proof(),
+            StateContract::new([], ["note".into()], []).unwrap(),
+            vec![
+                D2Instruction::RequestEffect {
+                    dst: "got".into(),
+                    capability: capability(),
+                    request: b"GET /note".to_vec(),
+                    result_type: EffectResultType::Text,
+                },
+                D2Instruction::WriteState {
+                    key: "note".into(),
+                    src: "got".into(),
+                },
+            ],
+        )
+        .unwrap();
+        let state = D1Snapshot::new(
+            1,
+            BTreeMap::from([("note".into(), D1Value::Text(String::new()))]),
+        )
+        .unwrap();
+        let outcome = program
+            .execute(&state, &InputSnapshot::default(), &journal)
+            .unwrap();
+        assert_eq!(outcome.next_state["note"], D1Value::Text(text));
+
+        let mut trailing = encoded;
+        trailing.push(0);
+        assert_eq!(
+            EffectResult::decode(EffectResultType::Text, &trailing),
+            Err(D2Error::MalformedResult)
+        );
+        assert_eq!(
+            EffectResult::Text("z".repeat(64 * 1024 + 1)).encode(),
+            Err(D2Error::ResultTooLarge)
+        );
+        let mut oversized = vec![2];
+        oversized.extend_from_slice(&((64 * 1024 + 1) as u32).to_le_bytes());
+        assert_eq!(
+            EffectResult::decode(EffectResultType::Text, &oversized),
+            Err(D2Error::ResultTooLarge)
         );
     }
 
