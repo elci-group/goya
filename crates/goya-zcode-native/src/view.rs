@@ -269,7 +269,9 @@ impl SessionView {
             || self
                 .pending_controls
                 .iter()
-                .any(|(pending_command, pending_id)| pending_command == command_id && pending_id == id)
+                .any(|(pending_command, pending_id)| {
+                    pending_command == command_id && pending_id == id
+                })
         {
             return;
         }
@@ -350,10 +352,8 @@ impl SessionView {
                 } else {
                     "Resume queued inputs".into()
                 },
-                enabled: self.control_enabled(
-                    !self.workflow.queue_items.is_empty(),
-                    "queue_auto_drain",
-                ),
+                enabled: self
+                    .control_enabled(!self.workflow.queue_items.is_empty(), "queue_auto_drain"),
             },
         ];
         for (index, item) in self.workflow.queue_items.iter().take(4).enumerate() {
@@ -379,8 +379,7 @@ impl SessionView {
                     controls.push(WorkflowControl {
                         id: id.to_owned(),
                         label: option.label.clone(),
-                        enabled: self
-                            .control_enabled(!interaction.interaction_id.is_empty(), id),
+                        enabled: self.control_enabled(!interaction.interaction_id.is_empty(), id),
                     });
                 }
             }
@@ -388,10 +387,8 @@ impl SessionView {
                 controls.push(WorkflowControl {
                     id: "question_submit".into(),
                     label: "Submit answer".into(),
-                    enabled: self.control_enabled(
-                        !interaction.interaction_id.is_empty(),
-                        "question_submit",
-                    ),
+                    enabled: self
+                        .control_enabled(!interaction.interaction_id.is_empty(), "question_submit"),
                 });
             }
         }
@@ -1382,9 +1379,7 @@ mod tests {
         let pending = view.workflow_controls();
         assert!(pending
             .iter()
-            .filter(|control| {
-                control.id.starts_with("permission_") || control.id == "send"
-            })
+            .filter(|control| { control.id.starts_with("permission_") || control.id == "send" })
             .all(|control| !control.enabled));
         assert!(pending
             .iter()

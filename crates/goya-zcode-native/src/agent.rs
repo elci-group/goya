@@ -375,13 +375,17 @@ impl MonitorHandle {
                     .map(|index| format!("queue_remove_{index:02}"))
             })
             .unwrap_or_default();
-        let pending = [control_id.as_str()];
-        let pending: &[&str] = if control_id.is_empty() { &[] } else { &pending };
+        let pending_ids = [control_id.as_str()];
+        let pending_controls: &[&str] = if control_id.is_empty() {
+            &[]
+        } else {
+            &pending_ids
+        };
         self.enqueue_session_command(
             "deleteQueueItem",
             json!({"queueItemId": queue_item_id}),
             false,
-            pending,
+            pending_controls,
         )
     }
 

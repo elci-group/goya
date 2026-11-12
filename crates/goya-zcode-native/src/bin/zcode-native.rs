@@ -392,11 +392,7 @@ fn activate_workflow_control(
         }
         "send" => submit_composer_line(handle, composer, allow_send),
         "queue_auto_drain" => {
-            let auto_drain = handle
-                .view
-                .lock()
-                .ok()
-                .map(|view| view.workflow.auto_drain);
+            let auto_drain = handle.view.lock().ok().map(|view| view.workflow.auto_drain);
             let Some(auto_drain) = auto_drain else {
                 return false;
             };
@@ -1573,6 +1569,140 @@ fn headless_acceptance(store: &SceneStore) {
     );
     ok &= a11y_ok;
 
+    // Session-shell contract: queue and permission controls share one action
+    // path, keep a distinct hit target for the second allow choice, and stay
+    // disabled until the owner projection settles the in-flight command.
+    let workflow_handle = agent::MonitorHandle::new();
+    workflow_handle.set_active_session(Some("sess_workflow".into()));
+    {
+        let mut view = workflow_handle.view.lock().expect("workflow view");
+        view.sessions = vec![
+            SessionEntry {
+                session_id: "sess_workflow".into(),
+                title: "Workflow".into(),
+                status: "idle".into(),
+            },
+            SessionEntry {
+                session_id: "sess_other".into(),
+                title: "Other".into(),
+                status: "idle".into(),
+            },
+        ];
+        view.replace_workflow(WorkflowState {
+            queue_items: vec![WorkflowQueueItem {
+                queue_item_id: "queue-1".into(),
+                text: "next step".into(),
+                delivery: "queue".into(),
+            }],
+            auto_drain: true,
+            interactions: vec![WorkflowInteraction {
+                interaction_id: "permission-1".into(),
+                kind: "permission".into(),
+                title: "Allow read?".into(),
+                summary: "Read src/lib.rs".into(),
+                options: vec![
+                    WorkflowInteractionOption {
+                        option_id: "once".into(),
+                        label: "Allow once".into(),
+                        kind: "allowOnce".into(),
+                    },
+                    WorkflowInteractionOption {
+                        option_id: "always".into(),
+                        label: "Allow always".into(),
+                        kind: "allowAlways".into(),
+                    },
+                    WorkflowInteractionOption {
+                        option_id: "deny".into(),
+                        label: "Deny".into(),
+                        kind: "deny".into(),
+                    },
+                ],
+                free_text: false,
+                unsupported_reason: None,
+            }],
+        });
+    }
+    let controls = workflow_handle
+        .view
+        .lock()
+        .expect("workflow controls")
+        .workflow_controls();
+    let shell = layout_monitor_with_controls(store.get(), WIN_W_PX, WIN_H_PX, &controls);
+    let remove = shell.frame.find("queue_remove_00").unwrap().rect;
+    let allow = shell.frame.find("permission_allow").unwrap().rect;
+    let always = shell.frame.find("permission_option_01").unwrap().rect;
+    let targets_ok = remove.width > 0
+        && allow.width > 0
+        && always.width > 0
+        && hit_test(
+            &shell.frame,
+            remove.x + remove.width / 2,
+            remove.y + remove.height / 2,
+        )
+        .as_deref()
+            == Some("queue_remove_00")
+        && hit_test(
+            &shell.frame,
+            always.x + always.width / 2,
+            always.y + always.height / 2,
+        )
+        .as_deref()
+            == Some("permission_option_01");
+    let small = layout_monitor_with_controls(store.get(), 80, 48, &controls);
+    let small_ok = small.frame.find("queue_remove_00").unwrap().rect.width == 0
+        && small.frame.find("permission_allow").unwrap().rect.width == 0
+        && small.frame.find("quit").unwrap().rect.width > 0;
+    let mut shell_a11y = goya_zcode_native::a11y::MonitorA11y::new(&shell.frame);
+    {
+        let view = workflow_handle.view.lock().expect("workflow a11y");
+        shell_a11y.republish(&view, &Composer::new());
+    }
+    let names_ok = shell_a11y.nodes().iter().any(|node| {
+        node.id == "permission_allow" && node.resolved_name() == "Allow once" && node.enabled
+    }) && shell_a11y.nodes().iter().any(|node| {
+        node.id == "permission_option_01" && node.resolved_name() == "Allow always" && node.enabled
+    });
+    let keyboard_choice = workflow_handle
+        .view
+        .lock()
+        .ok()
+        .and_then(|view| keyboard_workflow_control('2', &view));
+    let mut shell_composer = Composer::new();
+    let activated = keyboard_choice.is_some_and(|id| {
+        activate_workflow_control(id, &workflow_handle, &mut shell_composer, true)
+    });
+    let command_ok = matches!(
+        workflow_handle.try_take_cmd(),
+        Some(agent::AgentCmd::SessionCommand { command_type, payload, .. })
+            if command_type == "resolveInteraction" && payload["answer"]["optionId"] == "always"
+    );
+    let repeat_blocked = !activate_workflow_control(
+        "permission_option_01",
+        &workflow_handle,
+        &mut shell_composer,
+        true,
+    ) && workflow_handle.try_take_cmd().is_none()
+        && workflow_control_enabled(&workflow_handle, "queue_remove_00");
+    {
+        let mut view = workflow_handle.view.lock().expect("settle workflow");
+        let workflow = view.workflow.clone();
+        view.replace_workflow(workflow);
+    }
+    let settled = workflow_control_enabled(&workflow_handle, "permission_option_01");
+    let shell_ok = targets_ok
+        && small_ok
+        && names_ok
+        && keyboard_choice == Some("permission_option_01")
+        && activated
+        && command_ok
+        && repeat_blocked
+        && settled;
+    println!(
+        "workflow controls hit/keyboard/a11y/pending/small-window [{}]",
+        pass_str(shell_ok)
+    );
+    ok &= shell_ok;
+
     if !ok {
         std::process::exit(1);
     }
@@ -2241,5 +2371,21 @@ mod input_event_tests {
             handle.view.lock().unwrap().workflow.interactions[0].interaction_id,
             "interaction-1"
         );
+        assert!(
+            !activate_workflow_control("permission_allow", &handle, &mut composer, true),
+            "pending answer controls cannot enqueue a second resolution"
+        );
+        assert!(handle.try_take_cmd().is_none());
+        {
+            let mut view = handle.view.lock().unwrap();
+            let workflow = view.workflow.clone();
+            view.replace_workflow(workflow);
+        }
+        assert!(activate_workflow_control(
+            "permission_allow",
+            &handle,
+            &mut composer,
+            true
+        ));
     }
 }
