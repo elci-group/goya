@@ -3415,6 +3415,11 @@ impl Dispatch<WlDataDevice, ()> for GoyaWindowInner {
             _ => {}
         }
     }
+
+    // `data_offer` is opcode 0 and creates the offer the selection event uses.
+    wayland_client::event_created_child!(GoyaWindowInner, WlDataDevice, [
+        0 => (WlDataOffer, ()),
+    ]);
 }
 
 impl Dispatch<WlDataOffer, ()> for GoyaWindowInner {
