@@ -182,6 +182,7 @@ pub fn parse_strict(source: &str) -> Result<ParsedScene, StrictParseError> {
         name: format!("syntax at line {}", error.line),
         range: SourceRange { start: 0, end: 0 },
     })?;
+    let mut properties = std::collections::BTreeSet::new();
     for entry in &parsed.entries {
         let unsupported = match entry.kind.as_str() {
             "property" if !is_known_property(&entry.name) => Some("GY-E1001"),
@@ -195,6 +196,27 @@ pub fn parse_strict(source: &str) -> Result<ParsedScene, StrictParseError> {
                 range: entry.range,
             });
         }
+        if entry.kind == "property" {
+            let canonical = entry.name.replace('-', "_");
+            let key = (entry.scene_path.clone(), canonical);
+            if !properties.insert(key) {
+                return Err(StrictParseError {
+                    code: "GY-E1003",
+                    name: entry.name.clone(),
+                    range: entry.range,
+                });
+            }
+        }
+    }
+    if let Err(error) = crate::compile_d1_interactions(&parsed.scene)
+        .and_then(|_| crate::compile_d2_interactions(&parsed.scene).map(|_| Vec::new()))
+    {
+        let entry = parsed.entries.iter().find(|entry| entry.kind == "interaction");
+        return Err(StrictParseError {
+            code: "GY-E1004",
+            name: error.to_string(),
+            range: entry.map(|entry| entry.range).unwrap_or(SourceRange { start: 0, end: 0 }),
+        });
     }
     Ok(parsed)
 }

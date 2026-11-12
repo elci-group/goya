@@ -1361,6 +1361,7 @@ name = "neptune"
 version = "0.1.8"
 dependencies = [
  "goya-lang",
+ "serde_json",
 ]
 
 [[package]]
