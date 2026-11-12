@@ -277,7 +277,13 @@ fn main() -> ExitCode {
                         serde_json::json!({"schema_version":"1", "operation":"preview", "verification":"FAILED", "diagnostics":[{"code":diagnostic.code,"message":diagnostic.message,"source_range":diagnostic.range.map(|r| serde_json::json!({"start_byte":r.start,"end_byte":r.end}))}]})
                     );
                 } else {
-                    eprintln!("{}: {}", diagnostic.code, diagnostic.message);
+                    match diagnostic.range {
+                        Some(range) => eprintln!(
+                            "{}: bytes {}..{}: {}",
+                            diagnostic.code, range.start, range.end, diagnostic.message
+                        ),
+                        None => eprintln!("{}: {}", diagnostic.code, diagnostic.message),
+                    }
                 }
                 ExitCode::FAILURE
             }

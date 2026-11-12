@@ -141,6 +141,24 @@ mod tests {
     }
 
     #[test]
+    fn interaction_identity_is_authored_and_source_mapped() {
+        let source = "@ontology app { @button go { id: \"element.go\"; } @interaction save { id: \"action.save.v1\"; trigger: button.go.activate; class: D1; state { write count: int; } input { } set count = 1; } }";
+        let parsed = parse_strict(source).unwrap();
+        assert_eq!(parsed.scene.interactions[0].name, "save");
+        assert_eq!(
+            parsed.scene.interactions[0].authored_id.as_deref(),
+            Some("action.save.v1")
+        );
+        let origin = parsed
+            .entries
+            .iter()
+            .find(|entry| entry.kind == "interaction")
+            .unwrap();
+        assert_eq!(origin.semantic_id.as_deref(), Some("action.save.v1"));
+        assert!(source[origin.range.start..origin.range.end].starts_with("@interaction save"));
+    }
+
+    #[test]
     fn strict_parser_rejects_unknown_property_at_its_utf8_origin() {
         let source = "@ontology demo { @cell root { text: \"é\"; colur: #fff } }";
         let error = parse_strict(source).unwrap_err();

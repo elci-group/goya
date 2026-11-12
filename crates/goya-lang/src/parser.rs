@@ -558,7 +558,9 @@ impl P {
         {
             self.bump();
             self.expect(TokenKind::Colon)?;
-            Some(self.expect(TokenKind::Str)?.text)
+            let value = self.expect(TokenKind::Str)?.text;
+            self.optional_semi();
+            Some(value)
         } else {
             None
         };
