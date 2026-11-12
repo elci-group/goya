@@ -51,15 +51,18 @@ pub struct SourcePreview {
 
 /// Canonical JSON package for the experimental source preview. Hashes cover
 /// the exact UTF-8 bytes of the source and the included artifact strings.
-pub fn preview_bundle(source: &str) -> Result<String, Diagnostic> {
+pub fn preview_bundle(source: &str, module: &str) -> Result<String, Diagnostic> {
+    if module.len() > 1024 || !module.ends_with(".gscene") || module.split('/').any(|part| part.is_empty() || part == "." || part == ".." || !part.bytes().all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-' | b'.'))) {
+        return Err(Diagnostic { code: "NPT-E1006", message: "module must be a canonical project-relative ASCII .gscene path".into(), range: None });
+    }
     let preview = preview_static_text(source)?;
-    let map = serde_json::json!({"schema_version":"1", "mappings":[{"declared_id":preview.declared_id,"source":{"start_byte":preview.source_range.start,"end_byte":preview.source_range.end},"swift":{"start_byte":preview.swift_range.start,"end_byte":preview.swift_range.end}}]}).to_string() + "\n";
+    let map = serde_json::json!({"schema_version":"2", "mappings":[{"semantic_id":{"module":module,"declared_id":preview.declared_id},"source":{"start_byte":preview.source_range.start,"end_byte":preview.source_range.end},"swift":{"start_byte":preview.swift_range.start,"end_byte":preview.swift_range.end}}]}).to_string() + "\n";
     let capabilities = serde_json::json!({"schema_version":"1", "profile":"source_preview", "capabilities":[{"semantic_id":"goya.text.static", "adapter":"swiftui.Text", "status":"experimental", "minimum_os":null, "test_status":"apple_validation_not_run", "fallback":"reject"}]}).to_string() + "\n";
     fn hash(bytes: &[u8]) -> String {
         format!("{:x}", Sha256::digest(bytes))
     }
     let bundle = serde_json::json!({
-        "schema_version":"1", "operation":"preview", "verification":"SOURCE_PREVIEW",
+        "schema_version":"2", "operation":"preview", "verification":"SOURCE_PREVIEW",
         "artifacts": {"App.swift":preview.swift, "source-map.json":map, "capabilities.json":capabilities},
         "report": {"schema_version":"1", "input_sha256":hash(source.as_bytes()),
             "compiler":{"neptune_version":env!("CARGO_PKG_VERSION"), "goya_language_contract":goya_lang::LANG_CONTRACT, "goya_ir_contract":goya_ir::IR_CONTRACT},
@@ -345,11 +348,15 @@ mod tests {
     #[test]
     fn preview_bundle_is_deterministic_and_hashes_artifact_bytes() {
         let source = "@ontology x { @cell root { id: \"root\" text: \"hello\" } }";
-        let first = preview_bundle(source).unwrap();
-        assert_eq!(first, preview_bundle(source).unwrap());
-        assert_eq!(first, preview_bundle(source).unwrap());
+        let first = preview_bundle(source, "app/main.gscene").unwrap();
+        assert_eq!(first, preview_bundle(source, "app/main.gscene").unwrap());
+        assert_eq!(first, preview_bundle(source, "app/main.gscene").unwrap());
         let bundle: serde_json::Value = serde_json::from_str(&first).unwrap();
         let swift = bundle["artifacts"]["App.swift"].as_str().unwrap();
+        let map: serde_json::Value = serde_json::from_str(bundle["artifacts"]["source-map.json"].as_str().unwrap()).unwrap();
+        assert_eq!(map["mappings"][0]["semantic_id"]["module"], "app/main.gscene");
+        assert_eq!(map["mappings"][0]["semantic_id"]["declared_id"], "root");
+        for invalid in ["/abs.gscene", "../x.gscene", "a//b.gscene", "a\\b.gscene", "a/./b.gscene"] { assert!(preview_bundle(source, invalid).is_err()); }
         assert_eq!(
             bundle["report"]["artifact_sha256"]["App.swift"],
             format!("{:x}", Sha256::digest(swift.as_bytes()))

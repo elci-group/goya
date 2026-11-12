@@ -51,6 +51,8 @@ pub struct NodeRecord {
     /// The IR node this scene cell became.
     pub ir_node: NodeId,
     pub role: Role,
+    /// Authored stable identity. Synthetic nodes inherit the owning identity.
+    pub semantic_id: Option<String>,
     /// Owning cell's key, if any (synthetic text rows point at their cell).
     pub parent: Option<NodeKey>,
     /// The resolved rect in millipoints, present only when the cell declared
@@ -231,6 +233,7 @@ impl<'a> Lowerer<'a> {
                         NodeRecord {
                             ir_node: text_id,
                             role: Role::Text,
+                            semantic_id: cell.authored_id.clone(),
                             parent: Some(key.clone()),
                             explicit_rect_mp: explicit(rect, has_explicit_rect),
                             children: Vec::new(),
@@ -267,6 +270,7 @@ impl<'a> Lowerer<'a> {
             NodeRecord {
                 ir_node: semantic,
                 role,
+                semantic_id: cell.authored_id.clone(),
                 parent: parent_key.map(str::to_string),
                 explicit_rect_mp: explicit(rect, has_explicit_rect),
                 children,
@@ -422,6 +426,27 @@ mod tests {
         let a = lower(&scene, 800.0, 600.0).unwrap();
         let b = lower(&scene, 800.0, 600.0).unwrap();
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn lowering_preserves_authored_ids_on_nodes_and_synthetic_text() {
+        let scene = parse(
+            "@ontology demo { @cell root { id: \"stable.root\"; text: \"Hello\"; @button go { id: \"stable.go\"; text: \"Go\" } } }",
+        )
+        .unwrap();
+        let lowered = lower(&scene, 320.0, 640.0).unwrap();
+        assert_eq!(
+            lowered.table["root"].semantic_id.as_deref(),
+            Some("stable.root")
+        );
+        assert_eq!(
+            lowered.table["root.text"].semantic_id.as_deref(),
+            Some("stable.root")
+        );
+        assert_eq!(
+            lowered.table["go"].semantic_id.as_deref(),
+            Some("stable.go")
+        );
     }
 
     #[test]
