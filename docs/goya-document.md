@@ -6,7 +6,17 @@ The document worker owns one PDF page render at a time. UI submits an explicit l
 
 P6 PPM decoding is a pure boundary: nonzero dimensions, maximum side/pixel count, maxval=255, exact raster length, no trailing bytes, and correct binary whitespace handling. The adapter expands RGB to opaque RGBA and bounds input/output before allocation. Rendering is a blocking worker operation, never a UI-loop operation. The native CLI viewer presents the result with the shared goya-wayland pixel surface API and keeps renderer work off its event loop.
 
-Acceptance: decoder corruption/overflow/header/raster tests; argument/invocation tests; opt-in synthetic PDF actual Poppler render and text extraction in sandbox; native window presentation. `extract_pdf_text` returns an ordered page-scoped word accessibility projection with PDF-space boxes. The native viewer maps pointer drag rectangles to page coordinates, highlights selected words, and copies the selection through the existing Wayland clipboard on Ctrl+C. `AccessibleTextPage::select` remains available to other UI adapters. The viewer does not yet publish the words into an Orca AT-SPI tree. Search, Office/media formats, full tagged-PDF semantics and cross-platform parser backends remain open parity cases.
+Acceptance: decoder corruption/overflow/header/raster tests; argument/invocation tests; opt-in synthetic PDF actual Poppler render and text extraction in sandbox; native window presentation. `extract_pdf_text` returns an ordered page-scoped word accessibility projection with PDF-space boxes. The native viewer maps pointer drag rectangles to page coordinates, highlights selected words, and copies the selection through the existing Wayland clipboard on Ctrl+C. `AccessibleTextPage::select` remains available to other UI adapters. The viewer does not yet publish the words into an Orca AT-SPI tree. Office/media formats, full tagged-PDF semantics and cross-platform parser backends remain open parity cases.
+
+## Word search (DROWZY-GUI-PARITY-004 D1)
+
+`AccessibleTextPage::find(query, limit)` searches words already on the page.
+It does not open the PDF, call a parser, or mutate the page. Trim the query;
+an empty query returns no matches. Comparison uses Unicode scalar lowercase.
+A match is one word or a run of adjacent words joined by a single space.
+Each match records the inclusive start and end word indexes and the joined
+text. `limit` is capped at 32. This is not Orca, ranking, or highlight
+layout. Office, tagged PDF, and cross-platform parsers remain open.
 
 ## Text selection qualification spec
 

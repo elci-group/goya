@@ -86,12 +86,35 @@ not splice queue items, clear cards, or change auto-drain locally.
 
 A second permission choice keeps its own control when the first choice
 already uses Allow. Unsupported shapes stay visible and expose no answer
-control. While any owner control is pending, further owner controls and
-answer submission do not enqueue. The next accepted projection, or the
-command outcome when no newer projection arrives, clears that pending state.
+control. Pending is presentation-only and keyed by command id. Mark the
+control before enqueue. The outcome, a session mismatch, a stale epoch, or
+an enqueue failure clears that command id only. A newer projection replaces
+workflow facts and clears pending. One command must not disable an unrelated
+owner control. Answer resolution disables the answer family and send, not
+queue removal.
 
 Headless `zcode-native` acceptance covers rendered control ids, pointer hit
 targets, keyboard activation through the same handler, accessible names,
 disabled and pending states, and the small-window layout. Project and task
 management, files, Git, PTY, settings, accounts, and phone recovery remain
 separate parity work.
+
+## Session operations (DROWZY-GUI-PARITY-004 S1)
+
+The same projection also retains optional `control` (`canStop`, `stopState`,
+`activeWorks`), `availability` (`compact`, `sendQueuedNow`, `pauseGoal`,
+`resumeGoal`), nullable `goal` (`status`, `objective`), nullable `plan`
+(up to eight items), and `backgroundWorks` (up to eight items). A snapshot
+that omits a section clears it. A `state.updated` patch replaces a section
+only when that key is present, including JSON null for `goal` and `plan`.
+A present but malformed section fails the frame and leaves the previous
+projection unchanged. `workflowRuns` is not parsed in this slice.
+
+The native client submits `stop`, `pauseGoal`, `resumeGoal`, `compact`,
+`sendQueuedNow`, `reorderQueueItem`, and `cancelBackgroundWork` through the
+existing session-command path. Reorder and send-now do not edit the local
+queue list. `editQueueItem`, session create/rename/delete, row retry/fork/
+rewind, and saved-workflow commands are not part of this slice. Control ids,
+enable rules, payloads, and keyboard keys are specified in
+`drowzy: docs/specs/goya-parity/completion-directive.md` §4. New controls must
+not take geometry away from `queue_remove_00` or `permission_option_01`.
