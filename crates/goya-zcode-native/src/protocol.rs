@@ -4,6 +4,10 @@
 //! thread feeds physical frames into this bounded adapter and sends its
 //! derived display lines to `SessionView`.
 
+use crate::view::{
+    WorkflowActiveWork, WorkflowAvailability, WorkflowBackgroundWork, WorkflowControlState,
+    WorkflowGoal, WorkflowPlanItem,
+};
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::{BuildHasher, RandomState};
@@ -528,6 +532,21 @@ fn validate_snapshot(snapshot: &Value) -> Result<()> {
     if let Some(interactions) = snapshot.get("pendingInteractions") {
         validate_pending_interactions(interactions, "snapshot.pendingInteractions")?;
     }
+    if let Some(control) = snapshot.get("control") {
+        parse_session_control(control)?;
+    }
+    if let Some(availability) = snapshot.get("availability") {
+        parse_availability(availability)?;
+    }
+    if let Some(goal) = snapshot.get("goal") {
+        parse_goal(goal)?;
+    }
+    if let Some(plan) = snapshot.get("plan") {
+        parse_plan(plan)?;
+    }
+    if let Some(works) = snapshot.get("backgroundWorks") {
+        parse_background_works(works)?;
+    }
     Ok(())
 }
 
@@ -842,6 +861,11 @@ pub struct ConversationProjection {
     /// adapter extracts safe display fields.
     queue: Value,
     pending_interactions: Vec<Value>,
+    control: WorkflowControlState,
+    availability: WorkflowAvailability,
+    goal: Option<WorkflowGoal>,
+    plan: Option<Vec<WorkflowPlanItem>>,
+    background_works: Vec<WorkflowBackgroundWork>,
     pub status: String,
 }
 
@@ -857,6 +881,11 @@ impl ConversationProjection {
             rows: BTreeMap::new(),
             queue: json!({"items": [], "autoDrain": true}),
             pending_interactions: Vec::new(),
+            control: WorkflowControlState::default(),
+            availability: WorkflowAvailability::default(),
+            goal: None,
+            plan: None,
+            background_works: Vec::new(),
             status: "subscribing".into(),
         }
     }
@@ -912,6 +941,26 @@ impl ConversationProjection {
                     .cloned()
                     .unwrap_or_default();
                 self.status = snapshot_status(snapshot);
+                self.control = match snapshot.get("control") {
+                    Some(control) => parse_session_control(control)?,
+                    None => WorkflowControlState::default(),
+                };
+                self.availability = match snapshot.get("availability") {
+                    Some(availability) => parse_availability(availability)?,
+                    None => WorkflowAvailability::default(),
+                };
+                self.goal = match snapshot.get("goal") {
+                    Some(goal) => parse_goal(goal)?,
+                    None => None,
+                };
+                self.plan = match snapshot.get("plan") {
+                    Some(plan) => parse_plan(plan)?,
+                    None => None,
+                };
+                self.background_works = match snapshot.get("backgroundWorks") {
+                    Some(works) => parse_background_works(works)?,
+                    None => Vec::new(),
+                };
             }
             Some("deltas") => {
                 if self.seq != from {
@@ -987,19 +1036,34 @@ impl ConversationProjection {
                 self.rows.retain(|id, _| *id < from);
             }
             "state.updated" => {
-                if let Some(revision) = delta["patch"]["revision"].as_u64() {
+                let patch = &delta["patch"];
+                if let Some(revision) = patch.get("revision").and_then(Value::as_u64) {
                     self.revision = revision;
                 }
-                if let Some(control) = delta["patch"].get("control") {
+                if let Some(control) = patch.get("control") {
+                    let parsed = parse_session_control(control)?;
                     self.status = control_status(control);
+                    self.control = parsed;
                 }
-                if let Some(queue) = delta["patch"].get("queue") {
+                if let Some(queue) = patch.get("queue") {
                     validate_workflow_queue(queue, "delta.queue")?;
                     self.queue = queue.clone();
                 }
-                if let Some(interactions) = delta["patch"].get("pendingInteractions") {
+                if let Some(interactions) = patch.get("pendingInteractions") {
                     validate_pending_interactions(interactions, "delta.pendingInteractions")?;
                     self.pending_interactions = interactions.as_array().unwrap().clone();
+                }
+                if let Some(availability) = patch.get("availability") {
+                    self.availability = parse_availability(availability)?;
+                }
+                if let Some(goal) = patch.get("goal") {
+                    self.goal = parse_goal(goal)?;
+                }
+                if let Some(plan) = patch.get("plan") {
+                    self.plan = parse_plan(plan)?;
+                }
+                if let Some(works) = patch.get("backgroundWorks") {
+                    self.background_works = parse_background_works(works)?;
                 }
             }
             "pluginUi.resourceUpdated"
@@ -1117,6 +1181,11 @@ impl ConversationProjection {
             queue_items,
             auto_drain: self.queue["autoDrain"].as_bool().unwrap_or(true),
             interactions,
+            control: self.control.clone(),
+            availability: self.availability.clone(),
+            goal: self.goal.clone(),
+            plan: self.plan.clone(),
+            background_works: self.background_works.clone(),
         }
     }
     pub fn first_row_id(&self) -> Option<u64> {
