@@ -1224,6 +1224,20 @@ mod tests {
     }
 
     #[test]
+    fn geometry_inspector_lists_unicode_names_the_parser_accepts() {
+        let source = "@ontology demo { @button café { position: (1, 2, 0) extent: (10, 20, 0) } @button 确定 { position: (3, 4, 0) extent: (30, 40, 0) } }";
+        let project = SceneProject::from_source(source, Viewport::default())
+            .expect("scene parser accepts Unicode letters in node names");
+        let html = render_editor(&project, "<p>preview</p>", "goya-v1-test");
+        assert!(html.contains("data-name=\"café\""));
+        assert!(html.contains("data-name=\"确定\""));
+        assert!(html.contains("data-kind=\"button\""));
+        assert!(html.contains(
+            "/^@(cell|button|input)\\s+([\\p{L}_][\\p{L}\\p{N}_-]*)\\s*\\{/u"
+        ));
+    }
+
+    #[test]
     fn preview_routes_and_escapes_scene_content() {
         let project = SceneProject::from_source("@ontology demo { @button ok { position: (0, 0, 0) extent: (80, 40, 0) text: \"<script>\" } }", Viewport::default()).unwrap();
         let html = render_html(&project);
