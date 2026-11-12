@@ -10,6 +10,7 @@ goya-layout.workspace = true
 goya-change.workspace = true
 goya-csr.workspace = true
 goya-hcar.workspace = true
+goya-window-management.workspace = true
 wayland-client = "0.31"
 wayland-protocols = { version = "0.32", features = ["client", "unstable"] }
 rustix = { version = "0.38", features = ["fs", "mm", "pipe", "std"] }

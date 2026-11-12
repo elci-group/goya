@@ -1,6 +1,6 @@
 //! Linux window-manager profiles. Wayland clients can request maximize, but
 //! minimize and tab creation are not standardized xdg-shell operations.
-use super::{WindowAction, WindowCapability, WindowManagementError, WindowManager};
+use goya_window_management::{WindowAction, WindowCapability, WindowManagementError, WindowManager};
 use std::process::Command;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

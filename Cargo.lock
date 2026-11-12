@@ -987,6 +987,7 @@ dependencies = [
  "goya-hcar",
  "goya-layout",
  "goya-runtime",
+ "goya-window-management",
  "rustix 0.38.44",
  "unicode-segmentation",
  "wayland-client",
@@ -1009,6 +1010,10 @@ dependencies = [
  "tungstenite",
  "url",
 ]
+
+[[package]]
+name = "goya-window-management"
+version = "0.1.8"
 
 [[package]]
 name = "goya-x402"

@@ -26,6 +26,7 @@ members = [
     "crates/goya-artifact",
     "crates/goya-watermark",
     "crates/goya-wayland",
+    "crates/goya-window-management",
     "crates/goya-lang",
     "crates/goya-change",
     "crates/goya-rars",
@@ -80,6 +81,7 @@ goya-settlement = { path = "crates/goya-settlement" }
 goya-artifact = { path = "crates/goya-artifact" }
 goya-watermark = { path = "crates/goya-watermark" }
 goya-wayland = { path = "crates/goya-wayland" }
+goya-window-management = { path = "crates/goya-window-management" }
 goya-lang = { path = "crates/goya-lang" }
 goya-change = { path = "crates/goya-change" }
 goya-rars = { path = "crates/goya-rars" }
