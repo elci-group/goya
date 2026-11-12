@@ -1076,6 +1076,9 @@ struct GoyaWindowInner {
     buffers: Option<BufferPair>,
     region: Option<WlRegion>,
     ack_serial: u32,
+    /// Serial from the newest `xdg_surface.configure` that still needs an ack
+    /// on the next commit. A resize or activation stays pending until then.
+    pending_configure: Option<u32>,
     /// Explicitly opt into general-core parallel tile raster. No core
     /// affinity is requested; Linux remains responsible for placement.
     parallel_raster: bool,
@@ -1142,6 +1145,7 @@ impl GoyaWindowInner {
             buffers: None,
             region: None,
             ack_serial: 0,
+            pending_configure: None,
             parallel_raster: false,
             background_rgb: [0, 0, 0],
             extended_text_input_events: false,
@@ -1287,6 +1291,7 @@ impl GoyaWindow {
             return Err(WaylandError::MissingGlobal("configure"));
         }
         xdg_surface.ack_configure(state.ack_serial);
+        state.pending_configure = None;
         surface.commit();
 
         // Pointer and keyboard, if the seat has them.
@@ -1904,6 +1909,11 @@ impl GoyaWindow {
         match damage {
             Some((dx, dy, dw, dh)) => surface.damage(dx, dy, dw, dh),
             None => surface.damage(0, 0, self.state.width, self.state.height),
+        }
+        if let Some(serial) = self.state.pending_configure.take() {
+            if let Some(xdg_surface) = &self.state.xdg_surface {
+                xdg_surface.ack_configure(serial);
+            }
         }
         surface.commit();
         pair.slots[idx].released = false;
@@ -3268,13 +3278,22 @@ impl Dispatch<WlShmPool, ()> for GoyaWindowInner {
 
 impl Dispatch<WlBuffer, ()> for GoyaWindowInner {
     fn event(
-        _: &mut Self,
-        _: &WlBuffer,
-        _: wayland_client::protocol::wl_buffer::Event,
+        state: &mut Self,
+        buffer: &WlBuffer,
+        event: wayland_client::protocol::wl_buffer::Event,
         _: &(),
         _: &Connection,
         _: &QueueHandle<Self>,
     ) {
+        if let wayland_client::protocol::wl_buffer::Event::Release = event {
+            if let Some(pair) = state.buffers.as_mut() {
+                for slot in &mut pair.slots {
+                    if &slot.buffer == buffer {
+                        slot.released = true;
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -3320,6 +3339,7 @@ impl Dispatch<XdgSurface, ()> for GoyaWindowInner {
         if let xdg_surface::Event::Configure { serial } = event {
             state.configured = true;
             state.ack_serial = serial;
+            state.pending_configure = Some(serial);
             state.events.push(PlatformEvent::Configured);
         }
     }
@@ -3767,15 +3787,12 @@ fn keymap_state_from_fd(
     {
         return None;
     }
-    let mut file = File::from(fd);
-    let mut bytes = Vec::with_capacity(size as usize);
-    file.by_ref()
-        .take(u64::from(size))
-        .read_to_end(&mut bytes)
-        .ok()?;
-    if bytes.len() != size as usize {
-        return None;
-    }
+    // The descriptor's shared offset is not part of the Wayland keymap
+    // contract. Read from byte zero without changing that offset.
+    use std::os::unix::fs::FileExt;
+    let file = File::from(fd);
+    let mut bytes = vec![0; size as usize];
+    file.read_exact_at(&mut bytes, 0).ok()?;
     while bytes.last() == Some(&0) {
         bytes.pop();
     }
@@ -3863,7 +3880,7 @@ fn key_chars_with_compose(
     ctrl: bool,
 ) -> Vec<char> {
     let Some(state) = xkb_state else {
-        return Vec::new();
+        return key_chars(None, evdev_keycode, shift, ctrl);
     };
     let Some(keycode) = evdev_keycode
         .checked_add(8)
@@ -4386,10 +4403,22 @@ mod key_tests {
     }
 
     #[test]
+    fn compose_without_keymap_preserves_keyboard_fallback() {
+        assert_eq!(
+            key_chars_with_compose(None, None, 16, false, false),
+            vec!['q']
+        );
+        assert_eq!(
+            key_chars_with_compose(None, None, 28, false, false),
+            vec!['\n']
+        );
+    }
+
+    #[test]
     fn compositor_keymap_fd_is_parsed_and_oversized_maps_are_rejected() {
         use super::{keymap_state_from_fd, wl_keyboard, WEnum, MAX_XKB_KEYMAP_BYTES};
         use std::fs::File;
-        use std::io::{Seek, SeekFrom, Write};
+        use std::io::Write;
         use xkbcommon::xkb::{self, Context, Keymap};
 
         let context = Context::new(xkb::CONTEXT_NO_FLAGS);
@@ -4408,7 +4437,7 @@ mod key_tests {
             rustix::fs::memfd_create("goya-xkb-test", rustix::fs::MemfdFlags::CLOEXEC).unwrap(),
         );
         file.write_all(keymap_text.as_bytes()).unwrap();
-        file.seek(SeekFrom::Start(0)).unwrap();
+        // Leave the shared offset at EOF, as a compositor is allowed to do.
         let state = keymap_state_from_fd(
             &context,
             WEnum::Value(wl_keyboard::KeymapFormat::XkbV1),
