@@ -1,4 +1,29 @@
-use std::{env, fs::File, io::Read, process::ExitCode};
+use std::{env, fs::File, io::{self, BufRead, Read, Write}, process::ExitCode};
+
+fn serve() -> ExitCode {
+    let stdin = io::stdin();
+    let mut input = stdin.lock();
+    let stdout = io::stdout();
+    let mut output = stdout.lock();
+    let mut session = neptune::service::Session::default();
+    loop {
+        let mut line = Vec::new();
+        let count = match (&mut input).take(neptune::service::MAX_REQUEST_BYTES + 1).read_until(b'\n', &mut line) {
+            Ok(count) => count,
+            Err(_) => return ExitCode::FAILURE,
+        };
+        if count == 0 { return ExitCode::SUCCESS; }
+        if count as u64 > neptune::service::MAX_REQUEST_BYTES || line.last() != Some(&b'\n') {
+            let _ = writeln!(output, "{}", serde_json::json!({"schema_version":"1","job_id":null,"sequence":1,"stage":"protocol","status":"FAIL","diagnostics":[{"code":"NPT-E0001","message":"request too large or missing newline"}]}));
+            return ExitCode::FAILURE;
+        }
+        let response = match serde_json::from_slice::<serde_json::Value>(&line) {
+            Ok(request) => session.handle(&request),
+            Err(_) => serde_json::json!({"schema_version":"1","job_id":null,"sequence":1,"stage":"protocol","status":"FAIL","diagnostics":[{"code":"NPT-E0001","message":"invalid JSON"}]}),
+        };
+        if writeln!(output, "{response}").and_then(|_| output.flush()).is_err() { return ExitCode::FAILURE; }
+    }
+}
 
 fn input_error(json: bool, operation: &std::ffi::OsStr, code: &str, message: &str) -> ExitCode {
     if json {
@@ -14,6 +39,7 @@ fn input_error(json: bool, operation: &std::ffi::OsStr, code: &str, message: &st
 
 fn main() -> ExitCode {
     let args: Vec<_> = env::args_os().collect();
+    if args.len() == 2 && args[1] == "serve" { return serve(); }
     if args.len() == 3 && args[1] == "explain" {
         let description = match args[2].to_str() {
             Some("NPT-E1000") => "Input could not be read. Check the path and file permissions.",
