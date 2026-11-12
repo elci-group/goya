@@ -110,5 +110,12 @@ mod tests {
             session.handle(&json!({"schema_version":"2","job_id":"three"}))["status"],
             "FAIL"
         );
+        let preview = session.handle(&json!({"schema_version":"1","job_id":"four","operation":"preview","module":"ui/main.gscene","source":"@ontology x { @cell root { id: \"root\" text: \"Hi\" } }"}));
+        assert_eq!(preview["status"], "PASS");
+        assert_eq!(preview["result"]["schema_version"], "2");
+        let missing_module = session.handle(
+            &json!({"schema_version":"1","job_id":"five","operation":"preview","source":"x"}),
+        );
+        assert_eq!(missing_module["status"], "FAIL");
     }
 }
