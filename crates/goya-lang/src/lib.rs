@@ -109,6 +109,23 @@ mod tests {
         );
     }
 
+    #[test]
+    fn strict_parser_rejects_duplicate_properties_with_second_origin() {
+        let source = "@ontology demo { @cell root { text: \"a\"; text: \"b\" } }";
+        let error = parse_strict(source).unwrap_err();
+        assert_eq!(error.code, "GY-E1003");
+        assert_eq!(&source[error.range.start..error.range.end], "text: \"b\"");
+    }
+
+    #[test]
+    fn strict_parser_rejects_invalid_authored_action() {
+        let source = "@ontology demo { @button go { text: \"Go\" } @interaction save { trigger: button.missing.activate; class: D1; state { write x: int; } input { } set x = 1; } }";
+        let error = parse_strict(source).unwrap_err();
+        assert_eq!(error.code, "GY-E1004");
+        assert!(error.name.contains("TriggerNotFound"));
+        assert!(source[error.range.start..error.range.end].starts_with("@interaction save"));
+    }
+
     const HELLO: &str = "\
 @ontology hello {
     @cell root {

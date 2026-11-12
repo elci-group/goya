@@ -2,8 +2,13 @@ use std::{env, fs::File, io::Read, process::ExitCode};
 
 fn input_error(json: bool, operation: &std::ffi::OsStr, code: &str, message: &str) -> ExitCode {
     if json {
-        println!("{}", serde_json::json!({"schema_version":"1", "operation":operation.to_string_lossy(), "target":"ios", "stages":{"goya_parse":"NOT_RUN", "ios_validation":"NOT_RUN", "apple_validation":"NOT_RUN"}, "diagnostics":[{"code":code, "severity":"error", "stage":"ingest", "message":message, "source_range":null}]}));
-    } else { eprintln!("{code}: {message}"); }
+        println!(
+            "{}",
+            serde_json::json!({"schema_version":"1", "operation":operation.to_string_lossy(), "target":"ios", "stages":{"goya_parse":"NOT_RUN", "ios_validation":"NOT_RUN", "apple_validation":"NOT_RUN"}, "diagnostics":[{"code":code, "severity":"error", "stage":"ingest", "message":message, "source_range":null}]})
+        );
+    } else {
+        eprintln!("{code}: {message}");
+    }
     ExitCode::FAILURE
 }
 
@@ -29,10 +34,18 @@ fn main() -> ExitCode {
     let mut json = false;
     let mut target = false;
     for option in args[3..].chunks(2) {
-        if option.len() != 2 { eprintln!("missing option value"); return ExitCode::from(2); }
-        if option[0] == "--format" && option[1] == "json" && !json { json = true; }
-        else if option[0] == "--target" && option[1] == "ios" && !target { target = true; }
-        else { eprintln!("unknown or duplicate option"); return ExitCode::from(2); }
+        if option.len() != 2 {
+            eprintln!("missing option value");
+            return ExitCode::from(2);
+        }
+        if option[0] == "--format" && option[1] == "json" && !json {
+            json = true;
+        } else if option[0] == "--target" && option[1] == "ios" && !target {
+            target = true;
+        } else {
+            eprintln!("unknown or duplicate option");
+            return ExitCode::from(2);
+        }
     }
     let mut bytes = Vec::new();
     match File::open(&args[2]).and_then(|file| {
@@ -60,8 +73,15 @@ fn main() -> ExitCode {
                     "code": d.code, "severity": "error", "stage": "ios_validation", "message": d.message,
                     "source_range": d.range.map(|r| serde_json::json!({"start_byte": r.start, "end_byte": r.end}))
                 })).collect();
-                println!("{}", serde_json::json!({"schema_version": "1", "operation": args[1].to_string_lossy(), "target": "ios", "stages": {"goya_parse": "PASS", "ios_validation": "FAIL", "apple_validation": "NOT_RUN"}, "diagnostics": items}));
-                return if args[1] == "inspect" { ExitCode::SUCCESS } else { ExitCode::FAILURE };
+                println!(
+                    "{}",
+                    serde_json::json!({"schema_version": "1", "operation": args[1].to_string_lossy(), "target": "ios", "stages": {"goya_parse": "PASS", "ios_validation": "FAIL", "apple_validation": "NOT_RUN"}, "diagnostics": items})
+                );
+                return if args[1] == "inspect" {
+                    ExitCode::SUCCESS
+                } else {
+                    ExitCode::FAILURE
+                };
             }
             println!("Goya parse: passed; iOS validation: failed; Apple validation: not run");
             for diagnostic in diagnostics {
@@ -78,7 +98,10 @@ fn main() -> ExitCode {
             }
         }
         Err(diagnostic) if json => {
-            println!("{}", serde_json::json!({"schema_version": "1", "operation": args[1].to_string_lossy(), "target": "ios", "stages": {"goya_parse": "FAIL", "ios_validation": "NOT_RUN", "apple_validation": "NOT_RUN"}, "diagnostics": [{"code": diagnostic.code, "severity": "error", "stage": "frontend", "message": diagnostic.message, "source_range": diagnostic.range.map(|r| serde_json::json!({"start_byte": r.start, "end_byte": r.end}))}]}));
+            println!(
+                "{}",
+                serde_json::json!({"schema_version": "1", "operation": args[1].to_string_lossy(), "target": "ios", "stages": {"goya_parse": "FAIL", "ios_validation": "NOT_RUN", "apple_validation": "NOT_RUN"}, "diagnostics": [{"code": diagnostic.code, "severity": "error", "stage": "frontend", "message": diagnostic.message, "source_range": diagnostic.range.map(|r| serde_json::json!({"start_byte": r.start, "end_byte": r.end}))}]})
+            );
         }
         Err(diagnostic) => match diagnostic.range {
             Some(range) => eprintln!(

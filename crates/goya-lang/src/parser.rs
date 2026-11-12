@@ -209,13 +209,18 @@ pub fn parse_strict(source: &str) -> Result<ParsedScene, StrictParseError> {
         }
     }
     if let Err(error) = crate::compile_d1_interactions(&parsed.scene)
-        .and_then(|_| crate::compile_d2_interactions(&parsed.scene).map(|_| Vec::new()))
+        .and_then(|_| crate::compile_d2_interactions(&parsed.scene).map(|_| ()))
     {
-        let entry = parsed.entries.iter().find(|entry| entry.kind == "interaction");
+        let entry = parsed
+            .entries
+            .iter()
+            .find(|entry| entry.kind == "interaction");
         return Err(StrictParseError {
             code: "GY-E1004",
             name: error.to_string(),
-            range: entry.map(|entry| entry.range).unwrap_or(SourceRange { start: 0, end: 0 }),
+            range: entry
+                .map(|entry| entry.range)
+                .unwrap_or(SourceRange { start: 0, end: 0 }),
         });
     }
     Ok(parsed)
