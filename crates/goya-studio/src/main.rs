@@ -475,7 +475,7 @@ fn render_editor(project: &SceneProject, preview: &str, revision: &str) -> Strin
     html.push_str(&escape_html(source));
     html.push_str("</textarea><div><button id=\"apply\" type=\"button\">Apply geometry</button> <button id=\"update\">Update preview</button> <button id=\"save\" type=\"button\">Save scene</button> <button id=\"download\" type=\"button\">Download source</button> <button id=\"undo\" type=\"button\" disabled>Undo</button> <button id=\"redo\" type=\"button\" disabled>Redo</button> <button id=\"error-line\" type=\"button\" hidden>Go to error line</button><output id=\"status\" aria-live=\"polite\"></output></div></section><section aria-labelledby=\"preview-label\"><label id=\"preview-label\">Preview</label><iframe id=\"preview\" title=\"Preview canvas; drag selected nodes to reposition\" sandbox=\"allow-scripts\"></iframe></section></main><script>const source=document.querySelector('#source'),frame=document.querySelector('#preview'),status=document.querySelector('#status'),node=document.querySelector('#node');frame.srcdoc='");
     html.push_str(&escape_js_string(preview));
-    html.push_str("';const fields=['x','y','w','h'].map(id=>document.querySelector('#'+id));function loadNode(){const o=node.selectedOptions[0];document.querySelector('#pos-mode').value=o.dataset.posKey;document.querySelector('#extent-mode').value=o.dataset.extentKey;fields.forEach((f,i)=>f.value=[o.dataset.x,o.dataset.y,o.dataset.w,o.dataset.h][i]);}node.onchange=loadNode;loadNode();function blocks(text){const out=[];function closeAt(open){let d=1,q=false,esc=false,line=false;for(let i=open+1;i<text.length;i++){const c=text[i],n=text[i+1];if(line){if(c==='\\n')line=false;continue;}if(q){if(esc)esc=false;else if(c==='\\\\')esc=true;else if(c==='\\\"')q=false;continue;}if(c==='\\\"')q=true;else if(c==='/'&&n==='/'){line=true;i++;}else if(c==='{')d++;else if(c==='}'&&--d===0)return i;}return -1;}function scan(from,to){let q=false,esc=false,line=false;for(let i=from;i<to;i++){const c=text[i],n=text[i+1];if(line){if(c==='\\n')line=false;continue;}if(q){if(esc)esc=false;else if(c==='\\\\')esc=true;else if(c==='\\\"')q=false;continue;}if(c==='\\\"'){q=true;continue;}if(c==='/'&&n==='/'){line=true;i++;continue;}if(c==='@'){const m=/^@(cell|button|input)\\s+([A-Za-z_][A-Za-z0-9_-]*)\\s*\\{/.exec(text.slice(i));if(m){const open=i+m[0].lastIndexOf('{'),end=closeAt(open);if(end<0)throw Error('Unclosed scene node');out.push({open,end});scan(open+1,end);i=end;}}}}scan(0,text.length);return out;}function editBlock(text,b,pk,ek,vals){let body=text.slice(b.open+1,b.end),lines=body.split('\\n'),depth=1,pDone=false,eDone=false;for(let i=0;i<lines.length;i++){const line=lines[i];if(depth===1){const m=/^(\\s*)(position(?:_p)?|extent(?:_p)?)\\s*:\\s*.*$/.exec(line);if(m){const k=m[2],isP=k.startsWith('position');if(isP){if(!pDone){lines[i]=m[1]+pk+': ('+vals[0]+', '+vals[1]+', 0)';pDone=true;}else lines[i]='';}else if(!eDone){lines[i]=m[1]+ek+': ('+vals[2]+', '+vals[3]+', 0)';eDone=true;}else lines[i]='';}}let q=false,esc=false,comment=false;for(let j=0;j<line.length;j++){const c=line[j],n=line[j+1];if(comment)break;if(q){if(esc)esc=false;else if(c==='\\\\')esc=true;else if(c==='\\\"')q=false;}else if(c==='\\\"')q=true;else if(c==='/'&&n==='/'){comment=true;break;}else if(c==='{')depth++;else if(c==='}')depth--;}}const indent=(lines.find(l=>l.trim())||'').match(/^\\s*/)[0]+'    ';if(!pDone)lines.splice(Math.max(0,lines.length-1),0,indent+pk+': ('+vals[0]+', '+vals[1]+', 0)');if(!eDone)lines.splice(Math.max(0,lines.length-1),0,indent+ek+': ('+vals[2]+', '+vals[3]+', 0)');return text.slice(0,b.open+1)+lines.join('\\n')+text.slice(b.end);}document.querySelector('#apply').onclick=()=>{const o=node.selectedOptions[0],v=fields.map(f=>f.valueAsNumber),pm=document.querySelector('#pos-mode').value,em=document.querySelector('#extent-mode').value;if(v.some(x=>!Number.isFinite(x))){status.textContent='Enter four finite geometry values';return;}if((pm==='position_p'&&(v[0]<0||v[0]>1||v[1]<0||v[1]>1))||(em==='extent_p'&&(v[2]<0||v[2]>1||v[3]<0||v[3]>1))||v[2]<0||v[3]<0||v.some(x=>Math.abs(x)>32768)){status.textContent='Geometry is outside the supported range';return;}try{if(new TextEncoder().encode(source.value).length>131072)throw Error('Scene exceeds the 128 KiB limit');const bs=blocks(source.value),b=bs[Number(o.value)];if(!b)throw Error('Could not match selected scene node');source.value=editBlock(source.value,b,pm,em,v);status.textContent='Geometry updated in memory. Download source to keep it.';}catch(e){const reload='Scene structure changed; reload the editor before using the inspector';status.textContent=e.message==='Scene exceeds the 128 KiB limit'?e.message:(e.message===reload||e.message==='Could not match selected scene node'?reload:'Could not safely update this node');}};document.querySelector('#update').onclick=async e=>{e.preventDefault();status.textContent='Validating…';try{const r=await fetch('/preview',{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:source.value});frame.srcdoc=await r.text();status.textContent=r.ok?'Preview updated':'Validation failed';}catch(e){status.textContent='Preview request failed';}};document.querySelector('#download').onclick=()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([source.value],{type:'text/plain'}));a.download='scene.gscene';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);};</script></body></html>");
+    html.push_str("';const fields=['x','y','w','h'].map(id=>document.querySelector('#'+id));function loadNode(){const o=node.selectedOptions[0];document.querySelector('#pos-mode').value=o.dataset.posKey;document.querySelector('#extent-mode').value=o.dataset.extentKey;fields.forEach((f,i)=>f.value=[o.dataset.x,o.dataset.y,o.dataset.w,o.dataset.h][i]);}node.onchange=loadNode;loadNode();function blocks(text){const out=[];function closeAt(open){let d=1,q=false,esc=false,line=false;for(let i=open+1;i<text.length;i++){const c=text[i],n=text[i+1];if(line){if(c==='\\n')line=false;continue;}if(q){if(esc)esc=false;else if(c==='\\\\')esc=true;else if(c==='\\\"')q=false;continue;}if(c==='\\\"')q=true;else if(c==='/'&&n==='/'){line=true;i++;}else if(c==='{')d++;else if(c==='}'&&--d===0)return i;}return -1;}function scan(from,to){let q=false,esc=false,line=false;for(let i=from;i<to;i++){const c=text[i],n=text[i+1];if(line){if(c==='\\n')line=false;continue;}if(q){if(esc)esc=false;else if(c==='\\\\')esc=true;else if(c==='\\\"')q=false;continue;}if(c==='\\\"'){q=true;continue;}if(c==='/'&&n==='/'){line=true;i++;continue;}if(c==='@'){const m=/^@(cell|button|input)\\s+([A-Za-z_][A-Za-z0-9_-]*)\\s*\\{/.exec(text.slice(i));if(m){const open=i+m[0].lastIndexOf('{'),end=closeAt(open);if(end<0)throw Error('Unclosed scene node');out.push({open,end});scan(open+1,end);i=end;}}}}scan(0,text.length);return out;}function editBlock(text,b,pk,ek,vals){let body=text.slice(b.open+1,b.end),lines=body.split('\\n'),depth=1,pDone=false,eDone=false;function rewriteGeometry(line){let rebuilt='',i=0,q=false,esc=false,comment=false,localDepth=0;while(i<line.length){const c=line[i],n=line[i+1];if(comment){rebuilt+=c;i++;continue;}if(q){rebuilt+=c;if(esc)esc=false;else if(c==='\\\\')esc=true;else if(c==='\"')q=false;i++;continue;}if(c==='\"'){q=true;rebuilt+=c;i++;continue;}if(c==='/'&&n==='/'){comment=true;rebuilt+=c;i++;continue;}if(c==='{'){localDepth++;rebuilt+=c;i++;continue;}if(c==='}'){localDepth=Math.max(0,localDepth-1);rebuilt+=c;i++;continue;}if(localDepth===0){const m=/^(position_p|position|extent_p|extent)\\s*:\\s*\\(([^)]*)\\)/.exec(line.slice(i));if(m){const isP=m[1].startsWith('position');const parts=m[2].split(',');const z=(parts.length>2?parts[2]:'0').trim()||'0';if(isP){if(!pDone){rebuilt+=pk+': ('+vals[0]+', '+vals[1]+', '+z+')';pDone=true;i+=m[0].length;continue;}}else if(positionOnly){rebuilt+=m[0];i+=m[0].length;continue;}else if(!eDone){rebuilt+=ek+': ('+vals[2]+', '+vals[3]+', '+z+')';eDone=true;i+=m[0].length;continue;}let end=i+m[0].length;const semi=/^\\s*;/.exec(line.slice(end));if(semi)end+=semi[0].length;i=end;continue;}}rebuilt+=c;i++;}return rebuilt;}for(let i=0;i<lines.length;i++){const line=lines[i];if(depth===1)lines[i]=rewriteGeometry(line);let q=false,esc=false,comment=false;for(let j=0;j<line.length;j++){const c=line[j],n=line[j+1];if(comment)break;if(q){if(esc)esc=false;else if(c==='\\\\')esc=true;else if(c==='\"')q=false;}else if(c==='\"')q=true;else if(c==='/'&&n==='/'){comment=true;break;}else if(c==='{')depth++;else if(c==='}')depth--;}}const indent=(lines.find(l=>l.trim())||'').match(/^\\s*/)[0]+'    ';if(!pDone)lines.splice(Math.max(0,lines.length-1),0,indent+pk+': ('+vals[0]+', '+vals[1]+', 0)');if(!eDone&&!positionOnly)lines.splice(Math.max(0,lines.length-1),0,indent+ek+': ('+vals[2]+', '+vals[3]+', 0)');return text.slice(0,b.open+1)+lines.join('\\n')+text.slice(b.end);}document.querySelector('#apply').onclick=()=>{const o=node.selectedOptions[0],v=fields.map(f=>f.valueAsNumber),pm=document.querySelector('#pos-mode').value,em=document.querySelector('#extent-mode').value;if(v.some(x=>!Number.isFinite(x))){status.textContent='Enter four finite geometry values';return;}if((pm==='position_p'&&(v[0]<0||v[0]>1||v[1]<0||v[1]>1))||(em==='extent_p'&&(v[2]<0||v[2]>1||v[3]<0||v[3]>1))||v[2]<0||v[3]<0||v.some(x=>Math.abs(x)>32768)){status.textContent='Geometry is outside the supported range';return;}try{if(new TextEncoder().encode(source.value).length>131072)throw Error('Scene exceeds the 128 KiB limit');const bs=blocks(source.value),b=bs[Number(o.value)];if(!b)throw Error('Could not match selected scene node');source.value=editBlock(source.value,b,pm,em,v);status.textContent='Geometry updated in memory. Download source to keep it.';}catch(e){const reload='Scene structure changed; reload the editor before using the inspector';status.textContent=e.message==='Scene exceeds the 128 KiB limit'?e.message:(e.message===reload||e.message==='Could not match selected scene node'?reload:'Could not safely update this node');}};document.querySelector('#update').onclick=async e=>{e.preventDefault();status.textContent='Validating…';try{const r=await fetch('/preview',{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:source.value});frame.srcdoc=await r.text();status.textContent=r.ok?'Preview updated':'Validation failed';}catch(e){status.textContent='Preview request failed';}};document.querySelector('#download').onclick=()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([source.value],{type:'text/plain'}));a.download='scene.gscene';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);};</script></body></html>");
     html = html
         .replace(
             "node.onchange=loadNode;loadNode();",
@@ -485,11 +485,6 @@ fn render_editor(project: &SceneProject, preview: &str, revision: &str) -> Strin
             "function editBlock(text,b,pk,ek,vals){",
             "let dragPositionOnly=false;function editBlock(text,b,pk,ek,vals,positionOnly=false){",
         )
-        .replace(
-            "}else if(!eDone){",
-            "}else if(positionOnly){}else if(!eDone){",
-        )
-        .replace("if(!eDone)lines.splice(", "if(!eDone&&!positionOnly)lines.splice(")
         .replace("source.value=editBlock(source.value,b,pm,em,v);", "source.value=editBlock(source.value,b,pm,em,v,dragPositionOnly);")
         .replace(
             "document.querySelector('#apply').click();});",
@@ -1264,7 +1259,9 @@ mod tests {
         assert!(initial.2.contains("sandbox=\"allow-scripts\""));
         assert!(initial.2.contains("e.source!==frame.contentWindow"));
         assert!(initial.2.contains("dragPositionOnly=true"));
-        assert!(initial.2.contains("positionOnly){}else if(!eDone)"));
+        assert!(initial
+            .2
+            .contains("else if(positionOnly){rebuilt+=m[0];"));
         assert!(
             initial.2.contains(
                 "source.value=editBlock(source.value,b,pm,em,v,dragPositionOnly);inspectorSource=source.value;"
@@ -1503,5 +1500,143 @@ mod tests {
 
         assert_eq!(fs::read_dir(&directory).unwrap().count(), 0);
         fs::remove_dir(&directory).unwrap();
+    }
+
+    /// `editBlock` must change only the selected node's position and extent.
+    /// One-line scene nodes keep sibling properties on that same line.
+    #[test]
+    fn geometry_edit_updates_only_geometry_properties() {
+        let source = "@ontology demo { @button ok { text: \"keep position: (9, 9, 9)\"; fill: #112233; position: (1, 2, 8); extent: (4, 5, 7) } }";
+        let project = SceneProject::from_source(source, Viewport::default()).unwrap();
+        let html = render_editor(&project, "<p></p>", "rev");
+        let start = html
+            .find("function blocks(text)")
+            .expect("block scanner");
+        let end = start
+            + html[start..]
+                .find("document.querySelector('#apply').onclick")
+                .expect("apply handler");
+        let directory = std::env::temp_dir().join(format!(
+            "goya-studio-geometry-{}-{}",
+            std::process::id(),
+            SAVE_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&directory).unwrap();
+        fs::write(directory.join("fns.js"), &html[start..end]).unwrap();
+        fs::write(
+            directory.join("run.js"),
+            r#"
+const fs = require('fs');
+eval(fs.readFileSync(process.argv[2], 'utf8'));
+const source = process.argv[3];
+const blocksFound = blocks(source);
+if (blocksFound.length !== 1 || blocksFound[0].name !== 'ok' || blocksFound[0].kind !== 'button') {
+  throw new Error('expected the button block, got ' + JSON.stringify(blocksFound));
+}
+const applied = editBlock(source, blocksFound[0], 'position', 'extent', [10, 20, 30, 40], false);
+const dragged = editBlock(source, blocksFound[0], 'position', 'extent', [10, 20, 30, 40], true);
+const multiline = '@ontology demo { @button ok {\n    position: (1, 2, 0)\n    position: (8, 8, 0)\n    extent: (4, 5, 0)\n    text: "hi"\n} }';
+const multiBlocks = blocks(multiline);
+const multi = editBlock(multiline, multiBlocks[0], 'position', 'extent', [11, 12, 13, 14], false);
+const leading = '@ontology demo { @button ok { position: (1, 2, 8); extent: (4, 5, 7); text: "hi"; fill: #112233 } }';
+const leadBlocks = blocks(leading);
+const lead = editBlock(leading, leadBlocks[0], 'position', 'extent', [10, 20, 30, 40], false);
+const leadDrag = editBlock(leading, leadBlocks[0], 'position', 'extent', [10, 20, 30, 40], true);
+process.stdout.write([applied, dragged, multi, lead, leadDrag].join('\n---GOYA-EDIT---\n'));
+"#,
+        )
+        .unwrap();
+        let output = std::process::Command::new("node")
+            .arg(directory.join("run.js"))
+            .arg(directory.join("fns.js"))
+            .arg(source)
+            .output()
+            .expect("node runs the served geometry editor");
+        assert!(
+            output.status.success(),
+            "geometry script failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let report = String::from_utf8(output.stdout).unwrap();
+        let mut parts = report.split("\n---GOYA-EDIT---\n");
+        let applied = parts.next().unwrap();
+        let dragged = parts.next().unwrap();
+        let multi = parts.next().unwrap();
+        let lead = parts.next().unwrap();
+        let lead_drag = parts.next().unwrap();
+        assert!(
+            applied.contains("text: \"keep position: (9, 9, 9)\""),
+            "apply rewrote a non-geometry property: {applied}"
+        );
+        assert!(
+            applied.contains("fill: #112233"),
+            "apply removed fill: {applied}"
+        );
+        assert_geometry(
+            applied,
+            "keep position: (9, 9, 9)",
+            (10.0, 20.0, 8.0),
+            (30.0, 40.0, 7.0),
+        );
+        assert!(
+            dragged.contains("text: \"keep position: (9, 9, 9)\""),
+            "drag rewrote a non-geometry property: {dragged}"
+        );
+        assert!(
+            dragged.contains("fill: #112233"),
+            "drag removed fill: {dragged}"
+        );
+        assert_geometry(
+            dragged,
+            "keep position: (9, 9, 9)",
+            (10.0, 20.0, 8.0),
+            (4.0, 5.0, 7.0),
+        );
+        assert!(
+            multi.contains("text: \"hi\""),
+            "multiline edit removed text: {multi}"
+        );
+        assert_eq!(
+            multi.matches("position:").count(),
+            1,
+            "duplicate position kept: {multi}"
+        );
+        assert_geometry(multi, "hi", (11.0, 12.0, 0.0), (13.0, 14.0, 0.0));
+        assert!(
+            lead.contains("text: \"hi\"") && lead.contains("fill: #112233"),
+            "leading geometry line lost sibling properties: {lead}"
+        );
+        assert_geometry(lead, "hi", (10.0, 20.0, 8.0), (30.0, 40.0, 7.0));
+        assert!(
+            lead_drag.contains("text: \"hi\"") && lead_drag.contains("fill: #112233"),
+            "drag of a leading geometry line lost sibling properties: {lead_drag}"
+        );
+        assert_geometry(lead_drag, "hi", (10.0, 20.0, 8.0), (4.0, 5.0, 7.0));
+        fs::remove_dir_all(&directory).unwrap();
+    }
+
+    fn assert_geometry(
+        source: &str,
+        text: &str,
+        position: (f64, f64, f64),
+        extent: (f64, f64, f64),
+    ) {
+        let project = SceneProject::from_source(source, Viewport::default()).unwrap_or_else(|error| {
+            panic!("edited scene no longer parses ({error}): {source}")
+        });
+        let cell = &project.scene().root;
+        let found_position = cell.position.expect("position");
+        let found_extent = cell.extent.expect("extent");
+        assert_eq!(
+            (found_position.x, found_position.y, found_position.z),
+            position,
+            "{source}"
+        );
+        assert_eq!(
+            (found_extent.x, found_extent.y, found_extent.z),
+            extent,
+            "{source}"
+        );
+        assert_eq!(cell.text.as_deref(), Some(text), "{source}");
     }
 }
