@@ -42,7 +42,8 @@ use goya_zcode_native::theme::{
     monitor_palette, node_fill_override, override_slices, status_fill_override,
 };
 use goya_zcode_native::view::{
-    LinkState, ProjEvent, SessionView, ToolState, SCROLL_STEP, TAIL_LINES,
+    LinkState, ProjEvent, SessionEntry, SessionView, ToolState, WorkflowInteraction,
+    WorkflowInteractionOption, WorkflowQueueItem, WorkflowState, SCROLL_STEP, TAIL_LINES,
 };
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
@@ -276,6 +277,16 @@ fn send_committed_line(
     allow_send: bool,
     delivery: InputDelivery,
 ) -> bool {
+    let send_pending = handle.view.lock().ok().is_some_and(|view| {
+        view.owner_action_pending()
+            && view
+                .workflow_controls()
+                .iter()
+                .any(|control| control.id == "send" && !control.enabled)
+    });
+    if send_pending {
+        return false;
+    }
     if !allow_send {
         // Keep the legacy owner path as the single source of the disabled-send
         // status while guaranteeing it cannot write a wire command.
@@ -312,6 +323,16 @@ fn submit_composer_line(
             .cloned()
     });
     if let Some(interaction) = interaction {
+        let answer_pending = handle.view.lock().ok().is_some_and(|view| {
+            view.owner_action_pending()
+                && view.workflow_controls().iter().any(|control| {
+                    matches!(control.id.as_str(), "send" | "question_submit") && !control.enabled
+                })
+        });
+        if answer_pending {
+            composer.restore(before);
+            return false;
+        }
         let accepted = handle.resolve_interaction(
             interaction.interaction_id,
             agent::InteractionAnswer {
@@ -335,12 +356,23 @@ fn submit_composer_line(
 /// All visible controls and keyboard shortcuts converge here. Actions resolve
 /// against the current SessionView projection at activation time, so a stale
 /// painted item cannot target a different queue entry or interaction.
+fn workflow_control_enabled(handle: &agent::MonitorHandle, id: &str) -> bool {
+    handle.view.lock().ok().is_some_and(|view| {
+        view.workflow_controls()
+            .iter()
+            .any(|control| control.id == id && control.enabled)
+    })
+}
+
 fn activate_workflow_control(
     id: &str,
     handle: &agent::MonitorHandle,
     composer: &mut Composer,
     allow_send: bool,
 ) -> bool {
+    if !workflow_control_enabled(handle, id) {
+        return false;
+    }
     match id {
         "queue_mode" => {
             composer.delivery = if composer.delivery == InputDelivery::Queue {
@@ -359,12 +391,17 @@ fn activate_workflow_control(
             true
         }
         "send" => submit_composer_line(handle, composer, allow_send),
-        "queue_auto_drain" => handle
-            .view
-            .lock()
-            .ok()
-            .map(|view| handle.set_auto_drain(!view.workflow.auto_drain))
-            .unwrap_or(false),
+        "queue_auto_drain" => {
+            let auto_drain = handle
+                .view
+                .lock()
+                .ok()
+                .map(|view| view.workflow.auto_drain);
+            let Some(auto_drain) = auto_drain else {
+                return false;
+            };
+            handle.set_auto_drain(!auto_drain)
+        }
         "permission_allow" | "permission_deny" => {
             let interaction = handle
                 .view
@@ -495,89 +532,25 @@ fn activate_workflow_control(
     }
 }
 
-fn keyboard_workflow_control(key: char, view: &SessionView) -> Option<&'static str> {
-    match key.to_ascii_lowercase() {
-        'q' => Some("queue_mode"),
-        'g' => Some("guide_mode"),
-        'd' => Some("queue_auto_drain"),
-        'y' => Some("permission_allow"),
-        'n' => Some("permission_deny"),
-        '1'..='4' => {
-            let index = (key as u8 - b'1') as usize;
-            let interaction = view.workflow.interactions.first()?;
-            if interaction.unsupported_reason.is_some() {
-                return None;
-            }
-            if interaction.kind == "permission" {
-                let option = interaction.options.get(index)?;
-                match option.kind.as_str() {
-                    "allowOnce" | "allowAlways" => Some("permission_allow"),
-                    "deny" => Some("permission_deny"),
-                    _ => [
-                        "permission_option_00",
-                        "permission_option_01",
-                        "permission_option_02",
-                        "permission_option_03",
-                    ]
-                    .get(index)
-                    .copied(),
-                }
-            } else if interaction.kind == "userInput" {
-                [
-                    "question_option_00",
-                    "question_option_01",
-                    "question_option_02",
-                    "question_option_03",
-                ]
-                .get(index)
-                .copied()
-            } else {
-                None
-            }
-        }
-        _ => None,
-    }
+fn enabled_workflow_control(view: &SessionView, id: &'static str) -> Option<&'static str> {
+    view.workflow_controls()
+        .iter()
+        .any(|control| control.id == id && control.enabled)
+        .then_some(id)
 }
 
 fn keyboard_workflow_control(key: char, view: &SessionView) -> Option<&'static str> {
     match key.to_ascii_lowercase() {
-        'q' => Some("queue_mode"),
-        'g' => Some("guide_mode"),
-        'd' => Some("queue_auto_drain"),
-        'y' => Some("permission_allow"),
-        'n' => Some("permission_deny"),
+        'q' => enabled_workflow_control(view, "queue_mode"),
+        'g' => enabled_workflow_control(view, "guide_mode"),
+        'd' => enabled_workflow_control(view, "queue_auto_drain"),
+        'y' => enabled_workflow_control(view, "permission_allow"),
+        'n' => enabled_workflow_control(view, "permission_deny"),
         '1'..='4' => {
             let index = (key as u8 - b'1') as usize;
             let interaction = view.workflow.interactions.first()?;
-            if interaction.unsupported_reason.is_some() {
-                return None;
-            }
-            if interaction.kind == "permission" {
-                let option = interaction.options.get(index)?;
-                match option.kind.as_str() {
-                    "allowOnce" | "allowAlways" => Some("permission_allow"),
-                    "deny" => Some("permission_deny"),
-                    _ => [
-                        "permission_option_00",
-                        "permission_option_01",
-                        "permission_option_02",
-                        "permission_option_03",
-                    ]
-                    .get(index)
-                    .copied(),
-                }
-            } else if interaction.kind == "userInput" {
-                [
-                    "question_option_00",
-                    "question_option_01",
-                    "question_option_02",
-                    "question_option_03",
-                ]
-                .get(index)
-                .copied()
-            } else {
-                None
-            }
+            let id = goya_zcode_native::view::answer_control_id(interaction, index)?;
+            enabled_workflow_control(view, id)
         }
         _ => None,
     }
