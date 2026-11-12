@@ -84,10 +84,12 @@ pub fn preview_static_text(source: &str) -> Result<SourcePreview, Diagnostic> {
         .iter()
         .filter(|entry| entry.kind == "property")
         .collect();
+    let text_property = properties.iter().find(|entry| entry.name == "text");
     if cells.len() != 1
-        || properties.len() != 1
-        || properties[0].name != "text"
-        || parsed.entries.len() != 2
+        || properties.len() != 2
+        || text_property.is_none()
+        || !properties.iter().any(|entry| entry.name == "id")
+        || parsed.entries.len() != 3
         || !parsed.scene.interactions.is_empty()
         || !parsed.scene.root.children.is_empty()
         || cells[0].scene_path.as_deref() != Some(&[])
@@ -98,6 +100,7 @@ pub fn preview_static_text(source: &str) -> Result<SourcePreview, Diagnostic> {
             range: None,
         });
     }
+    let text_range = text_property.expect("validated text property").range;
     let lowered = goya_lang::lower(&parsed.scene, 1.0, 1.0).map_err(|error| Diagnostic {
         code: "NPT-E2104",
         message: error.to_string(),
@@ -106,7 +109,7 @@ pub fn preview_static_text(source: &str) -> Result<SourcePreview, Diagnostic> {
     let text = parsed.scene.root.text.as_ref().ok_or_else(|| Diagnostic {
         code: "NPT-E2104",
         message: "text is required".into(),
-        range: Some(properties[0].range),
+        range: Some(text_range),
     })?;
     if !lowered
         .module
@@ -117,7 +120,7 @@ pub fn preview_static_text(source: &str) -> Result<SourcePreview, Diagnostic> {
         return Err(Diagnostic {
             code: "NPT-E2104",
             message: "shared IR did not preserve the text".into(),
-            range: Some(properties[0].range),
+            range: Some(text_range),
         });
     }
     let expr = swift::Expr::Call {
@@ -134,7 +137,7 @@ pub fn preview_static_text(source: &str) -> Result<SourcePreview, Diagnostic> {
     let end = start + expr.len();
     Ok(SourcePreview {
         swift: format!("{prefix}{expr}{suffix}"),
-        source_range: properties[0].range,
+        source_range: text_range,
         swift_range: SourceRange { start, end },
     })
 }
@@ -252,9 +255,9 @@ mod tests {
 
     #[test]
     fn unsupported_property_is_reported_at_original_bytes() {
-        let source = "@ontology demo { @cell root { text: \"é\" } }";
+        let source = "@ontology demo { @cell root { id: \"root\" text: \"é\" } }";
         let diagnostics = inspect(source).unwrap();
-        let range = diagnostics.iter().find_map(|d| d.range).unwrap();
+        let range = diagnostics.iter().find(|d| d.message.contains("'text'")).and_then(|d| d.range).unwrap();
         assert_eq!(&source[range.start..range.end], "text: \"é\"");
         assert!(diagnostics.iter().any(|d| d.range.is_none()));
     }
@@ -274,10 +277,8 @@ mod tests {
 
     #[test]
     fn diagnostic_output_is_bounded() {
-        let source = format!(
-            "@ontology x {{ {} }}",
-            "@cell a { text: \"x\" } ".repeat(300)
-        );
+        let children: String = (0..300).map(|i| format!("@cell a {{ id: \"item{i}\" text: \"x\" }} ")).collect();
+        let source = format!("@ontology x {{ @cell root {{ id: \"root\" {children} }} }}");
         let diagnostics = inspect(&source).unwrap();
         assert_eq!(diagnostics.len(), MAX_DIAGNOSTICS);
         assert!(diagnostics.iter().any(|d| d.code == "NPT-E1004"));
@@ -302,7 +303,7 @@ mod tests {
 
     #[test]
     fn preview_maps_text_and_rejects_unhandled_properties() {
-        let source = "@ontology x { @cell root { text: \"é\\(name)\" } }";
+        let source = "@ontology x { @cell root { id: \"root\" text: \"é\\(name)\" } }";
         let preview = preview_static_text(source).unwrap();
         assert_eq!(
             &source[preview.source_range.start..preview.source_range.end],
@@ -322,7 +323,7 @@ mod tests {
 
     #[test]
     fn preview_bundle_is_deterministic_and_hashes_artifact_bytes() {
-        let source = "@ontology x { @cell root { text: \"hello\" } }";
+        let source = "@ontology x { @cell root { id: \"root\" text: \"hello\" } }";
         let first = preview_bundle(source).unwrap();
         assert_eq!(first, preview_bundle(source).unwrap());
         assert_eq!(first, preview_bundle(source).unwrap());

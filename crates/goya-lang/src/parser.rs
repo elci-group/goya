@@ -39,6 +39,9 @@ pub struct SourceEntry {
     pub range: SourceRange,
     /// Child indexes from the parsed scene root. Not a persistent semantic ID.
     pub scene_path: Option<Vec<usize>>,
+    /// Stable authored element identity, or the owning element identity for a
+    /// property entry. `scene_path` remains a within-revision lookup aid.
+    pub semantic_id: Option<String>,
 }
 
 /// Scene and source records produced by the same parse.
@@ -161,6 +164,11 @@ pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
             }
             entry.scene_path = Some(path);
         }
+        if let Some(path) = &entry.scene_path {
+            if let Some(cell) = cell_at_path(&root, path) {
+                entry.semantic_id = cell.authored_id.clone();
+            }
+        }
     }
     Ok(ParsedScene {
         scene: Scene {
@@ -170,6 +178,14 @@ pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
         },
         entries: p.entries,
     })
+}
+
+fn cell_at_path<'a>(root: &'a SceneCell, path: &[usize]) -> Option<&'a SceneCell> {
+    let mut cell = root;
+    for index in path {
+        cell = cell.children.get(*index)?;
+    }
+    Some(cell)
 }
 
 /// Parse using the canonical GY-LANG grammar, then reject compatibility
@@ -404,6 +420,7 @@ impl P {
                                 kind: word.clone(),
                                 name: child.name.clone(),
                                 scene_path: None,
+                                semantic_id: None,
                                 range: SourceRange {
                                     start: tok.byte_start,
                                     end: self.tokens[self.i - 1].byte_end,
@@ -418,6 +435,7 @@ impl P {
                                 kind: word.clone(),
                                 name: interaction.name.clone(),
                                 scene_path: None,
+                                semantic_id: None,
                                 range: SourceRange {
                                     start: tok.byte_start,
                                     end: self.tokens[self.i - 1].byte_end,
@@ -434,6 +452,7 @@ impl P {
                                 kind: word.clone(),
                                 name,
                                 scene_path: None,
+                                semantic_id: None,
                                 range: SourceRange {
                                     start: tok.byte_start,
                                     end: self.tokens[self.i - 1].byte_end,
@@ -453,6 +472,7 @@ impl P {
                         kind: "property".into(),
                         name: token.text,
                         scene_path: None,
+                        semantic_id: None,
                         range: SourceRange {
                             start: token.byte_start,
                             end: self.tokens[self.i - 1].byte_end,
