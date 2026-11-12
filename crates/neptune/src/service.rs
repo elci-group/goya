@@ -50,3 +50,20 @@ fn failure(id: &str, stage: &str, diagnostic: &crate::Diagnostic) -> Value {
 fn error(id: Option<&str>, stage: &str, message: &str) -> Value {
     json!({"schema_version":"1","job_id":id,"sequence":1,"stage":stage,"status":"FAIL","diagnostics":[{"code":"NPT-E0001","severity":"error","message":message}]})
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_rejects_reused_ids_and_unsupported_operations() {
+        let mut session = Session::default();
+        let request = json!({"schema_version":"1","job_id":"one","operation":"inspect","source":"@ontology x { @cell root { id: \"root\" text: \"Hi\" } }"});
+        let result = session.handle(&request);
+        assert_eq!(result["status"], "PASS");
+        assert_eq!(result["result"]["ios_validation"], "FAIL");
+        assert_eq!(session.handle(&request)["status"], "FAIL");
+        assert_eq!(session.handle(&json!({"schema_version":"1","job_id":"two","operation":"build"}))["status"], "FAIL");
+        assert_eq!(session.handle(&json!({"schema_version":"2","job_id":"three"}))["status"], "FAIL");
+    }
+}
