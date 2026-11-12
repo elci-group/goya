@@ -123,22 +123,7 @@ pub fn scene_rects(frame: &Frame) -> MonitorSceneRects {
         controls: frame
             .nodes
             .iter()
-            .filter(|node| {
-                matches!(
-                    node.name.as_str(),
-                    "session_prev"
-                        | "session_next"
-                        | "queue_mode"
-                        | "guide_mode"
-                        | "send"
-                        | "queue_auto_drain"
-                        | "permission_allow"
-                        | "permission_deny"
-                        | "question_submit"
-                ) || node.name.starts_with("queue_remove_")
-                    || node.name.starts_with("permission_option_")
-                    || node.name.starts_with("question_option_")
-            })
+            .filter(|node| workflow_control_name(&node.name))
             .map(|node| {
                 (
                     node.name.clone(),
@@ -148,6 +133,30 @@ pub fn scene_rects(frame: &Frame) -> MonitorSceneRects {
             })
             .collect(),
     }
+}
+
+fn workflow_control_name(name: &str) -> bool {
+    matches!(
+        name,
+        "session_prev"
+            | "session_next"
+            | "queue_mode"
+            | "guide_mode"
+            | "send"
+            | "queue_auto_drain"
+            | "permission_allow"
+            | "permission_deny"
+            | "question_submit"
+            | "stop"
+            | "goal_pause"
+            | "goal_resume"
+            | "compact_session"
+    ) || name.starts_with("queue_remove_")
+        || name.starts_with("permission_option_")
+        || name.starts_with("question_option_")
+        || name.starts_with("queue_now_")
+        || name.starts_with("queue_earlier_")
+        || name.starts_with("work_cancel_")
 }
 
 /// Live status text, identical to the bin's per-frame render override.

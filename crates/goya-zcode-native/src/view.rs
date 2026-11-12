@@ -459,18 +459,14 @@ impl SessionView {
     /// keeps their existing slots. Each pending id disables only itself.
     fn push_session_operation_controls(&self, controls: &mut Vec<WorkflowControl>) {
         let session_active = !self.sessions.is_empty();
-        let stop_ready = self.workflow.control.can_stop
-            || self.workflow.control.stop_state == "stoppable";
+        let stop_ready =
+            self.workflow.control.can_stop || self.workflow.control.stop_state == "stoppable";
         controls.push(WorkflowControl {
             id: "stop".into(),
             label: "Stop".into(),
             enabled: self.control_enabled(session_active && stop_ready, "stop"),
         });
-        let goal_status = self
-            .workflow
-            .goal
-            .as_ref()
-            .map(|goal| goal.status.as_str());
+        let goal_status = self.workflow.goal.as_ref().map(|goal| goal.status.as_str());
         controls.push(WorkflowControl {
             id: "goal_pause".into(),
             label: "Pause goal".into(),
@@ -501,10 +497,7 @@ impl SessionView {
             );
             controls.push(WorkflowControl {
                 id: now_id,
-                label: format!(
-                    "Send queued input now: {}",
-                    truncate_chars(&item.text, 36)
-                ),
+                label: format!("Send queued input now: {}", truncate_chars(&item.text, 36)),
                 enabled: now_enabled,
             });
             let earlier_id = format!("queue_earlier_{index:02}");

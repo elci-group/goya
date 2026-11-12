@@ -1366,10 +1366,7 @@ fn parse_background_work(value: &Value) -> Result<WorkflowBackgroundWork> {
         return Err(error("proto.backgroundWork.invalidKind"));
     }
     let status = string(&value["status"], "backgroundWork.status")?;
-    if !matches!(
-        status,
-        "running" | "resultPending" | "failed" | "cancelled"
-    ) {
+    if !matches!(status, "running" | "resultPending" | "failed" | "cancelled") {
         return Err(error("proto.backgroundWork.invalidStatus"));
     }
     let cancellable = match value.get("cancellable") {
@@ -2066,13 +2063,7 @@ mod tests {
             log_epoch: "synthetic-epoch".into(),
         };
         let mut bare = snapshot_frame(&ack);
-        for key in [
-            "control",
-            "availability",
-            "goal",
-            "plan",
-            "backgroundWorks",
-        ] {
+        for key in ["control", "availability", "goal", "plan", "backgroundWorks"] {
             bare["payload"]["snapshot"]
                 .as_object_mut()
                 .unwrap()
@@ -2150,9 +2141,7 @@ mod tests {
             log_epoch: "synthetic-epoch".into(),
         };
         let mut projection = ConversationProjection::new("synthetic-session", &ack);
-        projection
-            .apply_frame(&operation_snapshot(&ack))
-            .unwrap();
+        projection.apply_frame(&operation_snapshot(&ack)).unwrap();
         let lines = projection.display_lines();
         let seq = projection.seq;
         let revision = projection.revision;

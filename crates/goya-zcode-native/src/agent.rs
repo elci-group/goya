@@ -533,7 +533,12 @@ impl MonitorHandle {
         )
     }
 
-    fn enqueue_pending_command(&self, command_type: &str, payload: Value, control_id: &str) -> bool {
+    fn enqueue_pending_command(
+        &self,
+        command_type: &str,
+        payload: Value,
+        control_id: &str,
+    ) -> bool {
         let pending_ids = [control_id];
         let pending_controls: &[&str] = if control_id.is_empty() {
             &[]

@@ -96,5 +96,21 @@
         @button question_option_02 { position: (198, 294, 0); extent: (92, 18, 0); fill: #30303b; text: ""; text-size: 7 }
         @button question_option_03 { position: (294, 294, 0); extent: (100, 18, 0); fill: #30303b; text: ""; text-size: 7 }
         @button question_submit { position: (294, 294, 0); extent: (100, 18, 0); fill: #275b46; text: "Submit"; text-size: 7 }
+        @button stop { position: (0, 0, 0); extent: (0, 0, 0); fill: #713838; text: ""; text-size: 7 }
+        @button goal_pause { position: (0, 0, 0); extent: (0, 0, 0); fill: #30303b; text: ""; text-size: 7 }
+        @button goal_resume { position: (0, 0, 0); extent: (0, 0, 0); fill: #30303b; text: ""; text-size: 7 }
+        @button compact_session { position: (0, 0, 0); extent: (0, 0, 0); fill: #30303b; text: ""; text-size: 7 }
+        @button queue_now_00 { position: (0, 0, 0); extent: (0, 0, 0); fill: #30303b; text: ""; text-size: 7 }
+        @button queue_now_01 { position: (0, 0, 0); extent: (0, 0, 0); fill: #30303b; text: ""; text-size: 7 }
+        @button queue_now_02 { position: (0, 0, 0); extent: (0, 0, 0); fill: #30303b; text: ""; text-size: 7 }
+        @button queue_now_03 { position: (0, 0, 0); extent: (0, 0, 0); fill: #30303b; text: ""; text-size: 7 }
+        @button queue_earlier_00 { position: (0, 0, 0); extent: (0, 0, 0); fill: #30303b; text: ""; text-size: 7 }
+        @button queue_earlier_01 { position: (0, 0, 0); extent: (0, 0, 0); fill: #30303b; text: ""; text-size: 7 }
+        @button queue_earlier_02 { position: (0, 0, 0); extent: (0, 0, 0); fill: #30303b; text: ""; text-size: 7 }
+        @button queue_earlier_03 { position: (0, 0, 0); extent: (0, 0, 0); fill: #30303b; text: ""; text-size: 7 }
+        @button work_cancel_00 { position: (0, 0, 0); extent: (0, 0, 0); fill: #713838; text: ""; text-size: 7 }
+        @button work_cancel_01 { position: (0, 0, 0); extent: (0, 0, 0); fill: #713838; text: ""; text-size: 7 }
+        @button work_cancel_02 { position: (0, 0, 0); extent: (0, 0, 0); fill: #713838; text: ""; text-size: 7 }
+        @button work_cancel_03 { position: (0, 0, 0); extent: (0, 0, 0); fill: #713838; text: ""; text-size: 7 }
     }
 }

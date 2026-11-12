@@ -17,6 +17,39 @@ const FOOTER_GAP: f64 = 8.0;
 /// Prevent a malformed or hostile configure height from allocating unbounded
 /// scene nodes. This comfortably exceeds the bounded transcript history.
 const MAX_VISIBLE_ROWS: usize = 256;
+const WORKFLOW_ACTION_BUTTONS: &[&str] = &[
+    "queue_remove_00",
+    "queue_remove_01",
+    "queue_remove_02",
+    "queue_remove_03",
+    "permission_allow",
+    "permission_deny",
+    "permission_option_00",
+    "permission_option_01",
+    "permission_option_02",
+    "permission_option_03",
+    "question_option_00",
+    "question_option_01",
+    "question_option_02",
+    "question_option_03",
+    "question_submit",
+    "stop",
+    "goal_pause",
+    "goal_resume",
+    "compact_session",
+    "queue_now_00",
+    "queue_now_01",
+    "queue_now_02",
+    "queue_now_03",
+    "queue_earlier_00",
+    "queue_earlier_01",
+    "queue_earlier_02",
+    "queue_earlier_03",
+    "work_cancel_00",
+    "work_cancel_01",
+    "work_cancel_02",
+    "work_cancel_03",
+];
 
 /// Resolved geometry for one configured surface size.
 #[derive(Debug, Clone)]
@@ -171,23 +204,7 @@ pub fn layout_monitor_with_controls(
         .collect::<Vec<_>>();
     let slot_gap = 4.0;
     let slot_width = ((width - 12.0 - 3.0 * slot_gap) / 4.0).max(0.0);
-    for name in [
-        "queue_remove_00",
-        "queue_remove_01",
-        "queue_remove_02",
-        "queue_remove_03",
-        "permission_allow",
-        "permission_deny",
-        "permission_option_00",
-        "permission_option_01",
-        "permission_option_02",
-        "permission_option_03",
-        "question_option_00",
-        "question_option_01",
-        "question_option_02",
-        "question_option_03",
-        "question_submit",
-    ] {
+    for name in WORKFLOW_ACTION_BUTTONS {
         set_geometry(&mut responsive.root, name, (0.0, 0.0), (0.0, 0.0));
     }
     for (index, control) in visible_actions.iter().enumerate() {
