@@ -150,3 +150,51 @@ fn preview_writes_new_directory_and_refuses_overwrite() {
     assert!(!verify().status.success());
     std::fs::remove_dir_all(output_dir).unwrap();
 }
+
+#[test]
+fn preview_artifacts_match_across_three_fresh_input_and_output_directories() {
+    let root =
+        std::env::temp_dir().join(format!("neptune-determinism-test-{}", std::process::id()));
+    std::fs::create_dir(&root).unwrap();
+    let source =
+        std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/static.gscene")).unwrap();
+    let names = [
+        "App.swift",
+        "source-map.json",
+        "capabilities.json",
+        "build-report.json",
+    ];
+    let mut first: Option<Vec<Vec<u8>>> = None;
+    for i in 0..3 {
+        let run = root.join(format!("run-{i}"));
+        std::fs::create_dir(&run).unwrap();
+        std::fs::write(run.join("input.gscene"), &source).unwrap();
+        let result = Command::new(env!("CARGO_BIN_EXE_neptune"))
+            .current_dir(&run)
+            .args([
+                "preview",
+                "input.gscene",
+                "--module",
+                "app/main.gscene",
+                "--out",
+                "output",
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let artifacts: Vec<_> = names
+            .iter()
+            .map(|name| std::fs::read(run.join("output").join(name)).unwrap())
+            .collect();
+        if let Some(expected) = &first {
+            assert_eq!(&artifacts, expected);
+        } else {
+            first = Some(artifacts);
+        }
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}
