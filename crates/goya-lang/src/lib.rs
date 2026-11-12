@@ -119,11 +119,22 @@ mod tests {
 
     #[test]
     fn strict_parser_rejects_invalid_authored_action() {
-        let source = "@ontology demo { @button go { text: \"Go\" } @interaction save { trigger: button.missing.activate; class: D1; state { write x: int; } input { } set x = 1; } }";
+        let source = "@ontology demo { @button go { id: \"button.go\"; text: \"Go\" } @interaction save { trigger: button.missing.activate; class: D1; state { write x: int; } input { } set x = 1; } }";
         let error = parse_strict(source).unwrap_err();
         assert_eq!(error.code, "GY-E1004");
         assert!(error.name.contains("TriggerNotFound"));
         assert!(source[error.range.start..error.range.end].starts_with("@interaction save"));
+    }
+
+    #[test]
+    fn strict_parser_requires_unique_explicit_element_ids() {
+        let missing = "@ontology demo { @cell root { text: \"Hi\" } }";
+        assert_eq!(parse_strict(missing).unwrap_err().code, "GY-E1005");
+        let duplicate =
+            "@ontology demo { @cell root { id: \"same\"; @cell child { id: \"same\"; } } }";
+        assert_eq!(parse_strict(duplicate).unwrap_err().code, "GY-E1005");
+        let valid = "@ontology demo { @cell root { id: \"root\"; text: \"Hi\" } }";
+        assert!(parse_strict(valid).is_ok());
     }
 
     #[test]

@@ -113,6 +113,7 @@ pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
         && root.text.is_none()
         && root.text_size.is_none()
         && root.anchor.is_none()
+        && root.authored_id.is_none()
         && root.wrap.is_none()
         && !root.scroll
         && !root.is_input;
@@ -206,6 +207,20 @@ pub fn parse_strict(source: &str) -> Result<ParsedScene, StrictParseError> {
             }
         }
     }
+    let mut ids = std::collections::BTreeSet::new();
+    if let Some(error) = validate_authored_ids(&parsed.scene.root, &mut ids) {
+        let entry = parsed
+            .entries
+            .iter()
+            .find(|entry| entry.kind == "cell" || entry.kind == "button" || entry.kind == "input");
+        return Err(StrictParseError {
+            code: "GY-E1005",
+            name: error,
+            range: entry
+                .map(|entry| entry.range)
+                .unwrap_or(SourceRange { start: 0, end: 0 }),
+        });
+    }
     if let Err(error) = crate::compile_d1_interactions(&parsed.scene)
         .and_then(|_| crate::compile_d2_interactions(&parsed.scene).map(|_| ()))
     {
@@ -255,7 +270,26 @@ fn is_known_property(name: &str) -> bool {
             | "scroll"
             | "text-anchor"
             | "text_anchor"
+            | "id"
     )
+}
+
+fn validate_authored_ids(
+    cell: &SceneCell,
+    seen: &mut std::collections::BTreeSet<String>,
+) -> Option<String> {
+    let Some(id) = cell.authored_id.as_ref() else {
+        return Some(format!("missing ID for {}", cell.name));
+    };
+    if id.is_empty() || !seen.insert(id.clone()) {
+        return Some(id.clone());
+    }
+    for child in &cell.children {
+        if let Some(error) = validate_authored_ids(child, seen) {
+            return Some(error);
+        }
+    }
+    None
 }
 
 struct P {
@@ -322,6 +356,7 @@ impl P {
         // the ontology root uses a virtual cell.
         let mut cell = SceneCell {
             name: String::new(),
+            authored_id: None,
             kind: CellKind::Cell,
             is_input: false,
             position: None,
@@ -658,6 +693,7 @@ impl P {
         let key = self.expect_ident()?;
         self.expect(TokenKind::Colon)?;
         match key.as_str() {
+            "id" => cell.authored_id = Some(self.expect(TokenKind::Str)?.text),
             "position" => cell.position = Some(self.parse_vec3()?),
             "extent" => cell.extent = Some(self.parse_vec3()?),
             "position_p" => cell.position_p = Some(self.parse_vec3()?),
