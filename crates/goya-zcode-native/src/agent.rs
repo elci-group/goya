@@ -428,6 +428,121 @@ impl MonitorHandle {
         )
     }
 
+    pub fn stop_session(&self) -> bool {
+        let execution_id = {
+            let view = self.view.lock().ok();
+            view.and_then(|view| {
+                view.workflow
+                    .control
+                    .active_works
+                    .first()
+                    .and_then(|work| work.foreground_execution_id.clone())
+            })
+        };
+        let payload = match execution_id {
+            Some(id) => json!({ "expectedForegroundExecutionId": id }),
+            None => json!({}),
+        };
+        self.enqueue_session_command("stop", payload, false, &["stop"])
+    }
+
+    pub fn pause_goal(&self) -> bool {
+        self.enqueue_session_command("pauseGoal", json!({}), false, &["goal_pause"])
+    }
+
+    pub fn resume_goal(&self) -> bool {
+        self.enqueue_session_command("resumeGoal", json!({}), false, &["goal_resume"])
+    }
+
+    pub fn compact_session(&self) -> bool {
+        self.enqueue_session_command("compact", json!({}), false, &["compact_session"])
+    }
+
+    pub fn send_queued_now(&self, queue_item_id: String) -> bool {
+        if queue_item_id.trim().is_empty() {
+            self.set_status("queue action unavailable — missing item");
+            return false;
+        }
+        let control_id = self
+            .view
+            .lock()
+            .ok()
+            .and_then(|view| {
+                view.workflow
+                    .queue_items
+                    .iter()
+                    .position(|item| item.queue_item_id == queue_item_id)
+                    .map(|index| format!("queue_now_{index:02}"))
+            })
+            .unwrap_or_default();
+        self.enqueue_pending_command(
+            "sendQueuedNow",
+            json!({ "queueItemId": queue_item_id }),
+            &control_id,
+        )
+    }
+
+    pub fn reorder_queue_item(&self, queue_item_id: String, before_queue_item_id: String) -> bool {
+        if queue_item_id.trim().is_empty() || before_queue_item_id.trim().is_empty() {
+            self.set_status("queue action unavailable — missing item");
+            return false;
+        }
+        let control_id = self
+            .view
+            .lock()
+            .ok()
+            .and_then(|view| {
+                view.workflow
+                    .queue_items
+                    .iter()
+                    .position(|item| item.queue_item_id == queue_item_id)
+                    .map(|index| format!("queue_earlier_{index:02}"))
+            })
+            .unwrap_or_default();
+        self.enqueue_pending_command(
+            "reorderQueueItem",
+            json!({
+                "queueItemId": queue_item_id,
+                "beforeQueueItemId": before_queue_item_id
+            }),
+            &control_id,
+        )
+    }
+
+    pub fn cancel_background_work(&self, work_id: String) -> bool {
+        if work_id.trim().is_empty() {
+            self.set_status("background action unavailable — missing work");
+            return false;
+        }
+        let control_id = self
+            .view
+            .lock()
+            .ok()
+            .and_then(|view| {
+                view.workflow
+                    .background_works
+                    .iter()
+                    .position(|work| work.work_id == work_id)
+                    .map(|index| format!("work_cancel_{index:02}"))
+            })
+            .unwrap_or_default();
+        self.enqueue_pending_command(
+            "cancelBackgroundWork",
+            json!({ "workId": work_id }),
+            &control_id,
+        )
+    }
+
+    fn enqueue_pending_command(&self, command_type: &str, payload: Value, control_id: &str) -> bool {
+        let pending_ids = [control_id];
+        let pending_controls: &[&str] = if control_id.is_empty() {
+            &[]
+        } else {
+            &pending_ids
+        };
+        self.enqueue_session_command(command_type, payload, false, pending_controls)
+    }
+
     pub fn clear_command_pending(&self, command_id: &str) {
         if let Ok(mut view) = self.view.lock() {
             view.clear_command_pending(command_id);
@@ -1836,6 +1951,116 @@ mod tests {
                     && payload["interactionId"] == "interaction-1"
                     && payload["answer"]["optionId"] == "allow_once"
                     && payload["answer"]["action"] == "accept"
+        ));
+    }
+
+    #[test]
+    fn session_operation_commands_use_canonical_payloads_without_splicing_the_queue() {
+        use crate::view::{WorkflowActiveWork, WorkflowBackgroundWork, WorkflowQueueItem};
+
+        let handle = MonitorHandle::new();
+        handle.set_active_session(Some("sess_a".into()));
+        {
+            let mut view = handle.view.lock().unwrap();
+            view.projection_revision = 4;
+            view.sessions.push(SessionEntry {
+                session_id: "sess_a".into(),
+                title: String::new(),
+                status: String::new(),
+            });
+            view.workflow.control.can_stop = true;
+            view.workflow.control.stop_state = "stoppable".into();
+            view.workflow.control.active_works.push(WorkflowActiveWork {
+                kind: "primaryTurn".into(),
+                foreground_execution_id: Some("exec-1".into()),
+            });
+            view.workflow.queue_items = vec![
+                WorkflowQueueItem {
+                    queue_item_id: "queue-1".into(),
+                    text: "next".into(),
+                    delivery: "queue".into(),
+                },
+                WorkflowQueueItem {
+                    queue_item_id: "queue-2".into(),
+                    text: "later".into(),
+                    delivery: "queue".into(),
+                },
+            ];
+            view.workflow.background_works.push(WorkflowBackgroundWork {
+                work_id: "work-1".into(),
+                kind: "bash".into(),
+                title: "tests".into(),
+                status: "running".into(),
+                cancellable: true,
+            });
+        }
+        let queue_before = handle.view.lock().unwrap().workflow.queue_items.clone();
+        assert!(handle.stop_session());
+        assert!(matches!(
+            handle.try_take_cmd(),
+            Some(AgentCmd::SessionCommand { command_type, payload, base_revision: 4, .. })
+                if command_type == "stop" && payload["expectedForegroundExecutionId"] == "exec-1"
+        ));
+        assert!(handle
+            .view
+            .lock()
+            .unwrap()
+            .workflow_controls()
+            .iter()
+            .any(|control| control.id == "queue_remove_00" && control.enabled));
+        assert!(handle.reorder_queue_item("queue-2".into(), "queue-1".into()));
+        assert!(matches!(
+            handle.try_take_cmd(),
+            Some(AgentCmd::SessionCommand { command_type, payload, .. })
+                if command_type == "reorderQueueItem"
+                    && payload["queueItemId"] == "queue-2"
+                    && payload["beforeQueueItemId"] == "queue-1"
+        ));
+        assert!(handle.send_queued_now("queue-1".into()));
+        assert!(matches!(
+            handle.try_take_cmd(),
+            Some(AgentCmd::SessionCommand { command_type, payload, .. })
+                if command_type == "sendQueuedNow" && payload["queueItemId"] == "queue-1"
+        ));
+        assert!(handle.cancel_background_work("work-1".into()));
+        assert!(matches!(
+            handle.try_take_cmd(),
+            Some(AgentCmd::SessionCommand { command_type, payload, .. })
+                if command_type == "cancelBackgroundWork" && payload["workId"] == "work-1"
+        ));
+        assert!(handle.pause_goal());
+        assert!(matches!(
+            handle.try_take_cmd(),
+            Some(AgentCmd::SessionCommand { command_type, payload, .. })
+                if command_type == "pauseGoal" && payload.as_object().is_some_and(|map| map.is_empty())
+        ));
+        assert!(handle.resume_goal());
+        assert!(matches!(
+            handle.try_take_cmd(),
+            Some(AgentCmd::SessionCommand { command_type, payload, .. })
+                if command_type == "resumeGoal" && payload.as_object().is_some_and(|map| map.is_empty())
+        ));
+        assert!(handle.compact_session());
+        assert!(matches!(
+            handle.try_take_cmd(),
+            Some(AgentCmd::SessionCommand { command_type, payload, .. })
+                if command_type == "compact" && payload.as_object().is_some_and(|map| map.is_empty())
+        ));
+        assert_eq!(
+            handle.view.lock().unwrap().workflow.queue_items,
+            queue_before
+        );
+        {
+            let mut view = handle.view.lock().unwrap();
+            view.workflow.control.active_works.clear();
+            let workflow = view.workflow.clone();
+            view.replace_workflow(workflow);
+        }
+        assert!(handle.stop_session());
+        assert!(matches!(
+            handle.try_take_cmd(),
+            Some(AgentCmd::SessionCommand { command_type, payload, .. })
+                if command_type == "stop" && payload.as_object().is_some_and(|map| map.is_empty())
         ));
     }
 

@@ -2109,27 +2109,27 @@ mod tests {
             status: String::new(),
         });
         view.replace_workflow(workflow);
-        let enabled = |id: &str| {
+        let enabled = |view: &crate::view::SessionView, id: &str| {
             view.workflow_controls()
                 .into_iter()
                 .find(|control| control.id == id)
                 .map(|control| control.enabled)
         };
-        assert_eq!(enabled("stop"), Some(true));
-        assert_eq!(enabled("goal_pause"), Some(true));
-        assert_eq!(enabled("goal_resume"), Some(false));
-        assert_eq!(enabled("compact_session"), Some(true));
-        assert_eq!(enabled("queue_now_00"), Some(true));
-        assert_eq!(enabled("queue_earlier_00"), Some(false));
-        assert_eq!(enabled("work_cancel_00"), Some(true));
-        assert_eq!(enabled("queue_remove_00"), Some(true));
+        assert_eq!(enabled(&view, "stop"), Some(true));
+        assert_eq!(enabled(&view, "goal_pause"), Some(true));
+        assert_eq!(enabled(&view, "goal_resume"), Some(false));
+        assert_eq!(enabled(&view, "compact_session"), Some(true));
+        assert_eq!(enabled(&view, "queue_now_00"), Some(true));
+        assert_eq!(enabled(&view, "queue_earlier_00"), Some(false));
+        assert_eq!(enabled(&view, "work_cancel_00"), Some(true));
+        assert_eq!(enabled(&view, "queue_remove_00"), Some(true));
         view.mark_control_pending("cmd-stop", "stop");
-        assert_eq!(enabled("stop"), Some(false));
-        assert_eq!(enabled("queue_remove_00"), Some(true));
-        assert_eq!(enabled("queue_now_00"), Some(true));
+        assert_eq!(enabled(&view, "stop"), Some(false));
+        assert_eq!(enabled(&view, "queue_remove_00"), Some(true));
+        assert_eq!(enabled(&view, "queue_now_00"), Some(true));
         view.replace_workflow(projection.workflow_state());
         assert!(!view.owner_action_pending());
-        assert_eq!(enabled("stop"), Some(true));
+        assert_eq!(enabled(&view, "stop"), Some(true));
 
         let patch = json!({"topic":"conversation/synthetic-session","subscriptionId":"sub-1","fromSeq":1,"toSeq":2,"sentAt":2,"payload":{"kind":"deltas","deltas":[
             {"op":"state.updated","patch":{"goal":null,"revision":2}}
