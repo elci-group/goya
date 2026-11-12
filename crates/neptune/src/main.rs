@@ -32,8 +32,8 @@ fn main() -> ExitCode {
         println!("{description}");
         return ExitCode::SUCCESS;
     }
-    if args.len() < 3 || (args[1] != "inspect" && args[1] != "check") {
-        eprintln!("usage: neptune <inspect|check> <scene.gscene> [--target ios] [--format json]\n       neptune explain <code>");
+    if args.len() < 3 || (args[1] != "inspect" && args[1] != "check" && args[1] != "preview") {
+        eprintln!("usage: neptune <inspect|check|preview> <scene.gscene> [--target ios] [--format json]\n       neptune explain <code>");
         return ExitCode::from(2);
     }
     let mut json = false;
@@ -71,6 +71,20 @@ fn main() -> ExitCode {
             return input_error(json, &args[1], "NPT-E1002", "source must be UTF-8");
         }
     };
+    if args[1] == "preview" {
+        return match neptune::preview_static_text(&source) {
+            Ok(preview) => {
+                if json {
+                    println!("{}", serde_json::json!({"schema_version":"1", "operation":"preview", "verification":"SOURCE_PREVIEW", "swift":preview.swift, "source_map":[{"source":{"start_byte":preview.source_range.start,"end_byte":preview.source_range.end},"swift":{"start_byte":preview.swift_range.start,"end_byte":preview.swift_range.end}}]}));
+                } else {
+                    eprintln!("Source preview only; Apple validation not run");
+                    print!("{}", preview.swift);
+                }
+                ExitCode::SUCCESS
+            }
+            Err(diagnostic) => input_error(json, &args[1], diagnostic.code, &diagnostic.message),
+        };
+    }
     match neptune::inspect(&source) {
         Ok(diagnostics) => {
             if json {

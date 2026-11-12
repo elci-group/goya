@@ -2006,6 +2006,11 @@ impl GoyaWindow {
         } else { false }
     }
 
+    /// Request that the compositor minimize this toplevel, when supported.
+    pub fn request_minimize(&self) -> bool {
+        if let Some(toplevel) = &self.state.toplevel { toplevel.set_minimized(); true } else { false }
+    }
+
     /// Ask the compositor to close this application window.
     pub fn request_close(&self) -> bool {
         if let Some(toplevel) = &self.state.toplevel { toplevel.destroy(); true } else { false }
@@ -2039,8 +2044,10 @@ impl GoyaWindow {
                 }
                 Err(WindowManagementError::Unsupported(action))
             }
-            WindowAction::Minimize | WindowAction::NewTab =>
-                Err(WindowManagementError::Unsupported(action)),
+            WindowAction::Minimize => {
+                if self.request_minimize() { Ok(()) } else { Err(WindowManagementError::Unsupported(action)) }
+            }
+            WindowAction::NewTab => Err(WindowManagementError::Unsupported(action)),
         }
     }
 

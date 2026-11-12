@@ -37,6 +37,46 @@ pub struct Diagnostic {
     pub range: Option<SourceRange>,
 }
 
+/// An experimental source preview and the text expression's source mapping.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourcePreview {
+    pub swift: String,
+    pub source_range: SourceRange,
+    pub swift_range: SourceRange,
+}
+
+/// Generate a source-only preview for one static, text-only scene.
+/// This does not admit the mapping for an iOS build or verify Swift syntax.
+pub fn preview_static_text(source: &str) -> Result<SourcePreview, Diagnostic> {
+    // Run the bounded frontend before using the strict parsed result.
+    inspect(source)?;
+    let parsed = parse_strict(source).map_err(|error| Diagnostic {
+        code: error.code, message: error.to_string(),
+        range: (error.range.end > error.range.start).then_some(error.range),
+    })?;
+    let cells: Vec<_> = parsed.entries.iter().filter(|entry| entry.kind == "cell").collect();
+    let properties: Vec<_> = parsed.entries.iter().filter(|entry| entry.kind == "property").collect();
+    if cells.len() != 1 || properties.len() != 1 || properties[0].name != "text"
+        || parsed.entries.len() != 2 || !parsed.scene.interactions.is_empty()
+        || !parsed.scene.root.children.is_empty() || cells[0].scene_path.as_deref() != Some(&[])
+    {
+        return Err(Diagnostic { code: "NPT-E2104", message: "source preview supports exactly one text-only cell".into(), range: None });
+    }
+    let lowered = goya_lang::lower(&parsed.scene, 1.0, 1.0).map_err(|error| Diagnostic {
+        code: "NPT-E2104", message: error.to_string(), range: None,
+    })?;
+    let text = parsed.scene.root.text.as_ref().ok_or_else(|| Diagnostic { code: "NPT-E2104", message: "text is required".into(), range: Some(properties[0].range) })?;
+    if !lowered.module.nodes.iter().any(|(_, node)| matches!(node, goya_ir::Node::Text { content } if content == text)) {
+        return Err(Diagnostic { code: "NPT-E2104", message: "shared IR did not preserve the text".into(), range: Some(properties[0].range) });
+    }
+    let expr = swift::Expr::Call { callee: swift::Identifier::new("Text").expect("fixed Swift identifier"), arguments: vec![swift::Argument { label: None, value: swift::Expr::StringLiteral(text.clone()) }] }.render();
+    let prefix = "import SwiftUI\n\n@main\nstruct NeptuneApp: App {\n    var body: some Scene {\n        WindowGroup {\n            ";
+    let suffix = "\n        }\n    }\n}\n";
+    let start = prefix.len();
+    let end = start + expr.len();
+    Ok(SourcePreview { swift: format!("{prefix}{expr}{suffix}"), source_range: properties[0].range, swift_range: SourceRange { start, end } })
+}
+
 /// Parse with Goya and report unsupported target semantics.
 pub fn inspect(source: &str) -> Result<Vec<Diagnostic>, Diagnostic> {
     if source.len() > MAX_SOURCE_BYTES {
