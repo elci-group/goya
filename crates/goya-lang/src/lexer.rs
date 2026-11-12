@@ -54,7 +54,11 @@ impl std::error::Error for LexError {}
 pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
     let mut tokens = Vec::new();
     let chars: Vec<char> = source.chars().collect();
-    let byte_offsets: Vec<usize> = source.char_indices().map(|(offset, _)| offset).chain(std::iter::once(source.len())).collect();
+    let byte_offsets: Vec<usize> = source
+        .char_indices()
+        .map(|(offset, _)| offset)
+        .chain(std::iter::once(source.len()))
+        .collect();
     let mut i = 0usize;
     let mut line = 1usize;
     while i < chars.len() {
@@ -120,7 +124,13 @@ fn push_token(
         _ => None,
     };
     if let Some(kind) = simple {
-        tokens.push(t(kind, &c.to_string(), *line, byte_offsets[*i], byte_offsets[*i + 1]));
+        tokens.push(t(
+            kind,
+            &c.to_string(),
+            *line,
+            byte_offsets[*i],
+            byte_offsets[*i + 1],
+        ));
         *i += 1;
         return Ok(());
     }
@@ -132,7 +142,13 @@ fn push_token(
             *i += 1;
         }
         let text: String = chars[start..*i].iter().collect();
-        tokens.push(t(TokenKind::Hex, &text, *line, byte_offsets[start], byte_offsets[*i]));
+        tokens.push(t(
+            TokenKind::Hex,
+            &text,
+            *line,
+            byte_offsets[start],
+            byte_offsets[*i],
+        ));
         return Ok(());
     }
     if c == '"' {
@@ -151,7 +167,13 @@ fn push_token(
             return Err(LexError { line: start_line });
         }
         *i += 1; // closing quote
-        tokens.push(t(TokenKind::Str, &s, start_line, byte_offsets[start], byte_offsets[*i]));
+        tokens.push(t(
+            TokenKind::Str,
+            &s,
+            start_line,
+            byte_offsets[start],
+            byte_offsets[*i],
+        ));
         return Ok(());
     }
     if c == '+' || c == '-' || c.is_ascii_digit() || c == '.' {
@@ -165,7 +187,13 @@ fn push_token(
             *i += 1;
         }
         let text: String = chars[start..*i].iter().collect();
-        tokens.push(t(TokenKind::Number, &text, *line, byte_offsets[start], byte_offsets[*i]));
+        tokens.push(t(
+            TokenKind::Number,
+            &text,
+            *line,
+            byte_offsets[start],
+            byte_offsets[*i],
+        ));
         return Ok(());
     }
     if c.is_alphabetic() || c == '_' || c == '@' {

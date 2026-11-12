@@ -20,7 +20,7 @@ mod transition;
 pub use hotswap::SceneStore;
 pub use lexer::{lex, LexError, Token, TokenKind};
 pub use lowering::{lower, LowerError, Lowered, NodeKey, NodeRecord, NodeTable, Role};
-pub use parser::{parse, ParseError};
+pub use parser::{parse, parse_with_source_map, ParseError, ParsedScene, SourceEntry, SourceRange};
 pub use scene::{
     hit_test, hit_test_scrolled, layout, Anchor, CellKind, DrawNode, Frame, RectMp, Scene,
     SceneCell, ScrollOffsets, Vec3,
@@ -40,6 +40,36 @@ pub const LANG_CONTRACT: &str = "GY-LANG/1";
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn source_map_preserves_unicode_ranges_and_duplicate_names() {
+        let source = "@ontology demo { @cell same { text: \"é\" } @cell same { text: \"two\" } }";
+        let parsed = parse_with_source_map(source).unwrap();
+        let cells: Vec<_> = parsed
+            .entries
+            .iter()
+            .filter(|entry| entry.kind == "cell")
+            .collect();
+        assert_eq!(cells.len(), 2);
+        assert_eq!(
+            &source[cells[0].range.start..cells[0].range.end],
+            "@cell same { text: \"é\" }"
+        );
+        assert_eq!(
+            &source[cells[1].range.start..cells[1].range.end],
+            "@cell same { text: \"two\" }"
+        );
+        let property = parsed
+            .entries
+            .iter()
+            .find(|entry| entry.kind == "property")
+            .unwrap();
+        assert_eq!(
+            &source[property.range.start..property.range.end],
+            "text: \"é\""
+        );
+        assert!(parse_with_source_map("@ontology broken { @cell x {").is_err());
+    }
 
     const HELLO: &str = "\
 @ontology hello {

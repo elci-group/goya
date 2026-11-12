@@ -23,8 +23,36 @@ impl fmt::Display for ParseError {
 
 impl std::error::Error for ParseError {}
 
+/// An end-exclusive UTF-8 byte range in the original scene source.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SourceRange {
+    pub start: usize,
+    pub end: usize,
+}
+
+/// A declaration or property encountered by the canonical parser.
+/// Entries are sorted by source position; duplicate names remain distinct.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceEntry {
+    pub kind: String,
+    pub name: String,
+    pub range: SourceRange,
+}
+
+/// Scene and source records produced by the same parse.
+#[derive(Debug, Clone)]
+pub struct ParsedScene {
+    pub scene: Scene,
+    pub entries: Vec<SourceEntry>,
+}
+
 /// Parse a scene document.
 pub fn parse(source: &str) -> Result<Scene, ParseError> {
+    parse_with_source_map(source).map(|parsed| parsed.scene)
+}
+
+/// Parse a scene and retain the locations of authored declarations and properties.
+pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
     let tokens = match lex(source) {
         Ok(t) => t,
         Err(e) => return Err(ParseError { line: e.line }),
@@ -33,6 +61,7 @@ pub fn parse(source: &str) -> Result<Scene, ParseError> {
         tokens,
         i: 0,
         interactions: Vec::new(),
+        entries: Vec::new(),
     };
     p.expect_at_word("ontology")?;
     let name = p.expect_ident()?;
@@ -65,10 +94,15 @@ pub fn parse(source: &str) -> Result<Scene, ParseError> {
     } else if root.name.is_empty() {
         root.name = name.clone();
     }
-    Ok(Scene {
-        name,
-        root,
-        interactions: p.interactions,
+    p.entries
+        .sort_by_key(|entry| (entry.range.start, entry.range.end));
+    Ok(ParsedScene {
+        scene: Scene {
+            name,
+            root,
+            interactions: p.interactions,
+        },
+        entries: p.entries,
     })
 }
 
@@ -76,6 +110,7 @@ struct P {
     tokens: Vec<Token>,
     i: usize,
     interactions: Vec<InteractionDecl>,
+    entries: Vec<SourceEntry>,
 }
 
 impl P {
@@ -178,24 +213,60 @@ impl P {
                             child.name = name;
                             child.kind = kind;
                             child.is_input = kind == CellKind::Input;
+                            self.entries.push(SourceEntry {
+                                kind: word.clone(),
+                                name: child.name.clone(),
+                                range: SourceRange {
+                                    start: tok.byte_start,
+                                    end: self.tokens[self.i - 1].byte_end,
+                                },
+                            });
                             cell.children.push(child);
                         }
                         "interaction" => {
                             let name = self.expect_ident()?;
                             let interaction = self.parse_interaction(name)?;
+                            self.entries.push(SourceEntry {
+                                kind: word.clone(),
+                                name: interaction.name.clone(),
+                                range: SourceRange {
+                                    start: tok.byte_start,
+                                    end: self.tokens[self.i - 1].byte_end,
+                                },
+                            });
                             self.interactions.push(interaction);
                         }
                         "template" => {
                             // Recognised and skipped with its block: visual
                             // state and templates are Wave-3 expression work.
-                            self.expect_ident()?;
+                            let name = self.expect_ident()?;
                             self.skip_block()?;
+                            self.entries.push(SourceEntry {
+                                kind: word.clone(),
+                                name,
+                                range: SourceRange {
+                                    start: tok.byte_start,
+                                    end: self.tokens[self.i - 1].byte_end,
+                                },
+                            });
                         }
                         _ => return Err(ParseError { line: self.line() }),
                     }
                 }
                 Some(TokenKind::Ident) => {
+                    let token = self
+                        .peek()
+                        .cloned()
+                        .ok_or(ParseError { line: self.line() })?;
                     self.parse_property(&mut cell)?;
+                    self.entries.push(SourceEntry {
+                        kind: "property".into(),
+                        name: token.text,
+                        range: SourceRange {
+                            start: token.byte_start,
+                            end: self.tokens[self.i - 1].byte_end,
+                        },
+                    });
                 }
                 Some(_) => return Err(ParseError { line: self.line() }),
             }
