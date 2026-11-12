@@ -17,7 +17,8 @@ A match is one word or a run of adjacent words joined by a single space.
 Each match records the inclusive start and end word indexes and the joined
 text. `limit` is capped at 32. This is not Orca, ranking, or highlight
 layout. Office, tagged PDF, and cross-platform parsers remain open.
-`AccessibleTextPage::find` is implemented, while Orca, Office, tagged PDF, and cross-platform parsers remain open.
+`AccessibleTextPage::find` is implemented, while Orca, Office, tagged PDF,
+and cross-platform parsers remain open.
 
 ## Text selection qualification spec
 

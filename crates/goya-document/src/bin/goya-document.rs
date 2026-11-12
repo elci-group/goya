@@ -85,10 +85,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     | PlatformEvent::Shortcut(Shortcut::Quit) => return Ok(()),
                     PlatformEvent::PointerMove(x, y) => {
                         pointer = (x, y);
-                        if anchor.is_some() {
+                        if let Some(start) = anchor {
                             selection = select_text(
                                 text_page.as_ref(),
-                                anchor.unwrap(),
+                                start,
                                 pointer,
                                 (window.size().0 as f64, window.size().1 as f64),
                             );
