@@ -47,6 +47,8 @@ pub mod linux {
         pub fn kind(&self) -> LinuxWindowManagerKind { self.kind }
     }
 
+    pub fn native() -> Option<LinuxWindowManager> { LinuxWindowManager::detect() }
+
     fn invoke(program: &str, args: &[&str]) -> Result<(), String> {
         let out = Command::new(program).args(args).output().map_err(|e| format!("{program}: {e}"))?;
         if out.status.success() { Ok(()) } else { Err(format!("{program}: {}", String::from_utf8_lossy(&out.stderr).trim())) }

@@ -107,6 +107,17 @@ pub fn preview_static_text(source: &str) -> Result<SourcePreview, Diagnostic> {
         .filter(|entry| entry.kind == "property")
         .collect();
     let text_property = properties.iter().find(|entry| entry.name == "text");
+    let unsupported = parsed
+        .entries
+        .iter()
+        .find(|entry| match entry.kind.as_str() {
+            "cell" => entry.scene_path.as_deref() != Some(&[]),
+            "property" => {
+                !matches!(entry.name.as_str(), "id" | "text")
+                    || entry.scene_path.as_deref() != Some(&[])
+            }
+            _ => true,
+        });
     if cells.len() != 1
         || properties.len() != 2
         || text_property.is_none()
@@ -119,7 +130,9 @@ pub fn preview_static_text(source: &str) -> Result<SourcePreview, Diagnostic> {
         return Err(Diagnostic {
             code: "NPT-E2104",
             message: "source preview supports exactly one text-only cell".into(),
-            range: None,
+            range: unsupported
+                .or_else(|| cells.first().copied())
+                .map(|entry| entry.range),
         });
     }
     let text_range = text_property.expect("validated text property").range;
@@ -133,12 +146,34 @@ pub fn preview_static_text(source: &str) -> Result<SourcePreview, Diagnostic> {
         message: "text is required".into(),
         range: Some(text_range),
     })?;
-    if !lowered
+    let declared_id = parsed
+        .scene
+        .root
+        .authored_id
+        .as_ref()
+        .ok_or_else(|| Diagnostic {
+            code: "NPT-E2104",
+            message: "source node lacks an authored ID".into(),
+            range: Some(cells[0].range),
+        })?;
+    let ir_text = lowered
         .module
-        .nodes
-        .iter()
-        .any(|(_, node)| matches!(node, goya_ir::Node::Text { content } if content == text))
-    {
+        .root
+        .and_then(|root| lowered.module.node(root))
+        .and_then(|node| match node {
+            goya_ir::Node::Column { children } if children.len() == 1 => {
+                lowered.module.node(children[0])
+            }
+            _ => None,
+        })
+        .and_then(|node| match node {
+            goya_ir::Node::Text { content } => Some(content),
+            _ => None,
+        });
+    let identity_preserved = lowered.table.values().any(|record| {
+        record.role == goya_lang::Role::Text && record.semantic_id.as_ref() == Some(declared_id)
+    });
+    if ir_text != Some(text) || !identity_preserved {
         return Err(Diagnostic {
             code: "NPT-E2104",
             message: "shared IR did not preserve the text".into(),
@@ -149,7 +184,7 @@ pub fn preview_static_text(source: &str) -> Result<SourcePreview, Diagnostic> {
         callee: swift::Identifier::new("Text").expect("fixed Swift identifier"),
         arguments: vec![swift::Argument {
             label: None,
-            value: swift::Expr::StringLiteral(text.clone()),
+            value: swift::Expr::StringLiteral(ir_text.expect("validated IR text").clone()),
         }],
     }
     .render();
@@ -159,16 +194,7 @@ pub fn preview_static_text(source: &str) -> Result<SourcePreview, Diagnostic> {
     let end = start + expr.len();
     Ok(SourcePreview {
         swift: format!("{prefix}{expr}{suffix}"),
-        declared_id: parsed
-            .scene
-            .root
-            .authored_id
-            .clone()
-            .ok_or_else(|| Diagnostic {
-                code: "NPT-E2104",
-                message: "source node lacks an authored ID".into(),
-                range: Some(cells[0].range),
-            })?,
+        declared_id: declared_id.clone(),
         source_range: text_range,
         swift_range: SourceRange { start, end },
     })
@@ -352,11 +378,14 @@ mod tests {
             "Text(\"é\\\\(name)\")"
         );
         assert_eq!(preview, preview_static_text(source).unwrap());
-        assert!(
-            preview_static_text("@ontology x { @cell root { text: \"hi\" fill: #ffffff } }")
-                .is_err()
-        );
-        assert!(preview_static_text("@ontology x { @button b { text: \"hi\" } }").is_err());
+        let colored = "@ontology x { @cell root { id: \"root\" text: \"hi\" fill: #ffffff } }";
+        let diagnostic = preview_static_text(colored).unwrap_err();
+        let range = diagnostic.range.unwrap();
+        assert_eq!(&colored[range.start..range.end], "fill: #ffffff");
+        let button = "@ontology x { @button b { id: \"b\" text: \"hi\" } }";
+        let diagnostic = preview_static_text(button).unwrap_err();
+        assert_eq!(diagnostic.code, "NPT-E2104");
+        assert!(button[diagnostic.range.unwrap().start..].starts_with("@button"));
     }
 
     #[test]
