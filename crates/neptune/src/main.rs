@@ -89,6 +89,7 @@ fn main() -> ExitCode {
             Some("NPT-E1002") => "The Goya frontend could not parse the UTF-8 scene. Correct the source at the reported line.",
             Some("NPT-E1003") => "The source exceeds the nesting limit of 128.",
             Some("NPT-E1004") => "The diagnostic limit was reached; fix reported issues and check again.",
+            Some("NPT-E1005") => "The source preview could not be written. Use a new output directory and check permissions.",
             Some("NPT-E2104") => "The source requires an iOS mapping that Neptune has not admitted. Remove the construct or wait for an admitted implementation.",
             Some("GY-E1000") => "Goya could not parse the source. Correct the syntax at the reported line.",
             Some("GY-E1001") => "Goya does not preserve this property. Remove it or use a supported property.",
@@ -101,7 +102,7 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
     if args.len() < 3 || (args[1] != "inspect" && args[1] != "check" && args[1] != "preview") {
-        eprintln!("usage: neptune <inspect|check|preview> <scene.gscene> [--target ios] [--format json]\n       neptune explain <code>");
+        eprintln!("usage: neptune <inspect|check|preview> <scene.gscene> [--target ios] [--format json] [--out new-directory (preview only)]\n       neptune explain <code>");
         return ExitCode::from(2);
     }
     let mut json = false;
@@ -151,7 +152,10 @@ fn main() -> ExitCode {
                         Err(diagnostic) => return input_error(json, &args[1], diagnostic.code, &diagnostic.message),
                     };
                     if let Err(error) = write_preview_bundle(path, &bundle) {
-                        return input_error(json, &args[1], "NPT-E1005", &format!("could not write source preview: {error}; a partial output directory may remain"));
+                        let message = format!("could not write source preview: {error}; a partial output directory may remain");
+                        if json { println!("{}", serde_json::json!({"schema_version":"1","operation":"preview","verification":"FAILED","stage":"write","diagnostics":[{"code":"NPT-E1005","message":message}]})); }
+                        else { eprintln!("NPT-E1005: {message}"); }
+                        return ExitCode::FAILURE;
                     }
                     if json { println!("{}", serde_json::json!({"schema_version":"1","operation":"preview","verification":"SOURCE_PREVIEW","output_written":true,"apple_validation":"NOT_RUN"})); }
                     else { println!("Source preview written; Apple validation not run"); }
