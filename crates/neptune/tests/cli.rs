@@ -1,4 +1,6 @@
+use std::io::Write;
 use std::process::Command;
+use std::process::Stdio;
 
 #[test]
 fn missing_input_has_machine_readable_failure() {
@@ -58,4 +60,33 @@ fn preview_bytes_are_independent_of_process_working_directory() {
         serde_json::from_str(bundle["artifacts"]["capabilities.json"].as_str().unwrap()).unwrap();
     assert_eq!(capabilities["capabilities"][0]["status"], "experimental");
     assert_eq!(bundle["report"]["stages"]["apple_validation"], "NOT_RUN");
+}
+
+#[test]
+fn service_stream_reports_separate_job_results() {
+    let mut process = Command::new(env!("CARGO_BIN_EXE_neptune"))
+        .arg("serve")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut input = process.stdin.take().unwrap();
+    writeln!(
+        input,
+        "{{\"schema_version\":\"1\",\"job_id\":\"a\",\"operation\":\"build\"}}"
+    )
+    .unwrap();
+    writeln!(input, "{{\"schema_version\":\"1\",\"job_id\":\"b\",\"operation\":\"check\",\"source\":\"invalid\"}}").unwrap();
+    drop(input);
+    let output = process.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let lines: Vec<serde_json::Value> = String::from_utf8(output.stdout)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(lines.len(), 2);
+    assert_eq!(lines[0]["job_id"], "a");
+    assert_eq!(lines[1]["job_id"], "b");
+    assert_eq!(lines[1]["status"], "FAIL");
 }
