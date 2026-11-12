@@ -1242,6 +1242,162 @@ fn string_allow_empty<'a>(value: &'a Value, context: &str) -> Result<&'a str> {
         .ok_or_else(|| error(&format!("proto.{context}.invalidString")))
 }
 
+const MAX_OPERATION_ITEMS: usize = 8;
+
+fn parse_session_control(value: &Value) -> Result<WorkflowControlState> {
+    let _ = object(value, "control")?;
+    let can_stop = value["canStop"]
+        .as_bool()
+        .ok_or_else(|| error("proto.control.invalidCanStop"))?;
+    let stop_state = string(&value["stopState"], "control.stopState")?;
+    if !matches!(stop_state, "idle" | "stoppable" | "stopping") {
+        return Err(error("proto.control.invalidStopState"));
+    }
+    let works = value["activeWorks"]
+        .as_array()
+        .ok_or_else(|| error("proto.control.invalidActiveWorks"))?;
+    let mut active_works = Vec::with_capacity(works.len());
+    for work in works {
+        let kind = string(&work["kind"], "activeWork.kind")?;
+        let foreground_execution_id = match work.get("foregroundExecutionId") {
+            None => None,
+            Some(id) => Some(string(id, "activeWork.foregroundExecutionId")?.to_owned()),
+        };
+        active_works.push(WorkflowActiveWork {
+            kind: kind.to_owned(),
+            foreground_execution_id,
+        });
+    }
+    Ok(WorkflowControlState {
+        can_stop,
+        stop_state: stop_state.to_owned(),
+        active_works,
+    })
+}
+
+fn availability_allowed(value: Option<&Value>, context: &str) -> Result<bool> {
+    let Some(value) = value else {
+        return Ok(false);
+    };
+    let entry = object(value, context)?;
+    let allowed = entry
+        .get("allowed")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| error(&format!("proto.{context}.invalidAllowed")))?;
+    if let Some(reason) = entry.get("reasonCode") {
+        if reason.as_str().is_none() {
+            return Err(error(&format!("proto.{context}.invalidReason")));
+        }
+    }
+    Ok(allowed)
+}
+
+fn parse_availability(value: &Value) -> Result<WorkflowAvailability> {
+    let _ = object(value, "availability")?;
+    Ok(WorkflowAvailability {
+        compact: availability_allowed(value.get("compact"), "availability.compact")?,
+        send_queued_now: availability_allowed(
+            value.get("sendQueuedNow"),
+            "availability.sendQueuedNow",
+        )?,
+        pause_goal: availability_allowed(value.get("pauseGoal"), "availability.pauseGoal")?,
+        resume_goal: availability_allowed(value.get("resumeGoal"), "availability.resumeGoal")?,
+        queue_edit: availability_allowed(value.get("queueEdit"), "availability.queueEdit")?,
+    })
+}
+
+fn parse_goal(value: &Value) -> Result<Option<WorkflowGoal>> {
+    if value.is_null() {
+        return Ok(None);
+    }
+    let _ = object(value, "goal")?;
+    let status = string(&value["status"], "goal.status")?;
+    if !matches!(
+        status,
+        "active" | "paused" | "verifying" | "verified" | "notSatisfied" | "failed"
+    ) {
+        return Err(error("proto.goal.invalidStatus"));
+    }
+    let objective = string_allow_empty(&value["objective"], "goal.objective")?;
+    Ok(Some(WorkflowGoal {
+        status: status.to_owned(),
+        objective: objective.to_owned(),
+    }))
+}
+
+fn parse_plan_item(value: &Value) -> Result<WorkflowPlanItem> {
+    let _ = object(value, "planItem")?;
+    let status = string(&value["status"], "planItem.status")?;
+    if !matches!(status, "pending" | "inProgress" | "completed") {
+        return Err(error("proto.plan.invalidStatus"));
+    }
+    Ok(WorkflowPlanItem {
+        id: string_allow_empty(&value["id"], "planItem.id")?.to_owned(),
+        content: string_allow_empty(&value["content"], "planItem.content")?.to_owned(),
+        status: status.to_owned(),
+    })
+}
+
+fn parse_plan(value: &Value) -> Result<Option<Vec<WorkflowPlanItem>>> {
+    if value.is_null() {
+        return Ok(None);
+    }
+    let items = if value.is_array() {
+        value.as_array().unwrap()
+    } else if let Some(items) = value.get("items") {
+        items
+            .as_array()
+            .ok_or_else(|| error("proto.plan.invalidItems"))?
+    } else {
+        return Err(error("proto.plan.invalid"));
+    };
+    let mut parsed = Vec::with_capacity(items.len().min(MAX_OPERATION_ITEMS));
+    for item in items {
+        parsed.push(parse_plan_item(item)?);
+    }
+    parsed.truncate(MAX_OPERATION_ITEMS);
+    Ok(Some(parsed))
+}
+
+fn parse_background_work(value: &Value) -> Result<WorkflowBackgroundWork> {
+    let _ = object(value, "backgroundWork")?;
+    let kind = string(&value["kind"], "backgroundWork.kind")?;
+    if !matches!(kind, "bash" | "subagent" | "workflow") {
+        return Err(error("proto.backgroundWork.invalidKind"));
+    }
+    let status = string(&value["status"], "backgroundWork.status")?;
+    if !matches!(
+        status,
+        "running" | "resultPending" | "failed" | "cancelled"
+    ) {
+        return Err(error("proto.backgroundWork.invalidStatus"));
+    }
+    let cancellable = match value.get("cancellable") {
+        None => false,
+        Some(Value::Bool(flag)) => *flag,
+        Some(_) => return Err(error("proto.backgroundWork.invalidCancellable")),
+    };
+    Ok(WorkflowBackgroundWork {
+        work_id: string_allow_empty(&value["workId"], "backgroundWork.workId")?.to_owned(),
+        kind: kind.to_owned(),
+        title: string_allow_empty(&value["title"], "backgroundWork.title")?.to_owned(),
+        status: status.to_owned(),
+        cancellable,
+    })
+}
+
+fn parse_background_works(value: &Value) -> Result<Vec<WorkflowBackgroundWork>> {
+    let works = value
+        .as_array()
+        .ok_or_else(|| error("proto.backgroundWorks.invalid"))?;
+    let mut parsed = Vec::with_capacity(works.len().min(MAX_OPERATION_ITEMS));
+    for work in works {
+        parsed.push(parse_background_work(work)?);
+    }
+    parsed.truncate(MAX_OPERATION_ITEMS);
+    Ok(parsed)
+}
+
 fn snapshot_status(snapshot: &Value) -> String {
     snapshot
         .get("control")
@@ -1859,5 +2015,162 @@ mod tests {
             "remote:key"
         );
         assert_eq!(workspace_key("/work/tree", Some("  ")), "/work/tree");
+    }
+
+    fn operation_snapshot(ack: &SubscribeAck) -> Value {
+        let mut frame = snapshot_frame(ack);
+        let snapshot = &mut frame["payload"]["snapshot"];
+        snapshot["control"] = json!({
+            "phase": "running",
+            "canStop": true,
+            "stopState": "stoppable",
+            "activeWorks": [{ "kind": "primaryTurn", "foregroundExecutionId": "exec-1" }]
+        });
+        snapshot["availability"] = json!({
+            "compact": { "allowed": true },
+            "sendQueuedNow": { "allowed": true },
+            "pauseGoal": { "allowed": true },
+            "resumeGoal": { "allowed": false, "reasonCode": "guard.goalNotPaused" },
+            "queueEdit": { "allowed": true },
+            "fork": { "allowed": true }
+        });
+        snapshot["goal"] = json!({
+            "status": "active",
+            "objective": "Ship the native shell",
+            "iteration": 1
+        });
+        snapshot["plan"] = json!({
+            "updatedAt": 1,
+            "items": [{ "id": "plan-1", "content": "Project the goal", "status": "inProgress" }]
+        });
+        snapshot["backgroundWorks"] = json!([{
+            "workId": "work-1",
+            "kind": "bash",
+            "title": "Running tests",
+            "status": "running",
+            "cancellable": true
+        }]);
+        snapshot["queue"] = json!({
+            "autoDrain": true,
+            "items": [{ "queueItemId": "queue-1", "text": "next step" }]
+        });
+        snapshot["workflowRuns"] = json!({ "runs": [{ "runId": "ignored" }] });
+        frame
+    }
+
+    #[test]
+    fn session_operation_projection_enables_owner_controls_without_disabling_queue_remove() {
+        let ack = SubscribeAck {
+            subscription_id: "sub-1".into(),
+            mode: "snapshot".into(),
+            log_epoch: "synthetic-epoch".into(),
+        };
+        let mut bare = snapshot_frame(&ack);
+        for key in [
+            "control",
+            "availability",
+            "goal",
+            "plan",
+            "backgroundWorks",
+        ] {
+            bare["payload"]["snapshot"]
+                .as_object_mut()
+                .unwrap()
+                .remove(key);
+        }
+        let mut projection = ConversationProjection::new("synthetic-session", &ack);
+        projection.apply_frame(&bare).unwrap();
+        let omitted = projection.workflow_state();
+        assert!(omitted.goal.is_none());
+        assert!(omitted.plan.is_none());
+        assert!(omitted.background_works.is_empty());
+        assert!(!omitted.control.can_stop);
+        assert!(!omitted.availability.compact);
+
+        projection.apply_frame(&operation_snapshot(&ack)).unwrap();
+        let workflow = projection.workflow_state();
+        assert_eq!(
+            workflow.goal.as_ref().map(|goal| goal.status.as_str()),
+            Some("active")
+        );
+        assert_eq!(
+            workflow.control.active_works[0]
+                .foreground_execution_id
+                .as_deref(),
+            Some("exec-1")
+        );
+        assert_eq!(workflow.background_works[0].work_id, "work-1");
+        assert!(workflow.background_works[0].cancellable);
+        assert_eq!(workflow.plan.as_ref().unwrap()[0].status, "inProgress");
+        let mut view = crate::view::SessionView::default();
+        view.sessions.push(crate::view::SessionEntry {
+            session_id: "synthetic-session".into(),
+            title: String::new(),
+            status: String::new(),
+        });
+        view.replace_workflow(workflow);
+        let enabled = |id: &str| {
+            view.workflow_controls()
+                .into_iter()
+                .find(|control| control.id == id)
+                .map(|control| control.enabled)
+        };
+        assert_eq!(enabled("stop"), Some(true));
+        assert_eq!(enabled("goal_pause"), Some(true));
+        assert_eq!(enabled("goal_resume"), Some(false));
+        assert_eq!(enabled("compact_session"), Some(true));
+        assert_eq!(enabled("queue_now_00"), Some(true));
+        assert_eq!(enabled("queue_earlier_00"), Some(false));
+        assert_eq!(enabled("work_cancel_00"), Some(true));
+        assert_eq!(enabled("queue_remove_00"), Some(true));
+        view.mark_control_pending("cmd-stop", "stop");
+        assert_eq!(enabled("stop"), Some(false));
+        assert_eq!(enabled("queue_remove_00"), Some(true));
+        assert_eq!(enabled("queue_now_00"), Some(true));
+        view.replace_workflow(projection.workflow_state());
+        assert!(!view.owner_action_pending());
+        assert_eq!(enabled("stop"), Some(true));
+
+        let patch = json!({"topic":"conversation/synthetic-session","subscriptionId":"sub-1","fromSeq":1,"toSeq":2,"sentAt":2,"payload":{"kind":"deltas","deltas":[
+            {"op":"state.updated","patch":{"goal":null,"revision":2}}
+        ]}});
+        projection.apply_frame(&patch).unwrap();
+        let cleared = projection.workflow_state();
+        assert!(cleared.goal.is_none());
+        assert_eq!(cleared.background_works.len(), 1);
+        assert_eq!(cleared.queue_items.len(), 1);
+        assert_eq!(projection.revision, 2);
+    }
+
+    #[test]
+    fn malformed_goal_status_rejects_the_snapshot_and_keeps_the_previous_projection() {
+        let ack = SubscribeAck {
+            subscription_id: "sub-1".into(),
+            mode: "snapshot".into(),
+            log_epoch: "synthetic-epoch".into(),
+        };
+        let mut projection = ConversationProjection::new("synthetic-session", &ack);
+        projection
+            .apply_frame(&operation_snapshot(&ack))
+            .unwrap();
+        let lines = projection.display_lines();
+        let seq = projection.seq;
+        let revision = projection.revision;
+        let goal = projection.workflow_state().goal;
+        let mut rejected = operation_snapshot(&ack);
+        rejected["payload"]["snapshot"]["goal"] = json!({
+            "status": "nope",
+            "objective": "should not publish"
+        });
+        rejected["payload"]["snapshot"]["rows"]["window"][0]["text"] = json!("mutated");
+        rejected["payload"]["snapshot"]["revision"] = json!(99);
+        assert_eq!(
+            projection.apply_frame(&rejected).unwrap_err().0,
+            "proto.goal.invalidStatus"
+        );
+        assert_eq!(projection.display_lines(), lines);
+        assert_eq!(projection.seq, seq);
+        assert_eq!(projection.revision, revision);
+        assert_eq!(projection.workflow_state().goal, goal);
     }
 }
