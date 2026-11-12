@@ -1,6 +1,7 @@
 //! Linux window-manager profiles. Wayland clients can request maximize, but
 //! minimize and tab creation are not standardized xdg-shell operations.
 use super::{WindowAction, WindowCapability, WindowManagementError, WindowManager};
+use std::process::Command;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LinuxWindowManagerKind { Floating, Tiling }
@@ -19,17 +20,64 @@ impl LinuxWindowManager {
     ) -> Self { Self { kind, request: Box::new(request) } }
 
     pub fn kind(&self) -> LinuxWindowManagerKind { self.kind }
+
+    /// Detect a supported desktop from its standard environment marker.
+    /// The returned manager issues requests through the desktop's native CLI.
+    pub fn detect() -> Option<Self> {
+        if std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some() {
+            Some(Self::new(LinuxWindowManagerKind::Tiling, run_hyprland))
+        } else if std::env::var_os("SWAYSOCK").is_some() {
+            Some(Self::new(LinuxWindowManagerKind::Tiling, run_sway))
+        } else if std::env::var_os("I3SOCK").is_some() {
+            Some(Self::new(LinuxWindowManagerKind::Tiling, run_i3))
+        } else if std::env::var_os("DISPLAY").is_some() {
+            Some(Self::new(LinuxWindowManagerKind::Floating, run_x11))
+        } else { None }
+    }
 }
 
-const LINUX_CAPABILITIES: &[WindowCapability] = &[
-    WindowCapability::Close, WindowCapability::Maximize, WindowCapability::Minimize,
-];
+const LINUX_CAPABILITIES: &[WindowCapability] = &[WindowCapability::Maximize];
 
 impl WindowManager for LinuxWindowManager {
     fn capabilities(&self) -> &'static [WindowCapability] { LINUX_CAPABILITIES }
     fn request(&mut self, action: WindowAction) -> Result<(), WindowManagementError> {
-        if action == WindowAction::NewTab { return Err(WindowManagementError::Unsupported(action)); }
+        if matches!(action, WindowAction::Close | WindowAction::Minimize | WindowAction::NewTab) {
+            return Err(WindowManagementError::Unsupported(action));
+        }
         (self.request)(action).map_err(WindowManagementError::NativeRequestFailed)
+    }
+}
+
+fn run(program: &str, args: &[&str]) -> Result<(), String> {
+    let output = Command::new(program).args(args).output().map_err(|e| format!("{program}: {e}"))?;
+    if output.status.success() { Ok(()) } else {
+        Err(format!("{program} exited with {}: {}", output.status,
+            String::from_utf8_lossy(&output.stderr).trim()))
+    }
+}
+
+fn run_hyprland(action: WindowAction) -> Result<(), String> {
+    match action {
+        WindowAction::Maximize => run("hyprctl", &["dispatch", "fullscreen", "1"]),
+        _ => Err("unsupported by the Hyprland adapter".into()),
+    }
+}
+fn run_sway(action: WindowAction) -> Result<(), String> {
+    match action {
+        WindowAction::Maximize => run("swaymsg", &["fullscreen", "toggle"]),
+        _ => Err("unsupported by the Sway adapter".into()),
+    }
+}
+fn run_i3(action: WindowAction) -> Result<(), String> {
+    match action {
+        WindowAction::Maximize => run("i3-msg", &["fullscreen", "toggle"]),
+        _ => Err("unsupported by the i3 adapter".into()),
+    }
+}
+fn run_x11(action: WindowAction) -> Result<(), String> {
+    match action {
+        WindowAction::Maximize => run("wmctrl", &["-r", ":ACTIVE:", "-b", "add,maximized_vert,maximized_horz"]),
+        _ => Err("unsupported by the X11 floating adapter".into()),
     }
 }
 
