@@ -1021,11 +1021,12 @@ impl BufferPair {
 
 impl Drop for BufferPair {
     fn drop(&mut self) {
-        // Neutralise per-slot mappings first: the pair owns the whole map.
+        // The pair owns the mapping. Each slot destroys its wl_buffer once
+        // in `ShmFrame::drop`. Destroying here as well is a protocol error
+        // and the compositor closes the connection on the next resize.
         for slot in &mut self.slots {
             slot.map = std::ptr::null_mut();
             slot.len = 0;
-            slot.buffer.destroy();
         }
         let _ = unsafe { munmap(self.map.cast(), self.len_per_slot * 3) };
     }
@@ -1079,6 +1080,12 @@ struct GoyaWindowInner {
     /// Serial from the newest `xdg_surface.configure` that still needs an ack
     /// on the next commit. A resize or activation stays pending until then.
     pending_configure: Option<u32>,
+    /// True only when the latest present attached a buffer and committed.
+    /// A skipped frame leaves this false so the caller can retry after pump
+    /// observes `wl_buffer.release`.
+    frame_committed: bool,
+    /// Size last published through `wl_surface.set_opaque_region`.
+    region_extent: Option<(i32, i32)>,
     /// Explicitly opt into general-core parallel tile raster. No core
     /// affinity is requested; Linux remains responsible for placement.
     parallel_raster: bool,
@@ -1146,6 +1153,8 @@ impl GoyaWindowInner {
             region: None,
             ack_serial: 0,
             pending_configure: None,
+            frame_committed: false,
+            region_extent: None,
             parallel_raster: false,
             background_rgb: [0, 0, 0],
             extended_text_input_events: false,
@@ -1757,6 +1766,11 @@ impl GoyaWindow {
     }
 
     #[allow(clippy::too_many_arguments)]
+    /// Whether the latest present attached a buffer and committed the surface.
+    pub fn frame_committed(&self) -> bool {
+        self.state.frame_committed
+    }
+
     fn present_internal(
         &mut self,
         primitives: &[goya_runtime::Primitive],
@@ -1772,6 +1786,7 @@ impl GoyaWindow {
         rgba_pixels: Option<&[u8]>,
         rgba_layer: Option<RgbaLayer<'_>>,
     ) -> Result<(), WaylandError> {
+        self.state.frame_committed = false;
         self.state.background_rgb = bg;
         if self.state.buffers.is_none() {
             let shm = self
@@ -1883,18 +1898,27 @@ impl GoyaWindow {
         }
         // Opaque hint: the window always fills its bounds — the compositor
         // can skip blending against undefined content (flicker source).
+        // `wl_region.add` is additive, so a resize replaces the region.
         {
             let surface = self
                 .state
                 .surface
                 .as_ref()
                 .ok_or(WaylandError::MissingGlobal("surface"))?;
+            let extent = (self.state.width, self.state.height);
+            if self.state.region_extent != Some(extent) {
+                if let Some(region) = self.state.region.take() {
+                    region.destroy();
+                }
+                self.state.region_extent = None;
+            }
             if self.state.region.is_none() {
                 if let Some(comp) = self.state.compositor.clone() {
                     let region = comp.create_region(&self.queue.handle(), ());
-                    region.add(0, 0, self.state.width, self.state.height);
+                    region.add(0, 0, extent.0, extent.1);
                     surface.set_opaque_region(Some(&region));
                     self.state.region = Some(region);
+                    self.state.region_extent = Some(extent);
                 }
             }
         }
@@ -1918,6 +1942,7 @@ impl GoyaWindow {
         surface.commit();
         pair.slots[idx].released = false;
         pair.front = idx;
+        self.state.frame_committed = true;
         Ok(())
     }
 
