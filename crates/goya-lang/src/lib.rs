@@ -172,7 +172,7 @@ mod tests {
 
     #[test]
     fn strict_parser_rejects_invalid_authored_action() {
-        let source = "@ontology demo { @button go { id: \"button.go\"; text: \"Go\" } @interaction save { trigger: button.missing.activate; class: D1; state { write x: int; } input { } set x = 1; } }";
+        let source = "@ontology demo { @button go { id: \"button.go\"; text: \"Go\" } @interaction save { id: \"action.save\"; trigger: button.missing.activate; class: D1; state { write x: int; } input { } set x = 1; } }";
         let error = parse_strict(source).unwrap_err();
         assert_eq!(error.code, "GY-E1004");
         assert!(error.name.contains("TriggerNotFound"));

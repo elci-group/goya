@@ -140,6 +140,8 @@ pub struct StateAssignment {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InteractionDecl {
     pub name: String,
+    /// Optional authored identity for stable action references.
+    pub authored_id: Option<String>,
     pub trigger_button: String,
     pub class: InteractionClass,
     pub declared_effects: Vec<EffectKind>,

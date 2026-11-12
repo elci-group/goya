@@ -178,6 +178,13 @@ pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
                 entry.semantic_id = cell.authored_id.clone();
             }
         }
+        if entry.kind == "interaction" {
+            entry.semantic_id = p
+                .interactions
+                .iter()
+                .find(|interaction| interaction.name == entry.name)
+                .and_then(|interaction| interaction.authored_id.clone());
+        }
         entry.source_digest = source_digest;
     }
     Ok(ParsedScene {
@@ -263,6 +270,34 @@ pub fn parse_strict(source: &str) -> Result<ParsedScene, StrictParseError> {
                 .map(|entry| entry.range)
                 .unwrap_or(SourceRange { start: 0, end: 0 }),
         });
+    }
+    for interaction in &parsed.scene.interactions {
+        let Some(id) = interaction.authored_id.as_ref() else {
+            let entry = parsed
+                .entries
+                .iter()
+                .find(|entry| entry.kind == "interaction" && entry.name == interaction.name);
+            return Err(StrictParseError {
+                code: "GY-E1005",
+                name: format!("missing ID for interaction {}", interaction.name),
+                range: entry
+                    .map(|entry| entry.range)
+                    .unwrap_or(SourceRange { start: 0, end: 0 }),
+            });
+        };
+        if !ids.insert(id.clone()) {
+            let entry = parsed
+                .entries
+                .iter()
+                .find(|entry| entry.kind == "interaction" && entry.name == interaction.name);
+            return Err(StrictParseError {
+                code: "GY-E1005",
+                name: id.clone(),
+                range: entry
+                    .map(|entry| entry.range)
+                    .unwrap_or(SourceRange { start: 0, end: 0 }),
+            });
+        }
     }
     if let Err(error) = crate::compile_d1_interactions(&parsed.scene)
         .and_then(|_| crate::compile_d2_interactions(&parsed.scene).map(|_| ()))
@@ -517,6 +552,16 @@ impl P {
 
     fn parse_interaction(&mut self, name: String) -> Result<InteractionDecl, ParseError> {
         self.expect(TokenKind::LBrace)?;
+        let authored_id = if self
+            .peek()
+            .is_some_and(|token| token.kind == TokenKind::Ident && token.text == "id")
+        {
+            self.bump();
+            self.expect(TokenKind::Colon)?;
+            Some(self.expect(TokenKind::Str)?.text)
+        } else {
+            None
+        };
         self.expect_ident_value("trigger")?;
         self.expect(TokenKind::Colon)?;
         self.expect_ident_value("button")?;
@@ -624,6 +669,7 @@ impl P {
         self.expect(TokenKind::RBrace)?;
         Ok(InteractionDecl {
             name,
+            authored_id,
             trigger_button,
             class,
             declared_effects,
