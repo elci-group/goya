@@ -491,6 +491,64 @@ fn activate_workflow_control(
                 },
             )
         }
+        "stop" => handle.stop_session(),
+        "goal_pause" => handle.pause_goal(),
+        "goal_resume" => handle.resume_goal(),
+        "compact_session" => handle.compact_session(),
+        name if name.starts_with("queue_now_") => {
+            let Some(index) = name
+                .rsplit('_')
+                .next()
+                .and_then(|n| n.parse::<usize>().ok())
+            else {
+                return false;
+            };
+            let item = handle
+                .view
+                .lock()
+                .ok()
+                .and_then(|view| view.workflow.queue_items.get(index).cloned());
+            item.filter(|item| !item.queue_item_id.is_empty())
+                .is_some_and(|item| handle.send_queued_now(item.queue_item_id))
+        }
+        name if name.starts_with("queue_earlier_") => {
+            let Some(index) = name
+                .rsplit('_')
+                .next()
+                .and_then(|n| n.parse::<usize>().ok())
+            else {
+                return false;
+            };
+            let ids = handle.view.lock().ok().and_then(|view| {
+                let item = view.workflow.queue_items.get(index)?;
+                let previous = index
+                    .checked_sub(1)
+                    .and_then(|previous| view.workflow.queue_items.get(previous))?;
+                if item.queue_item_id.is_empty() || previous.queue_item_id.is_empty() {
+                    return None;
+                }
+                Some((item.queue_item_id.clone(), previous.queue_item_id.clone()))
+            });
+            ids.is_some_and(|(queue_item_id, before_queue_item_id)| {
+                handle.reorder_queue_item(queue_item_id, before_queue_item_id)
+            })
+        }
+        name if name.starts_with("work_cancel_") => {
+            let Some(index) = name
+                .rsplit('_')
+                .next()
+                .and_then(|n| n.parse::<usize>().ok())
+            else {
+                return false;
+            };
+            let work = handle
+                .view
+                .lock()
+                .ok()
+                .and_then(|view| view.workflow.background_works.get(index).cloned());
+            work.filter(|work| !work.work_id.is_empty())
+                .is_some_and(|work| handle.cancel_background_work(work.work_id))
+        }
         name if name.starts_with("question_option_") => {
             let Some(index) = name
                 .rsplit('_')
@@ -542,6 +600,13 @@ fn keyboard_workflow_control(key: char, view: &SessionView) -> Option<&'static s
         'd' => enabled_workflow_control(view, "queue_auto_drain"),
         'y' => enabled_workflow_control(view, "permission_allow"),
         'n' => enabled_workflow_control(view, "permission_deny"),
+        's' => enabled_workflow_control(view, "stop"),
+        'p' => enabled_workflow_control(view, "goal_pause"),
+        'r' => enabled_workflow_control(view, "goal_resume"),
+        'c' => enabled_workflow_control(view, "compact_session"),
+        'u' => enabled_workflow_control(view, "queue_now_00"),
+        '[' => enabled_workflow_control(view, "queue_earlier_00"),
+        'x' => enabled_workflow_control(view, "work_cancel_00"),
         '1'..='4' => {
             let index = (key as u8 - b'1') as usize;
             let interaction = view.workflow.interactions.first()?;
@@ -571,48 +636,74 @@ fn apply_composer_to_frame(nodes: &mut [DrawNode], composer: &Composer) {
     }
 }
 
+fn workflow_caption(view: &SessionView) -> (String, String) {
+    let plan = view.workflow.plan.as_ref().map(|items| {
+        items
+            .iter()
+            .map(|item| item.content.as_str())
+            .filter(|content| !content.is_empty())
+            .collect::<Vec<_>>()
+            .join(" · ")
+    });
+    let with_plan = |detail: String| match plan.as_deref() {
+        Some(plan) if !plan.is_empty() && !detail.is_empty() => format!("{detail} • {plan}"),
+        Some(plan) if !plan.is_empty() => plan.to_owned(),
+        _ => detail,
+    };
+    if let Some(interaction) = view.workflow.interactions.first() {
+        let title = interaction.title.clone();
+        let detail = if let Some(reason) = &interaction.unsupported_reason {
+            format!("Answer in the full ZCode client: {reason}")
+        } else if interaction.summary.is_empty() {
+            format!(
+                "{} • {} pending",
+                interaction.kind,
+                view.workflow.interactions.len()
+            )
+        } else {
+            format!(
+                "{} • {} pending",
+                interaction.summary,
+                view.workflow.interactions.len()
+            )
+        };
+        return (title, detail);
+    }
+    if let Some(goal) = view
+        .workflow
+        .goal
+        .as_ref()
+        .filter(|goal| !goal.objective.trim().is_empty())
+    {
+        return (goal.objective.clone(), with_plan(goal.status.clone()));
+    }
+    if let Some(item) = view.workflow.queue_items.first() {
+        return (
+            item.text.clone(),
+            with_plan(format!(
+                "{} queued • auto drain {}",
+                view.workflow.queue_items.len(),
+                if view.workflow.auto_drain {
+                    "on"
+                } else {
+                    "paused"
+                }
+            )),
+        );
+    }
+    if let Some(work) = view.workflow.background_works.first() {
+        return (work.title.clone(), with_plan(work.status.clone()));
+    }
+    (String::new(), with_plan(String::new()))
+}
+
 fn apply_workflow_to_frame(nodes: &mut [DrawNode], view: &SessionView, composer: &Composer) {
     let interaction = view.workflow.interactions.first();
-    let title = interaction
-        .map(|item| item.title.as_str())
-        .or_else(|| (!view.workflow.queue_items.is_empty()).then_some("Queued inputs"))
-        .unwrap_or_default();
-    let detail = interaction
-        .map(|item| {
-            if let Some(reason) = &item.unsupported_reason {
-                format!("Answer in the full ZCode client: {reason}")
-            } else if item.summary.is_empty() {
-                format!(
-                    "{} • {} pending",
-                    item.kind,
-                    view.workflow.interactions.len()
-                )
-            } else {
-                format!(
-                    "{} • {} pending",
-                    item.summary,
-                    view.workflow.interactions.len()
-                )
-            }
-        })
-        .or_else(|| {
-            (!view.workflow.queue_items.is_empty()).then(|| {
-                format!(
-                    "{} queued • auto drain {}",
-                    view.workflow.queue_items.len(),
-                    if view.workflow.auto_drain {
-                        "on"
-                    } else {
-                        "paused"
-                    }
-                )
-            })
-        })
-        .unwrap_or_default();
+    let (title, detail) = workflow_caption(view);
     let controls = view.workflow_controls();
     for node in nodes.iter_mut() {
         match node.name.as_str() {
-            "workflow_title" => node.text = Some(truncate(title, 62)),
+            "workflow_title" => node.text = Some(truncate(&title, 62)),
             "workflow_detail" => node.text = Some(truncate(&detail, 72)),
             "queue_mode" => {
                 node.text = Some(
@@ -1620,6 +1711,7 @@ fn headless_acceptance(store: &SceneStore) {
                 free_text: false,
                 unsupported_reason: None,
             }],
+            ..Default::default()
         });
     }
     let controls = workflow_handle
@@ -1628,12 +1720,35 @@ fn headless_acceptance(store: &SceneStore) {
         .expect("workflow controls")
         .workflow_controls();
     let shell = layout_monitor_with_controls(store.get(), WIN_W_PX, WIN_H_PX, &controls);
+    let legacy_controls: Vec<_> = controls
+        .iter()
+        .filter(|control| {
+            !matches!(
+                control.id.as_str(),
+                "stop" | "goal_pause" | "goal_resume" | "compact_session"
+            ) && !control.id.starts_with("queue_now_")
+                && !control.id.starts_with("queue_earlier_")
+                && !control.id.starts_with("work_cancel_")
+        })
+        .cloned()
+        .collect();
+    let legacy = layout_monitor_with_controls(store.get(), WIN_W_PX, WIN_H_PX, &legacy_controls);
+    let same_rect = |name: &str| {
+        let current = shell.frame.find(name).unwrap().rect;
+        let previous = legacy.frame.find(name).unwrap().rect;
+        current.x == previous.x
+            && current.y == previous.y
+            && current.width == previous.width
+            && current.height == previous.height
+    };
     let remove = shell.frame.find("queue_remove_00").unwrap().rect;
     let allow = shell.frame.find("permission_allow").unwrap().rect;
     let always = shell.frame.find("permission_option_01").unwrap().rect;
     let targets_ok = remove.width > 0
         && allow.width > 0
         && always.width > 0
+        && same_rect("queue_remove_00")
+        && same_rect("permission_option_01")
         && hit_test(
             &shell.frame,
             remove.x + remove.width / 2,
@@ -1651,6 +1766,9 @@ fn headless_acceptance(store: &SceneStore) {
     let small = layout_monitor_with_controls(store.get(), 80, 48, &controls);
     let small_ok = small.frame.find("queue_remove_00").unwrap().rect.width == 0
         && small.frame.find("permission_allow").unwrap().rect.width == 0
+        && small.frame.find("permission_option_01").unwrap().rect.width == 0
+        && small.frame.find("stop").unwrap().rect.width == 0
+        && small.frame.find("queue_now_00").unwrap().rect.width == 0
         && small.frame.find("quit").unwrap().rect.width > 0;
     let mut shell_a11y = goya_zcode_native::a11y::MonitorA11y::new(&shell.frame);
     {
@@ -1702,6 +1820,48 @@ fn headless_acceptance(store: &SceneStore) {
         pass_str(shell_ok)
     );
     ok &= shell_ok;
+
+    let queue_before = workflow_handle
+        .view
+        .lock()
+        .map(|view| view.workflow.queue_items.clone())
+        .unwrap_or_default();
+    {
+        let mut view = workflow_handle.view.lock().expect("operation view");
+        view.workflow.availability.send_queued_now = true;
+        view.workflow.control.can_stop = true;
+        view.workflow.control.active_works.clear();
+    }
+    let operation_key = workflow_handle
+        .view
+        .lock()
+        .ok()
+        .and_then(|view| keyboard_workflow_control('u', &view));
+    let mut operation_composer = Composer::new();
+    let operation_activated = operation_key.is_some_and(|id| {
+        activate_workflow_control(id, &workflow_handle, &mut operation_composer, true)
+    });
+    let operation_command = matches!(
+        workflow_handle.try_take_cmd(),
+        Some(agent::AgentCmd::SessionCommand { command_type, payload, .. })
+            if command_type == "sendQueuedNow"
+                && payload["queueItemId"] == "queue-1"
+                && payload.get("text").is_none()
+    );
+    let operation_queue = workflow_handle
+        .view
+        .lock()
+        .map(|view| view.workflow.queue_items == queue_before)
+        .unwrap_or(false);
+    let operation_ok = operation_key == Some("queue_now_00")
+        && operation_activated
+        && operation_command
+        && operation_queue;
+    println!(
+        "session operation sendQueuedNow keeps the owner queue [{}]",
+        pass_str(operation_ok)
+    );
+    ok &= operation_ok;
 
     if !ok {
         std::process::exit(1);
@@ -2338,6 +2498,7 @@ mod input_event_tests {
                     free_text: false,
                     unsupported_reason: None,
                 }],
+                ..Default::default()
             });
         }
         let mut composer = Composer::new();
