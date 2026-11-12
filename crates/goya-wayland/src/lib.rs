@@ -96,6 +96,8 @@ use std::io::Read;
 use std::os::fd::AsFd;
 use std::sync::{Mutex, OnceLock};
 use unicode_segmentation::UnicodeSegmentation;
+
+pub mod window_management;
 use wayland_client::protocol::{
     wl_buffer::WlBuffer,
     wl_compositor::WlCompositor,
