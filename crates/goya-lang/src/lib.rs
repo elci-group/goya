@@ -123,6 +123,24 @@ mod tests {
     }
 
     #[test]
+    fn authored_identity_survives_sibling_reordering_while_revision_changes() {
+        let before = "@ontology demo { @cell first { id: \"stable.first\"; } @cell second { id: \"stable.second\"; } }";
+        let after = "@ontology demo { @cell second { id: \"stable.second\"; } @cell first { id: \"stable.first\"; } }";
+        let before = parse_strict(before).unwrap();
+        let after = parse_strict(after).unwrap();
+        let ids = |parsed: &ParsedScene| {
+            parsed
+                .entries
+                .iter()
+                .filter(|entry| entry.kind == "cell")
+                .filter_map(|entry| entry.semantic_id.as_deref())
+                .collect::<std::collections::BTreeSet<_>>()
+        };
+        assert_eq!(ids(&before), ids(&after));
+        assert_ne!(before.source_digest, after.source_digest);
+    }
+
+    #[test]
     fn strict_parser_rejects_unknown_property_at_its_utf8_origin() {
         let source = "@ontology demo { @cell root { text: \"é\"; colur: #fff } }";
         let error = parse_strict(source).unwrap_err();
