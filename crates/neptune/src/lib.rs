@@ -4,6 +4,7 @@ use sha2::{Digest, Sha256};
 
 pub mod swift;
 pub mod service;
+pub mod artifacts;
 
 pub const MAX_SOURCE_BYTES: usize = 128 * 1024;
 pub const MAX_DIAGNOSTICS: usize = 256;

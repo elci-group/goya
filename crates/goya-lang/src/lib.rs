@@ -133,7 +133,7 @@ mod tests {
                 .entries
                 .iter()
                 .filter(|entry| entry.kind == "cell")
-                .filter_map(|entry| entry.semantic_id.as_deref())
+                .filter_map(|entry| entry.semantic_id.clone())
                 .collect::<std::collections::BTreeSet<_>>()
         };
         assert_eq!(ids(&before), ids(&after));
