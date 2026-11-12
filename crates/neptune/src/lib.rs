@@ -1,5 +1,6 @@
 //! Neptune frontend inspection. No iOS semantics are admitted yet.
 use goya_lang::{lex, parse_strict, parse_with_source_map, SourceRange, TokenKind};
+use sha2::{Digest, Sha256};
 
 pub mod swift;
 
@@ -43,6 +44,24 @@ pub struct SourcePreview {
     pub swift: String,
     pub source_range: SourceRange,
     pub swift_range: SourceRange,
+}
+
+/// Canonical JSON package for the experimental source preview. Hashes cover
+/// the exact UTF-8 bytes of the source and the included artifact strings.
+pub fn preview_bundle(source: &str) -> Result<String, Diagnostic> {
+    let preview = preview_static_text(source)?;
+    let map = serde_json::json!({"schema_version":"1", "mappings":[{"source":{"start_byte":preview.source_range.start,"end_byte":preview.source_range.end},"swift":{"start_byte":preview.swift_range.start,"end_byte":preview.swift_range.end}}]}).to_string() + "\n";
+    fn hash(bytes: &[u8]) -> String {
+        format!("{:x}", Sha256::digest(bytes))
+    }
+    let bundle = serde_json::json!({
+        "schema_version":"1", "operation":"preview", "verification":"SOURCE_PREVIEW",
+        "artifacts": {"App.swift":preview.swift, "source-map.json":map},
+        "report": {"schema_version":"1", "input_sha256":hash(source.as_bytes()),
+            "artifact_sha256":{"App.swift":hash(preview.swift.as_bytes()), "source-map.json":hash(map.as_bytes())},
+            "stages":{"goya_frontend":"PASS", "ios_admission":"NOT_RUN", "apple_validation":"NOT_RUN"}}
+    });
+    Ok(bundle.to_string() + "\n")
 }
 
 /// Generate a source-only preview for one static, text-only scene.
@@ -299,5 +318,20 @@ mod tests {
                 .is_err()
         );
         assert!(preview_static_text("@ontology x { @button b { text: \"hi\" } }").is_err());
+    }
+
+    #[test]
+    fn preview_bundle_is_deterministic_and_hashes_artifact_bytes() {
+        let source = "@ontology x { @cell root { text: \"hello\" } }";
+        let first = preview_bundle(source).unwrap();
+        assert_eq!(first, preview_bundle(source).unwrap());
+        assert_eq!(first, preview_bundle(source).unwrap());
+        let bundle: serde_json::Value = serde_json::from_str(&first).unwrap();
+        let swift = bundle["artifacts"]["App.swift"].as_str().unwrap();
+        assert_eq!(
+            bundle["report"]["artifact_sha256"]["App.swift"],
+            format!("{:x}", Sha256::digest(swift.as_bytes()))
+        );
+        assert_eq!(bundle["report"]["stages"]["apple_validation"], "NOT_RUN");
     }
 }

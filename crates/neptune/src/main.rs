@@ -75,10 +75,17 @@ fn main() -> ExitCode {
         return match neptune::preview_static_text(&source) {
             Ok(preview) => {
                 if json {
-                    println!(
-                        "{}",
-                        serde_json::json!({"schema_version":"1", "operation":"preview", "verification":"SOURCE_PREVIEW", "swift":preview.swift, "source_map":[{"source":{"start_byte":preview.source_range.start,"end_byte":preview.source_range.end},"swift":{"start_byte":preview.swift_range.start,"end_byte":preview.swift_range.end}}]})
-                    );
+                    match neptune::preview_bundle(&source) {
+                        Ok(bundle) => print!("{bundle}"),
+                        Err(diagnostic) => {
+                            return input_error(
+                                true,
+                                &args[1],
+                                diagnostic.code,
+                                &diagnostic.message,
+                            )
+                        }
+                    }
                 } else {
                     eprintln!("Source preview only; Apple validation not run");
                     print!("{}", preview.swift);
