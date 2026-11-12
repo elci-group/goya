@@ -344,11 +344,18 @@ impl MonitorHandle {
         self.enqueue_session_command(
             "setFollowupMode",
             json!({"mode": match mode { FollowupMode::Queue => "queue", FollowupMode::Guide => "guide" }}),
+            false,
+            &[],
         )
     }
 
     pub fn set_auto_drain(&self, auto_drain: bool) -> bool {
-        self.enqueue_session_command("setAutoDrain", json!({"autoDrain": auto_drain}))
+        self.enqueue_session_command(
+            "setAutoDrain",
+            json!({"autoDrain": auto_drain}),
+            false,
+            &["queue_auto_drain"],
+        )
     }
 
     pub fn delete_queue_item(&self, queue_item_id: String) -> bool {
@@ -356,7 +363,26 @@ impl MonitorHandle {
             self.set_status("queue action unavailable — missing item");
             return false;
         }
-        self.enqueue_session_command("deleteQueueItem", json!({"queueItemId": queue_item_id}))
+        let control_id = self
+            .view
+            .lock()
+            .ok()
+            .and_then(|view| {
+                view.workflow
+                    .queue_items
+                    .iter()
+                    .position(|item| item.queue_item_id == queue_item_id)
+                    .map(|index| format!("queue_remove_{index:02}"))
+            })
+            .unwrap_or_default();
+        let pending = [control_id.as_str()];
+        let pending: &[&str] = if control_id.is_empty() { &[] } else { &pending };
+        self.enqueue_session_command(
+            "deleteQueueItem",
+            json!({"queueItemId": queue_item_id}),
+            false,
+            pending,
+        )
     }
 
     pub fn resolve_interaction(&self, interaction_id: String, answer: InteractionAnswer) -> bool {
@@ -393,10 +419,24 @@ impl MonitorHandle {
                 "interactionId": interaction_id,
                 "answer": Value::Object(answer_payload)
             }),
+            true,
+            &[],
         )
     }
 
-    fn enqueue_session_command(&self, command_type: &str, payload: Value) -> bool {
+    pub fn clear_command_pending(&self, command_id: &str) {
+        if let Ok(mut view) = self.view.lock() {
+            view.clear_command_pending(command_id);
+        }
+    }
+
+    fn enqueue_session_command(
+        &self,
+        command_type: &str,
+        payload: Value,
+        pending_answers: bool,
+        pending_controls: &[&str],
+    ) -> bool {
         let session_id = self
             .active_session_id
             .lock()
@@ -406,9 +446,20 @@ impl MonitorHandle {
             self.set_status("action unavailable — no active session");
             return false;
         };
+        let command_id = protocol::new_command_id();
+        // 先记下在途按钮再入队。命令结果只按自己的 command id 解除，
+        // 不会把后发出的另一条命令提前重新打开。
+        if let Ok(mut view) = self.view.lock() {
+            if pending_answers {
+                view.mark_answer_controls_pending(&command_id);
+            }
+            for id in pending_controls {
+                view.mark_control_pending(&command_id, id);
+            }
+        }
         match self.cmd_tx.try_send(AgentCmd::SessionCommand {
             session_id,
-            command_id: protocol::new_command_id(),
+            command_id: command_id.clone(),
             client_id: protocol::client_id(),
             command_type: command_type.into(),
             payload,
@@ -417,10 +468,12 @@ impl MonitorHandle {
         }) {
             Ok(()) => true,
             Err(TrySendError::Full(_)) => {
+                self.clear_command_pending(&command_id);
                 self.set_status("action unavailable — command queue full");
                 false
             }
             Err(TrySendError::Disconnected(_)) => {
+                self.clear_command_pending(&command_id);
                 self.set_status("action unavailable");
                 false
             }
@@ -1013,6 +1066,9 @@ impl AgentRun {
                             lifecycle.cancel(*ticket);
                         }
                     }
+                    if let AgentCmd::SessionCommand { command_id, .. } = &cmd {
+                        self.handle.clear_command_pending(command_id);
+                    }
                     self.set_view(|view| {
                         view.status = "dropped stale action — transport changed".into()
                     });
@@ -1295,6 +1351,7 @@ impl AgentRun {
                 ..
             } => {
                 if queued_session_id != session_id {
+                    self.handle.clear_command_pending(&command_id);
                     self.set_view(|view| {
                         view.status = "dropped stale action — session changed".into()
                     });
@@ -1309,10 +1366,17 @@ impl AgentRun {
                     payload,
                 );
                 match self.execute_command(stdin, session_id, &command_id, envelope) {
-                    Ok(outcome) => self.set_view(|view| {
-                        view.status = format!("command {}: {}", outcome.command_id, outcome.status)
-                    }),
-                    Err(error) => self.set_view(|view| view.status = error),
+                    Ok(outcome) => {
+                        self.handle.clear_command_pending(&command_id);
+                        self.set_view(|view| {
+                            view.status =
+                                format!("command {}: {}", outcome.command_id, outcome.status)
+                        });
+                    }
+                    Err(error) => {
+                        self.handle.clear_command_pending(&command_id);
+                        self.set_view(|view| view.status = error);
+                    }
                 }
             }
             AgentCmd::SwitchSession { .. } => {}
