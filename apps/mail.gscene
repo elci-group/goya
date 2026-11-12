@@ -1,0 +1,94 @@
+// ============================================================
+// mail.gscene — MAIL exemplar Goya application.
+//
+// RUGID-style scene syntax (GY-LANG/1): @ontology / @cell /
+// @button with absolute geometry. Extent is in POINTS; the
+// live window is extent * 4 => 400 x 600 px.
+//
+// All literal text stays inside the renderer's glyph set
+// (lowercase a c d e g h i l m n o r t u v y + digits + - / * % . , = ! space).
+// The host overrides in_0..in_3, read_text, note_text and
+// status_text with the in-memory mailbox every frame.
+//
+// Run it:
+//   cargo run -p goya-hello --bin mail --offline
+//   cargo run -p goya-hello --bin mail -- --live
+// ============================================================
+
+@ontology mail {
+
+    @cell window {
+        position: (0, 0, 0)
+        extent: (100, 150, 0)
+        fill: #1a1a1a
+
+        // ---- Title ---------------------------------------------
+        @cell title {
+            position: (5, 2, 0)
+            extent: (90, 10, 0)
+            text: "mail"
+            text-size: 12
+            fill: #1a1a1a
+        }
+
+        // ---- Inbox header + four rows --------------------------
+        // Row text is overridden by the host. Unused rows stay empty.
+        @cell in_label {
+            position: (5, 14, 0)
+            extent: (90, 8, 0)
+            text: "in"
+            text-size: 12
+            fill: #1a1a1a
+        }
+        @cell in_0 { position: (5, 24, 0); extent: (90, 11, 0); fill: #2a2a2a; text: ""; text-size: 12 }
+        @cell in_1 { position: (5, 36, 0); extent: (90, 11, 0); fill: #2a2a2a; text: ""; text-size: 12 }
+        @cell in_2 { position: (5, 48, 0); extent: (90, 11, 0); fill: #2a2a2a; text: ""; text-size: 12 }
+        @cell in_3 { position: (5, 60, 0); extent: (90, 11, 0); fill: #2a2a2a; text: ""; text-size: 12 }
+
+        // ---- Toolbar: read the chosen row, cut the note, deliver
+        @button btn_read    { position: (5, 74, 0);  extent: (26, 12, 0); text: "read";    fill: #555555 }
+        @button btn_cut     { position: (34, 74, 0); extent: (22, 12, 0); text: "cut";     fill: #555555 }
+        @button btn_deliver { position: (59, 74, 0); extent: (36, 12, 0); text: "deliver"; fill: #ff8800 }
+
+        // ---- Note being written (host overrides note_text) -----
+        @cell note_label {
+            position: (5, 90, 0)
+            extent: (22, 12, 0)
+            text: "note"
+            text-size: 12
+            fill: #1a1a1a
+        }
+        @cell note_text {
+            position: (30, 90, 0)
+            extent: (65, 12, 0)
+            fill: #2a2a2a
+            text: ""
+            text-size: 12
+        }
+
+        // ---- Body of the chosen message ------------------------
+        @cell out_label {
+            position: (5, 106, 0)
+            extent: (22, 10, 0)
+            text: "out"
+            text-size: 12
+            fill: #1a1a1a
+        }
+        @cell read_text {
+            position: (30, 106, 0)
+            extent: (65, 20, 0)
+            fill: #2a2a2a
+            text: ""
+            text-size: 12
+        }
+
+        // ---- Status line ---------------------------------------
+        @cell status_text {
+            position: (5, 132, 0)
+            extent: (90, 12, 0)
+            fill: #2a2a2a
+            text: "mail"
+            text-size: 12
+        }
+    }
+}

@@ -1,0 +1,88 @@
+// ============================================================
+// messenger.gscene — local thread exemplar.
+//
+// RUGID-style scene syntax (GY-LANG/1): @ontology / @cell /
+// @button only. Extent is in POINTS; the live window is
+// extent * 4 => 400 x 640 px.
+//
+// Two people, one room, all in memory. No network control
+// is declared here. The host overrides line_0..line_7, the
+// draft `line`, and `note` every frame.
+//
+// Visible literals stay inside the renderer glyph set
+// (lowercase a c d e g h i l m n o r t u v y, digits,
+// + - / * % . , = ! and space).
+//
+// Run it:
+//   cargo run -p goya-hello --bin messenger --offline
+//   cargo run -p goya-hello --bin messenger -- --live
+// ============================================================
+
+@ontology messenger {
+
+    @cell window {
+        position: (0, 0, 0)
+        extent: (100, 160, 0)
+        fill: #1a1a1a
+
+        // ---- Room title ---------------------------------------
+        @cell room {
+            position: (4, 4, 0)
+            extent: (92, 12, 0)
+            fill: #2a2a2a
+            stroke: #444444
+            stroke-width: 2
+            text: "room"
+            text-size: 12
+        }
+
+        // ---- The two people in the room -----------------------
+        @cell me {
+            position: (4, 18, 0)
+            extent: (24, 10, 0)
+            fill: #243628
+            text: "me"
+            text-size: 12
+        }
+        @cell you {
+            position: (30, 18, 0)
+            extent: (24, 10, 0)
+            fill: #3a2e1c
+            text: "you"
+            text-size: 12
+        }
+        @cell note {
+            position: (56, 18, 0)
+            extent: (40, 10, 0)
+            fill: #2a2a2a
+            text: "ready"
+            text-size: 12
+        }
+
+        // ---- Thread: 8 rows, oldest at the top ----------------
+        @cell line_0 { position: (4, 32, 0);  extent: (92, 10, 0); fill: #2a2a2a; text: "me hello"; text-size: 12 }
+        @cell line_1 { position: (4, 43, 0);  extent: (92, 10, 0); fill: #2a2a2a; text: ""; text-size: 12 }
+        @cell line_2 { position: (4, 54, 0);  extent: (92, 10, 0); fill: #2a2a2a; text: ""; text-size: 12 }
+        @cell line_3 { position: (4, 65, 0);  extent: (92, 10, 0); fill: #2a2a2a; text: ""; text-size: 12 }
+        @cell line_4 { position: (4, 76, 0);  extent: (92, 10, 0); fill: #2a2a2a; text: ""; text-size: 12 }
+        @cell line_5 { position: (4, 87, 0);  extent: (92, 10, 0); fill: #2a2a2a; text: ""; text-size: 12 }
+        @cell line_6 { position: (4, 98, 0);  extent: (92, 10, 0); fill: #2a2a2a; text: ""; text-size: 12 }
+        @cell line_7 { position: (4, 109, 0); extent: (92, 10, 0); fill: #2a2a2a; text: ""; text-size: 12 }
+
+        // ---- Draft line ---------------------------------------
+        @cell line {
+            position: (4, 122, 0)
+            extent: (92, 12, 0)
+            fill: #222222
+            stroke: #444444
+            stroke-width: 2
+            text: ""
+            text-size: 12
+        }
+
+        // ---- add / cut / read ---------------------------------
+        @button add  { position: (4, 138, 0);  extent: (28, 16, 0); text: "add";  fill: #3a6a40 }
+        @button cut  { position: (36, 138, 0); extent: (28, 16, 0); text: "cut";  fill: #6a3a3a }
+        @button read { position: (68, 138, 0); extent: (28, 16, 0); text: "read"; fill: #3a4a6a }
+    }
+}
