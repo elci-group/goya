@@ -749,14 +749,15 @@ fn toolbar_primitives(
         width: i64::from(w) * 250,
         height: i64::from(h) * 250,
     };
+    let columns = (width.saturating_sub(152) / 12).max(8);
     let mut primitives = vec![
         Primitive::Panel(rect(0, 0, width, TOOLBAR_HEIGHT)),
         Primitive::Button(rect(4, 6, 32, 40), "<".into()),
         Primitive::Button(rect(44, 6, 32, 40), ">".into()),
         Primitive::Button(rect(84, 6, 32, 40), "R".into()),
         Primitive::Text(
-            rect(140, 8, width.saturating_sub(152), 36),
-            address.chars().take(1024).collect(),
+            rect(140, 4, width.saturating_sub(152), 22),
+            address_display(address, focused, columns),
         ),
     ];
     let mut fills = vec![
@@ -766,11 +767,173 @@ fn toolbar_primitives(
         Some(0x3441_59),
         Some(if focused { 0x354d_68 } else { 0x2833_47 }),
     ];
+    if !status.is_empty() && width >= 160 {
+        primitives.push(Primitive::Text(
+            rect(140, 28, width.saturating_sub(152), 20),
+            status.chars().take(columns).collect(),
+        ));
+        fills.push(Some(0xc45c_6a));
+    }
     if width < 160 {
         primitives.truncate(4);
         fills.truncate(4);
     }
     (primitives, fills)
+}
+
+struct AddressEdit {
+    text: String,
+    cursor: usize,
+    anchor: usize,
+}
+
+impl AddressEdit {
+    fn new(text: impl Into<String>) -> Self {
+        let text = text.into();
+        let cursor = text.len();
+        Self {
+            text,
+            cursor,
+            anchor: cursor,
+        }
+    }
+
+    fn select_all(&mut self) {
+        self.anchor = 0;
+        self.cursor = self.text.len();
+    }
+
+    fn collapse(&mut self) {
+        self.anchor = self.cursor.min(self.text.len());
+        self.cursor = self.anchor;
+    }
+
+    fn selection(&self) -> (usize, usize) {
+        let anchor = boundary(&self.text, self.anchor);
+        let cursor = boundary(&self.text, self.cursor);
+        (anchor.min(cursor), anchor.max(cursor))
+    }
+
+    fn insert(&mut self, character: char) {
+        let mut extra = [0u8; 4];
+        self.insert_str(character.encode_utf8(&mut extra));
+    }
+
+    fn insert_str(&mut self, extra: &str) {
+        let (start, end) = self.selection();
+        self.text.replace_range(start..end, extra);
+        self.cursor = start + extra.len();
+        self.anchor = self.cursor;
+    }
+
+    fn backspace(&mut self) {
+        let (start, end) = self.selection();
+        if start != end {
+            self.text.replace_range(start..end, "");
+            self.cursor = start;
+            self.anchor = start;
+            return;
+        }
+        if start == 0 {
+            return;
+        }
+        let previous = self.text[..start]
+            .char_indices()
+            .next_back()
+            .map(|(index, _)| index)
+            .unwrap_or(0);
+        self.text.replace_range(previous..start, "");
+        self.cursor = previous;
+        self.anchor = previous;
+    }
+
+    fn delete_forward(&mut self) {
+        let (start, end) = self.selection();
+        if start != end {
+            self.insert_str("");
+            return;
+        }
+        let Some(next) = self.text[start..].chars().next() else {
+            return;
+        };
+        self.text.replace_range(start..start + next.len_utf8(), "");
+        self.cursor = start;
+        self.anchor = start;
+    }
+
+    fn move_by(&mut self, delta: isize) {
+        let (start, end) = self.selection();
+        if start != end {
+            self.cursor = if delta < 0 { start } else { end };
+            self.anchor = self.cursor;
+            return;
+        }
+        if delta < 0 {
+            self.cursor = self.text[..self.cursor]
+                .char_indices()
+                .next_back()
+                .map(|(index, _)| index)
+                .unwrap_or(0);
+        } else if delta > 0 {
+            self.cursor = self.text[self.cursor..]
+                .chars()
+                .next()
+                .map(|character| self.cursor + character.len_utf8())
+                .unwrap_or(self.cursor);
+        }
+        self.anchor = self.cursor;
+    }
+
+    fn move_home(&mut self) {
+        self.cursor = 0;
+        self.anchor = 0;
+    }
+
+    fn move_end(&mut self) {
+        self.cursor = self.text.len();
+        self.anchor = self.cursor;
+    }
+}
+
+fn boundary(text: &str, offset: usize) -> usize {
+    let mut offset = offset.min(text.len());
+    while !text.is_char_boundary(offset) {
+        offset -= 1;
+    }
+    offset
+}
+
+fn address_display(address: &AddressEdit, focused: bool, columns: usize) -> String {
+    let columns = columns.max(1);
+    let chars: Vec<(usize, char)> = address.text.char_indices().collect();
+    let cursor = boundary(&address.text, address.cursor);
+    let cursor_char = chars
+        .iter()
+        .position(|(index, _)| *index >= cursor)
+        .unwrap_or(chars.len());
+    let (start, end) = address.selection();
+    let selected_all = start == 0 && end == address.text.len() && !address.text.is_empty();
+    let start_char = if selected_all {
+        0
+    } else {
+        cursor_char.saturating_sub(columns.saturating_sub(1))
+    };
+    let end_char = (start_char + columns).min(chars.len());
+    let slice_start = chars.get(start_char).map(|(index, _)| *index).unwrap_or(0);
+    let slice_end = chars
+        .get(end_char)
+        .map(|(index, _)| *index)
+        .unwrap_or(address.text.len());
+    let window = &address.text[slice_start..slice_end];
+    if !focused {
+        return window.to_owned();
+    }
+    let caret = cursor.saturating_sub(slice_start).min(window.len());
+    let mut shown = String::new();
+    shown.push_str(&window[..caret]);
+    shown.push('|');
+    shown.push_str(&window[caret..]);
+    shown
 }
 
 #[cfg(test)]
@@ -829,5 +992,63 @@ mod tests {
             receiver.try_recv(),
             Ok(BrowserCommand::CopySelection)
         ));
+    }
+
+    #[test]
+    fn address_click_selects_all_and_typing_replaces_it() {
+        let mut address = AddressEdit::new("http://127.0.0.1:18189/old");
+        let mut focused = false;
+        let (commands, _receiver) = mpsc::sync_channel(4);
+        assert!(toolbar_action(180.0, &mut address, &mut focused, &commands));
+        assert!(focused);
+        address.insert_str("example.test");
+        assert_eq!(address.text, "example.test");
+        assert_eq!(
+            normalize_navigation_input(&address.text).unwrap(),
+            "https://example.test"
+        );
+    }
+
+    #[test]
+    fn address_backspace_enter_and_commit_do_not_duplicate_keys() {
+        let mut address = AddressEdit::new("ab");
+        address.backspace();
+        assert_eq!(address.text, "a");
+        address.insert('c');
+        assert_eq!(address.text, "ac");
+        let mut status = String::new();
+        let mut focused = true;
+        let (commands, receiver) = mpsc::sync_channel(1);
+        apply_address_commit(
+            &mut address,
+            "ac",
+            "ac",
+            &commands,
+            &mut status,
+            &mut focused,
+        );
+        assert_eq!(address.text, "ac");
+        assert!(receiver.try_recv().is_err());
+        apply_address_commit(
+            &mut address,
+            "\n",
+            "",
+            &commands,
+            &mut status,
+            &mut focused,
+        );
+        assert!(!focused);
+        assert!(matches!(
+            receiver.recv_timeout(Duration::from_millis(50)),
+            Ok(BrowserCommand::NavigateUrl(url)) if url == "https://ac"
+        ));
+    }
+
+    #[test]
+    fn large_window_clamps_instead_of_rejecting_the_viewport() {
+        let viewport = content_viewport(size(3840, 2160)).unwrap();
+        assert!(viewport.width <= MAX_VIEWPORT_EDGE);
+        assert!(viewport.height <= MAX_VIEWPORT_EDGE);
+        assert!(viewport.validate().is_ok());
     }
 }
