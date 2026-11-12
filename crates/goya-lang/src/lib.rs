@@ -20,7 +20,10 @@ mod transition;
 pub use hotswap::SceneStore;
 pub use lexer::{lex, LexError, Token, TokenKind};
 pub use lowering::{lower, LowerError, Lowered, NodeKey, NodeRecord, NodeTable, Role};
-pub use parser::{parse, parse_with_source_map, ParseError, ParsedScene, SourceEntry, SourceRange};
+pub use parser::{
+    parse, parse_strict, parse_with_source_map, ParseError, ParsedScene, SourceEntry, SourceRange,
+    StrictParseError,
+};
 pub use scene::{
     hit_test, hit_test_scrolled, layout, Anchor, CellKind, DrawNode, Frame, RectMp, Scene,
     SceneCell, ScrollOffsets, Vec3,
@@ -82,6 +85,25 @@ mod tests {
             .map(|e| e.scene_path.clone().unwrap())
             .collect();
         assert_eq!(paths, vec![vec![], vec![0], vec![0, 0]]);
+    }
+
+    #[test]
+    fn strict_parser_rejects_unknown_property_at_its_utf8_origin() {
+        let source = "@ontology demo { @cell root { text: \"é\"; colur: #fff } }";
+        let error = parse_strict(source).unwrap_err();
+        assert_eq!(error.code, "GY-E1001");
+        assert_eq!(error.name, "colur");
+        assert_eq!(&source[error.range.start..error.range.end], "colur: #fff");
+        // The compatibility parser retains its documented permissive mode.
+        assert!(parse(source).is_ok());
+    }
+
+    #[test]
+    fn strict_parser_rejects_recognized_but_unrepresented_template() {
+        let source = "@ontology demo { @cell root { @template card { text: \\\"x\\\" } } }";
+        let error = parse_strict(source).unwrap_err();
+        assert_eq!(error.code, "GY-E1002");
+        assert_eq!(&source[error.range.start..error.range.end], "@template card { text: \\\"x\\\" }");
     }
 
     const HELLO: &str = "\

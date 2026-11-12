@@ -48,6 +48,23 @@ pub struct ParsedScene {
     pub entries: Vec<SourceEntry>,
 }
 
+/// A construct accepted for legacy compatibility but rejected by strict
+/// semantic admission because this frontend does not preserve its meaning.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StrictParseError {
+    pub code: &'static str,
+    pub name: String,
+    pub range: SourceRange,
+}
+
+impl fmt::Display for StrictParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}: unsupported {} '{}'", self.code, if self.code == "GY-E1001" { "property" } else { "construct" }, self.name)
+    }
+}
+
+impl std::error::Error for StrictParseError {}
+
 /// Parse a scene document.
 pub fn parse(source: &str) -> Result<Scene, ParseError> {
     parse_with_source_map(source).map(|parsed| parsed.scene)
@@ -144,6 +161,36 @@ pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
         },
         entries: p.entries,
     })
+}
+
+/// Parse using the canonical GY-LANG grammar, then reject compatibility
+/// constructs whose semantics the current AST discards. The returned range
+/// is a half-open UTF-8 byte range in `source`.
+pub fn parse_strict(source: &str) -> Result<ParsedScene, StrictParseError> {
+    let parsed = parse_with_source_map(source).map_err(|error| StrictParseError {
+        code: "GY-E1000",
+        name: format!("syntax at line {}", error.line),
+        range: SourceRange { start: 0, end: 0 },
+    })?;
+    for entry in &parsed.entries {
+        let unsupported = match entry.kind.as_str() {
+            "property" if !is_known_property(&entry.name) => Some("GY-E1001"),
+            "template" => Some("GY-E1002"),
+            _ => None,
+        };
+        if let Some(code) = unsupported {
+            return Err(StrictParseError {
+                code,
+                name: entry.name.clone(),
+                range: entry.range,
+            });
+        }
+    }
+    Ok(parsed)
+}
+
+fn is_known_property(name: &str) -> bool {
+    matches!(name, "position" | "extent" | "position_p" | "extent_p" | "fill" | "stroke" | "stroke-width" | "stroke_width" | "text" | "text-size" | "text_size" | "wrap" | "scroll" | "text-anchor" | "text_anchor")
 }
 
 struct P {

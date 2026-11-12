@@ -8,6 +8,7 @@ fn main() -> ExitCode {
             Some("NPT-E1001") => "The input exceeds the 128 KiB source limit.",
             Some("NPT-E1002") => "The Goya frontend could not parse the UTF-8 scene. Correct the source at the reported line.",
             Some("NPT-E1003") => "The source exceeds the nesting limit of 128.",
+            Some("NPT-E1004") => "The diagnostic limit was reached; fix reported issues and check again.",
             Some("NPT-E2104") => "The source requires an iOS mapping that Neptune has not admitted. Remove the construct or wait for an admitted implementation.",
             _ => { eprintln!("unknown diagnostic code"); return ExitCode::FAILURE; }
         };
