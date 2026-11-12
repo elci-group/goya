@@ -496,8 +496,11 @@ fn render_editor(project: &SceneProject, preview: &str, revision: &str) -> Strin
             "dragPositionOnly=true;document.querySelector('#apply').click();dragPositionOnly=false;});",
         )
         .replace("out.push({open,end});", "out.push({open,end,name:m[2],kind:m[1]});")
+        // The script regex has no `u` flag until this replacement adds one.
+        // Searching for the flag makes the call a no-op, so names the scene
+        // parser accepts (Unicode letters and numbers) never match a block.
         .replace(
-            "/^@(cell|button|input)\\s+([A-Za-z_][A-Za-z0-9_-]*)\\s*\\{/u",
+            "/^@(cell|button|input)\\s+([A-Za-z_][A-Za-z0-9_-]*)\\s*\\{/",
             "/^@(cell|button|input)\\s+([\\p{L}_][\\p{L}\\p{N}_-]*)\\s*\\{/u",
         )
         .replace("if(!b)throw Error('Could not match selected scene node');", "if(!b||b.name!==o.dataset.name||b.kind!==o.dataset.kind)throw Error('Could not match selected scene node');")
@@ -1239,6 +1242,11 @@ mod tests {
             .2
             .contains("Scene structure changed; reload the editor"));
         assert!(initial.2.contains("data-name=\"ok\""));
+        assert!(initial.2.contains(
+            "/^@(cell|button|input)\\s+([\\p{L}_][\\p{L}\\p{N}_-]*)\\s*\\{/u"
+        ));
+        assert!(!initial.2.contains("[A-Za-z_][A-Za-z0-9_-]*"));
+        assert!(initial.2.contains("b.name!==o.dataset.name||b.kind!==o.dataset.kind"));
         assert!(initial.2.contains("sandbox=\"allow-scripts\""));
         assert!(initial.2.contains("e.source!==frame.contentWindow"));
         assert!(initial.2.contains("dragPositionOnly=true"));
