@@ -221,9 +221,9 @@ pub struct SessionView {
     /// Current CLI-owned queue and blocking interactions, reduced from the
     /// conversation projection. Replaced atomically on every accepted frame.
     pub workflow: WorkflowState,
-    /// Owner controls that have been submitted and have not yet been settled
-    /// by a newer projection or command outcome. This is presentation state.
-    pending_controls: Vec<String>,
+    /// Owner controls submitted under a command id and not yet settled by a
+    /// newer projection or that command's outcome. Presentation state only.
+    pending_controls: Vec<(String, String)>,
 }
 
 impl Default for SessionView {
@@ -263,15 +263,23 @@ impl SessionView {
         !self.pending_controls.is_empty()
     }
 
-    pub fn mark_control_pending(&mut self, id: &str) {
-        if !id.is_empty() && !self.pending_controls.iter().any(|existing| existing == id) {
-            self.pending_controls.push(id.to_owned());
+    pub fn mark_control_pending(&mut self, command_id: &str, id: &str) {
+        if command_id.is_empty()
+            || id.is_empty()
+            || self
+                .pending_controls
+                .iter()
+                .any(|(pending_command, pending_id)| pending_command == command_id && pending_id == id)
+        {
+            return;
         }
+        self.pending_controls
+            .push((command_id.to_owned(), id.to_owned()));
     }
 
     /// Disable every currently actionable answer control, including Send when
     /// it submits the visible interaction. Queue controls stay independent.
-    pub fn mark_answer_controls_pending(&mut self) {
+    pub fn mark_answer_controls_pending(&mut self, command_id: &str) {
         let ids: Vec<String> = self
             .workflow_controls()
             .into_iter()
@@ -279,8 +287,13 @@ impl SessionView {
             .map(|control| control.id)
             .collect();
         for id in ids {
-            self.mark_control_pending(&id);
+            self.mark_control_pending(command_id, &id);
         }
+    }
+
+    pub fn clear_command_pending(&mut self, command_id: &str) {
+        self.pending_controls
+            .retain(|(pending_command, _)| pending_command != command_id);
     }
 
     pub fn clear_pending_controls(&mut self) {
@@ -288,7 +301,11 @@ impl SessionView {
     }
 
     fn control_enabled(&self, enabled: bool, id: &str) -> bool {
-        enabled && !self.pending_controls.iter().any(|existing| existing == id)
+        enabled
+            && !self
+                .pending_controls
+                .iter()
+                .any(|(_, pending_id)| pending_id == id)
     }
 
     /// Stable native scene controls derived from current owner state. This is
@@ -1361,7 +1378,7 @@ mod tests {
                 && control.label == "Allow always"
                 && control.enabled
         }));
-        view.mark_answer_controls_pending();
+        view.mark_answer_controls_pending("cmd-1");
         let pending = view.workflow_controls();
         assert!(pending
             .iter()
