@@ -88,6 +88,27 @@ mod tests {
     }
 
     #[test]
+    fn source_map_uses_authored_ids_for_elements_and_properties() {
+        let source = "@ontology demo { @cell same { id: \"left\"; text: \"L\" } @cell same { id: \"right\"; text: \"R\" } }";
+        let parsed = parse_strict(source).unwrap();
+        let elements: Vec<_> = parsed
+            .entries
+            .iter()
+            .filter(|entry| entry.kind == "cell")
+            .collect();
+        assert_eq!(elements[0].scene_path, Some(vec![0]));
+        assert_eq!(elements[0].semantic_id.as_deref(), Some("left"));
+        assert_eq!(elements[1].scene_path, Some(vec![1]));
+        assert_eq!(elements[1].semantic_id.as_deref(), Some("right"));
+        let label = parsed
+            .entries
+            .iter()
+            .find(|entry| entry.kind == "property" && entry.name == "text")
+            .unwrap();
+        assert_eq!(label.semantic_id.as_deref(), Some("left"));
+    }
+
+    #[test]
     fn strict_parser_rejects_unknown_property_at_its_utf8_origin() {
         let source = "@ontology demo { @cell root { text: \"é\"; colur: #fff } }";
         let error = parse_strict(source).unwrap_err();

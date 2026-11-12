@@ -224,7 +224,23 @@ pub fn parse_strict(source: &str) -> Result<ParsedScene, StrictParseError> {
         }
     }
     let mut ids = std::collections::BTreeSet::new();
-    if let Some(error) = validate_authored_ids(&parsed.scene.root, &mut ids) {
+    let root = &parsed.scene.root;
+    let virtual_root = root.authored_id.is_none()
+        && root.name == parsed.scene.name
+        && root.position.is_none()
+        && root.extent.is_none()
+        && root.position_p.is_none()
+        && root.extent_p.is_none()
+        && root.text.is_none()
+        && root.children.len() > 1;
+    let id_error = if virtual_root {
+        root.children
+            .iter()
+            .find_map(|child| validate_authored_ids(child, &mut ids))
+    } else {
+        validate_authored_ids(root, &mut ids)
+    };
+    if let Some(error) = id_error {
         let entry = parsed
             .entries
             .iter()

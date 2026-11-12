@@ -42,6 +42,7 @@ pub struct Diagnostic {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourcePreview {
     pub swift: String,
+    pub declared_id: String,
     pub source_range: SourceRange,
     pub swift_range: SourceRange,
 }
@@ -50,15 +51,17 @@ pub struct SourcePreview {
 /// the exact UTF-8 bytes of the source and the included artifact strings.
 pub fn preview_bundle(source: &str) -> Result<String, Diagnostic> {
     let preview = preview_static_text(source)?;
-    let map = serde_json::json!({"schema_version":"1", "mappings":[{"source":{"start_byte":preview.source_range.start,"end_byte":preview.source_range.end},"swift":{"start_byte":preview.swift_range.start,"end_byte":preview.swift_range.end}}]}).to_string() + "\n";
+    let map = serde_json::json!({"schema_version":"1", "mappings":[{"declared_id":preview.declared_id,"source":{"start_byte":preview.source_range.start,"end_byte":preview.source_range.end},"swift":{"start_byte":preview.swift_range.start,"end_byte":preview.swift_range.end}}]}).to_string() + "\n";
+    let capabilities = serde_json::json!({"schema_version":"1", "profile":"source_preview", "capabilities":[{"semantic_id":"goya.text.static", "adapter":"swiftui.Text", "status":"experimental", "minimum_os":null, "test_status":"apple_validation_not_run", "fallback":"reject"}]}).to_string() + "\n";
     fn hash(bytes: &[u8]) -> String {
         format!("{:x}", Sha256::digest(bytes))
     }
     let bundle = serde_json::json!({
         "schema_version":"1", "operation":"preview", "verification":"SOURCE_PREVIEW",
-        "artifacts": {"App.swift":preview.swift, "source-map.json":map},
+        "artifacts": {"App.swift":preview.swift, "source-map.json":map, "capabilities.json":capabilities},
         "report": {"schema_version":"1", "input_sha256":hash(source.as_bytes()),
-            "artifact_sha256":{"App.swift":hash(preview.swift.as_bytes()), "source-map.json":hash(map.as_bytes())},
+            "compiler":{"neptune_version":env!("CARGO_PKG_VERSION"), "goya_language_contract":goya_lang::LANG_CONTRACT, "goya_ir_contract":goya_ir::IR_CONTRACT},
+            "artifact_sha256":{"App.swift":hash(preview.swift.as_bytes()), "source-map.json":hash(map.as_bytes()), "capabilities.json":hash(capabilities.as_bytes())},
             "stages":{"goya_frontend":"PASS", "ios_admission":"NOT_RUN", "apple_validation":"NOT_RUN"}}
     });
     Ok(bundle.to_string() + "\n")
@@ -137,6 +140,7 @@ pub fn preview_static_text(source: &str) -> Result<SourcePreview, Diagnostic> {
     let end = start + expr.len();
     Ok(SourcePreview {
         swift: format!("{prefix}{expr}{suffix}"),
+        declared_id: parsed.scene.root.authored_id.clone().expect("strict frontend validates authored ID"),
         source_range: text_range,
         swift_range: SourceRange { start, end },
     })
