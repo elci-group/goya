@@ -70,6 +70,50 @@ pub struct WorkflowInteraction {
     pub unsupported_reason: Option<String>,
 }
 
+pub fn answer_control_id(interaction: &WorkflowInteraction, index: usize) -> Option<&'static str> {
+    if interaction.unsupported_reason.is_some() || index >= 4 {
+        return None;
+    }
+    let option = interaction.options.get(index)?;
+    if interaction.kind == "userInput" {
+        return Some(
+            [
+                "question_option_00",
+                "question_option_01",
+                "question_option_02",
+                "question_option_03",
+            ][index],
+        );
+    }
+    if interaction.kind != "permission" {
+        return None;
+    }
+    let earlier_allow = interaction.options[..index]
+        .iter()
+        .any(|option| matches!(option.kind.as_str(), "allowOnce" | "allowAlways"));
+    let earlier_deny = interaction.options[..index]
+        .iter()
+        .any(|option| option.kind == "deny");
+    Some(match option.kind.as_str() {
+        "allowOnce" | "allowAlways" if !earlier_allow => "permission_allow",
+        "deny" if !earlier_deny => "permission_deny",
+        _ => [
+            "permission_option_00",
+            "permission_option_01",
+            "permission_option_02",
+            "permission_option_03",
+        ][index],
+    })
+}
+
+fn is_answer_control(id: &str) -> bool {
+    id == "permission_allow"
+        || id == "permission_deny"
+        || id == "question_submit"
+        || id.starts_with("permission_option_")
+        || id.starts_with("question_option_")
+}
+
 /// Render-ready, non-authoritative view of fields owned by the v4 snapshot.
 /// Mutations are never applied to this value locally; the agent replaces it
 /// after receiving a newer owner projection.
@@ -327,7 +371,10 @@ impl SessionView {
                 controls.push(WorkflowControl {
                     id: "question_submit".into(),
                     label: "Submit answer".into(),
-                    enabled: !interaction.interaction_id.is_empty(),
+                    enabled: self.control_enabled(
+                        !interaction.interaction_id.is_empty(),
+                        "question_submit",
+                    ),
                 });
             }
         }
@@ -558,6 +605,7 @@ impl SessionView {
         self.in_flight_tools.clear();
         self.finished_tools.clear();
         self.workflow = WorkflowState::default();
+        self.pending_controls.clear();
         self.projection_revision = 0;
     }
 
@@ -1261,5 +1309,74 @@ mod tests {
         assert_eq!(view.projection_revision, 0);
         assert!(view.workflow.queue_items.is_empty());
         assert!(view.workflow.interactions.is_empty());
+        assert!(!view.owner_action_pending());
+    }
+
+    #[test]
+    fn second_allow_keeps_a_control_and_pending_disables_only_that_family() {
+        let mut view = view_with_sessions();
+        view.replace_workflow(WorkflowState {
+            auto_drain: true,
+            queue_items: vec![WorkflowQueueItem {
+                queue_item_id: "queue-1".into(),
+                text: "later".into(),
+                delivery: "queue".into(),
+            }],
+            interactions: vec![WorkflowInteraction {
+                interaction_id: "permission-1".into(),
+                kind: "permission".into(),
+                title: "Allow file read?".into(),
+                summary: "Read".into(),
+                options: vec![
+                    WorkflowInteractionOption {
+                        option_id: "once".into(),
+                        label: "Allow once".into(),
+                        kind: "allowOnce".into(),
+                    },
+                    WorkflowInteractionOption {
+                        option_id: "always".into(),
+                        label: "Allow always".into(),
+                        kind: "allowAlways".into(),
+                    },
+                    WorkflowInteractionOption {
+                        option_id: "deny".into(),
+                        label: "Deny".into(),
+                        kind: "deny".into(),
+                    },
+                ],
+                free_text: false,
+                unsupported_reason: None,
+            }],
+        });
+        assert_eq!(
+            answer_control_id(view.workflow.interactions.first().unwrap(), 1),
+            Some("permission_option_01")
+        );
+        let controls = view.workflow_controls();
+        assert!(controls.iter().any(|control| {
+            control.id == "permission_allow" && control.label == "Allow once" && control.enabled
+        }));
+        assert!(controls.iter().any(|control| {
+            control.id == "permission_option_01"
+                && control.label == "Allow always"
+                && control.enabled
+        }));
+        view.mark_answer_controls_pending();
+        let pending = view.workflow_controls();
+        assert!(pending
+            .iter()
+            .filter(|control| {
+                control.id.starts_with("permission_") || control.id == "send"
+            })
+            .all(|control| !control.enabled));
+        assert!(pending
+            .iter()
+            .any(|control| control.id == "queue_remove_00" && control.enabled));
+        view.replace_workflow(view.workflow.clone());
+        assert!(!view.owner_action_pending());
+        assert!(view
+            .workflow_controls()
+            .iter()
+            .any(|control| control.id == "permission_option_01" && control.enabled));
     }
 }
