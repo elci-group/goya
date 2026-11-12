@@ -130,8 +130,7 @@ fn spawn_browser_worker(
             }
         };
         if let Err(error) = browser.navigate(&url) {
-            try_report(&events, WorkerEvent::Failure(error.to_string()));
-            return;
+            try_report(&events, WorkerEvent::Notice(error.to_string()));
         }
         let mut generation = 0;
         let mut dirty = true;
@@ -689,10 +688,7 @@ fn submit_address(
         Ok(url) => {
             status.clear();
             *address_focus = false;
-            if commands
-                .try_send(BrowserCommand::NavigateUrl(url))
-                .is_err()
-            {
+            if commands.try_send(BrowserCommand::NavigateUrl(url)).is_err() {
                 *status = "The page engine is busy.".into();
                 *address_focus = true;
             }
@@ -746,7 +742,7 @@ fn toolbar_primitives(
         width: i64::from(w) * 250,
         height: i64::from(h) * 250,
     };
-    let columns = usize::from((width.saturating_sub(152) / 12).max(8));
+    let columns = usize::try_from((width.saturating_sub(152) / 12).max(8)).unwrap_or(8);
     let mut primitives = vec![
         Primitive::Panel(rect(0, 0, width, TOOLBAR_HEIGHT)),
         Primitive::Button(rect(4, 6, 32, 40), "<".into()),
