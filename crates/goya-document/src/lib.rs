@@ -13,6 +13,7 @@ pub const MAX_INPUT_BYTES: u64 = 128 * 1024 * 1024;
 const MAX_OUTPUT_BYTES: usize = MAX_PIXELS * 3 + 4096;
 pub const MAX_TEXT_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_TEXT_WORDS: usize = 50_000;
+const MAX_FIND_MATCHES: usize = 32;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DocumentError {
@@ -63,6 +64,13 @@ pub struct TextRect {
     pub y_max: f32,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextMatch {
+    pub start: usize,
+    pub end: usize,
+    pub text: String,
+}
+
 impl AccessibleTextPage {
     pub fn text(&self) -> String {
         self.words
@@ -92,6 +100,39 @@ impl AccessibleTextPage {
             .map(|word| word.text.as_str())
             .collect::<Vec<_>>()
             .join(" "))
+    }
+
+    pub fn find(&self, query: &str, limit: usize) -> Vec<TextMatch> {
+        let query = query.trim();
+        if query.is_empty() || limit == 0 {
+            return Vec::new();
+        }
+        let limit = limit.min(MAX_FIND_MATCHES);
+        let needle = query.to_lowercase();
+        let mut matches = Vec::new();
+        for start in 0..self.words.len() {
+            if matches.len() == limit {
+                break;
+            }
+            let mut folded = String::new();
+            let mut text = String::new();
+            for end in start..self.words.len() {
+                if end > start {
+                    folded.push(' ');
+                    text.push(' ');
+                }
+                folded.push_str(&self.words[end].text.to_lowercase());
+                text.push_str(&self.words[end].text);
+                if folded == needle {
+                    matches.push(TextMatch { start, end, text });
+                    break;
+                }
+                if folded.len() >= needle.len() {
+                    break;
+                }
+            }
+        }
+        matches
     }
 }
 
@@ -648,5 +689,116 @@ mod tests {
             .is_err());
         assert!(parse_bbox_text(1, &"x".repeat(MAX_TEXT_BYTES + 1)).is_err());
         assert!(parse_bbox_text(1, "<page width=\"10\" height=\"10\"><word xMin=\"9\" yMin=\"1\" xMax=\"11\" yMax=\"2\">x</word></page>").is_err());
+    }
+
+    fn page_with(words: &[&str]) -> AccessibleTextPage {
+        AccessibleTextPage {
+            page: 1,
+            width: 100.0,
+            height: 100.0,
+            words: words
+                .iter()
+                .map(|text| TextWord {
+                    text: (*text).to_string(),
+                    x_min: 0.0,
+                    y_min: 0.0,
+                    x_max: 1.0,
+                    y_max: 1.0,
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn find_empty_query_returns_no_matches() {
+        let page = page_with(&["Hello", "World"]);
+        assert!(page.find("", 8).is_empty());
+        assert!(page.find("   ", 8).is_empty());
+        assert_eq!(page.words.len(), 2);
+    }
+
+    #[test]
+    fn find_folds_unicode_scalar_case() {
+        let page = page_with(&["Éclair", "İ"]);
+        assert_eq!(
+            page.find("  éclair ", 4),
+            vec![TextMatch {
+                start: 0,
+                end: 0,
+                text: "Éclair".to_string(),
+            }]
+        );
+        assert_eq!(
+            page.find("i\u{0307}", 4),
+            vec![TextMatch {
+                start: 1,
+                end: 1,
+                text: "İ".to_string(),
+            }]
+        );
+        assert!(page.find("i", 4).is_empty());
+    }
+
+    #[test]
+    fn find_matches_adjacent_two_word_span() {
+        let page = page_with(&["Hello", "World"]);
+        assert_eq!(
+            page.find("hello", 4),
+            vec![TextMatch {
+                start: 0,
+                end: 0,
+                text: "Hello".to_string(),
+            }]
+        );
+        assert_eq!(
+            page.find("hello world", 4),
+            vec![TextMatch {
+                start: 0,
+                end: 1,
+                text: "Hello World".to_string(),
+            }]
+        );
+        let repeated = page_with(&["x", "x", "x"]);
+        assert_eq!(
+            repeated.find("x x", 8),
+            vec![
+                TextMatch {
+                    start: 0,
+                    end: 1,
+                    text: "x x".to_string(),
+                },
+                TextMatch {
+                    start: 1,
+                    end: 2,
+                    text: "x x".to_string(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn find_stops_at_requested_limit_and_caps_at_32() {
+        let words: Vec<&str> = vec!["Hit"; 40];
+        let page = page_with(&words);
+        assert!(page.find("hit", 0).is_empty());
+        let limited = page.find("hit", 2);
+        assert_eq!(limited.len(), 2);
+        assert_eq!(limited[0].start, 0);
+        assert_eq!(limited[1].end, 1);
+        let capped = page.find("hit", 100);
+        assert_eq!(capped.len(), 32);
+        assert_eq!(capped[31].start, 31);
+        assert_eq!(capped[31].end, 31);
+        assert_eq!(capped[31].text, "Hit");
+        assert_eq!(page.words.len(), 40);
+    }
+
+    #[test]
+    fn find_returns_empty_when_nothing_matches() {
+        let page = page_with(&["Hello", "World"]);
+        assert!(page.find("goodbye", 8).is_empty());
+        assert!(page.find("hell", 8).is_empty());
+        assert!(page.find("hello  world", 8).is_empty());
+        assert_eq!(page.text(), "Hello World");
     }
 }
