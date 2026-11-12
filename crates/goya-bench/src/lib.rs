@@ -486,17 +486,28 @@ fn probe_dimensions(ffprobe: &str, path: &Path) -> Result<(u32, u32), LocalCorpu
     Ok((width, height))
 }
 
+/// Fit the first video frame into a square and pad with full-range neutral gray.
+///
+/// `pad=color=gray` converts the named color through limited-range YUV and
+/// writes luma 126. Corpus pixels are full-range 8-bit gray, where neutral
+/// gray is 128 (the same value a full-range gray source already decodes to).
+/// Overlaying the fitted gray frame on a gray canvas keeps that 128 after
+/// the final `format=gray`.
+fn local_normalization_filter(size: u32) -> String {
+    format!(
+        "color=c=gray:s={size}x{size}[bg];\
+         [0:v]scale={size}:{size}:force_original_aspect_ratio=decrease:flags=area,format=gray[fg];\
+         [bg][fg]overlay=(W-w)/2:(H-h)/2:format=auto,format=gray"
+    )
+}
+
 fn decode_local_image(ffmpeg: &str, path: &Path, size: u32) -> Result<Vec<u8>, LocalCorpusError> {
-    let filter = format!(
-        "scale={size}:{size}:force_original_aspect_ratio=decrease:flags=area,pad={size}:{size}:(ow-iw)/2:(oh-ih)/2:color=gray,format=gray"
-    );
+    let filter = local_normalization_filter(size);
     let mut command = Command::new(ffmpeg);
     command.args(["-v", "error", "-i"]).arg(path).args([
-        "-map",
-        "0:v:0",
         "-frames:v",
         "1",
-        "-vf",
+        "-filter_complex",
         &filter,
         "-f",
         "rawvideo",
@@ -1342,9 +1353,20 @@ fn measure_ffmpeg_codec(result: &mut BenchmarkResult, executable: &str, codec: &
         codec: codec.into(),
         quality_parameter: quality_parameter.into(),
         encoder_version: Some(version),
-        note: Some(format!("Synthetic grayscale corpus; applies only to this ffmpeg {codec} round-trip, encoder settings, and reported configuration.")),
+        note: Some(codec_measurement_note(&result.corpus_kind, codec)),
         qualities: measurements,
     });
+}
+
+fn codec_measurement_note(corpus_kind: &str, codec: &str) -> String {
+    let corpus = if corpus_kind == "local_files" {
+        "Caller-supplied normalized grayscale corpus"
+    } else {
+        "Synthetic grayscale corpus"
+    };
+    format!(
+        "{corpus}; applies only to this ffmpeg {codec} round-trip, encoder settings, and reported configuration."
+    )
 }
 
 fn codec_unavailable(codec: &str, version: Option<String>, note: &str) -> CodecRoundTripReport {
@@ -1615,6 +1637,18 @@ mod tests {
     }
 
     #[test]
+    fn local_normalization_pads_full_range_neutral_gray() {
+        let filter = local_normalization_filter(64);
+        assert!(filter.contains("color=c=gray:s=64x64[bg]"));
+        assert!(filter.contains(
+            "scale=64:64:force_original_aspect_ratio=decrease:flags=area,format=gray[fg]"
+        ));
+        assert!(filter.contains("overlay=(W-w)/2:(H-h)/2:format=auto,format=gray"));
+        // `pad=color=gray` is limited-range YUV and writes luma 126, not 128.
+        assert!(!filter.contains("pad="));
+    }
+
+    #[test]
     fn local_paths_sort_lexicographically_for_stable_corpus_order() {
         assert_eq!(
             sort_local_paths(&[PathBuf::from("z.png"), PathBuf::from("a.png")]),
@@ -1859,6 +1893,53 @@ mod tests {
         let json = result.to_json();
         assert!(json.contains("\"status\":\"unavailable\""));
         assert!(json.ends_with("}\n"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn codec_note_follows_corpus_kind_and_keeps_synthetic_wording() {
+        let script = std::env::temp_dir().join(format!(
+            "goya-fake-ffmpeg-{}-{}.sh",
+            std::process::id(),
+            mix64(0xC0DEC0DE)
+        ));
+        std::fs::write(
+            &script,
+            "#!/bin/sh\nif [ \"$1\" = \"-version\" ]; then echo 'ffmpeg version test'; exit 0; fi\ncat\n",
+        )
+        .expect("write fake ffmpeg");
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755))
+            .expect("mark fake ffmpeg executable");
+        let script_path = script.to_str().expect("temp path is utf-8");
+
+        let mut synthetic = Benchmark.run_adversarial(1, 1, 64, KEY, ALPHA);
+        measure_ffmpeg_codecs(&mut synthetic, script_path, &["png"]);
+        assert_eq!(synthetic.codec_roundtrips[0].status, "measured");
+        assert_eq!(
+            synthetic.codec_roundtrips[0].note.as_deref(),
+            Some("Synthetic grayscale corpus; applies only to this ffmpeg png round-trip, encoder settings, and reported configuration.")
+        );
+
+        let image = Corpus::generate(7, 1, 64).remove(0);
+        let mut local = Benchmark.run_local(
+            7,
+            64,
+            KEY,
+            ALPHA,
+            LocalCorpus {
+                images: vec![image],
+                sources: Vec::new(),
+                ffmpeg_version: "ffmpeg version test".into(),
+            },
+        );
+        measure_ffmpeg_codecs(&mut local, script_path, &["png"]);
+        assert_eq!(local.codec_roundtrips[0].status, "measured");
+        let note = local.codec_roundtrips[0].note.as_deref().unwrap();
+        assert!(!note.contains("Synthetic"));
+        assert!(note.starts_with("Caller-supplied normalized grayscale corpus;"));
+        assert_eq!(local.report.transforms.len(), 15);
+        let _ = std::fs::remove_file(&script);
     }
 
     #[test]
