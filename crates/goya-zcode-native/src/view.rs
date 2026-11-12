@@ -177,6 +177,9 @@ pub struct SessionView {
     /// Current CLI-owned queue and blocking interactions, reduced from the
     /// conversation projection. Replaced atomically on every accepted frame.
     pub workflow: WorkflowState,
+    /// Owner controls that have been submitted and have not yet been settled
+    /// by a newer projection or command outcome. This is presentation state.
+    pending_controls: Vec<String>,
 }
 
 impl Default for SessionView {
@@ -197,6 +200,7 @@ impl Default for SessionView {
             finished_tools: VecDeque::new(),
             selected: 0,
             workflow: WorkflowState::default(),
+            pending_controls: Vec::new(),
         }
     }
 }
@@ -207,6 +211,40 @@ impl SessionView {
     /// a projection that no longer contains it.
     pub fn replace_workflow(&mut self, workflow: WorkflowState) {
         self.workflow = workflow;
+        // 新投影是权威事实；在途按钮只保留到这一帧或命令结果，不能继续挡住新卡片。
+        self.pending_controls.clear();
+    }
+
+    pub fn owner_action_pending(&self) -> bool {
+        !self.pending_controls.is_empty()
+    }
+
+    pub fn mark_control_pending(&mut self, id: &str) {
+        if !id.is_empty() && !self.pending_controls.iter().any(|existing| existing == id) {
+            self.pending_controls.push(id.to_owned());
+        }
+    }
+
+    /// Disable every currently actionable answer control, including Send when
+    /// it submits the visible interaction. Queue controls stay independent.
+    pub fn mark_answer_controls_pending(&mut self) {
+        let ids: Vec<String> = self
+            .workflow_controls()
+            .into_iter()
+            .filter(|control| is_answer_control(&control.id) || control.id == "send")
+            .map(|control| control.id)
+            .collect();
+        for id in ids {
+            self.mark_control_pending(&id);
+        }
+    }
+
+    pub fn clear_pending_controls(&mut self) {
+        self.pending_controls.clear();
+    }
+
+    fn control_enabled(&self, enabled: bool, id: &str) -> bool {
+        enabled && !self.pending_controls.iter().any(|existing| existing == id)
     }
 
     /// Stable native scene controls derived from current owner state. This is
@@ -227,17 +265,17 @@ impl SessionView {
             WorkflowControl {
                 id: "queue_mode".into(),
                 label: "Send as queued input".into(),
-                enabled: !self.sessions.is_empty(),
+                enabled: self.control_enabled(!self.sessions.is_empty(), "queue_mode"),
             },
             WorkflowControl {
                 id: "guide_mode".into(),
                 label: "Send as guided input".into(),
-                enabled: !self.sessions.is_empty(),
+                enabled: self.control_enabled(!self.sessions.is_empty(), "guide_mode"),
             },
             WorkflowControl {
                 id: "send".into(),
                 label: "Send message".into(),
-                enabled: !self.sessions.is_empty(),
+                enabled: self.control_enabled(!self.sessions.is_empty(), "send"),
             },
             WorkflowControl {
                 id: "quit".into(),
@@ -251,15 +289,18 @@ impl SessionView {
                 } else {
                     "Resume queued inputs".into()
                 },
-                enabled: !self.workflow.queue_items.is_empty(),
+                enabled: self.control_enabled(
+                    !self.workflow.queue_items.is_empty(),
+                    "queue_auto_drain",
+                ),
             },
         ];
-        let mut seen = std::collections::HashSet::new();
         for (index, item) in self.workflow.queue_items.iter().take(4).enumerate() {
+            let id = format!("queue_remove_{index:02}");
             controls.push(WorkflowControl {
-                id: format!("queue_remove_{index:02}"),
                 label: format!("Remove queued input: {}", truncate_chars(&item.text, 36)),
-                enabled: !item.queue_item_id.is_empty(),
+                enabled: self.control_enabled(!item.queue_item_id.is_empty(), &id),
+                id,
             });
         }
         if let Some(interaction) = self
@@ -268,18 +309,17 @@ impl SessionView {
             .first()
             .filter(|item| item.unsupported_reason.is_none())
         {
+            let mut seen = std::collections::HashSet::new();
             for (index, option) in interaction.options.iter().take(4).enumerate() {
-                let id = match (interaction.kind.as_str(), option.kind.as_str()) {
-                    ("permission", "allowOnce" | "allowAlways") => "permission_allow".into(),
-                    ("permission", "deny") => "permission_deny".into(),
-                    ("permission", _) => format!("permission_option_{index:02}"),
-                    _ => format!("question_option_{index:02}"),
+                let Some(id) = answer_control_id(interaction, index) else {
+                    continue;
                 };
-                if seen.insert(id.clone()) {
+                if seen.insert(id) {
                     controls.push(WorkflowControl {
-                        id,
+                        id: id.to_owned(),
                         label: option.label.clone(),
-                        enabled: !interaction.interaction_id.is_empty(),
+                        enabled: self
+                            .control_enabled(!interaction.interaction_id.is_empty(), id),
                     });
                 }
             }
