@@ -22,6 +22,11 @@ fn main() -> ExitCode {
             Some("NPT-E1003") => "The source exceeds the nesting limit of 128.",
             Some("NPT-E1004") => "The diagnostic limit was reached; fix reported issues and check again.",
             Some("NPT-E2104") => "The source requires an iOS mapping that Neptune has not admitted. Remove the construct or wait for an admitted implementation.",
+            Some("GY-E1000") => "Goya could not parse the source. Correct the syntax at the reported line.",
+            Some("GY-E1001") => "Goya does not preserve this property. Remove it or use a supported property.",
+            Some("GY-E1002") => "Goya does not preserve template semantics in strict parsing. Remove the template.",
+            Some("GY-E1003") => "A property is declared more than once on the same scene node. Keep one declaration.",
+            Some("GY-E1004") => "Goya could not validate the interaction contract. Correct the reported interaction error.",
             _ => { eprintln!("unknown diagnostic code"); return ExitCode::FAILURE; }
         };
         println!("{description}");

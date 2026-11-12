@@ -1,5 +1,5 @@
 //! Neptune frontend inspection. No iOS semantics are admitted yet.
-use goya_lang::{lex, parse_with_source_map, SourceRange, TokenKind};
+use goya_lang::{lex, parse_strict, parse_with_source_map, SourceRange, TokenKind};
 
 pub const MAX_SOURCE_BYTES: usize = 128 * 1024;
 pub const MAX_DIAGNOSTICS: usize = 256;
@@ -85,10 +85,17 @@ pub fn inspect(source: &str) -> Result<Vec<Diagnostic>, Diagnostic> {
             _ => {}
         }
     }
-    let parsed = parse_with_source_map(source).map_err(|error| Diagnostic {
+    // Preserve the line reported by the compatibility parser for syntax errors.
+    // The strict frontend currently returns a zero range for those failures.
+    parse_with_source_map(source).map_err(|error| Diagnostic {
         code: "NPT-E1002",
         message: error.to_string(),
         range: line_range(source, error.line),
+    })?;
+    let parsed = parse_strict(source).map_err(|error| Diagnostic {
+        code: error.code,
+        message: error.to_string(),
+        range: (error.range.end > error.range.start).then_some(error.range),
     })?;
     let mut diagnostics: Vec<_> = parsed
         .entries
@@ -178,5 +185,14 @@ mod tests {
         let error = inspect(source).unwrap_err();
         let range = error.range.unwrap();
         assert_eq!(&source[range.start..range.end], "  ?");
+    }
+
+    #[test]
+    fn strict_frontend_rejects_discarded_semantics() {
+        let source = "@ontology x { @cell a { mystery: 1 } }";
+        let error = inspect(source).unwrap_err();
+        assert_eq!(error.code, "GY-E1001");
+        let range = error.range.unwrap();
+        assert!(source[range.start..range.end].starts_with("mystery"));
     }
 }

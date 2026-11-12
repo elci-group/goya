@@ -126,6 +126,14 @@ mod tests {
         assert!(source[error.range.start..error.range.end].starts_with("@interaction save"));
     }
 
+    #[test]
+    fn strict_parser_syntax_failure_points_to_source_line() {
+        let source = "@ontology demo {\n  @cell root {\n    text \"missing-colon\"\n  }\n}";
+        let error = parse_strict(source).unwrap_err();
+        assert_eq!(error.code, "GY-E1000");
+        assert_eq!(&source[error.range.start..error.range.end], "  }");
+    }
+
     const HELLO: &str = "\
 @ontology hello {
     @cell root {

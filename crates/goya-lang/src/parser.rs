@@ -59,17 +59,15 @@ pub struct StrictParseError {
 
 impl fmt::Display for StrictParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{}: unsupported {} '{}'",
-            self.code,
-            if self.code == "GY-E1001" {
-                "property"
-            } else {
-                "construct"
-            },
-            self.name
-        )
+        let description = match self.code {
+            "GY-E1000" => "invalid Goya syntax",
+            "GY-E1001" => "unknown property",
+            "GY-E1002" => "unsupported template construct",
+            "GY-E1003" => "duplicate property",
+            "GY-E1004" => "invalid interaction",
+            _ => "strict parsing failed",
+        };
+        write!(f, "{}: {} '{}'", self.code, description, self.name)
     }
 }
 
@@ -180,7 +178,7 @@ pub fn parse_strict(source: &str) -> Result<ParsedScene, StrictParseError> {
     let parsed = parse_with_source_map(source).map_err(|error| StrictParseError {
         code: "GY-E1000",
         name: format!("syntax at line {}", error.line),
-        range: SourceRange { start: 0, end: 0 },
+        range: source_line_range(source, error.line),
     })?;
     let mut properties = std::collections::BTreeSet::new();
     for entry in &parsed.entries {
@@ -224,6 +222,19 @@ pub fn parse_strict(source: &str) -> Result<ParsedScene, StrictParseError> {
         });
     }
     Ok(parsed)
+}
+
+fn source_line_range(source: &str, line: usize) -> SourceRange {
+    let start = source
+        .match_indices('\n')
+        .nth(line.saturating_sub(1))
+        .map(|(index, _)| index + 1)
+        .unwrap_or_else(|| if line <= 1 { 0 } else { source.len() });
+    let end = source[start..]
+        .find('\n')
+        .map(|offset| start + offset)
+        .unwrap_or(source.len());
+    SourceRange { start, end }
 }
 
 fn is_known_property(name: &str) -> bool {
