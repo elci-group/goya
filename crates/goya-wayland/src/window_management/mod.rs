@@ -3,7 +3,7 @@
 //! the compositor/window manager.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WindowAction { Close, Maximize, Minimize, NewTab }
+pub enum WindowAction { Close, Maximize, Restore, Minimize, NewTab }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WindowCapability { Close, Maximize, Minimize, NewTab }

@@ -62,24 +62,26 @@ fn run(program: &str, args: &[&str]) -> Result<(), String> {
 fn run_hyprland(action: WindowAction) -> Result<(), String> {
     match action {
         WindowAction::Maximize => run("hyprctl", &["dispatch", "fullscreen", "1"]),
+        WindowAction::Restore => run("hyprctl", &["dispatch", "fullscreen", "0"]),
         _ => Err("unsupported by the Hyprland adapter".into()),
     }
 }
 fn run_sway(action: WindowAction) -> Result<(), String> {
     match action {
-        WindowAction::Maximize => run("swaymsg", &["fullscreen", "toggle"]),
+        WindowAction::Maximize | WindowAction::Restore => run("swaymsg", &["fullscreen", "toggle"]),
         _ => Err("unsupported by the Sway adapter".into()),
     }
 }
 fn run_i3(action: WindowAction) -> Result<(), String> {
     match action {
-        WindowAction::Maximize => run("i3-msg", &["fullscreen", "toggle"]),
+        WindowAction::Maximize | WindowAction::Restore => run("i3-msg", &["fullscreen", "toggle"]),
         _ => Err("unsupported by the i3 adapter".into()),
     }
 }
 fn run_x11(action: WindowAction) -> Result<(), String> {
     match action {
         WindowAction::Maximize => run("wmctrl", &["-r", ":ACTIVE:", "-b", "add,maximized_vert,maximized_horz"]),
+        WindowAction::Restore => run("wmctrl", &["-r", ":ACTIVE:", "-b", "remove,maximized_vert,maximized_horz"]),
         _ => Err("unsupported by the X11 floating adapter".into()),
     }
 }

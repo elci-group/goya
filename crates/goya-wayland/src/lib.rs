@@ -2031,6 +2031,14 @@ impl GoyaWindow {
                 }
                 Err(WindowManagementError::Unsupported(action))
             }
+            WindowAction::Restore => {
+                if self.request_restore() { return Ok(()); }
+                #[cfg(target_os = "linux")]
+                if let Some(mut manager) = window_management::platform::native() {
+                    return window_management::WindowManager::request(&mut manager, action);
+                }
+                Err(WindowManagementError::Unsupported(action))
+            }
             WindowAction::Minimize | WindowAction::NewTab =>
                 Err(WindowManagementError::Unsupported(action)),
         }
