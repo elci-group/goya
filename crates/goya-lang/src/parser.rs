@@ -37,6 +37,8 @@ pub struct SourceEntry {
     pub kind: String,
     pub name: String,
     pub range: SourceRange,
+    /// Child indexes from the parsed scene root. Not a persistent semantic ID.
+    pub scene_path: Option<Vec<usize>>,
 }
 
 /// Scene and source records produced by the same parse.
@@ -75,7 +77,7 @@ pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
     // Collapse the anonymous ontology wrapper when it holds exactly one
     // named cell and no own properties — the wrapper is syntax, not scene.
     // Otherwise the wrapper keeps the ontology name so lowering has a root.
-    if root.children.len() == 1
+    let collapse_root = root.children.len() == 1
         && root.position.is_none()
         && root.extent.is_none()
         && root.position_p.is_none()
@@ -88,14 +90,42 @@ pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
         && root.anchor.is_none()
         && root.wrap.is_none()
         && !root.scroll
-        && !root.is_input
-    {
+        && !root.is_input;
+    if collapse_root {
         root = root.children.remove(0);
     } else if root.name.is_empty() {
         root.name = name.clone();
     }
     p.entries
         .sort_by_key(|entry| (entry.range.start, entry.range.end));
+    // Scene declarations are nested in source order. Count only scene children;
+    // properties and interaction declarations do not occupy child indexes.
+    let mut stack: Vec<(usize, Vec<usize>, usize)> = Vec::new();
+    let mut root_children = 0usize;
+    for entry in &mut p.entries {
+        while stack.last().is_some_and(|(end, _, _)| *end <= entry.range.start) {
+            stack.pop();
+        }
+        if matches!(entry.kind.as_str(), "cell" | "button" | "input") {
+            let mut path = if let Some((_, parent, next)) = stack.last_mut() {
+                let mut path = parent.clone();
+                path.push(*next);
+                *next += 1;
+                path
+            } else {
+                let path = vec![root_children];
+                root_children += 1;
+                path
+            };
+            stack.push((entry.range.end, path.clone(), 0));
+            if collapse_root { path.remove(0); }
+            entry.scene_path = Some(path);
+        } else if entry.kind == "property" {
+            let mut path = stack.last().map(|(_, path, _)| path.clone()).unwrap_or_default();
+            if collapse_root && !path.is_empty() { path.remove(0); }
+            entry.scene_path = Some(path);
+        }
+    }
     Ok(ParsedScene {
         scene: Scene {
             name,
@@ -216,6 +246,7 @@ impl P {
                             self.entries.push(SourceEntry {
                                 kind: word.clone(),
                                 name: child.name.clone(),
+                                scene_path: None,
                                 range: SourceRange {
                                     start: tok.byte_start,
                                     end: self.tokens[self.i - 1].byte_end,
@@ -229,6 +260,7 @@ impl P {
                             self.entries.push(SourceEntry {
                                 kind: word.clone(),
                                 name: interaction.name.clone(),
+                                scene_path: None,
                                 range: SourceRange {
                                     start: tok.byte_start,
                                     end: self.tokens[self.i - 1].byte_end,
@@ -244,6 +276,7 @@ impl P {
                             self.entries.push(SourceEntry {
                                 kind: word.clone(),
                                 name,
+                                scene_path: None,
                                 range: SourceRange {
                                     start: tok.byte_start,
                                     end: self.tokens[self.i - 1].byte_end,
