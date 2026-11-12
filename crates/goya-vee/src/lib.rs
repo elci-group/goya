@@ -422,7 +422,30 @@ if _map_size(_next) > 1024 * 1024: raise ValueError('output state limit')
 _input_hash = hashlib.sha256(b'GOYA-D1-SNAPSHOT/1\x00' + _u64(GOYA_D1_REVISION) + _map(GOYA_D1_STATE) + _map(GOYA_D1_INPUTS)).digest()
 _outcome = hashlib.sha256(b'GOYA-D1-OUTCOME/1\x00' + bytes.fromhex(GOYA_D1_PROGRAM_HASH) + _input_hash + _u64(GOYA_D1_REVISION) + _u64(_rev_after) + _map(_next) + _map(_regs)).hexdigest()
 _result = {'program_hash':GOYA_D1_PROGRAM_HASH, 'input_hash':_input_hash.hex(), 'revision_before':str(GOYA_D1_REVISION), 'revision_after':str(_rev_after), 'next_state':{k:_outval(_next[k]) for k in sorted(_next)}, 'registers':{k:_outval(_regs[k]) for k in sorted(_regs)}, 'outcome_hash':_outcome}
-print(json.dumps(_result, ensure_ascii=False, separators=(',', ':')))
+def _ref_json(value):
+    raw = json.dumps(value, ensure_ascii=False, separators=(',', ':'))
+    out = []
+    i = 0
+    n = len(raw)
+    while i < n:
+        if raw[i] == '\\' and i + 1 < n:
+            nxt = raw[i + 1]
+            if nxt == '\\':
+                out.append('\\\\')
+                i += 2
+                continue
+            if nxt == 'b':
+                out.append('\\u0008')
+                i += 2
+                continue
+            if nxt == 'f':
+                out.append('\\u000c')
+                i += 2
+                continue
+        out.append(raw[i])
+        i += 1
+    return ''.join(out)
+print(_ref_json(_result))
 "#;
 
 const D2_WORKER_PYTHON: &str = r#"
@@ -531,7 +554,30 @@ def _outval(v):
     if t == 'b': return {'type':'bool','value':x}
     raise ValueError('invalid value tag')
 _result = {'program_hash':GOYA_D2_PROGRAM_HASH, 'input_hash':_input_hash.hex(), 'revision_before':str(GOYA_D2_REVISION), 'revision_after':str(_rev_after), 'next_state':{k:_outval(_next[k]) for k in sorted(_next)}, 'registers':{k:_outval(_regs[k]) for k in sorted(_regs)}, 'outcome_hash':_outcome}
-_output = json.dumps(_result, ensure_ascii=False, separators=(',', ':'))
+def _ref_json(value):
+    raw = json.dumps(value, ensure_ascii=False, separators=(',', ':'))
+    out = []
+    i = 0
+    n = len(raw)
+    while i < n:
+        if raw[i] == '\\' and i + 1 < n:
+            nxt = raw[i + 1]
+            if nxt == '\\':
+                out.append('\\\\')
+                i += 2
+                continue
+            if nxt == 'b':
+                out.append('\\u0008')
+                i += 2
+                continue
+            if nxt == 'f':
+                out.append('\\u000c')
+                i += 2
+                continue
+        out.append(raw[i])
+        i += 1
+    return ''.join(out)
+_output = _ref_json(_result)
 if len(_output.encode('utf-8')) > MAX_OUTPUT_BYTES: raise ValueError('worker output limit')
 print(_output)
 "#;
@@ -708,7 +754,30 @@ for _ins in GOYA_EDC_INSTRUCTIONS:
         raise ValueError('multiple roots')
 if _frames or _root is None:
     raise ValueError('incomplete instruction stream')
-print(json.dumps(_root, ensure_ascii=False, separators=(',', ':')))
+def _ref_json(value):
+    raw = json.dumps(value, ensure_ascii=False, separators=(',', ':'))
+    out = []
+    i = 0
+    n = len(raw)
+    while i < n:
+        if raw[i] == '\\' and i + 1 < n:
+            nxt = raw[i + 1]
+            if nxt == '\\':
+                out.append('\\\\')
+                i += 2
+                continue
+            if nxt == 'b':
+                out.append('\\u0008')
+                i += 2
+                continue
+            if nxt == 'f':
+                out.append('\\u000c')
+                i += 2
+                continue
+        out.append(raw[i])
+        i += 1
+    return ''.join(out)
+print(_ref_json(_root))
 "#,
     );
     if source.len() > MAX_EDC_SOURCE_BYTES {
@@ -1911,7 +1980,10 @@ mod tests {
             .source_code
             .contains("('text', 1, 'hi \\'there\\'\\\\\\nworld'),"));
         assert!(first.source_code.contains("GOYA_EDC_BYTECODE_VERSION = 1"));
-        assert!(first.source_code.contains("print(json.dumps(_root"));
+        assert!(first.source_code.contains(
+            "raw = json.dumps(value, ensure_ascii=False, separators=(',', ':'))"
+        ));
+        assert!(first.source_code.contains("print(_ref_json(_root))"));
         assert!(!first.source_code.contains("exec("));
         assert!(!first.source_code.contains("subprocess"));
     }
@@ -2465,6 +2537,47 @@ mod tests {
         let mut client = VeeClient::connect("127.0.0.1", 1);
         assert_eq!(client.status("bad\nid"), Err(VeeError::InvalidRequest));
         assert_eq!(client.status(""), Err(VeeError::InvalidRequest));
+    }
+
+    #[test]
+    fn reference_json_matches_python_for_control_characters_and_signed_values() {
+        use std::io::Write as _;
+        use std::process::{Command, Stdio};
+
+        let program = compiled_module(&Module {
+            nodes: vec![(
+                NodeId(1),
+                Node::Text {
+                    content: "A\u{0008}B\u{000c}C\n\\b\\f".into(),
+                },
+            )],
+            root: Some(NodeId(1)),
+        });
+        let reference = execute(&program.bytecode).expect("reference VM");
+        let mut expected = String::new();
+        expected_execution_json(&reference, &mut expected);
+        let request = request_from_compiled_program(&program, "goya-test").unwrap();
+        let mut child = Command::new("python3")
+            .arg("-")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(request.source_code.as_bytes())
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(
+            output.status.success(),
+            "python failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let actual = String::from_utf8(output.stdout).unwrap();
+        assert_eq!(actual.trim_end(), expected);
     }
 
     #[test]
