@@ -116,6 +116,10 @@ mod tests {
         let changed = parse_with_source_map(&source.replace("root\"", "root2\"")).unwrap();
         assert_eq!(first.source_digest, second.source_digest);
         assert_ne!(first.source_digest, changed.source_digest);
+        assert!(first
+            .entries
+            .iter()
+            .all(|entry| entry.source_digest == first.source_digest));
     }
 
     #[test]

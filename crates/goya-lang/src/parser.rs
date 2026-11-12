@@ -37,6 +37,8 @@ pub struct SourceEntry {
     pub kind: String,
     pub name: String,
     pub range: SourceRange,
+    /// Digest binding this origin to the exact source revision.
+    pub source_digest: [u8; 32],
     /// Child indexes from the parsed scene root. Not a persistent semantic ID.
     pub scene_path: Option<Vec<usize>>,
     /// Stable authored element identity, or the owning element identity for a
@@ -130,6 +132,10 @@ pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
     }
     p.entries
         .sort_by_key(|entry| (entry.range.start, entry.range.end));
+    let source_digest: [u8; 32] = {
+        use sha2::{Digest, Sha256};
+        Sha256::digest(source.as_bytes()).into()
+    };
     // Scene declarations are nested in source order. Count only scene children;
     // properties and interaction declarations do not occupy child indexes.
     let mut stack: Vec<(usize, Vec<usize>, usize)> = Vec::new();
@@ -172,6 +178,7 @@ pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
                 entry.semantic_id = cell.authored_id.clone();
             }
         }
+        entry.source_digest = source_digest;
     }
     Ok(ParsedScene {
         scene: Scene {
@@ -180,10 +187,7 @@ pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
             interactions: p.interactions,
         },
         entries: p.entries,
-        source_digest: {
-            use sha2::{Digest, Sha256};
-            Sha256::digest(source.as_bytes()).into()
-        },
+        source_digest,
     })
 }
 
@@ -448,6 +452,7 @@ impl P {
                                     start: tok.byte_start,
                                     end: self.tokens[self.i - 1].byte_end,
                                 },
+                                source_digest: [0; 32],
                             });
                             cell.children.push(child);
                         }
@@ -463,6 +468,7 @@ impl P {
                                     start: tok.byte_start,
                                     end: self.tokens[self.i - 1].byte_end,
                                 },
+                                source_digest: [0; 32],
                             });
                             self.interactions.push(interaction);
                         }
@@ -480,6 +486,7 @@ impl P {
                                     start: tok.byte_start,
                                     end: self.tokens[self.i - 1].byte_end,
                                 },
+                                source_digest: [0; 32],
                             });
                         }
                         _ => return Err(ParseError { line: self.line() }),
@@ -500,6 +507,7 @@ impl P {
                             start: token.byte_start,
                             end: self.tokens[self.i - 1].byte_end,
                         },
+                        source_digest: [0; 32],
                     });
                 }
                 Some(_) => return Err(ParseError { line: self.line() }),

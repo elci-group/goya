@@ -1,9 +1,28 @@
 use std::{
     env,
-    fs::File,
+    fs::{self, File, OpenOptions},
     io::{self, BufRead, Read, Write},
     process::ExitCode,
 };
+
+fn write_preview_bundle(path: &std::path::Path, bundle: &str) -> io::Result<()> {
+    let value: serde_json::Value = serde_json::from_str(bundle).map_err(io::Error::other)?;
+    let artifacts = value["artifacts"].as_object().ok_or_else(|| io::Error::other("invalid preview artifacts"))?;
+    let report = value.get("report").ok_or_else(|| io::Error::other("missing preview report"))?;
+    // Prepare all bytes before creating the output directory. create_dir and
+    // create_new reject existing paths rather than replacing user files.
+    let mut files = Vec::new();
+    for name in ["App.swift", "source-map.json", "capabilities.json"] {
+        let content = artifacts.get(name).and_then(serde_json::Value::as_str).ok_or_else(|| io::Error::other("missing preview artifact"))?;
+        files.push((name, content.to_owned()));
+    }
+    files.push(("build-report.json", format!("{report}\n")));
+    fs::create_dir(path)?;
+    for (name, content) in files {
+        OpenOptions::new().write(true).create_new(true).open(path.join(name))?.write_all(content.as_bytes())?;
+    }
+    Ok(())
+}
 
 fn serve() -> ExitCode {
     let stdin = io::stdin();
@@ -87,6 +106,7 @@ fn main() -> ExitCode {
     }
     let mut json = false;
     let mut target = false;
+    let mut out = None;
     for option in args[3..].chunks(2) {
         if option.len() != 2 {
             eprintln!("missing option value");
@@ -96,6 +116,8 @@ fn main() -> ExitCode {
             json = true;
         } else if option[0] == "--target" && option[1] == "ios" && !target {
             target = true;
+        } else if option[0] == "--out" && args[1] == "preview" && out.is_none() {
+            out = Some(std::path::PathBuf::from(&option[1]));
         } else {
             eprintln!("unknown or duplicate option");
             return ExitCode::from(2);
@@ -123,6 +145,18 @@ fn main() -> ExitCode {
     if args[1] == "preview" {
         return match neptune::preview_static_text(&source) {
             Ok(preview) => {
+                if let Some(path) = &out {
+                    let bundle = match neptune::preview_bundle(&source) {
+                        Ok(bundle) => bundle,
+                        Err(diagnostic) => return input_error(json, &args[1], diagnostic.code, &diagnostic.message),
+                    };
+                    if let Err(error) = write_preview_bundle(path, &bundle) {
+                        return input_error(json, &args[1], "NPT-E1005", &format!("could not write source preview: {error}; a partial output directory may remain"));
+                    }
+                    if json { println!("{}", serde_json::json!({"schema_version":"1","operation":"preview","verification":"SOURCE_PREVIEW","output_written":true,"apple_validation":"NOT_RUN"})); }
+                    else { println!("Source preview written; Apple validation not run"); }
+                    return ExitCode::SUCCESS;
+                }
                 if json {
                     match neptune::preview_bundle(&source) {
                         Ok(bundle) => print!("{bundle}"),
