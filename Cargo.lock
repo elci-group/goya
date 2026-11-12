@@ -1357,6 +1357,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "neptune"
+version = "0.1.8"
+dependencies = [
+ "goya-lang",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
