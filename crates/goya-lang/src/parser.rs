@@ -49,6 +49,9 @@ pub struct SourceEntry {
 pub struct ParsedScene {
     pub scene: Scene,
     pub entries: Vec<SourceEntry>,
+    /// SHA-256 of the exact UTF-8 source bytes parsed for this snapshot.
+    /// This identifies a revision; authored element IDs provide identity.
+    pub source_digest: [u8; 32],
 }
 
 /// A construct accepted for legacy compatibility but rejected by strict
@@ -177,6 +180,10 @@ pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
             interactions: p.interactions,
         },
         entries: p.entries,
+        source_digest: {
+            use sha2::{Digest, Sha256};
+            Sha256::digest(source.as_bytes()).into()
+        },
     })
 }
 

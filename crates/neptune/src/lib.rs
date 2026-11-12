@@ -3,6 +3,7 @@ use goya_lang::{lex, parse_strict, parse_with_source_map, SourceRange, TokenKind
 use sha2::{Digest, Sha256};
 
 pub mod swift;
+pub mod service;
 
 pub const MAX_SOURCE_BYTES: usize = 128 * 1024;
 pub const MAX_DIAGNOSTICS: usize = 256;

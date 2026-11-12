@@ -109,6 +109,16 @@ mod tests {
     }
 
     #[test]
+    fn source_map_digest_tracks_exact_source_revision_deterministically() {
+        let source = "@ontology demo { @cell root { id: \"root\"; } }";
+        let first = parse_with_source_map(source).unwrap();
+        let second = parse_with_source_map(source).unwrap();
+        let changed = parse_with_source_map(&source.replace("root\"", "root2\"")).unwrap();
+        assert_eq!(first.source_digest, second.source_digest);
+        assert_ne!(first.source_digest, changed.source_digest);
+    }
+
+    #[test]
     fn strict_parser_rejects_unknown_property_at_its_utf8_origin() {
         let source = "@ontology demo { @cell root { text: \"é\"; colur: #fff } }";
         let error = parse_strict(source).unwrap_err();
