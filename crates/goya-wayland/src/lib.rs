@@ -1989,6 +1989,28 @@ impl GoyaWindow {
         self.state.close_requested
     }
 
+    /// Request compositor maximization. The compositor decides whether to
+    /// honour the request and reports resulting geometry through `Resized`.
+    pub fn request_maximize(&self) -> bool {
+        if let Some(toplevel) = &self.state.toplevel {
+            toplevel.set_maximized();
+            true
+        } else { false }
+    }
+
+    /// Request restoring the window from maximized state.
+    pub fn request_restore(&self) -> bool {
+        if let Some(toplevel) = &self.state.toplevel {
+            toplevel.unset_maximized();
+            true
+        } else { false }
+    }
+
+    /// Ask the compositor to close this application window.
+    pub fn request_close(&self) -> bool {
+        if let Some(toplevel) = &self.state.toplevel { toplevel.destroy(); true } else { false }
+    }
+
     /// Compositor width in pixels (fixed in this minimal scope).
     pub fn size(&self) -> (i32, i32) {
         (self.state.width, self.state.height)
