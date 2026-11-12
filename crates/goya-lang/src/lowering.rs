@@ -111,6 +111,7 @@ pub fn lower(scene: &Scene, viewport_w_pt: f64, viewport_h_pt: f64) -> Result<Lo
         table: NodeTable::default(),
         used_keys: HashSet::new(),
         frame_nodes: &frame.nodes,
+        interactions: &scene.interactions,
         next_frame: 0,
         next_action: 0,
     };
@@ -128,11 +129,25 @@ struct Lowerer<'a> {
     table: NodeTable,
     used_keys: HashSet<String>,
     frame_nodes: &'a [crate::DrawNode],
+    interactions: &'a [crate::InteractionDecl],
     next_frame: usize,
     next_action: u64,
 }
 
 impl<'a> Lowerer<'a> {
+    fn scene_interaction_id(&self, button_name: &str) -> Option<String> {
+        let mut matches = self
+            .interactions
+            .iter()
+            .filter(|interaction| interaction.trigger_button == button_name);
+        let id = matches.next()?.authored_id.clone()?;
+        if matches.next().is_some() {
+            None
+        } else {
+            Some(id)
+        }
+    }
+
     fn push(&mut self, node: Node) -> NodeId {
         let id = NodeId(self.module.nodes.len() as u64);
         self.module.nodes.push((id, node));
@@ -268,17 +283,18 @@ impl<'a> Lowerer<'a> {
             }
         };
 
+        let action_id = if cell.kind == CellKind::Button {
+            self.scene_interaction_id(&cell.name)
+        } else {
+            None
+        };
         self.table.insert(
             key.clone(),
             NodeRecord {
                 ir_node: semantic,
                 role,
                 semantic_id: cell.authored_id.clone(),
-                action_id: if cell.kind == CellKind::Button {
-                    self.scene_interaction_id(&cell.name)
-                } else {
-                    None
-                },
+                action_id,
                 parent: parent_key.map(str::to_string),
                 explicit_rect_mp: explicit(rect, has_explicit_rect),
                 children,
@@ -439,7 +455,7 @@ mod tests {
     #[test]
     fn lowering_preserves_authored_ids_on_nodes_and_synthetic_text() {
         let scene = parse(
-            "@ontology demo { @cell root { id: \"stable.root\"; text: \"Hello\"; @button go { id: \"stable.go\"; text: \"Go\" } } }",
+            "@ontology demo { @cell root { id: \"stable.root\"; text: \"Hello\"; @button go { id: \"stable.go\"; text: \"Go\" } } @interaction activate_go { id: \"action.go\"; trigger: button.go.activate; class: D1; state { write count: int; } input { } set count = 1; } }",
         )
         .unwrap();
         let lowered = lower(&scene, 320.0, 640.0).unwrap();
@@ -455,6 +471,7 @@ mod tests {
             lowered.table["go"].semantic_id.as_deref(),
             Some("stable.go")
         );
+        assert_eq!(lowered.table["go"].action_id.as_deref(), Some("action.go"));
     }
 
     #[test]
