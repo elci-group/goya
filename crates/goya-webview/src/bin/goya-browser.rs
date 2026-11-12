@@ -5,7 +5,8 @@ use goya_wayland::{
 };
 use goya_wayland::{PixelRect, RgbaLayer};
 use goya_webview::{
-    BrowserConfig, BrowserError, BrowserSession, KeyAction, PointerAction, RgbaFrame, ViewportSize,
+    normalize_navigation_input, BrowserConfig, BrowserError, BrowserSession, KeyAction,
+    PointerAction, RgbaFrame, ViewportSize,
 };
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -16,8 +17,10 @@ use std::time::{Duration, Instant};
 
 const WINDOW_WIDTH: i32 = 1024;
 const WINDOW_HEIGHT: i32 = 768;
-const FRAME_INTERVAL: Duration = Duration::from_millis(200);
+const ACTIVE_FRAME: Duration = Duration::from_millis(80);
+const IDLE_FRAME: Duration = Duration::from_millis(1000);
 const TOOLBAR_HEIGHT: u32 = 52;
+const MAX_VIEWPORT_EDGE: u32 = 2048;
 
 enum BrowserCommand {
     Pointer(PointerAction),
@@ -59,6 +62,8 @@ enum WorkerEvent {
     Frame { generation: u64, frame: RgbaFrame },
     Selection(String),
     Failure(String),
+    Navigated(String),
+    Notice(String),
 }
 
 fn browser_executable() -> PathBuf {
@@ -130,7 +135,9 @@ fn spawn_browser_worker(
         }
         let mut generation = 0;
         let mut dirty = true;
-        let mut next_frame = Instant::now();
+        let mut last_capture = Instant::now()
+            .checked_sub(IDLE_FRAME)
+            .unwrap_or_else(Instant::now);
         let mut stopped = false;
         while !stopped {
             if shutdown_requested(&stopping) {
@@ -206,15 +213,12 @@ fn spawn_browser_worker(
                             BrowserNavigation::Forward => browser.go_forward().map(|_| ()),
                             BrowserNavigation::Reload => browser.reload(),
                         };
-                        if let Err(error) = result {
-                            try_report(&events, WorkerEvent::Failure(error.to_string()));
-                        }
+                        report_navigation(&mut browser, &events, result.err());
                         dirty = true;
                     }
                     Ok(BrowserCommand::NavigateUrl(url)) => {
-                        if let Err(error) = browser.navigate(&url) {
-                            try_report(&events, WorkerEvent::Failure(error.to_string()));
-                        }
+                        let error = browser.navigate(&url).err();
+                        report_navigation(&mut browser, &events, error);
                         dirty = true;
                     }
                     Err(TryRecvError::Empty) => break,
@@ -227,7 +231,8 @@ fn spawn_browser_worker(
             if stopped {
                 break;
             }
-            if dirty || Instant::now() >= next_frame {
+            let interval = if dirty { ACTIVE_FRAME } else { IDLE_FRAME };
+            if last_capture.elapsed() >= interval {
                 match browser.capture_frame() {
                     Ok(frame) => match events.try_send(WorkerEvent::Frame { generation, frame }) {
                         Ok(()) | Err(TrySendError::Full(_)) => {}
@@ -238,12 +243,27 @@ fn spawn_browser_worker(
                     }
                 }
                 dirty = false;
-                next_frame = Instant::now() + FRAME_INTERVAL;
+                last_capture = Instant::now();
             }
             thread::sleep(Duration::from_millis(5));
         }
         browser.close();
     })
+}
+
+fn report_navigation(
+    browser: &mut BrowserSession,
+    events: &SyncSender<WorkerEvent>,
+    error: Option<BrowserError>,
+) {
+    if let Some(error) = error {
+        try_report(events, WorkerEvent::Notice(error.to_string()));
+        return;
+    }
+    match browser.committed_url() {
+        Ok(url) => try_report(events, WorkerEvent::Navigated(url)),
+        Err(error) => try_report(events, WorkerEvent::Notice(error.to_string())),
+    }
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

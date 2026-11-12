@@ -787,6 +787,30 @@ fn validate_navigation_url(value: &str) -> Result<Url, BrowserError> {
     Ok(url)
 }
 
+/// Accept a credential-free HTTP(S) URL. A host or path with no scheme uses
+/// `http` for loopback names and `https` otherwise.
+pub fn normalize_navigation_input(value: &str) -> Result<String, BrowserError> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() || trimmed.chars().any(char::is_control) || trimmed.len() > 8192 {
+        return Err(BrowserError::InvalidUrl);
+    }
+    let candidate = if trimmed.contains("://") {
+        trimmed.to_owned()
+    } else {
+        let scheme = if trimmed.starts_with("localhost")
+            || trimmed.starts_with("127.")
+            || trimmed.starts_with("[::1]")
+        {
+            "http"
+        } else {
+            "https"
+        };
+        format!("{scheme}://{trimmed}")
+    };
+    validate_navigation_url(&candidate)?;
+    Ok(candidate)
+}
+
 fn decode_png_base64(encoded: &str, expected: ViewportSize) -> Result<RgbaFrame, BrowserError> {
     expected.validate()?;
     if encoded.is_empty() || encoded.len() > MAX_PNG_BASE64_BYTES {
@@ -1094,6 +1118,25 @@ mod tests {
         ] {
             assert!(validate_navigation_url(invalid).is_err(), "{invalid}");
         }
+    }
+
+    #[test]
+    fn address_input_gains_a_scheme_and_keeps_the_security_policy() {
+        assert_eq!(
+            normalize_navigation_input("  example.test/docs  ").unwrap(),
+            "https://example.test/docs"
+        );
+        assert_eq!(
+            normalize_navigation_input("127.0.0.1:18189/webview-fixture.html").unwrap(),
+            "http://127.0.0.1:18189/webview-fixture.html"
+        );
+        assert_eq!(
+            normalize_navigation_input("http://example.test/already").unwrap(),
+            "http://example.test/already"
+        );
+        assert!(normalize_navigation_input("javascript:alert(1)").is_err());
+        assert!(normalize_navigation_input("https://user:secret@example.test").is_err());
+        assert!(normalize_navigation_input("   ").is_err());
     }
 
     #[test]
