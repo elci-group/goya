@@ -100,10 +100,13 @@ mod tests {
 
     #[test]
     fn strict_parser_rejects_recognized_but_unrepresented_template() {
-        let source = "@ontology demo { @cell root { @template card { text: \\\"x\\\" } } }";
+        let source = "@ontology demo { @cell root { @template card { text: \"x\" } } }";
         let error = parse_strict(source).unwrap_err();
         assert_eq!(error.code, "GY-E1002");
-        assert_eq!(&source[error.range.start..error.range.end], "@template card { text: \\\"x\\\" }");
+        assert_eq!(
+            &source[error.range.start..error.range.end],
+            "@template card { text: \"x\" }"
+        );
     }
 
     const HELLO: &str = "\

@@ -59,7 +59,17 @@ pub struct StrictParseError {
 
 impl fmt::Display for StrictParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}: unsupported {} '{}'", self.code, if self.code == "GY-E1001" { "property" } else { "construct" }, self.name)
+        write!(
+            f,
+            "{}: unsupported {} '{}'",
+            self.code,
+            if self.code == "GY-E1001" {
+                "property"
+            } else {
+                "construct"
+            },
+            self.name
+        )
     }
 }
 
@@ -190,7 +200,24 @@ pub fn parse_strict(source: &str) -> Result<ParsedScene, StrictParseError> {
 }
 
 fn is_known_property(name: &str) -> bool {
-    matches!(name, "position" | "extent" | "position_p" | "extent_p" | "fill" | "stroke" | "stroke-width" | "stroke_width" | "text" | "text-size" | "text_size" | "wrap" | "scroll" | "text-anchor" | "text_anchor")
+    matches!(
+        name,
+        "position"
+            | "extent"
+            | "position_p"
+            | "extent_p"
+            | "fill"
+            | "stroke"
+            | "stroke-width"
+            | "stroke_width"
+            | "text"
+            | "text-size"
+            | "text_size"
+            | "wrap"
+            | "scroll"
+            | "text-anchor"
+            | "text_anchor"
+    )
 }
 
 struct P {
