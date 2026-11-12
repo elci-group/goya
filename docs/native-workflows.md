@@ -103,7 +103,7 @@ separate parity work.
 
 The same projection also retains optional `control` (`canStop`, `stopState`,
 `activeWorks`), `availability` (`compact`, `sendQueuedNow`, `pauseGoal`,
-`resumeGoal`), nullable `goal` (`status`, `objective`), nullable `plan`
+`resumeGoal`, `queueEdit`), nullable `goal` (`status`, `objective`), nullable `plan`
 (up to eight items), and `backgroundWorks` (up to eight items). A snapshot
 that omits a section clears it. A `state.updated` patch replaces a section
 only when that key is present, including JSON null for `goal` and `plan`.
