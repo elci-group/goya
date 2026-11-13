@@ -8,6 +8,76 @@
 /// A deliberately small bound on the number of enclosing policy scopes.
 pub const MAX_SCOPES: usize = 64;
 
+/// Provisional text limit for bounded conversion; not a ratified profile limit.
+pub const MAX_TEXT_BYTES: usize = 1024 * 1024;
+
+/// A location in three different coordinate systems, all at a scalar boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TextOffset {
+    pub scalars: usize,
+    pub utf8_bytes: usize,
+    pub utf16_units: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OffsetError {
+    TextTooLarge,
+    OutOfBounds,
+    NotScalarBoundary,
+}
+
+/// Convert a checked scalar, UTF-8 or UTF-16 offset into all three coordinate
+/// systems. A scalar boundary is not necessarily a grapheme boundary; callers
+/// must perform the profile's separate grapheme validation before editing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Offset {
+    Scalar(usize),
+    Utf8(usize),
+    Utf16(usize),
+}
+
+pub fn convert_offset(text: &str, requested: Offset) -> Result<TextOffset, OffsetError> {
+    if text.len() > MAX_TEXT_BYTES {
+        return Err(OffsetError::TextTooLarge);
+    }
+    let requested_value = match requested {
+        Offset::Scalar(n) | Offset::Utf8(n) | Offset::Utf16(n) => n,
+    };
+    let mut location = TextOffset {
+        scalars: 0,
+        utf8_bytes: 0,
+        utf16_units: 0,
+    };
+    for ch in text.chars() {
+        let current = match requested {
+            Offset::Scalar(_) => location.scalars,
+            Offset::Utf8(_) => location.utf8_bytes,
+            Offset::Utf16(_) => location.utf16_units,
+        };
+        if current == requested_value {
+            return Ok(location);
+        }
+        if current > requested_value {
+            return Err(OffsetError::NotScalarBoundary);
+        }
+        location.scalars += 1;
+        location.utf8_bytes += ch.len_utf8();
+        location.utf16_units += ch.len_utf16();
+    }
+    let end = match requested {
+        Offset::Scalar(_) => location.scalars,
+        Offset::Utf8(_) => location.utf8_bytes,
+        Offset::Utf16(_) => location.utf16_units,
+    };
+    if requested_value == end {
+        Ok(location)
+    } else if requested_value < end {
+        Err(OffsetError::NotScalarBoundary)
+    } else {
+        Err(OffsetError::OutOfBounds)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Operation {
     Select,
@@ -190,6 +260,39 @@ pub fn resolve_static(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unicode_offsets_round_trip_and_reject_partial_scalars() {
+        for text in ["", "aé😀z", "e\u{301}🇬🇧", "עברית hello 👩‍💻"] {
+            for scalar in 0..=text.chars().count() {
+                let expected = convert_offset(text, Offset::Scalar(scalar)).unwrap();
+                assert_eq!(
+                    convert_offset(text, Offset::Utf8(expected.utf8_bytes)),
+                    Ok(expected)
+                );
+                assert_eq!(
+                    convert_offset(text, Offset::Utf16(expected.utf16_units)),
+                    Ok(expected)
+                );
+            }
+        }
+        assert_eq!(
+            convert_offset("😀", Offset::Utf8(1)),
+            Err(OffsetError::NotScalarBoundary)
+        );
+        assert_eq!(
+            convert_offset("😀", Offset::Utf16(1)),
+            Err(OffsetError::NotScalarBoundary)
+        );
+        assert_eq!(
+            convert_offset("😀", Offset::Scalar(2)),
+            Err(OffsetError::OutOfBounds)
+        );
+        assert_eq!(
+            convert_offset(&"a".repeat(MAX_TEXT_BYTES + 1), Offset::Scalar(0)),
+            Err(OffsetError::TextTooLarge)
+        );
+    }
 
     #[test]
     fn profile_defaults_cover_every_operation() {

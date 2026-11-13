@@ -84,6 +84,11 @@ declaration contradictions: selection/copy/cut dependencies, mutation on
 permanently read-only or static targets, and protected export. It does not
 validate inherited decisions, conditional declarations or report source origins;
 passing this check is not complete policy validation or target admission.
+The experimental `convert_offset` helper converts checked scalar, UTF-8 byte
+and UTF-16 code-unit offsets within the provisional 1 MiB input bound. It
+rejects out-of-range positions and positions inside a scalar, including a
+surrogate pair. It does not validate grapheme boundaries, pin Unicode
+segmentation, alter the existing Android adapter or qualify a native control.
 
 All D0–D8 gates remain **BLOCKED**: this partial ledger alone does not complete
 grounding; no complete Gestures contract, independent oracle, native build, route coverage, device
