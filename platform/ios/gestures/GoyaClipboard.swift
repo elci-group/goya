@@ -11,6 +11,7 @@ public final class GoyaClipboard {
     public enum Result {
         case exported
         case denied
+        case noChange
         case tooLarge
         case unsupported
     }
@@ -26,6 +27,7 @@ public final class GoyaClipboard {
     /// The pasteboard write has no acknowledgement of persistence or receipt.
     public func copy(authorizedSelection: AuthorizedSelection) -> Result {
         guard let text = authorizedSelection() else { return .denied }
+        guard !text.isEmpty else { return .noChange }
         guard text.utf8.count <= Self.maximumUTF8Bytes else { return .tooLarge }
         UIPasteboard.general.setItems([[UTType.utf8PlainText.identifier: text]], options: [:])
         return .exported

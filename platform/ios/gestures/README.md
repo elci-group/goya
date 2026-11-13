@@ -8,7 +8,8 @@ Returning nil denies the operation. The host must also block every other native
 export route; this primitive does not intercept menus, shortcuts, accessibility
 actions or direct framework calls. An unchecked callback is not authorization.
 
-The UTF-8 export limit is provisional (1 MiB). The pasteboard write replaces its
+An empty selection returns `noChange` without touching the pasteboard. The UTF-8
+export limit is provisional (1 MiB). The pasteboard write replaces its
 items with one UTF-8 plain-text representation. `exported` means the UIKit setter
 was invoked; it is not an acknowledgement of persistence or receipt. The API
 does not log content or query the pasteboard. Paste and cut always return

@@ -26,16 +26,8 @@
 }
 + (GoyaClipboardResult)pasteWithMaxBytes:(NSUInteger)maxBytes admit:(GoyaClipboardAdmission)admit commit:(GoyaClipboardCommit)commit {
     if (![NSThread isMainThread] || !admit || !commit || maxBytes == 0) return GoyaClipboardDenied;
-    if (!admit()) return GoyaClipboardDenied;
-    NSPasteboard *board = [NSPasteboard generalPasteboard];
-    NSData *data = [board dataForType:NSPasteboardTypeString];
-    if (!data) return GoyaClipboardUnavailable;
-    if (data.length > maxBytes) return GoyaClipboardTooLarge;
-    NSString *text = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
-    if (!text) return GoyaClipboardInvalidText;
-    text = [text stringByReplacingOccurrencesOfString:@"\r\n" withString:@"\n"];
-    text = [text stringByReplacingOccurrencesOfString:@"\r" withString:@"\n"];
-    if (!admit()) return GoyaClipboardDenied;
-    return commit(text) ? GoyaClipboardCommitted : GoyaClipboardDenied;
+    // AppKit materializes data before its size is known. Reject until a
+    // bounded native transfer can be guaranteed.
+    return GoyaClipboardUnavailable;
 }
 @end
