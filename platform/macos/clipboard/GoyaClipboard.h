@@ -4,7 +4,7 @@ NS_ASSUME_NONNULL_BEGIN
 typedef NS_ENUM(NSInteger, GoyaClipboardResult) {
     GoyaClipboardDenied, GoyaClipboardInvalidText, GoyaClipboardTooLarge,
     GoyaClipboardUnavailable, GoyaClipboardExportFailed,
-    GoyaClipboardPartialExport, GoyaClipboardCommitted,
+    GoyaClipboardPartialExport, GoyaClipboardCommitted, GoyaClipboardNoChange,
 };
 // The owner checks user initiation, policy, identity, focus, epoch, revision,
 // selection and reservation on every invocation, including before mutation.

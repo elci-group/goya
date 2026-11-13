@@ -4,10 +4,15 @@
 @implementation GoyaClipboard
 + (GoyaClipboardResult)exportText:(NSString *)text maxBytes:(NSUInteger)maxBytes admit:(GoyaClipboardAdmission)admit commit:(nullable GoyaClipboardCommit)commit {
     if (![NSThread isMainThread] || !admit || !text || maxBytes == 0) return GoyaClipboardDenied;
+    if (!admit()) return GoyaClipboardDenied;
+    if (text.length == 0) return GoyaClipboardNoChange;
+    if (![text canBeConvertedToEncoding:NSUTF8StringEncoding]) return GoyaClipboardInvalidText;
+    NSUInteger length = [text lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+    if (length == 0) return GoyaClipboardInvalidText;
+    if (length > MIN(maxBytes, (NSUInteger)(1024 * 1024))) return GoyaClipboardTooLarge;
     NSData *data = [text dataUsingEncoding:NSUTF8StringEncoding allowLossyConversion:NO];
     if (!data) return GoyaClipboardInvalidText;
-    if (data.length > maxBytes) return GoyaClipboardTooLarge;
-    if (!admit()) return GoyaClipboardDenied;
+    if (data.length != length) return GoyaClipboardInvalidText;
     NSPasteboardItem *item = [[NSPasteboardItem alloc] init];
     if (![item setData:data forType:NSPasteboardTypeString]) return GoyaClipboardExportFailed;
     NSPasteboard *board = [NSPasteboard generalPasteboard];
