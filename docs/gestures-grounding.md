@@ -99,6 +99,20 @@ It accepts empty text and preserves other content. It does not select native
 formats, access an OS clipboard, establish user authorization, validate an
 editor replacement, or admit a native route.
 
+## Experimental native clipboard work
+
+These components are transport prototypes, not a shared Gestures execution
+boundary, admitted controls, or evidence of platform support. No adapter is
+wired to the Gestures policy and editor owner; the D0–D8 gates remain blocked.
+
+| Platform | Observed implementation | Qualification and remaining work |
+| --- | --- | --- |
+| Linux/Wayland | `goya-wayland` data-device selection; its legacy receive path closes the local writer and caps reads at 1 MiB. | Synchronous receive may block on a peer, and the legacy `Option` conflates errors and empty text. No Gestures policy, revision reservation or route coverage. |
+| Windows | `platform/windows/clipboard.rs` prototype uses CF_UNICODETEXT with bounded transport and typed failures. | Not linked to a host; native build and Windows route/device tests are pending. Clipboard retrieval may wait for delayed rendering. |
+| macOS | `platform/macos/clipboard` AppKit export prototype with caller-owned authorization and cut revalidation. | No host integration or native build; paste fails closed pending bounded acquisition. Native route coverage and editor ownership are missing. |
+| iOS | `platform/ios/gestures` UIKit export prototype; paste and cut fail closed. | No Swift/Xcode build, native control integration, or device/VoiceOver evidence. |
+| Android | `platform/android/clipboard` Android transport prototype with host-owned policy checks. | No SDK-35 build, device tests, command-route enforcement or integrated editor lifecycle evidence. See its README for current supported operations. |
+
 All D0–D8 gates remain **BLOCKED**: this partial ledger alone does not complete
 grounding; no complete Gestures contract, independent oracle, native build, route coverage, device
 evidence, security review, benchmark or Quinta parity has been demonstrated.

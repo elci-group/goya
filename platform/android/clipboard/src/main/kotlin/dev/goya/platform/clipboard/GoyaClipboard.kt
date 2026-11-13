@@ -23,9 +23,11 @@ class GoyaClipboard(
     /** Success means Android accepted the write call, not that another app read it. */
     fun write(operation: ClipboardOperation, text: String): ClipboardResult<Unit> =
         writeText(operation, text, ::checkAccess) {
-            val clipboard = manager ?: return failure(ClipboardFailure.UNAVAILABLE)
-            clipboard.setPrimaryClip(ClipData.newPlainText("", text))
-            ClipboardResult.Success(Unit)
+            val clipboard = manager
+            if (clipboard == null) failure(ClipboardFailure.UNAVAILABLE) else {
+                clipboard.setPrimaryClip(ClipData.newPlainText("", text))
+                ClipboardResult.Success(Unit)
+            }
         }
 
     /** Reads are disabled until bounded native acquisition is available. */
