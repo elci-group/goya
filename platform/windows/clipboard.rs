@@ -2,9 +2,10 @@
 const MAX_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Error { Denied, InvalidOwner, TooLarge, InvalidText, Unavailable, NativeFailure, ClipboardCleared }
+pub enum Error { Denied, InvalidOwner, EmptySelection, TooLarge, InvalidText, Unavailable, NativeFailure, ClipboardCleared }
 
 fn encode(text: &str) -> Result<Vec<u16>, Error> {
+    if text.is_empty() { return Err(Error::EmptySelection); }
     if text.len() > MAX_BYTES { return Err(Error::TooLarge); }
     if text.contains('\0') { return Err(Error::InvalidText); }
     let mut units: Vec<u16> = text.encode_utf16().collect();
@@ -115,6 +116,7 @@ mod tests {
     }
     #[test]
     fn rejects_invalid_and_oversized() {
+        assert_eq!(encode(""), Err(Error::EmptySelection));
         assert_eq!(encode("a\0b"), Err(Error::InvalidText));
         assert_eq!(decode(&[0xd800, 0]), Err(Error::InvalidText));
         assert_eq!(decode(&[65]), Err(Error::InvalidText));

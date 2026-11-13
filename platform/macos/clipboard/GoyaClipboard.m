@@ -13,6 +13,7 @@
     NSData *data = [text dataUsingEncoding:NSUTF8StringEncoding allowLossyConversion:NO];
     if (!data) return GoyaClipboardInvalidText;
     if (data.length != length) return GoyaClipboardInvalidText;
+    if (!admit()) return GoyaClipboardDenied;
     NSPasteboardItem *item = [[NSPasteboardItem alloc] init];
     if (![item setData:data forType:NSPasteboardTypeString]) return GoyaClipboardExportFailed;
     NSPasteboard *board = [NSPasteboard generalPasteboard];
