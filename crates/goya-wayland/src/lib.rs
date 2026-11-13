@@ -729,6 +729,18 @@ impl TextInputState {
 /// (GY-ZCODE-008 frozen contract): UTF-8-tagged text/plain first, then
 /// bare text/plain, otherwise no text offer exists.
 const TEXT_MIME_PREFERENCE: [&str; 2] = ["text/plain;charset=utf-8", "text/plain"];
+const MAX_CLIPBOARD_TEXT_BYTES: u64 = 1024 * 1024;
+
+// Preserve the legacy Option API while refusing partial, invalid or oversized
+// transfers. This transport helper is not a Gestures policy boundary.
+fn read_clipboard_text(reader: impl Read) -> Option<String> {
+    let mut payload = Vec::new();
+    reader.take(MAX_CLIPBOARD_TEXT_BYTES + 1).read_to_end(&mut payload).ok()?;
+    if payload.len() as u64 > MAX_CLIPBOARD_TEXT_BYTES {
+        return None;
+    }
+    String::from_utf8(payload).ok().filter(|text| !text.is_empty())
+}
 
 /// Pure mime negotiation (GY-ZCODE-008): pick the best text mime an offer
 /// advertises — `text/plain;charset=utf-8` beats bare `text/plain`; anything
@@ -1506,12 +1518,15 @@ impl GoyaWindow {
             return;
         };
         offer.receive(mime, write_fd.as_fd());
+        // The compositor receives its own descriptor. Keeping our writer open
+        // prevents the read side from ever observing EOF after the transfer.
+        drop(write_fd);
         // Flush so the compositor starts writing before we block on the pipe.
-        let _ = self.queue.flush();
-        let mut payload = Vec::new();
-        let _ = File::from(read_fd).read_to_end(&mut payload);
-        // Empty payload means the selection carried no usable text.
-        let text = String::from_utf8(payload).ok().filter(|t| !t.is_empty());
+        let text = if self.queue.flush().is_ok() {
+            read_clipboard_text(File::from(read_fd))
+        } else {
+            None
+        };
         if let Some(event) = self.state.clipboard.complete_request(text) {
             self.state.events.push(event);
         }
@@ -5058,7 +5073,16 @@ mod text_input_tests {
 
 #[cfg(test)]
 mod clipboard_tests {
-    use super::{pick_text_mime, ClipboardRequestPhase, ClipboardState, PlatformEvent};
+    use super::{pick_text_mime, read_clipboard_text, ClipboardRequestPhase, ClipboardState, PlatformEvent, MAX_CLIPBOARD_TEXT_BYTES};
+    use std::io::Read;
+
+    #[test]
+    fn clipboard_reads_reject_invalid_and_oversized_payloads() {
+        assert_eq!(read_clipboard_text(&b"hello"[..]).as_deref(), Some("hello"));
+        assert_eq!(read_clipboard_text(&b""[..]), None);
+        assert_eq!(read_clipboard_text(&[0xff][..]), None);
+        assert_eq!(read_clipboard_text(std::io::repeat(b'x').take(MAX_CLIPBOARD_TEXT_BYTES + 1)), None);
+    }
 
     fn mimes(list: &[&str]) -> Vec<String> {
         list.iter().map(|m| (*m).to_string()).collect()
