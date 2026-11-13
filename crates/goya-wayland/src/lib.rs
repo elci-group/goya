@@ -735,11 +735,16 @@ const MAX_CLIPBOARD_TEXT_BYTES: u64 = 1024 * 1024;
 // transfers. This transport helper is not a Gestures policy boundary.
 fn read_clipboard_text(reader: impl Read) -> Option<String> {
     let mut payload = Vec::new();
-    reader.take(MAX_CLIPBOARD_TEXT_BYTES + 1).read_to_end(&mut payload).ok()?;
+    reader
+        .take(MAX_CLIPBOARD_TEXT_BYTES + 1)
+        .read_to_end(&mut payload)
+        .ok()?;
     if payload.len() as u64 > MAX_CLIPBOARD_TEXT_BYTES {
         return None;
     }
-    String::from_utf8(payload).ok().filter(|text| !text.is_empty())
+    String::from_utf8(payload)
+        .ok()
+        .filter(|text| !text.is_empty())
 }
 
 /// Pure mime negotiation (GY-ZCODE-008): pick the best text mime an offer
@@ -2010,7 +2015,9 @@ impl GoyaWindow {
         if let Some(toplevel) = &self.state.toplevel {
             toplevel.set_maximized();
             true
-        } else { false }
+        } else {
+            false
+        }
     }
 
     /// Request restoring the window from maximized state.
@@ -2018,24 +2025,37 @@ impl GoyaWindow {
         if let Some(toplevel) = &self.state.toplevel {
             toplevel.unset_maximized();
             true
-        } else { false }
+        } else {
+            false
+        }
     }
 
     /// Request that the compositor minimize this toplevel, when supported.
     pub fn request_minimize(&self) -> bool {
-        if let Some(toplevel) = &self.state.toplevel { toplevel.set_minimized(); true } else { false }
+        if let Some(toplevel) = &self.state.toplevel {
+            toplevel.set_minimized();
+            true
+        } else {
+            false
+        }
     }
 
     /// Ask the compositor to close this application window.
     pub fn request_close(&self) -> bool {
-        if let Some(toplevel) = &self.state.toplevel { toplevel.destroy(); true } else { false }
+        if let Some(toplevel) = &self.state.toplevel {
+            toplevel.destroy();
+            true
+        } else {
+            false
+        }
     }
 
     /// Apply an app-level window action through the native host and detected
     /// Linux desktop adapter. `NewTab` remains app-owned and is unsupported.
-    pub fn manage_window(&mut self, action: window_management::WindowAction)
-        -> Result<(), window_management::WindowManagementError>
-    {
+    pub fn manage_window(
+        &mut self,
+        action: window_management::WindowAction,
+    ) -> Result<(), window_management::WindowManagementError> {
         use window_management::{WindowAction, WindowManagementError};
         match action {
             WindowAction::Close => {
@@ -2044,7 +2064,9 @@ impl GoyaWindow {
                 Ok(())
             }
             WindowAction::Maximize => {
-                if self.request_maximize() { return Ok(()); }
+                if self.request_maximize() {
+                    return Ok(());
+                }
                 #[cfg(target_os = "linux")]
                 if let Some(mut manager) = window_management::platform::native() {
                     return window_management::WindowManager::request(&mut manager, action);
@@ -2052,7 +2074,9 @@ impl GoyaWindow {
                 Err(WindowManagementError::Unsupported(action))
             }
             WindowAction::Restore => {
-                if self.request_restore() { return Ok(()); }
+                if self.request_restore() {
+                    return Ok(());
+                }
                 #[cfg(target_os = "linux")]
                 if let Some(mut manager) = window_management::platform::native() {
                     return window_management::WindowManager::request(&mut manager, action);
@@ -2060,7 +2084,11 @@ impl GoyaWindow {
                 Err(WindowManagementError::Unsupported(action))
             }
             WindowAction::Minimize => {
-                if self.request_minimize() { Ok(()) } else { Err(WindowManagementError::Unsupported(action)) }
+                if self.request_minimize() {
+                    Ok(())
+                } else {
+                    Err(WindowManagementError::Unsupported(action))
+                }
             }
             WindowAction::NewTab => Err(WindowManagementError::Unsupported(action)),
         }
@@ -5073,7 +5101,10 @@ mod text_input_tests {
 
 #[cfg(test)]
 mod clipboard_tests {
-    use super::{pick_text_mime, read_clipboard_text, ClipboardRequestPhase, ClipboardState, PlatformEvent, MAX_CLIPBOARD_TEXT_BYTES};
+    use super::{
+        pick_text_mime, read_clipboard_text, ClipboardRequestPhase, ClipboardState, PlatformEvent,
+        MAX_CLIPBOARD_TEXT_BYTES,
+    };
     use std::io::Read;
 
     #[test]
@@ -5081,7 +5112,10 @@ mod clipboard_tests {
         assert_eq!(read_clipboard_text(&b"hello"[..]).as_deref(), Some("hello"));
         assert_eq!(read_clipboard_text(&b""[..]), None);
         assert_eq!(read_clipboard_text(&[0xff][..]), None);
-        assert_eq!(read_clipboard_text(std::io::repeat(b'x').take(MAX_CLIPBOARD_TEXT_BYTES + 1)), None);
+        assert_eq!(
+            read_clipboard_text(std::io::repeat(b'x').take(MAX_CLIPBOARD_TEXT_BYTES + 1)),
+            None
+        );
     }
 
     fn mimes(list: &[&str]) -> Vec<String> {
