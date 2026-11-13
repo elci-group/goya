@@ -1524,11 +1524,12 @@ impl GoyaWindow {
             return;
         };
         offer.receive(mime, write_fd.as_fd());
+        // Flush while the descriptor is live so the compositor can receive it.
+        let flushed = self.queue.flush().is_ok();
         // The compositor receives its own descriptor. Keeping our writer open
         // prevents the read side from ever observing EOF after the transfer.
         drop(write_fd);
-        // Flush so the compositor starts writing before we block on the pipe.
-        let text = if self.queue.flush().is_ok() {
+        let text = if flushed {
             read_clipboard_text(File::from(read_fd))
         } else {
             None
