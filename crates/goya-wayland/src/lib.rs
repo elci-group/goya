@@ -1488,7 +1488,8 @@ impl GoyaWindow {
     /// Request the current selection's text (GY-ZCODE-008). The completed
     /// value arrives as [`PlatformEvent::ClipboardText`] — `Some(text)` for a
     /// text payload, `None` when there is no selection, the offer has no
-    /// text/plain mime, or the payload is empty. Exactly one request may be
+    /// text/plain mime, the payload is empty, invalid UTF-8, exceeds 1 MiB,
+    /// or the transfer fails. Exactly one request may be
     /// outstanding; a second call while one is pending is a documented
     /// no-op. Also a safe no-op without the data-device global. The read
     /// blocks briefly on the compositor writing the payload into a pipe.
