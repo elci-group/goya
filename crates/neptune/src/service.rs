@@ -103,7 +103,10 @@ mod tests {
             assert_eq!(session.handle(&request)["status"], "FAIL");
             let retry = json!({"schema_version":"1", "job_id":request["job_id"], "operation":"inspect", "source":"@ontology x { @cell root { id: \"root\" text: \"Hi\" } }"});
             let result = session.handle(&retry);
-            assert_eq!(result["diagnostics"][0]["message"], "job_id already used in this session");
+            assert_eq!(
+                result["diagnostics"][0]["message"],
+                "job_id already used in this session"
+            );
         }
     }
 
