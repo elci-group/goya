@@ -1,0 +1,241 @@
+//! Experimental static policy calculation for the proposed Gestures text profile.
+//!
+//! This is not a complete interaction contract or an execution authorisation
+//! boundary. Predicates, intrinsic preconditions, target admission, live
+//! context, provenance and source-language integration are not implemented.
+//! Callers must not use this calculation alone to enable or execute commands.
+
+/// A deliberately small bound on the number of enclosing policy scopes.
+pub const MAX_SCOPES: usize = 64;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Operation {
+    Select,
+    SelectAll,
+    Copy,
+    Cut,
+    Paste,
+    Undo,
+    Redo,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Target {
+    StaticText,
+    EditableText,
+    ReadOnlyEditor,
+    ProtectedEditor,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Decision {
+    Inherit,
+    Allow,
+    Deny,
+}
+
+/// One enclosing scope's decision for a single operation. Scopes must be
+/// supplied outermost first. A hard denial is independent of the default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Scope {
+    pub default: Decision,
+    pub hard_deny: bool,
+}
+
+/// Identifies the winning static default or element override. A scope index
+/// is only a lookup into the provided slice, not an authored origin.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DecisionSource {
+    Profile,
+    Scope(usize),
+    Element,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Resolution {
+    /// The result before runtime predicates, preconditions and admission.
+    pub statically_allowed: bool,
+    pub source: DecisionSource,
+    /// First hard denial in outer-to-inner order, if any.
+    pub hard_denial_scope: Option<usize>,
+    /// An allow was overridden by an enclosing hard denial.
+    pub shadowed_allow: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResolveError {
+    TooManyScopes,
+}
+
+/// Calculate only the static default and enclosing hard-mask portion of
+/// policy. A result of `true` is not sufficient permission to execute.
+pub fn resolve_static(
+    target: Target,
+    operation: Operation,
+    scopes: &[Scope],
+    element: Decision,
+    application_hard_deny: bool,
+) -> Result<Resolution, ResolveError> {
+    if scopes.len() > MAX_SCOPES {
+        return Err(ResolveError::TooManyScopes);
+    }
+    let mut allowed = match target {
+        Target::StaticText => false,
+        Target::EditableText => true,
+        Target::ReadOnlyEditor => matches!(
+            operation,
+            Operation::Select | Operation::SelectAll | Operation::Copy
+        ),
+        Target::ProtectedEditor => !matches!(operation, Operation::Copy | Operation::Cut),
+    };
+    let mut source = DecisionSource::Profile;
+    let mut hard_denial_scope = None;
+    for (index, scope) in scopes.iter().enumerate() {
+        match scope.default {
+            Decision::Inherit => {}
+            Decision::Allow => {
+                allowed = true;
+                source = DecisionSource::Scope(index);
+            }
+            Decision::Deny => {
+                allowed = false;
+                source = DecisionSource::Scope(index);
+            }
+        }
+        if scope.hard_deny && hard_denial_scope.is_none() {
+            hard_denial_scope = Some(index);
+        }
+    }
+    match element {
+        Decision::Inherit => {}
+        Decision::Allow => {
+            allowed = true;
+            source = DecisionSource::Element;
+        }
+        Decision::Deny => {
+            allowed = false;
+            source = DecisionSource::Element;
+        }
+    }
+    let denied = hard_denial_scope.is_some() || application_hard_deny;
+    Ok(Resolution {
+        statically_allowed: allowed && !denied,
+        source,
+        hard_denial_scope,
+        shadowed_allow: allowed && denied,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn profile_defaults_cover_every_operation() {
+        let operations = [
+            Operation::Select,
+            Operation::SelectAll,
+            Operation::Copy,
+            Operation::Cut,
+            Operation::Paste,
+            Operation::Undo,
+            Operation::Redo,
+        ];
+        for (target, expected) in [
+            (
+                Target::StaticText,
+                [false, false, false, false, false, false, false],
+            ),
+            (
+                Target::EditableText,
+                [true, true, true, true, true, true, true],
+            ),
+            (
+                Target::ReadOnlyEditor,
+                [true, true, true, false, false, false, false],
+            ),
+            (
+                Target::ProtectedEditor,
+                [true, true, false, false, true, true, true],
+            ),
+        ] {
+            for (op, expected) in operations.into_iter().zip(expected) {
+                assert_eq!(
+                    resolve_static(target, op, &[], Decision::Inherit, false)
+                        .unwrap()
+                        .statically_allowed,
+                    expected,
+                    "{target:?} {op:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn nearest_default_and_element_override_cannot_widen_hard_denial() {
+        let scopes = [
+            Scope {
+                default: Decision::Allow,
+                hard_deny: true,
+            },
+            Scope {
+                default: Decision::Deny,
+                hard_deny: false,
+            },
+        ];
+        let inherited = resolve_static(
+            Target::StaticText,
+            Operation::Copy,
+            &scopes,
+            Decision::Inherit,
+            false,
+        )
+        .unwrap();
+        assert_eq!(inherited.source, DecisionSource::Scope(1));
+        assert!(!inherited.statically_allowed);
+        assert!(!inherited.shadowed_allow);
+        let explicit = resolve_static(
+            Target::StaticText,
+            Operation::Copy,
+            &scopes,
+            Decision::Allow,
+            false,
+        )
+        .unwrap();
+        assert_eq!(explicit.source, DecisionSource::Element);
+        assert_eq!(explicit.hard_denial_scope, Some(0));
+        assert!(explicit.shadowed_allow);
+        assert!(!explicit.statically_allowed);
+        let security = resolve_static(
+            Target::EditableText,
+            Operation::Paste,
+            &[],
+            Decision::Inherit,
+            true,
+        )
+        .unwrap();
+        assert!(!security.statically_allowed);
+        assert!(security.shadowed_allow);
+    }
+
+    #[test]
+    fn rejects_unbounded_scope_lists() {
+        let scopes = vec![
+            Scope {
+                default: Decision::Inherit,
+                hard_deny: false
+            };
+            MAX_SCOPES + 1
+        ];
+        assert_eq!(
+            resolve_static(
+                Target::EditableText,
+                Operation::Copy,
+                &scopes,
+                Decision::Inherit,
+                false
+            ),
+            Err(ResolveError::TooManyScopes)
+        );
+    }
+}

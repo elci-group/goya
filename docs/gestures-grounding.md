@@ -71,8 +71,17 @@ control. Proposed defaults and bounds in the directive are not measured or
 admitted. Missing target workers, accessibility sessions or integrations must
 be recorded as BLOCKED, never PASS.
 
+An experimental calculation in `crates/goya-lang/src/gestures.rs` covers the
+proposed profile defaults, ordered scope defaults, element override and hard
+denial for one operation with a bounded scope list. It is not an execution
+boundary: predicates, operation dependencies and contradictions, source
+origins, target capabilities and live context are not implemented. In
+particular, a static allow is never evidence that a secret export is permitted.
+It is not connected to parsing, lowering or a native adapter. The scope limit
+is an implementation bound, not a ratified profile limit.
+
 All D0–D8 gates remain **BLOCKED**: this partial ledger alone does not complete
-grounding; no Gestures contract, oracle, native build, route coverage, device
+grounding; no complete Gestures contract, independent oracle, native build, route coverage, device
 evidence, security review, benchmark or Quinta parity has been demonstrated.
 Next: inspect the actual target and authoring interfaces and toolchain
 availability; write and ratify the required ADRs and threat model; implement

@@ -10,6 +10,7 @@
 //! Contract: parsing and layout are total (never panic on any input) and
 //! deterministic. See docs/contracts.md GY-LANG/1.
 
+pub mod gestures;
 mod hotswap;
 mod lexer;
 mod lowering;
