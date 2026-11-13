@@ -170,6 +170,24 @@ mod tests {
     }
 
     #[test]
+    fn strict_frontend_does_not_admit_unimplemented_gesture_declarations() {
+        // Legacy parsing may discard unknown properties; native admission must
+        // not turn an authored interaction policy into an unprotected field.
+        let property =
+            "@ontology demo { @input notes { id: \"notes\" text: \"é\" gestures: allow } }";
+        let error = parse_strict(property).unwrap_err();
+        assert_eq!(error.code, "GY-E1001");
+        assert_eq!(
+            &property[error.range.start..error.range.end],
+            "gestures: allow"
+        );
+
+        // The proposed nested spelling is not yet part of the grammar either.
+        let block = "@ontology demo { @input notes { id: \"notes\" gestures { copy: deny } } }";
+        assert!(parse_strict(block).is_err());
+    }
+
+    #[test]
     fn strict_parser_rejects_recognized_but_unrepresented_template() {
         let source = "@ontology demo { @cell root { @template card { text: \"x\" } } }";
         let error = parse_strict(source).unwrap_err();

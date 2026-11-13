@@ -51,6 +51,16 @@ On the inspected Linux host, Java and ADB are on PATH; Swift, Xcode, .NET and
 Kotlin compiler commands were not found on PATH. This is not an inventory of
 remote workers or SDK installations and establishes no target qualification.
 
+Follow-up at `d2d231608b9283625c58b6abf68c5a7ef466aaf5`: the Android IME
+adapter clamps requested byte and UTF-16 offsets, so its existing conversion
+cannot be assumed to meet the proposed checked-rejection contract. Neptune's
+static-text preview is not a selection or editor control. `adb devices -l`
+reported no attached devices. The strict frontend regression test
+`strict_frontend_does_not_admit_unimplemented_gesture_declarations` covers
+rejection of an unknown scalar property and the illustrative nested declaration;
+it does not establish complete gesture admission, native behavior or legacy
+parser enforcement.
+
 The directive requires ratified ADRs, not assumptions. Syntax, exact shared
 schema location, defaults and hard-mask representation, Unicode/grapheme version
 and conversion fixtures, editor ownership, Windows framework, pinned platform
