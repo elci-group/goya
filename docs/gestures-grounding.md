@@ -93,6 +93,11 @@ The separate experimental `validate_grapheme_range` checks scalar endpoints
 against extended grapheme boundaries using the workspace lock's
 `unicode-segmentation` 1.13.3. This is a build dependency lock, not G0
 ratification of a Unicode profile or proof of native segmentation equivalence.
+The experimental `decode_plain_text` helper reads at most one byte past the
+provisional 1 MiB limit, rejects invalid UTF-8, and normalizes CRLF and CR to LF.
+It accepts empty text and preserves other content. It does not select native
+formats, access an OS clipboard, establish user authorization, validate an
+editor replacement, or admit a native route.
 
 All D0–D8 gates remain **BLOCKED**: this partial ledger alone does not complete
 grounding; no complete Gestures contract, independent oracle, native build, route coverage, device

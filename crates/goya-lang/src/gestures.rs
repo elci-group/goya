@@ -5,6 +5,7 @@
 //! context, provenance and source-language integration are not implemented.
 //! Callers must not use this calculation alone to enable or execute commands.
 
+use std::io::{self, Read};
 use unicode_segmentation::UnicodeSegmentation;
 
 /// A deliberately small bound on the number of enclosing policy scopes.
@@ -12,6 +13,48 @@ pub const MAX_SCOPES: usize = 64;
 
 /// Provisional text limit for bounded conversion; not a ratified profile limit.
 pub const MAX_TEXT_BYTES: usize = 1024 * 1024;
+
+/// Safe failure categories; these values never include clipboard contents.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClipboardDecodeError {
+    TooLarge,
+    InvalidUtf8,
+    ReadFailure(io::ErrorKind),
+}
+
+/// Read one plain-text payload without reading more than one byte past the
+/// provisional limit. Empty text is valid. CRLF and lone CR become LF; no
+/// other character is trimmed, normalized, interpreted or fetched.
+///
+/// Format selection and user-authorized clipboard access belong to the native
+/// adapter, which must not invoke this helper as an availability query.
+pub fn decode_plain_text(reader: impl Read) -> Result<String, ClipboardDecodeError> {
+    let mut bytes = Vec::new();
+    reader
+        .take((MAX_TEXT_BYTES as u64) + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| ClipboardDecodeError::ReadFailure(error.kind()))?;
+    if bytes.len() > MAX_TEXT_BYTES {
+        return Err(ClipboardDecodeError::TooLarge);
+    }
+    let text = String::from_utf8(bytes).map_err(|_| ClipboardDecodeError::InvalidUtf8)?;
+    if !text.contains('\r') {
+        return Ok(text);
+    }
+    let mut normalized = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\r' {
+            if chars.peek() == Some(&'\n') {
+                chars.next();
+            }
+            normalized.push('\n');
+        } else {
+            normalized.push(ch);
+        }
+    }
+    Ok(normalized)
+}
 
 /// A location in three different coordinate systems, all at a scalar boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -308,6 +351,44 @@ pub fn resolve_static(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clipboard_text_is_bounded_strict_and_preserves_other_content() {
+        assert_eq!(decode_plain_text(&b""[..]), Ok(String::new()));
+        assert_eq!(
+            decode_plain_text(" é\r\nA\rB\n<em>\t".as_bytes()),
+            Ok(" é\nA\nB\n<em>\t".to_owned())
+        );
+        assert_eq!(
+            decode_plain_text(&[0xff][..]),
+            Err(ClipboardDecodeError::InvalidUtf8)
+        );
+        assert_eq!(
+            decode_plain_text(std::io::repeat(b'x').take((MAX_TEXT_BYTES + 1) as u64)),
+            Err(ClipboardDecodeError::TooLarge)
+        );
+        assert_eq!(
+            decode_plain_text(std::io::repeat(b'x').take(MAX_TEXT_BYTES as u64))
+                .unwrap()
+                .len(),
+            MAX_TEXT_BYTES
+        );
+        struct Broken;
+        impl Read for Broken {
+            fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+                Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "private payload",
+                ))
+            }
+        }
+        assert_eq!(
+            decode_plain_text(Broken),
+            Err(ClipboardDecodeError::ReadFailure(
+                io::ErrorKind::PermissionDenied
+            ))
+        );
+    }
 
     #[test]
     fn unicode_offsets_round_trip_and_reject_partial_scalars() {
