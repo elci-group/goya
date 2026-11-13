@@ -89,6 +89,10 @@ and UTF-16 code-unit offsets within the provisional 1 MiB input bound. It
 rejects out-of-range positions and positions inside a scalar, including a
 surrogate pair. It does not validate grapheme boundaries, pin Unicode
 segmentation, alter the existing Android adapter or qualify a native control.
+The separate experimental `validate_grapheme_range` checks scalar endpoints
+against extended grapheme boundaries using the workspace lock's
+`unicode-segmentation` 1.13.3. This is a build dependency lock, not G0
+ratification of a Unicode profile or proof of native segmentation equivalence.
 
 All D0–D8 gates remain **BLOCKED**: this partial ledger alone does not complete
 grounding; no complete Gestures contract, independent oracle, native build, route coverage, device

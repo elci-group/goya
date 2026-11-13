@@ -5,6 +5,8 @@
 //! context, provenance and source-language integration are not implemented.
 //! Callers must not use this calculation alone to enable or execute commands.
 
+use unicode_segmentation::UnicodeSegmentation;
+
 /// A deliberately small bound on the number of enclosing policy scopes.
 pub const MAX_SCOPES: usize = 64;
 
@@ -76,6 +78,52 @@ pub fn convert_offset(text: &str, requested: Offset) -> Result<TextOffset, Offse
     } else {
         Err(OffsetError::OutOfBounds)
     }
+}
+
+/// A half-open logical range expressed in scalar offsets and its corresponding
+/// UTF-8 byte boundaries. Visual direction and anchor/cursor order are not
+/// represented here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TextRange {
+    pub start: TextOffset,
+    pub end: TextOffset,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RangeError {
+    InvalidOffset(OffsetError),
+    Reversed,
+    NotGraphemeBoundary,
+}
+
+/// Validate a logical scalar range against this build's locked extended
+/// grapheme implementation. This experimental helper does not establish that
+/// native controls or a ratified profile use the same Unicode version.
+pub fn validate_grapheme_range(
+    text: &str,
+    start_scalar: usize,
+    end_scalar: usize,
+) -> Result<TextRange, RangeError> {
+    if start_scalar > end_scalar {
+        return Err(RangeError::Reversed);
+    }
+    let start =
+        convert_offset(text, Offset::Scalar(start_scalar)).map_err(RangeError::InvalidOffset)?;
+    let end =
+        convert_offset(text, Offset::Scalar(end_scalar)).map_err(RangeError::InvalidOffset)?;
+    let mut start_valid = start.utf8_bytes == text.len();
+    let mut end_valid = end.utf8_bytes == text.len();
+    for (byte_index, _) in text.grapheme_indices(true) {
+        start_valid |= byte_index == start.utf8_bytes;
+        end_valid |= byte_index == end.utf8_bytes;
+        if start_valid && end_valid {
+            break;
+        }
+    }
+    if !start_valid || !end_valid {
+        return Err(RangeError::NotGraphemeBoundary);
+    }
+    Ok(TextRange { start, end })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -291,6 +339,38 @@ mod tests {
         assert_eq!(
             convert_offset(&"a".repeat(MAX_TEXT_BYTES + 1), Offset::Scalar(0)),
             Err(OffsetError::TextTooLarge)
+        );
+    }
+
+    #[test]
+    fn logical_ranges_respect_extended_graphemes() {
+        let text = "e\u{301}🇬🇧👩‍💻א";
+        assert_eq!(
+            validate_grapheme_range(text, 0, 2).unwrap().end.utf8_bytes,
+            "e\u{301}".len()
+        );
+        assert_eq!(
+            validate_grapheme_range(text, 2, 4).unwrap().end.utf8_bytes,
+            "e\u{301}🇬🇧".len()
+        );
+        assert_eq!(
+            validate_grapheme_range(text, 4, 7).unwrap().end.utf8_bytes,
+            "e\u{301}🇬🇧👩‍💻".len()
+        );
+        for offset in [1, 3, 5, 6] {
+            assert_eq!(
+                validate_grapheme_range(text, offset, offset),
+                Err(RangeError::NotGraphemeBoundary)
+            );
+        }
+        assert!(validate_grapheme_range("", 0, 0).is_ok());
+        assert_eq!(
+            validate_grapheme_range(text, 2, 1),
+            Err(RangeError::Reversed)
+        );
+        assert_eq!(
+            validate_grapheme_range(text, 0, 99),
+            Err(RangeError::InvalidOffset(OffsetError::OutOfBounds))
         );
     }
 
