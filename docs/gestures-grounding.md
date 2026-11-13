@@ -45,6 +45,12 @@ to the IME; this is not evidence of a qualified native editing control.
 
 ## Open G0 decisions and gate status
 
+The [decision register](gestures-decisions.md) and [preliminary threat model](gestures-threat-model.md)
+record candidate choices and evidence gaps. Both are drafts, not ratification.
+On the inspected Linux host, Java and ADB are on PATH; Swift, Xcode, .NET and
+Kotlin compiler commands were not found on PATH. This is not an inventory of
+remote workers or SDK installations and establishes no target qualification.
+
 The directive requires ratified ADRs, not assumptions. Syntax, exact shared
 schema location, defaults and hard-mask representation, Unicode/grapheme version
 and conversion fixtures, editor ownership, Windows framework, pinned platform
