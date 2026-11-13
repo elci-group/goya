@@ -10,6 +10,7 @@ enum class ClipboardFailure { DENIED, WRONG_THREAD, UNAVAILABLE, UNSUPPORTED, IN
 sealed class ClipboardResult<out T> {
     data class Success<T>(val value: T) : ClipboardResult<T>()
     data class Failure(val reason: ClipboardFailure) : ClipboardResult<Nothing>()
+    data object NoChange : ClipboardResult<Nothing>()
 }
 
 /** Explicit transport only. The host must authorize each user action and own editor commits. */
@@ -20,32 +21,15 @@ class GoyaClipboard(
     private val manager = context.applicationContext.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
 
     /** Success means Android accepted the write call, not that another app read it. */
-    fun write(operation: ClipboardOperation, text: String): ClipboardResult<Unit> {
-        if (operation != ClipboardOperation.COPY && operation != ClipboardOperation.CUT) return failure(ClipboardFailure.DENIED)
-        checkAccess(operation)?.let { return it }
-        validateText(text)?.let { return failure(it) }
-        return try {
+    fun write(operation: ClipboardOperation, text: String): ClipboardResult<Unit> =
+        writeText(operation, text, ::checkAccess) {
             val clipboard = manager ?: return failure(ClipboardFailure.UNAVAILABLE)
             clipboard.setPrimaryClip(ClipData.newPlainText("", text))
             ClipboardResult.Success(Unit)
-        } catch (_: RuntimeException) { failure(ClipboardFailure.UNAVAILABLE) }
-    }
+        }
 
-    /** Reads direct plain text only, never URI or intent coercion. */
-    fun read(): ClipboardResult<String> {
-        checkAccess(ClipboardOperation.PASTE)?.let { return it }
-        return try {
-            val clipboard = manager ?: return failure(ClipboardFailure.UNAVAILABLE)
-            val clip = clipboard.primaryClip ?: return failure(ClipboardFailure.UNAVAILABLE)
-            val description = clip.description
-            if (description.mimeTypeCount != 1 || description.getMimeType(0) != "text/plain" || clip.itemCount != 1) return failure(ClipboardFailure.UNSUPPORTED)
-            val item = clip.getItemAt(0)
-            if (item.uri != null || item.intent != null || item.htmlText != null) return failure(ClipboardFailure.UNSUPPORTED)
-            val text = item.text as? String ?: return failure(ClipboardFailure.UNSUPPORTED)
-            validateText(text)?.let { return failure(it) }
-            ClipboardResult.Success(text.replace("\r\n", "\n").replace('\r', '\n'))
-        } catch (_: RuntimeException) { failure(ClipboardFailure.UNAVAILABLE) }
-    }
+    /** Reads are disabled until bounded native acquisition is available. */
+    fun read(): ClipboardResult<String> = readText(::checkAccess)
 
     private fun checkAccess(operation: ClipboardOperation): ClipboardResult.Failure? {
         if (Looper.myLooper() != Looper.getMainLooper()) return failure(ClipboardFailure.WRONG_THREAD)
@@ -55,6 +39,22 @@ class GoyaClipboard(
 }
 
 private fun failure(reason: ClipboardFailure) = ClipboardResult.Failure(reason)
+
+internal inline fun writeText(
+    operation: ClipboardOperation,
+    text: String,
+    access: (ClipboardOperation) -> ClipboardResult.Failure?,
+    nativeWrite: () -> ClipboardResult<Unit>,
+): ClipboardResult<Unit> {
+    if (operation != ClipboardOperation.COPY && operation != ClipboardOperation.CUT) return failure(ClipboardFailure.DENIED)
+    access(operation)?.let { return it }
+    if (text.isEmpty()) return ClipboardResult.NoChange
+    validateText(text)?.let { return failure(it) }
+    return try { nativeWrite() } catch (_: RuntimeException) { failure(ClipboardFailure.UNAVAILABLE) }
+}
+
+internal fun readText(access: (ClipboardOperation) -> ClipboardResult.Failure?): ClipboardResult<String> =
+    access(ClipboardOperation.PASTE) ?: failure(ClipboardFailure.UNSUPPORTED)
 
 /** Counts UTF-8 bytes without a second payload allocation and rejects unpaired surrogates. */
 internal fun validateText(text: String): ClipboardFailure? {

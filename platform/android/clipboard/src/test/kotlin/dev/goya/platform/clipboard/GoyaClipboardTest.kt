@@ -5,6 +5,22 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class GoyaClipboardTest {
+    @Test fun emptyCopyAndCutNeverWrite() {
+        for (operation in listOf(ClipboardOperation.COPY, ClipboardOperation.CUT)) {
+            var writes = 0
+            val result = writeText(operation, "", { null }) { writes++; ClipboardResult.Success(Unit) }
+            assertEquals(ClipboardResult.NoChange, result)
+            assertEquals(0, writes)
+        }
+    }
+
+    @Test fun accessIsRequiredAndReadsAreUnsupported() {
+        val denied = ClipboardResult.Failure(ClipboardFailure.DENIED)
+        assertEquals(denied, writeText(ClipboardOperation.COPY, "", { denied }) { error("native write") })
+        assertEquals(denied, readText { denied })
+        assertEquals(ClipboardResult.Failure(ClipboardFailure.UNSUPPORTED), readText { null })
+    }
+
     @Test fun validatesUnicodeAndUtf8ByteBound() {
         assertNull(validateText(""))
         assertNull(validateText("a\uD83D\uDE00\r\n"))
