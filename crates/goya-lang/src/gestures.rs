@@ -67,6 +67,67 @@ pub enum ResolveError {
     TooManyScopes,
 }
 
+/// Unconditional element decisions, without scope resolution or predicates.
+/// Each operation has exactly one slot, so duplicates must be rejected by the
+/// eventual source/schema decoder before constructing this value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Declarations {
+    pub select: Decision,
+    pub copy: Decision,
+    pub cut: Decision,
+    pub paste: Decision,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeclarationError {
+    CopyRequiresSelection,
+    CutRequiresSelection,
+    CutRequiresCopy,
+    MutationRequiresEditableTarget(Operation),
+    ProtectedExportForbidden(Operation),
+}
+
+/// Check contradictions in unconditional *explicit* declarations. This does
+/// not establish full validity: inherited scopes, conditions, hard masks,
+/// related origins and adapter capabilities must also be checked later.
+/// `ReadOnlyEditor` denotes a permanently read-only editor for this check;
+/// temporary read-only state belongs to runtime availability instead.
+pub fn validate_declarations(
+    target: Target,
+    declarations: Declarations,
+) -> Result<(), DeclarationError> {
+    if matches!(target, Target::ProtectedEditor) {
+        if declarations.copy == Decision::Allow {
+            return Err(DeclarationError::ProtectedExportForbidden(Operation::Copy));
+        }
+        if declarations.cut == Decision::Allow {
+            return Err(DeclarationError::ProtectedExportForbidden(Operation::Cut));
+        }
+    }
+    if matches!(target, Target::StaticText | Target::ReadOnlyEditor) {
+        if declarations.cut == Decision::Allow {
+            return Err(DeclarationError::MutationRequiresEditableTarget(
+                Operation::Cut,
+            ));
+        }
+        if declarations.paste == Decision::Allow {
+            return Err(DeclarationError::MutationRequiresEditableTarget(
+                Operation::Paste,
+            ));
+        }
+    }
+    if declarations.copy == Decision::Allow && declarations.select == Decision::Deny {
+        return Err(DeclarationError::CopyRequiresSelection);
+    }
+    if declarations.cut == Decision::Allow && declarations.select == Decision::Deny {
+        return Err(DeclarationError::CutRequiresSelection);
+    }
+    if declarations.cut == Decision::Allow && declarations.copy == Decision::Deny {
+        return Err(DeclarationError::CutRequiresCopy);
+    }
+    Ok(())
+}
+
 /// Calculate only the static default and enclosing hard-mask portion of
 /// policy. A result of `true` is not sufficient permission to execute.
 pub fn resolve_static(
@@ -236,6 +297,57 @@ mod tests {
                 false
             ),
             Err(ResolveError::TooManyScopes)
+        );
+    }
+
+    #[test]
+    fn unconditional_declarations_reject_known_contradictions() {
+        let allowed = Declarations {
+            select: Decision::Allow,
+            copy: Decision::Allow,
+            cut: Decision::Allow,
+            paste: Decision::Allow,
+        };
+        assert_eq!(validate_declarations(Target::EditableText, allowed), Ok(()));
+        assert_eq!(
+            validate_declarations(
+                Target::EditableText,
+                Declarations {
+                    select: Decision::Deny,
+                    ..allowed
+                }
+            ),
+            Err(DeclarationError::CopyRequiresSelection)
+        );
+        assert_eq!(
+            validate_declarations(
+                Target::EditableText,
+                Declarations {
+                    copy: Decision::Deny,
+                    ..allowed
+                }
+            ),
+            Err(DeclarationError::CutRequiresCopy)
+        );
+        assert_eq!(
+            validate_declarations(Target::ReadOnlyEditor, allowed),
+            Err(DeclarationError::MutationRequiresEditableTarget(
+                Operation::Cut
+            ))
+        );
+        assert_eq!(
+            validate_declarations(Target::ProtectedEditor, allowed),
+            Err(DeclarationError::ProtectedExportForbidden(Operation::Copy))
+        );
+        let protected = Declarations {
+            select: Decision::Inherit,
+            copy: Decision::Deny,
+            cut: Decision::Deny,
+            paste: Decision::Allow,
+        };
+        assert_eq!(
+            validate_declarations(Target::ProtectedEditor, protected),
+            Ok(())
         );
     }
 }

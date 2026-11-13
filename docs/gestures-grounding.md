@@ -79,6 +79,11 @@ origins, target capabilities and live context are not implemented. In
 particular, a static allow is never evidence that a secret export is permitted.
 It is not connected to parsing, lowering or a native adapter. The scope limit
 is an implementation bound, not a ratified profile limit.
+The same module also checks a limited set of unconditional explicit
+declaration contradictions: selection/copy/cut dependencies, mutation on
+permanently read-only or static targets, and protected export. It does not
+validate inherited decisions, conditional declarations or report source origins;
+passing this check is not complete policy validation or target admission.
 
 All D0–D8 gates remain **BLOCKED**: this partial ledger alone does not complete
 grounding; no complete Gestures contract, independent oracle, native build, route coverage, device
