@@ -30,6 +30,13 @@ impl Session {
                 "job_id must be 1..128 ASCII letters, digits, underscores or hyphens",
             );
         };
+        if self.jobs.contains(id) {
+            return error(Some(id), "protocol", "job_id already used in this session");
+        }
+        if self.jobs.len() >= MAX_JOBS {
+            return error(Some(id), "protocol", "session job limit reached");
+        }
+        self.jobs.insert(id.to_owned());
         if object.get("schema_version").and_then(Value::as_str) != Some("1") {
             return error(Some(id), "protocol", "unsupported schema version");
         }
@@ -41,13 +48,6 @@ impl Session {
         }) {
             return error(Some(id), "protocol", "unknown request field");
         }
-        if self.jobs.contains(id) {
-            return error(Some(id), "protocol", "job_id already used in this session");
-        }
-        if self.jobs.len() >= MAX_JOBS {
-            return error(Some(id), "protocol", "session job limit reached");
-        }
-        self.jobs.insert(id.to_owned());
         let Some(operation) = object.get("operation").and_then(Value::as_str) else {
             return error(Some(id), "protocol", "operation is required");
         };
@@ -92,6 +92,20 @@ fn error(id: Option<&str>, stage: &str, message: &str) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn failed_protocol_requests_consume_valid_job_ids() {
+        let mut session = Session::default();
+        for request in [
+            json!({"schema_version":"2", "job_id":"bad_version"}),
+            json!({"schema_version":"1", "job_id":"unknown_field", "extra":true}),
+        ] {
+            assert_eq!(session.handle(&request)["status"], "FAIL");
+            let retry = json!({"schema_version":"1", "job_id":request["job_id"], "operation":"inspect", "source":"@ontology x { @cell root { id: \"root\" text: \"Hi\" } }"});
+            let result = session.handle(&retry);
+            assert_eq!(result["diagnostics"][0]["message"], "job_id already used in this session");
+        }
+    }
 
     #[test]
     fn session_rejects_reused_ids_and_unsupported_operations() {
