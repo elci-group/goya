@@ -33,7 +33,9 @@ pub fn verify_preview(directory: &Path) -> io::Result<()> {
 }
 
 /// Returns hashes computed from the artifact bytes that were checked.
-pub fn verified_preview_hashes(directory: &Path) -> io::Result<std::collections::BTreeMap<String, String>> {
+pub fn verified_preview_hashes(
+    directory: &Path,
+) -> io::Result<std::collections::BTreeMap<String, String>> {
     let metadata = fs::symlink_metadata(directory)?;
     if !metadata.file_type().is_dir() {
         return Err(io::Error::other("preview path must be a directory"));

@@ -148,15 +148,29 @@ fn preview_writes_new_directory_and_refuses_overwrite() {
     assert_eq!(response["authenticity"], "NOT_CHECKED");
     let lock_path = output_dir.join("toolchain-lock.json");
     std::fs::write(&lock_path, br#"{"schema_version":"1","xcode_version":"16.2","xcode_build":"16C5032a","swift_version":"6.0.3","sdk_version":"18.2","sdk_build":"22C150","minimum_os":"17.0"}"#).unwrap();
-    let plan = || Command::new(env!("CARGO_BIN_EXE_neptune"))
-        .arg("apple-plan").arg(&output_dir).arg("--lock").arg(&lock_path).args(["--format", "json"]).output().unwrap();
+    let plan = || {
+        Command::new(env!("CARGO_BIN_EXE_neptune"))
+            .arg("apple-plan")
+            .arg(&output_dir)
+            .arg("--lock")
+            .arg(&lock_path)
+            .args(["--format", "json"])
+            .output()
+            .unwrap()
+    };
     let planned = plan();
     assert_eq!(planned.status.code(), Some(3));
     let plan_value: serde_json::Value = serde_json::from_slice(&planned.stdout).unwrap();
     assert_eq!(plan_value["status"], "BLOCKED");
     assert_eq!(plan_value["verification"]["apple_typecheck"], "BLOCKED");
-    assert_eq!(plan_value["artifact_sha256"]["App.swift"], report["artifact_sha256"]["App.swift"]);
-    assert_eq!(plan_value["invocation"]["arguments"][4], "arm64-apple-ios17.0-simulator");
+    assert_eq!(
+        plan_value["artifact_sha256"]["App.swift"],
+        report["artifact_sha256"]["App.swift"]
+    );
+    assert_eq!(
+        plan_value["invocation"]["arguments"][4],
+        "arm64-apple-ios17.0-simulator"
+    );
     std::fs::write(output_dir.join("App.swift"), b"modified").unwrap();
     assert!(!verify().status.success());
     assert_eq!(plan().status.code(), Some(1));

@@ -1,7 +1,7 @@
 //! Source-preview handoff plan for a future isolated Apple worker.
 //! Constructing this plan never runs Apple tools and never implies build success.
-use std::path::Path;
 use serde_json::{json, Value};
+use std::path::Path;
 
 /// Required normalized toolchain identities, supplied by the project owner.
 #[derive(Debug, serde::Deserialize)]
@@ -17,34 +17,50 @@ pub struct ToolchainLock {
 }
 
 fn version(text: &str, key: &str) -> Result<(String, [u32; 3]), String> {
-    if text.len() > 32 { return Err(format!("invalid {key}")); }
+    if text.len() > 32 {
+        return Err(format!("invalid {key}"));
+    }
     let parts: Vec<_> = text.split('.').collect();
-    if !(2..=3).contains(&parts.len()) { return Err(format!("invalid {key}")); }
+    if !(2..=3).contains(&parts.len()) {
+        return Err(format!("invalid {key}"));
+    }
     let mut numbers = [0; 3];
     for (i, part) in parts.iter().enumerate() {
-        if part.is_empty() || (part.len() > 1 && part.starts_with('0')) || !part.bytes().all(|b| b.is_ascii_digit()) { return Err(format!("invalid {key}")); }
+        if part.is_empty()
+            || (part.len() > 1 && part.starts_with('0'))
+            || !part.bytes().all(|b| b.is_ascii_digit())
+        {
+            return Err(format!("invalid {key}"));
+        }
         numbers[i] = part.parse().map_err(|_| format!("invalid {key}"))?;
     }
     Ok((text.to_owned(), numbers))
 }
 
 fn build_id(text: &str, key: &str) -> Result<String, String> {
-    if text.is_empty() || text.len() > 32 || !text.bytes().all(|b| b.is_ascii_alphanumeric()) { return Err(format!("invalid {key}")); }
+    if text.is_empty() || text.len() > 32 || !text.bytes().all(|b| b.is_ascii_alphanumeric()) {
+        return Err(format!("invalid {key}"));
+    }
     Ok(text.to_owned())
 }
 
 /// Plan type checking for the static source preview with an explicit lock.
 /// The returned job is BLOCKED until a worker executes and reports the result.
 pub fn plan_simulator_typecheck(directory: &Path, lock: &ToolchainLock) -> Result<Value, String> {
-    if lock.schema_version != "1" { return Err("unsupported toolchain lock schema".into()); }
+    if lock.schema_version != "1" {
+        return Err("unsupported toolchain lock schema".into());
+    }
     let (xcode_version, _) = version(&lock.xcode_version, "xcode_version")?;
     let xcode_build = build_id(&lock.xcode_build, "xcode_build")?;
     let (swift_version, _) = version(&lock.swift_version, "swift_version")?;
     let (sdk_version, sdk) = version(&lock.sdk_version, "sdk_version")?;
     let sdk_build = build_id(&lock.sdk_build, "sdk_build")?;
     let (minimum_os, minimum) = version(&lock.minimum_os, "minimum_os")?;
-    if minimum > sdk { return Err("minimum_os exceeds the locked SDK version".into()); }
-    let hashes = crate::artifacts::verified_preview_hashes(directory).map_err(|e| format!("preview integrity check failed: {e}"))?;
+    if minimum > sdk {
+        return Err("minimum_os exceeds the locked SDK version".into());
+    }
+    let hashes = crate::artifacts::verified_preview_hashes(directory)
+        .map_err(|e| format!("preview integrity check failed: {e}"))?;
     let target = format!("arm64-apple-ios{minimum_os}-simulator");
     Ok(json!({
         "schema_version":"1", "operation":"apple-simulator-typecheck-plan", "status":"BLOCKED",

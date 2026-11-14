@@ -8,6 +8,10 @@ Neptune currently provides an experimental Swift source preview for one `.gscene
 
 `neptune verify-preview <directory> [--format json]` checks that the three generated artifacts match their hashes in the report. This checks consistency only: a report and artifacts can be changed together, and no signature, Apple compilation, or device behavior is verified.
 
+`neptune apple-plan <preview-directory> --lock <toolchain-lock.json> --format json` prepares a simulator type-check handoff from integrity-checked preview artifacts. The lock is a JSON object with string fields `schema_version` (`"1"`), `xcode_version`, `xcode_build`, `swift_version`, `sdk_version`, `sdk_build`, and `minimum_os`. Versions use two or three numeric components; build IDs use ASCII letters and digits. The minimum OS must not exceed the SDK version. Supply identities from the selected worker: this command does not detect or verify an installed toolchain.
+
+The plan records fixed arguments and describes how a worker must obtain its SDK path and isolated copy of the source. It does not execute a command, reserve a worker, or validate Swift. A valid plan has status `BLOCKED` and exits with code 3 until a worker implementation runs it; malformed input exits with code 1 or 2. Artifact hashes establish consistency with the preview report, not authenticity.
+
 `neptune preview-transition <file> --module app/main.gscene --profile experimental --format json` emits standalone Swift source for one Goya D1 interaction, together with the mapping of source state/input keys to generated fields. It stages values from the original snapshot and checks arithmetic and revision overflow before returning a new state. The generated code includes UTF-8 text, snapshot, and register budget checks derived from the Goya D1 executor. It is not an application and does not provide runtime adapters. The result records Apple validation and runtime resource-limit parity as not verified; the generated checks must be compiled and compared against the executor before this mapping is admitted.
 
 ## Local service protocol, version 1
