@@ -1,15 +1,28 @@
 //! Experimental target representation for Goya's bounded D1 transitions.
 //! It is not connected to Swift emission or admitted for iOS builds.
 use goya_lang::{
-    InteractionClass, InteractionExpr, InteractionType, InteractionValue, SourceRange, TypedKey,
+    CellKind, InteractionClass, InteractionExpr, InteractionType, InteractionValue, SceneCell, SourceRange, TypedKey,
 };
 use std::collections::BTreeMap;
 
+/// Version of the experimental in-memory target contract.
+pub const CONTRACT: &str = "NPT-D1-IR/1";
+
+/// A stable source identity. Both parts are needed to identify a declaration.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SemanticId {
+    pub module: String,
+    pub declared_id: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Transition {
-    pub declared_id: String,
+    pub semantic_id: SemanticId,
     pub source_range: SourceRange,
+    pub source_digest: [u8; 32],
     pub trigger_name: String,
+    pub trigger_id: SemanticId,
+    pub trigger_source_range: SourceRange,
     pub reference_program_hash: [u8; 32],
     pub state_reads: Vec<TypedKey>,
     pub state_writes: Vec<TypedKey>,
@@ -48,20 +61,16 @@ fn rejected(message: impl Into<String>, range: Option<SourceRange>) -> crate::Di
 /// Lower verified D1 declarations without inferring unsupported effect behavior.
 /// Expressions read the original state/input snapshot; assignments are staged
 /// and committed atomically only after every expression succeeds.
-pub fn lower(source: &str) -> Result<Vec<Transition>, crate::Diagnostic> {
+pub fn lower(source: &str, module: &str) -> Result<Vec<Transition>, crate::Diagnostic> {
+    crate::validate_module(module)?;
     crate::inspect(source)?;
     let parsed =
         goya_lang::parse_strict(source).map_err(|e| rejected(e.to_string(), Some(e.range)))?;
-    if parsed
-        .scene
-        .interactions
-        .iter()
-        .any(|i| i.class != InteractionClass::D1)
-    {
+    if let Some(unsupported) = parsed.scene.interactions.iter().find(|i| i.class != InteractionClass::D1) {
         let range = parsed
             .entries
             .iter()
-            .find(|e| e.kind == "interaction")
+            .find(|e| e.kind == "interaction" && e.semantic_id == unsupported.authored_id)
             .map(|e| e.range);
         return Err(rejected(
             "D2 effects are not supported by this lowering",
@@ -70,18 +79,27 @@ pub fn lower(source: &str) -> Result<Vec<Transition>, crate::Diagnostic> {
     }
     let reference = goya_lang::compile_d1_interactions(&parsed.scene)
         .map_err(|e| rejected(e.to_string(), None))?;
+    if reference.len() != parsed.scene.interactions.len() {
+        return Err(rejected("Goya interaction count mismatch", None));
+    }
+    let mut buttons = Vec::new();
+    collect_buttons(&parsed.scene.root, &mut buttons);
     let mut output = Vec::new();
     for (decl, verified) in parsed.scene.interactions.iter().zip(reference) {
         let id = decl
             .authored_id
             .as_ref()
             .ok_or_else(|| rejected("interaction requires an authored ID", None))?;
-        let range = parsed
+        let origin = parsed
             .entries
             .iter()
             .find(|e| e.kind == "interaction" && e.semantic_id.as_ref() == Some(id))
-            .map(|e| e.range)
             .ok_or_else(|| rejected("interaction source range unavailable", None))?;
+        let range = origin.range;
+        let index = usize::try_from(verified.trigger().0).map_err(|_| rejected("trigger index out of range", Some(range)))?;
+        let trigger = buttons.get(index).filter(|button| button.name == decl.trigger_button).ok_or_else(|| rejected("Goya trigger mapping mismatch", Some(range)))?;
+        let trigger_id = trigger.authored_id.as_ref().ok_or_else(|| rejected("button requires an authored ID", Some(range)))?;
+        let trigger_origin = parsed.entries.iter().find(|e| e.kind == "button" && e.semantic_id.as_ref() == Some(trigger_id)).ok_or_else(|| rejected("button source range unavailable", Some(range)))?;
         let reads: BTreeMap<_, _> = decl
             .state_reads
             .iter()
@@ -110,9 +128,12 @@ pub fn lower(source: &str) -> Result<Vec<Transition>, crate::Diagnostic> {
             });
         }
         output.push(Transition {
-            declared_id: id.clone(),
+            semantic_id: SemanticId { module: module.to_owned(), declared_id: id.clone() },
             source_range: range,
+            source_digest: origin.source_digest,
             trigger_name: decl.trigger_button.clone(),
+            trigger_id: SemanticId { module: module.to_owned(), declared_id: trigger_id.clone() },
+            trigger_source_range: trigger_origin.range,
             reference_program_hash: verified.program_hash(),
             state_reads: decl.state_reads.clone(),
             state_writes: decl.state_writes.clone(),
@@ -121,6 +142,12 @@ pub fn lower(source: &str) -> Result<Vec<Transition>, crate::Diagnostic> {
         });
     }
     Ok(output)
+}
+
+// Mirrors the Goya binding walk, which stops descending at buttons.
+fn collect_buttons<'a>(cell: &'a SceneCell, output: &mut Vec<&'a SceneCell>) {
+    if cell.kind == CellKind::Button { output.push(cell); }
+    else { for child in &cell.children { collect_buttons(child, output); } }
 }
 
 fn lower_expr(
@@ -198,10 +225,12 @@ mod tests {
 
     #[test]
     fn target_trace_matches_goya_snapshot_and_overflow_behavior() {
-        let lowered = lower(SOURCE).unwrap();
+        let lowered = lower(SOURCE, "app/main.gscene").unwrap();
         assert_eq!(lowered.len(), 1);
         let action = &lowered[0];
-        assert_eq!(action.declared_id, "action.increment");
+        assert_eq!(action.semantic_id, SemanticId { module: "app/main.gscene".into(), declared_id: "action.increment".into() });
+        assert_eq!(action.trigger_id, SemanticId { module: "app/main.gscene".into(), declared_id: "button.plus".into() });
+        assert!(SOURCE[action.trigger_source_range.start..action.trigger_source_range.end].starts_with("@button plus"));
         assert!(SOURCE[action.source_range.start..action.source_range.end]
             .starts_with("@interaction increment"));
         let scene = goya_lang::parse_strict(SOURCE).unwrap().scene;

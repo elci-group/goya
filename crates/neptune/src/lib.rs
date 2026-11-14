@@ -52,7 +52,7 @@ pub struct SourcePreview {
 
 /// Canonical JSON package for the experimental source preview. Hashes cover
 /// the exact UTF-8 bytes of the source and the included artifact strings.
-pub fn preview_bundle(source: &str, module: &str) -> Result<String, Diagnostic> {
+pub fn validate_module(module: &str) -> Result<(), Diagnostic> {
     if module.len() > 1024
         || !module.ends_with(".gscene")
         || module.split('/').any(|part| {
@@ -70,6 +70,11 @@ pub fn preview_bundle(source: &str, module: &str) -> Result<String, Diagnostic> 
             range: None,
         });
     }
+    Ok(())
+}
+
+pub fn preview_bundle(source: &str, module: &str) -> Result<String, Diagnostic> {
+    validate_module(module)?;
     let preview = preview_static_text(source)?;
     let map = serde_json::json!({"schema_version":"2", "mappings":[{"semantic_id":{"module":module,"declared_id":preview.declared_id},"source":{"start_byte":preview.source_range.start,"end_byte":preview.source_range.end},"swift":{"start_byte":preview.swift_range.start,"end_byte":preview.swift_range.end}}]}).to_string() + "\n";
     let capabilities = serde_json::json!({"schema_version":"2", "profile":"source_preview", "capabilities":[{"semantic_id":"goya.text.static", "adapter":"swiftui.Text", "status":"experimental", "minimum_os":null, "frameworks":["SwiftUI"], "entitlements":[], "usage_description_keys":[], "privacy_declarations":"owner_review_required", "test_status":"apple_validation_not_run", "fallback":"reject"}]}).to_string() + "\n";
