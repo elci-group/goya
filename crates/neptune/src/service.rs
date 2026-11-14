@@ -76,8 +76,41 @@ impl Session {
                 | "preview-d1-owner"
                 | "preview-native-button"
                 | "validate-deploy-manifest"
+                | "swift-parse"
         ) {
             return error(Some(id), "protocol", "operation is not supported");
+        }
+        if operation == "swift-parse" {
+            let Some(source) = object.get("source").and_then(Value::as_str) else {
+                return error(Some(id), "swift_parse", "source string is required");
+            };
+            let mut child = match std::process::Command::new("swiftc")
+                .args(["-frontend", "-parse", "-"])
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+            {
+                Ok(child) => child,
+                Err(e) => {
+                    return json!({"schema_version":"1","job_id":id,"sequence":1,"stage":"swift_parse","status":"BLOCKED","reason":format!("swiftc unavailable: {e}"),"apple_sdk_validation":"NOT_RUN"})
+                }
+            };
+            if let Some(mut stdin) = child.stdin.take() {
+                use std::io::Write;
+                if stdin.write_all(source.as_bytes()).is_err() {
+                    return error(Some(id), "swift_parse", "could not send source to swiftc");
+                }
+            }
+            return match child.wait_with_output() {
+                Ok(result) if result.status.success() => {
+                    json!({"schema_version":"1","job_id":id,"sequence":1,"stage":"swift_parse","status":"PASS","validation":"swift_syntax_only","apple_sdk_validation":"NOT_RUN"})
+                }
+                Ok(result) => {
+                    json!({"schema_version":"1","job_id":id,"sequence":1,"stage":"swift_parse","status":"FAIL","diagnostics":String::from_utf8_lossy(&result.stderr)})
+                }
+                Err(e) => error(Some(id), "swift_parse", &e.to_string()),
+            };
         }
         if operation == "validate-deploy-manifest" {
             let Some(value) = object.get("manifest") else {

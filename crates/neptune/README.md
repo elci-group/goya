@@ -43,3 +43,4 @@ Each event contains `schema_version`, `job_id`, `sequence` (currently always 1),
 `neptune serve` accepts `validate-deploy-manifest` with a typed `manifest` object matching `goya.neptune.deploy/0.0.1`. This validates structure and supported settings; it does not read the referenced IPA, validate Apple signatures, or contact a device. The CLI `dock-verify` additionally checks the IPA SHA-256 against actual bytes.
 
 `neptune swift-parse <generated.swift>` invokes the installed Swift frontend in parse-only mode. A pass confirms syntax parsing; it does not resolve Apple frameworks, type-check against an iOS SDK, link, or run the app. Missing Swift returns exit code 3.
+ The JSON-lines service accepts the same operation as `swift-parse` with a `source` string; request size is bounded by the protocol limit.

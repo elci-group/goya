@@ -119,48 +119,48 @@ fn admit_scene(parsed: &ParsedScene) -> Result<AdmittedWindow, Diagnostic> {
     }
     let root = &scene.root;
     if root.kind != CellKind::Cell || root.is_input {
-        let kind = match root.kind {
-            CellKind::Button => "button",
-            CellKind::Input => "input",
-            CellKind::Cell => "input",
-        };
-        return Err(cap(
-            format!(
-                "{kind} '{}' is not a static window cell in this profile",
-                root.name
-            ),
-            "Use one @cell. Buttons and inputs need a later admitted profile.",
-            cell_range(parsed, &[]),
-        ));
+        return Err(reject_control(root, parsed, &[]));
     }
-    if !root.children.is_empty() {
-        return Err(cap(
-            "nested cells are reachable and this profile has no child layout",
-            "Use a single cell, or wait for a profile that lowers nested layout.",
-            child_range(parsed),
-        ));
-    }
-    reject_visuals(root, parsed)?;
-    let text = require_text(root, parsed)?;
     reject_position(root, parsed)?;
     let (extent_range, width_pt, height_pt) = require_extent(root, parsed)?;
     let frame = layout(scene, width_pt, height_pt);
-    let Some(node) = frame.nodes.first() else {
-        return Err(layout_error("layout produced no node", Some(extent_range)));
-    };
-    if frame.nodes.len() != 1 || node.rect.x != 0 || node.rect.y != 0 {
+    let mut labels = Vec::new();
+    let mut dispositions = Vec::new();
+    let mut index = 0usize;
+    let mut seen = 0usize;
+    walk(
+        root,
+        &[],
+        None,
+        &frame,
+        &mut index,
+        &mut seen,
+        parsed,
+        &mut labels,
+        &mut dispositions,
+        true,
+    )?;
+    if index != frame.nodes.len() {
         return Err(layout_error(
-            "layout did not place the cell at the viewport origin",
+            "layout node count does not match the scene tree",
             Some(extent_range),
         ));
     }
-    if node.text.as_deref() != Some(text.as_str()) {
-        return Err(layout_error(
-            "layout changed the authored text",
-            Some(property_range(parsed, "text").unwrap_or(extent_range)),
+    if labels.is_empty() {
+        return Err(cap(
+            "the scene has no text, so the window would have no accessible name",
+            "Add text to a cell. An id is not displayed in place of missing text.",
+            cell_range(parsed, &[]),
         ));
     }
-    let (width_dip, height_dip) = dips(node.rect.width, node.rect.height, extent_range)?;
+    let root_node = &frame.nodes[0];
+    if root_node.rect.x != 0 || root_node.rect.y != 0 {
+        return Err(layout_error(
+            "layout did not place the root cell at the viewport origin",
+            Some(extent_range),
+        ));
+    }
+    let (width_dip, height_dip) = dips(root_node.rect.width, root_node.rect.height, extent_range)?;
     let semantic_id = root.authored_id.clone().ok_or_else(|| {
         cap(
             "strict admission returned a cell without an id",
@@ -168,7 +168,12 @@ fn admit_scene(parsed: &ParsedScene) -> Result<AdmittedWindow, Diagnostic> {
             cell_range(parsed, &[]),
         )
     })?;
-    check_label("semantic id", &semantic_id, MAX_ID_BYTES, id_range(parsed))?;
+    check_label(
+        "semantic id",
+        &semantic_id,
+        MAX_ID_BYTES,
+        id_range_at(parsed, &[]),
+    )?;
     check_label(
         "window title",
         &scene.name,
@@ -183,15 +188,9 @@ fn admit_scene(parsed: &ParsedScene) -> Result<AdmittedWindow, Diagnostic> {
             "Report this as a frontend defect.",
         )
     })?;
-    let text_range = property_range(parsed, "text").ok_or_else(|| {
-        Diagnostic::new(
-            "SASH-PARSE",
-            "parse",
-            "strict admission did not record a text origin",
-            "Report this as a frontend defect.",
-        )
-    })?;
-    let id_range = id_range(parsed).ok_or_else(|| {
+    let text = root.text.clone().unwrap_or_default();
+    let text_range = property_range_at(parsed, &[], "text").unwrap_or(extent_range);
+    let id_range = id_range_at(parsed, &[]).ok_or_else(|| {
         Diagnostic::new(
             "SASH-PARSE",
             "parse",
@@ -199,33 +198,18 @@ fn admit_scene(parsed: &ParsedScene) -> Result<AdmittedWindow, Diagnostic> {
             "Report this as a frontend defect.",
         )
     })?;
-    let mut dispositions = Vec::new();
-    dispositions.push(Disposition {
-        subject: "text".into(),
-        disposition: "preserved",
-        detail: "UTF-8 label is stored as UTF-16 on one STATIC control, without word wrap or a newline translation.".into(),
-    });
-    dispositions.push(Disposition {
-        subject: "id".into(),
-        disposition: "preserved",
-        detail: "Authored id is kept in the source map and as the window property Goya.SemanticId (UTF-16LE, NUL-terminated). UI Automation AutomationId is not mapped.".into(),
-    });
-    dispositions.push(Disposition {
-        subject: "extent".into(),
-        disposition: "preserved",
-        detail: format!(
-            "{width_mp} by {height_mp} millipoints lower to {width_dip} by {height_dip} device-independent pixels at {MP_PER_DIP} millipoints per reference pixel. The initial client area is that size. Resizing does not change the authored cell size; a smaller client clips it.",
-            width_mp = node.rect.width,
-            height_mp = node.rect.height,
-        ),
-    });
-    dispositions.push(Disposition {
-        subject: "position".into(),
-        disposition: "preserved",
-        detail:
-            "The cell stays at the parent origin. An omitted position uses that language default."
-                .into(),
-    });
+    dispositions.insert(
+        0,
+        Disposition {
+            subject: "extent".into(),
+            disposition: "preserved",
+            detail: format!(
+                "{width_mp} by {height_mp} millipoints lower to {width_dip} by {height_dip} device-independent pixels at {MP_PER_DIP} millipoints per reference pixel. The initial client area is that size. Resizing clips placed labels and does not reflow them.",
+                width_mp = root_node.rect.width,
+                height_mp = root_node.rect.height,
+            ),
+        },
+    );
     dispositions.push(Disposition {
         subject: "depth".into(),
         disposition: "preserved",
@@ -250,17 +234,222 @@ fn admit_scene(parsed: &ParsedScene) -> Result<AdmittedWindow, Diagnostic> {
         scene_name: scene.name.clone(),
         semantic_id,
         text,
+        labels,
         ontology_range,
         text_range,
         extent_range,
         id_range,
-        width_mp: node.rect.width,
-        height_mp: node.rect.height,
+        width_mp: root_node.rect.width,
+        height_mp: root_node.rect.height,
         width_dip,
         height_dip,
         source_digest: parsed.source_digest,
         dispositions,
     })
+}
+
+fn walk(
+    cell: &SceneCell,
+    path: &[usize],
+    parent: Option<RectMp>,
+    frame: &goya_lang::Frame,
+    index: &mut usize,
+    seen: &mut usize,
+    parsed: &ParsedScene,
+    labels: &mut Vec<PlacedLabel>,
+    dispositions: &mut Vec<Disposition>,
+    is_root: bool,
+) -> Result<(), Diagnostic> {
+    if *seen >= MAX_CELLS {
+        return Err(cap(
+            format!("the scene has more than {MAX_CELLS} cells"),
+            "Split the window or wait for a profile with a higher bound.",
+            cell_range(parsed, path),
+        ));
+    }
+    *seen += 1;
+    if cell.kind != CellKind::Cell || cell.is_input {
+        return Err(reject_control(cell, parsed, path));
+    }
+    reject_visuals(cell, parsed, path)?;
+    let node_index = *index;
+    *index += 1;
+    let Some(node) = frame.nodes.get(node_index) else {
+        return Err(layout_error(
+            "layout produced fewer nodes than the scene tree",
+            cell_range(parsed, path),
+        ));
+    };
+    if node.name != cell.name || node.text.as_deref() != cell.text.as_deref() {
+        return Err(layout_error(
+            "layout changed the authored cell text",
+            property_range_at(parsed, path, "text").or_else(|| cell_range(parsed, path)),
+        ));
+    }
+    if !is_root {
+        expect_child_rect(cell, parent.expect("child has a parent"), node.rect, parsed, path)?;
+    }
+    let extent_range = property_range_at(parsed, path, "extent")
+        .or_else(|| cell_range(parsed, path))
+        .unwrap_or(SourceRange { start: 0, end: 0 });
+    let (x_dip, y_dip) = dips_pair(node.rect.x, node.rect.y, extent_range, "position")?;
+    let (width_dip, height_dip) = dips(node.rect.width, node.rect.height, extent_range)?;
+    match validate_text(cell, parsed, path)? {
+        Some(text) => {
+            let semantic_id = cell.authored_id.clone().ok_or_else(|| {
+                cap(
+                    "strict admission returned a cell without an id",
+                    "Report this as a frontend defect. Do not emit a window.",
+                    cell_range(parsed, path),
+                )
+            })?;
+            let id_range = id_range_at(parsed, path).ok_or_else(|| {
+                Diagnostic::new(
+                    "SASH-PARSE",
+                    "parse",
+                    "strict admission did not record an id origin",
+                    "Report this as a frontend defect.",
+                )
+            })?;
+            check_label("semantic id", &semantic_id, MAX_ID_BYTES, Some(id_range))?;
+            let text_range = property_range_at(parsed, path, "text").ok_or_else(|| {
+                Diagnostic::new(
+                    "SASH-PARSE",
+                    "parse",
+                    "strict admission did not record a text origin",
+                    "Report this as a frontend defect.",
+                )
+            })?;
+            dispositions.push(Disposition {
+                subject: format!("{semantic_id} text"),
+                disposition: "preserved",
+                detail: format!(
+                    "UTF-8 label is a STATIC control at {x_dip},{y_dip} size {width_dip} by {height_dip} dip."
+                ),
+            });
+            labels.push(PlacedLabel {
+                semantic_id,
+                text,
+                x_dip,
+                y_dip,
+                width_dip,
+                height_dip,
+                text_range,
+                id_range,
+                extent_range,
+            });
+        }
+        None if cell.children.is_empty() => {
+            return Err(cap(
+                format!("cell '{}' has no text and no children", cell.name),
+                "Add text or remove the cell.",
+                cell_range(parsed, path),
+            ));
+        }
+        None => {
+            let id = cell.authored_id.as_deref().unwrap_or(cell.name.as_str());
+            dispositions.push(Disposition {
+                subject: format!("{id} container"),
+                disposition: "equivalently-transformed",
+                detail: "The cell has no text, so it contributes layout only and has no STATIC control.".into(),
+            });
+        }
+    }
+    for (child_index, child) in cell.children.iter().enumerate() {
+        let mut child_path = path.to_vec();
+        child_path.push(child_index);
+        walk(
+            child,
+            &child_path,
+            Some(node.rect),
+            frame,
+            index,
+            seen,
+            parsed,
+            labels,
+            dispositions,
+            false,
+        )?;
+    }
+    Ok(())
+}
+
+fn reject_control(cell: &SceneCell, parsed: &ParsedScene, path: &[usize]) -> Diagnostic {
+    let kind = match cell.kind {
+        CellKind::Button => "button",
+        CellKind::Input => "input",
+        CellKind::Cell => "input",
+    };
+    cap(
+        format!(
+            "{kind} '{}' is not a static window cell in this profile",
+            cell.name
+        ),
+        "Use @cell. Buttons and inputs need a later admitted profile.",
+        cell_range(parsed, path),
+    )
+}
+
+fn expect_child_rect(
+    cell: &SceneCell,
+    parent: RectMp,
+    actual: RectMp,
+    parsed: &ParsedScene,
+    path: &[usize],
+) -> Result<(), Diagnostic> {
+    let range = property_range_at(parsed, path, "extent")
+        .or_else(|| property_range_at(parsed, path, "position"))
+        .or_else(|| cell_range(parsed, path));
+    let (x, y) = if let Some(position) = cell.position {
+        if !position.x.is_finite() || !position.y.is_finite() || !position.z.is_finite() {
+            return Err(layout_error("position is not finite", range));
+        }
+        if position.z != 0.0 {
+            return Err(cap(
+                "non-zero depth is reachable and a top-level window has no depth axis",
+                "Set the position depth component to 0.",
+                property_range_at(parsed, path, "position"),
+            ));
+        }
+        if position.x < 0.0 || position.y < 0.0 {
+            return Err(layout_error(
+                "a negative position would be moved by layout",
+                range,
+            ));
+        }
+        (
+            parent.x.saturating_add(points_to_mp(position.x)),
+            parent.y.saturating_add(points_to_mp(position.y)),
+        )
+    } else {
+        (parent.x, parent.y)
+    };
+    let (width, height) = if let Some(extent) = cell.extent {
+        if extent.z != 0.0 {
+            return Err(cap(
+                "non-zero depth is reachable and a top-level window has no depth axis",
+                "Set the extent depth component to 0.",
+                property_range_at(parsed, path, "extent"),
+            ));
+        }
+        (points_to_mp(extent.x), points_to_mp(extent.y))
+    } else {
+        (parent.width, parent.height)
+    };
+    if actual.x != x || actual.y != y || actual.width != width || actual.height != height {
+        return Err(layout_error(
+            "layout changed the authored geometry; the cell does not fit its parent",
+            range,
+        ));
+    }
+    Ok(())
+}
+
+fn points_to_mp(points: f64) -> i64 {
+    if !points.is_finite() {
+        return 0;
+    }
+    (points * MP) as i64
 }
 
 fn reject_visuals(root: &SceneCell, parsed: &ParsedScene) -> Result<(), Diagnostic> {
