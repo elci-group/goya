@@ -200,7 +200,6 @@ fn is_system_dll(lower: &str) -> bool {
         "version.dll",
         "sechost.dll",
         "rpcrt4.dll",
-        "msvcp_win.dll",
     ];
     EXACT.contains(&lower) || (lower.starts_with("api-ms-win-") && !lower.contains("api-ms-win-crt"))
 }
@@ -493,9 +492,9 @@ mod tests {
         put_u16(&mut bytes, 0x640 + 14, 1);
         put_u32(&mut bytes, 0x650, 0x409);
         put_u32(&mut bytes, 0x654, 96);
-        put_u32(&mut bytes, 0x660, 0x1280);
+        put_u32(&mut bytes, 0x660, 0x1320);
         put_u32(&mut bytes, 0x664, manifest.len() as u32);
-        bytes[0x680..0x680 + manifest.len()].copy_from_slice(manifest);
+        bytes[0x720..0x720 + manifest.len()].copy_from_slice(manifest);
         put_u16(&mut bytes, 0x600 + 160 + 14, 1);
         put_u32(&mut bytes, 0x600 + 176, 1);
         put_u32(&mut bytes, 0x600 + 180, 200);
