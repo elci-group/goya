@@ -1,6 +1,6 @@
 # ADR 0002 — First proof is one static window
 
-Status: accepted as the S1 slice. The v0.0.1 vertical slice in SASH-ENT-001 is not this slice.
+Status: accepted as the first S1 link. The v0.0.1 vertical slice in SASH-ENT-001 is not this slice. Nested `@cell` trees are admitted later by ADR 0004; this record stays the single-cell decision.
 
 ## Decision
 

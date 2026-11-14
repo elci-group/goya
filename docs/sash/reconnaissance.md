@@ -38,7 +38,7 @@ The smallest admitted fixture is `crates/sash/fixtures/static-window.gscene`: on
 Command:
 
 ```text
-sash build crates/sash/fixtures/static-window.gscene --profile portable-native --release --out /tmp/sash-static-proof
+sash build crates/sash/fixtures/static-window.gscene --profile portable-native --release --out /tmp/sash-static-proof-002
 ```
 
 Result on this Linux host:
