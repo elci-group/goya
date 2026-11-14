@@ -21,6 +21,7 @@ stdlib="$(find_jar kotlin-stdlib 1.9.23)"
 daemon="$(find_jar kotlin-daemon-embeddable "$compiler_version")"
 trove="$(find_jar trove4j 1.0.20200330)"
 coroutines="$(find_jar kotlinx-coroutines-core-jvm 1.6.4)"
+annotations="$(find_jar annotations 13.0)"
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
@@ -29,7 +30,7 @@ cd "$repo_root"
 cargo run --offline --quiet --manifest-path crates/goya-sdk/Cargo.toml \
     --example emit_android_preview -- "$tmp/GoyaStaticTextPreview.kt"
 
-compiler_cp="$compiler:$stdlib:$daemon:$trove:$coroutines"
+compiler_cp="$compiler:$stdlib:$daemon:$trove:$coroutines:$annotations"
 java -cp "$compiler_cp" org.jetbrains.kotlin.cli.jvm.K2JVMCompiler \
     -no-stdlib -no-reflect -classpath "$stdlib" -d "$tmp/classes" \
     crates/goya-sdk/tests/android-preview-stubs/android/content/Context.kt \

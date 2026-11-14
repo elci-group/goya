@@ -51,8 +51,12 @@ impl Preview {
     pub fn swift(&self) -> &str {
         &self.swift
     }
-    pub(crate) fn actions(&self) -> &[ActionMapping] { &self.actions }
-    pub(crate) fn initial_digest(&self) -> [u8; 32] { self.initial_digest }
+    pub(crate) fn actions(&self) -> &[ActionMapping] {
+        &self.actions
+    }
+    pub(crate) fn initial_digest(&self) -> [u8; 32] {
+        self.initial_digest
+    }
     pub fn to_json(&self) -> serde_json::Value {
         fn fields(values: &[Field]) -> Vec<serde_json::Value> {
             values.iter().map(|field| serde_json::json!({"source_key":field.source_key,"swift_name":field.swift_name,"type":type_name(field.value_type)})).collect()
@@ -116,7 +120,11 @@ pub fn preview(
     generate(source, module, initial, false)
 }
 
-pub(crate) fn preview_observable(source: &str, module: &str, initial: BTreeMap<String, D1Value>) -> Result<Preview, crate::Diagnostic> {
+pub(crate) fn preview_observable(
+    source: &str,
+    module: &str,
+    initial: BTreeMap<String, D1Value>,
+) -> Result<Preview, crate::Diagnostic> {
     generate(source, module, initial, true)
 }
 
@@ -152,7 +160,9 @@ fn generate(
         .map(|(i, field)| (field.source_key.clone(), i))
         .collect();
     let mut out = String::from("import SwiftUI\n");
-    if observable { out.push_str("import Combine\n"); }
+    if observable {
+        out.push_str("import Combine\n");
+    }
     out.push_str("\nenum NeptuneTransitionError: Error {\n    case arithmeticOverflow\n    case revisionOverflow\n    case textTooLarge\n    case snapshotTooLarge\n    case registerLimit\n}\n\nstruct NeptuneState {\n    var revision: UInt64\n");
     for field in &state {
         let _ = writeln!(
@@ -191,8 +201,11 @@ fn generate(
         out.push_str("}\n\n");
         action_inputs.push(fields);
     }
-    if observable { out.push_str("@MainActor\nfinal class NeptuneStore: ObservableObject {\n    @Published private(set) var state: NeptuneState\n\n    init() {\n        self.state = NeptuneState(revision: 0"); }
-    else { out.push_str("@MainActor\nfinal class NeptuneStore {\n    private(set) var state: NeptuneState\n\n    init() {\n        self.state = NeptuneState(revision: 0"); }
+    if observable {
+        out.push_str("@MainActor\nfinal class NeptuneStore: ObservableObject {\n    @Published private(set) var state: NeptuneState\n\n    init() {\n        self.state = NeptuneState(revision: 0");
+    } else {
+        out.push_str("@MainActor\nfinal class NeptuneStore {\n    private(set) var state: NeptuneState\n\n    init() {\n        self.state = NeptuneState(revision: 0");
+    }
     for (index, cell) in model.cells().iter().enumerate() {
         let _ = write!(out, ", s{index}: {}", literal(&cell.initial));
     }

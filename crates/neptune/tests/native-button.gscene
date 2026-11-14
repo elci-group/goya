@@ -1,0 +1,11 @@
+@ontology counter {
+  @button increment { id: "button.increment"; text: "Increment"; }
+  @interaction increment {
+    id: "action.increment";
+    trigger: increment.activate;
+    class: D1;
+    state { read count: int; write count: int; }
+    input { }
+    set count = state.count + 1;
+  }
+}

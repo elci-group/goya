@@ -352,9 +352,10 @@ fn main() -> ExitCode {
             && args[1] != "preview"
             && args[1] != "preview-transition"
             && args[1] != "model-d1-state"
-            && args[1] != "preview-d1-owner")
+            && args[1] != "preview-d1-owner"
+            && args[1] != "preview-native-button")
     {
-        eprintln!("usage: neptune <inspect|check> <scene.gscene> [--target ios] [--format json]\n       neptune preview <scene.gscene> --module <project-relative.gscene> [--format json] [--out new-directory]\n       neptune preview-transition <scene.gscene> --module <project-relative.gscene> --profile experimental [--format json]\n       neptune <model-d1-state|preview-d1-owner> <scene.gscene> --module <project-relative.gscene> --profile experimental --initial <state.json> [--format json]\n       neptune explain <code>");
+        eprintln!("usage: neptune <inspect|check> <scene.gscene> [--target ios] [--format json]\n       neptune preview <scene.gscene> --module <project-relative.gscene> [--format json] [--out new-directory]\n       neptune preview-transition <scene.gscene> --module <project-relative.gscene> --profile experimental [--format json]\n       neptune <model-d1-state|preview-d1-owner|preview-native-button> <scene.gscene> --module <project-relative.gscene> --profile experimental --initial <state.json> [--format json]\n       neptune explain <code>");
         return ExitCode::from(2);
     }
     let mut json = false;
@@ -377,7 +378,8 @@ fn main() -> ExitCode {
         } else if option[0] == "--profile"
             && (args[1] == "preview-transition"
                 || args[1] == "model-d1-state"
-                || args[1] == "preview-d1-owner")
+                || args[1] == "preview-d1-owner"
+                || args[1] == "preview-native-button")
             && option[1] == "experimental"
             && !experimental
         {
@@ -386,7 +388,8 @@ fn main() -> ExitCode {
             && (args[1] == "preview"
                 || args[1] == "preview-transition"
                 || args[1] == "model-d1-state"
-                || args[1] == "preview-d1-owner")
+                || args[1] == "preview-d1-owner"
+                || args[1] == "preview-native-button")
             && module.is_none()
         {
             module = option[1].to_str();
@@ -395,7 +398,9 @@ fn main() -> ExitCode {
                 return ExitCode::from(2);
             }
         } else if option[0] == "--initial"
-            && (args[1] == "model-d1-state" || args[1] == "preview-d1-owner")
+            && (args[1] == "model-d1-state"
+                || args[1] == "preview-d1-owner"
+                || args[1] == "preview-native-button")
             && initial_path.is_none()
         {
             initial_path = Some(std::path::PathBuf::from(&option[1]));
@@ -407,7 +412,8 @@ fn main() -> ExitCode {
     if (args[1] == "preview"
         || args[1] == "preview-transition"
         || args[1] == "model-d1-state"
-        || args[1] == "preview-d1-owner")
+        || args[1] == "preview-d1-owner"
+        || args[1] == "preview-native-button")
         && module.is_none()
     {
         eprintln!("preview requires --module <project-relative-path.gscene>");
@@ -415,13 +421,18 @@ fn main() -> ExitCode {
     }
     if (args[1] == "preview-transition"
         || args[1] == "model-d1-state"
-        || args[1] == "preview-d1-owner")
+        || args[1] == "preview-d1-owner"
+        || args[1] == "preview-native-button")
         && !experimental
     {
         eprintln!("this operation requires --profile experimental");
         return ExitCode::from(2);
     }
-    if (args[1] == "model-d1-state" || args[1] == "preview-d1-owner") && initial_path.is_none() {
+    if (args[1] == "model-d1-state"
+        || args[1] == "preview-d1-owner"
+        || args[1] == "preview-native-button")
+        && initial_path.is_none()
+    {
         eprintln!("this operation requires --initial <state.json>");
         return ExitCode::from(2);
     }
@@ -476,6 +487,11 @@ fn main() -> ExitCode {
             if args[1] == "model-d1-state" {
                 Ok(
                     neptune::application::lower(&source, module.unwrap_or_default(), initial)?
+                        .to_json(),
+                )
+            } else if args[1] == "preview-native-button" {
+                Ok(
+                    neptune::native_swift::preview(&source, module.unwrap_or_default(), initial)?
                         .to_json(),
                 )
             } else {

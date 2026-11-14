@@ -73,6 +73,7 @@ impl Session {
                 | "test"
                 | "model-d1-state"
                 | "preview-d1-owner"
+                | "preview-native-button"
         ) {
             return error(Some(id), "protocol", "operation is not supported");
         }
@@ -93,7 +94,10 @@ impl Session {
         let Some(source) = object.get("source").and_then(Value::as_str) else {
             return error(Some(id), "ingest", "source must be a UTF-8 string");
         };
-        if operation == "model-d1-state" || operation == "preview-d1-owner" {
+        if operation == "model-d1-state"
+            || operation == "preview-d1-owner"
+            || operation == "preview-native-button"
+        {
             if object.get("profile").and_then(Value::as_str) != Some("experimental") {
                 return error(
                     Some(id),
@@ -121,6 +125,9 @@ impl Session {
             };
             let result = if operation == "model-d1-state" {
                 crate::application::lower(source, module, initial).map(|model| model.to_json())
+            } else if operation == "preview-native-button" {
+                crate::native_swift::preview(source, module, initial)
+                    .map(|preview| preview.to_json())
             } else {
                 crate::application_swift::preview(source, module, initial)
                     .map(|preview| preview.to_json())
