@@ -439,4 +439,41 @@ mod tests {
             assert!(next < revision);
         }
     }
+
+    #[test]
+    fn combined_snapshot_budget_is_checked_before_expression_execution() {
+        use goya_executable::{D1Snapshot, D1Value, InputSnapshot};
+        let reads: String = (0..9).map(|i| format!("read s{i}: text; ")).collect();
+        let inputs: String = (0..9).map(|i| format!("i{i}: text; ")).collect();
+        let writes: String = (0..18).map(|i| format!("write w{i}: text; ")).collect();
+        let mut assignments = String::new();
+        for i in 0..9 {
+            assignments.push_str(&format!("set w{i} = state.s{i}; "));
+        }
+        for i in 0..9 {
+            assignments.push_str(&format!("set w{} = input.i{i}; ", i + 9));
+        }
+        let source = format!("@ontology app {{ @button run {{ id: \"b\" }} @interaction copy {{ id: \"a\"; trigger: button.run.activate; class: D1; state {{ {reads}{writes} }} input {{ {inputs} }} {assignments} }} }}");
+        let scene = goya_lang::parse_strict(&source).unwrap().scene;
+        let reference = goya_lang::compile_d1_interactions(&scene)
+            .unwrap()
+            .remove(0);
+        let mut state = BTreeMap::new();
+        let mut input = BTreeMap::new();
+        for i in 0..9 {
+            state.insert(format!("s{i}"), D1Value::Text("x".repeat(60000)));
+            input.insert(format!("i{i}"), D1Value::Text("x".repeat(60000)));
+        }
+        for i in 0..18 {
+            state.insert(format!("w{i}"), D1Value::Text(String::new()));
+        }
+        let state = D1Snapshot::new(0, state).unwrap();
+        let input = InputSnapshot::new(input).unwrap();
+        let error = reference.execute(&state, &input).unwrap_err();
+        assert!(format!("{error:?}").contains("snapshot exceeds the byte limit"));
+        let swift = preview(&source, "app/main.gscene").unwrap().swift;
+        assert!(
+            swift.find("guard stateBytes + inputBytes").unwrap() < swift.find("let r0:").unwrap()
+        );
+    }
 }
