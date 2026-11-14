@@ -172,15 +172,20 @@ fn reference_run(action: &goya_lang::CompiledInteraction, case: &Case) -> Result
 
 /// Run the pinned, hand-authored integer corpus against both implementations.
 pub fn run_d1_corpus() -> Result<CorpusReport, String> {
-    let corpus: Corpus = serde_json::from_str(CASES).map_err(|e| e.to_string())?;
+    run_fixture(SCENE, CASES)
+}
+
+fn run_fixture(scene_source: &str, case_source: &str) -> Result<CorpusReport, String> {
+    let corpus: Corpus = serde_json::from_str(case_source).map_err(|e| e.to_string())?;
     if corpus.schema_version != "1" || corpus.cases.is_empty() || corpus.cases.len() > 128 {
         return Err("unsupported or empty corpus".into());
     }
-    let scene = goya_lang::parse_strict(SCENE)
+    let scene = goya_lang::parse_strict(scene_source)
         .map_err(|e| e.to_string())?
         .scene;
     let mut reference = goya_lang::compile_d1_interactions(&scene).map_err(|e| e.to_string())?;
-    let mut target = crate::transition::lower(SCENE, &corpus.module).map_err(|e| e.message)?;
+    let mut target =
+        crate::transition::lower(scene_source, &corpus.module).map_err(|e| e.message)?;
     if reference.len() != 1 || target.len() != 1 {
         return Err("corpus requires one D1 interaction".into());
     }
@@ -216,6 +221,23 @@ pub fn run_d1_corpus() -> Result<CorpusReport, String> {
     let digest = |bytes: &[u8]| format!("{:x}", Sha256::digest(bytes));
     Ok(CorpusReport {
         passed,
-        json: serde_json::json!({"schema_version":"1", "suite":"d1-integer-corpus", "status":if passed {"PASS"} else {"FAIL"}, "scope":"host-side integer target IR only", "fixture":corpus.fixture, "scene_sha256":digest(SCENE.as_bytes()), "cases_sha256":digest(CASES.as_bytes()), "goya_d1_vm_version":goya_executable::D1_VM_VERSION, "reference_program_hash":reference.program_hash().iter().map(|b| format!("{b:02x}")).collect::<String>(), "stages":{"reference_executor":if reference_passed {"PASS"} else {"FAIL"}, "target_ir":if target_passed {"PASS"} else {"FAIL"}, "generated_swift":"BLOCKED", "apple_typecheck":"BLOCKED", "simulator":"BLOCKED", "physical_device":"BLOCKED", "ios_admission":"NOT_RUN"}, "cases":cases}),
+        json: serde_json::json!({"schema_version":"1", "suite":"d1-integer-corpus", "status":if passed {"PASS"} else {"FAIL"}, "scope":"host-side integer target IR only", "fixture":corpus.fixture, "scene_sha256":digest(scene_source.as_bytes()), "cases_sha256":digest(case_source.as_bytes()), "goya_d1_vm_version":goya_executable::D1_VM_VERSION, "reference_program_hash":reference.program_hash().iter().map(|b| format!("{b:02x}")).collect::<String>(), "stages":{"reference_executor":if reference_passed {"PASS"} else {"FAIL"}, "target_ir":if target_passed {"PASS"} else {"FAIL"}, "generated_swift":"BLOCKED", "apple_typecheck":"BLOCKED", "simulator":"BLOCKED", "physical_device":"BLOCKED", "ios_admission":"NOT_RUN"}, "cases":cases}),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn incorrect_expected_trace_cannot_pass() {
+        let changed = CASES.replacen("\"count\":12", "\"count\":13", 1);
+        assert_ne!(changed, CASES);
+        let report = run_fixture(SCENE, &changed).unwrap();
+        assert!(!report.passed);
+        assert_eq!(report.json["cases"][0]["status"], "FAIL");
+        assert_eq!(report.json["stages"]["reference_executor"], "FAIL");
+        assert_eq!(report.json["stages"]["target_ir"], "FAIL");
+        assert_eq!(report.json["stages"]["apple_typecheck"], "BLOCKED");
+    }
 }
