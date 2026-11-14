@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/neptune",
+    "crates/sash",
     "crates/goya-ir",
     "crates/goya-state",
     "crates/goya-layout",
