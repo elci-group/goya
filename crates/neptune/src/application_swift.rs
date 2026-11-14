@@ -14,15 +14,15 @@ const MAX_ACTIONS: usize = 64;
 const MAX_OUTPUT_BYTES: usize = 2 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct ActionMapping {
-    id: SemanticId,
-    trigger: SemanticId,
-    method: String,
-    source: SourceRange,
-    trigger_source: SourceRange,
-    reference_program_hash: [u8; 32],
-    swift: SourceRange,
-    inputs: Vec<Field>,
+pub(crate) struct ActionMapping {
+    pub(crate) id: SemanticId,
+    pub(crate) trigger: SemanticId,
+    pub(crate) method: String,
+    pub(crate) source: SourceRange,
+    pub(crate) trigger_source: SourceRange,
+    pub(crate) reference_program_hash: [u8; 32],
+    pub(crate) swift: SourceRange,
+    pub(crate) inputs: Vec<Field>,
 }
 
 /// Source-only preview. Fields are private so validation cannot be forged.
@@ -51,6 +51,8 @@ impl Preview {
     pub fn swift(&self) -> &str {
         &self.swift
     }
+    pub(crate) fn actions(&self) -> &[ActionMapping] { &self.actions }
+    pub(crate) fn initial_digest(&self) -> [u8; 32] { self.initial_digest }
     pub fn to_json(&self) -> serde_json::Value {
         fn fields(values: &[Field]) -> Vec<serde_json::Value> {
             values.iter().map(|field| serde_json::json!({"source_key":field.source_key,"swift_name":field.swift_name,"type":type_name(field.value_type)})).collect()
@@ -111,6 +113,19 @@ pub fn preview(
     module: &str,
     initial: BTreeMap<String, D1Value>,
 ) -> Result<Preview, crate::Diagnostic> {
+    generate(source, module, initial, false)
+}
+
+pub(crate) fn preview_observable(source: &str, module: &str, initial: BTreeMap<String, D1Value>) -> Result<Preview, crate::Diagnostic> {
+    generate(source, module, initial, true)
+}
+
+fn generate(
+    source: &str,
+    module: &str,
+    initial: BTreeMap<String, D1Value>,
+    observable: bool,
+) -> Result<Preview, crate::Diagnostic> {
     if goya_executable::D1_VM_VERSION != 1 || goya_lang::LANG_CONTRACT != "GY-LANG/1" {
         return Err(error("unsupported Goya language or D1 VM version", None));
     }
@@ -136,7 +151,9 @@ pub fn preview(
         .enumerate()
         .map(|(i, field)| (field.source_key.clone(), i))
         .collect();
-    let mut out = String::from("import SwiftUI\n\nenum NeptuneTransitionError: Error {\n    case arithmeticOverflow\n    case revisionOverflow\n    case textTooLarge\n    case snapshotTooLarge\n    case registerLimit\n}\n\nstruct NeptuneState {\n    var revision: UInt64\n");
+    let mut out = String::from("import SwiftUI\n");
+    if observable { out.push_str("import Combine\n"); }
+    out.push_str("\nenum NeptuneTransitionError: Error {\n    case arithmeticOverflow\n    case revisionOverflow\n    case textTooLarge\n    case snapshotTooLarge\n    case registerLimit\n}\n\nstruct NeptuneState {\n    var revision: UInt64\n");
     for field in &state {
         let _ = writeln!(
             out,
@@ -174,7 +191,8 @@ pub fn preview(
         out.push_str("}\n\n");
         action_inputs.push(fields);
     }
-    out.push_str("@MainActor\nfinal class NeptuneStore {\n    private(set) var state: NeptuneState\n\n    init() {\n        self.state = NeptuneState(revision: 0");
+    if observable { out.push_str("@MainActor\nfinal class NeptuneStore: ObservableObject {\n    @Published private(set) var state: NeptuneState\n\n    init() {\n        self.state = NeptuneState(revision: 0"); }
+    else { out.push_str("@MainActor\nfinal class NeptuneStore {\n    private(set) var state: NeptuneState\n\n    init() {\n        self.state = NeptuneState(revision: 0"); }
     for (index, cell) in model.cells().iter().enumerate() {
         let _ = write!(out, ", s{index}: {}", literal(&cell.initial));
     }
