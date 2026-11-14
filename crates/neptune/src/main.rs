@@ -351,9 +351,10 @@ fn main() -> ExitCode {
             && args[1] != "check"
             && args[1] != "preview"
             && args[1] != "preview-transition"
-            && args[1] != "model-d1-state")
+            && args[1] != "model-d1-state"
+            && args[1] != "preview-d1-owner")
     {
-        eprintln!("usage: neptune <inspect|check> <scene.gscene> [--target ios] [--format json]\n       neptune preview <scene.gscene> --module <project-relative.gscene> [--format json] [--out new-directory]\n       neptune preview-transition <scene.gscene> --module <project-relative.gscene> --profile experimental [--format json]\n       neptune model-d1-state <scene.gscene> --module <project-relative.gscene> --profile experimental --initial <state.json> [--format json]\n       neptune explain <code>");
+        eprintln!("usage: neptune <inspect|check> <scene.gscene> [--target ios] [--format json]\n       neptune preview <scene.gscene> --module <project-relative.gscene> [--format json] [--out new-directory]\n       neptune preview-transition <scene.gscene> --module <project-relative.gscene> --profile experimental [--format json]\n       neptune <model-d1-state|preview-d1-owner> <scene.gscene> --module <project-relative.gscene> --profile experimental --initial <state.json> [--format json]\n       neptune explain <code>");
         return ExitCode::from(2);
     }
     let mut json = false;
@@ -374,7 +375,7 @@ fn main() -> ExitCode {
         } else if option[0] == "--out" && args[1] == "preview" && out.is_none() {
             out = Some(std::path::PathBuf::from(&option[1]));
         } else if option[0] == "--profile"
-            && (args[1] == "preview-transition" || args[1] == "model-d1-state")
+            && (args[1] == "preview-transition" || args[1] == "model-d1-state" || args[1] == "preview-d1-owner")
             && option[1] == "experimental"
             && !experimental
         {
@@ -382,7 +383,8 @@ fn main() -> ExitCode {
         } else if option[0] == "--module"
             && (args[1] == "preview"
                 || args[1] == "preview-transition"
-                || args[1] == "model-d1-state")
+                || args[1] == "model-d1-state"
+                || args[1] == "preview-d1-owner")
             && module.is_none()
         {
             module = option[1].to_str();
@@ -390,7 +392,7 @@ fn main() -> ExitCode {
                 eprintln!("module path must be UTF-8");
                 return ExitCode::from(2);
             }
-        } else if option[0] == "--initial" && args[1] == "model-d1-state" && initial_path.is_none()
+        } else if option[0] == "--initial" && (args[1] == "model-d1-state" || args[1] == "preview-d1-owner") && initial_path.is_none()
         {
             initial_path = Some(std::path::PathBuf::from(&option[1]));
         } else {
@@ -398,18 +400,18 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     }
-    if (args[1] == "preview" || args[1] == "preview-transition" || args[1] == "model-d1-state")
+    if (args[1] == "preview" || args[1] == "preview-transition" || args[1] == "model-d1-state" || args[1] == "preview-d1-owner")
         && module.is_none()
     {
         eprintln!("preview requires --module <project-relative-path.gscene>");
         return ExitCode::from(2);
     }
-    if (args[1] == "preview-transition" || args[1] == "model-d1-state") && !experimental {
+    if (args[1] == "preview-transition" || args[1] == "model-d1-state" || args[1] == "preview-d1-owner") && !experimental {
         eprintln!("this operation requires --profile experimental");
         return ExitCode::from(2);
     }
-    if args[1] == "model-d1-state" && initial_path.is_none() {
-        eprintln!("model-d1-state requires --initial <state.json>");
+    if (args[1] == "model-d1-state" || args[1] == "preview-d1-owner") && initial_path.is_none() {
+        eprintln!("this operation requires --initial <state.json>");
         return ExitCode::from(2);
     }
     let mut bytes = Vec::new();
@@ -431,7 +433,7 @@ fn main() -> ExitCode {
             return input_error(json, &args[1], "NPT-E1002", "source must be UTF-8");
         }
     };
-    if args[1] == "model-d1-state" {
+    if args[1] == "model-d1-state" || args[1] == "preview-d1-owner" {
         let result = (|| -> Result<serde_json::Value, neptune::Diagnostic> {
             let path = initial_path.as_ref().ok_or_else(|| neptune::Diagnostic {
                 code: "NPT-E3102",
@@ -460,10 +462,11 @@ fn main() -> ExitCode {
                     range: None,
                 })?;
             let initial = neptune::application::parse_initial(&value)?;
-            Ok(
-                neptune::application::lower(&source, module.unwrap_or_default(), initial)?
-                    .to_json(),
-            )
+            if args[1] == "model-d1-state" {
+                Ok(neptune::application::lower(&source, module.unwrap_or_default(), initial)?.to_json())
+            } else {
+                Ok(neptune::application_swift::preview(&source, module.unwrap_or_default(), initial)?.to_json())
+            }
         })();
         return match result {
             Ok(value) => {
@@ -481,7 +484,7 @@ fn main() -> ExitCode {
                 if json {
                     println!(
                         "{}",
-                        serde_json::json!({"schema_version":"1","operation":"model-d1-state","status":"FAIL","diagnostics":[{"code":diagnostic.code,"message":diagnostic.message,"source_range":diagnostic.range.map(|r| serde_json::json!({"start_byte":r.start,"end_byte":r.end}))}]})
+                        serde_json::json!({"schema_version":"1","operation":args[1].to_string_lossy(),"status":"FAIL","diagnostics":[{"code":diagnostic.code,"message":diagnostic.message,"source_range":diagnostic.range.map(|r| serde_json::json!({"start_byte":r.start,"end_byte":r.end}))}]})
                     );
                 } else if let Some(range) = diagnostic.range {
                     eprintln!(
