@@ -1,0 +1,23 @@
+@ontology app {
+    @cell root {
+        id: "root"
+        @button inc { id: "button.inc" }
+        @button rename { id: "button.rename" }
+    }
+    @interaction rename {
+        id: "action.rename";
+        trigger: button.rename.activate;
+        class: D1;
+        state { write name: text; }
+        input { value: text; }
+        set name = input.value;
+    }
+    @interaction add {
+        id: "action.add";
+        trigger: button.inc.activate;
+        class: D1;
+        state { read count: int; write count: int; }
+        input { amount: int; }
+        set count = state.count + input.amount;
+    }
+}
