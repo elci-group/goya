@@ -8,7 +8,7 @@ use crate::Diagnostic;
 use goya_lang::{handoff, layout, CellKind, ParsedScene, RectMp, SceneCell, SourceRange};
 
 /// Profile implemented by this module. It is not the full Sash v0.0.1 slice.
-pub const PROFILE: &str = "sash.win32.static-window/0.0.2";
+pub const PROFILE: &str = "sash.win32.static-window/0.0.3";
 
 /// Millipoints in one Goya point. Matches the private layout constant.
 const MP: f64 = 1000.0;
@@ -228,7 +228,7 @@ fn admit_scene(parsed: &ParsedScene) -> Result<AdmittedWindow, Diagnostic> {
     dispositions.push(Disposition {
         subject: "background".into(),
         disposition: "equivalently-transformed",
-        detail: "No fill was authored. The window uses the system window colour and the stock default GUI font.".into(),
+        detail: "No fill was authored. The window uses the system window colour. Each label uses the system message font for the window DPI, recreated when that DPI changes. Authored text size remains rejected.".into(),
     });
     Ok(AdmittedWindow {
         scene_name: scene.name.clone(),
