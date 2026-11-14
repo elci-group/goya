@@ -105,7 +105,7 @@ fn main() -> ExitCode {
             let mut bytes = Vec::new();
             File::open(&args[4]).and_then(|file| file.take(16385).read_to_end(&mut bytes)).map_err(|e| e.to_string())?;
             if bytes.len() > 16384 { return Err("toolchain lock exceeds 16 KiB".into()); }
-            let lock: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| format!("invalid toolchain lock JSON: {e}"))?;
+            let lock: neptune::apple::ToolchainLock = serde_json::from_slice(&bytes).map_err(|e| format!("invalid toolchain lock JSON: {e}"))?;
             neptune::apple::plan_simulator_typecheck(std::path::Path::new(&args[2]), &lock)
         })();
         return match plan {
