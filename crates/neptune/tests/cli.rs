@@ -363,6 +363,7 @@ fn d1_corpus_reports_only_its_scope_and_admission_is_blocked() {
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(report["status"], "PASS");
     assert_eq!(report["schema_version"], "2");
+    assert_eq!(report["application_contract"], "GY-D1-APP/1");
     assert_eq!(report["cases"].as_array().unwrap().len(), 10);
     assert_eq!(report["stages"]["target_ir"], "PASS");
     assert_eq!(report["stages"]["application_owner"], "PASS");
