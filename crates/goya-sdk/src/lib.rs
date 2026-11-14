@@ -38,6 +38,11 @@ pub struct AndroidTextPreview {
     pub generated_range: goya_lang::SourceRange,
 }
 
+/// Maximum UTF-8 payload accepted by the experimental Android text preview.
+/// The generated Kotlin source is larger than the source payload because it
+/// escapes non-ASCII characters, so keep this deliberately small and stable.
+pub const ANDROID_TEXT_PREVIEW_MAX_UTF8_BYTES: usize = 16 * 1024;
+
 impl fmt::Display for AndroidTextPreviewError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -120,6 +125,11 @@ pub fn emit_android_static_text_preview_mapped(
         .text
         .as_deref()
         .ok_or(AndroidTextPreviewError::Unsupported("cells without text"))?;
+    if text.len() > ANDROID_TEXT_PREVIEW_MAX_UTF8_BYTES {
+        return Err(AndroidTextPreviewError::Unsupported(
+            "text above the 16 KiB UTF-8 preview limit",
+        ));
+    }
     let semantic_id = root
         .authored_id
         .as_ref()
@@ -583,6 +593,26 @@ mod tests {
         assert!(matches!(
             emit_android_static_text_preview(invalid),
             Err(AndroidTextPreviewError::StrictParse(_))
+        ));
+    }
+
+    #[test]
+    fn android_preview_bounds_text_payload_by_utf8_bytes() {
+        let at_limit = format!(
+            "@ontology demo {{ @cell label {{ id: \"label\"; text: \"{}\" }} }}",
+            "é".repeat(ANDROID_TEXT_PREVIEW_MAX_UTF8_BYTES / 2)
+        );
+        assert!(emit_android_static_text_preview(&at_limit).is_ok());
+
+        let over_limit = format!(
+            "@ontology demo {{ @cell label {{ id: \"label\"; text: \"{}\" }} }}",
+            "é".repeat(ANDROID_TEXT_PREVIEW_MAX_UTF8_BYTES / 2 + 1)
+        );
+        assert!(matches!(
+            emit_android_static_text_preview(&over_limit),
+            Err(AndroidTextPreviewError::Unsupported(
+                "text above the 16 KiB UTF-8 preview limit"
+            ))
         ));
     }
 
