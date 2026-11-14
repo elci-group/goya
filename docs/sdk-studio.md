@@ -1,5 +1,11 @@
 # Goya SDK, Studio starter, and local package
 
+## Explicit D1 application state
+
+`GY-D1-APP/1` is an opt-in host-side state owner exposed as `goya_sdk::D1Application`. Construct it from a scene whose frontend and platform semantics the caller has already validated, plus explicit initial values for exactly the union of state keys used by its D1 interactions. All actions must agree on each key's type; missing, extra, or mistyped values and D2 interactions are rejected. No initial values are inferred. The complete application state is subject to the D1 snapshot limits.
+
+`dispatch` selects an action by its authored ID, projects the touched state into Goya's D1 executor, and commits all writes and the next revision only if the action and the complete resulting state pass validation. A failed action preserves the prior state and revision. `restore` accepts an explicit revision and state snapshot, revalidates the schema and limits, and creates an owner in memory; persistence, migration, lifecycle scheduling, and platform UI bindings remain the host's responsibilities. This API does not change the existing `SceneProject::runtime` behavior.
+
 `goya-sdk` is the Rust facade for `.gscene` consumers. It parses source,
 lowers to the shared GY-IR/2 module and node table, exposes authored scene
 geometry, and constructs the synchronous event runtime. Platform code still

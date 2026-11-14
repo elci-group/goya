@@ -253,10 +253,14 @@ mod tests {
     #[test]
     fn strict_parser_requires_unique_explicit_element_ids() {
         let missing = "@ontology demo { @cell root { text: \"Hi\" } }";
-        assert_eq!(parse_strict(missing).unwrap_err().code, "GY-E1005");
+        let missing_error = parse_strict(missing).unwrap_err();
+        assert_eq!(missing_error.code, "GY-E1005");
+        assert_eq!(&missing[missing_error.range.start..missing_error.range.end], "@cell root { text: \"Hi\" }");
         let duplicate =
             "@ontology demo { @cell root { id: \"same\"; @cell child { id: \"same\"; } } }";
-        assert_eq!(parse_strict(duplicate).unwrap_err().code, "GY-E1005");
+        let duplicate_error = parse_strict(duplicate).unwrap_err();
+        assert_eq!(duplicate_error.code, "GY-E1005");
+        assert_eq!(&duplicate[duplicate_error.range.start..duplicate_error.range.end], "@cell child { id: \"same\"; }");
         let valid = "@ontology demo { @cell root { id: \"root\"; text: \"Hi\" } }";
         assert!(parse_strict(valid).is_ok());
     }

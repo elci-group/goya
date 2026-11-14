@@ -365,6 +365,7 @@ fn d1_corpus_reports_only_its_scope_and_admission_is_blocked() {
     assert_eq!(report["schema_version"], "2");
     assert_eq!(report["cases"].as_array().unwrap().len(), 10);
     assert_eq!(report["stages"]["target_ir"], "PASS");
+    assert_eq!(report["stages"]["application_owner"], "PASS");
     assert_eq!(report["stages"]["generated_swift"], "BLOCKED");
     assert_eq!(report["stages"]["physical_device"], "BLOCKED");
     let mut session = neptune::service::Session::default();
