@@ -85,31 +85,6 @@ impl SwiftExpr {
         let _ = writeln!(out, "        guard registerBytes <= {} else {{ throw NeptuneTransitionError.registerLimit }}", goya_executable::D1_MAX_REGISTER_BYTES);
         index
     }
-    /* The representation is rendered exclusively through typed registers. */
-    #[allow(dead_code)]
-    fn write(&self, out: &mut String) {
-        match self {
-            Self::Int(i64::MIN) => out.push_str("Int64.min"),
-            Self::Int(v) => {
-                let _ = write!(out, "{v}");
-            }
-            Self::Text(v) => out.push_str(&swift::Expr::StringLiteral(v.clone()).render()),
-            Self::Bool(v) => out.push_str(if *v { "true" } else { "false" }),
-            Self::State(index, _) => {
-                let _ = write!(out, "state.s{index}");
-            }
-            Self::Input(index, _) => {
-                let _ = write!(out, "input.i{index}");
-            }
-            Self::CheckedAdd(left, right) => {
-                out.push_str("try checkedAdd(");
-                left.write(out);
-                out.push_str(", ");
-                right.write(out);
-                out.push(')');
-            }
-        }
-    }
 }
 
 fn convert(
