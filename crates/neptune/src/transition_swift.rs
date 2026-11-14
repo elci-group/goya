@@ -267,4 +267,18 @@ mod tests {
             .swift
             .contains("let value0: Int64 = Int64.min"));
     }
+
+    #[test]
+    fn emits_typed_bool_and_escaped_text_without_source_identifiers() {
+        let source = "@ontology app { @button set { id: \"b\" } @interaction save { id: \"a\"; trigger: button.set.activate; class: D1; state { write message: text; write enabled: bool; } input { } set message = \"hello\\(unsafe)\"; set enabled = true; } }";
+        let result = preview(source, "app/main.gscene").unwrap();
+        assert!(result
+            .swift
+            .contains("let value0: String = \"hello\\\\(unsafe)\""));
+        assert!(result.swift.contains("let value1: Bool = true"));
+        assert!(result
+            .swift
+            .contains("next.s1 = value0\n        next.s0 = value1"));
+        assert!(!result.swift.contains("var message:"));
+    }
 }
