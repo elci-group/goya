@@ -129,7 +129,7 @@ fn main() -> ExitCode {
             Some("NPT-E1000") => "Input could not be read. Check the path and file permissions.",
             Some("NPT-E1001") => "The input exceeds the 128 KiB source limit.",
             Some("NPT-E1002") => "The Goya frontend could not parse the UTF-8 scene. Correct the source at the reported line.",
-            Some("NPT-E1003") => "The source exceeds the nesting limit of 128.",
+            Some("NPT-E1003") => "The source exceeds a frontend nesting or addition-operator limit.",
             Some("NPT-E1004") => "The diagnostic limit was reached; fix reported issues and check again.",
             Some("NPT-E1005") => "The source preview could not be written. Use a new output directory and check permissions.",
             Some("NPT-E1006") => "Supply a canonical project-relative module path ending in .gscene.",
@@ -144,7 +144,7 @@ fn main() -> ExitCode {
         println!("{description}");
         return ExitCode::SUCCESS;
     }
-    if args.len() < 3 || (args[1] != "inspect" && args[1] != "check" && args[1] != "preview") {
+    if args.len() < 3 || (args[1] != "inspect" && args[1] != "check" && args[1] != "preview" && args[1] != "preview-transition") {
         eprintln!("usage: neptune <inspect|check> <scene.gscene> [--target ios] [--format json]\n       neptune preview <scene.gscene> --module <project-relative.gscene> [--format json] [--out new-directory]\n       neptune explain <code>");
         return ExitCode::from(2);
     }
@@ -152,6 +152,7 @@ fn main() -> ExitCode {
     let mut target = false;
     let mut out = None;
     let mut module = None;
+    let mut experimental = false;
     for option in args[3..].chunks(2) {
         if option.len() != 2 {
             eprintln!("missing option value");
@@ -163,7 +164,9 @@ fn main() -> ExitCode {
             target = true;
         } else if option[0] == "--out" && args[1] == "preview" && out.is_none() {
             out = Some(std::path::PathBuf::from(&option[1]));
-        } else if option[0] == "--module" && args[1] == "preview" && module.is_none() {
+        } else if option[0] == "--profile" && args[1] == "preview-transition" && option[1] == "experimental" && !experimental {
+            experimental = true;
+        } else if option[0] == "--module" && (args[1] == "preview" || args[1] == "preview-transition") && module.is_none() {
             module = option[1].to_str();
             if module.is_none() {
                 eprintln!("module path must be UTF-8");
@@ -174,8 +177,12 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     }
-    if args[1] == "preview" && module.is_none() {
+    if (args[1] == "preview" || args[1] == "preview-transition") && module.is_none() {
         eprintln!("preview requires --module <project-relative-path.gscene>");
+        return ExitCode::from(2);
+    }
+    if args[1] == "preview-transition" && !experimental {
+        eprintln!("preview-transition requires --profile experimental");
         return ExitCode::from(2);
     }
     let mut bytes = Vec::new();
@@ -197,6 +204,21 @@ fn main() -> ExitCode {
             return input_error(json, &args[1], "NPT-E1002", "source must be UTF-8");
         }
     };
+    if args[1] == "preview-transition" {
+        return match neptune::transition_swift::preview(&source, module.unwrap_or_default()) {
+            Ok(preview) => {
+                if json { println!("{}", preview.to_json()); }
+                else { eprintln!("Experimental transition source preview; Apple and runtime limit validation not run"); print!("{}", preview.swift); }
+                ExitCode::SUCCESS
+            }
+            Err(diagnostic) => {
+                if json { println!("{}", serde_json::json!({"schema_version":"1","operation":"preview-transition","verification":"FAILED","diagnostics":[{"code":diagnostic.code,"message":diagnostic.message,"source_range":diagnostic.range.map(|r| serde_json::json!({"start_byte":r.start,"end_byte":r.end}))}]})); }
+                else if let Some(range) = diagnostic.range { eprintln!("{}: bytes {}..{}: {}", diagnostic.code, range.start, range.end, diagnostic.message); }
+                else { eprintln!("{}: {}", diagnostic.code, diagnostic.message); }
+                ExitCode::FAILURE
+            }
+        };
+    }
     if args[1] == "preview" {
         return match neptune::preview_static_text(&source) {
             Ok(preview) => {
