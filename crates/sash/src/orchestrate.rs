@@ -7,7 +7,7 @@ use crate::admit::{self, AdmittedWindow};
 use crate::emit::{self, Generated};
 use crate::pe::{self, PeInfo};
 use crate::report::{self, BuildFacts};
-use crate::{Diagnostic, PROFILE_PORTABLE, TARGET_MSVC_X64};
+use crate::{Diagnostic, TARGET_MSVC_X64};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
