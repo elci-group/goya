@@ -426,4 +426,34 @@ mod tests {
         assert_eq!(reference.revision(), 0);
         assert_eq!(reference.values()["target"], D1Value::Text(String::new()));
     }
+
+    #[test]
+    fn source_generation_rejects_action_and_output_expansion_limits() {
+        fn fixture(count: usize, text_bytes: usize) -> (String, BTreeMap<String, D1Value>) {
+            let mut buttons = String::new();
+            let mut interactions = String::new();
+            let mut initial = BTreeMap::new();
+            for i in 0..count {
+                buttons.push_str(&format!("@button b{i} {{ id: \"b.{i}\" }} "));
+                interactions.push_str(&format!("@interaction a{i} {{ id: \"a.{i}\"; trigger: button.b{i}.activate; class: D1; state {{ write key{i}: text; }} input {{ value: text; }} set key{i} = input.value; }} "));
+                initial.insert(format!("key{i}"), D1Value::Text("\0".repeat(text_bytes)));
+            }
+            (
+                format!(
+                    "@ontology app {{ @cell root {{ id: \"root\" {buttons} }} {interactions} }}"
+                ),
+                initial,
+            )
+        }
+        let (source, initial) = fixture(65, 0);
+        assert!(preview(&source, "app/main.gscene", initial)
+            .unwrap_err()
+            .message
+            .contains("1 to 64"));
+        let (source, initial) = fixture(16, 60000);
+        assert!(preview(&source, "app/main.gscene", initial)
+            .unwrap_err()
+            .message
+            .contains("exceeds 2 MiB"));
+    }
 }
