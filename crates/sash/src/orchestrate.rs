@@ -114,6 +114,41 @@ fn probe_tools() -> Result<Tools, Diagnostic> {
     })
 }
 
+fn llvm_rc_identity() -> Result<String, Diagnostic> {
+    let output = Command::new("llvm-rc").arg("/?").output().map_err(|_| {
+        Diagnostic::new(
+            "SASH-TOOLCHAIN",
+            "build",
+            "llvm-rc is not available on this build host",
+            "Install the LLVM resource compiler. Sash does not download it.",
+        )
+    })?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    if !output.status.success() || !text.contains("LLVM Resource Converter") {
+        return Err(Diagnostic::new(
+            "SASH-TOOLCHAIN",
+            "build",
+            "llvm-rc did not identify itself as the LLVM resource converter",
+            "Install llvm-rc on the build host.",
+        ));
+    }
+    let clang = Command::new("clang").arg("--version").output();
+    let clang_line = clang
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| {
+            String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .next()
+                .map(|line| line.trim().to_string())
+        })
+        .filter(|line| !line.is_empty());
+    Ok(match clang_line {
+        Some(line) => format!("llvm-rc: LLVM Resource Converter; host {line}"),
+        None => "llvm-rc: LLVM Resource Converter (the tool has no version flag)".into(),
+    })
+}
+
 fn version(program: &str, args: &[&str]) -> Result<String, Diagnostic> {
     let output = Command::new(program).args(args).output().map_err(|_| {
         Diagnostic::new(
