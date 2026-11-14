@@ -1,0 +1,11 @@
+{
+  "schema_version": "1",
+  "fixture": "d1-increment",
+  "module": "conformance/d1-increment.gscene",
+  "cases": [
+    {"id":"increment", "revision":7, "state":{"count":9,"previous":0}, "inputs":{"amount":3}, "expected":{"status":"ok","revision":8,"state":{"count":12,"previous":9}}},
+    {"id":"negative", "revision":0, "state":{"count":-8,"previous":42}, "inputs":{"amount":3}, "expected":{"status":"ok","revision":1,"state":{"count":-5,"previous":-8}}},
+    {"id":"integer-overflow", "revision":7, "state":{"count":9223372036854775807,"previous":4}, "inputs":{"amount":1}, "expected":{"status":"error","error":"arithmetic_overflow"}},
+    {"id":"revision-overflow", "revision":18446744073709551615, "state":{"count":9,"previous":4}, "inputs":{"amount":1}, "expected":{"status":"error","error":"revision_overflow"}}
+  ]
+}

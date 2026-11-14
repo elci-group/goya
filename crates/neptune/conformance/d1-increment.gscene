@@ -1,0 +1,12 @@
+@ontology acceptance {
+    @button add { id: "acceptance.add" }
+    @interaction increment {
+        id: "acceptance.increment";
+        trigger: button.add.activate;
+        class: D1;
+        state { read count: int; write count: int; write previous: int; }
+        input { amount: int; }
+        set count = state.count + input.amount;
+        set previous = state.count;
+    }
+}
