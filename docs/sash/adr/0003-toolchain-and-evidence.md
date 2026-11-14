@@ -14,7 +14,7 @@ On this host the link is:
 - `rust-lld` as `lld-link`
 - `llvm-rc` for the manifest and version resource
 
-`clang-cl` is not selected. Its CRT unpack is incomplete here, and cargo-xwin 0.22 deletes a sysroot that lacks `DONE` before downloading another. Sash fails with `SASH-TOOLCHAIN` when the marker or the x64 libraries are missing. It does not start that download.
+`clang-cl` is not selected. Its CRT unpack is incomplete here, and cargo-xwin 0.22 deletes a sysroot that lacks `DONE` before downloading another. Sash fails with `SASH-TOOLCHAIN` when the marker or the x64 libraries are missing. It does not start that download. A native log that reports MSVC CRT setup failure, a missing SDK header, or a failed SDK download is also `SASH-TOOLCHAIN`. Resource-compiler and linker errors stay `SASH-LINK`. Both codes leave the output directory unpromoted.
 
 Static CRT and control-flow guard are requested in the generated `.cargo/config.toml`. The PE policy checks the bits in the linked image. A requested flag that is absent from the image fails promotion.
 

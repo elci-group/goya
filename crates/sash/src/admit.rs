@@ -70,8 +70,11 @@ pub fn admit(source: &str) -> Result<AdmittedWindow, Diagnostic> {
 
 fn diagnostic_from_strict(error: goya_lang::StrictParseError) -> Diagnostic {
     let remediation = match error.code {
+        "GY-E1000" => "Correct the syntax. Sash does not guess a missing token.",
         "GY-E1001" => "Remove the unknown property. Sash does not drop unrecognised fields.",
         "GY-E1002" => "Remove the template. Templates are not preserved by the shared frontend.",
+        "GY-E1003" => "Keep one definition of the property.",
+        "GY-E1004" => "Correct the interaction, or remove it. This profile has no action owner.",
         "GY-E1005" => "Give every element and interaction one unique authored id.",
         _ => "Correct the scene so strict Goya admission accepts it.",
     };
@@ -623,5 +626,112 @@ mod tests {
             cell("    id: \"window.root\";\n    text: \"Hi\";\n    extent: (80.1, 40, 0);");
         let error = admit(&source).unwrap_err();
         assert_eq!(error.code, "SASH-LAYOUT");
+        assert!(origin(&source, &error).contains("extent:"));
+    }
+
+    #[test]
+    fn rejection_origin_is_the_authored_span() {
+        let cases = [
+            (
+                "@ontology hello {\n  @cell root {\n    text \"missing-colon\"\n  }\n}\n",
+                "GY-E1000",
+                "parse",
+                "text \"missing-colon\"",
+            ),
+            (
+                "@ontology hello { @cell root { id: \"window.root\"; text: \"Hi\"; colur: #fff; extent: (80, 40, 0); } }\n",
+                "GY-E1001",
+                "parse",
+                "colur: #fff;",
+            ),
+            (
+                "@ontology hello { @cell root { @template card { text: \"x\" } } }\n",
+                "GY-E1002",
+                "parse",
+                "@template card { text: \"x\" }",
+            ),
+            (
+                "@ontology hello { @cell root { id: \"window.root\"; text: \"a\"; text: \"b\"; } }\n",
+                "GY-E1003",
+                "parse",
+                "text: \"b\"",
+            ),
+            (
+                "@ontology hello { @button go { id: \"button.go\"; text: \"Go\"; } @interaction save { id: \"action.save\"; trigger: button.missing.activate; class: D1; state { write x: int; } input { } set x = 1; } }\n",
+                "GY-E1004",
+                "parse",
+                "@interaction save",
+            ),
+            (
+                "@ontology hello { @cell root { text: \"Hi\" } }\n",
+                "GY-E1005",
+                "parse",
+                "@cell root { text: \"Hi\" }",
+            ),
+            (
+                "@ontology hello { @cell root { id: \"same\"; text: \"Hi\"; extent: (80, 40, 0); @cell child { id: \"same\"; text: \"No\"; } } }\n",
+                "GY-E1005",
+                "parse",
+                "@cell child",
+            ),
+            (
+                "@ontology hello { @button go { id: \"window.go\"; text: \"Go\"; extent: (80, 40, 0); } }\n",
+                "SASH-CAP",
+                "admit",
+                "@button go",
+            ),
+            (
+                "@ontology hello { @input name { id: \"window.name\"; text: \"Name\"; extent: (80, 40, 0); } }\n",
+                "SASH-CAP",
+                "admit",
+                "@input name",
+            ),
+            (
+                "@ontology hello { @cell root { id: \"window.root\"; text: \"Hi\"; extent: (80, 40, 0); @cell child { id: \"child\"; text: \"No\"; } } }\n",
+                "SASH-CAP",
+                "admit",
+                "@cell child",
+            ),
+            (
+                "@ontology hello { @cell root { id: \"window.root\"; text: \"Hi\"; fill: #fff; extent: (80, 40, 0); } }\n",
+                "SASH-CAP",
+                "admit",
+                "fill:",
+            ),
+            (
+                "@ontology hello { @cell root { id: \"window.root\"; text: \"Hi\"; scroll: true; extent: (80, 40, 0); } }\n",
+                "SASH-CAP",
+                "admit",
+                "scroll:",
+            ),
+            (
+                "@ontology hello { @cell root { id: \"window.root\"; text: \"Hi\"; extent: (80, 40, 1); } }\n",
+                "SASH-CAP",
+                "admit",
+                "extent:",
+            ),
+            (
+                "@ontology hello { @button go { id: \"button.go\"; text: \"Go\"; extent: (80, 40, 0); } @interaction save { id: \"action.save\"; trigger: button.go.activate; class: D1; state { write count: int; } input { } set count = 1; } }\n",
+                "SASH-CAP",
+                "admit",
+                "@interaction save",
+            ),
+        ];
+        for (source, code, stage, slice) in cases {
+            let error = admit(source).expect_err(code);
+            assert_eq!(error.code, code, "{source}");
+            assert_eq!(error.stage, stage, "{code}");
+            let found = origin(source, &error);
+            assert!(
+                found.contains(slice),
+                "{code} origin {found:?} does not cover {slice:?}"
+            );
+        }
+    }
+
+    fn origin<'a>(source: &'a str, error: &Diagnostic) -> &'a str {
+        let start = error.start.expect("diagnostic origin");
+        let end = error.end.expect("diagnostic origin");
+        &source[start..end]
     }
 }

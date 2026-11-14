@@ -268,16 +268,17 @@ fn run_link(project: &Path, cache: &Path) -> Result<String, Diagnostic> {
     })?;
     let log = tail(&output.stdout, &output.stderr);
     if !output.status.success() {
-        let code = if log.contains("No space left") {
-            "SASH-TOOLCHAIN"
+        let code = classify_link_failure(&log);
+        let remediation = if code == "SASH-TOOLCHAIN" {
+            "The Windows toolchain or SDK on this host is incomplete. Sash did not download a replacement and did not promote App.exe."
         } else {
-            "SASH-LINK"
+            "Read the native tool diagnostic. Sash did not promote an executable."
         };
         return Err(Diagnostic::new(
             code,
             "build",
             format!("Windows link failed\n{log}"),
-            "Read the toolchain diagnostic. Sash did not promote an executable.",
+            remediation,
         ));
     }
     Ok(log)
@@ -402,4 +403,47 @@ impl Drop for TempDir {
 
 pub fn profile_supported(profile: &str) -> bool {
     profile == PROFILE_PORTABLE
+}
+
+/// Map a native compiler or linker log to a stable diagnostic code.
+///
+/// SDK setup and disk exhaustion are toolchain blocks. A rustc, resource, or
+/// linker error is a link failure. Neither path promotes an executable.
+pub fn classify_link_failure(log: &str) -> &'static str {
+    let lower = log.to_ascii_lowercase();
+    let sdk = lower.contains("unable to find")
+        && (lower.contains("header") || lower.contains("crt") || lower.contains("sdk"));
+    if lower.contains("no space left")
+        || lower.contains("failed to setup msvc")
+        || lower.contains("failed to download")
+        || lower.contains("failed to unpack msvc")
+        || sdk
+    {
+        "SASH-TOOLCHAIN"
+    } else {
+        "SASH-LINK"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::classify_link_failure;
+
+    #[test]
+    fn native_tool_failures_keep_their_codes() {
+        let crt = "Error: Failed to setup MSVC CRT\nunable to find x86_64 headers for Win11SDK_10.0.26100";
+        assert_eq!(classify_link_failure(crt), "SASH-TOOLCHAIN");
+        assert_eq!(
+            classify_link_failure("No space left on device"),
+            "SASH-TOOLCHAIN"
+        );
+        assert_eq!(
+            classify_link_failure("llvm-rc failed\napp.rc(3): error"),
+            "SASH-LINK"
+        );
+        assert_eq!(
+            classify_link_failure("lld-link: error: undefined symbol main"),
+            "SASH-LINK"
+        );
+    }
 }
