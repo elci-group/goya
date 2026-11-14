@@ -171,7 +171,7 @@ section { margin-top: 56px; }
 
 .unit strong { display: block; font-size: 15px; }
 
-.unit .crate { color: var(--teal); font-family: var(--mono); font-size: 12px; }
+.crate { color: var(--teal); font-family: var(--mono); font-size: 12px; }
 
 .unit p { display: none; margin: 8px 0 0; color: var(--muted); }
 

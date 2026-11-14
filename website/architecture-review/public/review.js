@@ -186,12 +186,11 @@ function renderChips() {
     host = document.createElement("div");
     host.id = "crate-chips";
     host.className = "chips";
-    host.setAttribute("role", "listbox");
     host.setAttribute("aria-label", "Crates in view");
     $("layer-filters").after(host);
   }
   host.innerHTML = visibleCrates().map((crate) => `
-    <button class="chip" type="button" role="option" aria-selected="${crate.id === state.selected ? "true" : "false"}" aria-pressed="${crate.id === state.selected ? "true" : "false"}" data-crate="${esc(crate.id)}">${esc(shortName(crate.id))}</button>
+    <button class="chip" type="button" aria-pressed="${crate.id === state.selected ? "true" : "false"}" data-crate="${esc(crate.id)}">${esc(shortName(crate.id))}</button>
   `).join("");
   host.querySelectorAll(".chip").forEach((button) => {
     button.addEventListener("click", () => selectCrate(button.dataset.crate));
@@ -270,9 +269,11 @@ function renderGraph() {
     const near = linked.has(node.id);
     const fill = active ? "#234840" : near ? "#3a3224" : "#221f1a";
     const stroke = active ? "#9ad8c8" : near ? "#e4b56a" : "#3d372f";
+    const label = shortName(node.id);
+    const size = label.length > 16 ? 9 : 11;
     return `<g data-crate="${esc(node.id)}" tabindex="0" role="button" aria-label="${esc(node.id)}, ${esc(node.status)}" aria-pressed="${active ? "true" : "false"}">
       <rect x="${node.x}" y="${node.y}" width="${node.w}" height="${node.h}" rx="2" fill="${fill}" stroke="${stroke}"></rect>
-      <text x="${node.x + 8}" y="${node.y + 20}" fill="#f3eee4" font-size="11">${esc(shortName(node.id))}</text>
+      <text x="${node.x + 8}" y="${node.y + 20}" fill="#f3eee4" font-size="${size}">${esc(label)}</text>
       <text x="${node.x + 8}" y="${node.y + 35}" fill="#8a8175" font-size="10">${esc(node.status)}</text>
     </g>`;
   }).join("");
