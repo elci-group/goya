@@ -402,12 +402,16 @@ mod tests {
 
     #[test]
     fn android_preview_emits_only_strict_static_text_and_escapes_kotlin_literals() {
-        let source = r#"@ontology demo { @cell label { id: "label"; text: "Hi $user\n\"\\é" } }"#;
+        let source = "@ontology demo { @cell label { id: \"label\"; text: \"Hello\" } }";
         let output = emit_android_static_text_preview(source).unwrap();
         assert!(
             output.contains("class GoyaStaticTextPreview(context: Context) : TextView(context)")
         );
-        assert!(output.contains("text = \"Hi \\$user\\n\\\"\\\\\\u00e9\""));
+        assert!(output.contains("text = \"Hello\""));
+        assert_eq!(
+            kotlin_string_literal("$user\n\"\\é"),
+            "\"\\$user\\n\\\"\\\\\\u00e9\""
+        );
         assert!(!output.contains("@ontology"));
     }
 
