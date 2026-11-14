@@ -56,7 +56,7 @@ impl Preview {
             values.iter().map(|field| serde_json::json!({"source_key":field.source_key,"swift_name":field.swift_name,"type":type_name(field.value_type)})).collect()
         }
         let actions: Vec<_> = self.actions.iter().map(|action| serde_json::json!({"semantic_id":{"module":action.id.module,"declared_id":action.id.declared_id},"trigger":{"module":action.trigger.module,"declared_id":action.trigger.declared_id},"method":action.method,"inputs":fields(&action.inputs),"source_range":{"start_byte":action.source.start,"end_byte":action.source.end},"trigger_source_range":{"start_byte":action.trigger_source.start,"end_byte":action.trigger_source.end},"swift_range":{"start_byte":action.swift.start,"end_byte":action.swift.end},"reference_program_hash":hex(&action.reference_program_hash),"expression_provenance":"action_range_only"})).collect();
-        serde_json::json!({"schema_version":"1","operation":"preview-d1-owner","verification":"SOURCE_PREVIEW","scope":"state_only","swift":self.swift,"swift_sha256":format!("{:x}", Sha256::digest(self.swift.as_bytes())),"module":self.module,"source_sha256":hex(&self.source_digest),"initial_state_sha256":hex(&self.initial_digest),"initial_hash_contract":"NPT-D1-INIT/1","initial_source":"caller_supplied_transport","application_contract":goya_sdk::D1_APPLICATION_CONTRACT,"state_fields":fields(&self.state),"actions":actions,"stages":{"presentation_validation":"NOT_RUN","apple_validation":"NOT_RUN","runtime_limit_parity":"NOT_VERIFIED","ios_admission":"NOT_RUN"}})
+        serde_json::json!({"schema_version":"1","operation":"preview-d1-owner","verification":"SOURCE_PREVIEW","scope":"state_only","swift":self.swift,"swift_sha256":format!("{:x}", Sha256::digest(self.swift.as_bytes())),"module":self.module,"source_sha256":hex(&self.source_digest),"initial_state_sha256":hex(&self.initial_digest),"initial_hash_contract":"NPT-D1-INIT/1","initial_source":"caller_supplied_transport","application_contract":goya_sdk::D1_APPLICATION_CONTRACT,"state_model_contract":application::CONTRACT,"d1_vm_version":goya_executable::D1_VM_VERSION,"state_fields":fields(&self.state),"actions":actions,"stages":{"presentation_validation":"NOT_RUN","apple_validation":"NOT_RUN","runtime_limit_parity":"NOT_VERIFIED","ios_admission":"NOT_RUN"}})
     }
 }
 
@@ -378,5 +378,52 @@ mod tests {
                 .unwrap()
                 .to_json()["initial_state_sha256"]
         );
+    }
+
+    #[test]
+    fn global_budget_is_checked_before_the_owner_commits() {
+        let mut buttons = String::new();
+        let mut interactions = String::new();
+        let mut values = BTreeMap::new();
+        for index in 0..18 {
+            let key = if index == 17 {
+                "target".to_string()
+            } else {
+                format!("key{index}")
+            };
+            buttons.push_str(&format!("@button b{index} {{ id: \"button.{index}\" }} "));
+            interactions.push_str(&format!("@interaction a{index} {{ id: \"action.{index}\"; trigger: button.b{index}.activate; class: D1; state {{ write {key}: text; }} input {{ value: text; }} set {key} = input.value; }} "));
+            values.insert(
+                key,
+                D1Value::Text(if index == 17 {
+                    String::new()
+                } else {
+                    "x".repeat(60000)
+                }),
+            );
+        }
+        let source =
+            format!("@ontology app {{ @cell root {{ id: \"root\" {buttons} }} {interactions} }}");
+        let generated = preview(&source, "app/main.gscene", values.clone()).unwrap();
+        let action = generated
+            .actions
+            .iter()
+            .find(|action| action.id.declared_id == "action.17")
+            .unwrap();
+        let swift = &generated.swift[action.swift.start..action.swift.end];
+        assert!(swift.find("projectedNextBytes").unwrap() < swift.find("globalNextBytes").unwrap());
+        assert!(swift.find("globalNextBytes").unwrap() < swift.find("state = next").unwrap());
+        let scene = goya_lang::parse_strict(&source).unwrap().scene;
+        let mut reference = goya_sdk::D1Application::new(&scene, values).unwrap();
+        let result = reference.dispatch(
+            "action.17",
+            BTreeMap::from([("value".into(), D1Value::Text("y".repeat(60000)))]),
+        );
+        assert!(matches!(
+            result,
+            Err(goya_sdk::D1ApplicationError::InvalidState(_))
+        ));
+        assert_eq!(reference.revision(), 0);
+        assert_eq!(reference.values()["target"], D1Value::Text(String::new()));
     }
 }
