@@ -14,7 +14,7 @@ use std::time::Duration;
 const INDEX: &str = include_str!("../public/index.html");
 const CSS: &str = include_str!("../public/review.css");
 const JS: &str = include_str!("../public/review.js");
-const FAVICON: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect fill="#17140f" width="32" height="32"/><path stroke="#9ad8c8" stroke-width="2" d="M4 22h24"/><path stroke="#e4b56a" stroke-width="1.5" d="M8 22v-8M16 22V8M24 22v-5"/></svg>"#;
+const FAVICON: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect fill="#17140f" width="32" height="32"/><path stroke="#9ad8c8" stroke-width="2" d="M4 22h24"/><path stroke="#e4b56a" stroke-width="1.5" d="M8 22v-8M16 22V8M24 22v-5"/></svg>"##;
 
 struct Response {
     status: &'static str,
@@ -213,7 +213,7 @@ mod tests {
         let page = route("GET", "/", "");
         assert_eq!(page.status, "200 OK");
         let body = String::from_utf8(page.body).unwrap();
-        assert!(body.contains("Architecture review"));
+        assert!(body.contains("Goya architecture"));
         let model = String::from_utf8(route("GET", "/api/model", "").body).unwrap();
         assert!(model.contains("goya-runtime"));
         assert!(model.contains("goya-vee"));

@@ -273,9 +273,10 @@ const PROGRAM: &str = r#"
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicPtr, Ordering};
 
-static CHILD: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
-static LABEL: AtomicPtr<u16> = AtomicPtr::new(std::ptr::null_mut());
-static IDENTITY: AtomicPtr<u16> = AtomicPtr::new(std::ptr::null_mut());
+const MAX_PLACED: usize = 32;
+static HWNDS: [AtomicPtr<c_void>; MAX_PLACED] = [const { AtomicPtr::new(std::ptr::null_mut()) }; MAX_PLACED];
+static ID_PTRS: [AtomicPtr<u16>; MAX_PLACED] = [const { AtomicPtr::new(std::ptr::null_mut()) }; MAX_PLACED];
+static ID_LENS: [AtomicPtr<usize>; MAX_PLACED] = [const { AtomicPtr::new(std::ptr::null_mut()) }; MAX_PLACED];
 
 const WS_OVERLAPPEDWINDOW: u32 = 0x00CF_0000;
 const WS_CHILD: u32 = 0x4000_0000;
@@ -391,23 +392,18 @@ fn main() {
 }
 
 fn run() -> i32 {
-    if TITLE_UTF8.len() != TITLE_LEN || TEXT_UTF8.len() != TEXT_LEN || SEMANTIC_ID_UTF8.len() != SEMANTIC_LEN {
+    if TITLE_UTF8.len() != TITLE_LEN || ROOT_ID_UTF8.len() != ROOT_ID_LEN || PLACED.is_empty() || PLACED.len() > MAX_PLACED {
         return fail("generated lengths do not match");
+    }
+    for cell in PLACED {
+        if cell.text.len() != cell.text_len || cell.id.len() != cell.id_len {
+            return fail("generated lengths do not match");
+        }
     }
     let title = match wide_utf8(TITLE_UTF8) {
         Some(value) => value,
         None => return fail("window title is not valid UTF-8"),
     };
-    let text = match wide_utf8(TEXT_UTF8) {
-        Some(value) => value,
-        None => return fail("window text is not valid UTF-8"),
-    };
-    let identity = match wide_utf8(SEMANTIC_ID_UTF8) {
-        Some(value) => value,
-        None => return fail("semantic id is not valid UTF-8"),
-    };
-    LABEL.store(text.as_ptr() as *mut u16, Ordering::Relaxed);
-    IDENTITY.store(identity.as_ptr() as *mut u16, Ordering::Relaxed);
     unsafe { create_and_run(title.as_ptr()) }
 }
 
@@ -515,9 +511,6 @@ unsafe fn create_and_run(title: *const u16) -> i32 {
         TranslateMessage(&message);
         DispatchMessageW(&message);
     }
-    LABEL.store(std::ptr::null_mut(), Ordering::Relaxed);
-    IDENTITY.store(std::ptr::null_mut(), Ordering::Relaxed);
-    CHILD.store(std::ptr::null_mut(), Ordering::Relaxed);
     message.wparam as i32
 }
 
@@ -534,7 +527,7 @@ unsafe extern "system" fn wnd_proc(hwnd: *mut c_void, message: u32, wparam: usiz
             0
         }
         WM_SIZE => {
-            place_child(hwnd);
+            place_all(hwnd);
             0
         }
         WM_DPICHANGED => {
@@ -548,10 +541,19 @@ unsafe extern "system" fn wnd_proc(hwnd: *mut c_void, message: u32, wparam: usiz
             0
         }
         WM_DESTROY => {
-            let child = CHILD.load(Ordering::Relaxed);
             RemovePropW(hwnd, PROP_SEMANTIC.as_ptr());
-            if !child.is_null() {
-                RemovePropW(child, PROP_SEMANTIC.as_ptr());
+            for index in 0..PLACED.len() {
+                let child = HWNDS[index].swap(std::ptr::null_mut(), Ordering::Relaxed);
+                if !child.is_null() {
+                    RemovePropW(child, PROP_SEMANTIC.as_ptr());
+                }
+                let id_ptr = ID_PTRS[index].swap(std::ptr::null_mut(), Ordering::Relaxed);
+                let len_ptr = ID_LENS[index].swap(std::ptr::null_mut(), Ordering::Relaxed);
+                if !id_ptr.is_null() && !len_ptr.is_null() {
+                    let len = *len_ptr;
+                    drop(Box::from_raw(len_ptr));
+                    drop(Box::from_raw(std::ptr::slice_from_raw_parts_mut(id_ptr, len)));
+                }
             }
             PostQuitMessage(0);
             0
@@ -561,63 +563,90 @@ unsafe extern "system" fn wnd_proc(hwnd: *mut c_void, message: u32, wparam: usiz
 }
 
 unsafe fn setup(hwnd: *mut c_void) -> i32 {
-    let label = LABEL.load(Ordering::Relaxed);
-    let identity = IDENTITY.load(Ordering::Relaxed);
-    if label.is_null() || identity.is_null() {
+    let root_id = match wide_utf8(ROOT_ID_UTF8) {
+        Some(value) => value,
+        None => return 1,
+    };
+    if SetPropW(hwnd, PROP_SEMANTIC.as_ptr(), root_id.as_ptr() as *mut c_void) == 0 {
         return 1;
     }
+    std::mem::forget(root_id);
     let static_class = wide_ascii("STATIC");
     let instance = GetModuleHandleW(std::ptr::null());
-    let child = CreateWindowExW(
-        0,
-        static_class.as_ptr(),
-        label,
-        WS_CHILD | WS_VISIBLE | SS_NOPREFIX,
-        0,
-        0,
-        scale(CLIENT_DIP_W, 96),
-        scale(CLIENT_DIP_H, 96),
-        hwnd,
-        std::ptr::null_mut(),
-        instance,
-        std::ptr::null_mut(),
-    );
-    if child.is_null() {
-        return 1;
-    }
     let font = GetStockObject(DEFAULT_GUI_FONT);
     if font.is_null() {
         return 1;
     }
-    SendMessageW(child, WM_SETFONT, font as usize, 1);
-    if SetPropW(hwnd, PROP_SEMANTIC.as_ptr(), identity as *mut c_void) == 0
-        || SetPropW(child, PROP_SEMANTIC.as_ptr(), identity as *mut c_void) == 0
-    {
-        return 1;
+    for (index, cell) in PLACED.iter().enumerate() {
+        let text = match wide_utf8(cell.text) {
+            Some(value) => value,
+            None => return 1,
+        };
+        let mut identity = match wide_utf8(cell.id) {
+            Some(value) => value,
+            None => return 1,
+        };
+        let child = CreateWindowExW(
+            0,
+            static_class.as_ptr(),
+            text.as_ptr(),
+            WS_CHILD | WS_VISIBLE | SS_NOPREFIX,
+            0,
+            0,
+            0,
+            0,
+            hwnd,
+            (index + 1) as *mut c_void,
+            instance,
+            std::ptr::null_mut(),
+        );
+        if child.is_null() {
+            return 1;
+        }
+        SendMessageW(child, WM_SETFONT, font as usize, 1);
+        let id_ptr = identity.as_mut_ptr();
+        let id_len = identity.len();
+        if SetPropW(child, PROP_SEMANTIC.as_ptr(), id_ptr as *mut c_void) == 0 {
+            return 1;
+        }
+        let boxed = identity.into_boxed_slice();
+        ID_PTRS[index].store(Box::into_raw(boxed) as *mut u16, Ordering::Relaxed);
+        ID_LENS[index].store(Box::into_raw(Box::new(id_len)), Ordering::Relaxed);
+        HWNDS[index].store(child, Ordering::Relaxed);
     }
-    CHILD.store(child, Ordering::Relaxed);
-    place_child(hwnd);
+    place_all(hwnd);
     0
 }
 
-unsafe fn place_child(parent: *mut c_void) {
-    let child = CHILD.load(Ordering::Relaxed);
-    if child.is_null() {
-        return;
-    }
+unsafe fn place_all(parent: *mut c_void) {
     let mut dpi = GetDpiForWindow(parent);
     if dpi == 0 || dpi > 960 {
         dpi = 96;
     }
-    let want_w = scale(CLIENT_DIP_W, dpi);
-    let want_h = scale(CLIENT_DIP_H, dpi);
     let mut rect = Rect { left: 0, top: 0, right: 0, bottom: 0 };
     if GetClientRect(parent, &mut rect) == 0 {
         return;
     }
     let client_w = rect.right.saturating_sub(rect.left).max(0);
     let client_h = rect.bottom.saturating_sub(rect.top).max(0);
-    MoveWindow(child, 0, 0, want_w.min(client_w), want_h.min(client_h), 1);
+    for (index, cell) in PLACED.iter().enumerate() {
+        let child = HWNDS[index].load(Ordering::Relaxed);
+        if child.is_null() {
+            continue;
+        }
+        let x = scale(cell.x, dpi);
+        let y = scale(cell.y, dpi);
+        let mut width = scale(cell.w, dpi);
+        let mut height = scale(cell.h, dpi);
+        if x >= client_w || y >= client_h {
+            width = 0;
+            height = 0;
+        } else {
+            width = width.min(client_w - x);
+            height = height.min(client_h - y);
+        }
+        MoveWindow(child, x.max(0), y.max(0), width.max(0), height.max(0), 1);
+    }
 }
 "#;
 
