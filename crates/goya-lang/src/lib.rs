@@ -324,6 +324,17 @@ mod tests {
         );
     }
 
+    #[test]
+    fn parser_rejects_geometry_numbers_that_overflow_to_infinity() {
+        let huge = "9".repeat(400);
+        let source = format!(
+            "@ontology demo {{ @cell root {{ id: \"root\"; position: ({huge}, 0, 0) }} }}"
+        );
+        assert!(parse(&source).is_err());
+        assert!(parse_strict(&source).is_err());
+        assert!(parse_strict("@ontology demo { @cell root { id: \"root\"; position: (1, 0, 0) } }").is_ok());
+    }
+
     const HELLO: &str = "\
 @ontology hello {
     @cell root {
