@@ -2,14 +2,16 @@
 
 Status: **BLOCKED**. The canonical Goya frontend now has strict admission and
 source-origin records, and Neptune has a verified source map for its narrow
-Swift text preview. These are implementation capabilities, not Aragon release
-evidence. No Kotlin emission, APK, AAB, benchmark, device qualification or
+Swift text preview. Goya's SDK also emits an experimental Kotlin `TextView`
+preview for a single, unstyled static text cell, rejecting features outside
+that subset. These are implementation capabilities, not Aragon release
+evidence. No Android build, APK, AAB, benchmark, device qualification or
 complete Android toolchain lock is asserted.
 
 | Gate | Status | Evidence or missing work |
 | --- | --- | --- |
 | ARG-G01 Frontend | BLOCKED | `goya_lang::parse_strict` admits only represented semantics: it rejects unknown properties, templates, duplicate canonical properties, missing/duplicate authored IDs, and invalid interactions with structured codes and UTF-8 byte ranges (`crates/goya-lang/src/parser.rs`). `parse_with_source_map` returns sorted declaration/property entries with exact-source SHA-256, byte ranges, within-revision scene paths, and authored semantic IDs where available. This is not yet an Aragon frontend contract or a Kotlin emitter/map. Parse failures from the compatibility parser still carry a line only; `parse_strict` converts these to the corresponding whole-line byte range. Property entries have no independent authored property ID, and scene paths can shift across edits. Negative coverage exists as unit tests in `crates/goya-lang/src/lib.rs`, but no Aragon differential/mutation corpus or release audit is recorded. |
-| ARG-G02 Semantics | BLOCKED | No Android lowering or differential/mutation corpus. |
+| ARG-G02 Semantics | BLOCKED | `goya_sdk::emit_android_static_text_preview` emits Kotlin for one strictly admitted static text cell and rejects unsupported scene features. Its output has not established layout or text equivalence; there is no Android differential/mutation corpus. |
 | ARG-G03 Determinism | BLOCKED | No generated outputs or R1 comparison. |
 | ARG-G04 Android compile | BLOCKED | No generated app or verified pinned Android build environment. |
 | ARG-G05 Emulator | BLOCKED | No emulator execution or recorded artifact. |
@@ -38,4 +40,6 @@ reports matching authored IDs. `crates/neptune/src/lib.rs` only generates this
 map for its one-cell static text preview. That preview explicitly does not
 admit an iOS build or verify Swift syntax. Neither implementation provides the
 typed Kotlin emission, Android source map, broader source coverage, or
-qualification required by ARG-G01 and later gates.
+qualification required by ARG-G01 and later gates. The SDK's static `TextView`
+preview produces Kotlin source only; it has no generated-source map or
+recorded Android compile or execution evidence.

@@ -154,6 +154,19 @@ fn error(message: impl Into<String>, range: Option<SourceRange>) -> crate::Diagn
     }
 }
 
+fn conflicting_state_range(parsed: &goya_lang::ParsedScene, key: &str) -> Option<SourceRange> {
+    let mut seen = None;
+    for action in &parsed.scene.interactions {
+        for item in action.state_reads.iter().chain(&action.state_writes).filter(|item| item.name == key) {
+            if seen.is_some_and(|ty| ty != item.value_type) {
+                return parsed.entries.iter().find(|entry| entry.kind == "interaction" && entry.semantic_id == action.authored_id).map(|entry| entry.range);
+            }
+            seen = Some(item.value_type);
+        }
+    }
+    None
+}
+
 /// Validate explicit initial state using Goya's shared application owner and
 /// lower every D1 action. The model covers state only; presentation and iOS
 /// platform semantics remain unvalidated.
@@ -170,24 +183,7 @@ pub fn lower(
     }
     let owner = goya_sdk::D1Application::new(&parsed.scene, initial).map_err(|e| {
         let range = match &e {
-            goya_sdk::D1ApplicationError::ConflictingStateType(key) => parsed
-                .scene
-                .interactions
-                .iter()
-                .rev()
-                .find(|action| {
-                    action
-                        .state_reads
-                        .iter()
-                        .chain(&action.state_writes)
-                        .any(|item| item.name == *key)
-                })
-                .and_then(|action| {
-                    parsed.entries.iter().find(|entry| {
-                        entry.kind == "interaction" && entry.semantic_id == action.authored_id
-                    })
-                })
-                .map(|entry| entry.range),
+            goya_sdk::D1ApplicationError::ConflictingStateType(key) => conflicting_state_range(&parsed, key),
             _ => None,
         };
         error(e.to_string(), range)
