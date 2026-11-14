@@ -5,6 +5,7 @@ use goya_lang::{CellKind, InteractionClass, SourceRange};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
+#[derive(Debug)]
 pub struct Preview(serde_json::Value);
 impl Preview {
     pub fn to_json(&self) -> serde_json::Value {
@@ -45,6 +46,7 @@ pub fn preview(
         .iter()
         .find(|e| e.kind == "property" && e.name == "text" && e.scene_path.as_deref() == Some(&[]));
     let unsupported = parsed.entries.iter().find(|e| match e.kind.as_str() {
+        "ontology" => false,
         "button" => e.scene_path.as_deref() != Some(&[]),
         "property" => {
             e.scene_path.as_deref() != Some(&[]) || !matches!(e.name.as_str(), "id" | "text")
@@ -55,7 +57,7 @@ pub fn preview(
     if root.kind != CellKind::Button
         || !root.children.is_empty()
         || parsed.scene.interactions.len() != 1
-        || parsed.entries.len() != 4
+        || parsed.entries.len() != 5
         || button.is_none()
         || text_entry.is_none()
         || unsupported.is_some()
@@ -164,4 +166,72 @@ pub fn preview(
         "stages":{"goya_frontend":"PASS","runtime_limit_parity":"NOT_VERIFIED","apple_validation":"NOT_RUN","ios_admission":"NOT_RUN"}
     });
     Ok(Preview(result))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    const SOURCE: &str = include_str!("../tests/native-button.gscene");
+    fn initial() -> BTreeMap<String, D1Value> {
+        BTreeMap::from([("count".into(), D1Value::Int(0))])
+    }
+    #[test]
+    fn native_button_maps_action_and_label_deterministically() {
+        let first = preview(SOURCE, "app/main.gscene", initial()).unwrap();
+        assert_eq!(
+            first.to_json(),
+            preview(SOURCE, "app/main.gscene", initial())
+                .unwrap()
+                .to_json()
+        );
+        let swift = first.swift();
+        assert!(swift.contains("@Published private(set) var state"));
+        assert!(swift.contains("@StateObject private var store = NeptuneStore()"));
+        assert!(swift.contains("try store.dispatch0(input: NeptuneInput0())"));
+        assert!(swift.contains("Text(verbatim: \"Increment\")"));
+        assert!(swift.contains("Text(verbatim: \"Action failed: \" + actionError)"));
+        assert!(!swift.contains("try?"));
+        let json = first.to_json();
+        assert_eq!(json["stages"]["apple_validation"], "NOT_RUN");
+        for mapping in json["source_map"]["mappings"].as_array().unwrap() {
+            let source = &mapping["source_range"];
+            let generated = &mapping["swift_range"];
+            assert!(SOURCE
+                .get(
+                    source["start_byte"].as_u64().unwrap() as usize
+                        ..source["end_byte"].as_u64().unwrap() as usize
+                )
+                .is_some());
+            assert!(swift
+                .get(
+                    generated["start_byte"].as_u64().unwrap() as usize
+                        ..generated["end_byte"].as_u64().unwrap() as usize
+                )
+                .is_some());
+        }
+        let escaped = SOURCE.replace("Increment", "é\\(unsafe)");
+        assert!(preview(&escaped, "app/main.gscene", initial())
+            .unwrap()
+            .swift()
+            .contains("é\\\\(unsafe)"));
+    }
+    #[test]
+    fn unsupported_presentation_and_inputs_fail_closed() {
+        for source in [
+            SOURCE.replace("text: \"Increment\"", "text: \" \""),
+            SOURCE.replace("text: \"Increment\"", "text: \"Increment\" fill: #ffffff"),
+            SOURCE.replace("input { }", "input { amount: int; }"),
+            SOURCE.replace("@button increment", "@input increment"),
+        ] {
+            assert!(
+                preview(&source, "app/main.gscene", initial()).is_err(),
+                "{source}"
+            );
+        }
+        assert!(preview(SOURCE, "app/main.gscene", BTreeMap::new()).is_err());
+        let colored = SOURCE.replace("text: \"Increment\"", "text: \"Increment\" fill: #ffffff");
+        let error = preview(&colored, "app/main.gscene", initial()).unwrap_err();
+        let range = error.range.unwrap();
+        assert_eq!(&colored[range.start..range.end], "fill: #ffffff");
+    }
 }

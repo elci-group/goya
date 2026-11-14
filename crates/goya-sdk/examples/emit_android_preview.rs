@@ -6,7 +6,7 @@ fn main() {
         eprintln!("usage: emit_android_preview <output.kt>");
         process::exit(2);
     });
-    let source = r#"@ontology demo { @cell label { id: "label"; text: "Hello preview" } }"#;
+    let source = r#"@ontology demo { @cell label { id: "label"; text: "Hello $user \ café 🦀" } }"#;
     let kotlin = emit_android_static_text_preview_named(source, "GoyaStaticTextPreview")
         .unwrap_or_else(|error| {
             eprintln!("preview emission failed: {error}");

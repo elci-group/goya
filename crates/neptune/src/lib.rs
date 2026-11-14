@@ -126,6 +126,7 @@ pub fn preview_static_text(source: &str) -> Result<SourcePreview, Diagnostic> {
         .entries
         .iter()
         .find(|entry| match entry.kind.as_str() {
+            "ontology" => false,
             "cell" => entry.scene_path.as_deref() != Some(&[]),
             "property" => {
                 !matches!(entry.name.as_str(), "id" | "text")
@@ -137,7 +138,7 @@ pub fn preview_static_text(source: &str) -> Result<SourcePreview, Diagnostic> {
         || properties.len() != 2
         || text_property.is_none()
         || !properties.iter().any(|entry| entry.name == "id")
-        || parsed.entries.len() != 3
+        || parsed.entries.len() != 4
         || !parsed.scene.interactions.is_empty()
         || !parsed.scene.root.children.is_empty()
         || cells[0].scene_path.as_deref() != Some(&[])

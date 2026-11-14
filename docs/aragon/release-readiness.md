@@ -45,3 +45,8 @@ preview can also return a source digest, authored ID, and UTF-8 byte ranges
 linking its generated Kotlin literal to the source text property. This is a
 single-property in-process map, not a general Android source-map format. No
 Android compile or execution evidence is recorded.
+
+`scripts/check-android-preview-kotlin.sh` generates a preview and compiles it
+offline with cached Kotlin 2.0.21 and minimal Android API stubs. This checks
+Kotlin syntax and types against those stubs, not an Android SDK build or
+platform behavior; ARG-G04 remains blocked.
