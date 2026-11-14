@@ -5,10 +5,16 @@
 //! millipoint result divides evenly into reference pixels.
 
 use crate::Diagnostic;
-use goya_lang::{handoff, layout, CellKind, ParsedScene, SceneCell, SourceRange};
+use goya_lang::{handoff, layout, CellKind, ParsedScene, RectMp, SceneCell, SourceRange};
 
 /// Profile implemented by this module. It is not the full Sash v0.0.1 slice.
-pub const PROFILE: &str = "sash.win32.static-window/0.0.1";
+pub const PROFILE: &str = "sash.win32.static-window/0.0.2";
+
+/// Millipoints in one Goya point. Matches the private layout constant.
+const MP: f64 = 1000.0;
+
+/// Most cells, including containers, admitted in one window.
+const MAX_CELLS: usize = 32;
 
 /// Reference pixels used by the existing Goya host (`MP_PER_PX`).
 pub const MP_PER_DIP: i64 = 250;
@@ -33,12 +39,27 @@ pub struct Disposition {
     pub detail: String,
 }
 
+/// One text label placed in the root window's client area.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlacedLabel {
+    pub semantic_id: String,
+    pub text: String,
+    pub x_dip: i32,
+    pub y_dip: i32,
+    pub width_dip: i32,
+    pub height_dip: i32,
+    pub text_range: SourceRange,
+    pub id_range: SourceRange,
+    pub extent_range: SourceRange,
+}
+
 /// A scene whose entire admitted meaning fits one static window.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdmittedWindow {
     pub scene_name: String,
     pub semantic_id: String,
     pub text: String,
+    pub labels: Vec<PlacedLabel>,
     pub ontology_range: SourceRange,
     pub text_range: SourceRange,
     pub extent_range: SourceRange,

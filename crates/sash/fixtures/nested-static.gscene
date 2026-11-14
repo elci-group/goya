@@ -1,0 +1,13 @@
+@ontology hello {
+  @cell root {
+    id: "window.root";
+    text: "Hello";
+    extent: (80, 40, 0);
+    @cell child {
+      id: "window.child";
+      text: "There";
+      position: (10, 5, 0);
+      extent: (20, 10, 0);
+    }
+  }
+}
