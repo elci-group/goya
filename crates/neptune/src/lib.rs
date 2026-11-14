@@ -3,8 +3,8 @@ use goya_lang::{lex, parse_strict, parse_with_source_map, SourceRange, TokenKind
 use sha2::{Digest, Sha256};
 
 pub mod apple;
-pub mod artifacts;
 pub mod application;
+pub mod artifacts;
 pub mod conformance;
 pub mod service;
 pub mod source_map;
