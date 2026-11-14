@@ -452,44 +452,44 @@ fn points_to_mp(points: f64) -> i64 {
     (points * MP) as i64
 }
 
-fn reject_visuals(root: &SceneCell, parsed: &ParsedScene) -> Result<(), Diagnostic> {
+fn reject_visuals(cell: &SceneCell, parsed: &ParsedScene, path: &[usize]) -> Result<(), Diagnostic> {
     let checks: [(&str, bool); 8] = [
-        ("position_p", root.position_p.is_some()),
-        ("extent_p", root.extent_p.is_some()),
-        ("fill", root.fill.is_some()),
-        ("stroke", root.stroke.is_some()),
-        ("stroke_width", root.stroke_width.is_some()),
-        ("text_size", root.text_size.is_some()),
-        ("anchor", root.anchor.is_some()),
-        ("wrap", root.wrap.is_some()),
+        ("position_p", cell.position_p.is_some()),
+        ("extent_p", cell.extent_p.is_some()),
+        ("fill", cell.fill.is_some()),
+        ("stroke", cell.stroke.is_some()),
+        ("stroke_width", cell.stroke_width.is_some()),
+        ("text_size", cell.text_size.is_some()),
+        ("anchor", cell.anchor.is_some()),
+        ("wrap", cell.wrap.is_some()),
     ];
     for (name, present) in checks {
         if present {
             return Err(cap(
                 format!("{name} is reachable and this profile does not preserve it"),
                 "Remove the property, or wait for a profile that admits it.",
-                property_range_aliases(parsed, name),
+                property_range_at(parsed, path, name),
             ));
         }
     }
-    if root.scroll {
+    if cell.scroll {
         return Err(cap(
             "scroll is reachable and this profile does not preserve a scroll viewport",
             "Remove scroll, or wait for a profile that admits it.",
-            property_range(parsed, "scroll"),
+            property_range_at(parsed, path, "scroll"),
         ));
     }
     Ok(())
 }
 
-fn require_text(root: &SceneCell, parsed: &ParsedScene) -> Result<String, Diagnostic> {
-    let range = property_range(parsed, "text");
-    let Some(text) = root.text.clone() else {
-        return Err(cap(
-            "authored text is required so the native control has an accessible name",
-            "Add a text property. An id is not displayed in place of missing text.",
-            cell_range(parsed, &[]),
-        ));
+fn validate_text(
+    cell: &SceneCell,
+    parsed: &ParsedScene,
+    path: &[usize],
+) -> Result<Option<String>, Diagnostic> {
+    let range = property_range_at(parsed, path, "text");
+    let Some(text) = cell.text.clone() else {
+        return Ok(None);
     };
     if text.is_empty() {
         return Err(cap(
