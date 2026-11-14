@@ -12,17 +12,34 @@ const TEXT_CASES: &str = include_str!("../conformance/d1-text-cases.json");
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
-enum Scalar { Int(i64), Text(String), Bool(bool) }
+enum Scalar {
+    Int(i64),
+    Text(String),
+    Bool(bool),
+}
 
 impl Scalar {
     fn matches_type(&self, ty: goya_lang::InteractionType) -> bool {
-        matches!((self, ty), (Self::Int(_), goya_lang::InteractionType::Int) | (Self::Text(_), goya_lang::InteractionType::Text) | (Self::Bool(_), goya_lang::InteractionType::Bool))
+        matches!(
+            (self, ty),
+            (Self::Int(_), goya_lang::InteractionType::Int)
+                | (Self::Text(_), goya_lang::InteractionType::Text)
+                | (Self::Bool(_), goya_lang::InteractionType::Bool)
+        )
     }
     fn to_d1(&self) -> D1Value {
-        match self { Self::Int(value) => D1Value::Int(*value), Self::Text(value) => D1Value::Text(value.clone()), Self::Bool(value) => D1Value::Bool(*value) }
+        match self {
+            Self::Int(value) => D1Value::Int(*value),
+            Self::Text(value) => D1Value::Text(value.clone()),
+            Self::Bool(value) => D1Value::Bool(*value),
+        }
     }
     fn from_d1(value: D1Value) -> Self {
-        match value { D1Value::Int(value) => Self::Int(value), D1Value::Text(value) => Self::Text(value), D1Value::Bool(value) => Self::Bool(value) }
+        match value {
+            D1Value::Int(value) => Self::Int(value),
+            D1Value::Text(value) => Self::Text(value),
+            D1Value::Bool(value) => Self::Bool(value),
+        }
     }
 }
 
@@ -70,7 +87,9 @@ fn target_expression(
 ) -> Result<Scalar, String> {
     match &expr.operation {
         Operation::Constant(goya_lang::InteractionValue::Int(value)) => Ok(Scalar::Int(*value)),
-        Operation::Constant(goya_lang::InteractionValue::Text(value)) => Ok(Scalar::Text(value.clone())),
+        Operation::Constant(goya_lang::InteractionValue::Text(value)) => {
+            Ok(Scalar::Text(value.clone()))
+        }
         Operation::Constant(goya_lang::InteractionValue::Bool(value)) => Ok(Scalar::Bool(*value)),
         Operation::State(key) => state
             .get(key)
@@ -81,8 +100,15 @@ fn target_expression(
             .cloned()
             .ok_or_else(|| "missing_input".into()),
         Operation::CheckedAdd(left, right) => {
-            let (Scalar::Int(left), Scalar::Int(right)) = (target_expression(left, state, inputs)?, target_expression(right, state, inputs)?) else { return Err("type_mismatch".into()); };
-            i64::try_from(i128::from(left) + i128::from(right)).map(Scalar::Int).map_err(|_| "arithmetic_overflow".into())
+            let (Scalar::Int(left), Scalar::Int(right)) = (
+                target_expression(left, state, inputs)?,
+                target_expression(right, state, inputs)?,
+            ) else {
+                return Err("type_mismatch".into());
+            };
+            i64::try_from(i128::from(left) + i128::from(right))
+                .map(Scalar::Int)
+                .map_err(|_| "arithmetic_overflow".into())
         }
     }
 }
@@ -107,8 +133,19 @@ fn target_run(action: &Transition, case: &Case) -> Outcome {
             error: "state_schema".into(),
         };
     }
-    if action.state_reads.iter().chain(&action.state_writes).any(|key| case.state.get(&key.name).is_none_or(|value| !value.matches_type(key.value_type))) {
-        return Outcome::Error { error: "state_schema".into() };
+    if action
+        .state_reads
+        .iter()
+        .chain(&action.state_writes)
+        .any(|key| {
+            case.state
+                .get(&key.name)
+                .is_none_or(|value| !value.matches_type(key.value_type))
+        })
+    {
+        return Outcome::Error {
+            error: "state_schema".into(),
+        };
     }
     if case
         .inputs
@@ -121,8 +158,14 @@ fn target_run(action: &Transition, case: &Case) -> Outcome {
             error: "input_schema".into(),
         };
     }
-    if action.inputs.iter().any(|key| case.inputs.get(&key.name).is_none_or(|value| !value.matches_type(key.value_type))) {
-        return Outcome::Error { error: "input_schema".into() };
+    if action.inputs.iter().any(|key| {
+        case.inputs
+            .get(&key.name)
+            .is_none_or(|value| !value.matches_type(key.value_type))
+    }) {
+        return Outcome::Error {
+            error: "input_schema".into(),
+        };
     }
     let mut writes = Vec::new();
     for assignment in &action.assignments {
@@ -157,7 +200,9 @@ fn reference_run(action: &goya_lang::CompiledInteraction, case: &Case) -> Result
     match action.execute(&snapshot, &inputs) {
         Ok(outcome) => {
             let mut state = BTreeMap::new();
-            for (key, value) in outcome.next_state { state.insert(key, Scalar::from_d1(value)); }
+            for (key, value) in outcome.next_state {
+                state.insert(key, Scalar::from_d1(value));
+            }
             Ok(Outcome::Ok {
                 revision: outcome.revision_after,
                 state,
@@ -189,20 +234,37 @@ fn reference_run(action: &goya_lang::CompiledInteraction, case: &Case) -> Result
 
 /// Run the pinned, hand-authored scalar corpus against both implementations.
 pub fn run_d1_corpus() -> Result<CorpusReport, String> {
-    let reports = [run_fixture(SCENE, CASES)?, run_fixture(TEXT_SCENE, TEXT_CASES)?];
+    let reports = [
+        run_fixture(SCENE, CASES)?,
+        run_fixture(TEXT_SCENE, TEXT_CASES)?,
+    ];
     let passed = reports.iter().all(|report| report.passed);
-    let reference_passed = reports.iter().all(|report| report.json["stages"]["reference_executor"] == "PASS");
-    let target_passed = reports.iter().all(|report| report.json["stages"]["target_ir"] == "PASS");
+    let reference_passed = reports
+        .iter()
+        .all(|report| report.json["stages"]["reference_executor"] == "PASS");
+    let target_passed = reports
+        .iter()
+        .all(|report| report.json["stages"]["target_ir"] == "PASS");
     let mut cases = Vec::new();
     for report in &reports {
-        let fixture = report.json["fixture"].as_str().ok_or("missing fixture ID")?;
-        for case in report.json["cases"].as_array().ok_or("missing fixture cases")? {
+        let fixture = report.json["fixture"]
+            .as_str()
+            .ok_or("missing fixture ID")?;
+        for case in report.json["cases"]
+            .as_array()
+            .ok_or("missing fixture cases")?
+        {
             let mut case = case.clone();
-            case.as_object_mut().ok_or("invalid case report")?.insert("fixture".into(), serde_json::json!(fixture));
+            case.as_object_mut()
+                .ok_or("invalid case report")?
+                .insert("fixture".into(), serde_json::json!(fixture));
             cases.push(case);
         }
     }
-    Ok(CorpusReport { passed, json: serde_json::json!({"schema_version":"2", "suite":"d1-scalar-corpus", "status":if passed {"PASS"} else {"FAIL"}, "scope":"host-side scalar target IR only", "fixtures":reports.iter().map(|report| &report.json).collect::<Vec<_>>(), "cases":cases, "stages":{"reference_executor":if reference_passed {"PASS"} else {"FAIL"}, "target_ir":if target_passed {"PASS"} else {"FAIL"}, "generated_swift":"BLOCKED", "apple_typecheck":"BLOCKED", "simulator":"BLOCKED", "physical_device":"BLOCKED", "ios_admission":"NOT_RUN"}}) })
+    Ok(CorpusReport {
+        passed,
+        json: serde_json::json!({"schema_version":"2", "suite":"d1-scalar-corpus", "status":if passed {"PASS"} else {"FAIL"}, "scope":"host-side scalar target IR only", "fixtures":reports.iter().map(|report| &report.json).collect::<Vec<_>>(), "cases":cases, "stages":{"reference_executor":if reference_passed {"PASS"} else {"FAIL"}, "target_ir":if target_passed {"PASS"} else {"FAIL"}, "generated_swift":"BLOCKED", "apple_typecheck":"BLOCKED", "simulator":"BLOCKED", "physical_device":"BLOCKED", "ios_admission":"NOT_RUN"}}),
+    })
 }
 
 fn run_fixture(scene_source: &str, case_source: &str) -> Result<CorpusReport, String> {

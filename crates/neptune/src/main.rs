@@ -120,7 +120,7 @@ fn main() -> ExitCode {
                         println!("{}", report.json);
                     } else {
                         println!(
-                            "D1 integer corpus: {}; Swift and Apple validation are BLOCKED",
+                            "D1 scalar corpus: {}; Swift and Apple validation are BLOCKED",
                             if report.passed { "PASS" } else { "FAIL" }
                         );
                     }
@@ -134,7 +134,7 @@ fn main() -> ExitCode {
                     if json {
                         println!(
                             "{}",
-                            serde_json::json!({"schema_version":"1","suite":"d1-integer-corpus","status":"FAIL","error":error})
+                            serde_json::json!({"schema_version":"2","suite":"d1-scalar-corpus","status":"FAIL","error":error})
                         );
                     } else {
                         eprintln!("D1 corpus failed: {error}");
