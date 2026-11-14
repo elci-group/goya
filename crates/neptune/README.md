@@ -8,7 +8,7 @@ Neptune currently provides an experimental Swift source preview for one `.gscene
 
 `neptune verify-preview <directory> [--format json]` checks that the three generated artifacts match their hashes in the report. This checks consistency only: a report and artifacts can be changed together, and no signature, Apple compilation, or device behavior is verified.
 
-`neptune preview-transition <file> --module app/main.gscene --profile experimental --format json` emits standalone Swift source for one Goya D1 interaction, together with the mapping of source state/input keys to generated fields. It stages values from the original snapshot and checks arithmetic and revision overflow before returning a new state. It is not an application and does not provide runtime adapters. The result records Apple validation and runtime resource-limit parity as not verified; Goya's text, snapshot, and register limits must be preserved before this mapping is admitted.
+`neptune preview-transition <file> --module app/main.gscene --profile experimental --format json` emits standalone Swift source for one Goya D1 interaction, together with the mapping of source state/input keys to generated fields. It stages values from the original snapshot and checks arithmetic and revision overflow before returning a new state. The generated code includes UTF-8 text, snapshot, and register budget checks derived from the Goya D1 executor. It is not an application and does not provide runtime adapters. The result records Apple validation and runtime resource-limit parity as not verified; the generated checks must be compiled and compared against the executor before this mapping is admitted.
 
 ## Local service protocol, version 1
 
