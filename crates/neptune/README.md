@@ -41,3 +41,5 @@ Operations are `inspect`, `check`, `preview`, `preview-transition`, `model-d1-st
 Each event contains `schema_version`, `job_id`, `sequence` (currently always 1), `stage`, and `status`. A successful `inspect` means inspection completed; its result separately reports the failed iOS validation. A successful `preview` means source generation completed, with verification labeled `SOURCE_PREVIEW`. A `check` cannot currently pass. Build, cancellation, artifact retrieval, multi-event streaming, and persistent idempotency are not implemented and must not be inferred from this protocol.
 
 `neptune serve` accepts `validate-deploy-manifest` with a typed `manifest` object matching `goya.neptune.deploy/0.0.1`. This validates structure and supported settings; it does not read the referenced IPA, validate Apple signatures, or contact a device. The CLI `dock-verify` additionally checks the IPA SHA-256 against actual bytes.
+
+`neptune swift-parse <generated.swift>` invokes the installed Swift frontend in parse-only mode. A pass confirms syntax parsing; it does not resolve Apple frameworks, type-check against an iOS SDK, link, or run the app. Missing Swift returns exit code 3.

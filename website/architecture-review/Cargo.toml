@@ -1,0 +1,10 @@
+[package]
+name = "goya-architecture-review"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Loopback architecture review of the Goya backend"
+
+# Own workspace so this review server stays out of the Goya workspace build.
+[workspace]

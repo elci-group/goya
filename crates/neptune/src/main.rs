@@ -93,6 +93,26 @@ fn main() -> ExitCode {
     if args.len() == 2 && args[1] == "serve" {
         return serve();
     }
+    if args.len() == 3 && args[1] == "swift-parse" {
+        let output = std::process::Command::new("swiftc")
+            .args(["-frontend", "-parse"])
+            .arg(&args[2])
+            .output();
+        return match output {
+            Ok(result) if result.status.success() => {
+                println!("{{\"schema_version\":\"1\",\"operation\":\"swift-parse\",\"status\":\"PASS\",\"validation\":\"swift_syntax_only\",\"apple_sdk_validation\":\"NOT_RUN\"}}");
+                ExitCode::SUCCESS
+            }
+            Ok(result) => {
+                eprintln!("{}", String::from_utf8_lossy(&result.stderr));
+                ExitCode::FAILURE
+            }
+            Err(error) => {
+                eprintln!("could not run swiftc: {error}");
+                ExitCode::from(3)
+            }
+        };
+    }
     if args.len() >= 2 && args[1] == "dock-verify" {
         if args.len() < 5 || args[3] != "--ipa" {
             eprintln!("usage: neptune dock-verify <manifest.json> --ipa <application.ipa>");
