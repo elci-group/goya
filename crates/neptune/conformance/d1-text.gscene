@@ -1,0 +1,13 @@
+@ontology acceptance {
+    @button save { id: "acceptance.save" }
+    @interaction update {
+        id: "acceptance.update";
+        trigger: button.save.activate;
+        class: D1;
+        state { read saved: text; write saved: text; write prior: text; write enabled: bool; }
+        input { draft: text; flag: bool; }
+        set saved = input.draft;
+        set prior = state.saved;
+        set enabled = input.flag;
+    }
+}
