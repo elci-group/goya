@@ -93,6 +93,31 @@ fn main() -> ExitCode {
     if args.len() == 2 && args[1] == "serve" {
         return serve();
     }
+    if args.len() >= 2 && args[1] == "map-swift" {
+        if args.len() < 3 { eprintln!("usage: neptune map-swift <preview-directory> --source <file> --line <n> --column <utf8-byte-column> [--format json]"); return ExitCode::from(2); }
+        let (mut source_path, mut line, mut column) = (None, None, None);
+        let mut json = false;
+        for option in args[3..].chunks(2) {
+            if option.len() != 2 { eprintln!("missing option value"); return ExitCode::from(2); }
+            if option[0] == "--source" && source_path.is_none() { source_path = Some(std::path::PathBuf::from(&option[1])); }
+            else if option[0] == "--line" && line.is_none() { line = option[1].to_str().and_then(|v| v.parse::<usize>().ok()).filter(|v| *v > 0); if line.is_none() { eprintln!("invalid line"); return ExitCode::from(2); } }
+            else if option[0] == "--column" && column.is_none() { column = option[1].to_str().and_then(|v| v.parse::<usize>().ok()).filter(|v| *v > 0); if column.is_none() { eprintln!("invalid column"); return ExitCode::from(2); } }
+            else if option[0] == "--format" && option[1] == "json" && !json { json = true; }
+            else { eprintln!("unknown or duplicate option"); return ExitCode::from(2); }
+        }
+        let (Some(source_path), Some(line), Some(column)) = (source_path, line, column) else { eprintln!("--source, --line and --column are required"); return ExitCode::from(2); };
+        let mapped = (|| -> Result<serde_json::Value, String> {
+            let mut bytes = Vec::new();
+            File::open(source_path).and_then(|file| file.take((neptune::MAX_SOURCE_BYTES + 1) as u64).read_to_end(&mut bytes)).map_err(|e| e.to_string())?;
+            if bytes.len() > neptune::MAX_SOURCE_BYTES { return Err("source exceeds 128 KiB".into()); }
+            let source = std::str::from_utf8(&bytes).map_err(|_| "source must be UTF-8")?;
+            neptune::source_map::map_swift_location(std::path::Path::new(&args[2]), source, line, column)
+        })();
+        return match mapped {
+            Ok(value) => { if json { println!("{value}"); } else { println!("{}", serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string())); } ExitCode::SUCCESS }
+            Err(error) => { if json { println!("{}", serde_json::json!({"schema_version":"1","status":"FAIL","message":error})); } else { eprintln!("source mapping failed: {error}"); } ExitCode::FAILURE }
+        };
+    }
     if args.len() >= 2 && args[1] == "apple-plan" {
         if !(args.len() == 5 || (args.len() == 7 && args[5] == "--format" && args[6] == "json"))
             || args[3] != "--lock"
