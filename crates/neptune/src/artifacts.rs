@@ -69,7 +69,16 @@ pub fn load_verified_preview(directory: &Path) -> io::Result<VerifiedPreview> {
     if hashes.len() != FILES.len() {
         return Err(io::Error::other("unexpected artifact hash set"));
     }
-    let input_sha256 = report["input_sha256"].as_str().filter(|hash| hash.len() == 64 && hash.bytes().all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))).ok_or_else(|| io::Error::other("invalid source hash"))?.to_owned();
+    let input_sha256 = report["input_sha256"]
+        .as_str()
+        .filter(|hash| {
+            hash.len() == 64
+                && hash
+                    .bytes()
+                    .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+        })
+        .ok_or_else(|| io::Error::other("invalid source hash"))?
+        .to_owned();
     let mut verified = std::collections::BTreeMap::new();
     let mut artifacts = std::collections::BTreeMap::new();
     for name in FILES {
@@ -85,5 +94,9 @@ pub fn load_verified_preview(directory: &Path) -> io::Result<VerifiedPreview> {
         verified.insert(name.to_owned(), actual);
         artifacts.insert(name.to_owned(), bytes);
     }
-    Ok(VerifiedPreview { artifacts, hashes: verified, input_sha256 })
+    Ok(VerifiedPreview {
+        artifacts,
+        hashes: verified,
+        input_sha256,
+    })
 }

@@ -150,19 +150,38 @@ fn preview_writes_new_directory_and_refuses_overwrite() {
     let offset = swift_text.find("Text(").unwrap();
     let before = &swift_text.as_bytes()[..offset];
     let line = 1 + before.iter().filter(|byte| **byte == b'\n').count();
-    let column = 1 + offset - before.iter().rposition(|byte| *byte == b'\n').map(|i| i + 1).unwrap_or(0);
-    let map = |source: &std::path::Path, line: usize, column: usize| Command::new(env!("CARGO_BIN_EXE_neptune"))
-        .arg("map-swift").arg(&output_dir).arg("--source").arg(source)
-        .arg("--line").arg(line.to_string()).arg("--column").arg(column.to_string())
-        .args(["--format", "json"]).output().unwrap();
+    let column = 1 + offset
+        - before
+            .iter()
+            .rposition(|byte| *byte == b'\n')
+            .map(|i| i + 1)
+            .unwrap_or(0);
+    let map = |source: &std::path::Path, line: usize, column: usize| {
+        Command::new(env!("CARGO_BIN_EXE_neptune"))
+            .arg("map-swift")
+            .arg(&output_dir)
+            .arg("--source")
+            .arg(source)
+            .arg("--line")
+            .arg(line.to_string())
+            .arg("--column")
+            .arg(column.to_string())
+            .args(["--format", "json"])
+            .output()
+            .unwrap()
+    };
     let mapped = map(std::path::Path::new(fixture), line, column);
     assert!(mapped.status.success());
     let mapped: serde_json::Value = serde_json::from_slice(&mapped.stdout).unwrap();
     assert_eq!(mapped["status"], "MAPPED");
     assert_eq!(mapped["mappings"][0]["semantic_id"]["declared_id"], "root");
-    assert_eq!(mapped["mappings"][0]["semantic_id"]["module"], "tests/static.gscene");
+    assert_eq!(
+        mapped["mappings"][0]["semantic_id"]["module"],
+        "tests/static.gscene"
+    );
     assert_eq!(mapped["verification"]["authenticity"], "NOT_CHECKED");
-    let unmapped: serde_json::Value = serde_json::from_slice(&map(std::path::Path::new(fixture), 1, 1).stdout).unwrap();
+    let unmapped: serde_json::Value =
+        serde_json::from_slice(&map(std::path::Path::new(fixture), 1, 1).stdout).unwrap();
     assert_eq!(unmapped["status"], "UNMAPPED");
     let changed = output_dir.join("changed.gscene");
     std::fs::write(&changed, b"different source").unwrap();
@@ -202,7 +221,9 @@ fn preview_writes_new_directory_and_refuses_overwrite() {
     std::fs::write(&lock_path, valid_lock).unwrap();
     std::fs::write(output_dir.join("App.swift"), b"modified").unwrap();
     assert!(!verify().status.success());
-    assert!(!map(std::path::Path::new(fixture), line, column).status.success());
+    assert!(!map(std::path::Path::new(fixture), line, column)
+        .status
+        .success());
     assert_eq!(plan().status.code(), Some(1));
     std::fs::remove_dir_all(output_dir).unwrap();
 }
