@@ -78,6 +78,49 @@ pub fn generate(window: &AdmittedWindow) -> Generated {
     let height_end = main.len();
     main.push_str(PROGRAM);
     let digest = sha256_hex(main.as_bytes());
+    let mut origins = vec![
+        origin("title", &title, &window.ontology_range, &window.semantic_id),
+        origin(
+            "id",
+            &identity,
+            &window.id_range,
+            &window.semantic_id,
+        ),
+        origin(
+            "extent-width",
+            &(width_at, width_end),
+            &window.extent_range,
+            &window.semantic_id,
+        ),
+        origin(
+            "extent-height",
+            &(height_at, height_end),
+            &window.extent_range,
+            &window.semantic_id,
+        ),
+    ];
+    for (label, text_range, id_range) in &label_ranges {
+        origins.push(origin(
+            "text",
+            text_range,
+            &label.text_range,
+            &label.semantic_id,
+        ));
+        origins.push(origin(
+            "id",
+            id_range,
+            &label.id_range,
+            &label.semantic_id,
+        ));
+    }
+    for (label, placed) in window.labels.iter().zip(&placed_ranges) {
+        origins.push(origin(
+            "extent",
+            placed,
+            &label.extent_range,
+            &label.semantic_id,
+        ));
+    }
     let source_map = serde_json::json!({
         "schema_version": "1",
         "generator": "sash",
@@ -86,13 +129,7 @@ pub fn generate(window: &AdmittedWindow) -> Generated {
         "generated_digest": digest,
         "files": [{
             "path": "evidence/generated-main.rs",
-            "origins": [
-                origin("title", &title, &window.ontology_range, &window.semantic_id),
-                origin("text", &text, &window.text_range, &window.semantic_id),
-                origin("id", &identity, &window.id_range, &window.semantic_id),
-                origin("extent-width", &(width_at, width_end), &window.extent_range, &window.semantic_id),
-                origin("extent-height", &(height_at, height_end), &window.extent_range, &window.semantic_id),
-            ]
+            "origins": origins,
         }]
     });
     Generated {
