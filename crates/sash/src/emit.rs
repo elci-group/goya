@@ -267,6 +267,7 @@ const MAX_PLACED: usize = 32;
 static HWNDS: [AtomicPtr<c_void>; MAX_PLACED] = [const { AtomicPtr::new(std::ptr::null_mut()) }; MAX_PLACED];
 static ID_PTRS: [AtomicPtr<u16>; MAX_PLACED] = [const { AtomicPtr::new(std::ptr::null_mut()) }; MAX_PLACED];
 static ID_LENS: [AtomicPtr<usize>; MAX_PLACED] = [const { AtomicPtr::new(std::ptr::null_mut()) }; MAX_PLACED];
+static MESSAGE_FONT: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
 
 const WS_OVERLAPPEDWINDOW: u32 = 0x00CF_0000;
 const WS_CHILD: u32 = 0x4000_0000;
@@ -282,7 +283,7 @@ const WM_SETFONT: u32 = 0x0030;
 const WM_DPICHANGED: u32 = 0x02E0;
 const SWP_NOZORDER: u32 = 0x0004;
 const SWP_NOACTIVATE: u32 = 0x0010;
-const DEFAULT_GUI_FONT: i32 = 17;
+const SPI_GETNONCLIENTMETRICS: u32 = 0x0029;
 
 const PROP_SEMANTIC: &[u16] = &[
     71, 111, 121, 97, 46, 83, 101, 109, 97, 110, 116, 105, 99, 73, 100, 0,
@@ -323,9 +324,49 @@ struct Rect {
     bottom: i32,
 }
 
+#[repr(C)]
+struct LogFontW {
+    height: i32,
+    width: i32,
+    escapement: i32,
+    orientation: i32,
+    weight: i32,
+    italic: u8,
+    underline: u8,
+    strike_out: u8,
+    char_set: u8,
+    out_precision: u8,
+    clip_precision: u8,
+    quality: u8,
+    pitch_and_family: u8,
+    face_name: [u16; 32],
+}
+
+#[repr(C)]
+struct NonClientMetricsW {
+    cb_size: u32,
+    border_width: i32,
+    scroll_width: i32,
+    scroll_height: i32,
+    caption_width: i32,
+    caption_height: i32,
+    caption_font: LogFontW,
+    sm_caption_width: i32,
+    sm_caption_height: i32,
+    sm_caption_font: LogFontW,
+    menu_width: i32,
+    menu_height: i32,
+    menu_font: LogFontW,
+    status_font: LogFontW,
+    message_font: LogFontW,
+    padded_border_width: i32,
+}
+
 const _: () = assert!(std::mem::size_of::<WndClassExW>() == 80);
 const _: () = assert!(std::mem::size_of::<Msg>() == 48);
 const _: () = assert!(std::mem::size_of::<Rect>() == 16);
+const _: () = assert!(std::mem::size_of::<LogFontW>() == 92);
+const _: () = assert!(std::mem::size_of::<NonClientMetricsW>() == 504);
 
 #[link(name = "kernel32")]
 extern "system" {
@@ -370,11 +411,13 @@ extern "system" {
     fn SetWindowPos(hwnd: *mut c_void, insert_after: *mut c_void, x: i32, y: i32, cx: i32, cy: i32, flags: u32) -> i32;
     fn SendMessageW(hwnd: *mut c_void, msg: u32, wparam: usize, lparam: isize) -> isize;
     fn MessageBoxW(hwnd: *mut c_void, text: *const u16, caption: *const u16, kind: u32) -> i32;
+    fn SystemParametersInfoForDpi(action: u32, param: u32, out: *mut c_void, win_ini: u32, dpi: u32) -> i32;
 }
 
 #[link(name = "gdi32")]
 extern "system" {
-    fn GetStockObject(object: i32) -> *mut c_void;
+    fn CreateFontIndirectW(font: *const LogFontW) -> *mut c_void;
+    fn DeleteObject(object: *mut c_void) -> i32;
 }
 
 fn main() {
@@ -528,9 +571,15 @@ unsafe extern "system" fn wnd_proc(hwnd: *mut c_void, message: u32, wparam: usiz
                 let height = rect.bottom.saturating_sub(rect.top);
                 SetWindowPos(hwnd, std::ptr::null_mut(), rect.left, rect.top, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
             }
+            let _ = apply_font(clamp_dpi((wparam & 0xffff) as u32));
+            place_all(hwnd);
             0
         }
         WM_DESTROY => {
+            let font = MESSAGE_FONT.swap(std::ptr::null_mut(), Ordering::Relaxed);
+            if !font.is_null() {
+                DeleteObject(font);
+            }
             RemovePropW(hwnd, PROP_SEMANTIC.as_ptr());
             for index in 0..PLACED.len() {
                 let child = HWNDS[index].swap(std::ptr::null_mut(), Ordering::Relaxed);
@@ -563,10 +612,6 @@ unsafe fn setup(hwnd: *mut c_void) -> i32 {
     std::mem::forget(root_id);
     let static_class = wide_ascii("STATIC");
     let instance = GetModuleHandleW(std::ptr::null());
-    let font = GetStockObject(DEFAULT_GUI_FONT);
-    if font.is_null() {
-        return 1;
-    }
     for (index, cell) in PLACED.iter().enumerate() {
         let text = match wide_utf8(cell.text) {
             Some(value) => value,
@@ -593,7 +638,6 @@ unsafe fn setup(hwnd: *mut c_void) -> i32 {
         if child.is_null() {
             return 1;
         }
-        SendMessageW(child, WM_SETFONT, font as usize, 1);
         let boxed = identity.into_boxed_slice();
         let id_len = boxed.len();
         let id_ptr = Box::into_raw(boxed) as *mut u16;
@@ -605,7 +649,56 @@ unsafe fn setup(hwnd: *mut c_void) -> i32 {
         ID_LENS[index].store(Box::into_raw(Box::new(id_len)), Ordering::Relaxed);
         HWNDS[index].store(child, Ordering::Relaxed);
     }
+    let mut dpi = GetDpiForWindow(hwnd);
+    if dpi == 0 || dpi > 960 {
+        dpi = 96;
+    }
+    if apply_font(dpi) != 0 {
+        return 1;
+    }
     place_all(hwnd);
+    0
+}
+
+fn clamp_dpi(dpi: u32) -> u32 {
+    if dpi == 0 || dpi > 960 {
+        96
+    } else {
+        dpi
+    }
+}
+
+unsafe fn message_font(dpi: u32) -> *mut c_void {
+    let mut metrics = std::mem::zeroed::<NonClientMetricsW>();
+    metrics.cb_size = std::mem::size_of::<NonClientMetricsW>() as u32;
+    if SystemParametersInfoForDpi(
+        SPI_GETNONCLIENTMETRICS,
+        metrics.cb_size,
+        &mut metrics as *mut NonClientMetricsW as *mut c_void,
+        0,
+        dpi,
+    ) == 0
+    {
+        return std::ptr::null_mut();
+    }
+    CreateFontIndirectW(&metrics.message_font)
+}
+
+unsafe fn apply_font(dpi: u32) -> i32 {
+    let font = message_font(dpi);
+    if font.is_null() {
+        return 1;
+    }
+    let previous = MESSAGE_FONT.swap(font, Ordering::Relaxed);
+    for index in 0..PLACED.len() {
+        let child = HWNDS[index].load(Ordering::Relaxed);
+        if !child.is_null() {
+            SendMessageW(child, WM_SETFONT, font as usize, 1);
+        }
+    }
+    if !previous.is_null() {
+        DeleteObject(previous);
+    }
     0
 }
 
@@ -684,5 +777,23 @@ mod tests {
         assert!(generated.main_rs.contains("84,104,101,114,101"));
         assert!(!generated.main_rs.contains("\"There\""));
         assert!(!generated.main_rs.contains("\"Hello\""));
+    }
+
+    #[test]
+    fn labels_use_the_dpi_message_font() {
+        let window = admit(include_str!("../fixtures/static-window.gscene")).unwrap();
+        let generated = super::generate(&window);
+        assert!(generated.main_rs.contains("SystemParametersInfoForDpi"));
+        assert!(generated.main_rs.contains("CreateFontIndirectW"));
+        assert!(generated
+            .main_rs
+            .contains("std::mem::size_of::<NonClientMetricsW>() == 504"));
+        assert!(generated.main_rs.contains("std::mem::size_of::<LogFontW>() == 92"));
+        assert!(!generated.main_rs.contains("GetStockObject"));
+        assert!(!generated.main_rs.contains("DEFAULT_GUI_FONT"));
+        assert!(window
+            .dispositions
+            .iter()
+            .any(|item| item.subject == "background" && item.detail.contains("message font")));
     }
 }
