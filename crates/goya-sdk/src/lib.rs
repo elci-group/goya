@@ -30,7 +30,9 @@ impl fmt::Display for AndroidTextPreviewError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::StrictParse(error) => write!(f, "strict scene admission failed: {error}"),
-            Self::Unsupported(feature) => write!(f, "Android text preview does not support {feature}"),
+            Self::Unsupported(feature) => {
+                write!(f, "Android text preview does not support {feature}")
+            }
         }
     }
 }
@@ -50,10 +52,9 @@ impl std::error::Error for AndroidTextPreviewError {
 /// This intentionally accepts no layout, styling, children, interactions,
 /// buttons, or inputs. The output is a preview emitter; it does not establish
 /// Android build integration, visual equivalence, or platform qualification.
-pub fn emit_android_static_text_preview(
-    source: &str,
-) -> Result<String, AndroidTextPreviewError> {
-    let handoff = goya_lang::handoff::admit(source).map_err(AndroidTextPreviewError::StrictParse)?;
+pub fn emit_android_static_text_preview(source: &str) -> Result<String, AndroidTextPreviewError> {
+    let handoff =
+        goya_lang::handoff::admit(source).map_err(AndroidTextPreviewError::StrictParse)?;
     let scene = &handoff.parsed.scene;
     if !scene.interactions.is_empty() {
         return Err(AndroidTextPreviewError::Unsupported("interactions"));
@@ -398,6 +399,39 @@ mod tests {
     use super::*;
     use goya_runtime::Event;
     use std::collections::BTreeMap;
+
+    #[test]
+    fn android_preview_emits_only_strict_static_text_and_escapes_kotlin_literals() {
+        let source = r#"@ontology demo { @cell label { id: "label"; text: "Hi $user\n\"\\é" } }"#;
+        let output = emit_android_static_text_preview(source).unwrap();
+        assert!(
+            output.contains("class GoyaStaticTextPreview(context: Context) : TextView(context)")
+        );
+        assert!(output.contains("text = \"Hi \\$user\\n\\\"\\\\\\u00e9\""));
+        assert!(!output.contains("@ontology"));
+    }
+
+    #[test]
+    fn android_preview_rejects_features_outside_its_static_text_subset() {
+        for source in [
+            "@ontology demo { @cell root { id: \"root\"; } }",
+            "@ontology demo { @cell root { id: \"root\"; text: \"x\"; fill: #ffffff } }",
+            "@ontology demo { @cell root { id: \"root\"; text: \"x\"; @cell child { id: \"child\"; } } }",
+            "@ontology demo { @button root { id: \"root\"; text: \"x\"; } }",
+            "@ontology demo { @input root { id: \"root\"; text: \"x\"; } }",
+        ] {
+            assert!(matches!(
+                emit_android_static_text_preview(source),
+                Err(AndroidTextPreviewError::Unsupported(_))
+            ));
+        }
+
+        let invalid = "@ontology demo { @cell root { text: \"x\"; } }";
+        assert!(matches!(
+            emit_android_static_text_preview(invalid),
+            Err(AndroidTextPreviewError::StrictParse(_))
+        ));
+    }
 
     const SCENE: &str =
         "@ontology sdk { @button go { position: (0, 0, 0) extent: (120, 40, 0) text: \"Go\" } }";
