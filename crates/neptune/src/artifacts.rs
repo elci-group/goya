@@ -11,9 +11,9 @@ const FILES: [&str; 3] = ["App.swift", "source-map.json", "capabilities.json"];
 
 /// Artifact bytes and source identity checked together against one report.
 pub struct VerifiedPreview {
-    pub artifacts: std::collections::BTreeMap<String, Vec<u8>>,
-    pub hashes: std::collections::BTreeMap<String, String>,
-    pub input_sha256: String,
+    pub(crate) artifacts: std::collections::BTreeMap<String, Vec<u8>>,
+    pub(crate) hashes: std::collections::BTreeMap<String, String>,
+    pub(crate) input_sha256: String,
 }
 
 fn read_bounded(path: &Path) -> io::Result<Vec<u8>> {
