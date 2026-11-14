@@ -150,6 +150,8 @@ fn is_kotlin_class_name(name: &str) -> bool {
     };
     (first == '_' || first.is_ascii_alphabetic())
         && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+        && !name.chars().all(|ch| ch == '_')
+        && !matches!(name, "Context" | "TextView")
         && !KEYWORDS.contains(&name)
 }
 
@@ -479,6 +481,10 @@ mod tests {
         for invalid in [
             "",
             "class",
+            "Context",
+            "TextView",
+            "_",
+            "___",
             "9Preview",
             "Preview.Name",
             "Preview`\nclass Evil",
