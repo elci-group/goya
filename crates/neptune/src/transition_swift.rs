@@ -53,12 +53,40 @@ enum SwiftExpr {
     Int(i64),
     Text(String),
     Bool(bool),
-    State(usize),
-    Input(usize),
+    State(usize, InteractionType),
+    Input(usize, InteractionType),
     CheckedAdd(Box<SwiftExpr>, Box<SwiftExpr>),
 }
 
 impl SwiftExpr {
+    fn emit_register(&self, out: &mut String, next: &mut usize) -> usize {
+        let (ty, expression) = match self {
+            Self::Int(i64::MIN) => (InteractionType::Int, "Int64.min".to_owned()),
+            Self::Int(v) => (InteractionType::Int, v.to_string()),
+            Self::Text(v) => (InteractionType::Text, swift::Expr::StringLiteral(v.clone()).render()),
+            Self::Bool(v) => (InteractionType::Bool, v.to_string()),
+            Self::State(index, ty) => (*ty, format!("state.s{index}")),
+            Self::Input(index, ty) => (*ty, format!("input.i{index}")),
+            Self::CheckedAdd(left, right) => {
+                let left = left.emit_register(out, next);
+                let right = right.emit_register(out, next);
+                (InteractionType::Int, format!("try checkedAdd(r{left}, r{right})"))
+            }
+        };
+        let index = *next;
+        *next += 1;
+        let _ = writeln!(out, "        let r{index}: {} = {expression}", swift_type(ty));
+        let name_bytes = format!("r{index}").len();
+        match ty {
+            InteractionType::Text => { let _ = writeln!(out, "        registerBytes += {name_bytes} + r{index}.utf8.count"); },
+            InteractionType::Int => { let _ = writeln!(out, "        registerBytes += {}", name_bytes + goya_executable::D1_INT_VALUE_BYTES); },
+            InteractionType::Bool => { let _ = writeln!(out, "        registerBytes += {}", name_bytes + goya_executable::D1_BOOL_VALUE_BYTES); },
+        }
+        let _ = writeln!(out, "        guard registerBytes <= {} else {{ throw NeptuneTransitionError.registerLimit }}", goya_executable::D1_MAX_REGISTER_BYTES);
+        index
+    }
+    /* The representation is rendered exclusively through typed registers. */
+    #[allow(dead_code)]
     fn write(&self, out: &mut String) {
         match self {
             Self::Int(i64::MIN) => out.push_str("Int64.min"),
@@ -67,10 +95,10 @@ impl SwiftExpr {
             }
             Self::Text(v) => out.push_str(&swift::Expr::StringLiteral(v.clone()).render()),
             Self::Bool(v) => out.push_str(if *v { "true" } else { "false" }),
-            Self::State(index) => {
+            Self::State(index, _) => {
                 let _ = write!(out, "state.s{index}");
             }
-            Self::Input(index) => {
+            Self::Input(index, _) => {
                 let _ = write!(out, "input.i{index}");
             }
             Self::CheckedAdd(left, right) => {
@@ -93,8 +121,8 @@ fn convert(
         Operation::Constant(InteractionValue::Int(v)) => SwiftExpr::Int(*v),
         Operation::Constant(InteractionValue::Text(v)) => SwiftExpr::Text(v.clone()),
         Operation::Constant(InteractionValue::Bool(v)) => SwiftExpr::Bool(*v),
-        Operation::State(key) => SwiftExpr::State(*state.get(key).ok_or("unknown state key")?),
-        Operation::Input(key) => SwiftExpr::Input(*inputs.get(key).ok_or("unknown input key")?),
+        Operation::State(key) => SwiftExpr::State(*state.get(key).ok_or("unknown state key")?, expr.value_type),
+        Operation::Input(key) => SwiftExpr::Input(*inputs.get(key).ok_or("unknown input key")?, expr.value_type),
         Operation::CheckedAdd(left, right) => SwiftExpr::CheckedAdd(
             Box::new(convert(left, state, inputs)?),
             Box::new(convert(right, state, inputs)?),
