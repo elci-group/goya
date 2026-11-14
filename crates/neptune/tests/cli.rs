@@ -173,7 +173,9 @@ fn preview_writes_new_directory_and_refuses_overwrite() {
         "arm64-apple-ios17.0-simulator"
     );
     assert!(!String::from_utf8_lossy(&planned.stdout).contains(output_dir.to_str().unwrap()));
-    let invalid_lock = String::from_utf8(valid_lock.to_vec()).unwrap().replace("\"minimum_os\":\"17.0\"", "\"minimum_os\":\"19.0\"");
+    let invalid_lock = String::from_utf8(valid_lock.to_vec())
+        .unwrap()
+        .replace("\"minimum_os\":\"17.0\"", "\"minimum_os\":\"19.0\"");
     std::fs::write(&lock_path, invalid_lock).unwrap();
     assert_eq!(plan().status.code(), Some(1));
     std::fs::write(&lock_path, valid_lock).unwrap();
