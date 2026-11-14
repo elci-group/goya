@@ -1,12 +1,13 @@
-//! Versioned semantic handoff from GY-LANG source into downstream consumers.
+//! Experimental in-process handoff from GY-LANG source to consumers.
 //!
-//! GSSH/1 is an in-process Rust contract: it carries the complete strictly
-//! admitted scene together with source origins bound to the exact source
-//! digest. Consumers should branch on `contract` before interpreting it.
+//! This preview wraps a strictly admitted scene and its available source
+//! origins. Its identifier is provisional: this is not an approved shared
+//! contract, a serialized format, or proof of Android target support. Strict
+//! parsing does not supply every origin or resolve bindings and persistence.
 
 use crate::{parse_strict, ParsedScene, StrictParseError};
 
-/// Version identifier for the Goya Shared Semantic Handoff contract.
+/// Provisional identifier for this in-process preview.
 pub const CONTRACT: &str = "GSSH/1";
 
 /// A strictly admitted, source-bound semantic scene snapshot.
@@ -14,7 +15,7 @@ pub const CONTRACT: &str = "GSSH/1";
 pub struct SemanticHandoff {
     /// Contract identifier for versioned downstream interpretation.
     pub contract: &'static str,
-    /// Complete scene semantics and source-map origins from one parse.
+    /// Parsed scene and available source-map origins from one parse.
     pub parsed: ParsedScene,
 }
 
