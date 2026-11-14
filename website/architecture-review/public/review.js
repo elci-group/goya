@@ -294,7 +294,7 @@ function renderGraph() {
   });
   const caption = $("graph-caption");
   if (caption) {
-    caption.textContent = `${selected.id} uses ${uses.length} workspace crates and is used by ${used.length}. Teal lines point inward. Amber lines point outward.`;
+    caption.textContent = `${selected.id} uses ${uses.length} workspace crates. ${used.length} crates use it.`;
   }
 }
 
