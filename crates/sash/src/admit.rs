@@ -756,20 +756,6 @@ fn cell_range(parsed: &ParsedScene, path: &[usize]) -> Option<SourceRange> {
         .map(|entry| entry.range)
 }
 
-fn child_range(parsed: &ParsedScene) -> Option<SourceRange> {
-    parsed
-        .entries
-        .iter()
-        .find(|entry| {
-            matches!(entry.kind.as_str(), "cell" | "button" | "input")
-                && entry
-                    .scene_path
-                    .as_ref()
-                    .is_some_and(|path| !path.is_empty())
-        })
-        .map(|entry| entry.range)
-}
-
 impl Diagnostic {
     fn recode(mut self, code: &'static str) -> Self {
         self.code = code;

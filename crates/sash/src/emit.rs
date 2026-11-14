@@ -25,17 +25,45 @@ pub fn generate(window: &AdmittedWindow) -> Generated {
     main.push_str("\n// The user-facing deliverable is the linked App.exe.\n");
     main.push_str("#![windows_subsystem = \"windows\"]\n\n");
     let title = array_line(&mut main, "TITLE_UTF8", window.scene_name.as_bytes());
-    let text = array_line(&mut main, "TEXT_UTF8", window.text.as_bytes());
-    let identity = array_line(&mut main, "SEMANTIC_ID_UTF8", window.semantic_id.as_bytes());
+    let identity = array_line(&mut main, "ROOT_ID_UTF8", window.semantic_id.as_bytes());
     main.push_str(&format!(
         "const TITLE_LEN: usize = {};\n",
         window.scene_name.len()
     ));
-    main.push_str(&format!("const TEXT_LEN: usize = {};\n", window.text.len()));
     main.push_str(&format!(
-        "const SEMANTIC_LEN: usize = {};\n",
+        "const ROOT_ID_LEN: usize = {};\n",
         window.semantic_id.len()
     ));
+    let mut label_ranges = Vec::new();
+    for (index, label) in window.labels.iter().enumerate() {
+        let text_name = format!("TEXT_{index}");
+        let id_name = format!("ID_{index}");
+        let text_range = array_line(&mut main, &text_name, label.text.as_bytes());
+        let id_range = array_line(&mut main, &id_name, label.semantic_id.as_bytes());
+        main.push_str(&format!(
+            "const TEXT_{index}_LEN: usize = {};\n",
+            label.text.len()
+        ));
+        main.push_str(&format!(
+            "const ID_{index}_LEN: usize = {};\n",
+            label.semantic_id.len()
+        ));
+        label_ranges.push((label, text_range, id_range));
+    }
+    main.push_str(
+        "struct Placed { text: &'static [u8], text_len: usize, id: &'static [u8], id_len: usize, x: i32, y: i32, w: i32, h: i32 }\n",
+    );
+    main.push_str("const PLACED: &[Placed] = &[\n");
+    let mut placed_ranges = Vec::new();
+    for (index, label) in window.labels.iter().enumerate() {
+        let start = main.len();
+        main.push_str(&format!(
+            "    Placed {{ text: TEXT_{index}, text_len: TEXT_{index}_LEN, id: ID_{index}, id_len: ID_{index}_LEN, x: {}, y: {}, w: {}, h: {} }},\n",
+            label.x_dip, label.y_dip, label.width_dip, label.height_dip
+        ));
+        placed_ranges.push((start, main.len()));
+    }
+    main.push_str("];\n");
     let width_at = main.len();
     main.push_str(&format!(
         "const CLIENT_DIP_W: i32 = {};\n",
