@@ -1,7 +1,8 @@
 //! Experimental target representation for Goya's bounded D1 transitions.
 //! It is not connected to Swift emission or admitted for iOS builds.
 use goya_lang::{
-    CellKind, InteractionClass, InteractionExpr, InteractionType, InteractionValue, SceneCell, SourceRange, TypedKey,
+    CellKind, InteractionClass, InteractionExpr, InteractionType, InteractionValue, SceneCell,
+    SourceRange, TypedKey,
 };
 use std::collections::BTreeMap;
 
@@ -66,7 +67,12 @@ pub fn lower(source: &str, module: &str) -> Result<Vec<Transition>, crate::Diagn
     crate::inspect(source)?;
     let parsed =
         goya_lang::parse_strict(source).map_err(|e| rejected(e.to_string(), Some(e.range)))?;
-    if let Some(unsupported) = parsed.scene.interactions.iter().find(|i| i.class != InteractionClass::D1) {
+    if let Some(unsupported) = parsed
+        .scene
+        .interactions
+        .iter()
+        .find(|i| i.class != InteractionClass::D1)
+    {
         let range = parsed
             .entries
             .iter()
@@ -96,10 +102,21 @@ pub fn lower(source: &str, module: &str) -> Result<Vec<Transition>, crate::Diagn
             .find(|e| e.kind == "interaction" && e.semantic_id.as_ref() == Some(id))
             .ok_or_else(|| rejected("interaction source range unavailable", None))?;
         let range = origin.range;
-        let index = usize::try_from(verified.trigger().0).map_err(|_| rejected("trigger index out of range", Some(range)))?;
-        let trigger = buttons.get(index).filter(|button| button.name == decl.trigger_button).ok_or_else(|| rejected("Goya trigger mapping mismatch", Some(range)))?;
-        let trigger_id = trigger.authored_id.as_ref().ok_or_else(|| rejected("button requires an authored ID", Some(range)))?;
-        let trigger_origin = parsed.entries.iter().find(|e| e.kind == "button" && e.semantic_id.as_ref() == Some(trigger_id)).ok_or_else(|| rejected("button source range unavailable", Some(range)))?;
+        let index = usize::try_from(verified.trigger().0)
+            .map_err(|_| rejected("trigger index out of range", Some(range)))?;
+        let trigger = buttons
+            .get(index)
+            .filter(|button| button.name == decl.trigger_button)
+            .ok_or_else(|| rejected("Goya trigger mapping mismatch", Some(range)))?;
+        let trigger_id = trigger
+            .authored_id
+            .as_ref()
+            .ok_or_else(|| rejected("button requires an authored ID", Some(range)))?;
+        let trigger_origin = parsed
+            .entries
+            .iter()
+            .find(|e| e.kind == "button" && e.semantic_id.as_ref() == Some(trigger_id))
+            .ok_or_else(|| rejected("button source range unavailable", Some(range)))?;
         let reads: BTreeMap<_, _> = decl
             .state_reads
             .iter()
@@ -128,11 +145,17 @@ pub fn lower(source: &str, module: &str) -> Result<Vec<Transition>, crate::Diagn
             });
         }
         output.push(Transition {
-            semantic_id: SemanticId { module: module.to_owned(), declared_id: id.clone() },
+            semantic_id: SemanticId {
+                module: module.to_owned(),
+                declared_id: id.clone(),
+            },
             source_range: range,
             source_digest: origin.source_digest,
             trigger_name: decl.trigger_button.clone(),
-            trigger_id: SemanticId { module: module.to_owned(), declared_id: trigger_id.clone() },
+            trigger_id: SemanticId {
+                module: module.to_owned(),
+                declared_id: trigger_id.clone(),
+            },
             trigger_source_range: trigger_origin.range,
             reference_program_hash: verified.program_hash(),
             state_reads: decl.state_reads.clone(),
@@ -146,8 +169,13 @@ pub fn lower(source: &str, module: &str) -> Result<Vec<Transition>, crate::Diagn
 
 // Mirrors the Goya binding walk, which stops descending at buttons.
 fn collect_buttons<'a>(cell: &'a SceneCell, output: &mut Vec<&'a SceneCell>) {
-    if cell.kind == CellKind::Button { output.push(cell); }
-    else { for child in &cell.children { collect_buttons(child, output); } }
+    if cell.kind == CellKind::Button {
+        output.push(cell);
+    } else {
+        for child in &cell.children {
+            collect_buttons(child, output);
+        }
+    }
 }
 
 fn lower_expr(
@@ -228,9 +256,24 @@ mod tests {
         let lowered = lower(SOURCE, "app/main.gscene").unwrap();
         assert_eq!(lowered.len(), 1);
         let action = &lowered[0];
-        assert_eq!(action.semantic_id, SemanticId { module: "app/main.gscene".into(), declared_id: "action.increment".into() });
-        assert_eq!(action.trigger_id, SemanticId { module: "app/main.gscene".into(), declared_id: "button.plus".into() });
-        assert!(SOURCE[action.trigger_source_range.start..action.trigger_source_range.end].starts_with("@button plus"));
+        assert_eq!(
+            action.semantic_id,
+            SemanticId {
+                module: "app/main.gscene".into(),
+                declared_id: "action.increment".into()
+            }
+        );
+        assert_eq!(
+            action.trigger_id,
+            SemanticId {
+                module: "app/main.gscene".into(),
+                declared_id: "button.plus".into()
+            }
+        );
+        assert!(
+            SOURCE[action.trigger_source_range.start..action.trigger_source_range.end]
+                .starts_with("@button plus")
+        );
         assert!(SOURCE[action.source_range.start..action.source_range.end]
             .starts_with("@interaction increment"));
         let scene = goya_lang::parse_strict(SOURCE).unwrap().scene;
@@ -265,5 +308,24 @@ mod tests {
                 other => panic!("target and reference disagree: {other:?}"),
             }
         }
+    }
+
+    #[test]
+    fn trigger_identity_survives_an_unrelated_node_with_the_same_name() {
+        let with_cell = SOURCE.replace(
+            "@button plus",
+            "@cell plus { id: \"cell.plus\" } @button plus",
+        );
+        let action = lower(&with_cell, "app/main.gscene").unwrap().remove(0);
+        assert_eq!(action.trigger_id.declared_id, "button.plus");
+        assert!(
+            with_cell[action.trigger_source_range.start..action.trigger_source_range.end]
+                .starts_with("@button plus")
+        );
+        assert_ne!(
+            action.source_digest,
+            lower(SOURCE, "app/main.gscene").unwrap()[0].source_digest
+        );
+        assert!(lower(SOURCE, "../main.gscene").is_err());
     }
 }
