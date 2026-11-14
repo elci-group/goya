@@ -10,6 +10,8 @@ pub mod transition_swift;
 
 pub const MAX_SOURCE_BYTES: usize = 128 * 1024;
 pub const MAX_DIAGNOSTICS: usize = 256;
+/// Bounds left-nested arithmetic AST depth before the recursive Goya passes.
+pub const MAX_ADDITION_OPERATORS: usize = 256;
 
 fn line_range(source: &str, line: usize) -> Option<SourceRange> {
     if line == 0 {
@@ -222,8 +224,15 @@ pub fn inspect(source: &str) -> Result<Vec<Diagnostic>, Diagnostic> {
         range: line_range(source, error.line),
     })?;
     let mut delimiters = Vec::new();
+    let mut additions = 0usize;
     for token in tokens {
         match token.kind {
+            TokenKind::Plus => {
+                additions += 1;
+                if additions > MAX_ADDITION_OPERATORS {
+                    return Err(Diagnostic { code: "NPT-E1003", message: "source exceeds 256 addition operators".into(), range: Some(SourceRange { start: token.byte_start, end: token.byte_end }) });
+                }
+            }
             TokenKind::LBrace | TokenKind::LParen => {
                 delimiters.push(token.kind);
                 if delimiters.len() > 128 {
@@ -342,6 +351,8 @@ mod tests {
         assert_eq!(inspect(&source).unwrap_err().code, "NPT-E1003");
         let mismatch = inspect("@ontology x { )").unwrap_err();
         assert_eq!(mismatch.range, Some(SourceRange { start: 14, end: 15 }));
+        let additions = format!("@ontology x {{ {} }}", " + ".repeat(MAX_ADDITION_OPERATORS + 1));
+        assert_eq!(inspect(&additions).unwrap_err().code, "NPT-E1003");
     }
 
     #[test]
