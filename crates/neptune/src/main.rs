@@ -93,6 +93,34 @@ fn main() -> ExitCode {
     if args.len() == 2 && args[1] == "serve" {
         return serve();
     }
+    if args.len() >= 2 && args[1] == "test" {
+        let mut suite = None;
+        let mut worker = None;
+        let mut json = false;
+        for option in args[2..].chunks(2) {
+            if option.len() != 2 { eprintln!("missing option value"); return ExitCode::from(2); }
+            if option[0] == "--suite" && suite.is_none() { suite = option[1].to_str(); }
+            else if option[0] == "--worker" && worker.is_none() { worker = option[1].to_str(); }
+            else if option[0] == "--format" && option[1] == "json" && !json { json = true; }
+            else { eprintln!("unknown or duplicate option"); return ExitCode::from(2); }
+        }
+        return match suite {
+            Some("d1-corpus") if worker.is_none() => match neptune::conformance::run_d1_corpus() {
+                Ok(report) => {
+                    if json { println!("{}", report.json); }
+                    else { println!("D1 integer corpus: {}; Swift and Apple validation are BLOCKED", if report.passed { "PASS" } else { "FAIL" }); }
+                    if report.passed { ExitCode::SUCCESS } else { ExitCode::FAILURE }
+                }
+                Err(error) => { if json { println!("{}", serde_json::json!({"schema_version":"1","suite":"d1-integer-corpus","status":"FAIL","error":error})); } else { eprintln!("D1 corpus failed: {error}"); } ExitCode::FAILURE }
+            },
+            Some("admission") => {
+                if json { println!("{}", serde_json::json!({"schema_version":"1","suite":"admission","status":"BLOCKED","reason":"Apple worker and device admission are not implemented","worker":worker})); }
+                else { eprintln!("Admission BLOCKED: Apple worker and device admission are not implemented"); }
+                ExitCode::from(3)
+            }
+            _ => { eprintln!("usage: neptune test --suite <d1-corpus|admission> [--worker name] [--format json]"); ExitCode::from(2) }
+        };
+    }
     if args.len() >= 2 && args[1] == "map-swift" {
         if args.len() < 3 {
             eprintln!("usage: neptune map-swift <preview-directory> --source <file> --line <n> --column <utf8-byte-column> [--format json]");
