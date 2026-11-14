@@ -510,3 +510,51 @@ fn multi_action_owner_preview_cli_and_service_match() {
     bad["initial"] = serde_json::json!([["count", "int", 4]]);
     assert_eq!(session.handle(&bad)["status"], "FAIL");
 }
+
+#[test]
+fn native_button_preview_cli_and_service_match_and_require_profile() {
+    let scene = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/native-button.gscene");
+    let initial_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/native-button-initial.json"
+    );
+    let base = [
+        "preview-native-button",
+        scene,
+        "--module",
+        "app/main.gscene",
+        "--initial",
+        initial_path,
+    ];
+    assert!(!Command::new(env!("CARGO_BIN_EXE_neptune"))
+        .args(base)
+        .output()
+        .unwrap()
+        .status
+        .success());
+    let output = Command::new(env!("CARGO_BIN_EXE_neptune"))
+        .args(base)
+        .args(["--profile", "experimental", "--format", "json"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(result["verification"], "SOURCE_PREVIEW");
+    assert_eq!(result["stages"]["ios_admission"], "NOT_RUN");
+    let source = std::fs::read_to_string(scene).unwrap();
+    let initial: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(initial_path).unwrap()).unwrap();
+    let mut session = neptune::service::Session::default();
+    let request = serde_json::json!({"schema_version":"1", "job_id":"native", "operation":"preview-native-button", "module":"app/main.gscene", "profile":"experimental", "source":source, "initial":initial});
+    let response = session.handle(&request);
+    assert_eq!(response["status"], "PASS");
+    assert_eq!(response["result"], result);
+    let mut bad = request;
+    bad["job_id"] = serde_json::json!("bad-native");
+    bad["initial"] = serde_json::json!([]);
+    assert_eq!(session.handle(&bad)["status"], "FAIL");
+}
