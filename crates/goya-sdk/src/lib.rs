@@ -27,6 +27,17 @@ pub enum AndroidTextPreviewError {
     InvalidClassName,
 }
 
+/// Kotlin preview source plus the one authored property that produced its text.
+/// The offsets are end-exclusive UTF-8 byte ranges in their respective files.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AndroidTextPreview {
+    pub kotlin: String,
+    pub source_digest: [u8; 32],
+    pub semantic_id: String,
+    pub source_range: goya_lang::SourceRange,
+    pub generated_range: goya_lang::SourceRange,
+}
+
 impl fmt::Display for AndroidTextPreviewError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -66,6 +77,15 @@ pub fn emit_android_static_text_preview_named(
     source: &str,
     class_name: &str,
 ) -> Result<String, AndroidTextPreviewError> {
+    emit_android_static_text_preview_mapped(source, class_name).map(|preview| preview.kotlin)
+}
+
+/// Emit the static-text preview and retain its source-to-Kotlin text mapping.
+/// The map binds the generated literal to the exact admitted source revision.
+pub fn emit_android_static_text_preview_mapped(
+    source: &str,
+    class_name: &str,
+) -> Result<AndroidTextPreview, AndroidTextPreviewError> {
     if !is_kotlin_class_name(class_name) {
         return Err(AndroidTextPreviewError::InvalidClassName);
     }
@@ -100,17 +120,44 @@ pub fn emit_android_static_text_preview_named(
         .text
         .as_deref()
         .ok_or(AndroidTextPreviewError::Unsupported("cells without text"))?;
-
-    Ok(format!(
+    let semantic_id = root
+        .authored_id
+        .as_ref()
+        .ok_or(AndroidTextPreviewError::Unsupported(
+            "cells without authored IDs",
+        ))?;
+    let source_entry = handoff
+        .parsed
+        .entries
+        .iter()
+        .find(|entry| {
+            entry.kind == "property"
+                && entry.name.replace('-', "_") == "text"
+                && entry.semantic_id.as_deref() == Some(semantic_id.as_str())
+        })
+        .ok_or(AndroidTextPreviewError::Unsupported(
+            "text without a source origin",
+        ))?;
+    let literal = kotlin_string_literal(text);
+    let prefix = format!(
         "import android.content.Context\nimport android.widget.TextView\n\n\
          /** Experimental Goya static-text preview. */\n\
          class {class_name}(context: Context) : TextView(context) {{\n\
              init {{\n\
-                 text = {}\n\
-             }}\n\
-         }}\n",
-        kotlin_string_literal(text)
-    ))
+                 text = "
+    );
+    let generated_start = prefix.len();
+    let kotlin = format!("{prefix}{literal}\n             }}\n         }}\n");
+    Ok(AndroidTextPreview {
+        kotlin,
+        source_digest: handoff.parsed.source_digest,
+        semantic_id: semantic_id.clone(),
+        source_range: source_entry.range,
+        generated_range: goya_lang::SourceRange {
+            start: generated_start,
+            end: generated_start + literal.len(),
+        },
+    })
 }
 
 fn is_kotlin_class_name(name: &str) -> bool {
@@ -494,6 +541,27 @@ mod tests {
                 Err(AndroidTextPreviewError::InvalidClassName)
             ));
         }
+    }
+
+    #[test]
+    fn android_preview_map_binds_generated_literal_to_unicode_source_property() {
+        let source = "@ontology demo { @cell label { id: \"label\"; text: \"Hi é\" } }";
+        let preview = emit_android_static_text_preview_mapped(source, "WelcomePreview").unwrap();
+        assert_eq!(preview.semantic_id, "label");
+        assert_eq!(
+            &source[preview.source_range.start..preview.source_range.end],
+            "text: \"Hi é\""
+        );
+        assert_eq!(
+            &preview.kotlin[preview.generated_range.start..preview.generated_range.end],
+            "\"Hi \\u00e9\""
+        );
+        assert_eq!(
+            preview.source_digest,
+            goya_lang::parse_with_source_map(source)
+                .unwrap()
+                .source_digest
+        );
     }
 
     #[test]

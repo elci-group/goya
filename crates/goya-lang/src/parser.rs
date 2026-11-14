@@ -913,8 +913,17 @@ impl P {
         match self.peek() {
             Some(t) if t.kind == TokenKind::Number => {
                 let text = self.bump().expect("invariant").text.replace('_', "");
-                text.parse::<f64>()
-                    .map_err(|_| ParseError { line: self.line() })
+                let value = text
+                    .parse::<f64>()
+                    .map_err(|_| ParseError { line: self.line() })?;
+                // Finite authored coordinates and sizes are required for
+                // deterministic layout. Rust accepts sufficiently large
+                // decimal literals as infinity, which otherwise flows into
+                // geometry and can silently poison hit testing and previews.
+                if !value.is_finite() {
+                    return Err(ParseError { line: self.line() });
+                }
+                Ok(value)
             }
             _ => Err(ParseError { line: self.line() }),
         }
