@@ -232,18 +232,8 @@ mod tests {
         ));
         let mut app = D1Application::new(&scene(), initial(i64::MAX)).unwrap();
         let before = app.values().clone();
-        assert!(app
-            .dispatch(
-                "action.add",
-                BTreeMap::from([("amount".into(), D1Value::Int(1))])
-            )
-            .is_err());
-        assert!(app
-            .dispatch(
-                "action.add",
-                BTreeMap::from([("amount".into(), D1Value::Bool(true))])
-            )
-            .is_err());
+        assert!(matches!(app.dispatch("action.add", BTreeMap::from([("amount".into(), D1Value::Int(1))])), Err(D1ApplicationError::ActionFailed(TransitionError::VmRejected(_)))));
+        assert!(matches!(app.dispatch("action.add", BTreeMap::from([("amount".into(), D1Value::Bool(true))])), Err(D1ApplicationError::ActionFailed(TransitionError::InputTypeMismatch))));
         assert!(matches!(
             app.dispatch("unknown", BTreeMap::new()),
             Err(D1ApplicationError::UnknownAction(_))
