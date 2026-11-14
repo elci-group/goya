@@ -34,9 +34,10 @@ pub fn link(source: &str, output: &Path) -> Result<Linked, Diagnostic> {
     let window = admit::admit(source)?;
     let generated = emit::generate(&window);
     let tools = probe_tools()?;
+    let cache = pinned_windows_cache()?;
     let temp = TempDir::new()?;
     write_project(&temp.0, &generated)?;
-    let log = run_link(&temp.0)?;
+    let log = run_link(&temp.0, &cache)?;
     let exe = temp.0.join("target/x86_64-pc-windows-msvc/release/app.exe");
     let pdb = temp.0.join("target/x86_64-pc-windows-msvc/release/app.pdb");
     if !exe.is_file() {
@@ -171,12 +172,52 @@ fn write_new(path: &Path, bytes: &[u8]) -> Result<(), Diagnostic> {
     Ok(())
 }
 
-fn run_link(project: &Path) -> Result<String, Diagnostic> {
+fn pinned_windows_cache() -> Result<PathBuf, Diagnostic> {
+    let Some(home) = std::env::var_os("HOME") else {
+        return Err(Diagnostic::new(
+            "SASH-TOOLCHAIN",
+            "build",
+            "HOME is not set, so the pinned Windows sysroot cannot be located",
+            "Set HOME to the account that holds the local windows-msvc-sysroot.",
+        ));
+    };
+    let cache = PathBuf::from(home).join(".cache/xwin");
+    let marker = cache.join("windows-msvc-sysroot/DONE");
+    let inner = cache.join("windows-msvc-sysroot/windows-msvc-sysroot");
+    let lib = inner.join("lib/x86_64-unknown-windows-msvc");
+    if !marker.is_file() || !inner.join("include").is_dir() || !lib.is_dir() {
+        return Err(Diagnostic::new(
+            "SASH-TOOLCHAIN",
+            "build",
+            "the pinned windows-msvc-sysroot is not present",
+            "Sash does not download a Windows SDK. Restore the local sysroot marked DONE before linking.",
+        ));
+    }
+    let host_sysroot = version("rustc", &["--print", "sysroot"])?;
+    let rust_lld = Path::new(host_sysroot.trim())
+        .join("lib/rustlib/x86_64-unknown-linux-gnu/bin/rust-lld");
+    if !rust_lld.is_file() {
+        return Err(Diagnostic::new(
+            "SASH-TOOLCHAIN",
+            "build",
+            "rust-lld is not installed beside the host rustc",
+            "Install the rustup llvm-tools component that provides rust-lld. Sash does not fetch a linker.",
+        ));
+    }
+    Ok(cache)
+}
+
+fn run_link(project: &Path, cache: &Path) -> Result<String, Diagnostic> {
+    // clang uses the existing splat. clang-cl looks for a separate CRT unpack
+    // and would download the SDK when that unpack is absent.
     let mut command = Command::new("cargo");
     command
         .arg("xwin")
         .arg("build")
+        .arg("--cross-compiler")
+        .arg("clang")
         .arg("--release")
+        .arg("--offline")
         .arg("--target")
         .arg(TARGET_MSVC_X64)
         .arg("--manifest-path")
@@ -185,16 +226,11 @@ fn run_link(project: &Path) -> Result<String, Diagnostic> {
         .env("CARGO_TARGET_DIR", project.join("target"))
         .env("CARGO_INCREMENTAL", "0")
         .env("CARGO_BUILD_JOBS", "1")
+        .env("CARGO_NET_OFFLINE", "true")
+        .env("XWIN_CACHE_DIR", cache)
+        .env("XWIN_CROSS_COMPILER", "clang")
         .env_remove("RUSTFLAGS")
         .env_remove("CARGO_ENCODED_RUSTFLAGS");
-    if std::env::var_os("XWIN_CACHE_DIR").is_none() {
-        if let Some(home) = std::env::var_os("HOME") {
-            let cache = PathBuf::from(&home).join(".cache/xwin");
-            if cache.join("windows-msvc-sysroot").is_dir() {
-                command.env("XWIN_CACHE_DIR", cache);
-            }
-        }
-    }
     let output = command.output().map_err(|_| {
         Diagnostic::new(
             "SASH-TOOLCHAIN",

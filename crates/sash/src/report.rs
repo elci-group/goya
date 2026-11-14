@@ -89,6 +89,8 @@ pub fn files(
             "rustc": facts.rustc,
             "cargo_xwin": facts.cargo_xwin,
             "llvm_rc": facts.llvm_rc,
+            "cross_compiler": "clang",
+            "sdk": "pinned local windows-msvc-sysroot; this build does not download an SDK",
             "crt_static": true,
             "control_flow_guard": "requested",
         },
