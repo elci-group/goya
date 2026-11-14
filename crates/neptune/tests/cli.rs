@@ -183,6 +183,32 @@ fn preview_writes_new_directory_and_refuses_overwrite() {
     let unmapped: serde_json::Value =
         serde_json::from_slice(&map(std::path::Path::new(fixture), 1, 1).stdout).unwrap();
     assert_eq!(unmapped["status"], "UNMAPPED");
+    // A source map may associate multiple source spans with one Swift location.
+    // Recompute the unsigned consistency hash for this synthetic map.
+    use sha2::{Digest, Sha256};
+    let map_path = output_dir.join("source-map.json");
+    let report_path = output_dir.join("build-report.json");
+    let original_map = std::fs::read(&map_path).unwrap();
+    let original_report = std::fs::read(&report_path).unwrap();
+    let mut expanded: serde_json::Value = serde_json::from_slice(&original_map).unwrap();
+    let mut second_mapping = expanded["mappings"][0].clone();
+    let start = second_mapping["source"]["start_byte"].as_u64().unwrap();
+    second_mapping["source"]["start_byte"] = serde_json::json!(start + 6);
+    expanded["mappings"]
+        .as_array_mut()
+        .unwrap()
+        .push(second_mapping);
+    let expanded_bytes = format!("{expanded}\n");
+    let mut expanded_report: serde_json::Value = serde_json::from_slice(&original_report).unwrap();
+    expanded_report["artifact_sha256"]["source-map.json"] =
+        serde_json::json!(format!("{:x}", Sha256::digest(expanded_bytes.as_bytes())));
+    std::fs::write(&map_path, expanded_bytes).unwrap();
+    std::fs::write(&report_path, format!("{expanded_report}\n")).unwrap();
+    let multiple: serde_json::Value =
+        serde_json::from_slice(&map(std::path::Path::new(fixture), line, column).stdout).unwrap();
+    assert_eq!(multiple["mappings"].as_array().unwrap().len(), 2);
+    std::fs::write(&map_path, original_map).unwrap();
+    std::fs::write(&report_path, original_report).unwrap();
     let changed = output_dir.join("changed.gscene");
     std::fs::write(&changed, b"different source").unwrap();
     assert!(!map(&changed, line, column).status.success());
