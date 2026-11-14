@@ -67,9 +67,10 @@ impl std::error::Error for AndroidTextPreviewError {
 /// Emit an experimental Kotlin `TextView` source file for one strict,
 /// source-bound scene whose entire content is a single static `@cell` text.
 ///
-/// This intentionally accepts no layout, styling, children, interactions,
-/// buttons, or inputs. The output is a preview emitter; it does not establish
-/// Android build integration, visual equivalence, or platform qualification.
+/// Optional text size and fill are preserved. This intentionally accepts no
+/// layout, other styling, children, interactions, buttons, or inputs. The
+/// output is a preview emitter; it does not establish Android build
+/// integration, visual equivalence, or platform qualification.
 pub fn emit_android_static_text_preview(source: &str) -> Result<String, AndroidTextPreviewError> {
     emit_android_static_text_preview_named(source, "GoyaStaticTextPreview")
 }
@@ -111,10 +112,8 @@ pub fn emit_android_static_text_preview_mapped(
         || root.extent.is_some()
         || root.position_p.is_some()
         || root.extent_p.is_some()
-        || root.fill.is_some()
         || root.stroke.is_some()
         || root.stroke_width.is_some()
-        || root.text_size.is_some()
         || root.anchor.is_some()
         || root.wrap.is_some()
         || root.scroll
@@ -149,15 +148,34 @@ pub fn emit_android_static_text_preview_mapped(
             "text without a source origin",
         ))?;
     let literal = kotlin_string_literal(text);
+    let mut imports = String::from("import android.content.Context\nimport android.widget.TextView\n");
+    if root.text_size.is_some() {
+        imports.push_str("import android.util.TypedValue\n");
+    }
     let prefix = format!(
-        "import android.content.Context\nimport android.widget.TextView\n\n\
+        "{imports}\n\
          /** Experimental Goya static-text preview. */\n\
          class {class_name}(context: Context) : TextView(context) {{\n\
              init {{\n\
                  text = "
     );
     let generated_start = prefix.len();
-    let kotlin = format!("{prefix}{literal}\n             }}\n         }}\n");
+    let mut kotlin = format!("{prefix}{literal}\n");
+    if let Some(text_size) = root.text_size {
+        kotlin.push_str(&format!(
+            "                 setTextSize(TypedValue.COMPLEX_UNIT_PT, {:?}f)\n",
+            text_size
+        ));
+    }
+    if let Some(fill) = root.fill {
+        let red = (fill >> 16) & 0xff;
+        let green = (fill >> 8) & 0xff;
+        let blue = fill & 0xff;
+        kotlin.push_str(&format!(
+            "                 setTextColor(android.graphics.Color.rgb({red}, {green}, {blue}))\n"
+        ));
+    }
+    kotlin.push_str("             }\n         }\n");
     Ok(AndroidTextPreview {
         kotlin,
         source_digest: handoff.parsed.source_digest,
@@ -531,6 +549,15 @@ mod tests {
     }
 
     #[test]
+    fn android_preview_preserves_supported_label_style() {
+        let source = "@ontology demo { @cell label { id: \"label\"; text: \"Hello\"; text-size: 18; fill: #123456 } }";
+        let output = emit_android_static_text_preview(source).unwrap();
+        assert!(output.contains("import android.util.TypedValue"));
+        assert!(output.contains("setTextSize(TypedValue.COMPLEX_UNIT_PT, 18.0f)"));
+        assert!(output.contains("setTextColor(android.graphics.Color.rgb(18, 52, 86))"));
+    }
+
+    #[test]
     fn android_preview_accepts_safe_custom_class_names_only() {
         let source = "@ontology demo { @cell label { id: \"label\"; text: \"Hello\" } }";
         let output = emit_android_static_text_preview_named(source, "WelcomePreview").unwrap();
@@ -578,7 +605,7 @@ mod tests {
     fn android_preview_rejects_features_outside_its_static_text_subset() {
         for source in [
             "@ontology demo { @cell root { id: \"root\"; } }",
-            "@ontology demo { @cell root { id: \"root\"; text: \"x\"; fill: #ffffff } }",
+            "@ontology demo { @cell root { id: \"root\"; text: \"x\"; stroke: #ffffff } }",
             "@ontology demo { @cell root { id: \"root\"; text: \"x\"; @cell child { id: \"child\"; } } }",
             "@ontology demo { @button root { id: \"root\"; text: \"x\"; } }",
             "@ontology demo { @input root { id: \"root\"; text: \"x\"; } }",
