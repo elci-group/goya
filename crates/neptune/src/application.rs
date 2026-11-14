@@ -157,9 +157,20 @@ fn error(message: impl Into<String>, range: Option<SourceRange>) -> crate::Diagn
 fn conflicting_state_range(parsed: &goya_lang::ParsedScene, key: &str) -> Option<SourceRange> {
     let mut seen = None;
     for action in &parsed.scene.interactions {
-        for item in action.state_reads.iter().chain(&action.state_writes).filter(|item| item.name == key) {
+        for item in action
+            .state_reads
+            .iter()
+            .chain(&action.state_writes)
+            .filter(|item| item.name == key)
+        {
             if seen.is_some_and(|ty| ty != item.value_type) {
-                return parsed.entries.iter().find(|entry| entry.kind == "interaction" && entry.semantic_id == action.authored_id).map(|entry| entry.range);
+                return parsed
+                    .entries
+                    .iter()
+                    .find(|entry| {
+                        entry.kind == "interaction" && entry.semantic_id == action.authored_id
+                    })
+                    .map(|entry| entry.range);
             }
             seen = Some(item.value_type);
         }
@@ -183,7 +194,9 @@ pub fn lower(
     }
     let owner = goya_sdk::D1Application::new(&parsed.scene, initial).map_err(|e| {
         let range = match &e {
-            goya_sdk::D1ApplicationError::ConflictingStateType(key) => conflicting_state_range(&parsed, key),
+            goya_sdk::D1ApplicationError::ConflictingStateType(key) => {
+                conflicting_state_range(&parsed, key)
+            }
             _ => None,
         };
         error(e.to_string(), range)
@@ -271,7 +284,16 @@ mod tests {
             .replace("set name = input.value", "set count = input.value");
         let diagnostic = lower(&conflict, "app/main.gscene", initial()).unwrap_err();
         assert_eq!(diagnostic.code, "NPT-E3102");
-        assert!(diagnostic.range.is_some());
+        let range = diagnostic.range.unwrap();
+        assert!(conflict[range.start..range.end].starts_with("@interaction add"));
+        let with_button = conflict.replace(
+            "@button inc",
+            "@button later { id: \"button.later\" } @button inc",
+        );
+        let with_later = format!("{} @interaction later {{ id: \"action.later\"; trigger: button.later.activate; class: D1; state {{ write count: int; }} input {{ value: int; }} set count = input.value; }} }}", &with_button[..with_button.len() - 1]);
+        let diagnostic = lower(&with_later, "app/main.gscene", initial()).unwrap_err();
+        let range = diagnostic.range.unwrap();
+        assert!(with_later[range.start..range.end].starts_with("@interaction add"));
         let mut oversized = initial();
         oversized.insert(
             "name".into(),
