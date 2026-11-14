@@ -220,7 +220,7 @@ function renderFilters() {
 }
 
 function renderGraph() {
-  const svg = $("graph");
+  const svg = $("crate-graph");
   const width = 980;
   const layers = state.layer === "all"
     ? state.model.layers
@@ -292,7 +292,10 @@ function renderGraph() {
     });
   });
   const shown = nodes.length;
-  $("graph-caption").textContent = `${shown} crates in view. Edges show what ${state.selected} uses and what uses it.`;
+  const caption = $("graph-caption");
+  if (caption) {
+    caption.textContent = `${shown} crates in view. Edges show what ${state.selected} uses and what uses it.`;
+  }
 }
 
 function renderTraceButtons(events) {
@@ -361,7 +364,8 @@ async function main() {
   const catalog = await fetch("/api/trace");
   const events = await catalog.json();
   renderTraceButtons(events.events);
-  await loadTrace(state.trace);
+  const requested = new URLSearchParams(location.search).get("event");
+  await loadTrace(requested || state.trace);
 }
 
 main().catch((error) => {
