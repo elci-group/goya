@@ -451,6 +451,9 @@ fn state_model_cli_and_service_share_validation_and_scope() {
 fn multi_action_owner_preview_cli_and_service_match() {
     let scene_path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/owner.gscene");
     let initial_path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/owner-initial.json");
+    let missing_profile = Command::new(env!("CARGO_BIN_EXE_neptune"))
+        .args(["preview-d1-owner", scene_path, "--module", "app/main.gscene", "--initial", initial_path]).output().unwrap();
+    assert!(!missing_profile.status.success());
     let output = Command::new(env!("CARGO_BIN_EXE_neptune"))
         .args(["preview-d1-owner", scene_path, "--module", "app/main.gscene", "--profile", "experimental", "--initial", initial_path, "--format", "json"])
         .output().unwrap();
@@ -460,6 +463,7 @@ fn multi_action_owner_preview_cli_and_service_match() {
     assert_eq!(result["scope"], "state_only");
     assert_eq!(result["actions"].as_array().unwrap().len(), 2);
     assert_eq!(result["stages"]["apple_validation"], "NOT_RUN");
+    assert_eq!(result["stages"]["runtime_limit_parity"], "NOT_VERIFIED");
     let source = std::fs::read_to_string(scene_path).unwrap();
     let initial: serde_json::Value = serde_json::from_slice(&std::fs::read(initial_path).unwrap()).unwrap();
     let mut session = neptune::service::Session::default();
