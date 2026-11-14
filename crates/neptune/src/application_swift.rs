@@ -6,6 +6,7 @@ use crate::{
 };
 use goya_executable::D1Value;
 use goya_lang::SourceRange;
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
 
@@ -18,6 +19,8 @@ struct ActionMapping {
     trigger: SemanticId,
     method: String,
     source: SourceRange,
+    trigger_source: SourceRange,
+    reference_program_hash: [u8; 32],
     swift: SourceRange,
     inputs: Vec<Field>,
 }
@@ -28,6 +31,7 @@ pub struct Preview {
     swift: String,
     module: String,
     source_digest: [u8; 32],
+    initial_digest: [u8; 32],
     state: Vec<Field>,
     actions: Vec<ActionMapping>,
 }
@@ -51,8 +55,8 @@ impl Preview {
         fn fields(values: &[Field]) -> Vec<serde_json::Value> {
             values.iter().map(|field| serde_json::json!({"source_key":field.source_key,"swift_name":field.swift_name,"type":type_name(field.value_type)})).collect()
         }
-        let actions: Vec<_> = self.actions.iter().map(|action| serde_json::json!({"semantic_id":{"module":action.id.module,"declared_id":action.id.declared_id},"trigger":{"module":action.trigger.module,"declared_id":action.trigger.declared_id},"method":action.method,"inputs":fields(&action.inputs),"source_range":{"start_byte":action.source.start,"end_byte":action.source.end},"swift_range":{"start_byte":action.swift.start,"end_byte":action.swift.end}})).collect();
-        serde_json::json!({"schema_version":"1","operation":"preview-d1-owner","verification":"SOURCE_PREVIEW","scope":"state_only","swift":self.swift,"module":self.module,"source_sha256":hex(&self.source_digest),"application_contract":goya_sdk::D1_APPLICATION_CONTRACT,"state_fields":fields(&self.state),"actions":actions,"stages":{"presentation_validation":"NOT_RUN","apple_validation":"NOT_RUN","runtime_limit_parity":"NOT_VERIFIED","ios_admission":"NOT_RUN"}})
+        let actions: Vec<_> = self.actions.iter().map(|action| serde_json::json!({"semantic_id":{"module":action.id.module,"declared_id":action.id.declared_id},"trigger":{"module":action.trigger.module,"declared_id":action.trigger.declared_id},"method":action.method,"inputs":fields(&action.inputs),"source_range":{"start_byte":action.source.start,"end_byte":action.source.end},"trigger_source_range":{"start_byte":action.trigger_source.start,"end_byte":action.trigger_source.end},"swift_range":{"start_byte":action.swift.start,"end_byte":action.swift.end},"reference_program_hash":hex(&action.reference_program_hash),"expression_provenance":"action_range_only"})).collect();
+        serde_json::json!({"schema_version":"1","operation":"preview-d1-owner","verification":"SOURCE_PREVIEW","scope":"state_only","swift":self.swift,"swift_sha256":format!("{:x}", Sha256::digest(self.swift.as_bytes())),"module":self.module,"source_sha256":hex(&self.source_digest),"initial_state_sha256":hex(&self.initial_digest),"initial_hash_contract":"NPT-D1-INIT/1","initial_source":"caller_supplied_transport","application_contract":goya_sdk::D1_APPLICATION_CONTRACT,"state_fields":fields(&self.state),"actions":actions,"stages":{"presentation_validation":"NOT_RUN","apple_validation":"NOT_RUN","runtime_limit_parity":"NOT_VERIFIED","ios_admission":"NOT_RUN"}})
     }
 }
 
@@ -71,6 +75,24 @@ fn literal(value: &D1Value) -> String {
         D1Value::Text(value) => swift::Expr::StringLiteral(value.clone()).render(),
         D1Value::Bool(value) => value.to_string(),
     }
+}
+
+// Length-prefixed UTF-8 keys and values in sorted schema order. Integer values
+// are signed little-endian; strings are not normalized.
+fn initial_digest(cells: &[application::StateCell]) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    hash.update(b"NPT-D1-INIT/1\0");
+    hash.update((cells.len() as u64).to_le_bytes());
+    for cell in cells {
+        hash.update((cell.key.len() as u64).to_le_bytes());
+        hash.update(cell.key.as_bytes());
+        match &cell.initial {
+            D1Value::Int(value) => { hash.update([0]); hash.update(value.to_le_bytes()); },
+            D1Value::Text(value) => { hash.update([1]); hash.update((value.len() as u64).to_le_bytes()); hash.update(value.as_bytes()); },
+            D1Value::Bool(value) => { hash.update([2, u8::from(*value)]); },
+        }
+    }
+    hash.finalize().into()
 }
 
 /// Generate a single main-actor state owner for a validated D1 state model.
@@ -214,6 +236,8 @@ pub fn preview(
             trigger: action.trigger_id.clone(),
             method: format!("dispatch{index}"),
             source: action.source_range,
+            trigger_source: action.trigger_source_range,
+            reference_program_hash: action.reference_program_hash,
             swift: SourceRange {
                 start,
                 end: out.len(),
@@ -235,6 +259,7 @@ pub fn preview(
         swift: out,
         module: model.module().to_owned(),
         source_digest: model.source_digest(),
+        initial_digest: initial_digest(model.cells()),
         state,
         actions: mappings,
     })
