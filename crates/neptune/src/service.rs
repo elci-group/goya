@@ -122,10 +122,13 @@ impl Session {
             let result = if operation == "model-d1-state" {
                 crate::application::lower(source, module, initial).map(|model| model.to_json())
             } else {
-                crate::application_swift::preview(source, module, initial).map(|preview| preview.to_json())
+                crate::application_swift::preview(source, module, initial)
+                    .map(|preview| preview.to_json())
             };
             return match result {
-                Ok(result) => json!({"schema_version":"1","job_id":id,"sequence":1,"stage":if operation == "model-d1-state" {"state_model"} else {"preview"},"status":"PASS","result":result}),
+                Ok(result) => {
+                    json!({"schema_version":"1","job_id":id,"sequence":1,"stage":if operation == "model-d1-state" {"state_model"} else {"preview"},"status":"PASS","result":result})
+                }
                 Err(d) => failure(id, "state_validation", &d),
             };
         }

@@ -87,9 +87,18 @@ fn initial_digest(cells: &[application::StateCell]) -> [u8; 32] {
         hash.update((cell.key.len() as u64).to_le_bytes());
         hash.update(cell.key.as_bytes());
         match &cell.initial {
-            D1Value::Int(value) => { hash.update([0]); hash.update(value.to_le_bytes()); },
-            D1Value::Text(value) => { hash.update([1]); hash.update((value.len() as u64).to_le_bytes()); hash.update(value.as_bytes()); },
-            D1Value::Bool(value) => { hash.update([2, u8::from(*value)]); },
+            D1Value::Int(value) => {
+                hash.update([0]);
+                hash.update(value.to_le_bytes());
+            }
+            D1Value::Text(value) => {
+                hash.update([1]);
+                hash.update((value.len() as u64).to_le_bytes());
+                hash.update(value.as_bytes());
+            }
+            D1Value::Bool(value) => {
+                hash.update([2, u8::from(*value)]);
+            }
         }
     }
     hash.finalize().into()
@@ -326,8 +335,17 @@ mod tests {
         assert_eq!(report["stages"]["apple_validation"], "NOT_RUN");
         assert_eq!(report["stages"]["runtime_limit_parity"], "NOT_VERIFIED");
         assert_eq!(report["initial_hash_contract"], "NPT-D1-INIT/1");
-        assert_eq!(report["actions"][0]["reference_program_hash"].as_str().unwrap().len(), 64);
-        assert_eq!(report["swift_sha256"], format!("{:x}", Sha256::digest(swift.as_bytes())));
+        assert_eq!(
+            report["actions"][0]["reference_program_hash"]
+                .as_str()
+                .unwrap()
+                .len(),
+            64
+        );
+        assert_eq!(
+            report["swift_sha256"],
+            format!("{:x}", Sha256::digest(swift.as_bytes()))
+        );
         let scene = goya_lang::parse_strict(SOURCE).unwrap().scene;
         let mut reference = goya_sdk::D1Application::new(&scene, initial()).unwrap();
         reference
@@ -354,6 +372,11 @@ mod tests {
         values.insert("name".into(), D1Value::Text("\\(unsafe)\n".into()));
         let output = preview(SOURCE, "app/main.gscene", values).unwrap();
         assert!(output.swift().contains("s1: \"\\\\(unsafe)\\n\""));
-        assert_ne!(output.to_json()["initial_state_sha256"], preview(SOURCE, "app/main.gscene", initial()).unwrap().to_json()["initial_state_sha256"]);
+        assert_ne!(
+            output.to_json()["initial_state_sha256"],
+            preview(SOURCE, "app/main.gscene", initial())
+                .unwrap()
+                .to_json()["initial_state_sha256"]
+        );
     }
 }

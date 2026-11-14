@@ -375,7 +375,9 @@ fn main() -> ExitCode {
         } else if option[0] == "--out" && args[1] == "preview" && out.is_none() {
             out = Some(std::path::PathBuf::from(&option[1]));
         } else if option[0] == "--profile"
-            && (args[1] == "preview-transition" || args[1] == "model-d1-state" || args[1] == "preview-d1-owner")
+            && (args[1] == "preview-transition"
+                || args[1] == "model-d1-state"
+                || args[1] == "preview-d1-owner")
             && option[1] == "experimental"
             && !experimental
         {
@@ -392,7 +394,9 @@ fn main() -> ExitCode {
                 eprintln!("module path must be UTF-8");
                 return ExitCode::from(2);
             }
-        } else if option[0] == "--initial" && (args[1] == "model-d1-state" || args[1] == "preview-d1-owner") && initial_path.is_none()
+        } else if option[0] == "--initial"
+            && (args[1] == "model-d1-state" || args[1] == "preview-d1-owner")
+            && initial_path.is_none()
         {
             initial_path = Some(std::path::PathBuf::from(&option[1]));
         } else {
@@ -400,13 +404,20 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     }
-    if (args[1] == "preview" || args[1] == "preview-transition" || args[1] == "model-d1-state" || args[1] == "preview-d1-owner")
+    if (args[1] == "preview"
+        || args[1] == "preview-transition"
+        || args[1] == "model-d1-state"
+        || args[1] == "preview-d1-owner")
         && module.is_none()
     {
         eprintln!("preview requires --module <project-relative-path.gscene>");
         return ExitCode::from(2);
     }
-    if (args[1] == "preview-transition" || args[1] == "model-d1-state" || args[1] == "preview-d1-owner") && !experimental {
+    if (args[1] == "preview-transition"
+        || args[1] == "model-d1-state"
+        || args[1] == "preview-d1-owner")
+        && !experimental
+    {
         eprintln!("this operation requires --profile experimental");
         return ExitCode::from(2);
     }
@@ -463,9 +474,17 @@ fn main() -> ExitCode {
                 })?;
             let initial = neptune::application::parse_initial(&value)?;
             if args[1] == "model-d1-state" {
-                Ok(neptune::application::lower(&source, module.unwrap_or_default(), initial)?.to_json())
+                Ok(
+                    neptune::application::lower(&source, module.unwrap_or_default(), initial)?
+                        .to_json(),
+                )
             } else {
-                Ok(neptune::application_swift::preview(&source, module.unwrap_or_default(), initial)?.to_json())
+                Ok(neptune::application_swift::preview(
+                    &source,
+                    module.unwrap_or_default(),
+                    initial,
+                )?
+                .to_json())
             }
         })();
         return match result {
