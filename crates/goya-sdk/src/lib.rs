@@ -148,7 +148,8 @@ pub fn emit_android_static_text_preview_mapped(
             "text without a source origin",
         ))?;
     let literal = kotlin_string_literal(text);
-    let mut imports = String::from("import android.content.Context\nimport android.widget.TextView\n");
+    let mut imports =
+        String::from("import android.content.Context\nimport android.widget.TextView\n");
     if root.text_size.is_some() {
         imports.push_str("import android.util.TypedValue\n");
     }
