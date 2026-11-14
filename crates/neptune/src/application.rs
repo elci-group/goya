@@ -207,4 +207,31 @@ mod tests {
         );
         assert!(lower(SOURCE, "app/main.gscene", oversized).is_err());
     }
+
+    #[test]
+    fn initial_transport_requires_exact_types_and_unique_keys() {
+        let valid = serde_json::json!([["count", "int", -1], ["title", "text", "é"], ["enabled", "bool", true]]);
+        let values = parse_initial(&valid).unwrap();
+        assert_eq!(values["count"], D1Value::Int(-1));
+        for invalid in [
+            serde_json::json!([["a", "int", 1], ["a", "int", 2]]),
+            serde_json::json!([["a", "int", true]]),
+            serde_json::json!([["a", "int", 1.5]]),
+            serde_json::json!([["a", "bool", null]]),
+            serde_json::json!([["a", "text", "x", "extra"]]),
+            serde_json::json!([["a", "unknown", 0]]),
+            serde_json::json!({"a": 1}),
+        ] { assert!(parse_initial(&invalid).is_err(), "{invalid}"); }
+        assert!(parse_initial(&serde_json::json!([["a", "text", "x".repeat(goya_executable::D1_MAX_TEXT_BYTES + 1)]])).is_err());
+    }
+
+    #[test]
+    fn serialized_model_contains_typed_action_bodies_and_explicit_scope() {
+        let value = lower(SOURCE, "app/main.gscene", initial()).unwrap().to_json();
+        assert_eq!(value["scope"], "state_only");
+        assert_eq!(value["stages"]["presentation_validation"], "NOT_RUN");
+        assert_eq!(value["actions"][0]["assignments"][0]["value"]["operation"]["kind"], "checked_add");
+        assert_eq!(value["actions"][0]["assignments"][0]["value"]["type"], "int");
+        assert_eq!(value["actions"][1]["assignments"][0]["value"]["operation"]["kind"], "input");
+    }
 }
