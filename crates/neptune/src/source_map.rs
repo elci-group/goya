@@ -82,11 +82,16 @@ pub fn map_swift_location(
     line: usize,
     column: usize,
 ) -> Result<Value, String> {
+    let preview = crate::artifacts::load_verified_preview(directory)
+        .map_err(|e| format!("preview integrity check failed: {e}"))?;
+    map_verified_location(&preview, source, line, column)
+}
+
+/// Map a location in an already checked preview, including an inline bundle.
+pub fn map_verified_location(preview: &crate::artifacts::VerifiedPreview, source: &str, line: usize, column: usize) -> Result<Value, String> {
     if source.len() > crate::MAX_SOURCE_BYTES {
         return Err("source exceeds 128 KiB".into());
     }
-    let preview = crate::artifacts::load_verified_preview(directory)
-        .map_err(|e| format!("preview integrity check failed: {e}"))?;
     let actual = format!("{:x}", Sha256::digest(source.as_bytes()));
     if actual != preview.input_sha256 {
         return Err("source hash does not match preview report".into());
