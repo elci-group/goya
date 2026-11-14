@@ -455,7 +455,10 @@ fn main() -> ExitCode {
             return input_error(json, &args[1], "NPT-E1002", "source must be UTF-8");
         }
     };
-    if args[1] == "model-d1-state" || args[1] == "preview-d1-owner" {
+    if args[1] == "model-d1-state"
+        || args[1] == "preview-d1-owner"
+        || args[1] == "preview-native-button"
+    {
         let result = (|| -> Result<serde_json::Value, neptune::Diagnostic> {
             let path = initial_path.as_ref().ok_or_else(|| neptune::Diagnostic {
                 code: "NPT-E3102",
