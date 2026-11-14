@@ -576,10 +576,6 @@ unsafe extern "system" fn wnd_proc(hwnd: *mut c_void, message: u32, wparam: usiz
             0
         }
         WM_DESTROY => {
-            let font = MESSAGE_FONT.swap(std::ptr::null_mut(), Ordering::Relaxed);
-            if !font.is_null() {
-                DeleteObject(font);
-            }
             RemovePropW(hwnd, PROP_SEMANTIC.as_ptr());
             for index in 0..PLACED.len() {
                 let child = HWNDS[index].swap(std::ptr::null_mut(), Ordering::Relaxed);
@@ -593,6 +589,10 @@ unsafe extern "system" fn wnd_proc(hwnd: *mut c_void, message: u32, wparam: usiz
                     drop(Box::from_raw(len_ptr));
                     drop(Box::from_raw(std::ptr::slice_from_raw_parts_mut(id_ptr, len)));
                 }
+            }
+            let font = MESSAGE_FONT.swap(std::ptr::null_mut(), Ordering::Relaxed);
+            if !font.is_null() {
+                DeleteObject(font);
             }
             PostQuitMessage(0);
             0
@@ -649,11 +649,7 @@ unsafe fn setup(hwnd: *mut c_void) -> i32 {
         ID_LENS[index].store(Box::into_raw(Box::new(id_len)), Ordering::Relaxed);
         HWNDS[index].store(child, Ordering::Relaxed);
     }
-    let mut dpi = GetDpiForWindow(hwnd);
-    if dpi == 0 || dpi > 960 {
-        dpi = 96;
-    }
-    if apply_font(dpi) != 0 {
+    if apply_font(clamp_dpi(GetDpiForWindow(hwnd))) != 0 {
         return 1;
     }
     place_all(hwnd);
@@ -703,10 +699,7 @@ unsafe fn apply_font(dpi: u32) -> i32 {
 }
 
 unsafe fn place_all(parent: *mut c_void) {
-    let mut dpi = GetDpiForWindow(parent);
-    if dpi == 0 || dpi > 960 {
-        dpi = 96;
-    }
+    let dpi = clamp_dpi(GetDpiForWindow(parent));
     let mut rect = Rect { left: 0, top: 0, right: 0, bottom: 0 };
     if GetClientRect(parent, &mut rect) == 0 {
         return;
@@ -788,7 +781,9 @@ mod tests {
         assert!(generated
             .main_rs
             .contains("std::mem::size_of::<NonClientMetricsW>() == 504"));
-        assert!(generated.main_rs.contains("std::mem::size_of::<LogFontW>() == 92"));
+        assert!(generated
+            .main_rs
+            .contains("std::mem::size_of::<LogFontW>() == 92"));
         assert!(!generated.main_rs.contains("GetStockObject"));
         assert!(!generated.main_rs.contains("DEFAULT_GUI_FONT"));
         assert!(window
