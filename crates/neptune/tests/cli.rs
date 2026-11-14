@@ -180,6 +180,20 @@ fn preview_writes_new_directory_and_refuses_overwrite() {
         "tests/static.gscene"
     );
     assert_eq!(mapped["verification"]["authenticity"], "NOT_CHECKED");
+    let source = std::fs::read_to_string(fixture).unwrap();
+    let bundle: serde_json::Value =
+        serde_json::from_str(&neptune::preview_bundle(&source, "tests/static.gscene").unwrap())
+            .unwrap();
+    let request = serde_json::json!({"schema_version":"1","job_id":"mapped","operation":"map-swift","source":source,"bundle":bundle,"line":line,"column":column,"column_encoding":"utf8-byte","raw_diagnostic":"App.swift: error: example\n"});
+    let mut session = neptune::service::Session::default();
+    let service = session.handle(&request);
+    assert_eq!(service["status"], "PASS");
+    assert_eq!(service["result"], mapped);
+    assert_eq!(service["raw_diagnostic"], "App.swift: error: example\n");
+    let mut bad_request = request.clone();
+    bad_request["job_id"] = serde_json::json!("tampered");
+    bad_request["bundle"]["artifacts"]["App.swift"] = serde_json::json!("altered");
+    assert_eq!(session.handle(&bad_request)["status"], "FAIL");
     let unmapped: serde_json::Value =
         serde_json::from_slice(&map(std::path::Path::new(fixture), 1, 1).stdout).unwrap();
     assert_eq!(unmapped["status"], "UNMAPPED");

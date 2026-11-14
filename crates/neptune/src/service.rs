@@ -43,7 +43,17 @@ impl Session {
         if object.keys().any(|key| {
             !matches!(
                 key.as_str(),
-                "schema_version" | "job_id" | "operation" | "source" | "module" | "profile" | "bundle" | "line" | "column" | "column_encoding" | "raw_diagnostic"
+                "schema_version"
+                    | "job_id"
+                    | "operation"
+                    | "source"
+                    | "module"
+                    | "profile"
+                    | "bundle"
+                    | "line"
+                    | "column"
+                    | "column_encoding"
+                    | "raw_diagnostic"
             )
         }) {
             return error(Some(id), "protocol", "unknown request field");
@@ -61,23 +71,57 @@ impl Session {
             return error(Some(id), "ingest", "source must be a UTF-8 string");
         };
         if operation == "map-swift" {
-            if object.get("column_encoding").and_then(Value::as_str) != Some("utf8-byte") { return error(Some(id), "protocol", "map-swift requires column_encoding utf8-byte"); }
-            let number = |key: &str| object.get(key).and_then(Value::as_u64).and_then(|value| usize::try_from(value).ok()).filter(|value| *value > 0);
-            let (Some(line), Some(column)) = (number("line"), number("column")) else { return error(Some(id), "protocol", "map-swift requires positive line and column"); };
+            if object.get("column_encoding").and_then(Value::as_str) != Some("utf8-byte") {
+                return error(
+                    Some(id),
+                    "protocol",
+                    "map-swift requires column_encoding utf8-byte",
+                );
+            }
+            let number = |key: &str| {
+                object
+                    .get(key)
+                    .and_then(Value::as_u64)
+                    .and_then(|value| usize::try_from(value).ok())
+                    .filter(|value| *value > 0)
+            };
+            let (Some(line), Some(column)) = (number("line"), number("column")) else {
+                return error(
+                    Some(id),
+                    "protocol",
+                    "map-swift requires positive line and column",
+                );
+            };
             let raw = match object.get("raw_diagnostic") {
                 None => None,
                 Some(value) => match value.as_str().filter(|text| text.len() <= 16384) {
                     Some(text) => Some(text),
-                    None => return error(Some(id), "protocol", "raw_diagnostic must be a string no longer than 16 KiB"),
+                    None => {
+                        return error(
+                            Some(id),
+                            "protocol",
+                            "raw_diagnostic must be a string no longer than 16 KiB",
+                        )
+                    }
                 },
             };
-            let Some(bundle) = object.get("bundle") else { return error(Some(id), "protocol", "map-swift requires a preview bundle"); };
+            let Some(bundle) = object.get("bundle") else {
+                return error(Some(id), "protocol", "map-swift requires a preview bundle");
+            };
             let preview = match crate::artifacts::verify_preview_bundle(bundle) {
                 Ok(preview) => preview,
-                Err(e) => return error(Some(id), "diagnostic_mapping", &format!("preview integrity check failed: {e}")),
+                Err(e) => {
+                    return error(
+                        Some(id),
+                        "diagnostic_mapping",
+                        &format!("preview integrity check failed: {e}"),
+                    )
+                }
             };
             return match crate::source_map::map_verified_location(&preview, source, line, column) {
-                Ok(result) => json!({"schema_version":"1","job_id":id,"sequence":1,"stage":"diagnostic_mapping","status":"PASS","result":result,"raw_diagnostic":raw}),
+                Ok(result) => {
+                    json!({"schema_version":"1","job_id":id,"sequence":1,"stage":"diagnostic_mapping","status":"PASS","result":result,"raw_diagnostic":raw})
+                }
                 Err(e) => error(Some(id), "diagnostic_mapping", &e),
             };
         }

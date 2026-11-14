@@ -56,27 +56,44 @@ pub fn load_verified_preview(directory: &Path) -> io::Result<VerifiedPreview> {
         serde_json::from_slice(&read_bounded(&directory.join("build-report.json"))?)
             .map_err(io::Error::other)?;
     let mut artifacts = std::collections::BTreeMap::new();
-    for name in FILES { artifacts.insert(name.to_owned(), read_bounded(&directory.join(name))?); }
+    for name in FILES {
+        artifacts.insert(name.to_owned(), read_bounded(&directory.join(name))?);
+    }
     verify_parts(&report, artifacts)
 }
 
 /// Verify the same preview format when provided inline to the local service.
 pub fn verify_preview_bundle(bundle: &serde_json::Value) -> io::Result<VerifiedPreview> {
-    if bundle["schema_version"] != "2" || bundle["operation"] != "preview" || bundle["verification"] != "SOURCE_PREVIEW" {
+    if bundle["schema_version"] != "2"
+        || bundle["operation"] != "preview"
+        || bundle["verification"] != "SOURCE_PREVIEW"
+    {
         return Err(io::Error::other("unsupported preview bundle"));
     }
-    let values = bundle["artifacts"].as_object().ok_or_else(|| io::Error::other("missing artifacts"))?;
-    if values.len() != FILES.len() { return Err(io::Error::other("unexpected artifact set")); }
+    let values = bundle["artifacts"]
+        .as_object()
+        .ok_or_else(|| io::Error::other("missing artifacts"))?;
+    if values.len() != FILES.len() {
+        return Err(io::Error::other("unexpected artifact set"));
+    }
     let mut artifacts = std::collections::BTreeMap::new();
     for name in FILES {
-        let value = values.get(name).and_then(serde_json::Value::as_str).ok_or_else(|| io::Error::other("missing artifact"))?;
-        if value.len() as u64 > MAX_FILE_BYTES { return Err(io::Error::other("artifact exceeds 1 MiB")); }
+        let value = values
+            .get(name)
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| io::Error::other("missing artifact"))?;
+        if value.len() as u64 > MAX_FILE_BYTES {
+            return Err(io::Error::other("artifact exceeds 1 MiB"));
+        }
         artifacts.insert(name.to_owned(), value.as_bytes().to_vec());
     }
     verify_parts(&bundle["report"], artifacts)
 }
 
-fn verify_parts(report: &serde_json::Value, artifacts: std::collections::BTreeMap<String, Vec<u8>>) -> io::Result<VerifiedPreview> {
+fn verify_parts(
+    report: &serde_json::Value,
+    artifacts: std::collections::BTreeMap<String, Vec<u8>>,
+) -> io::Result<VerifiedPreview> {
     if report["schema_version"] != "1"
         || report["stages"]["ios_admission"] != "NOT_RUN"
         || report["stages"]["apple_validation"] != "NOT_RUN"
@@ -107,7 +124,9 @@ fn verify_parts(report: &serde_json::Value, artifacts: std::collections::BTreeMa
             .get(name)
             .and_then(serde_json::Value::as_str)
             .ok_or_else(|| io::Error::other("missing artifact hash"))?;
-        let bytes = artifacts.get(name).ok_or_else(|| io::Error::other("missing artifact"))?;
+        let bytes = artifacts
+            .get(name)
+            .ok_or_else(|| io::Error::other("missing artifact"))?;
         let actual = format!("{:x}", Sha256::digest(bytes));
         if actual != expected {
             return Err(io::Error::other(format!("artifact hash mismatch: {name}")));

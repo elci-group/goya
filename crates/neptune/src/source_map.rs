@@ -88,7 +88,12 @@ pub fn map_swift_location(
 }
 
 /// Map a location in an already checked preview, including an inline bundle.
-pub fn map_verified_location(preview: &crate::artifacts::VerifiedPreview, source: &str, line: usize, column: usize) -> Result<Value, String> {
+pub fn map_verified_location(
+    preview: &crate::artifacts::VerifiedPreview,
+    source: &str,
+    line: usize,
+    column: usize,
+) -> Result<Value, String> {
     if source.len() > crate::MAX_SOURCE_BYTES {
         return Err("source exceeds 128 KiB".into());
     }
