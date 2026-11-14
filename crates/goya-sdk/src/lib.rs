@@ -24,6 +24,7 @@ pub use application::{D1Application, D1ApplicationError, D1_APPLICATION_CONTRACT
 pub enum AndroidTextPreviewError {
     StrictParse(goya_lang::StrictParseError),
     Unsupported(&'static str),
+    InvalidClassName,
 }
 
 impl fmt::Display for AndroidTextPreviewError {
@@ -33,6 +34,7 @@ impl fmt::Display for AndroidTextPreviewError {
             Self::Unsupported(feature) => {
                 write!(f, "Android text preview does not support {feature}")
             }
+            Self::InvalidClassName => write!(f, "invalid Kotlin class name"),
         }
     }
 }
@@ -53,6 +55,20 @@ impl std::error::Error for AndroidTextPreviewError {
 /// buttons, or inputs. The output is a preview emitter; it does not establish
 /// Android build integration, visual equivalence, or platform qualification.
 pub fn emit_android_static_text_preview(source: &str) -> Result<String, AndroidTextPreviewError> {
+    emit_android_static_text_preview_named(source, "GoyaStaticTextPreview")
+}
+
+/// Emit the static-text preview using a caller-selected Kotlin class name.
+///
+/// Names are restricted to non-keyword ASCII Kotlin identifiers so the
+/// generated declaration is always a single ordinary class name.
+pub fn emit_android_static_text_preview_named(
+    source: &str,
+    class_name: &str,
+) -> Result<String, AndroidTextPreviewError> {
+    if !is_kotlin_class_name(class_name) {
+        return Err(AndroidTextPreviewError::InvalidClassName);
+    }
     let handoff =
         goya_lang::handoff::admit(source).map_err(AndroidTextPreviewError::StrictParse)?;
     let scene = &handoff.parsed.scene;
@@ -88,13 +104,29 @@ pub fn emit_android_static_text_preview(source: &str) -> Result<String, AndroidT
     Ok(format!(
         "import android.content.Context\nimport android.widget.TextView\n\n\
          /** Experimental Goya static-text preview. */\n\
-         class GoyaStaticTextPreview(context: Context) : TextView(context) {{\n\
+         class {class_name}(context: Context) : TextView(context) {{\n\
              init {{\n\
                  text = {}\n\
              }}\n\
          }}\n",
         kotlin_string_literal(text)
     ))
+}
+
+fn is_kotlin_class_name(name: &str) -> bool {
+    const KEYWORDS: &[&str] = &[
+        "as", "break", "class", "continue", "do", "else", "false", "for", "fun",
+        "if", "in", "interface", "is", "null", "object", "package", "return",
+        "super", "this", "throw", "true", "try", "typealias", "typeof", "val",
+        "var", "when", "while",
+    ];
+    let mut chars = name.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    (first == '_' || first.is_ascii_alphabetic())
+        && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+        && !KEYWORDS.contains(&name)
 }
 
 fn kotlin_string_literal(value: &str) -> String {
