@@ -263,13 +263,15 @@ pub fn parse_strict(source: &str) -> Result<ParsedScene, StrictParseError> {
         root.children
             .iter()
             .enumerate()
-            .find_map(|(index, child)| {
-                validate_authored_ids(child, &mut ids, vec![index])
-            })
+            .find_map(|(index, child)| validate_authored_ids(child, &mut ids, vec![index]))
     } else {
         validate_authored_ids(root, &mut ids, Vec::new())
     };
-    if let Some((error, path)) = id_error {
+    if let Some(error) = id_error {
+        let path = match &error {
+            AuthoredIdError::Missing { path, .. }
+            | AuthoredIdError::Duplicate { path, .. } => path,
+        };
         let entry = parsed
             .entries
             .iter()
@@ -279,7 +281,7 @@ pub fn parse_strict(source: &str) -> Result<ParsedScene, StrictParseError> {
             });
         return Err(StrictParseError {
             code: "GY-E1005",
-            name: error,
+            name: error.to_string(),
             range: entry
                 .map(|entry| entry.range)
                 .unwrap_or(SourceRange { start: 0, end: 0 }),
@@ -368,15 +370,15 @@ fn is_known_property(name: &str) -> bool {
 
 #[derive(Debug)]
 enum AuthoredIdError {
-    Missing { name: String },
-    Duplicate { id: String },
+    Missing { name: String, path: Vec<usize> },
+    Duplicate { id: String, path: Vec<usize> },
 }
 
 impl AuthoredIdError {
     fn to_string(&self) -> String {
         match self {
-            Self::Missing { name } => format!("missing ID for {name}"),
-            Self::Duplicate { id } => id.clone(),
+            Self::Missing { name, .. } => format!("missing ID for {name}"),
+            Self::Duplicate { id, .. } => id.clone(),
         }
     }
 }
@@ -384,22 +386,30 @@ impl AuthoredIdError {
 fn validate_authored_ids(
     cell: &SceneCell,
     seen: &mut std::collections::BTreeSet<String>,
+    path: Vec<usize>,
 ) -> Option<AuthoredIdError> {
     let Some(id) = cell.authored_id.as_ref() else {
         return Some(AuthoredIdError::Missing {
             name: cell.name.clone(),
+            path,
         });
     };
     if id.is_empty() {
         return Some(AuthoredIdError::Missing {
             name: cell.name.clone(),
+            path,
         });
     }
     if !seen.insert(id.clone()) {
-        return Some(AuthoredIdError::Duplicate { id: id.clone() });
+        return Some(AuthoredIdError::Duplicate {
+            id: id.clone(),
+            path,
+        });
     }
-    for child in &cell.children {
-        if let Some(error) = validate_authored_ids(child, seen) {
+    for (index, child) in cell.children.iter().enumerate() {
+        let mut child_path = path.clone();
+        child_path.push(index);
+        if let Some(error) = validate_authored_ids(child, seen, child_path) {
             return Some(error);
         }
     }

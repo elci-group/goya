@@ -31,7 +31,15 @@ impl fmt::Display for D1ApplicationError {
         write!(f, "{self:?}")
     }
 }
-impl std::error::Error for D1ApplicationError {}
+impl std::error::Error for D1ApplicationError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::InvalidInteractions(error) | Self::ActionFailed(error) => Some(error),
+            Self::InvalidState(error) | Self::InvalidInput(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 
 fn matches_type(value: &D1Value, ty: InteractionType) -> bool {
     matches!(
@@ -67,7 +75,11 @@ impl D1Application {
 
     /// Reconstruct an owner from an explicit snapshot after validating the
     /// current schema and D1 limits. Storage and migration are host duties.
-    pub fn restore(scene: &Scene, revision: u64, initial: BTreeMap<String, D1Value>) -> Result<Self, D1ApplicationError> {
+    pub fn restore(
+        scene: &Scene,
+        revision: u64,
+        initial: BTreeMap<String, D1Value>,
+    ) -> Result<Self, D1ApplicationError> {
         if scene
             .interactions
             .iter()
@@ -75,7 +87,8 @@ impl D1Application {
         {
             return Err(D1ApplicationError::UnsupportedEffect);
         }
-        let compiled = goya_lang::compile_d1_interactions(scene).map_err(D1ApplicationError::InvalidInteractions)?;
+        let compiled = goya_lang::compile_d1_interactions(scene)
+            .map_err(D1ApplicationError::InvalidInteractions)?;
         if compiled.len() != scene.interactions.len() {
             return Err(D1ApplicationError::CompilerInvariant);
         }
@@ -107,11 +120,11 @@ impl D1Application {
         {
             return Err(D1ApplicationError::StateSchemaMismatch);
         }
-        D1Snapshot::new(revision, initial.clone()).map_err(D1ApplicationError::InvalidState)?;
+        let snapshot = D1Snapshot::new(revision, initial).map_err(D1ApplicationError::InvalidState)?;
         Ok(Self {
             actions,
             schema,
-            values: initial,
+            values: snapshot.values().clone(),
             revision,
         })
     }
@@ -156,7 +169,8 @@ impl D1Application {
                     .ok_or(D1ApplicationError::StateSchemaMismatch)?,
             );
         }
-        let snapshot = D1Snapshot::new(self.revision, values).map_err(D1ApplicationError::InvalidState)?;
+        let snapshot =
+            D1Snapshot::new(self.revision, values).map_err(D1ApplicationError::InvalidState)?;
         let input = InputSnapshot::new(inputs).map_err(D1ApplicationError::InvalidInput)?;
         let outcome = action
             .execute(&snapshot, &input)
@@ -173,8 +187,8 @@ impl D1Application {
             }
             next.insert(key.name.clone(), value);
         }
-        D1Snapshot::new(outcome.revision_after, next.clone()).map_err(D1ApplicationError::InvalidState)?;
-        self.values = next;
+        let snapshot = D1Snapshot::new(outcome.revision_after, next).map_err(D1ApplicationError::InvalidState)?;
+        self.values = snapshot.values().clone();
         self.revision = outcome.revision_after;
         Ok(())
     }
@@ -235,8 +249,24 @@ mod tests {
         ));
         let mut app = D1Application::new(&scene(), initial(i64::MAX)).unwrap();
         let before = app.values().clone();
-        assert!(matches!(app.dispatch("action.add", BTreeMap::from([("amount".into(), D1Value::Int(1))])), Err(D1ApplicationError::ActionFailed(TransitionError::VmRejected(_)))));
-        assert!(matches!(app.dispatch("action.add", BTreeMap::from([("amount".into(), D1Value::Bool(true))])), Err(D1ApplicationError::ActionFailed(TransitionError::InputTypeMismatch))));
+        assert!(matches!(
+            app.dispatch(
+                "action.add",
+                BTreeMap::from([("amount".into(), D1Value::Int(1))])
+            ),
+            Err(D1ApplicationError::ActionFailed(
+                TransitionError::VmRejected(_)
+            ))
+        ));
+        assert!(matches!(
+            app.dispatch(
+                "action.add",
+                BTreeMap::from([("amount".into(), D1Value::Bool(true))])
+            ),
+            Err(D1ApplicationError::ActionFailed(
+                TransitionError::InputTypeMismatch
+            ))
+        ));
         assert!(matches!(
             app.dispatch("unknown", BTreeMap::new()),
             Err(D1ApplicationError::UnknownAction(_))
@@ -248,13 +278,28 @@ mod tests {
     #[test]
     fn restore_validates_the_complete_snapshot_and_preserves_revision() {
         let mut app = D1Application::restore(&scene(), 41, initial(5)).unwrap();
-        app.dispatch("action.add", BTreeMap::from([("amount".into(), D1Value::Int(2))])).unwrap();
+        app.dispatch(
+            "action.add",
+            BTreeMap::from([("amount".into(), D1Value::Int(2))]),
+        )
+        .unwrap();
         assert_eq!(app.revision(), 42);
         assert_eq!(app.values()["count"], D1Value::Int(7));
-        assert!(matches!(D1Application::restore(&scene(), 8, BTreeMap::new()), Err(D1ApplicationError::StateSchemaMismatch)));
+        assert!(matches!(
+            D1Application::restore(&scene(), 8, BTreeMap::new()),
+            Err(D1ApplicationError::StateSchemaMismatch)
+        ));
         let mut exhausted = D1Application::restore(&scene(), u64::MAX, initial(5)).unwrap();
         let before = exhausted.values().clone();
-        assert!(matches!(exhausted.dispatch("action.add", BTreeMap::from([("amount".into(), D1Value::Int(2))])), Err(D1ApplicationError::ActionFailed(TransitionError::VmRejected(_)))));
+        assert!(matches!(
+            exhausted.dispatch(
+                "action.add",
+                BTreeMap::from([("amount".into(), D1Value::Int(2))])
+            ),
+            Err(D1ApplicationError::ActionFailed(
+                TransitionError::VmRejected(_)
+            ))
+        ));
         assert_eq!(exhausted.values(), &before);
         assert_eq!(exhausted.revision(), u64::MAX);
     }
@@ -268,6 +313,26 @@ mod tests {
         assert!(
             matches!(D1Application::new(&scene, initial(0)), Err(D1ApplicationError::ConflictingStateType(key)) if key == "count")
         );
+    }
+
+    #[test]
+    fn action_identities_and_effects_fail_closed() {
+        let missing = SOURCE.replace("id: \"action.add\";", "");
+        assert!(matches!(
+            D1Application::new(&goya_lang::parse(&missing).unwrap(), initial(0)),
+            Err(D1ApplicationError::MissingActionIdentity)
+        ));
+        let duplicate = SOURCE.replace("id: \"action.rename\";", "id: \"action.add\";");
+        assert!(matches!(
+            D1Application::new(&goya_lang::parse(&duplicate).unwrap(), initial(0)),
+            Err(D1ApplicationError::DuplicateActionIdentity(_))
+        ));
+        let d2 = "@ontology app { @button go { id: \"button.go\" } @interaction fetch { id: \"action.fetch\"; trigger: button.go.activate; class: D2; effects { network; } requests { lookup: effect network capability \"network\" request \"static request\" result int64; } state { write count: int; } input { } set count = effect.lookup; } }";
+        let scene = goya_lang::parse_strict(d2).unwrap().scene;
+        assert!(matches!(
+            D1Application::new(&scene, BTreeMap::new()),
+            Err(D1ApplicationError::UnsupportedEffect)
+        ));
     }
 
     #[test]

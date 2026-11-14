@@ -232,28 +232,65 @@ fn reference_run(action: &goya_lang::CompiledInteraction, case: &Case) -> Result
     }
 }
 
-fn application_run(scene: &goya_lang::Scene, action_id: &str, case: &Case) -> Result<Outcome, String> {
+fn application_run(
+    scene: &goya_lang::Scene,
+    action_id: &str,
+    case: &Case,
+) -> Result<Outcome, String> {
     use goya_sdk::D1ApplicationError;
-    let initial = case.state.iter().map(|(key, value)| (key.clone(), value.to_d1())).collect();
+    let initial = case
+        .state
+        .iter()
+        .map(|(key, value)| (key.clone(), value.to_d1()))
+        .collect();
     let mut app = match goya_sdk::D1Application::restore(scene, case.revision, initial) {
         Ok(app) => app,
-        Err(D1ApplicationError::StateSchemaMismatch) => return Ok(Outcome::Error { error: "state_schema".into() }),
-        Err(error) => return Err(format!("unexpected application initialization error: {error}")),
+        Err(D1ApplicationError::StateSchemaMismatch) => {
+            return Ok(Outcome::Error {
+                error: "state_schema".into(),
+            })
+        }
+        Err(error) => {
+            return Err(format!(
+                "unexpected application initialization error: {error}"
+            ))
+        }
     };
     let before = app.values().clone();
     let revision_before = app.revision();
-    let inputs = case.inputs.iter().map(|(key, value)| (key.clone(), value.to_d1())).collect();
+    let inputs = case
+        .inputs
+        .iter()
+        .map(|(key, value)| (key.clone(), value.to_d1()))
+        .collect();
     match app.dispatch(action_id, inputs) {
-        Ok(()) => Ok(Outcome::Ok { revision: app.revision(), state: app.values().iter().map(|(key, value)| (key.clone(), Scalar::from_d1(value.clone()))).collect() }),
+        Ok(()) => Ok(Outcome::Ok {
+            revision: app.revision(),
+            state: app
+                .values()
+                .iter()
+                .map(|(key, value)| (key.clone(), Scalar::from_d1(value.clone())))
+                .collect(),
+        }),
         Err(error) => {
-            if app.values() != &before || app.revision() != revision_before { return Err("application changed state after a failed action".into()); }
+            if app.values() != &before || app.revision() != revision_before {
+                return Err("application changed state after a failed action".into());
+            }
             let normalized = match error {
-                D1ApplicationError::ActionFailed(goya_lang::TransitionError::InputTypeMismatch) => "input_schema",
-                D1ApplicationError::ActionFailed(goya_lang::TransitionError::VmRejected(message)) if message == "integer addition overflow" => "arithmetic_overflow",
-                D1ApplicationError::ActionFailed(goya_lang::TransitionError::VmRejected(message)) if message == "state revision counter exhausted" => "revision_overflow",
+                D1ApplicationError::ActionFailed(goya_lang::TransitionError::InputTypeMismatch) => {
+                    "input_schema"
+                }
+                D1ApplicationError::ActionFailed(goya_lang::TransitionError::VmRejected(
+                    message,
+                )) if message == "integer addition overflow" => "arithmetic_overflow",
+                D1ApplicationError::ActionFailed(goya_lang::TransitionError::VmRejected(
+                    message,
+                )) if message == "state revision counter exhausted" => "revision_overflow",
                 other => return Err(format!("unexpected application error: {other}")),
             };
-            Ok(Outcome::Error { error: normalized.into() })
+            Ok(Outcome::Error {
+                error: normalized.into(),
+            })
         }
     }
 }
@@ -272,7 +309,9 @@ pub fn run_d1_corpus() -> Result<CorpusReport, String> {
     let target_passed = reports
         .iter()
         .all(|report| report.json["stages"]["target_ir"] == "PASS");
-    let application_passed = reports.iter().all(|report| report.json["stages"]["application_owner"] == "PASS");
+    let application_passed = reports
+        .iter()
+        .all(|report| report.json["stages"]["application_owner"] == "PASS");
     let mut cases = Vec::new();
     for report in &reports {
         let fixture = report.json["fixture"]
