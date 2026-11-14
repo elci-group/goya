@@ -93,6 +93,35 @@ fn main() -> ExitCode {
     if args.len() == 2 && args[1] == "serve" {
         return serve();
     }
+    if args.len() >= 2 && args[1] == "dock-verify" {
+        if args.len() < 5 || args[3] != "--ipa" {
+            eprintln!("usage: neptune dock-verify <manifest.json> --ipa <application.ipa>");
+            return ExitCode::from(2);
+        }
+        let result = (|| -> Result<(), String> {
+            let manifest_bytes = fs::read(&args[2]).map_err(|e| e.to_string())?;
+            if manifest_bytes.len() > 1024 * 1024 {
+                return Err("manifest exceeds 1 MiB".into());
+            }
+            let manifest: neptune::dock::Manifest = serde_json::from_slice(&manifest_bytes)
+                .map_err(|e| format!("invalid manifest: {e}"))?;
+            manifest.validate().map_err(|e| e.to_string())?;
+            let ipa = File::open(&args[4]).map_err(|e| e.to_string())?;
+            manifest
+                .verify_artifact_reader(ipa)
+                .map_err(|e| e.to_string())
+        })();
+        return match result {
+            Ok(()) => {
+                println!("{{\"schema_version\":\"1\",\"operation\":\"dock-verify\",\"status\":\"PASS\",\"device_installation\":\"NOT_RUN\",\"signature_trust\":\"NOT_CHECKED\"}}");
+                ExitCode::SUCCESS
+            }
+            Err(message) => {
+                eprintln!("dock verification failed: {message}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     if args.len() >= 2 && args[1] == "test" {
         let mut suite = None;
         let mut worker = None;

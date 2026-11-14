@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     fmt,
+    io::Read,
     path::{Component, Path},
 };
 
@@ -126,6 +127,25 @@ impl Manifest {
         self.validate()?;
         let actual = format!("{:x}", Sha256::digest(bytes));
         if actual == self.artifact.sha256 {
+            Ok(())
+        } else {
+            Err(Error::ArtifactDigest)
+        }
+    }
+    pub fn verify_artifact_reader(&self, mut reader: impl Read) -> Result<(), Error> {
+        self.validate()?;
+        let mut hash = Sha256::new();
+        let mut buffer = [0u8; 64 * 1024];
+        loop {
+            let count = reader
+                .read(&mut buffer)
+                .map_err(|_| Error::ArtifactMissing)?;
+            if count == 0 {
+                break;
+            }
+            hash.update(&buffer[..count]);
+        }
+        if format!("{:x}", hash.finalize()) == self.artifact.sha256 {
             Ok(())
         } else {
             Err(Error::ArtifactDigest)
