@@ -356,7 +356,9 @@ fn transition_preview_cli_and_service_agree_and_require_experimental_profile() {
 #[test]
 fn d1_corpus_reports_only_its_scope_and_admission_is_blocked() {
     let output = Command::new(env!("CARGO_BIN_EXE_neptune"))
-        .args(["test", "--suite", "d1-corpus", "--format", "json"]).output().unwrap();
+        .args(["test", "--suite", "d1-corpus", "--format", "json"])
+        .output()
+        .unwrap();
     assert!(output.status.success());
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(report["status"], "PASS");
@@ -369,7 +371,17 @@ fn d1_corpus_reports_only_its_scope_and_admission_is_blocked() {
     assert_eq!(result["status"], "PASS");
     assert_eq!(result["result"], report);
     let blocked = Command::new(env!("CARGO_BIN_EXE_neptune"))
-        .args(["test", "--suite", "admission", "--worker", "mac-primary", "--format", "json"]).output().unwrap();
+        .args([
+            "test",
+            "--suite",
+            "admission",
+            "--worker",
+            "mac-primary",
+            "--format",
+            "json",
+        ])
+        .output()
+        .unwrap();
     assert_eq!(blocked.status.code(), Some(3));
     let admission: serde_json::Value = serde_json::from_slice(&blocked.stdout).unwrap();
     assert_eq!(admission["status"], "BLOCKED");
