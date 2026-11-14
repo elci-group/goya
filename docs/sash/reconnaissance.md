@@ -45,14 +45,14 @@ Result on this Linux host:
 
 | Check | Result |
 | --- | --- |
-| File | `/tmp/sash-static-proof/App.exe`, 230400 bytes |
+| File | `/tmp/sash-static-proof-002/App.exe`, 230912 bytes |
 | `file` | PE32+ executable (GUI) x86-64, for MS Windows, 10 sections |
-| SHA-256 | `ea8f4c11f2321c5669ad3b93d5cbd47346635d678e82d14c4f9ea200fccc1401` |
-| Private PDB | `/tmp/sash-static-proof/App.pdb`, 4411392 bytes, SHA-256 `d24335c4c92f3a5a64550ac99b7a0eaa8b9b55f3ed6c38031193ad7c026e53f2` |
+| SHA-256 | `571633c6a0830fef0ec5cd5f24ef35cd90abdb72ad8bf2f2cbdab5b4d31aa90e` |
+| Private PDB | `/tmp/sash-static-proof-002/App.pdb`, 4427776 bytes, SHA-256 `121f202cd609a394d73c1b3cfcb6524d889adfe65102b38b6a66b21d3773e286` |
 | Scene SHA-256 | `617250a533dd349d6a6186d18dbb320cc1fe6a50f6d245381b9f80d004822962` |
 | Machine / magic | AMD64 `0x8664`, PE32+ `0x020b` |
 | Subsystem | `2`, `IMAGE_SUBSYSTEM_WINDOWS_GUI` |
-| Entry point | RVA 128352, not zero |
+| Entry point | RVA 128688, not zero |
 | DLL characteristics | `0xc160`: high-entropy ASLR, ASLR, DEP/NX, control-flow guard, plus terminal-server awareness |
 | Imports | `KERNEL32.dll`, `USER32.dll`, `GDI32.dll`, `ntdll.dll`, `api-ms-win-core-synch-l1-2-0.dll` |
 | Delay imports | none |
@@ -65,7 +65,11 @@ Result on this Linux host:
 
 The import list is the dependency evidence this host can produce. A machine with developer tools installed would not prove a clean-machine closure, and this link was not performed on Windows at all.
 
-Library tests after the scene-digest correction reported 14 passed. The table above is that single-cell link. Profile `0.0.2` changes the generated program even for this fixture, so that SHA-256 is not the nested-layout image.
+An earlier single-cell link of the same fixture, before profile `0.0.2`, was `/tmp/sash-static-proof/App.exe`, SHA-256 `ea8f4c11f2321c5669ad3b93d5cbd47346635d678e82d14c4f9ea200fccc1401`. That image is not this emitter.
+
+The nested fixture `crates/sash/fixtures/nested-static.gscene` was linked the same way to `/tmp/sash-nested-proof/App.exe`, 231424 bytes, SHA-256 `c1a672cab71a3e1568357e937435868077b935772389cb0c8e6eb8eee6224a05`. Its scene SHA-256 is `c663e75fda69a31d19a5c7ab4b51f89d0a6d822333892aa3849fbabcfb5c147d`. `sash verify` exited 3: `pe-structure` PASS, runtime and release BLOCKED. The generated program places `Hello` at `(0, 0, 320, 160)` DIP and `There` at `(40, 20, 80, 40)` DIP. That placement was not executed on Windows.
+
+Library tests for this profile: `cargo test -p sash --offline --lib` reported 21 passed.
 
 ## Toolchain actually used
 
@@ -85,7 +89,7 @@ The build report labels the claim `unqualified-cross-link` and the host `linux-c
 
 `sash.win32.static-window/0.0.2` admits one ontology and a tree of `@cell` nodes, at most 32 cells. The root needs an id and a positive extent at depth 0. Position on the root may be omitted or be the origin. A nested cell may omit position, which places it at the parent origin, or omit extent, which fills the parent. `goya_lang::layout` is the geometry oracle. If that solver moves or shrinks a cell, admission fails with `SASH-LAYOUT`. A cell with text becomes a native `STATIC` control (`SS_LEFT|SS_NOPREFIX`) at the solved client rectangle. A cell with children and no text contributes layout only. A cell with neither text nor children is rejected. Buttons, inputs, interactions, fill, stroke, text size, anchor, wrap, scroll, proportional geometry, and strong right-to-left text are rejected. The semantic id is a window property, `Goya.SemanticId`, on the frame and on each label. UI Automation `AutomationId` is not mapped. Authored strings are emitted as decimal byte arrays.
 
-The five directive units are not separate compilation units yet. This profile links one window and its static labels into `App.exe`. Cards, taskbar behaviour, startup, actions, and retention are not generated. Resize clips the placed rectangles and does not reflow them. The recorded `App.exe` above predates this widening.
+The five directive units are not separate compilation units yet. This profile links one window and its static labels into `App.exe`. Cards, taskbar behaviour, startup, actions, and retention are not generated. Resize clips the placed rectangles and does not reflow them. Neither recorded image was launched.
 
 ## Not ratified
 
