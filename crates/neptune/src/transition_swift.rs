@@ -41,6 +41,7 @@ impl Preview {
             "trigger":{"module":self.trigger.module,"declared_id":self.trigger.declared_id},
             "source_range":{"start_byte":self.source_range.start,"end_byte":self.source_range.end},
             "source_sha256":hex(&self.source_digest), "reference_program_hash":hex(&self.reference_program_hash),
+            "d1_vm_version":goya_executable::D1_VM_VERSION,
             "state_fields":fields(&self.state_fields), "input_fields":fields(&self.input_fields),
             "stages":{"apple_validation":"NOT_RUN", "runtime_limit_parity":"NOT_VERIFIED", "ios_admission":"NOT_RUN"}})
     }
@@ -363,5 +364,43 @@ mod tests {
             .swift
             .contains("next.s1 = value0\n        next.s0 = value1"));
         assert!(!result.swift.contains("var message:"));
+    }
+
+    #[test]
+    fn text_limits_use_utf8_bytes_and_reference_constants() {
+        use goya_executable::{D1Snapshot, D1Value};
+        let exact = "é".repeat(goya_executable::D1_MAX_TEXT_BYTES / 2);
+        assert!(D1Snapshot::new(0, BTreeMap::from([("text".into(), D1Value::Text(exact.clone()))])).is_ok());
+        assert!(D1Snapshot::new(0, BTreeMap::from([("text".into(), D1Value::Text(format!("{exact}é"))])).is_err());
+        let source = "@ontology app { @button set { id: \"b\" } @interaction copy { id: \"a\"; trigger: button.set.activate; class: D1; state { read message: text; write message: text; } input { } set message = state.message; } }";
+        let output = preview(source, "app/main.gscene").unwrap().swift;
+        assert!(output.contains(&format!("guard state.s0.utf8.count <= {}", goya_executable::D1_MAX_TEXT_BYTES)));
+        assert!(output.contains(&format!("guard next.s0.utf8.count <= {}", goya_executable::D1_MAX_TEXT_BYTES)));
+        assert!(output.contains("let stateBytes = 23 + state.s0.utf8.count"));
+        assert!(output.contains("registerBytes += 2 + r0.utf8.count"));
+    }
+
+    #[test]
+    fn reference_enforces_register_and_result_snapshot_limits() {
+        use goya_executable::{D1Snapshot, D1Value, InputSnapshot};
+        fn fixture(writes: usize) -> String {
+            let declarations: String = (0..writes).map(|i| format!("write o{i}: text; ")).collect();
+            let assignments: String = (0..writes).map(|i| format!("set o{i} = state.message; ")).collect();
+            format!("@ontology app {{ @button set {{ id: \"b\" }} @interaction copy {{ id: \"a\"; trigger: button.set.activate; class: D1; state {{ read message: text; {declarations} }} input {{ }} {assignments} }} }}")
+        }
+        for (writes, text_len, expected) in [(16, 65536, "RegisterLimit"), (17, 60000, "SnapshotTooLarge")] {
+            let source = fixture(writes);
+            let scene = goya_lang::parse_strict(&source).unwrap().scene;
+            let program = goya_lang::compile_d1_interactions(&scene).unwrap().remove(0);
+            let mut values = BTreeMap::from([("message".to_string(), D1Value::Text("x".repeat(text_len)))]);
+            for i in 0..writes { values.insert(format!("o{i}"), D1Value::Text(String::new())); }
+            let error = program.execute(&D1Snapshot::new(0, values).unwrap(), &InputSnapshot::default()).unwrap_err();
+            assert!(format!("{error:?}").contains(expected), "{error:?}");
+            let swift = preview(&source, "app/main.gscene").unwrap().swift;
+            assert!(swift.contains(&format!("guard registerBytes <= {}", goya_executable::D1_MAX_REGISTER_BYTES)));
+            let next = swift.find("let nextBytes = ").unwrap();
+            let revision = swift.find("state.revision.addingReportingOverflow").unwrap();
+            assert!(next < revision);
+        }
     }
 }
