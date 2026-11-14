@@ -73,7 +73,7 @@ pub fn link(source: &str, output: &Path) -> Result<Linked, Diagnostic> {
         pdb_sha256: crate::sha256_hex(&pdb_bytes),
         manifest_sha256: crate::sha256_hex(generated.manifest_xml.as_bytes()),
         generated_sha256: crate::sha256_hex(generated.main_rs.as_bytes()),
-        source_digest: crate::sha256_hex(&window.source_digest),
+        source_digest: crate::hex_encode(&window.source_digest),
         pe: info.clone(),
         rustc: tools.rustc,
         cargo_xwin: tools.cargo_xwin,
@@ -106,15 +106,7 @@ fn probe_tools() -> Result<Tools, Diagnostic> {
         ));
     }
     let cargo_xwin = version("cargo", &["xwin", "--version"])?;
-    let llvm_rc = version("llvm-rc", &["--version"])?;
-    if !llvm_rc.to_ascii_lowercase().contains("llvm") && llvm_rc.trim().is_empty() {
-        return Err(Diagnostic::new(
-            "SASH-TOOLCHAIN",
-            "build",
-            "llvm-rc did not identify itself",
-            "Install the LLVM resource compiler on the build host.",
-        ));
-    }
+    let llvm_rc = llvm_rc_identity()?;
     Ok(Tools {
         rustc: rustc.trim().to_string(),
         cargo_xwin: cargo_xwin.trim().to_string(),

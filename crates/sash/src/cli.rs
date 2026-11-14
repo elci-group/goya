@@ -156,7 +156,7 @@ fn scene_command(mut base: serde_json::Value, path: &Path, inspect: bool) -> Run
             base["status"] = serde_json::json!("ADMITTED");
             base["runtime_qualification"] = serde_json::json!("BLOCKED");
             base["release_admission"] = serde_json::json!("BLOCKED");
-            base["source_digest"] = serde_json::json!(crate::sha256_hex(&window.source_digest));
+            base["source_digest"] = serde_json::json!(crate::hex_encode(&window.source_digest));
             base["semantic_id"] = serde_json::json!(window.semantic_id);
             base["client_dip"] = serde_json::json!([window.width_dip, window.height_dip]);
             base["dispositions"] = serde_json::json!(window.dispositions.iter().map(|item| {

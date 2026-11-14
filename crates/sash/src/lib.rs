@@ -25,12 +25,13 @@ pub const TARGET_MSVC_X64: &str = "x86_64-pc-windows-msvc";
 pub const PROFILE_PORTABLE: &str = "portable-native";
 
 /// SHA-256 of bytes, lowercase hex.
+pub fn hex_encode(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
 pub fn sha256_hex(bytes: &[u8]) -> String {
     use sha2::{Digest, Sha256};
-    Sha256::digest(bytes)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
+    hex_encode(&Sha256::digest(bytes))
 }
 
 /// One compiler diagnostic. Origins are half-open UTF-8 byte offsets.
