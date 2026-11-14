@@ -380,7 +380,9 @@ fn main() -> ExitCode {
         {
             experimental = true;
         } else if option[0] == "--module"
-            && (args[1] == "preview" || args[1] == "preview-transition" || args[1] == "model-d1-state")
+            && (args[1] == "preview"
+                || args[1] == "preview-transition"
+                || args[1] == "model-d1-state")
             && module.is_none()
         {
             module = option[1].to_str();
@@ -388,14 +390,17 @@ fn main() -> ExitCode {
                 eprintln!("module path must be UTF-8");
                 return ExitCode::from(2);
             }
-        } else if option[0] == "--initial" && args[1] == "model-d1-state" && initial_path.is_none() {
+        } else if option[0] == "--initial" && args[1] == "model-d1-state" && initial_path.is_none()
+        {
             initial_path = Some(std::path::PathBuf::from(&option[1]));
         } else {
             eprintln!("unknown or duplicate option");
             return ExitCode::from(2);
         }
     }
-    if (args[1] == "preview" || args[1] == "preview-transition" || args[1] == "model-d1-state") && module.is_none() {
+    if (args[1] == "preview" || args[1] == "preview-transition" || args[1] == "model-d1-state")
+        && module.is_none()
+    {
         eprintln!("preview requires --module <project-relative-path.gscene>");
         return ExitCode::from(2);
     }
@@ -403,7 +408,10 @@ fn main() -> ExitCode {
         eprintln!("this operation requires --profile experimental");
         return ExitCode::from(2);
     }
-    if args[1] == "model-d1-state" && initial_path.is_none() { eprintln!("model-d1-state requires --initial <state.json>"); return ExitCode::from(2); }
+    if args[1] == "model-d1-state" && initial_path.is_none() {
+        eprintln!("model-d1-state requires --initial <state.json>");
+        return ExitCode::from(2);
+    }
     let mut bytes = Vec::new();
     match File::open(&args[2]).and_then(|file| {
         file.take((neptune::MAX_SOURCE_BYTES + 1) as u64)
@@ -425,20 +433,64 @@ fn main() -> ExitCode {
     };
     if args[1] == "model-d1-state" {
         let result = (|| -> Result<serde_json::Value, neptune::Diagnostic> {
-            let path = initial_path.as_ref().ok_or_else(|| neptune::Diagnostic { code:"NPT-E3102", message:"initial state is required".into(), range:None })?;
+            let path = initial_path.as_ref().ok_or_else(|| neptune::Diagnostic {
+                code: "NPT-E3102",
+                message: "initial state is required".into(),
+                range: None,
+            })?;
             let mut data = Vec::new();
-            File::open(path).and_then(|file| file.take(2 * 1024 * 1024 + 1).read_to_end(&mut data)).map_err(|e| neptune::Diagnostic { code:"NPT-E1000", message:e.to_string(), range:None })?;
-            if data.len() > 2 * 1024 * 1024 { return Err(neptune::Diagnostic { code:"NPT-E1001", message:"initial state transport exceeds 2 MiB".into(), range:None }); }
-            let value: serde_json::Value = serde_json::from_slice(&data).map_err(|e| neptune::Diagnostic { code:"NPT-E3102", message:format!("invalid initial state JSON: {e}"), range:None })?;
+            File::open(path)
+                .and_then(|file| file.take(2 * 1024 * 1024 + 1).read_to_end(&mut data))
+                .map_err(|e| neptune::Diagnostic {
+                    code: "NPT-E1000",
+                    message: e.to_string(),
+                    range: None,
+                })?;
+            if data.len() > 2 * 1024 * 1024 {
+                return Err(neptune::Diagnostic {
+                    code: "NPT-E1001",
+                    message: "initial state transport exceeds 2 MiB".into(),
+                    range: None,
+                });
+            }
+            let value: serde_json::Value =
+                serde_json::from_slice(&data).map_err(|e| neptune::Diagnostic {
+                    code: "NPT-E3102",
+                    message: format!("invalid initial state JSON: {e}"),
+                    range: None,
+                })?;
             let initial = neptune::application::parse_initial(&value)?;
-            Ok(neptune::application::lower(&source, module.unwrap_or_default(), initial)?.to_json())
+            Ok(
+                neptune::application::lower(&source, module.unwrap_or_default(), initial)?
+                    .to_json(),
+            )
         })();
         return match result {
-            Ok(value) => { if json { println!("{value}"); } else { println!("{}", serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string())); } ExitCode::SUCCESS },
+            Ok(value) => {
+                if json {
+                    println!("{value}");
+                } else {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string())
+                    );
+                }
+                ExitCode::SUCCESS
+            }
             Err(diagnostic) => {
-                if json { println!("{}", serde_json::json!({"schema_version":"1","operation":"model-d1-state","status":"FAIL","diagnostics":[{"code":diagnostic.code,"message":diagnostic.message,"source_range":diagnostic.range.map(|r| serde_json::json!({"start_byte":r.start,"end_byte":r.end}))}]})); }
-                else if let Some(range) = diagnostic.range { eprintln!("{}: bytes {}..{}: {}", diagnostic.code, range.start, range.end, diagnostic.message); }
-                else { eprintln!("{}: {}", diagnostic.code, diagnostic.message); }
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({"schema_version":"1","operation":"model-d1-state","status":"FAIL","diagnostics":[{"code":diagnostic.code,"message":diagnostic.message,"source_range":diagnostic.range.map(|r| serde_json::json!({"start_byte":r.start,"end_byte":r.end}))}]})
+                    );
+                } else if let Some(range) = diagnostic.range {
+                    eprintln!(
+                        "{}: bytes {}..{}: {}",
+                        diagnostic.code, range.start, range.end, diagnostic.message
+                    );
+                } else {
+                    eprintln!("{}: {}", diagnostic.code, diagnostic.message);
+                }
                 ExitCode::FAILURE
             }
         };
