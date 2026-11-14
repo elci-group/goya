@@ -271,31 +271,29 @@ fn validate_bindings(scene: &Scene) -> Result<Vec<ActionId>, TransitionError> {
     validate_bindings_with_origin(scene).map_err(|(_, error)| error)
 }
 
-fn validate_bindings_with_origin(
-    scene: &Scene,
-) -> Result<Vec<ActionId>, (usize, TransitionError)> {
+fn validate_bindings_with_origin(scene: &Scene) -> Result<Vec<ActionId>, (usize, TransitionError)> {
     let mut buttons = Vec::<(String, ActionId)>::new();
     collect_buttons(&scene.root, &mut 0, &mut buttons);
     let mut names = BTreeSet::new();
     let mut bound_triggers = BTreeSet::new();
     let mut triggers = Vec::with_capacity(scene.interactions.len());
     for (index, i) in scene.interactions.iter().enumerate() {
-            if !names.insert(i.name.as_str()) {
-                return Err((index, TransitionError::DuplicateInteractionName));
-            }
-            let matches: Vec<_> = buttons
-                .iter()
-                .filter(|(name, _)| name == &i.trigger_button)
-                .collect();
-            let trigger = match matches.as_slice() {
-                [] => return Err((index, TransitionError::TriggerNotFound)),
-                [(_, id)] => *id,
-                _ => return Err((index, TransitionError::TriggerAmbiguous)),
-            };
-            if !bound_triggers.insert(trigger.0) {
-                return Err((index, TransitionError::TriggerAlreadyBound));
-            }
-            triggers.push(trigger);
+        if !names.insert(i.name.as_str()) {
+            return Err((index, TransitionError::DuplicateInteractionName));
+        }
+        let matches: Vec<_> = buttons
+            .iter()
+            .filter(|(name, _)| name == &i.trigger_button)
+            .collect();
+        let trigger = match matches.as_slice() {
+            [] => return Err((index, TransitionError::TriggerNotFound)),
+            [(_, id)] => *id,
+            _ => return Err((index, TransitionError::TriggerAmbiguous)),
+        };
+        if !bound_triggers.insert(trigger.0) {
+            return Err((index, TransitionError::TriggerAlreadyBound));
+        }
+        triggers.push(trigger);
     }
     Ok(triggers)
 }
