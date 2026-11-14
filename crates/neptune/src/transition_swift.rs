@@ -407,8 +407,8 @@ mod tests {
             format!("@ontology app {{ @button set {{ id: \"b\" }} @interaction copy {{ id: \"a\"; trigger: button.set.activate; class: D1; state {{ read message: text; {declarations} }} input {{ }} {assignments} }} }}")
         }
         for (writes, text_len, expected) in [
-            (16, 65536, "RegisterLimit"),
-            (17, 60000, "SnapshotTooLarge"),
+            (16, 65536, "registers exceed the byte limit"),
+            (17, 60000, "snapshot exceeds the byte limit"),
         ] {
             let source = fixture(writes);
             let scene = goya_lang::parse_strict(&source).unwrap().scene;
