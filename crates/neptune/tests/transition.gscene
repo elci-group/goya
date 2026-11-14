@@ -1,0 +1,12 @@
+@ontology app {
+    @button plus { id: "button.plus" }
+    @interaction increment {
+        id: "action.increment";
+        trigger: button.plus.activate;
+        class: D1;
+        state { read count: int; write count: int; write previous: int; }
+        input { amount: int; }
+        set count = state.count + input.amount;
+        set previous = state.count;
+    }
+}

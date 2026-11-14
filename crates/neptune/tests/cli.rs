@@ -198,3 +198,21 @@ fn preview_artifacts_match_across_three_fresh_input_and_output_directories() {
     }
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn transition_preview_cli_and_service_agree_and_require_experimental_profile() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/transition.gscene");
+    let missing = Command::new(env!("CARGO_BIN_EXE_neptune")).args(["preview-transition", path, "--module", "app/main.gscene"]).output().unwrap();
+    assert!(!missing.status.success());
+    let cli = Command::new(env!("CARGO_BIN_EXE_neptune")).args(["preview-transition", path, "--module", "app/main.gscene", "--profile", "experimental", "--format", "json"]).output().unwrap();
+    assert!(cli.status.success(), "{}", String::from_utf8_lossy(&cli.stderr));
+    let expected: serde_json::Value = serde_json::from_slice(&cli.stdout).unwrap();
+    assert_eq!(expected["stages"]["apple_validation"], "NOT_RUN");
+    assert_eq!(expected["stages"]["runtime_limit_parity"], "NOT_VERIFIED");
+    let source = std::fs::read_to_string(path).unwrap();
+    let request = serde_json::json!({"schema_version":"1", "job_id":"job", "operation":"preview-transition", "profile":"experimental", "module":"app/main.gscene", "source":source});
+    let mut session = neptune::service::Session::default();
+    let response = session.handle(&request);
+    assert_eq!(response["status"], "PASS");
+    assert_eq!(response["result"], expected);
+}
