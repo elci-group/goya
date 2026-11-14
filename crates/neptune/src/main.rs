@@ -145,7 +145,12 @@ fn main() -> ExitCode {
         println!("{description}");
         return ExitCode::SUCCESS;
     }
-    if args.len() < 3 || (args[1] != "inspect" && args[1] != "check" && args[1] != "preview" && args[1] != "preview-transition") {
+    if args.len() < 3
+        || (args[1] != "inspect"
+            && args[1] != "check"
+            && args[1] != "preview"
+            && args[1] != "preview-transition")
+    {
         eprintln!("usage: neptune <inspect|check> <scene.gscene> [--target ios] [--format json]\n       neptune preview <scene.gscene> --module <project-relative.gscene> [--format json] [--out new-directory]\n       neptune preview-transition <scene.gscene> --module <project-relative.gscene> --profile experimental [--format json]\n       neptune explain <code>");
         return ExitCode::from(2);
     }
@@ -165,9 +170,16 @@ fn main() -> ExitCode {
             target = true;
         } else if option[0] == "--out" && args[1] == "preview" && out.is_none() {
             out = Some(std::path::PathBuf::from(&option[1]));
-        } else if option[0] == "--profile" && args[1] == "preview-transition" && option[1] == "experimental" && !experimental {
+        } else if option[0] == "--profile"
+            && args[1] == "preview-transition"
+            && option[1] == "experimental"
+            && !experimental
+        {
             experimental = true;
-        } else if option[0] == "--module" && (args[1] == "preview" || args[1] == "preview-transition") && module.is_none() {
+        } else if option[0] == "--module"
+            && (args[1] == "preview" || args[1] == "preview-transition")
+            && module.is_none()
+        {
             module = option[1].to_str();
             if module.is_none() {
                 eprintln!("module path must be UTF-8");
@@ -208,14 +220,28 @@ fn main() -> ExitCode {
     if args[1] == "preview-transition" {
         return match neptune::transition_swift::preview(&source, module.unwrap_or_default()) {
             Ok(preview) => {
-                if json { println!("{}", preview.to_json()); }
-                else { eprintln!("Experimental transition source preview; Apple and runtime limit validation not run"); print!("{}", preview.swift); }
+                if json {
+                    println!("{}", preview.to_json());
+                } else {
+                    eprintln!("Experimental transition source preview; Apple and runtime limit validation not run");
+                    print!("{}", preview.swift);
+                }
                 ExitCode::SUCCESS
             }
             Err(diagnostic) => {
-                if json { println!("{}", serde_json::json!({"schema_version":"1","operation":"preview-transition","verification":"FAILED","diagnostics":[{"code":diagnostic.code,"message":diagnostic.message,"source_range":diagnostic.range.map(|r| serde_json::json!({"start_byte":r.start,"end_byte":r.end}))}]})); }
-                else if let Some(range) = diagnostic.range { eprintln!("{}: bytes {}..{}: {}", diagnostic.code, range.start, range.end, diagnostic.message); }
-                else { eprintln!("{}: {}", diagnostic.code, diagnostic.message); }
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({"schema_version":"1","operation":"preview-transition","verification":"FAILED","diagnostics":[{"code":diagnostic.code,"message":diagnostic.message,"source_range":diagnostic.range.map(|r| serde_json::json!({"start_byte":r.start,"end_byte":r.end}))}]})
+                    );
+                } else if let Some(range) = diagnostic.range {
+                    eprintln!(
+                        "{}: bytes {}..{}: {}",
+                        diagnostic.code, range.start, range.end, diagnostic.message
+                    );
+                } else {
+                    eprintln!("{}: {}", diagnostic.code, diagnostic.message);
+                }
                 ExitCode::FAILURE
             }
         };

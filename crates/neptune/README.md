@@ -8,6 +8,8 @@ Neptune currently provides an experimental Swift source preview for one `.gscene
 
 `neptune verify-preview <directory> [--format json]` checks that the three generated artifacts match their hashes in the report. This checks consistency only: a report and artifacts can be changed together, and no signature, Apple compilation, or device behavior is verified.
 
+`neptune preview-transition <file> --module app/main.gscene --profile experimental --format json` emits standalone Swift source for one Goya D1 interaction, together with the mapping of source state/input keys to generated fields. It stages values from the original snapshot and checks arithmetic and revision overflow before returning a new state. It is not an application and does not provide runtime adapters. The result records Apple validation and runtime resource-limit parity as not verified; Goya's text, snapshot, and register limits must be preserved before this mapping is admitted.
+
 ## Local service protocol, version 1
 
 Run `neptune serve` and send one JSON object per line to stdin. Each line must be at most 256 KiB including its newline. The service emits one JSON event per request on stdout and processes requests sequentially. Close stdin to end the session. A malformed JSON line gets a protocol failure; an oversized or unterminated line ends the session with failure.
@@ -18,6 +20,6 @@ Example request:
 {"schema_version":"1","job_id":"example-1","operation":"preview","module":"app/main.gscene","source":"@ontology example { @cell root { id: \"root\" text: \"Hello\" } }"}
 ```
 
-Operations are `inspect`, `check`, and `preview`. The only accepted fields are `schema_version`, `job_id`, `operation`, `source`, and `module`; preview requires `module`. Preview bundles and source maps use schema version 2 for the module-qualified semantic identity. Job IDs contain 1–128 ASCII letters, digits, underscores, or hyphens; each ID is single-use within a session, including failed requests. Retrying requires a new ID. A session accepts at most 1,024 IDs.
+Operations are `inspect`, `check`, `preview`, and `preview-transition`. The only accepted fields are `schema_version`, `job_id`, `operation`, `source`, `module`, and `profile`; previews require `module`, and `preview-transition` additionally requires `"profile":"experimental"`. Preview bundles and source maps use schema version 2 for the module-qualified semantic identity. Job IDs contain 1–128 ASCII letters, digits, underscores, or hyphens; each ID is single-use within a session, including failed requests. Retrying requires a new ID. A session accepts at most 1,024 IDs.
 
 Each event contains `schema_version`, `job_id`, `sequence` (currently always 1), `stage`, and `status`. A successful `inspect` means inspection completed; its result separately reports the failed iOS validation. A successful `preview` means source generation completed, with verification labeled `SOURCE_PREVIEW`. A `check` cannot currently pass. Build, cancellation, artifact retrieval, multi-event streaming, and persistent idempotency are not implemented and must not be inferred from this protocol.

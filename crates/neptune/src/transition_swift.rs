@@ -33,7 +33,9 @@ impl Preview {
         fn fields(items: &[Field]) -> Vec<serde_json::Value> {
             items.iter().map(|field| serde_json::json!({"source_key":field.source_key,"swift_name":field.swift_name,"type":swift_type(field.value_type)})).collect()
         }
-        fn hex(bytes: &[u8]) -> String { bytes.iter().map(|byte| format!("{byte:02x}")).collect() }
+        fn hex(bytes: &[u8]) -> String {
+            bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+        }
         serde_json::json!({"schema_version":"1", "operation":"preview-transition", "verification":"SOURCE_PREVIEW", "swift":self.swift,
             "action":{"module":self.action.module,"declared_id":self.action.declared_id},
             "trigger":{"module":self.trigger.module,"declared_id":self.trigger.declared_id},

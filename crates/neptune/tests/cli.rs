@@ -202,10 +202,29 @@ fn preview_artifacts_match_across_three_fresh_input_and_output_directories() {
 #[test]
 fn transition_preview_cli_and_service_agree_and_require_experimental_profile() {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/transition.gscene");
-    let missing = Command::new(env!("CARGO_BIN_EXE_neptune")).args(["preview-transition", path, "--module", "app/main.gscene"]).output().unwrap();
+    let missing = Command::new(env!("CARGO_BIN_EXE_neptune"))
+        .args(["preview-transition", path, "--module", "app/main.gscene"])
+        .output()
+        .unwrap();
     assert!(!missing.status.success());
-    let cli = Command::new(env!("CARGO_BIN_EXE_neptune")).args(["preview-transition", path, "--module", "app/main.gscene", "--profile", "experimental", "--format", "json"]).output().unwrap();
-    assert!(cli.status.success(), "{}", String::from_utf8_lossy(&cli.stderr));
+    let cli = Command::new(env!("CARGO_BIN_EXE_neptune"))
+        .args([
+            "preview-transition",
+            path,
+            "--module",
+            "app/main.gscene",
+            "--profile",
+            "experimental",
+            "--format",
+            "json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        cli.status.success(),
+        "{}",
+        String::from_utf8_lossy(&cli.stderr)
+    );
     let expected: serde_json::Value = serde_json::from_slice(&cli.stdout).unwrap();
     assert_eq!(expected["stages"]["apple_validation"], "NOT_RUN");
     assert_eq!(expected["stages"]["runtime_limit_parity"], "NOT_VERIFIED");

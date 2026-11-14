@@ -230,7 +230,14 @@ pub fn inspect(source: &str) -> Result<Vec<Diagnostic>, Diagnostic> {
             TokenKind::Plus => {
                 additions += 1;
                 if additions > MAX_ADDITION_OPERATORS {
-                    return Err(Diagnostic { code: "NPT-E1003", message: "source exceeds 256 addition operators".into(), range: Some(SourceRange { start: token.byte_start, end: token.byte_end }) });
+                    return Err(Diagnostic {
+                        code: "NPT-E1003",
+                        message: "source exceeds 256 addition operators".into(),
+                        range: Some(SourceRange {
+                            start: token.byte_start,
+                            end: token.byte_end,
+                        }),
+                    });
                 }
             }
             TokenKind::LBrace | TokenKind::LParen => {
@@ -351,7 +358,10 @@ mod tests {
         assert_eq!(inspect(&source).unwrap_err().code, "NPT-E1003");
         let mismatch = inspect("@ontology x { )").unwrap_err();
         assert_eq!(mismatch.range, Some(SourceRange { start: 14, end: 15 }));
-        let additions = format!("@ontology x {{ {} }}", " + ".repeat(MAX_ADDITION_OPERATORS + 1));
+        let additions = format!(
+            "@ontology x {{ {} }}",
+            " + ".repeat(MAX_ADDITION_OPERATORS + 1)
+        );
         assert_eq!(inspect(&additions).unwrap_err().code, "NPT-E1003");
     }
 
