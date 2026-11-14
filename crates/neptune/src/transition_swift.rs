@@ -186,6 +186,13 @@ fn emit_snapshot_check(out: &mut String, owner: &str, label: &str, fields: &[Fie
 /// Preview exactly one D1 transition. State field names are deterministic slots;
 /// the returned metadata maps them to source keys for a future typed adapter.
 pub fn preview(source: &str, module: &str) -> Result<Preview, crate::Diagnostic> {
+    if goya_executable::D1_VM_VERSION != 1 || goya_lang::LANG_CONTRACT != "GY-LANG/1" {
+        return Err(crate::Diagnostic {
+            code: "NPT-E2104",
+            message: "unsupported Goya language or D1 VM version".into(),
+            range: None,
+        });
+    }
     let mut transitions = transition::lower(source, module)?;
     if transitions.len() != 1 {
         return Err(crate::Diagnostic {
