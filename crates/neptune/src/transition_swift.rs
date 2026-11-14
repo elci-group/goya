@@ -113,6 +113,27 @@ fn swift_type(ty: InteractionType) -> &'static str {
     }
 }
 
+// Replicates Goya's D1 map_size accounting over this statically typed schema.
+// Keys are never emitted as code: only their UTF-8 byte counts are used.
+fn emit_snapshot_check(out: &mut String, owner: &str, label: &str, fields: &[Field]) {
+    for field in fields.iter().filter(|field| field.value_type == InteractionType::Text) {
+        let _ = writeln!(out, "        guard {owner}.{}.utf8.count <= {} else {{ throw NeptuneTransitionError.textTooLarge }}", field.swift_name, goya_executable::D1_MAX_TEXT_BYTES);
+    }
+    let base = goya_executable::D1_SNAPSHOT_HEADER_BYTES + fields.iter().map(|field| {
+        goya_executable::D1_SNAPSHOT_ENTRY_BYTES + field.source_key.len() + match field.value_type {
+            InteractionType::Int => goya_executable::D1_INT_VALUE_BYTES,
+            InteractionType::Bool => goya_executable::D1_BOOL_VALUE_BYTES,
+            InteractionType::Text => 0,
+        }
+    }).sum::<usize>();
+    let _ = write!(out, "        let {label}Bytes = {base}");
+    for field in fields.iter().filter(|field| field.value_type == InteractionType::Text) {
+        let _ = write!(out, " + {owner}.{}.utf8.count", field.swift_name);
+    }
+    out.push('\n');
+    let _ = writeln!(out, "        guard {label}Bytes <= {} else {{ throw NeptuneTransitionError.snapshotTooLarge }}", goya_executable::D1_MAX_SNAPSHOT_BYTES);
+}
+
 /// Preview exactly one D1 transition. State field names are deterministic slots;
 /// the returned metadata maps them to source keys for a future typed adapter.
 pub fn preview(source: &str, module: &str) -> Result<Preview, crate::Diagnostic> {
@@ -179,7 +200,7 @@ pub fn preview(source: &str, module: &str) -> Result<Preview, crate::Diagnostic>
             })?;
         assignments.push((slot, value, assignment.value.value_type));
     }
-    let mut out = String::from("enum NeptuneTransitionError: Error {\n    case arithmeticOverflow\n    case revisionOverflow\n}\n\nstruct NeptuneState {\n    var revision: UInt64\n");
+    let mut out = String::from("enum NeptuneTransitionError: Error {\n    case arithmeticOverflow\n    case revisionOverflow\n    case textTooLarge\n    case snapshotTooLarge\n    case registerLimit\n}\n\nstruct NeptuneState {\n    var revision: UInt64\n");
     for field in &state_fields {
         let _ = writeln!(
             out,
@@ -198,16 +219,21 @@ pub fn preview(source: &str, module: &str) -> Result<Preview, crate::Diagnostic>
         );
     }
     out.push_str("}\n\nenum NeptuneTransition {\n    private static func checkedAdd(_ lhs: Int64, _ rhs: Int64) throws -> Int64 {\n        let (value, overflow) = lhs.addingReportingOverflow(rhs)\n        guard !overflow else { throw NeptuneTransitionError.arithmeticOverflow }\n        return value\n    }\n\n    static func apply(state: NeptuneState, input: NeptuneInput) throws -> NeptuneState {\n");
+    emit_snapshot_check(&mut out, "state", "state", &state_fields);
+    emit_snapshot_check(&mut out, "input", "input", &input_fields);
+    let _ = writeln!(out, "        guard stateBytes + inputBytes <= {} else {{ throw NeptuneTransitionError.snapshotTooLarge }}", goya_executable::D1_MAX_SNAPSHOT_BYTES);
+    out.push_str("        var registerBytes = 0\n");
+    let mut next_register = 0usize;
     for (index, (_, expr, ty)) in assignments.iter().enumerate() {
-        let _ = write!(out, "        let value{index}: {} = ", swift_type(*ty));
-        expr.write(&mut out);
-        out.push('\n');
+        let register = expr.emit_register(&mut out, &mut next_register);
+        let _ = writeln!(out, "        let value{index}: {} = r{register}", swift_type(*ty));
     }
-    out.push_str("        let (revision, overflow) = state.revision.addingReportingOverflow(1)\n        guard !overflow else { throw NeptuneTransitionError.revisionOverflow }\n        var next = state\n        next.revision = revision\n");
+    out.push_str("        var next = state\n");
     for (index, (slot, _, _)) in assignments.iter().enumerate() {
         let _ = writeln!(out, "        next.s{slot} = value{index}");
     }
-    out.push_str("        return next\n    }\n}\n");
+    emit_snapshot_check(&mut out, "next", "next", &state_fields);
+    out.push_str("        let (revision, overflow) = state.revision.addingReportingOverflow(1)\n        guard !overflow else { throw NeptuneTransitionError.revisionOverflow }\n        next.revision = revision\n        return next\n    }\n}\n");
     Ok(Preview {
         swift: out,
         action: action.semantic_id,
