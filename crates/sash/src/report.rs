@@ -21,19 +21,21 @@ pub struct BuildFacts {
 }
 
 pub fn files(window: &AdmittedWindow, generated: &Generated, facts: &BuildFacts) -> Vec<(&'static str, Vec<u8>)> {
-    let imports: Vec<_> = facts
-        .pe
-        .imports
-        .iter()
-        .chain(facts.pe.delay_imports.iter())
-        .map(|name| {
-            serde_json::json!({
-                "name": name,
-                "class": "windows-system",
-                "delay_load": facts.pe.delay_imports.iter().any(|delay| delay == name),
-            })
-        })
-        .collect();
+    let mut imports = Vec::new();
+    for name in &facts.pe.imports {
+        imports.push(serde_json::json!({
+            "name": name,
+            "class": "windows-system",
+            "delay_load": false,
+        }));
+    }
+    for name in &facts.pe.delay_imports {
+        imports.push(serde_json::json!({
+            "name": name,
+            "class": "windows-system",
+            "delay_load": true,
+        }));
+    }
     let dependency = serde_json::json!({
         "schema_version": "1",
         "directive": DIRECTIVE_ID,
