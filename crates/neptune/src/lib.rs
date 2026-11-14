@@ -4,6 +4,7 @@ use sha2::{Digest, Sha256};
 
 pub mod apple;
 pub mod application;
+pub mod application_swift;
 pub mod artifacts;
 pub mod conformance;
 pub mod service;
