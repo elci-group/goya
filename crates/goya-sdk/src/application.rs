@@ -247,6 +247,12 @@ mod tests {
             D1Application::new(&scene(), extra),
             Err(D1ApplicationError::StateSchemaMismatch)
         ));
+        let mut mistyped = initial(0);
+        mistyped.insert("name".into(), D1Value::Bool(true));
+        assert!(matches!(D1Application::new(&scene(), mistyped), Err(D1ApplicationError::StateSchemaMismatch)));
+        let mut oversized = initial(0);
+        oversized.insert("name".into(), D1Value::Text("x".repeat(goya_executable::D1_MAX_TEXT_BYTES + 1)));
+        assert!(matches!(D1Application::new(&scene(), oversized), Err(D1ApplicationError::InvalidState(D1Error::TextTooLarge))));
         let mut app = D1Application::new(&scene(), initial(i64::MAX)).unwrap();
         let before = app.values().clone();
         assert!(matches!(
