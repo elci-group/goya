@@ -106,7 +106,27 @@ fn main() -> ExitCode {
             let manifest: neptune::dock::Manifest = serde_json::from_slice(&manifest_bytes)
                 .map_err(|e| format!("invalid manifest: {e}"))?;
             manifest.validate().map_err(|e| e.to_string())?;
-            let ipa = File::open(&args[4]).map_err(|e| e.to_string())?;
+            let manifest_path = std::path::Path::new(&args[2]);
+            let root = manifest_path
+                .parent()
+                .unwrap_or_else(|| std::path::Path::new("."));
+            let declared = root
+                .join(&manifest.artifact.path)
+                .canonicalize()
+                .map_err(|e| format!("declared artifact unavailable: {e}"))?;
+            let supplied = std::path::Path::new(&args[4])
+                .canonicalize()
+                .map_err(|e| format!("supplied IPA unavailable: {e}"))?;
+            let canonical_root = root
+                .canonicalize()
+                .map_err(|e| format!("manifest directory unavailable: {e}"))?;
+            if !declared.starts_with(&canonical_root) {
+                return Err("declared artifact escapes manifest directory".into());
+            }
+            if declared != supplied {
+                return Err("--ipa does not match the manifest artifact path".into());
+            }
+            let ipa = File::open(&declared).map_err(|e| e.to_string())?;
             manifest
                 .verify_artifact_reader(ipa)
                 .map_err(|e| e.to_string())
