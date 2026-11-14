@@ -6,6 +6,8 @@
 
 `dispatch` selects an action by its authored ID, projects the touched state into Goya's D1 executor, and commits all writes and the next revision only if the action and the complete resulting state pass validation. A failed action preserves the prior state and revision. `restore` accepts an explicit revision and state snapshot, revalidates the schema and limits, and creates an owner in memory; persistence, migration, lifecycle scheduling, and platform UI bindings remain the host's responsibilities. This API does not change the existing `SceneProject::runtime` behavior.
 
+## SDK and Studio workflow
+
 `goya-sdk` is the Rust facade for `.gscene` consumers. It parses source,
 lowers to the shared GY-IR/2 module and node table, exposes authored scene
 geometry, and constructs the synchronous event runtime. Platform code still
