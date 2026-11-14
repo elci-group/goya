@@ -11,12 +11,15 @@
 //! deterministic. See docs/contracts.md GY-LANG/1.
 
 pub mod gestures;
+pub mod handoff;
 mod hotswap;
 mod lexer;
 mod lowering;
 mod parser;
 mod scene;
 mod transition;
+
+pub use handoff::{SemanticHandoff, CONTRACT as SEMANTIC_HANDOFF_CONTRACT};
 
 pub use hotswap::SceneStore;
 pub use lexer::{lex, LexError, Token, TokenKind};
@@ -107,6 +110,37 @@ mod tests {
             .find(|entry| entry.kind == "property" && entry.name == "text")
             .unwrap();
         assert_eq!(label.semantic_id.as_deref(), Some("left"));
+    }
+
+    #[test]
+    fn semantic_handoff_is_versioned_and_keeps_source_bound_identity() {
+        let source = "@ontology demo { @button save { id: \"save-button\"; text: \"Save\" } }";
+        let handoff = handoff::admit(source).unwrap();
+        assert_eq!(handoff.contract, "GSSH/1");
+        assert_eq!(SEMANTIC_HANDOFF_CONTRACT, handoff.contract);
+        assert_eq!(
+            handoff.parsed.scene.root.authored_id.as_deref(),
+            Some("save-button")
+        );
+        assert_eq!(
+            handoff
+                .parsed
+                .entries
+                .iter()
+                .find(|entry| entry.kind == "cell" || entry.kind == "button")
+                .unwrap()
+                .semantic_id
+                .as_deref(),
+            Some("save-button")
+        );
+        assert!(handoff
+            .parsed
+            .entries
+            .iter()
+            .all(|entry| entry.source_digest == handoff.parsed.source_digest));
+
+        let rejected = "@ontology demo { @button save { text: \"Save\" } }";
+        assert_eq!(handoff::admit(rejected).unwrap_err().code, "GY-E1005");
     }
 
     #[test]
@@ -225,6 +259,17 @@ mod tests {
         assert_eq!(parse_strict(duplicate).unwrap_err().code, "GY-E1005");
         let valid = "@ontology demo { @cell root { id: \"root\"; text: \"Hi\" } }";
         assert!(parse_strict(valid).is_ok());
+    }
+
+    #[test]
+    fn strict_parser_requires_id_for_nonempty_multi_child_ontology_root() {
+        // The ontology wrapper is virtual only when parsing collapses it.
+        // A root with visual state remains a real scene element even when it
+        // has multiple children.
+        let source = "@ontology demo { fill: #fff; @cell first { id: \"first\"; } @cell second { id: \"second\"; } }";
+        let error = parse_strict(source).unwrap_err();
+        assert_eq!(error.code, "GY-E1005");
+        assert_eq!(error.name, "missing ID for demo");
     }
 
     #[test]

@@ -249,7 +249,15 @@ pub fn parse_strict(source: &str) -> Result<ParsedScene, StrictParseError> {
         && root.extent.is_none()
         && root.position_p.is_none()
         && root.extent_p.is_none()
+        && root.fill.is_none()
+        && root.stroke.is_none()
+        && root.stroke_width.is_none()
         && root.text.is_none()
+        && root.text_size.is_none()
+        && root.anchor.is_none()
+        && root.wrap.is_none()
+        && !root.scroll
+        && !root.is_input
         && root.children.len() > 1;
     let id_error = if virtual_root {
         root.children

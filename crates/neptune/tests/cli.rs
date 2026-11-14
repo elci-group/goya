@@ -352,3 +352,25 @@ fn transition_preview_cli_and_service_agree_and_require_experimental_profile() {
     assert_eq!(response["status"], "PASS");
     assert_eq!(response["result"], expected);
 }
+
+#[test]
+fn d1_corpus_reports_only_its_scope_and_admission_is_blocked() {
+    let output = Command::new(env!("CARGO_BIN_EXE_neptune"))
+        .args(["test", "--suite", "d1-corpus", "--format", "json"]).output().unwrap();
+    assert!(output.status.success());
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["status"], "PASS");
+    assert_eq!(report["cases"].as_array().unwrap().len(), 4);
+    assert_eq!(report["stages"]["target_ir"], "PASS");
+    assert_eq!(report["stages"]["generated_swift"], "BLOCKED");
+    assert_eq!(report["stages"]["physical_device"], "BLOCKED");
+    let mut session = neptune::service::Session::default();
+    let result = session.handle(&serde_json::json!({"schema_version":"1","job_id":"corpus","operation":"test","suite":"d1-corpus"}));
+    assert_eq!(result["status"], "PASS");
+    assert_eq!(result["result"], report);
+    let blocked = Command::new(env!("CARGO_BIN_EXE_neptune"))
+        .args(["test", "--suite", "admission", "--worker", "mac-primary", "--format", "json"]).output().unwrap();
+    assert_eq!(blocked.status.code(), Some(3));
+    let admission: serde_json::Value = serde_json::from_slice(&blocked.stdout).unwrap();
+    assert_eq!(admission["status"], "BLOCKED");
+}
