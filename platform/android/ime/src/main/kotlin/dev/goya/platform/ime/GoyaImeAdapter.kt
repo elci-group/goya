@@ -145,23 +145,12 @@ private fun utf16OffsetAtByte(text: String, requested: Int): Int {
     var utf16Offset = 0
     while (utf16Offset < text.length) {
         val codePoint = text.codePointAt(utf16Offset)
-        // Avoid allocating a temporary String and byte array for every code
-        // point. Isolated surrogates are encoded as the encoder's one-byte
-        // replacement character, matching the previous UTF-8 conversion.
-        val width = utf8Width(codePoint)
+        val width = String(Character.toChars(codePoint)).toByteArray(StandardCharsets.UTF_8).size
         if (byteOffset + width > target) break
         byteOffset += width
         utf16Offset += Character.charCount(codePoint)
     }
     return utf16Offset
-}
-
-private fun utf8Width(codePoint: Int): Int = when {
-    codePoint in 0xD800..0xDFFF -> 1
-    codePoint <= 0x7F -> 1
-    codePoint <= 0x7FF -> 2
-    codePoint <= 0xFFFF -> 3
-    else -> 4
 }
 
 private fun safeUtf16Boundary(text: String, requested: Int): Int {

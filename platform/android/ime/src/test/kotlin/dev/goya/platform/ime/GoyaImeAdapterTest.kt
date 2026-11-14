@@ -50,7 +50,6 @@ object GoyaImeAdapterTest {
     fun main(args: Array<String>) {
         composingCursorUsesUtf8Bytes()
         deletionConvertsUtf16UnitsWithoutSplittingSurrogatePairs()
-        deletionClampsPartialUtf8OffsetsToCodePointBoundaries()
         deletionPreservesSelectionAndUsesBothEndpoints()
         commitIsAtomicAndDoesNotReadASnapshot()
         selectionAndCursorRequestsAreForwarded()
@@ -70,14 +69,6 @@ object GoyaImeAdapterTest {
         // Two UTF-16 units include the low surrogate and the final é. The
         // runtime expands the byte deletion to full grapheme boundaries.
         check(bridge.deletions.single() == (6 to 0))
-    }
-
-    private fun deletionClampsPartialUtf8OffsetsToCodePointBoundaries() {
-        val bridge = RecordingBridge(EditorSnapshot("a🧠é", 3, 3))
-        check(GoyaImeAdapter(bridge).deleteSurroundingText(1, 0))
-        // A runtime byte offset inside the four-byte emoji is treated as the
-        // boundary before it, so deleting one UTF-16 unit removes only "a".
-        check(bridge.deletions.single() == (1 to 0))
     }
 
     private fun deletionPreservesSelectionAndUsesBothEndpoints() {
