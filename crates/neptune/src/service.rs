@@ -72,6 +72,7 @@ impl Session {
                 | "map-swift"
                 | "test"
                 | "model-d1-state"
+                | "preview-d1-owner"
         ) {
             return error(Some(id), "protocol", "operation is not supported");
         }
@@ -92,36 +93,39 @@ impl Session {
         let Some(source) = object.get("source").and_then(Value::as_str) else {
             return error(Some(id), "ingest", "source must be a UTF-8 string");
         };
-        if operation == "model-d1-state" {
+        if operation == "model-d1-state" || operation == "preview-d1-owner" {
             if object.get("profile").and_then(Value::as_str) != Some("experimental") {
                 return error(
                     Some(id),
                     "protocol",
-                    "model-d1-state requires profile experimental",
+                    "this operation requires profile experimental",
                 );
             }
             let Some(module) = object.get("module").and_then(Value::as_str) else {
                 return error(
                     Some(id),
                     "protocol",
-                    "model-d1-state requires a module path",
+                    "this operation requires a module path",
                 );
             };
             let Some(initial) = object.get("initial") else {
                 return error(
                     Some(id),
                     "protocol",
-                    "model-d1-state requires explicit initial values",
+                    "this operation requires explicit initial values",
                 );
             };
             let initial = match crate::application::parse_initial(initial) {
                 Ok(value) => value,
                 Err(d) => return failure(id, "state_validation", &d),
             };
-            return match crate::application::lower(source, module, initial) {
-                Ok(model) => {
-                    json!({"schema_version":"1","job_id":id,"sequence":1,"stage":"state_model","status":"PASS","result":model.to_json()})
-                }
+            let result = if operation == "model-d1-state" {
+                crate::application::lower(source, module, initial).map(|model| model.to_json())
+            } else {
+                crate::application_swift::preview(source, module, initial).map(|preview| preview.to_json())
+            };
+            return match result {
+                Ok(result) => json!({"schema_version":"1","job_id":id,"sequence":1,"stage":if operation == "model-d1-state" {"state_model"} else {"preview"},"status":"PASS","result":result}),
                 Err(d) => failure(id, "state_validation", &d),
             };
         }

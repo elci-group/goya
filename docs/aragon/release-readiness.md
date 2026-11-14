@@ -41,5 +41,7 @@ map for its one-cell static text preview. That preview explicitly does not
 admit an iOS build or verify Swift syntax. Neither implementation provides the
 typed Kotlin emission, Android source map, broader source coverage, or
 qualification required by ARG-G01 and later gates. The SDK's static `TextView`
-preview produces Kotlin source only; it has no generated-source map or
-recorded Android compile or execution evidence.
+preview can also return a source digest, authored ID, and UTF-8 byte ranges
+linking its generated Kotlin literal to the source text property. This is a
+single-property in-process map, not a general Android source-map format. No
+Android compile or execution evidence is recorded.
