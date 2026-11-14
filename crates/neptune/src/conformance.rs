@@ -187,9 +187,22 @@ fn reference_run(action: &goya_lang::CompiledInteraction, case: &Case) -> Result
     }
 }
 
-/// Run the pinned, hand-authored integer corpus against both implementations.
+/// Run the pinned, hand-authored scalar corpus against both implementations.
 pub fn run_d1_corpus() -> Result<CorpusReport, String> {
-    run_fixture(SCENE, CASES)
+    let reports = [run_fixture(SCENE, CASES)?, run_fixture(TEXT_SCENE, TEXT_CASES)?];
+    let passed = reports.iter().all(|report| report.passed);
+    let reference_passed = reports.iter().all(|report| report.json["stages"]["reference_executor"] == "PASS");
+    let target_passed = reports.iter().all(|report| report.json["stages"]["target_ir"] == "PASS");
+    let mut cases = Vec::new();
+    for report in &reports {
+        let fixture = report.json["fixture"].as_str().ok_or("missing fixture ID")?;
+        for case in report.json["cases"].as_array().ok_or("missing fixture cases")? {
+            let mut case = case.clone();
+            case.as_object_mut().ok_or("invalid case report")?.insert("fixture".into(), serde_json::json!(fixture));
+            cases.push(case);
+        }
+    }
+    Ok(CorpusReport { passed, json: serde_json::json!({"schema_version":"2", "suite":"d1-scalar-corpus", "status":if passed {"PASS"} else {"FAIL"}, "scope":"host-side scalar target IR only", "fixtures":reports.iter().map(|report| &report.json).collect::<Vec<_>>(), "cases":cases, "stages":{"reference_executor":if reference_passed {"PASS"} else {"FAIL"}, "target_ir":if target_passed {"PASS"} else {"FAIL"}, "generated_swift":"BLOCKED", "apple_typecheck":"BLOCKED", "simulator":"BLOCKED", "physical_device":"BLOCKED", "ios_admission":"NOT_RUN"}}) })
 }
 
 fn run_fixture(scene_source: &str, case_source: &str) -> Result<CorpusReport, String> {
@@ -238,7 +251,7 @@ fn run_fixture(scene_source: &str, case_source: &str) -> Result<CorpusReport, St
     let digest = |bytes: &[u8]| format!("{:x}", Sha256::digest(bytes));
     Ok(CorpusReport {
         passed,
-        json: serde_json::json!({"schema_version":"1", "suite":"d1-integer-corpus", "status":if passed {"PASS"} else {"FAIL"}, "scope":"host-side integer target IR only", "fixture":corpus.fixture, "scene_sha256":digest(scene_source.as_bytes()), "cases_sha256":digest(case_source.as_bytes()), "goya_d1_vm_version":goya_executable::D1_VM_VERSION, "reference_program_hash":reference.program_hash().iter().map(|b| format!("{b:02x}")).collect::<String>(), "stages":{"reference_executor":if reference_passed {"PASS"} else {"FAIL"}, "target_ir":if target_passed {"PASS"} else {"FAIL"}, "generated_swift":"BLOCKED", "apple_typecheck":"BLOCKED", "simulator":"BLOCKED", "physical_device":"BLOCKED", "ios_admission":"NOT_RUN"}, "cases":cases}),
+        json: serde_json::json!({"schema_version":"1", "suite":"d1-fixture", "status":if passed {"PASS"} else {"FAIL"}, "scope":"host-side scalar target IR only", "fixture":corpus.fixture, "scene_sha256":digest(scene_source.as_bytes()), "cases_sha256":digest(case_source.as_bytes()), "goya_d1_vm_version":goya_executable::D1_VM_VERSION, "reference_program_hash":reference.program_hash().iter().map(|b| format!("{b:02x}")).collect::<String>(), "stages":{"reference_executor":if reference_passed {"PASS"} else {"FAIL"}, "target_ir":if target_passed {"PASS"} else {"FAIL"}, "generated_swift":"BLOCKED", "apple_typecheck":"BLOCKED", "simulator":"BLOCKED", "physical_device":"BLOCKED", "ios_admission":"NOT_RUN"}, "cases":cases}),
     })
 }
 
