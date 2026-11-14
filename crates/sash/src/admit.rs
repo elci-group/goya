@@ -101,7 +101,10 @@ fn admit_scene(parsed: &ParsedScene) -> Result<AdmittedWindow, Diagnostic> {
             CellKind::Cell => "input",
         };
         return Err(cap(
-            format!("{kind} '{}' is not a static window cell in this profile", root.name),
+            format!(
+                "{kind} '{}' is not a static window cell in this profile",
+                root.name
+            ),
             "Use one @cell. Buttons and inputs need a later admitted profile.",
             cell_range(parsed, &[]),
         ));
@@ -119,10 +122,7 @@ fn admit_scene(parsed: &ParsedScene) -> Result<AdmittedWindow, Diagnostic> {
     let (extent_range, width_pt, height_pt) = require_extent(root, parsed)?;
     let frame = layout(scene, width_pt, height_pt);
     let Some(node) = frame.nodes.first() else {
-        return Err(layout_error(
-            "layout produced no node",
-            Some(extent_range),
-        ));
+        return Err(layout_error("layout produced no node", Some(extent_range)));
     };
     if frame.nodes.len() != 1 || node.rect.x != 0 || node.rect.y != 0 {
         return Err(layout_error(
@@ -198,7 +198,9 @@ fn admit_scene(parsed: &ParsedScene) -> Result<AdmittedWindow, Diagnostic> {
     dispositions.push(Disposition {
         subject: "position".into(),
         disposition: "preserved",
-        detail: "The cell stays at the parent origin. An omitted position uses that language default.".into(),
+        detail:
+            "The cell stays at the parent origin. An omitted position uses that language default."
+                .into(),
     });
     dispositions.push(Disposition {
         subject: "depth".into(),
@@ -368,10 +370,7 @@ fn require_extent(
 }
 
 fn dips(width_mp: i64, height_mp: i64, range: SourceRange) -> Result<(i32, i32), Diagnostic> {
-    if width_mp <= 0
-        || height_mp <= 0
-        || width_mp % MP_PER_DIP != 0
-        || height_mp % MP_PER_DIP != 0
+    if width_mp <= 0 || height_mp <= 0 || width_mp % MP_PER_DIP != 0 || height_mp % MP_PER_DIP != 0
     {
         return Err(layout_error(
             format!(
@@ -446,7 +445,11 @@ fn is_strong_rtl(c: char) -> bool {
     )
 }
 
-fn cap(message: impl Into<String>, remediation: &'static str, range: Option<SourceRange>) -> Diagnostic {
+fn cap(
+    message: impl Into<String>,
+    remediation: &'static str,
+    range: Option<SourceRange>,
+) -> Diagnostic {
     let mut diagnostic = Diagnostic::new("SASH-CAP", "admit", message, remediation);
     if let Some(range) = range {
         diagnostic = diagnostic.at(range.start, range.end);
@@ -521,7 +524,10 @@ fn child_range(parsed: &ParsedScene) -> Option<SourceRange> {
         .iter()
         .find(|entry| {
             matches!(entry.kind.as_str(), "cell" | "button" | "input")
-                && entry.scene_path.as_ref().is_some_and(|path| !path.is_empty())
+                && entry
+                    .scene_path
+                    .as_ref()
+                    .is_some_and(|path| !path.is_empty())
         })
         .map(|entry| entry.range)
 }
@@ -558,12 +564,16 @@ mod tests {
         assert_eq!((window.width_dip, window.height_dip), (320, 160));
         assert_eq!(window.width_mp, 80_000);
         assert_eq!(window.height_mp, 40_000);
-        assert!(window.dispositions.iter().any(|item| item.disposition == "preserved"));
+        assert!(window
+            .dispositions
+            .iter()
+            .any(|item| item.disposition == "preserved"));
     }
 
     #[test]
     fn fractional_quarter_point_is_exact() {
-        let source = cell("    id: \"window.root\";\n    text: \"Hi\";\n    extent: (80.5, 40, 0);");
+        let source =
+            cell("    id: \"window.root\";\n    text: \"Hi\";\n    extent: (80.5, 40, 0);");
         let window = admit(&source).unwrap();
         assert_eq!(window.width_dip, 322);
     }
@@ -598,7 +608,8 @@ mod tests {
     fn fill_newline_rtl_and_missing_extent_fail() {
         let fill = cell("    id: \"window.root\";\n    text: \"Hi\";\n    fill: #fff;\n    extent: (80, 40, 0);");
         assert_eq!(admit(&fill).unwrap_err().code, "SASH-CAP");
-        let newline = cell("    id: \"window.root\";\n    text: \"A\nB\";\n    extent: (80, 40, 0);");
+        let newline =
+            cell("    id: \"window.root\";\n    text: \"A\nB\";\n    extent: (80, 40, 0);");
         assert!(admit(&newline).unwrap_err().message.contains("line break"));
         let rtl = cell("    id: \"window.root\";\n    text: \"שלום\";\n    extent: (80, 40, 0);");
         assert!(admit(&rtl).unwrap_err().message.contains("bidirectional"));
@@ -608,7 +619,8 @@ mod tests {
 
     #[test]
     fn inexact_extent_is_a_layout_error() {
-        let source = cell("    id: \"window.root\";\n    text: \"Hi\";\n    extent: (80.1, 40, 0);");
+        let source =
+            cell("    id: \"window.root\";\n    text: \"Hi\";\n    extent: (80.1, 40, 0);");
         let error = admit(&source).unwrap_err();
         assert_eq!(error.code, "SASH-LAYOUT");
     }

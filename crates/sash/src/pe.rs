@@ -145,9 +145,16 @@ pub fn parse_pe(bytes: &[u8]) -> Result<PeInfo, String> {
         return Err("data directories are truncated".into());
     }
     let sections = read_sections(bytes, section_table, sections)?;
-    let imports = read_import_dlls(bytes, &sections, directory(bytes, optional, dir_count, DIR_IMPORT)?)?;
-    let delay_imports =
-        read_delay_dlls(bytes, &sections, directory(bytes, optional, dir_count, DIR_DELAY)?)?;
+    let imports = read_import_dlls(
+        bytes,
+        &sections,
+        directory(bytes, optional, dir_count, DIR_IMPORT)?,
+    )?;
+    let delay_imports = read_delay_dlls(
+        bytes,
+        &sections,
+        directory(bytes, optional, dir_count, DIR_DELAY)?,
+    )?;
     let resource = directory(bytes, optional, dir_count, DIR_RESOURCE)?;
     let (manifest, has_version_resource) = read_resources(bytes, &sections, resource)?;
     Ok(PeInfo {
@@ -175,9 +182,16 @@ fn plain_dll(name: &str) -> bool {
 }
 
 fn is_denied_runtime(lower: &str) -> bool {
-    ["vcruntime", "msvcp", "msvcrt", "ucrtbase", "api-ms-win-crt", "concrt"]
-        .iter()
-        .any(|needle| lower.contains(needle))
+    [
+        "vcruntime",
+        "msvcp",
+        "msvcrt",
+        "ucrtbase",
+        "api-ms-win-crt",
+        "concrt",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle))
 }
 
 fn is_system_dll(lower: &str) -> bool {
@@ -201,7 +215,8 @@ fn is_system_dll(lower: &str) -> bool {
         "sechost.dll",
         "rpcrt4.dll",
     ];
-    EXACT.contains(&lower) || (lower.starts_with("api-ms-win-") && !lower.contains("api-ms-win-crt"))
+    EXACT.contains(&lower)
+        || (lower.starts_with("api-ms-win-") && !lower.contains("api-ms-win-crt"))
 }
 
 #[derive(Clone, Copy)]
@@ -226,7 +241,12 @@ fn read_sections(bytes: &[u8], table: usize, count: usize) -> Result<Vec<Section
     Ok(sections)
 }
 
-fn directory(bytes: &[u8], optional: usize, count: usize, index: usize) -> Result<(u32, u32), String> {
+fn directory(
+    bytes: &[u8],
+    optional: usize,
+    count: usize,
+    index: usize,
+) -> Result<(u32, u32), String> {
     if index >= count {
         return Ok((0, 0));
     }
@@ -249,7 +269,11 @@ fn rva_to_offset(sections: &[Section], rva: u32) -> Result<usize, String> {
     Err("RVA is outside every section".into())
 }
 
-fn read_import_dlls(bytes: &[u8], sections: &[Section], dir: (u32, u32)) -> Result<Vec<String>, String> {
+fn read_import_dlls(
+    bytes: &[u8],
+    sections: &[Section],
+    dir: (u32, u32),
+) -> Result<Vec<String>, String> {
     if dir.0 == 0 || dir.1 == 0 {
         return Ok(Vec::new());
     }
@@ -269,7 +293,11 @@ fn read_import_dlls(bytes: &[u8], sections: &[Section], dir: (u32, u32)) -> Resu
     Err("import table is unbounded".into())
 }
 
-fn read_delay_dlls(bytes: &[u8], sections: &[Section], dir: (u32, u32)) -> Result<Vec<String>, String> {
+fn read_delay_dlls(
+    bytes: &[u8],
+    sections: &[Section],
+    dir: (u32, u32),
+) -> Result<Vec<String>, String> {
     if dir.0 == 0 || dir.1 == 0 {
         return Ok(Vec::new());
     }
@@ -401,16 +429,12 @@ fn first_data(
 }
 
 fn read_u16(bytes: &[u8], offset: usize) -> Result<u16, String> {
-    let slice = bytes
-        .get(offset..offset + 2)
-        .ok_or("truncated u16")?;
+    let slice = bytes.get(offset..offset + 2).ok_or("truncated u16")?;
     Ok(u16::from_le_bytes([slice[0], slice[1]]))
 }
 
 fn read_u32(bytes: &[u8], offset: usize) -> Result<u32, String> {
-    let slice = bytes
-        .get(offset..offset + 4)
-        .ok_or("truncated u32")?;
+    let slice = bytes.get(offset..offset + 4).ok_or("truncated u32")?;
     Ok(u32::from_le_bytes([slice[0], slice[1], slice[2], slice[3]]))
 }
 
@@ -510,8 +534,14 @@ mod tests {
         assert_eq!(info.imports, vec!["kernel32.dll".to_string()]);
         assert!(info.delay_imports.is_empty());
         assert!(info.has_version_resource);
-        assert!(std::str::from_utf8(&info.manifest).unwrap().contains("asInvoker"));
-        assert!(policy_errors(&info).is_empty(), "{:?}", policy_errors(&info));
+        assert!(std::str::from_utf8(&info.manifest)
+            .unwrap()
+            .contains("asInvoker"));
+        assert!(
+            policy_errors(&info).is_empty(),
+            "{:?}",
+            policy_errors(&info)
+        );
     }
 
     #[test]
@@ -521,7 +551,9 @@ mod tests {
         info.imports.push("vcruntime140.dll".into());
         let errors = policy_errors(&info);
         assert!(errors.iter().any(|error| error.contains("subsystem")));
-        assert!(errors.iter().any(|error| error.contains("vcruntime140.dll")));
+        assert!(errors
+            .iter()
+            .any(|error| error.contains("vcruntime140.dll")));
     }
 
     #[test]

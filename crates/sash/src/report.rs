@@ -20,7 +20,11 @@ pub struct BuildFacts {
     pub llvm_rc: String,
 }
 
-pub fn files(window: &AdmittedWindow, generated: &Generated, facts: &BuildFacts) -> Vec<(&'static str, Vec<u8>)> {
+pub fn files(
+    window: &AdmittedWindow,
+    generated: &Generated,
+    facts: &BuildFacts,
+) -> Vec<(&'static str, Vec<u8>)> {
     let mut imports = Vec::new();
     for name in &facts.pe.imports {
         imports.push(serde_json::json!({
@@ -117,11 +121,20 @@ pub fn files(window: &AdmittedWindow, generated: &Generated, facts: &BuildFacts)
     vec![
         ("evidence/dependency-manifest.json", pretty(&dependency)),
         ("evidence/build-report.json", pretty(&build)),
-        ("evidence/capability-dispositions.json", pretty(&dispositions)),
+        (
+            "evidence/capability-dispositions.json",
+            pretty(&dispositions),
+        ),
         ("evidence/component-build-graph.json", pretty(&graph)),
         ("evidence/source-map.json", pretty(&generated.source_map)),
-        ("evidence/generated-main.rs", generated.main_rs.as_bytes().to_vec()),
-        ("evidence/app.manifest", generated.manifest_xml.as_bytes().to_vec()),
+        (
+            "evidence/generated-main.rs",
+            generated.main_rs.as_bytes().to_vec(),
+        ),
+        (
+            "evidence/app.manifest",
+            generated.manifest_xml.as_bytes().to_vec(),
+        ),
         ("evidence/release-readiness.md", readiness.into_bytes()),
     ]
 }
@@ -133,8 +146,14 @@ fn pretty(value: &serde_json::Value) -> Vec<u8> {
 }
 
 pub fn runtime_claim_is_unconfirmed(report: &serde_json::Value) -> bool {
-    report.get("runtime_qualification").and_then(|value| value.as_str()) == Some("PASS")
-        || report.get("release_admission").and_then(|value| value.as_str()) == Some("PASS")
+    report
+        .get("runtime_qualification")
+        .and_then(|value| value.as_str())
+        == Some("PASS")
+        || report
+            .get("release_admission")
+            .and_then(|value| value.as_str())
+            == Some("PASS")
 }
 
 pub fn reported_exe_hash(report: &serde_json::Value) -> Option<&str> {

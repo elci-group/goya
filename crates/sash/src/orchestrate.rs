@@ -37,17 +37,16 @@ pub fn link(source: &str, output: &Path) -> Result<Linked, Diagnostic> {
     let temp = TempDir::new()?;
     write_project(&temp.0, &generated)?;
     let log = run_link(&temp.0)?;
-    let exe = temp
-        .0
-        .join("target/x86_64-pc-windows-msvc/release/app.exe");
-    let pdb = temp
-        .0
-        .join("target/x86_64-pc-windows-msvc/release/app.pdb");
+    let exe = temp.0.join("target/x86_64-pc-windows-msvc/release/app.exe");
+    let pdb = temp.0.join("target/x86_64-pc-windows-msvc/release/app.pdb");
     if !exe.is_file() {
         return Err(link_error(&log, "the linker did not produce app.exe"));
     }
     if !pdb.is_file() {
-        return Err(link_error(&log, "the linker did not produce private symbols"));
+        return Err(link_error(
+            &log,
+            "the linker did not produce private symbols",
+        ));
     }
     let exe_bytes = fs::read(&exe).map_err(|error| io_diag("build", &error))?;
     let pdb_bytes = fs::read(&pdb).map_err(|error| io_diag("build", &error))?;
@@ -150,7 +149,10 @@ fn write_project(dir: &Path, generated: &Generated) -> Result<(), Diagnostic> {
     fs::create_dir(dir.join("src")).map_err(|error| io_diag("emit", &error))?;
     fs::create_dir(dir.join(".cargo")).map_err(|error| io_diag("emit", &error))?;
     write_new(&dir.join("Cargo.toml"), generated.cargo_toml.as_bytes())?;
-    write_new(&dir.join(".cargo/config.toml"), generated.config_toml.as_bytes())?;
+    write_new(
+        &dir.join(".cargo/config.toml"),
+        generated.config_toml.as_bytes(),
+    )?;
     write_new(&dir.join("build.rs"), generated.build_rs.as_bytes())?;
     write_new(&dir.join("app.manifest"), generated.manifest_xml.as_bytes())?;
     write_new(&dir.join("app.rc"), generated.resource_script.as_bytes())?;
@@ -164,7 +166,8 @@ fn write_new(path: &Path, bytes: &[u8]) -> Result<(), Diagnostic> {
         .create_new(true)
         .open(path)
         .map_err(|error| io_diag("emit", &error))?;
-    file.write_all(bytes).map_err(|error| io_diag("emit", &error))?;
+    file.write_all(bytes)
+        .map_err(|error| io_diag("emit", &error))?;
     Ok(())
 }
 
@@ -236,7 +239,8 @@ fn promote(
             }
             write_new(&path, &bytes)?;
         }
-        let promoted = fs::read(output.join("App.exe")).map_err(|error| io_diag("build", &error))?;
+        let promoted =
+            fs::read(output.join("App.exe")).map_err(|error| io_diag("build", &error))?;
         if crate::sha256_hex(&promoted) != facts.exe_sha256 {
             return Err(Diagnostic::new(
                 "SASH-VERIFY",
@@ -283,7 +287,10 @@ fn tail(stdout: &[u8], stderr: &[u8]) -> String {
 }
 
 fn free_enough(output: &Path) -> bool {
-    let parent = output.parent().filter(|path| !path.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."));
+    let parent = output
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
     let output = Command::new("df").args(["-B1", "-P"]).arg(parent).output();
     let Ok(output) = output else {
         return true;

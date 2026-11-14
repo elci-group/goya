@@ -27,17 +27,26 @@ pub fn generate(window: &AdmittedWindow) -> Generated {
     let title = array_line(&mut main, "TITLE_UTF8", window.scene_name.as_bytes());
     let text = array_line(&mut main, "TEXT_UTF8", window.text.as_bytes());
     let identity = array_line(&mut main, "SEMANTIC_ID_UTF8", window.semantic_id.as_bytes());
-    main.push_str(&format!("const TITLE_LEN: usize = {};\n", window.scene_name.len()));
+    main.push_str(&format!(
+        "const TITLE_LEN: usize = {};\n",
+        window.scene_name.len()
+    ));
     main.push_str(&format!("const TEXT_LEN: usize = {};\n", window.text.len()));
     main.push_str(&format!(
         "const SEMANTIC_LEN: usize = {};\n",
         window.semantic_id.len()
     ));
     let width_at = main.len();
-    main.push_str(&format!("const CLIENT_DIP_W: i32 = {};\n", window.width_dip));
+    main.push_str(&format!(
+        "const CLIENT_DIP_W: i32 = {};\n",
+        window.width_dip
+    ));
     let width_end = main.len();
     let height_at = main.len();
-    main.push_str(&format!("const CLIENT_DIP_H: i32 = {};\n", window.height_dip));
+    main.push_str(&format!(
+        "const CLIENT_DIP_H: i32 = {};\n",
+        window.height_dip
+    ));
     let height_end = main.len();
     main.push_str(PROGRAM);
     let digest = sha256_hex(main.as_bytes());
@@ -558,7 +567,9 @@ mod tests {
         assert_eq!(window.text, "hello\\oops");
         let generated = super::generate(&window);
         assert!(!generated.main_rs.contains("hello\\oops"));
-        assert!(generated.main_rs.contains("104,101,108,108,111,92,111,111,112,115"));
+        assert!(generated
+            .main_rs
+            .contains("104,101,108,108,111,92,111,111,112,115"));
         assert!(generated.main_rs.contains("const CLIENT_DIP_W: i32 = 320;"));
         assert!(!generated.manifest_xml.contains("hello"));
         assert!(!generated.resource_script.contains("hello"));

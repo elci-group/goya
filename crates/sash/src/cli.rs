@@ -207,7 +207,11 @@ fn build_command(mut base: serde_json::Value, scene: &Path, out: &Path) -> Run {
             }
         }
         Err(diagnostic) => {
-            let code = if diagnostic.code == "SASH-TOOLCHAIN" { 3 } else { 1 };
+            let code = if diagnostic.code == "SASH-TOOLCHAIN" {
+                3
+            } else {
+                1
+            };
             finish(base, code, diagnostic, "build did not promote App.exe")
         }
     }
@@ -224,7 +228,12 @@ fn verify_command(mut base: serde_json::Value, exe: &Path, evidence: Option<&Pat
             return finish(
                 base,
                 1,
-                Diagnostic::new("SASH-VERIFY", "qualify", error, "Supply the linked App.exe."),
+                Diagnostic::new(
+                    "SASH-VERIFY",
+                    "qualify",
+                    error,
+                    "Supply the linked App.exe.",
+                ),
                 "verify failed",
             );
         }
@@ -247,7 +256,9 @@ fn verify_command(mut base: serde_json::Value, exe: &Path, evidence: Option<&Pat
         Run {
             code: ExitCode::from(3),
             json: base,
-            text: "pe-structure: PASS\nruntime-qualification: BLOCKED\nrelease-admission: BLOCKED\n".into(),
+            text:
+                "pe-structure: PASS\nruntime-qualification: BLOCKED\nrelease-admission: BLOCKED\n"
+                    .into(),
         }
     } else {
         finish(
@@ -324,7 +335,12 @@ fn cli_error(code: u8, message: &str) -> Run {
             "format": "text",
         }),
         code,
-        Diagnostic::new("SASH-DEPLOY", "cli", message, "Use an admitted command and target."),
+        Diagnostic::new(
+            "SASH-DEPLOY",
+            "cli",
+            message,
+            "Use an admitted command and target.",
+        ),
         "command was not admitted",
     )
 }
@@ -338,7 +354,12 @@ fn refuse(message: String) -> Run {
             "format": "text",
         }),
         1,
-        Diagnostic::new("SASH-DEPLOY", "cli", message, "Select the admitted target and profile."),
+        Diagnostic::new(
+            "SASH-DEPLOY",
+            "cli",
+            message,
+            "Select the admitted target and profile.",
+        ),
         "target or profile was rejected",
     )
 }
@@ -381,14 +402,17 @@ fn read_limited(path: &Path, max: usize) -> Result<Vec<u8>, Diagnostic> {
         )
     })?;
     let mut bytes = Vec::new();
-    file.by_ref().take(max as u64 + 1).read_to_end(&mut bytes).map_err(|_| {
-        Diagnostic::new(
-            "SASH-PARSE",
-            "ingest",
-            "path could not be read",
-            "Retry with a readable file inside the size bound.",
-        )
-    })?;
+    file.by_ref()
+        .take(max as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| {
+            Diagnostic::new(
+                "SASH-PARSE",
+                "ingest",
+                "path could not be read",
+                "Retry with a readable file inside the size bound.",
+            )
+        })?;
     if bytes.len() > max {
         return Err(Diagnostic::new(
             "SASH-PARSE",
@@ -411,9 +435,7 @@ fn fresh_output(path: &Path) -> Result<PathBuf, Diagnostic> {
     }
     let name = path.file_name().unwrap();
     let name_text = name.to_string_lossy();
-    const RESERVED: &[&str] = &[
-        "con", "prn", "aux", "nul", "com1", "com2", "lpt1", "lpt2",
-    ];
+    const RESERVED: &[&str] = &["con", "prn", "aux", "nul", "com1", "com2", "lpt1", "lpt2"];
     if RESERVED.contains(&name_text.to_ascii_lowercase().as_str()) {
         return Err(Diagnostic::new(
             "SASH-DEPLOY",
@@ -422,7 +444,10 @@ fn fresh_output(path: &Path) -> Result<PathBuf, Diagnostic> {
             "Choose another directory name.",
         ));
     }
-    let parent = path.parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."));
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
     let parent = parent.canonicalize().map_err(|_| {
         Diagnostic::new(
             "SASH-DEPLOY",
@@ -479,7 +504,11 @@ mod tests {
             "@ontology hello { @cell root { id: \"window.root\"; text: \"Hi\"; colur: #fff; extent: (80, 40, 0); } }\n",
         )
         .unwrap();
-        let run = execute(&["sash".into(), "check".into(), path.as_os_str().to_os_string()]);
+        let run = execute(&[
+            "sash".into(),
+            "check".into(),
+            path.as_os_str().to_os_string(),
+        ]);
         let _ = std::fs::remove_file(&path);
         assert_eq!(run.code, ExitCode::from(1));
         assert_eq!(run.json["diagnostics"][0]["code"], "GY-E1001");
