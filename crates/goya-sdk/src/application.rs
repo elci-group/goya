@@ -5,21 +5,22 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
-use goya_executable::{D1Snapshot, D1Value, InputSnapshot};
-use goya_lang::{CompiledInteraction, InteractionClass, InteractionType, Scene};
+use goya_executable::{D1Error, D1Snapshot, D1Value, InputSnapshot};
+use goya_lang::{CompiledInteraction, InteractionClass, InteractionType, Scene, TransitionError};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum D1ApplicationError {
     UnsupportedEffect,
-    InvalidInteractions(String),
+    InvalidInteractions(TransitionError),
+    CompilerInvariant,
     MissingActionIdentity,
     DuplicateActionIdentity(String),
     ConflictingStateType(String),
     StateSchemaMismatch,
-    InvalidState(String),
-    InvalidInput(String),
+    InvalidState(D1Error),
+    InvalidInput(D1Error),
     UnknownAction(String),
-    ActionFailed(String),
+    ActionFailed(TransitionError),
 }
 
 impl fmt::Display for D1ApplicationError {
@@ -58,6 +59,12 @@ impl D1Application {
         scene: &Scene,
         initial: BTreeMap<String, D1Value>,
     ) -> Result<Self, D1ApplicationError> {
+        Self::restore(scene, 0, initial)
+    }
+
+    /// Reconstruct an owner from an explicit snapshot after validating the
+    /// current schema and D1 limits. Storage and migration are host duties.
+    pub fn restore(scene: &Scene, revision: u64, initial: BTreeMap<String, D1Value>) -> Result<Self, D1ApplicationError> {
         if scene
             .interactions
             .iter()
@@ -65,12 +72,9 @@ impl D1Application {
         {
             return Err(D1ApplicationError::UnsupportedEffect);
         }
-        let compiled = goya_lang::compile_d1_interactions(scene)
-            .map_err(|error| D1ApplicationError::InvalidInteractions(error.to_string()))?;
+        let compiled = goya_lang::compile_d1_interactions(scene).map_err(D1ApplicationError::InvalidInteractions)?;
         if compiled.len() != scene.interactions.len() {
-            return Err(D1ApplicationError::InvalidInteractions(
-                "interaction count mismatch".into(),
-            ));
+            return Err(D1ApplicationError::CompilerInvariant);
         }
         let mut actions = BTreeMap::new();
         let mut schema = BTreeMap::new();
@@ -100,13 +104,12 @@ impl D1Application {
         {
             return Err(D1ApplicationError::StateSchemaMismatch);
         }
-        D1Snapshot::new(0, initial.clone())
-            .map_err(|error| D1ApplicationError::InvalidState(error.to_string()))?;
+        D1Snapshot::new(revision, initial.clone()).map_err(D1ApplicationError::InvalidState)?;
         Ok(Self {
             actions,
             schema,
             values: initial,
-            revision: 0,
+            revision,
         })
     }
 
@@ -150,13 +153,11 @@ impl D1Application {
                     .ok_or(D1ApplicationError::StateSchemaMismatch)?,
             );
         }
-        let snapshot = D1Snapshot::new(self.revision, values)
-            .map_err(|error| D1ApplicationError::InvalidState(error.to_string()))?;
-        let input = InputSnapshot::new(inputs)
-            .map_err(|error| D1ApplicationError::InvalidInput(error.to_string()))?;
+        let snapshot = D1Snapshot::new(self.revision, values).map_err(D1ApplicationError::InvalidState)?;
+        let input = InputSnapshot::new(inputs).map_err(D1ApplicationError::InvalidInput)?;
         let outcome = action
             .execute(&snapshot, &input)
-            .map_err(|error| D1ApplicationError::ActionFailed(error.to_string()))?;
+            .map_err(D1ApplicationError::ActionFailed)?;
         let mut next = self.values.clone();
         for key in action.state_writes() {
             let value = outcome
@@ -169,8 +170,7 @@ impl D1Application {
             }
             next.insert(key.name.clone(), value);
         }
-        D1Snapshot::new(outcome.revision_after, next.clone())
-            .map_err(|error| D1ApplicationError::InvalidState(error.to_string()))?;
+        D1Snapshot::new(outcome.revision_after, next.clone()).map_err(D1ApplicationError::InvalidState)?;
         self.values = next;
         self.revision = outcome.revision_after;
         Ok(())
