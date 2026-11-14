@@ -160,6 +160,8 @@ fn reference_run(action: &goya_lang::CompiledInteraction, case: &Case) -> Result
                 error: "revision_overflow".into(),
             })
         }
+        Err(goya_lang::TransitionError::StateTypeMismatch) => Ok(Outcome::Error { error: "state_schema".into() }),
+        Err(goya_lang::TransitionError::InputTypeMismatch) => Ok(Outcome::Error { error: "input_schema".into() }),
         Err(error) => Err(format!("unexpected reference error: {error}")),
     }
 }

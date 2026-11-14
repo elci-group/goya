@@ -362,7 +362,7 @@ fn d1_corpus_reports_only_its_scope_and_admission_is_blocked() {
     assert!(output.status.success());
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(report["status"], "PASS");
-    assert_eq!(report["cases"].as_array().unwrap().len(), 4);
+    assert_eq!(report["cases"].as_array().unwrap().len(), 6);
     assert_eq!(report["stages"]["target_ir"], "PASS");
     assert_eq!(report["stages"]["generated_swift"], "BLOCKED");
     assert_eq!(report["stages"]["physical_device"], "BLOCKED");
