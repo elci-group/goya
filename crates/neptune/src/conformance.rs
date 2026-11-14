@@ -330,7 +330,7 @@ pub fn run_d1_corpus() -> Result<CorpusReport, String> {
     }
     Ok(CorpusReport {
         passed,
-        json: serde_json::json!({"schema_version":"2", "suite":"d1-scalar-corpus", "status":if passed {"PASS"} else {"FAIL"}, "scope":"host-side scalar application owner and target IR", "fixtures":reports.iter().map(|report| &report.json).collect::<Vec<_>>(), "cases":cases, "stages":{"reference_executor":if reference_passed {"PASS"} else {"FAIL"}, "application_owner":if application_passed {"PASS"} else {"FAIL"}, "target_ir":if target_passed {"PASS"} else {"FAIL"}, "generated_swift":"BLOCKED", "apple_typecheck":"BLOCKED", "simulator":"BLOCKED", "physical_device":"BLOCKED", "ios_admission":"NOT_RUN"}}),
+        json: serde_json::json!({"schema_version":"2", "suite":"d1-scalar-corpus", "status":if passed {"PASS"} else {"FAIL"}, "scope":"host-side scalar application owner and target IR", "application_contract":goya_sdk::D1_APPLICATION_CONTRACT, "fixtures":reports.iter().map(|report| &report.json).collect::<Vec<_>>(), "cases":cases, "stages":{"reference_executor":if reference_passed {"PASS"} else {"FAIL"}, "application_owner":if application_passed {"PASS"} else {"FAIL"}, "target_ir":if target_passed {"PASS"} else {"FAIL"}, "generated_swift":"BLOCKED", "apple_typecheck":"BLOCKED", "simulator":"BLOCKED", "physical_device":"BLOCKED", "ios_admission":"NOT_RUN"}}),
     })
 }
 

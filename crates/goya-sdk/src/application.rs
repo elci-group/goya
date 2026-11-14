@@ -120,7 +120,8 @@ impl D1Application {
         {
             return Err(D1ApplicationError::StateSchemaMismatch);
         }
-        let snapshot = D1Snapshot::new(revision, initial).map_err(D1ApplicationError::InvalidState)?;
+        let snapshot =
+            D1Snapshot::new(revision, initial).map_err(D1ApplicationError::InvalidState)?;
         Ok(Self {
             actions,
             schema,
@@ -187,7 +188,8 @@ impl D1Application {
             }
             next.insert(key.name.clone(), value);
         }
-        let snapshot = D1Snapshot::new(outcome.revision_after, next).map_err(D1ApplicationError::InvalidState)?;
+        let snapshot = D1Snapshot::new(outcome.revision_after, next)
+            .map_err(D1ApplicationError::InvalidState)?;
         self.values = snapshot.values().clone();
         self.revision = outcome.revision_after;
         Ok(())
@@ -249,10 +251,19 @@ mod tests {
         ));
         let mut mistyped = initial(0);
         mistyped.insert("name".into(), D1Value::Bool(true));
-        assert!(matches!(D1Application::new(&scene(), mistyped), Err(D1ApplicationError::StateSchemaMismatch)));
+        assert!(matches!(
+            D1Application::new(&scene(), mistyped),
+            Err(D1ApplicationError::StateSchemaMismatch)
+        ));
         let mut oversized = initial(0);
-        oversized.insert("name".into(), D1Value::Text("x".repeat(goya_executable::D1_MAX_TEXT_BYTES + 1)));
-        assert!(matches!(D1Application::new(&scene(), oversized), Err(D1ApplicationError::InvalidState(D1Error::TextTooLarge))));
+        oversized.insert(
+            "name".into(),
+            D1Value::Text("x".repeat(goya_executable::D1_MAX_TEXT_BYTES + 1)),
+        );
+        assert!(matches!(
+            D1Application::new(&scene(), oversized),
+            Err(D1ApplicationError::InvalidState(D1Error::TextTooLarge))
+        ));
         let mut app = D1Application::new(&scene(), initial(i64::MAX)).unwrap();
         let before = app.values().clone();
         assert!(matches!(
