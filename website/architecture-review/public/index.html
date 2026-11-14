@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Goya architecture review</title>
+  <link rel="icon" href="/favicon.svg">
+  <link rel="stylesheet" href="/review.css">
+</head>
+<body>
+  <a class="skip" href="#content">Skip to the review</a>
+  <header class="top">
+    <div class="brand">
+      <p class="mark">GY-ARCH · review sheet</p>
+      <p class="version" id="version-line">Workspace model</p>
+    </div>
+    <nav aria-label="Review sections">
+      <a href="#paths">Paths</a>
+      <a href="#trace">Walk</a>
+      <a href="#bounds">Boundaries</a>
+      <a href="#graph">Crates</a>
+      <a href="#waves">Waves</a>
+      <a href="#reading">Reading</a>
+    </nav>
+  </header>
+  <svg class="ruler" viewBox="0 0 1000 36" role="img" aria-label="Layout unit ruler, 0 to 100000 millipoints">
+    <title>Millipoint ruler</title>
+    <line x1="24" y1="22" x2="976" y2="22"></line>
+    <g class="ticks" id="ruler-ticks"></g>
+  </svg>
+  <main id="content">
+    <section class="hero" id="overview">
+      <p class="kicker">Backend review</p>
+      <h1>Goya architecture</h1>
+      <p class="lede">Two backends sit under the desktop. The live frame path turns a Wayland seat event into a millipoint frame. The checked execution path classifies authored behaviour, runs it on a Rust VM, and only then mirrors it with a capability-empty worker.</p>
+      <dl class="stats" id="stats"></dl>
+    </section>
+    <section id="paths" aria-labelledby="paths-title">
+      <div class="section-head">
+        <h2 id="paths-title">Backend paths</h2>
+        <p>Each plate is a stage the review server reports. Select a plate to read the contract note.</p>
+      </div>
+      <div class="path-grid" id="path-grid"></div>
+    </section>
+    <section id="trace" aria-labelledby="trace-title">
+      <div class="section-head">
+        <h2 id="trace-title">Walk a backend</h2>
+        <p>The server returns the stage list. The page lights each stage in order.</p>
+      </div>
+      <div class="trace-bar" id="trace-bar" role="toolbar" aria-label="Backend walks"></div>
+      <p class="trace-summary" id="trace-summary"></p>
+      <p class="revision" id="revision"></p>
+      <ol class="steps" id="steps"></ol>
+    </section>
+    <section id="bounds" aria-labelledby="bounds-title">
+      <div class="section-head">
+        <h2 id="bounds-title">Process boundaries</h2>
+        <p>What stays inside the Goya process, and which socket, child, or CLI it calls.</p>
+      </div>
+      <div class="bound-layout">
+        <div class="process" id="process-core">
+          <p class="mark">In process</p>
+          <strong>Frame, state, layout, VMs</strong>
+          <span>No shell. Workers and tools are separate processes.</span>
+        </div>
+        <div class="bound-grid" id="bound-grid"></div>
+      </div>
+    </section>
+    <section id="graph" aria-labelledby="graph-title">
+      <div class="section-head">
+        <h2 id="graph-title">Crate graph</h2>
+        <p>Edges are <code>Cargo.toml</code> dependencies. A crate uses the crates it points at.</p>
+      </div>
+      <div class="filters" id="layer-filters" role="toolbar" aria-label="Layer filter"></div>
+      <div class="graph-layout">
+        <div class="graph-scroll">
+          <svg id="graph" role="img" aria-labelledby="graph-title graph-caption"></svg>
+          <p id="graph-caption" class="caption"></p>
+        </div>
+        <article class="detail" id="crate-detail" aria-live="polite">
+          <p class="mark">Crate</p>
+          <h3 id="detail-name">Select a crate</h3>
+          <p id="detail-role"></p>
+          <dl id="detail-meta"></dl>
+          <div id="detail-links"></div>
+        </article>
+      </div>
+    </section>
+    <section id="waves" aria-labelledby="waves-title">
+      <div class="section-head">
+        <h2 id="waves-title">Wave ledger</h2>
+        <p>Status from the deferred-work table in <code>docs/contracts.md</code>.</p>
+      </div>
+      <div class="wave-rail" id="wave-rail"></div>
+      <div class="table-scroll">
+        <table>
+          <caption class="sr">Wave assignments and remaining gates</caption>
+          <thead>
+            <tr><th scope="col">Wave</th><th scope="col">Package</th><th scope="col">Status</th><th scope="col">Note</th></tr>
+          </thead>
+          <tbody id="wave-body"></tbody>
+        </table>
+      </div>
+    </section>
+    <section id="reading" aria-labelledby="reading-title">
+      <div class="section-head">
+        <h2 id="reading-title">Reading</h2>
+        <p>What the structure supports, where a document has drifted, and what is still open.</p>
+      </div>
+      <div class="findings" id="findings"></div>
+    </section>
+  </main>
+  <footer>
+    <p>Served by <code>goya-architecture-review</code> on loopback. Figures come from <code>/api/model</code> and <code>/api/trace</code>.</p>
+  </footer>
+  <noscript><p class="noscript">This review draws its figures from the Rust server. Enable JavaScript to load them.</p></noscript>
+  <script src="/review.js"></script>
+</body>
+</html>
