@@ -23,6 +23,18 @@ const MAX_PROGRAM_BYTES: usize = 2 * 1024 * 1024;
 const MAX_PROOF_BYTES: usize = 1024;
 const MAX_REGISTER_BYTES: usize = 1024 * 1024;
 const MAX_TEXT_BYTES: usize = 64 * 1024;
+/// Maximum UTF-8 bytes in a D1 text value.
+pub const D1_MAX_TEXT_BYTES: usize = MAX_TEXT_BYTES;
+/// Maximum measured bytes in one snapshot, or the combined input and state snapshots.
+pub const D1_MAX_SNAPSHOT_BYTES: usize = MAX_SNAPSHOT_BYTES;
+/// Maximum measured bytes in the live register map.
+pub const D1_MAX_REGISTER_BYTES: usize = MAX_REGISTER_BYTES;
+/// Fixed overhead for a snapshot and each entry in the D1 size accounting.
+pub const D1_SNAPSHOT_HEADER_BYTES: usize = 8;
+pub const D1_SNAPSHOT_ENTRY_BYTES: usize = 8;
+/// Bytes charged for fixed-width scalar values in the D1 accounting.
+pub const D1_INT_VALUE_BYTES: usize = 8;
+pub const D1_BOOL_VALUE_BYTES: usize = 1;
 const DOMAIN_PROGRAM: &[u8] = b"GOYA-D1-PROGRAM/1\0";
 const DOMAIN_SNAPSHOT: &[u8] = b"GOYA-D1-SNAPSHOT/1\0";
 const DOMAIN_OUTCOME: &[u8] = b"GOYA-D1-OUTCOME/1\0";
@@ -890,8 +902,8 @@ fn validate_snapshot_map(values: &BTreeMap<String, D1Value>) -> Result<(), D1Err
 }
 
 fn map_size(values: &BTreeMap<String, D1Value>) -> Result<usize, D1Error> {
-    values.iter().try_fold(8usize, |size, (key, value)| {
-        size.checked_add(8)
+    values.iter().try_fold(D1_SNAPSHOT_HEADER_BYTES, |size, (key, value)| {
+        size.checked_add(D1_SNAPSHOT_ENTRY_BYTES)
             .and_then(|n| n.checked_add(key.len()))
             .and_then(|n| n.checked_add(value_size(value)))
             .ok_or(D1Error::SnapshotTooLarge)
@@ -988,9 +1000,9 @@ fn validate_value(value: &D1Value) -> Result<(), D1Error> {
 
 fn value_size(value: &D1Value) -> usize {
     match value {
-        D1Value::Int(_) => 8,
+        D1Value::Int(_) => D1_INT_VALUE_BYTES,
         D1Value::Text(text) => text.len(),
-        D1Value::Bool(_) => 1,
+        D1Value::Bool(_) => D1_BOOL_VALUE_BYTES,
     }
 }
 
