@@ -14,6 +14,8 @@ struct Corpus {
     schema_version: String,
     fixture: String,
     module: String,
+    action_id: String,
+    trigger_id: String,
     cases: Vec<Case>,
 }
 #[derive(Deserialize)]
@@ -178,6 +180,9 @@ pub fn run_d1_corpus() -> Result<CorpusReport, String> {
     }
     let reference = reference.remove(0);
     let target = target.remove(0);
+    if target.reference_program_hash != reference.program_hash() || target.semantic_id.declared_id != corpus.action_id || target.trigger_id.declared_id != corpus.trigger_id || target.semantic_id.module != corpus.module || target.trigger_id.module != corpus.module {
+        return Err("target identity or reference program hash mismatch".into());
+    }
     let mut cases = Vec::new();
     let mut passed = true;
     let mut reference_passed = true;
