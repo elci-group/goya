@@ -5,9 +5,7 @@
 //! millipoint result divides evenly into reference pixels.
 
 use crate::Diagnostic;
-use goya_lang::{
-    handoff, layout, CellKind, ParsedScene, Scene, SceneCell, SourceEntry, SourceRange,
-};
+use goya_lang::{handoff, layout, CellKind, ParsedScene, SceneCell, SourceRange};
 
 /// Profile implemented by this module. It is not the full Sash v0.0.1 slice.
 pub const PROFILE: &str = "sash.win32.static-window/0.0.1";
@@ -218,8 +216,8 @@ fn admit_scene(parsed: &ParsedScene) -> Result<AdmittedWindow, Diagnostic> {
         detail: "Scroll was not authored, so the cell is not a scroll viewport.".into(),
     });
     dispositions.push(Disposition {
-        subject: "fill".into(),
-        disposition: "preserved",
+        subject: "background".into(),
+        disposition: "equivalently-transformed",
         detail: "No fill was authored. The window uses the system window colour and the stock default GUI font.".into(),
     });
     Ok(AdmittedWindow {
@@ -539,12 +537,6 @@ impl Diagnostic {
     }
 }
 
-/// Scene reference used by tests that want the layout oracle's contract name.
-#[allow(dead_code)]
-fn _scene_ty(scene: &Scene, _entry: &SourceEntry) {
-    let _ = scene.name.as_str();
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -607,7 +599,7 @@ mod tests {
     fn fill_newline_rtl_and_missing_extent_fail() {
         let fill = cell("    id: \"window.root\";\n    text: \"Hi\";\n    fill: #fff;\n    extent: (80, 40, 0);");
         assert_eq!(admit(&fill).unwrap_err().code, "SASH-CAP");
-        let newline = cell("    id: \"window.root\";\n    text: \"A\\nB\";\n    extent: (80, 40, 0);");
+        let newline = cell("    id: \"window.root\";\n    text: \"A\nB\";\n    extent: (80, 40, 0);");
         assert!(admit(&newline).unwrap_err().message.contains("line break"));
         let rtl = cell("    id: \"window.root\";\n    text: \"שלום\";\n    extent: (80, 40, 0);");
         assert!(admit(&rtl).unwrap_err().message.contains("bidirectional"));
