@@ -303,6 +303,17 @@ mod tests {
     }
 
     #[test]
+    fn strict_root_id_error_points_to_implicit_ontology_origin() {
+        let source = "@ontology demo { text: \"Hello\" }";
+        let error = parse_strict(source).unwrap_err();
+        assert_eq!(error.code, "GY-E1005");
+        assert_eq!(
+            &source[error.range.start..error.range.end],
+            "@ontology demo { text: \"Hello\" }"
+        );
+    }
+
+    #[test]
     fn strict_parser_requires_id_for_nonempty_multi_child_ontology_root() {
         // The ontology wrapper is virtual only when parsing collapses it.
         // A root with visual state remains a real scene element even when it

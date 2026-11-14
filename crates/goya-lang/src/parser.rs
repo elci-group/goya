@@ -99,14 +99,30 @@ pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
         entries: Vec::new(),
     };
     p.expect_at_word("ontology")?;
+    let ontology_start = p.tokens[p.i - 1].byte_start;
     let name = p.expect_ident()?;
     p.expect(TokenKind::LBrace)?;
     let mut root = p.parse_cell_body()?;
+    let ontology_end = p.tokens[p.i - 1].byte_end;
     // A document is exactly one ontology block. Do not silently accept
     // trailing tokens, which can hide a malformed second root or typo.
     if p.peek().is_some() {
         return Err(ParseError { line: p.line() });
     }
+    // Keep an origin for the implicit ontology body. It is also the only
+    // declaration-like source span available when the body itself becomes
+    // the scene root (for example, when it contains root properties).
+    p.entries.push(SourceEntry {
+        kind: "ontology".into(),
+        name: name.clone(),
+        range: SourceRange {
+            start: ontology_start,
+            end: ontology_end,
+        },
+        source_digest: [0; 32],
+        scene_path: None,
+        semantic_id: None,
+    });
     // Collapse the anonymous ontology wrapper when it holds exactly one
     // named cell and no own properties — the wrapper is syntax, not scene.
     // Otherwise the wrapper keeps the ontology name so lowering has a root.
@@ -280,6 +296,15 @@ pub fn parse_strict(source: &str) -> Result<ParsedScene, StrictParseError> {
             name: error.to_string(),
             range: entry
                 .map(|entry| entry.range)
+                .or_else(|| {
+                    // An ontology body with authored properties is a real
+                    // scene root, but has no @cell declaration of its own.
+                    // Point its missing-ID diagnostic at that body span.
+                    (path.is_empty())
+                        .then(|| parsed.entries.iter().find(|entry| entry.kind == "ontology"))
+                        .flatten()
+                        .map(|entry| entry.range)
+                })
                 .unwrap_or(SourceRange { start: 0, end: 0 }),
         });
     }
