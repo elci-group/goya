@@ -8,6 +8,9 @@ use std::fmt;
 use goya_executable::{D1Error, D1Snapshot, D1Value, InputSnapshot};
 use goya_lang::{CompiledInteraction, InteractionClass, InteractionType, Scene, TransitionError};
 
+/// Version of the opt-in D1 application state ownership contract.
+pub const D1_APPLICATION_CONTRACT: &str = "GY-D1-APP/1";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum D1ApplicationError {
     UnsupportedEffect,

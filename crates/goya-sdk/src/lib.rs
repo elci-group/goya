@@ -17,7 +17,7 @@ use std::fmt;
 use std::path::Path;
 
 mod application;
-pub use application::{D1Application, D1ApplicationError};
+pub use application::{D1Application, D1ApplicationError, D1_APPLICATION_CONTRACT};
 
 pub use goya_executable::{
     CapabilityLabel, D1Outcome, D1Snapshot, D1Value, D2Outcome, EffectJournal, EffectResult,

@@ -262,6 +262,19 @@ mod tests {
     }
 
     #[test]
+    fn strict_id_errors_point_to_the_offending_element_origin() {
+        let missing = "@ontology demo { @cell first { id: \"first\"; } @button second { } }";
+        let error = parse_strict(missing).unwrap_err();
+        assert_eq!(error.code, "GY-E1005");
+        assert!(missing[error.range.start..error.range.end].starts_with("@button second"));
+
+        let duplicate = "@ontology demo { @cell first { id: \"same\"; } @cell second { id: \"same\"; } }";
+        let error = parse_strict(duplicate).unwrap_err();
+        assert_eq!(error.code, "GY-E1005");
+        assert!(duplicate[error.range.start..error.range.end].starts_with("@cell second"));
+    }
+
+    #[test]
     fn strict_parser_requires_id_for_nonempty_multi_child_ontology_root() {
         // The ontology wrapper is virtual only when parsing collapses it.
         // A root with visual state remains a real scene element even when it

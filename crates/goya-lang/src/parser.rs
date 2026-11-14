@@ -262,15 +262,21 @@ pub fn parse_strict(source: &str) -> Result<ParsedScene, StrictParseError> {
     let id_error = if virtual_root {
         root.children
             .iter()
-            .find_map(|child| validate_authored_ids(child, &mut ids))
+            .enumerate()
+            .find_map(|(index, child)| {
+                validate_authored_ids(child, &mut ids, vec![index])
+            })
     } else {
-        validate_authored_ids(root, &mut ids)
+        validate_authored_ids(root, &mut ids, Vec::new())
     };
-    if let Some(error) = id_error {
+    if let Some((error, path)) = id_error {
         let entry = parsed
             .entries
             .iter()
-            .find(|entry| entry.kind == "cell" || entry.kind == "button" || entry.kind == "input");
+            .find(|entry| {
+                matches!(entry.kind.as_str(), "cell" | "button" | "input")
+                    && entry.scene_path.as_deref() == Some(path.as_slice())
+            });
         return Err(StrictParseError {
             code: "GY-E1005",
             name: error,
@@ -360,15 +366,37 @@ fn is_known_property(name: &str) -> bool {
     )
 }
 
+#[derive(Debug)]
+enum AuthoredIdError {
+    Missing { name: String },
+    Duplicate { id: String },
+}
+
+impl AuthoredIdError {
+    fn to_string(&self) -> String {
+        match self {
+            Self::Missing { name } => format!("missing ID for {name}"),
+            Self::Duplicate { id } => id.clone(),
+        }
+    }
+}
+
 fn validate_authored_ids(
     cell: &SceneCell,
     seen: &mut std::collections::BTreeSet<String>,
-) -> Option<String> {
+) -> Option<AuthoredIdError> {
     let Some(id) = cell.authored_id.as_ref() else {
-        return Some(format!("missing ID for {}", cell.name));
+        return Some(AuthoredIdError::Missing {
+            name: cell.name.clone(),
+        });
     };
-    if id.is_empty() || !seen.insert(id.clone()) {
-        return Some(id.clone());
+    if id.is_empty() {
+        return Some(AuthoredIdError::Missing {
+            name: cell.name.clone(),
+        });
+    }
+    if !seen.insert(id.clone()) {
+        return Some(AuthoredIdError::Duplicate { id: id.clone() });
     }
     for child in &cell.children {
         if let Some(error) = validate_authored_ids(child, seen) {
