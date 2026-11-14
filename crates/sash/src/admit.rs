@@ -287,7 +287,13 @@ fn walk(
         ));
     }
     if !is_root {
-        expect_child_rect(cell, parent.expect("child has a parent"), node.rect, parsed, path)?;
+        expect_child_rect(
+            cell,
+            parent.expect("child has a parent"),
+            node.rect,
+            parsed,
+            path,
+        )?;
     }
     let extent_range = property_range_at(parsed, path, "extent")
         .or_else(|| cell_range(parsed, path))
@@ -351,7 +357,9 @@ fn walk(
             dispositions.push(Disposition {
                 subject: format!("{id} container"),
                 disposition: "equivalently-transformed",
-                detail: "The cell has no text, so it contributes layout only and has no STATIC control.".into(),
+                detail:
+                    "The cell has no text, so it contributes layout only and has no STATIC control."
+                        .into(),
             });
         }
     }
@@ -425,6 +433,9 @@ fn expect_child_rect(
         (parent.x, parent.y)
     };
     let (width, height) = if let Some(extent) = cell.extent {
+        if !extent.x.is_finite() || !extent.y.is_finite() || !extent.z.is_finite() {
+            return Err(layout_error("extent is not finite", range));
+        }
         if extent.z != 0.0 {
             return Err(cap(
                 "non-zero depth is reachable and a top-level window has no depth axis",
@@ -452,7 +463,11 @@ fn points_to_mp(points: f64) -> i64 {
     (points * MP) as i64
 }
 
-fn reject_visuals(cell: &SceneCell, parsed: &ParsedScene, path: &[usize]) -> Result<(), Diagnostic> {
+fn reject_visuals(
+    cell: &SceneCell,
+    parsed: &ParsedScene,
+    path: &[usize],
+) -> Result<(), Diagnostic> {
     let checks: [(&str, bool); 8] = [
         ("position_p", cell.position_p.is_some()),
         ("extent_p", cell.extent_p.is_some()),
@@ -845,11 +860,73 @@ mod tests {
     }
 
     #[test]
+    fn omitted_child_geometry_fills_the_parent() {
+        let source = cell(
+            "    id: \"window.root\";\n    text: \"Hi\";\n    extent: (80, 40, 0);\n    @cell child { id: \"window.child\"; text: \"In\"; }",
+        );
+        let window = admit(&source).unwrap();
+        assert_eq!(window.labels.len(), 2);
+        assert_eq!(
+            (
+                window.labels[1].x_dip,
+                window.labels[1].y_dip,
+                window.labels[1].width_dip,
+                window.labels[1].height_dip
+            ),
+            (0, 0, 320, 160)
+        );
+    }
+
+    #[test]
+    fn textless_parent_places_only_the_child() {
+        let source = cell(
+            "    id: \"window.root\";\n    extent: (80, 40, 0);\n    @cell child { id: \"window.child\"; text: \"In\"; position: (10, 5, 0); extent: (20, 10, 0); }",
+        );
+        let window = admit(&source).unwrap();
+        assert_eq!(window.text, "");
+        assert_eq!(window.labels.len(), 1);
+        assert_eq!(window.labels[0].semantic_id, "window.child");
+        assert_eq!(
+            (
+                window.labels[0].x_dip,
+                window.labels[0].y_dip,
+                window.labels[0].width_dip,
+                window.labels[0].height_dip
+            ),
+            (40, 20, 80, 40)
+        );
+        assert!(window.dispositions.iter().any(|item| {
+            item.disposition == "equivalently-transformed" && item.subject.contains("container")
+        }));
+    }
+
+    #[test]
+    fn empty_cell_and_too_many_cells_are_rejected() {
+        let empty = cell(
+            "    id: \"window.root\";\n    text: \"Hi\";\n    extent: (80, 40, 0);\n    @cell child { id: \"window.child\"; }",
+        );
+        assert!(admit(&empty).unwrap_err().message.contains("no text"));
+        let mut body =
+            String::from("    id: \"window.root\";\n    text: \"Hi\";\n    extent: (80, 40, 0);\n");
+        for index in 0..32 {
+            body.push_str(&format!(
+                "    @cell c{index} {{ id: \"window.c{index}\"; text: \"T\"; position: (0, 0, 0); extent: (1, 1, 0); }}\n"
+            ));
+        }
+        let error = admit(&cell(&body)).unwrap_err();
+        assert_eq!(error.code, "SASH-CAP");
+        assert!(error.message.contains("32"));
+    }
+
+    #[test]
     fn child_that_does_not_fit_is_rejected() {
         let source = cell("    id: \"window.root\";\n    text: \"Hi\";\n    extent: (80, 40, 0);\n    @cell child { id: \"window.child\"; text: \"No\"; position: (70, 0, 0); extent: (20, 10, 0); }");
         let error = admit(&source).unwrap_err();
         assert_eq!(error.code, "SASH-LAYOUT");
-        assert!(origin(&source, &error).contains("extent:") || origin(&source, &error).contains("position:"));
+        assert!(
+            origin(&source, &error).contains("extent:")
+                || origin(&source, &error).contains("position:")
+        );
     }
 
     #[test]

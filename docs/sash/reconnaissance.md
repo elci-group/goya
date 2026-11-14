@@ -65,7 +65,7 @@ Result on this Linux host:
 
 The import list is the dependency evidence this host can produce. A machine with developer tools installed would not prove a clean-machine closure, and this link was not performed on Windows at all.
 
-Library tests after the scene-digest correction: `cargo test -p sash --offline --lib` reported 14 passed.
+Library tests after the scene-digest correction reported 14 passed. The table above is that single-cell link. Profile `0.0.2` changes the generated program even for this fixture, so that SHA-256 is not the nested-layout image.
 
 ## Toolchain actually used
 
@@ -83,9 +83,9 @@ The build report labels the claim `unqualified-cross-link` and the host `linux-c
 
 ## Profile that was compiled
 
-`sash.win32.static-window/0.0.1` admits one ontology and exactly one `@cell`. The cell needs an id, non-empty text, and a positive extent at depth 0. Position may be omitted or be the origin. Interactions, children, buttons, inputs, fill, stroke, text size, anchor, wrap, scroll, and strong right-to-left text are rejected. Text is a native `STATIC` control (`SS_LEFT|SS_NOPREFIX`), not an edit control. The semantic id is a window property, `Goya.SemanticId`. UI Automation `AutomationId` is not mapped. Authored strings are emitted as decimal byte arrays.
+`sash.win32.static-window/0.0.2` admits one ontology and a tree of `@cell` nodes, at most 32 cells. The root needs an id and a positive extent at depth 0. Position on the root may be omitted or be the origin. A nested cell may omit position, which places it at the parent origin, or omit extent, which fills the parent. `goya_lang::layout` is the geometry oracle. If that solver moves or shrinks a cell, admission fails with `SASH-LAYOUT`. A cell with text becomes a native `STATIC` control (`SS_LEFT|SS_NOPREFIX`) at the solved client rectangle. A cell with children and no text contributes layout only. A cell with neither text nor children is rejected. Buttons, inputs, interactions, fill, stroke, text size, anchor, wrap, scroll, proportional geometry, and strong right-to-left text are rejected. The semantic id is a window property, `Goya.SemanticId`, on the frame and on each label. UI Automation `AutomationId` is not mapped. Authored strings are emitted as decimal byte arrays.
 
-The five directive units are not separate compilation units yet. This proof links one window and one static label into `App.exe`. Cards, taskbar behaviour, startup, actions, retention, and nested layout are not generated.
+The five directive units are not separate compilation units yet. This profile links one window and its static labels into `App.exe`. Cards, taskbar behaviour, startup, actions, and retention are not generated. Resize clips the placed rectangles and does not reflow them. The recorded `App.exe` above predates this widening.
 
 ## Not ratified
 

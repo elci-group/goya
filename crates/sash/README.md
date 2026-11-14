@@ -6,11 +6,11 @@ Aragon remains the Android compiler. Neptune remains the iOS compiler. Sylyca is
 
 ## What links today
 
-Profile `sash.win32.static-window/0.0.1` on target `x86_64-pc-windows-msvc`.
+Profile `sash.win32.static-window/0.0.2` on target `x86_64-pc-windows-msvc`.
 
-The scene must contain one ontology and exactly one `@cell` with an id, text, and a positive extent. The fixture `fixtures/static-window.gscene` is the smallest admitted input. Buttons, inputs, nested cells, interactions, and retention are rejected.
+The scene is one ontology whose root `@cell` has an id and a positive extent. Nested `@cell` nodes are admitted, up to 32 cells. Each cell with text becomes a `STATIC` control at the rectangle from `goya_lang::layout`. A cell with neither text nor children is rejected. A cell the solver would move or shrink is rejected. The fixture `fixtures/static-window.gscene` is the smallest admitted input. `fixtures/nested-static.gscene` is the nested proof. Buttons, inputs, interactions, fill, stroke, proportional geometry, and retention are rejected.
 
-The generated program is a Win32 window with one `STATIC` label. It is not an Electron, WebView, or WinUI application.
+The generated program is a Win32 window. It is not an Electron, WebView, or WinUI application.
 
 ## Commands
 

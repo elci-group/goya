@@ -266,9 +266,9 @@ section { margin-top: 56px; }
   padding: 8px;
 }
 
-#crate-graph { width: 100%; max-width: 920px; height: auto; display: block; }
+#crate-graph { width: 920px; height: auto; display: block; }
 
-#graph text { font-family: var(--mono); }
+#crate-graph text { font-family: var(--mono); }
 
 .caption { margin: 8px 4px 4px; color: var(--faint); font-size: 12px; }
 

@@ -112,8 +112,8 @@ pub fn files(
         "units": [{
             "name": "static-window",
             "placement": "linked into App.exe",
-            "contains": ["top-level HWND", "one STATIC label"],
-            "not_generated": ["banner communications", "taskbar behaviour", "startup behaviour", "actions", "retention", "nested layout"],
+            "contains": ["top-level HWND", "one STATIC control per admitted text cell"],
+            "not_generated": ["banner communications", "taskbar behaviour", "startup behaviour", "actions", "retention"],
         }],
         "incremental_invalidation": "NOT_RUN",
     });

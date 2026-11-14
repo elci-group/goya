@@ -80,12 +80,7 @@ pub fn generate(window: &AdmittedWindow) -> Generated {
     let digest = sha256_hex(main.as_bytes());
     let mut origins = vec![
         origin("title", &title, &window.ontology_range, &window.semantic_id),
-        origin(
-            "id",
-            &identity,
-            &window.id_range,
-            &window.semantic_id,
-        ),
+        origin("id", &identity, &window.id_range, &window.semantic_id),
         origin(
             "extent-width",
             &(width_at, width_end),
@@ -106,12 +101,7 @@ pub fn generate(window: &AdmittedWindow) -> Generated {
             &label.text_range,
             &label.semantic_id,
         ));
-        origins.push(origin(
-            "id",
-            id_range,
-            &label.id_range,
-            &label.semantic_id,
-        ));
+        origins.push(origin("id", id_range, &label.id_range, &label.semantic_id));
     }
     for (label, placed) in window.labels.iter().zip(&placed_ranges) {
         origins.push(origin(
@@ -582,7 +572,7 @@ unsafe fn setup(hwnd: *mut c_void) -> i32 {
             Some(value) => value,
             None => return 1,
         };
-        let mut identity = match wide_utf8(cell.id) {
+        let identity = match wide_utf8(cell.id) {
             Some(value) => value,
             None => return 1,
         };
@@ -604,13 +594,14 @@ unsafe fn setup(hwnd: *mut c_void) -> i32 {
             return 1;
         }
         SendMessageW(child, WM_SETFONT, font as usize, 1);
-        let id_ptr = identity.as_mut_ptr();
-        let id_len = identity.len();
+        let boxed = identity.into_boxed_slice();
+        let id_len = boxed.len();
+        let id_ptr = Box::into_raw(boxed) as *mut u16;
         if SetPropW(child, PROP_SEMANTIC.as_ptr(), id_ptr as *mut c_void) == 0 {
+            drop(Box::from_raw(std::ptr::slice_from_raw_parts_mut(id_ptr, id_len)));
             return 1;
         }
-        let boxed = identity.into_boxed_slice();
-        ID_PTRS[index].store(Box::into_raw(boxed) as *mut u16, Ordering::Relaxed);
+        ID_PTRS[index].store(id_ptr, Ordering::Relaxed);
         ID_LENS[index].store(Box::into_raw(Box::new(id_len)), Ordering::Relaxed);
         HWNDS[index].store(child, Ordering::Relaxed);
     }
@@ -680,5 +671,18 @@ mod tests {
             .map(|part| part.parse().unwrap())
             .collect();
         assert_eq!(bytes, window.text.as_bytes());
+    }
+
+    #[test]
+    fn nested_fixture_emits_one_static_per_text_cell() {
+        let window = admit(include_str!("../fixtures/nested-static.gscene")).unwrap();
+        let generated = super::generate(&window);
+        assert!(generated.main_rs.contains("x: 0, y: 0, w: 320, h: 160"));
+        assert!(generated.main_rs.contains("x: 40, y: 20, w: 80, h: 40"));
+        assert!(generated.main_rs.contains("const TEXT_0:"));
+        assert!(generated.main_rs.contains("const TEXT_1:"));
+        assert!(generated.main_rs.contains("84,104,101,114,101"));
+        assert!(!generated.main_rs.contains("\"There\""));
+        assert!(!generated.main_rs.contains("\"Hello\""));
     }
 }
