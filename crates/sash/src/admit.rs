@@ -827,11 +827,43 @@ mod tests {
     }
 
     #[test]
-    fn nested_cell_is_rejected() {
-        let source = cell("    id: \"window.root\";\n    text: \"Hi\";\n    extent: (80, 40, 0);\n    @cell child { id: \"child\"; text: \"No\"; }");
+    fn nested_cell_is_placed_in_the_parent() {
+        let source = include_str!("../fixtures/nested-static.gscene");
+        let window = admit(source).unwrap();
+        assert_eq!(window.labels.len(), 2);
+        assert_eq!(window.labels[0].text, "Hello");
+        assert_eq!(
+            (
+                window.labels[0].x_dip,
+                window.labels[0].y_dip,
+                window.labels[0].width_dip,
+                window.labels[0].height_dip
+            ),
+            (0, 0, 320, 160)
+        );
+        assert_eq!(window.labels[1].semantic_id, "window.child");
+        assert_eq!(window.labels[1].text, "There");
+        assert_eq!(
+            (
+                window.labels[1].x_dip,
+                window.labels[1].y_dip,
+                window.labels[1].width_dip,
+                window.labels[1].height_dip
+            ),
+            (40, 20, 80, 40)
+        );
+        let start = window.labels[1].text_range.start;
+        let end = window.labels[1].text_range.end;
+        assert!(source[start..end].contains("There"));
+        assert!(!source[start..end].contains("Hello"));
+    }
+
+    #[test]
+    fn child_that_does_not_fit_is_rejected() {
+        let source = cell("    id: \"window.root\";\n    text: \"Hi\";\n    extent: (80, 40, 0);\n    @cell child { id: \"window.child\"; text: \"No\"; position: (70, 0, 0); extent: (20, 10, 0); }");
         let error = admit(&source).unwrap_err();
-        assert_eq!(error.code, "SASH-CAP");
-        assert!(error.message.contains("nested"));
+        assert_eq!(error.code, "SASH-LAYOUT");
+        assert!(origin(&source, &error).contains("extent:") || origin(&source, &error).contains("position:"));
     }
 
     #[test]
@@ -922,10 +954,10 @@ mod tests {
                 "@input name",
             ),
             (
-                "@ontology hello { @cell root { id: \"window.root\"; text: \"Hi\"; extent: (80, 40, 0); @cell child { id: \"child\"; text: \"No\"; } } }\n",
+                "@ontology hello { @cell root { id: \"window.root\"; text: \"Hi\"; extent: (80, 40, 0); @button go { id: \"window.go\"; text: \"Go\"; } } }\n",
                 "SASH-CAP",
                 "admit",
-                "@cell child",
+                "@button go",
             ),
             (
                 "@ontology hello { @cell root { id: \"window.root\"; text: \"Hi\"; fill: #fff; extent: (80, 40, 0); } }\n",
