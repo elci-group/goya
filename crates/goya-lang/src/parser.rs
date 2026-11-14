@@ -269,16 +269,12 @@ pub fn parse_strict(source: &str) -> Result<ParsedScene, StrictParseError> {
     };
     if let Some(error) = id_error {
         let path = match &error {
-            AuthoredIdError::Missing { path, .. }
-            | AuthoredIdError::Duplicate { path, .. } => path,
+            AuthoredIdError::Missing { path, .. } | AuthoredIdError::Duplicate { path, .. } => path,
         };
-        let entry = parsed
-            .entries
-            .iter()
-            .find(|entry| {
-                matches!(entry.kind.as_str(), "cell" | "button" | "input")
-                    && entry.scene_path.as_deref() == Some(path.as_slice())
-            });
+        let entry = parsed.entries.iter().find(|entry| {
+            matches!(entry.kind.as_str(), "cell" | "button" | "input")
+                && entry.scene_path.as_deref() == Some(path.as_slice())
+        });
         return Err(StrictParseError {
             code: "GY-E1005",
             name: error.to_string(),
