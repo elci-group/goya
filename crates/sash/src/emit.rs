@@ -448,8 +448,7 @@ unsafe fn create_and_run(title: *const u16) -> i32 {
 }
 
 fn scale(dip: i32, dpi: u32) -> i32 {
-    (dip as u32).saturating_mul(dpi) / 96
-        |> as i32
+    ((dip as u32).saturating_mul(dpi) / 96) as i32
 }
 
 unsafe extern "system" fn wnd_proc(hwnd: *mut c_void, message: u32, wparam: usize, lparam: isize) -> isize {
@@ -513,9 +512,10 @@ unsafe fn setup(hwnd: *mut c_void) -> i32 {
         return 1;
     }
     let font = GetStockObject(DEFAULT_GUI_FONT);
-    if font.is_null() || SendMessageW(child, WM_SETFONT, font as usize, 1) < 0 {
+    if font.is_null() {
         return 1;
     }
+    SendMessageW(child, WM_SETFONT, font as usize, 1);
     if SetPropW(hwnd, PROP_SEMANTIC.as_ptr(), identity as *mut c_void) == 0
         || SetPropW(child, PROP_SEMANTIC.as_ptr(), identity as *mut c_void) == 0
     {
@@ -553,7 +553,7 @@ mod tests {
 
     #[test]
     fn authored_bytes_are_not_rust_string_literals() {
-        let source = "@ontology hello {\n  @cell root {\n    id: \"window.root\";\n    text: \"hello\\\\oops\";\n    extent: (80, 40, 0);\n  }\n}\n";
+        let source = "@ontology hello {\n  @cell root {\n    id: \"window.root\";\n    text: \"hello\\oops\";\n    extent: (80, 40, 0);\n  }\n}\n";
         let window = admit(source).unwrap();
         assert_eq!(window.text, "hello\\oops");
         let generated = super::generate(&window);
