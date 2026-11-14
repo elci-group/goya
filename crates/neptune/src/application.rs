@@ -22,6 +22,39 @@ pub struct StateModel {
     pub actions: Vec<Transition>,
 }
 
+impl StateModel {
+    /// Machine-readable state-only preview. No presentation or iOS validation
+    /// is implied by this result.
+    pub fn to_json(&self) -> serde_json::Value {
+        fn type_name(ty: InteractionType) -> &'static str { match ty { InteractionType::Int => "int", InteractionType::Text => "text", InteractionType::Bool => "bool" } }
+        fn value(value: &D1Value) -> serde_json::Value { match value { D1Value::Int(v) => serde_json::json!(v), D1Value::Text(v) => serde_json::json!(v), D1Value::Bool(v) => serde_json::json!(v) } }
+        fn hex(bytes: &[u8]) -> String { bytes.iter().map(|byte| format!("{byte:02x}")).collect() }
+        let cells: Vec<_> = self.cells.iter().map(|cell| serde_json::json!({"key":cell.key,"type":type_name(cell.value_type),"initial":value(&cell.initial)})).collect();
+        let actions: Vec<_> = self.actions.iter().map(|action| serde_json::json!({"semantic_id":{"module":action.semantic_id.module,"declared_id":action.semantic_id.declared_id},"source_range":{"start_byte":action.source_range.start,"end_byte":action.source_range.end},"trigger":{"module":action.trigger_id.module,"declared_id":action.trigger_id.declared_id},"trigger_source_range":{"start_byte":action.trigger_source_range.start,"end_byte":action.trigger_source_range.end},"reference_program_hash":hex(&action.reference_program_hash)})).collect();
+        serde_json::json!({"schema_version":"1","model_contract":CONTRACT,"application_contract":goya_sdk::D1_APPLICATION_CONTRACT,"profile":"experimental","scope":"state_only","module":self.module,"source_sha256":hex(&self.source_digest),"initial_revision":0,"state":cells,"actions":actions,"stages":{"state_validation":"PASS","presentation_validation":"NOT_RUN","apple_validation":"NOT_RUN","ios_admission":"NOT_RUN"}})
+    }
+}
+
+/// Parse transport data as `[key, type, value]` triples. Duplicate keys,
+/// unknown types, implicit defaults and extra tuple elements are rejected.
+pub fn parse_initial(value: &serde_json::Value) -> Result<BTreeMap<String, D1Value>, crate::Diagnostic> {
+    let items = value.as_array().ok_or_else(|| error("initial state must be an array of [key, type, value] triples", None))?;
+    if items.len() > 256 { return Err(error("initial state exceeds 256 entries", None)); }
+    let mut result = BTreeMap::new();
+    for item in items {
+        let tuple = item.as_array().filter(|tuple| tuple.len() == 3).ok_or_else(|| error("initial state entries must have exactly three elements", None))?;
+        let key = tuple[0].as_str().filter(|key| !key.is_empty() && key.len() <= 128).ok_or_else(|| error("invalid initial state key", None))?;
+        let typed = match tuple[1].as_str() {
+            Some("int") => D1Value::Int(tuple[2].as_i64().ok_or_else(|| error("integer initial value must be Int64", None))?),
+            Some("text") => D1Value::Text(tuple[2].as_str().ok_or_else(|| error("text initial value must be a string", None))?.to_owned()),
+            Some("bool") => D1Value::Bool(tuple[2].as_bool().ok_or_else(|| error("boolean initial value must be true or false", None))?),
+            _ => return Err(error("unknown initial state type", None)),
+        };
+        if result.insert(key.to_owned(), typed).is_some() { return Err(error(format!("duplicate initial state key {key:?}"), None)); }
+    }
+    Ok(result)
+}
+
 fn error(message: impl Into<String>, range: Option<SourceRange>) -> crate::Diagnostic {
     crate::Diagnostic {
         code: "NPT-E3102",

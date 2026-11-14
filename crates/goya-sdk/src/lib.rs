@@ -19,6 +19,108 @@ use std::path::Path;
 mod application;
 pub use application::{D1Application, D1ApplicationError, D1_APPLICATION_CONTRACT};
 
+/// Refusal reason for the experimental Android static-text preview emitter.
+#[derive(Debug)]
+pub enum AndroidTextPreviewError {
+    StrictParse(goya_lang::StrictParseError),
+    Unsupported(&'static str),
+}
+
+impl fmt::Display for AndroidTextPreviewError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::StrictParse(error) => write!(f, "strict scene admission failed: {error}"),
+            Self::Unsupported(feature) => write!(f, "Android text preview does not support {feature}"),
+        }
+    }
+}
+
+impl std::error::Error for AndroidTextPreviewError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::StrictParse(error) => Some(error),
+            Self::Unsupported(_) => None,
+        }
+    }
+}
+
+/// Emit an experimental Kotlin `TextView` source file for one strict,
+/// source-bound scene whose entire content is a single static `@cell` text.
+///
+/// This intentionally accepts no layout, styling, children, interactions,
+/// buttons, or inputs. The output is a preview emitter; it does not establish
+/// Android build integration, visual equivalence, or platform qualification.
+pub fn emit_android_static_text_preview(
+    source: &str,
+) -> Result<String, AndroidTextPreviewError> {
+    let handoff = goya_lang::handoff::admit(source).map_err(AndroidTextPreviewError::StrictParse)?;
+    let scene = &handoff.parsed.scene;
+    if !scene.interactions.is_empty() {
+        return Err(AndroidTextPreviewError::Unsupported("interactions"));
+    }
+    let root = &scene.root;
+    if root.kind != goya_lang::CellKind::Cell {
+        return Err(AndroidTextPreviewError::Unsupported("buttons or inputs"));
+    }
+    if !root.children.is_empty() {
+        return Err(AndroidTextPreviewError::Unsupported("child elements"));
+    }
+    if root.position.is_some()
+        || root.extent.is_some()
+        || root.position_p.is_some()
+        || root.extent_p.is_some()
+        || root.fill.is_some()
+        || root.stroke.is_some()
+        || root.stroke_width.is_some()
+        || root.text_size.is_some()
+        || root.anchor.is_some()
+        || root.wrap.is_some()
+        || root.scroll
+    {
+        return Err(AndroidTextPreviewError::Unsupported("layout or styling"));
+    }
+    let text = root
+        .text
+        .as_deref()
+        .ok_or(AndroidTextPreviewError::Unsupported("cells without text"))?;
+
+    Ok(format!(
+        "import android.content.Context\nimport android.widget.TextView\n\n\
+         /** Experimental Goya static-text preview. */\n\
+         class GoyaStaticTextPreview(context: Context) : TextView(context) {{\n\
+             init {{\n\
+                 text = {}\n\
+             }}\n\
+         }}\n",
+        kotlin_string_literal(text)
+    ))
+}
+
+fn kotlin_string_literal(value: &str) -> String {
+    let mut output = String::from("\"");
+    for character in value.chars() {
+        match character {
+            '"' => output.push_str("\\\""),
+            '\\' => output.push_str("\\\\"),
+            '$' => output.push_str("\\$"),
+            '\n' => output.push_str("\\n"),
+            '\r' => output.push_str("\\r"),
+            '\t' => output.push_str("\\t"),
+            '\u{0008}' => output.push_str("\\b"),
+            '\u{000c}' => output.push_str("\\u000c"),
+            c if c.is_control() || !c.is_ascii() => {
+                let mut units = [0u16; 2];
+                for unit in c.encode_utf16(&mut units).iter() {
+                    output.push_str(&format!("\\u{unit:04x}"));
+                }
+            }
+            c => output.push(c),
+        }
+    }
+    output.push('"');
+    output
+}
+
 pub use goya_executable::{
     CapabilityLabel, D1Outcome, D1Snapshot, D1Value, D2Outcome, EffectJournal, EffectResult,
     InputSnapshot, JournalEntry, JournalLimits,
