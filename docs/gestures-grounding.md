@@ -65,7 +65,7 @@ The directive requires ratified ADRs, not assumptions. Syntax, exact shared
 schema location, defaults and hard-mask representation, Unicode/grapheme version
 and conversion fixtures, editor ownership, Windows framework, pinned platform
 matrices, resource and performance corpus, custom-renderer exclusions,
-deployment and named owners remain unratified. Sylyca, Quinta and the relevant
+deployment and named owners remain unratified. Sash, Quinta and the relevant
 target toolchains have not been inspected sufficiently to select a first native
 control. Proposed defaults and bounds in the directive are not measured or
 admitted. Missing target workers, accessibility sessions or integrations must
