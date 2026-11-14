@@ -38,21 +38,21 @@ The smallest admitted fixture is `crates/sash/fixtures/static-window.gscene`: on
 Command:
 
 ```text
-sash build crates/sash/fixtures/static-window.gscene --profile portable-native --release --out /tmp/sash-static-proof-002
+sash build crates/sash/fixtures/static-window.gscene --profile portable-native --release --out /tmp/sash-static-proof-003
 ```
 
 Result on this Linux host:
 
 | Check | Result |
 | --- | --- |
-| File | `/tmp/sash-static-proof-002/App.exe`, 230912 bytes |
+| File | `/tmp/sash-static-proof-003/App.exe`, 231424 bytes |
 | `file` | PE32+ executable (GUI) x86-64, for MS Windows, 10 sections |
-| SHA-256 | `571633c6a0830fef0ec5cd5f24ef35cd90abdb72ad8bf2f2cbdab5b4d31aa90e` |
-| Private PDB | `/tmp/sash-static-proof-002/App.pdb`, 4427776 bytes, SHA-256 `121f202cd609a394d73c1b3cfcb6524d889adfe65102b38b6a66b21d3773e286` |
+| SHA-256 | `d5fd86a3ccb7ec57e1f180319aebba51bd2f61f5ba1e60c0b7ff58e8fbe05028` |
+| Private PDB | `/tmp/sash-static-proof-003/App.pdb`, 4431872 bytes, SHA-256 `97588c9679a812a8ad1960f19ae0de5d314d463aab7cdfd0989c09ac9ebbf164` |
 | Scene SHA-256 | `617250a533dd349d6a6186d18dbb320cc1fe6a50f6d245381b9f80d004822962` |
 | Machine / magic | AMD64 `0x8664`, PE32+ `0x020b` |
 | Subsystem | `2`, `IMAGE_SUBSYSTEM_WINDOWS_GUI` |
-| Entry point | RVA 128688, not zero |
+| Entry point | RVA 129056, not zero |
 | DLL characteristics | `0xc160`: high-entropy ASLR, ASLR, DEP/NX, control-flow guard, plus terminal-server awareness |
 | Imports | `KERNEL32.dll`, `USER32.dll`, `GDI32.dll`, `ntdll.dll`, `api-ms-win-core-synch-l1-2-0.dll` |
 | Delay imports | none |
@@ -65,11 +65,11 @@ Result on this Linux host:
 
 The import list is the dependency evidence this host can produce. A machine with developer tools installed would not prove a clean-machine closure, and this link was not performed on Windows at all.
 
-An earlier single-cell link of the same fixture, before profile `0.0.2`, was `/tmp/sash-static-proof/App.exe`, SHA-256 `ea8f4c11f2321c5669ad3b93d5cbd47346635d678e82d14c4f9ea200fccc1401`. That image is not this emitter.
+Profile `0.0.2` linked the same single-cell fixture to `/tmp/sash-static-proof-002/App.exe`, SHA-256 `571633c6a0830fef0ec5cd5f24ef35cd90abdb72ad8bf2f2cbdab5b4d31aa90e`. That image uses the stock GUI font and is not this emitter. An earlier single-cell link, before nested cells, was `/tmp/sash-static-proof/App.exe`, SHA-256 `ea8f4c11f2321c5669ad3b93d5cbd47346635d678e82d14c4f9ea200fccc1401`.
 
-The nested fixture `crates/sash/fixtures/nested-static.gscene` was linked the same way to `/tmp/sash-nested-proof/App.exe`, 231424 bytes, SHA-256 `c1a672cab71a3e1568357e937435868077b935772389cb0c8e6eb8eee6224a05`. Its scene SHA-256 is `c663e75fda69a31d19a5c7ab4b51f89d0a6d822333892aa3849fbabcfb5c147d`. `sash verify` exited 3: `pe-structure` PASS, runtime and release BLOCKED. The generated program places `Hello` at `(0, 0, 320, 160)` DIP and `There` at `(40, 20, 80, 40)` DIP. That placement was not executed on Windows.
+The nested fixture `crates/sash/fixtures/nested-static.gscene` was linked to `/tmp/sash-nested-proof-003/App.exe`, 231936 bytes, SHA-256 `d5ba33bfae91c1b0553df9b87d0d4db8f36cc03249ecf56598130d7be1c8d29c`. Its scene SHA-256 is `c663e75fda69a31d19a5c7ab4b51f89d0a6d822333892aa3849fbabcfb5c147d`. `sash verify` exited 3: `pe-structure` PASS, runtime and release BLOCKED. The generated program places `Hello` at `(0, 0, 320, 160)` DIP and `There` at `(40, 20, 80, 40)` DIP, and it creates the system message font with `SystemParametersInfoForDpi`. That placement and that font were not executed on Windows.
 
-Library tests for this profile: `cargo test -p sash --offline --lib` reported 21 passed.
+Library tests for this profile: `cargo test -p sash --offline --lib` reported 22 passed.
 
 ## Toolchain actually used
 
@@ -87,7 +87,7 @@ The build report labels the claim `unqualified-cross-link` and the host `linux-c
 
 ## Profile that was compiled
 
-`sash.win32.static-window/0.0.2` admits one ontology and a tree of `@cell` nodes, at most 32 cells. The root needs an id and a positive extent at depth 0. Position on the root may be omitted or be the origin. A nested cell may omit position, which places it at the parent origin, or omit extent, which fills the parent. `goya_lang::layout` is the geometry oracle. If that solver moves or shrinks a cell, admission fails with `SASH-LAYOUT`. A cell with text becomes a native `STATIC` control (`SS_LEFT|SS_NOPREFIX`) at the solved client rectangle. A cell with children and no text contributes layout only. A cell with neither text nor children is rejected. Buttons, inputs, interactions, fill, stroke, text size, anchor, wrap, scroll, proportional geometry, and strong right-to-left text are rejected. The semantic id is a window property, `Goya.SemanticId`, on the frame and on each label. UI Automation `AutomationId` is not mapped. Authored strings are emitted as decimal byte arrays.
+`sash.win32.static-window/0.0.3` admits one ontology and a tree of `@cell` nodes, at most 32 cells. Labels use `NONCLIENTMETRICSW.lfMessageFont` for the window DPI. The structure size checked into the generated program is 504 bytes. A failed font at creation rejects the window. A later DPI change that cannot create a font leaves the previous font installed. DPI percentages were not measured on a device. The root needs an id and a positive extent at depth 0. Position on the root may be omitted or be the origin. A nested cell may omit position, which places it at the parent origin, or omit extent, which fills the parent. `goya_lang::layout` is the geometry oracle. If that solver moves or shrinks a cell, admission fails with `SASH-LAYOUT`. A cell with text becomes a native `STATIC` control (`SS_LEFT|SS_NOPREFIX`) at the solved client rectangle. A cell with children and no text contributes layout only. A cell with neither text nor children is rejected. Buttons, inputs, interactions, fill, stroke, text size, anchor, wrap, scroll, proportional geometry, and strong right-to-left text are rejected. The semantic id is a window property, `Goya.SemanticId`, on the frame and on each label. UI Automation `AutomationId` is not mapped. Authored strings are emitted as decimal byte arrays.
 
 The five directive units are not separate compilation units yet. This profile links one window and its static labels into `App.exe`. Cards, taskbar behaviour, startup, actions, and retention are not generated. Resize clips the placed rectangles and does not reflow them. Neither recorded image was launched.
 
