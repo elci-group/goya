@@ -194,8 +194,8 @@ fn pinned_windows_cache() -> Result<PathBuf, Diagnostic> {
         ));
     }
     let host_sysroot = version("rustc", &["--print", "sysroot"])?;
-    let rust_lld = Path::new(host_sysroot.trim())
-        .join("lib/rustlib/x86_64-unknown-linux-gnu/bin/rust-lld");
+    let rust_lld =
+        Path::new(host_sysroot.trim()).join("lib/rustlib/x86_64-unknown-linux-gnu/bin/rust-lld");
     if !rust_lld.is_file() {
         return Err(Diagnostic::new(
             "SASH-TOOLCHAIN",
