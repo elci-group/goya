@@ -253,6 +253,20 @@ mod tests {
     }
 
     #[test]
+    fn restore_validates_the_complete_snapshot_and_preserves_revision() {
+        let mut app = D1Application::restore(&scene(), 41, initial(5)).unwrap();
+        app.dispatch("action.add", BTreeMap::from([("amount".into(), D1Value::Int(2))])).unwrap();
+        assert_eq!(app.revision(), 42);
+        assert_eq!(app.values()["count"], D1Value::Int(7));
+        assert!(matches!(D1Application::restore(&scene(), 8, BTreeMap::new()), Err(D1ApplicationError::StateSchemaMismatch)));
+        let mut exhausted = D1Application::restore(&scene(), u64::MAX, initial(5)).unwrap();
+        let before = exhausted.values().clone();
+        assert!(matches!(exhausted.dispatch("action.add", BTreeMap::from([("amount".into(), D1Value::Int(2))])), Err(D1ApplicationError::ActionFailed(TransitionError::VmRejected(_)))));
+        assert_eq!(exhausted.values(), &before);
+        assert_eq!(exhausted.revision(), u64::MAX);
+    }
+
+    #[test]
     fn incompatible_action_schemas_are_rejected() {
         let source = SOURCE
             .replace("write name: text", "write count: text")
