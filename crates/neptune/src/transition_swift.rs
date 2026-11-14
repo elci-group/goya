@@ -63,24 +63,51 @@ impl SwiftExpr {
         let (ty, expression) = match self {
             Self::Int(i64::MIN) => (InteractionType::Int, "Int64.min".to_owned()),
             Self::Int(v) => (InteractionType::Int, v.to_string()),
-            Self::Text(v) => (InteractionType::Text, swift::Expr::StringLiteral(v.clone()).render()),
+            Self::Text(v) => (
+                InteractionType::Text,
+                swift::Expr::StringLiteral(v.clone()).render(),
+            ),
             Self::Bool(v) => (InteractionType::Bool, v.to_string()),
             Self::State(index, ty) => (*ty, format!("state.s{index}")),
             Self::Input(index, ty) => (*ty, format!("input.i{index}")),
             Self::CheckedAdd(left, right) => {
                 let left = left.emit_register(out, next);
                 let right = right.emit_register(out, next);
-                (InteractionType::Int, format!("try checkedAdd(r{left}, r{right})"))
+                (
+                    InteractionType::Int,
+                    format!("try checkedAdd(r{left}, r{right})"),
+                )
             }
         };
         let index = *next;
         *next += 1;
-        let _ = writeln!(out, "        let r{index}: {} = {expression}", swift_type(ty));
+        let _ = writeln!(
+            out,
+            "        let r{index}: {} = {expression}",
+            swift_type(ty)
+        );
         let name_bytes = format!("r{index}").len();
         match ty {
-            InteractionType::Text => { let _ = writeln!(out, "        registerBytes += {name_bytes} + r{index}.utf8.count"); },
-            InteractionType::Int => { let _ = writeln!(out, "        registerBytes += {}", name_bytes + goya_executable::D1_INT_VALUE_BYTES); },
-            InteractionType::Bool => { let _ = writeln!(out, "        registerBytes += {}", name_bytes + goya_executable::D1_BOOL_VALUE_BYTES); },
+            InteractionType::Text => {
+                let _ = writeln!(
+                    out,
+                    "        registerBytes += {name_bytes} + r{index}.utf8.count"
+                );
+            }
+            InteractionType::Int => {
+                let _ = writeln!(
+                    out,
+                    "        registerBytes += {}",
+                    name_bytes + goya_executable::D1_INT_VALUE_BYTES
+                );
+            }
+            InteractionType::Bool => {
+                let _ = writeln!(
+                    out,
+                    "        registerBytes += {}",
+                    name_bytes + goya_executable::D1_BOOL_VALUE_BYTES
+                );
+            }
         }
         let _ = writeln!(out, "        guard registerBytes <= {} else {{ throw NeptuneTransitionError.registerLimit }}", goya_executable::D1_MAX_REGISTER_BYTES);
         index
@@ -96,8 +123,13 @@ fn convert(
         Operation::Constant(InteractionValue::Int(v)) => SwiftExpr::Int(*v),
         Operation::Constant(InteractionValue::Text(v)) => SwiftExpr::Text(v.clone()),
         Operation::Constant(InteractionValue::Bool(v)) => SwiftExpr::Bool(*v),
-        Operation::State(key) => SwiftExpr::State(*state.get(key).ok_or("unknown state key")?, expr.value_type),
-        Operation::Input(key) => SwiftExpr::Input(*inputs.get(key).ok_or("unknown input key")?, expr.value_type),
+        Operation::State(key) => {
+            SwiftExpr::State(*state.get(key).ok_or("unknown state key")?, expr.value_type)
+        }
+        Operation::Input(key) => SwiftExpr::Input(
+            *inputs.get(key).ok_or("unknown input key")?,
+            expr.value_type,
+        ),
         Operation::CheckedAdd(left, right) => SwiftExpr::CheckedAdd(
             Box::new(convert(left, state, inputs)?),
             Box::new(convert(right, state, inputs)?),
@@ -116,22 +148,38 @@ fn swift_type(ty: InteractionType) -> &'static str {
 // Replicates Goya's D1 map_size accounting over this statically typed schema.
 // Keys are never emitted as code: only their UTF-8 byte counts are used.
 fn emit_snapshot_check(out: &mut String, owner: &str, label: &str, fields: &[Field]) {
-    for field in fields.iter().filter(|field| field.value_type == InteractionType::Text) {
+    for field in fields
+        .iter()
+        .filter(|field| field.value_type == InteractionType::Text)
+    {
         let _ = writeln!(out, "        guard {owner}.{}.utf8.count <= {} else {{ throw NeptuneTransitionError.textTooLarge }}", field.swift_name, goya_executable::D1_MAX_TEXT_BYTES);
     }
-    let base = goya_executable::D1_SNAPSHOT_HEADER_BYTES + fields.iter().map(|field| {
-        goya_executable::D1_SNAPSHOT_ENTRY_BYTES + field.source_key.len() + match field.value_type {
-            InteractionType::Int => goya_executable::D1_INT_VALUE_BYTES,
-            InteractionType::Bool => goya_executable::D1_BOOL_VALUE_BYTES,
-            InteractionType::Text => 0,
-        }
-    }).sum::<usize>();
+    let base = goya_executable::D1_SNAPSHOT_HEADER_BYTES
+        + fields
+            .iter()
+            .map(|field| {
+                goya_executable::D1_SNAPSHOT_ENTRY_BYTES
+                    + field.source_key.len()
+                    + match field.value_type {
+                        InteractionType::Int => goya_executable::D1_INT_VALUE_BYTES,
+                        InteractionType::Bool => goya_executable::D1_BOOL_VALUE_BYTES,
+                        InteractionType::Text => 0,
+                    }
+            })
+            .sum::<usize>();
     let _ = write!(out, "        let {label}Bytes = {base}");
-    for field in fields.iter().filter(|field| field.value_type == InteractionType::Text) {
+    for field in fields
+        .iter()
+        .filter(|field| field.value_type == InteractionType::Text)
+    {
         let _ = write!(out, " + {owner}.{}.utf8.count", field.swift_name);
     }
     out.push('\n');
-    let _ = writeln!(out, "        guard {label}Bytes <= {} else {{ throw NeptuneTransitionError.snapshotTooLarge }}", goya_executable::D1_MAX_SNAPSHOT_BYTES);
+    let _ = writeln!(
+        out,
+        "        guard {label}Bytes <= {} else {{ throw NeptuneTransitionError.snapshotTooLarge }}",
+        goya_executable::D1_MAX_SNAPSHOT_BYTES
+    );
 }
 
 /// Preview exactly one D1 transition. State field names are deterministic slots;
@@ -226,7 +274,11 @@ pub fn preview(source: &str, module: &str) -> Result<Preview, crate::Diagnostic>
     let mut next_register = 0usize;
     for (index, (_, expr, ty)) in assignments.iter().enumerate() {
         let register = expr.emit_register(&mut out, &mut next_register);
-        let _ = writeln!(out, "        let value{index}: {} = r{register}", swift_type(*ty));
+        let _ = writeln!(
+            out,
+            "        let value{index}: {} = r{register}",
+            swift_type(*ty)
+        );
     }
     out.push_str("        var next = state\n");
     for (index, (slot, _, _)) in assignments.iter().enumerate() {
@@ -265,10 +317,12 @@ mod tests {
             [("count", "s0"), ("previous", "s1")]
         );
         assert_eq!(result.input_fields[0].source_key, "amount");
-        assert!(result
-            .swift
-            .contains("let value0: Int64 = try checkedAdd(state.s0, input.i0)"));
-        assert!(result.swift.contains("let value1: Int64 = state.s0"));
+        assert!(result.swift.contains("let r0: Int64 = state.s0"));
+        assert!(result.swift.contains("let r1: Int64 = input.i0"));
+        assert!(result.swift.contains("let r2: Int64 = try checkedAdd(r0, r1)"));
+        assert!(result.swift.contains("let r3: Int64 = state.s0"));
+        assert!(result.swift.contains("let value0: Int64 = r2"));
+        assert!(result.swift.contains("let value1: Int64 = r3"));
         assert!(
             result.swift.find("let value1").unwrap()
                 < result.swift.find("var next = state").unwrap()
@@ -294,7 +348,7 @@ mod tests {
         assert!(preview(source, "app/main.gscene")
             .unwrap()
             .swift
-            .contains("let value0: Int64 = Int64.min"));
+            .contains("let r0: Int64 = Int64.min"));
     }
 
     #[test]
@@ -303,8 +357,8 @@ mod tests {
         let result = preview(source, "app/main.gscene").unwrap();
         assert!(result
             .swift
-            .contains("let value0: String = \"hello\\\\(unsafe)\""));
-        assert!(result.swift.contains("let value1: Bool = true"));
+            .contains("let r0: String = \"hello\\\\(unsafe)\""));
+        assert!(result.swift.contains("let r1: Bool = true"));
         assert!(result
             .swift
             .contains("next.s1 = value0\n        next.s0 = value1"));

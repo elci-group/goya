@@ -902,12 +902,14 @@ fn validate_snapshot_map(values: &BTreeMap<String, D1Value>) -> Result<(), D1Err
 }
 
 fn map_size(values: &BTreeMap<String, D1Value>) -> Result<usize, D1Error> {
-    values.iter().try_fold(D1_SNAPSHOT_HEADER_BYTES, |size, (key, value)| {
-        size.checked_add(D1_SNAPSHOT_ENTRY_BYTES)
-            .and_then(|n| n.checked_add(key.len()))
-            .and_then(|n| n.checked_add(value_size(value)))
-            .ok_or(D1Error::SnapshotTooLarge)
-    })
+    values
+        .iter()
+        .try_fold(D1_SNAPSHOT_HEADER_BYTES, |size, (key, value)| {
+            size.checked_add(D1_SNAPSHOT_ENTRY_BYTES)
+                .and_then(|n| n.checked_add(key.len()))
+                .and_then(|n| n.checked_add(value_size(value)))
+                .ok_or(D1Error::SnapshotTooLarge)
+        })
 }
 
 fn register_cost(name: &str, value: &D1Value) -> Option<usize> {

@@ -26,9 +26,9 @@ pub use bytecode::{
 };
 pub use d1_vm::{
     D1Error, D1Instruction, D1Outcome, D1Program, D1Snapshot, D1Value, InputSnapshot,
-    StateContract, D1_VM_VERSION,
-    D1_MAX_TEXT_BYTES, D1_MAX_SNAPSHOT_BYTES, D1_MAX_REGISTER_BYTES,
-    D1_SNAPSHOT_HEADER_BYTES, D1_SNAPSHOT_ENTRY_BYTES, D1_INT_VALUE_BYTES, D1_BOOL_VALUE_BYTES,
+    StateContract, D1_BOOL_VALUE_BYTES, D1_INT_VALUE_BYTES, D1_MAX_REGISTER_BYTES,
+    D1_MAX_SNAPSHOT_BYTES, D1_MAX_TEXT_BYTES, D1_SNAPSHOT_ENTRY_BYTES, D1_SNAPSHOT_HEADER_BYTES,
+    D1_VM_VERSION,
 };
 pub use d2_journal::{
     CapabilityLabel, EffectJournal, JournalEntry, JournalError, JournalLimits, JournalReplay,
