@@ -251,6 +251,14 @@ mod tests {
     }
 
     #[test]
+    fn strict_interaction_error_points_to_the_interaction_that_introduced_it() {
+        let source = "@ontology app { @button good { id: \"button.good\"; } @interaction first { id: \"action.first\"; trigger: button.good.activate; class: D1; state { write count: int; } input { } set count = 1; } @interaction second { id: \"action.second\"; trigger: button.missing.activate; class: D1; state { write count: int; } input { } set count = 1; } }";
+        let error = parse_strict(source).unwrap_err();
+        assert_eq!(error.code, "GY-E1004");
+        assert!(source[error.range.start..error.range.end].starts_with("@interaction second"));
+    }
+
+    #[test]
     fn strict_parser_requires_unique_explicit_element_ids() {
         let missing = "@ontology demo { @cell root { text: \"Hi\" } }";
         let missing_error = parse_strict(missing).unwrap_err();

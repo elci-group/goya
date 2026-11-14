@@ -318,10 +318,24 @@ pub fn parse_strict(source: &str) -> Result<ParsedScene, StrictParseError> {
     if let Err(error) = crate::compile_d1_interactions(&parsed.scene)
         .and_then(|_| crate::compile_d2_interactions(&parsed.scene).map(|_| ()))
     {
-        let entry = parsed
-            .entries
-            .iter()
-            .find(|entry| entry.kind == "interaction");
+        // Find the first authored declaration whose addition makes the
+        // interaction set invalid. The compiler reports only the error kind,
+        // so attributing every failure to the first declaration misdirects
+        // diagnostics whenever a later interaction is the culprit.
+        let failed_index = (0..parsed.scene.interactions.len()).find(|index| {
+            let mut prefix = parsed.scene.clone();
+            prefix.interactions.truncate(index + 1);
+            crate::compile_d1_interactions(&prefix)
+                .and_then(|_| crate::compile_d2_interactions(&prefix).map(|_| ()))
+                .is_err()
+        });
+        let entry = failed_index.and_then(|index| {
+            parsed
+                .entries
+                .iter()
+                .filter(|entry| entry.kind == "interaction")
+                .nth(index)
+        });
         return Err(StrictParseError {
             code: "GY-E1004",
             name: error.to_string(),

@@ -43,7 +43,7 @@ impl std::error::Error for AndroidTextPreviewError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::StrictParse(error) => Some(error),
-            Self::Unsupported(_) => None,
+            Self::Unsupported(_) | Self::InvalidClassName => None,
         }
     }
 }
@@ -115,10 +115,34 @@ pub fn emit_android_static_text_preview_named(
 
 fn is_kotlin_class_name(name: &str) -> bool {
     const KEYWORDS: &[&str] = &[
-        "as", "break", "class", "continue", "do", "else", "false", "for", "fun",
-        "if", "in", "interface", "is", "null", "object", "package", "return",
-        "super", "this", "throw", "true", "try", "typealias", "typeof", "val",
-        "var", "when", "while",
+        "as",
+        "break",
+        "class",
+        "continue",
+        "do",
+        "else",
+        "false",
+        "for",
+        "fun",
+        "if",
+        "in",
+        "interface",
+        "is",
+        "null",
+        "object",
+        "package",
+        "return",
+        "super",
+        "this",
+        "throw",
+        "true",
+        "try",
+        "typealias",
+        "typeof",
+        "val",
+        "var",
+        "when",
+        "while",
     ];
     let mut chars = name.chars();
     let Some(first) = chars.next() else {
@@ -445,6 +469,25 @@ mod tests {
             "\"\\$user\\n\\\"\\\\\\u00e9\""
         );
         assert!(!output.contains("@ontology"));
+    }
+
+    #[test]
+    fn android_preview_accepts_safe_custom_class_names_only() {
+        let source = "@ontology demo { @cell label { id: \"label\"; text: \"Hello\" } }";
+        let output = emit_android_static_text_preview_named(source, "WelcomePreview").unwrap();
+        assert!(output.contains("class WelcomePreview(context: Context) : TextView(context)"));
+        for invalid in [
+            "",
+            "class",
+            "9Preview",
+            "Preview.Name",
+            "Preview`\nclass Evil",
+        ] {
+            assert!(matches!(
+                emit_android_static_text_preview_named(source, invalid),
+                Err(AndroidTextPreviewError::InvalidClassName)
+            ));
+        }
     }
 
     #[test]

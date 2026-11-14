@@ -59,10 +59,8 @@ mod tests {
 
     #[test]
     fn admission_exposes_consistent_read_only_snapshot() {
-        let handoff = admit(
-            "@ontology demo { @cell root { id: \"root\"; text: \"Hi\" } }",
-        )
-        .unwrap();
+        let handoff =
+            admit("@ontology demo { @cell root { id: \"root\"; text: \"Hi\" } }").unwrap();
         assert_eq!(handoff.contract, CONTRACT);
         assert!(handoff
             .parsed

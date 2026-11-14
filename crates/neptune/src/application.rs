@@ -83,7 +83,7 @@ impl StateModel {
                 .collect()
         }
         let cells: Vec<_> = self.cells.iter().map(|cell| serde_json::json!({"key":cell.key,"type":type_name(cell.value_type),"initial":value(&cell.initial)})).collect();
-        let actions: Vec<_> = self.actions.iter().map(|action| serde_json::json!({"semantic_id":{"module":action.semantic_id.module,"declared_id":action.semantic_id.declared_id},"source_range":{"start_byte":action.source_range.start,"end_byte":action.source_range.end},"trigger":{"module":action.trigger_id.module,"declared_id":action.trigger_id.declared_id},"trigger_source_range":{"start_byte":action.trigger_source_range.start,"end_byte":action.trigger_source_range.end},"reference_program_hash":hex(&action.reference_program_hash),"state_reads":keys(&action.state_reads),"state_writes":keys(&action.state_writes),"inputs":keys(&action.inputs),"assignments":action.assignments.iter().map(|assignment| serde_json::json!({"key":assignment.key,"value":expression(&assignment.value)})).collect::<Vec<_>>(),"effect":"state_deterministic","expression_provenance":"action_range_only"})).collect();
+        let actions: Vec<_> = self.actions.iter().map(|action| serde_json::json!({"semantic_id":{"module":action.semantic_id.module,"declared_id":action.semantic_id.declared_id},"source_range":{"start_byte":action.source_range.start,"end_byte":action.source_range.end},"trigger":{"module":action.trigger_id.module,"declared_id":action.trigger_id.declared_id},"trigger_source_range":{"start_byte":action.trigger_source_range.start,"end_byte":action.trigger_source_range.end},"reference_program_hash":hex(&action.reference_program_hash),"state_reads":keys(&action.state_reads),"state_writes":keys(&action.state_writes),"inputs":keys(&action.inputs),"assignments":action.assignments.iter().map(|assignment| serde_json::json!({"key":assignment.key,"value":expression(&assignment.value)})).collect::<Vec<_>>(),"effect":"state_deterministic","capabilities":[],"publication":"atomic_on_success","cancellation":"no_suspension","expression_provenance":"action_range_only"})).collect();
         serde_json::json!({"schema_version":"1","model_contract":CONTRACT,"application_contract":goya_sdk::D1_APPLICATION_CONTRACT,"profile":"experimental","scope":"state_only","module":self.module,"source_sha256":hex(&self.source_digest),"initial_revision":0,"state":cells,"actions":actions,"stages":{"state_validation":"PASS","presentation_validation":"NOT_RUN","apple_validation":"NOT_RUN","ios_admission":"NOT_RUN"}})
     }
 }
@@ -341,6 +341,8 @@ mod tests {
             value["actions"][0]["assignments"][0]["value"]["operation"]["kind"],
             "checked_add"
         );
+        assert_eq!(value["actions"][0]["publication"], "atomic_on_success");
+        assert_eq!(value["actions"][0]["capabilities"], serde_json::json!([]));
         assert_eq!(
             value["actions"][0]["assignments"][0]["value"]["type"],
             "int"
