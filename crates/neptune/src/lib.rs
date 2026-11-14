@@ -3,6 +3,7 @@ use goya_lang::{lex, parse_strict, parse_with_source_map, SourceRange, TokenKind
 use sha2::{Digest, Sha256};
 
 pub mod artifacts;
+pub mod apple;
 pub mod service;
 pub mod swift;
 pub mod transition;

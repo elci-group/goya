@@ -29,6 +29,11 @@ fn read_bounded(path: &Path) -> io::Result<Vec<u8>> {
 /// Verify hashes in a source-preview report. This is an integrity check, not
 /// an authenticity check or evidence that Apple tools compiled the source.
 pub fn verify_preview(directory: &Path) -> io::Result<()> {
+    verified_preview_hashes(directory).map(|_| ())
+}
+
+/// Returns hashes computed from the artifact bytes that were checked.
+pub fn verified_preview_hashes(directory: &Path) -> io::Result<std::collections::BTreeMap<String, String>> {
     let metadata = fs::symlink_metadata(directory)?;
     if !metadata.file_type().is_dir() {
         return Err(io::Error::other("preview path must be a directory"));
@@ -50,6 +55,7 @@ pub fn verify_preview(directory: &Path) -> io::Result<()> {
     if hashes.len() != FILES.len() {
         return Err(io::Error::other("unexpected artifact hash set"));
     }
+    let mut verified = std::collections::BTreeMap::new();
     for name in FILES {
         let expected = hashes
             .get(name)
@@ -59,6 +65,7 @@ pub fn verify_preview(directory: &Path) -> io::Result<()> {
         if actual != expected {
             return Err(io::Error::other(format!("artifact hash mismatch: {name}")));
         }
+        verified.insert(name.to_owned(), actual);
     }
-    Ok(())
+    Ok(verified)
 }
