@@ -147,7 +147,8 @@ fn preview_writes_new_directory_and_refuses_overwrite() {
     let response: serde_json::Value = serde_json::from_slice(&checked.stdout).unwrap();
     assert_eq!(response["authenticity"], "NOT_CHECKED");
     let lock_path = output_dir.join("toolchain-lock.json");
-    std::fs::write(&lock_path, br#"{"schema_version":"1","xcode_version":"16.2","xcode_build":"16C5032a","swift_version":"6.0.3","sdk_version":"18.2","sdk_build":"22C150","minimum_os":"17.0"}"#).unwrap();
+    let valid_lock = br#"{"schema_version":"1","xcode_version":"16.2","xcode_build":"16C5032a","swift_version":"6.0.3","sdk_version":"18.2","sdk_build":"22C150","minimum_os":"17.0"}"#;
+    std::fs::write(&lock_path, valid_lock).unwrap();
     let plan = || {
         Command::new(env!("CARGO_BIN_EXE_neptune"))
             .arg("apple-plan")
@@ -171,6 +172,11 @@ fn preview_writes_new_directory_and_refuses_overwrite() {
         plan_value["invocation"]["arguments"][4],
         "arm64-apple-ios17.0-simulator"
     );
+    assert!(!String::from_utf8_lossy(&planned.stdout).contains(output_dir.to_str().unwrap()));
+    let invalid_lock = String::from_utf8(valid_lock.to_vec()).unwrap().replace("\"minimum_os\":\"17.0\"", "\"minimum_os\":\"19.0\"");
+    std::fs::write(&lock_path, invalid_lock).unwrap();
+    assert_eq!(plan().status.code(), Some(1));
+    std::fs::write(&lock_path, valid_lock).unwrap();
     std::fs::write(output_dir.join("App.swift"), b"modified").unwrap();
     assert!(!verify().status.success());
     assert_eq!(plan().status.code(), Some(1));
