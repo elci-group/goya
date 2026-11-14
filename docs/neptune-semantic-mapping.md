@@ -22,6 +22,14 @@ Semantic IDs must include a canonical project-relative module identity and an un
 
 ## Target policy and evidence
 
+### Experimental root-button preview
+
+This candidate accepts a single root `@button` with an authored ID and a nonempty literal `text`, no children or other visual properties, and exactly one bound D1 interaction with no inputs. Initial state is supplied explicitly through the state-model transport and validated against the shared Goya application owner. The shared IR root must be the same button and its action must match the verified interaction. All other nodes, properties, interactions, and effects are rejected.
+
+The candidate uses one native SwiftUI button occupying the available native content area. Its visible text supplies its accessible name. One activation synchronously dispatches the matching typed action on the main actor. On success the new state is published atomically; on failure the previous state remains and a visible error is shown. The view never dispatches during recomputation. SwiftUI supplies native control interaction and text scaling, but safe-area, Dynamic Type, accessibility, and actual layout behavior remain unverified. There is no input, navigation, persistence, or background work in this candidate.
+
+The observable trace to compare on an Apple worker is the ordered sequence of activations, action outcome (including error class), state values, and revision against `goya_sdk::D1Application` initialized with the same explicit state. Repeated view evaluation must not change that trace. A generated-source snapshot cannot establish semantic or accessibility conformance. Until pinned Apple compilation and the relevant simulator and device fixtures pass, the candidate remains an experimental source preview and is not admitted for an iOS build.
+
 The first target is native SwiftUI on an explicitly configured minimum iOS version. The deployment version and Apple toolchain must be recorded after an available worker is inspected; no version is chosen by this document. Native color and text policies need explicit source semantics before light/dark and Dynamic Type can be claimed. All unsupported properties, interactions, capabilities, and platform requirements are fatal diagnostics with a source location and reason.
 
 An admission fixture must contain source, declared inputs, an independently specified expected state/event trace, and either expected diagnostics or native behavior. A passing source-only check reports its own validation level. Apple compilation, simulator execution, and physical-device behavior require their own recorded evidence. Deterministic generated source requires byte comparison across three clean runs with different enumeration order; this does not establish binary or signed artifact reproducibility.
