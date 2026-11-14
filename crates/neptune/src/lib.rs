@@ -6,6 +6,7 @@ pub mod artifacts;
 pub mod service;
 pub mod swift;
 pub mod transition;
+pub mod transition_swift;
 
 pub const MAX_SOURCE_BYTES: usize = 128 * 1024;
 pub const MAX_DIAGNOSTICS: usize = 256;
