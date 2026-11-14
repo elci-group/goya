@@ -93,6 +93,34 @@ fn main() -> ExitCode {
     if args.len() == 2 && args[1] == "serve" {
         return serve();
     }
+    if args.len() >= 2 && args[1] == "apple-plan" {
+        if !(args.len() == 5 || (args.len() == 7 && args[5] == "--format" && args[6] == "json")) || args[3] != "--lock" {
+            eprintln!("usage: neptune apple-plan <preview-directory> --lock <toolchain-lock.json> [--format json]");
+            return ExitCode::from(2);
+        }
+        let json = args.len() == 7;
+        let plan = (|| -> Result<serde_json::Value, String> {
+            let metadata = fs::symlink_metadata(&args[4]).map_err(|e| e.to_string())?;
+            if !metadata.file_type().is_file() || metadata.len() > 16384 { return Err("toolchain lock must be a regular file no larger than 16 KiB".into()); }
+            let mut bytes = Vec::new();
+            File::open(&args[4]).and_then(|file| file.take(16385).read_to_end(&mut bytes)).map_err(|e| e.to_string())?;
+            if bytes.len() > 16384 { return Err("toolchain lock exceeds 16 KiB".into()); }
+            let lock: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| format!("invalid toolchain lock JSON: {e}"))?;
+            neptune::apple::plan_simulator_typecheck(std::path::Path::new(&args[2]), &lock)
+        })();
+        return match plan {
+            Ok(plan) => {
+                if json { println!("{plan}"); }
+                else { println!("Apple simulator type-check plan created; BLOCKED until an authorized Mac worker executes it"); }
+                ExitCode::from(3)
+            }
+            Err(error) => {
+                if json { println!("{}", serde_json::json!({"schema_version":"1","operation":"apple-simulator-typecheck-plan","status":"FAIL","message":error})); }
+                else { eprintln!("Apple type-check plan failed: {error}"); }
+                ExitCode::FAILURE
+            }
+        };
+    }
     if args.len() >= 2 && args[1] == "verify-preview" {
         if !(args.len() == 3 || (args.len() == 5 && args[3] == "--format" && args[4] == "json")) {
             eprintln!("usage: neptune verify-preview <directory> [--format json]");
