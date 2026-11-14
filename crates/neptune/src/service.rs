@@ -55,6 +55,7 @@ impl Session {
                     | "column_encoding"
                     | "raw_diagnostic"
                     | "suite"
+                    | "initial"
             )
         }) {
             return error(Some(id), "protocol", "unknown request field");
@@ -64,7 +65,7 @@ impl Session {
         };
         if !matches!(
             operation,
-            "inspect" | "check" | "preview" | "preview-transition" | "map-swift" | "test"
+            "inspect" | "check" | "preview" | "preview-transition" | "map-swift" | "test" | "model-d1-state"
         ) {
             return error(Some(id), "protocol", "operation is not supported");
         }
@@ -85,6 +86,16 @@ impl Session {
         let Some(source) = object.get("source").and_then(Value::as_str) else {
             return error(Some(id), "ingest", "source must be a UTF-8 string");
         };
+        if operation == "model-d1-state" {
+            if object.get("profile").and_then(Value::as_str) != Some("experimental") { return error(Some(id), "protocol", "model-d1-state requires profile experimental"); }
+            let Some(module) = object.get("module").and_then(Value::as_str) else { return error(Some(id), "protocol", "model-d1-state requires a module path"); };
+            let Some(initial) = object.get("initial") else { return error(Some(id), "protocol", "model-d1-state requires explicit initial values"); };
+            let initial = match crate::application::parse_initial(initial) { Ok(value) => value, Err(d) => return failure(id, "state_validation", &d) };
+            return match crate::application::lower(source, module, initial) {
+                Ok(model) => json!({"schema_version":"1","job_id":id,"sequence":1,"stage":"state_model","status":"PASS","result":model.to_json()}),
+                Err(d) => failure(id, "state_validation", &d),
+            };
+        }
         if operation == "map-swift" {
             if object.get("column_encoding").and_then(Value::as_str) != Some("utf8-byte") {
                 return error(
