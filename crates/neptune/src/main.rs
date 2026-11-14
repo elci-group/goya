@@ -134,6 +134,7 @@ fn main() -> ExitCode {
             Some("NPT-E1005") => "The source preview could not be written. Use a new output directory and check permissions.",
             Some("NPT-E1006") => "Supply a canonical project-relative module path ending in .gscene.",
             Some("NPT-E2104") => "The source requires an iOS mapping that Neptune has not admitted. Remove the construct or wait for an admitted implementation.",
+            Some("NPT-E3102") => "The transition's state or input binding could not be resolved safely.",
             Some("GY-E1000") => "Goya could not parse the source. Correct the syntax at the reported line.",
             Some("GY-E1001") => "Goya does not preserve this property. Remove it or use a supported property.",
             Some("GY-E1002") => "Goya does not preserve template semantics in strict parsing. Remove the template.",
@@ -145,7 +146,7 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
     if args.len() < 3 || (args[1] != "inspect" && args[1] != "check" && args[1] != "preview" && args[1] != "preview-transition") {
-        eprintln!("usage: neptune <inspect|check> <scene.gscene> [--target ios] [--format json]\n       neptune preview <scene.gscene> --module <project-relative.gscene> [--format json] [--out new-directory]\n       neptune explain <code>");
+        eprintln!("usage: neptune <inspect|check> <scene.gscene> [--target ios] [--format json]\n       neptune preview <scene.gscene> --module <project-relative.gscene> [--format json] [--out new-directory]\n       neptune preview-transition <scene.gscene> --module <project-relative.gscene> --profile experimental [--format json]\n       neptune explain <code>");
         return ExitCode::from(2);
     }
     let mut json = false;

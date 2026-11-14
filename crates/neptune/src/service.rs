@@ -43,7 +43,7 @@ impl Session {
         if object.keys().any(|key| {
             !matches!(
                 key.as_str(),
-                "schema_version" | "job_id" | "operation" | "source" | "module"
+                "schema_version" | "job_id" | "operation" | "source" | "module" | "profile"
             )
         }) {
             return error(Some(id), "protocol", "unknown request field");
@@ -51,12 +51,20 @@ impl Session {
         let Some(operation) = object.get("operation").and_then(Value::as_str) else {
             return error(Some(id), "protocol", "operation is required");
         };
-        if !matches!(operation, "inspect" | "check" | "preview") {
+        if !matches!(operation, "inspect" | "check" | "preview" | "preview-transition") {
             return error(Some(id), "protocol", "operation is not supported");
         }
         let Some(source) = object.get("source").and_then(Value::as_str) else {
             return error(Some(id), "ingest", "source must be a UTF-8 string");
         };
+        if operation == "preview-transition" {
+            if object.get("profile").and_then(Value::as_str) != Some("experimental") { return error(Some(id), "protocol", "preview-transition requires profile experimental"); }
+            let Some(module) = object.get("module").and_then(Value::as_str) else { return error(Some(id), "protocol", "preview-transition requires a module path"); };
+            return match crate::transition_swift::preview(source, module) {
+                Ok(preview) => json!({"schema_version":"1","job_id":id,"sequence":1,"stage":"preview","status":"PASS","result":preview.to_json()}),
+                Err(d) => failure(id, "frontend", &d),
+            };
+        }
         if operation == "preview" {
             let Some(module) = object.get("module").and_then(Value::as_str) else {
                 return error(Some(id), "protocol", "preview requires a module path");
