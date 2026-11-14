@@ -259,6 +259,15 @@ mod tests {
     }
 
     #[test]
+    fn strict_interaction_origin_follows_d1_before_d2_error_precedence() {
+        let source = "@ontology app { @button fetch { id: \"button.fetch\"; } @button save { id: \"button.save\"; } @interaction early_d2 { id: \"action.early_d2\"; trigger: button.fetch.activate; class: D2; effects { network; } requests { lookup: effect network capability \"network\" request \"static request\" result int64; } state { write count: text; } input { } set count = effect.lookup; } @interaction later_d1 { id: \"action.later_d1\"; trigger: button.save.activate; class: D1; state { } input { } set count = 1; } }";
+        let error = parse_strict(source).unwrap_err();
+        assert_eq!(error.code, "GY-E1004");
+        assert!(error.name.contains("AssignmentMismatch"));
+        assert!(source[error.range.start..error.range.end].starts_with("@interaction later_d1"));
+    }
+
+    #[test]
     fn strict_parser_requires_unique_explicit_element_ids() {
         let missing = "@ontology demo { @cell root { text: \"Hi\" } }";
         let missing_error = parse_strict(missing).unwrap_err();

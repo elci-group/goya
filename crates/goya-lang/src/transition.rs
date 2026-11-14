@@ -239,33 +239,65 @@ pub fn compile_d2_interactions(
         .collect()
 }
 
+/// Validate interaction declarations in the same phase order as the public
+/// compilers and report the declaration that first fails. Binding validation
+/// is global; D1 compilation precedes D2 compilation, matching strict
+/// admission's error precedence without repeatedly compiling prefixes.
+pub(crate) fn validate_interactions_with_origin(
+    scene: &Scene,
+) -> Result<(), (usize, TransitionError)> {
+    let triggers = validate_bindings_with_origin(scene)?;
+    for (index, interaction) in scene.interactions.iter().enumerate() {
+        if interaction.class == InteractionClass::D1 {
+            if let Err(error) = compile_one(interaction) {
+                return Err((index, error));
+            }
+        }
+    }
+    for (index, interaction) in scene.interactions.iter().enumerate() {
+        if interaction.class == InteractionClass::D2 {
+            if let Err(error) = compile_one_d2(interaction) {
+                return Err((index, error));
+            }
+        }
+    }
+    // Keep trigger construction in this validation phase: it ensures the
+    // bindings have the same cardinality/order used by the compilers.
+    debug_assert_eq!(triggers.len(), scene.interactions.len());
+    Ok(())
+}
+
 fn validate_bindings(scene: &Scene) -> Result<Vec<ActionId>, TransitionError> {
+    validate_bindings_with_origin(scene).map_err(|(_, error)| error)
+}
+
+fn validate_bindings_with_origin(
+    scene: &Scene,
+) -> Result<Vec<ActionId>, (usize, TransitionError)> {
     let mut buttons = Vec::<(String, ActionId)>::new();
     collect_buttons(&scene.root, &mut 0, &mut buttons);
     let mut names = BTreeSet::new();
     let mut bound_triggers = BTreeSet::new();
-    scene
-        .interactions
-        .iter()
-        .map(|i| {
+    let mut triggers = Vec::with_capacity(scene.interactions.len());
+    for (index, i) in scene.interactions.iter().enumerate() {
             if !names.insert(i.name.as_str()) {
-                return Err(TransitionError::DuplicateInteractionName);
+                return Err((index, TransitionError::DuplicateInteractionName));
             }
             let matches: Vec<_> = buttons
                 .iter()
                 .filter(|(name, _)| name == &i.trigger_button)
                 .collect();
             let trigger = match matches.as_slice() {
-                [] => return Err(TransitionError::TriggerNotFound),
+                [] => return Err((index, TransitionError::TriggerNotFound)),
                 [(_, id)] => *id,
-                _ => return Err(TransitionError::TriggerAmbiguous),
+                _ => return Err((index, TransitionError::TriggerAmbiguous)),
             };
             if !bound_triggers.insert(trigger.0) {
-                return Err(TransitionError::TriggerAlreadyBound);
+                return Err((index, TransitionError::TriggerAlreadyBound));
             }
-            Ok(trigger)
-        })
-        .collect()
+            triggers.push(trigger);
+    }
+    Ok(triggers)
 }
 
 fn collect_buttons(
