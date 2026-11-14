@@ -219,68 +219,69 @@ function renderFilters() {
   });
 }
 
+function placeColumn(items, x, width, height) {
+  const boxH = 36;
+  const gap = 8;
+  const total = items.length === 0 ? 0 : items.length * boxH + (items.length - 1) * gap;
+  const y0 = Math.max(36, (height - total) / 2);
+  return items.map((item, index) => ({
+    ...item,
+    x,
+    y: y0 + index * (boxH + gap),
+    w: width,
+    h: boxH,
+  }));
+}
+
 function renderGraph() {
   const svg = $("crate-graph");
-  const width = 980;
-  const layers = state.layer === "all"
-    ? state.model.layers
-    : state.model.layers.filter((layer) => layer.id === state.layer);
-  const rowH = 84;
-  const height = 16 + layers.length * rowH;
-  const nodes = [];
-  layers.forEach((layer, row) => {
-    const items = state.model.crates.filter((crate) => crate.layer === layer.id);
-    const gap = 6;
-    const inner = width - 24;
-    const w = Math.max(78, Math.min(156, (inner - gap * Math.max(0, items.length - 1)) / Math.max(1, items.length)));
-    const total = items.length * w + Math.max(0, items.length - 1) * gap;
-    let x = 12 + (inner - total) / 2;
-    const y = 18 + row * rowH;
-    items.forEach((crate) => {
-      nodes.push({ ...crate, x, y: y + 18, w, h: 44 });
-      x += w + gap;
-    });
-  });
-  const byId = new Map(nodes.map((node) => [node.id, node]));
-  const linked = new Set();
-  state.model.edges.forEach((edge) => {
-    if (edge.from === state.selected || edge.to === state.selected) {
-      linked.add(edge.from);
-      linked.add(edge.to);
-    }
-  });
-  const edges = state.model.edges.filter((edge) => byId.has(edge.from) && byId.has(edge.to) && (edge.from === state.selected || edge.to === state.selected));
-  const layerLabels = layers.map((layer, row) => {
-    const y = 30 + row * rowH;
-    return `<text x="12" y="${y}" fill="#8a8175" font-size="11">${esc(layer.title)}</text>`;
+  const selected = state.model.crates.find((crate) => crate.id === state.selected);
+  const links = neighbors(state.selected);
+  const uses = links.uses.map((id) => state.model.crates.find((crate) => crate.id === id)).filter(Boolean);
+  const used = links.used.map((id) => state.model.crates.find((crate) => crate.id === id)).filter(Boolean);
+  const width = 920;
+  const boxH = 36;
+  const gap = 8;
+  const rows = Math.max(uses.length, used.length, 1);
+  const height = Math.max(220, 72 + rows * (boxH + gap));
+  const left = placeColumn(uses, 16, 250, height);
+  const right = placeColumn(used, 654, 250, height);
+  const center = {
+    ...selected,
+    x: 318,
+    y: height / 2 - 32,
+    w: 284,
+    h: 64,
+  };
+  const nodes = left.concat([center], right);
+  const edgeMarkup = left.concat(right).map((node) => {
+    const fromRight = node.x < center.x;
+    const x1 = fromRight ? node.x + node.w : center.x + center.w;
+    const x2 = fromRight ? center.x : node.x;
+    const y1 = node.y + node.h / 2;
+    const y2 = center.y + center.h / 2;
+    const mid = (x1 + x2) / 2;
+    const stroke = fromRight ? "#9ad8c8" : "#e4b56a";
+    return `<path d="M ${x1} ${y1} C ${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}" fill="none" stroke="${stroke}" stroke-width="1.4"></path>`;
   }).join("");
-  const edgeMarkup = edges.map((edge) => {
-    const from = byId.get(edge.from);
-    const to = byId.get(edge.to);
-    const x1 = from.x + from.w / 2;
-    const y1 = from.y + from.h / 2;
-    const x2 = to.x + to.w / 2;
-    const y2 = to.y + to.h / 2;
-    const mid = (y1 + y2) / 2;
-    return `<path d="M ${x1} ${y1} C ${x1} ${mid}, ${x2} ${mid}, ${x2} ${y2}" fill="none" stroke="#9ad8c8" stroke-width="1.4" opacity="0.85"></path>`;
-  }).join("");
+  const headings = `<text x="16" y="22" fill="#8a8175" font-size="11">USES</text><text x="654" y="22" fill="#8a8175" font-size="11">USED BY</text>`;
   const nodeMarkup = nodes.map((node) => {
     const active = node.id === state.selected;
-    const near = linked.has(node.id);
-    const fill = active ? "#234840" : near ? "#3a3224" : "#221f1a";
-    const stroke = active ? "#9ad8c8" : near ? "#e4b56a" : "#3d372f";
-    const label = shortName(node.id);
-    const size = label.length > 16 ? 9 : 11;
+    const fill = active ? "#234840" : "#221f1a";
+    const stroke = active ? "#9ad8c8" : "#3d372f";
+    const titleY = active ? node.y + 28 : node.y + 23;
     return `<g data-crate="${esc(node.id)}" tabindex="0" role="button" aria-label="${esc(node.id)}, ${esc(node.status)}" aria-pressed="${active ? "true" : "false"}">
       <rect x="${node.x}" y="${node.y}" width="${node.w}" height="${node.h}" rx="2" fill="${fill}" stroke="${stroke}"></rect>
-      <text x="${node.x + 8}" y="${node.y + 20}" fill="#f3eee4" font-size="${size}">${esc(label)}</text>
-      <text x="${node.x + 8}" y="${node.y + 35}" fill="#8a8175" font-size="10">${esc(node.status)}</text>
+      <text x="${node.x + 10}" y="${titleY}" fill="#f3eee4" font-size="13">${esc(node.id)}</text>
+      ${active ? `<text x="${node.x + 10}" y="${node.y + 48}" fill="#9ad8c8" font-size="11">${esc(node.contract)} · ${esc(node.status)}</text>` : ""}
     </g>`;
   }).join("");
+  const empty = (text, x) => `<text x="${x}" y="${height / 2}" fill="#8a8175" font-size="12">${text}</text>`;
+  const empties = `${uses.length ? "" : empty("No workspace dependencies", 16)}${used.length ? "" : empty("No workspace dependents", 654)}`;
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
   svg.setAttribute("width", String(width));
   svg.setAttribute("height", String(height));
-  svg.innerHTML = `${layerLabels}${edgeMarkup}${nodeMarkup}`;
+  svg.innerHTML = `${headings}${edgeMarkup}${empties}${nodeMarkup}`;
   svg.querySelectorAll("g[data-crate]").forEach((node) => {
     const choose = () => selectCrate(node.dataset.crate);
     node.addEventListener("click", choose);
@@ -291,10 +292,9 @@ function renderGraph() {
       }
     });
   });
-  const shown = nodes.length;
   const caption = $("graph-caption");
   if (caption) {
-    caption.textContent = `${shown} crates in view. Edges show what ${state.selected} uses and what uses it.`;
+    caption.textContent = `${selected.id} uses ${uses.length} workspace crates and is used by ${used.length}. Teal lines point inward. Amber lines point outward.`;
   }
 }
 
