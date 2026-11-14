@@ -7,6 +7,24 @@ use std::collections::BTreeMap;
 
 const SCENE: &str = include_str!("../conformance/d1-increment.gscene");
 const CASES: &str = include_str!("../conformance/d1-cases.json");
+const TEXT_SCENE: &str = include_str!("../conformance/d1-text.gscene");
+const TEXT_CASES: &str = include_str!("../conformance/d1-text-cases.json");
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+enum Scalar { Int(i64), Text(String), Bool(bool) }
+
+impl Scalar {
+    fn matches_type(&self, ty: goya_lang::InteractionType) -> bool {
+        matches!((self, ty), (Self::Int(_), goya_lang::InteractionType::Int) | (Self::Text(_), goya_lang::InteractionType::Text) | (Self::Bool(_), goya_lang::InteractionType::Bool))
+    }
+    fn to_d1(&self) -> D1Value {
+        match self { Self::Int(value) => D1Value::Int(*value), Self::Text(value) => D1Value::Text(value.clone()), Self::Bool(value) => D1Value::Bool(*value) }
+    }
+    fn from_d1(value: D1Value) -> Self {
+        match value { D1Value::Int(value) => Self::Int(value), D1Value::Text(value) => Self::Text(value), D1Value::Bool(value) => Self::Bool(value) }
+    }
+}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -23,8 +41,8 @@ struct Corpus {
 struct Case {
     id: String,
     revision: u64,
-    state: BTreeMap<String, i64>,
-    inputs: BTreeMap<String, i64>,
+    state: BTreeMap<String, Scalar>,
+    inputs: BTreeMap<String, Scalar>,
     expected: Outcome,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -32,7 +50,7 @@ struct Case {
 enum Outcome {
     Ok {
         revision: u64,
-        state: BTreeMap<String, i64>,
+        state: BTreeMap<String, Scalar>,
     },
     Error {
         error: String,
@@ -47,25 +65,25 @@ pub struct CorpusReport {
 
 fn target_expression(
     expr: &Expression,
-    state: &BTreeMap<String, i64>,
-    inputs: &BTreeMap<String, i64>,
-) -> Result<i64, String> {
+    state: &BTreeMap<String, Scalar>,
+    inputs: &BTreeMap<String, Scalar>,
+) -> Result<Scalar, String> {
     match &expr.operation {
-        Operation::Constant(goya_lang::InteractionValue::Int(value)) => Ok(*value),
+        Operation::Constant(goya_lang::InteractionValue::Int(value)) => Ok(Scalar::Int(*value)),
+        Operation::Constant(goya_lang::InteractionValue::Text(value)) => Ok(Scalar::Text(value.clone())),
+        Operation::Constant(goya_lang::InteractionValue::Bool(value)) => Ok(Scalar::Bool(*value)),
         Operation::State(key) => state
             .get(key)
-            .copied()
+            .cloned()
             .ok_or_else(|| "missing_state".into()),
         Operation::Input(key) => inputs
             .get(key)
-            .copied()
+            .cloned()
             .ok_or_else(|| "missing_input".into()),
         Operation::CheckedAdd(left, right) => {
-            let left = i128::from(target_expression(left, state, inputs)?);
-            let right = i128::from(target_expression(right, state, inputs)?);
-            i64::try_from(left + right).map_err(|_| "arithmetic_overflow".into())
+            let (Scalar::Int(left), Scalar::Int(right)) = (target_expression(left, state, inputs)?, target_expression(right, state, inputs)?) else { return Err("type_mismatch".into()); };
+            i64::try_from(i128::from(left) + i128::from(right)).map(Scalar::Int).map_err(|_| "arithmetic_overflow".into())
         }
-        _ => Err("unsupported_fixture_type".into()),
     }
 }
 
@@ -89,6 +107,9 @@ fn target_run(action: &Transition, case: &Case) -> Outcome {
             error: "state_schema".into(),
         };
     }
+    if action.state_reads.iter().chain(&action.state_writes).any(|key| case.state.get(&key.name).is_none_or(|value| !value.matches_type(key.value_type))) {
+        return Outcome::Error { error: "state_schema".into() };
+    }
     if case
         .inputs
         .keys()
@@ -99,6 +120,9 @@ fn target_run(action: &Transition, case: &Case) -> Outcome {
         return Outcome::Error {
             error: "input_schema".into(),
         };
+    }
+    if action.inputs.iter().any(|key| case.inputs.get(&key.name).is_none_or(|value| !value.matches_type(key.value_type))) {
+        return Outcome::Error { error: "input_schema".into() };
     }
     let mut writes = Vec::new();
     for assignment in &action.assignments {
@@ -121,26 +145,19 @@ fn reference_run(action: &goya_lang::CompiledInteraction, case: &Case) -> Result
     let values = case
         .state
         .iter()
-        .map(|(k, v)| (k.clone(), D1Value::Int(*v)))
+        .map(|(k, v)| (k.clone(), v.to_d1()))
         .collect();
     let inputs = case
         .inputs
         .iter()
-        .map(|(k, v)| (k.clone(), D1Value::Int(*v)))
+        .map(|(k, v)| (k.clone(), v.to_d1()))
         .collect();
     let snapshot = D1Snapshot::new(case.revision, values).map_err(|e| e.to_string())?;
     let inputs = InputSnapshot::new(inputs).map_err(|e| e.to_string())?;
     match action.execute(&snapshot, &inputs) {
         Ok(outcome) => {
             let mut state = BTreeMap::new();
-            for (key, value) in outcome.next_state {
-                match value {
-                    D1Value::Int(value) => {
-                        state.insert(key, value);
-                    }
-                    _ => return Err("reference produced a non-integer value".into()),
-                }
-            }
+            for (key, value) in outcome.next_state { state.insert(key, Scalar::from_d1(value)); }
             Ok(Outcome::Ok {
                 revision: outcome.revision_after,
                 state,
