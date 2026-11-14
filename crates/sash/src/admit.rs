@@ -121,19 +121,19 @@ fn admit_scene(parsed: &ParsedScene) -> Result<AdmittedWindow, Diagnostic> {
     let Some(node) = frame.nodes.first() else {
         return Err(layout_error(
             "layout produced no node",
-            extent_range,
+            Some(extent_range),
         ));
     };
     if frame.nodes.len() != 1 || node.rect.x != 0 || node.rect.y != 0 {
         return Err(layout_error(
             "layout did not place the cell at the viewport origin",
-            extent_range,
+            Some(extent_range),
         ));
     }
     if node.text.as_deref() != Some(text.as_str()) {
         return Err(layout_error(
             "layout changed the authored text",
-            property_range(parsed, "text").unwrap_or(extent_range),
+            Some(property_range(parsed, "text").unwrap_or(extent_range)),
         ));
     }
     let (width_dip, height_dip) = dips(node.rect.width, node.rect.height, extent_range)?;
@@ -443,11 +443,10 @@ fn is_strong_rtl(c: char) -> bool {
             | 0x202B
             | 0x202E
             | 0x2067
-            | 0x061C
     )
 }
 
-fn cap(message: String, remediation: &'static str, range: Option<SourceRange>) -> Diagnostic {
+fn cap(message: impl Into<String>, remediation: &'static str, range: Option<SourceRange>) -> Diagnostic {
     let mut diagnostic = Diagnostic::new("SASH-CAP", "admit", message, remediation);
     if let Some(range) = range {
         diagnostic = diagnostic.at(range.start, range.end);

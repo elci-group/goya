@@ -472,7 +472,7 @@ mod tests {
         put_u32(&mut bytes, 0x98 + 112 + 16, 0x1200);
         put_u32(&mut bytes, 0x98 + 112 + 20, 0x200);
         let section = 0x98 + 240;
-        bytes[section..section + 5].copy_from_slice(b".rdata");
+        bytes[section..section + 6].copy_from_slice(b".rdata");
         put_u32(&mut bytes, section + 8, 0x400);
         put_u32(&mut bytes, section + 12, 0x1000);
         put_u32(&mut bytes, section + 16, 0x400);

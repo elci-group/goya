@@ -8,7 +8,7 @@ use crate::orchestrate;
 use crate::pe;
 use crate::report;
 use crate::{Diagnostic, DIRECTIVE_ID, PROFILE_PORTABLE, TARGET_MSVC_X64};
-use std::fs::{self, File};
+use std::fs::File;
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;

@@ -5,9 +5,9 @@
 
 use crate::admit::{self, AdmittedWindow};
 use crate::emit::{self, Generated};
-use crate::pe::{self, PeInfo};
+use crate::pe;
 use crate::report::{self, BuildFacts};
-use crate::{Diagnostic, TARGET_MSVC_X64};
+use crate::{Diagnostic, PROFILE_PORTABLE, TARGET_MSVC_X64};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -245,7 +245,7 @@ fn promote(
                 "Discard the output and link again.",
             ));
         }
-        let mut file = File::open(output.join("App.exe")).map_err(|error| io_diag("build", &error))?;
+        let file = File::open(output.join("App.exe")).map_err(|error| io_diag("build", &error))?;
         file.sync_all().map_err(|error| io_diag("build", &error))?;
         Ok(())
     })();
