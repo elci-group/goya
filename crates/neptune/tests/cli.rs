@@ -389,3 +389,28 @@ fn d1_corpus_reports_only_its_scope_and_admission_is_blocked() {
     let admission: serde_json::Value = serde_json::from_slice(&blocked.stdout).unwrap();
     assert_eq!(admission["status"], "BLOCKED");
 }
+
+#[test]
+fn state_model_cli_and_service_share_validation_and_scope() {
+    let scene_path = concat!(env!("CARGO_MANIFEST_DIR"), "/conformance/d1-increment.gscene");
+    let initial_path = concat!(env!("CARGO_MANIFEST_DIR"), "/conformance/d1-initial.json");
+    let no_profile = Command::new(env!("CARGO_BIN_EXE_neptune")).args(["model-d1-state", scene_path, "--module", "app/main.gscene", "--initial", initial_path]).output().unwrap();
+    assert!(!no_profile.status.success());
+    let output = Command::new(env!("CARGO_BIN_EXE_neptune")).args(["model-d1-state", scene_path, "--module", "app/main.gscene", "--profile", "experimental", "--initial", initial_path, "--format", "json"]).output().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(result["scope"], "state_only");
+    assert_eq!(result["stages"]["ios_admission"], "NOT_RUN");
+    assert_eq!(result["state"][0]["initial"], 9);
+    let source = std::fs::read_to_string(scene_path).unwrap();
+    let initial: serde_json::Value = serde_json::from_slice(&std::fs::read(initial_path).unwrap()).unwrap();
+    let mut session = neptune::service::Session::default();
+    let request = serde_json::json!({"schema_version":"1","job_id":"model","operation":"model-d1-state","module":"app/main.gscene","profile":"experimental","source":source,"initial":initial});
+    let response = session.handle(&request);
+    assert_eq!(response["status"], "PASS");
+    assert_eq!(response["result"], result);
+    let mut bad = request;
+    bad["job_id"] = serde_json::json!("bad");
+    bad["initial"] = serde_json::json!([["count", "int", 9], ["count", "int", 2]]);
+    assert_eq!(session.handle(&bad)["status"], "FAIL");
+}
