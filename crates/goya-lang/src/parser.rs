@@ -336,7 +336,7 @@ pub fn parse_strict(source: &str) -> Result<ParsedScene, StrictParseError> {
 fn source_line_range(source: &str, line: usize) -> SourceRange {
     let start = source
         .match_indices('\n')
-        .nth(line.saturating_sub(1))
+        .nth(line.saturating_sub(2))
         .map(|(index, _)| index + 1)
         .unwrap_or_else(|| if line <= 1 { 0 } else { source.len() });
     let end = source[start..]

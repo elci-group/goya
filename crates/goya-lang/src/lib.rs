@@ -294,7 +294,10 @@ mod tests {
         let source = "@ontology demo {\n  @cell root {\n    text \"missing-colon\"\n  }\n}";
         let error = parse_strict(source).unwrap_err();
         assert_eq!(error.code, "GY-E1000");
-        assert_eq!(&source[error.range.start..error.range.end], "  }");
+        assert_eq!(
+            &source[error.range.start..error.range.end],
+            "    text \"missing-colon\""
+        );
     }
 
     const HELLO: &str = "\
