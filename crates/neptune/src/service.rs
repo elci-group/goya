@@ -54,6 +54,7 @@ impl Session {
                     | "column"
                     | "column_encoding"
                     | "raw_diagnostic"
+                    | "suite"
             )
         }) {
             return error(Some(id), "protocol", "unknown request field");
@@ -63,9 +64,23 @@ impl Session {
         };
         if !matches!(
             operation,
-            "inspect" | "check" | "preview" | "preview-transition" | "map-swift"
+            "inspect" | "check" | "preview" | "preview-transition" | "map-swift" | "test"
         ) {
             return error(Some(id), "protocol", "operation is not supported");
+        }
+        if operation == "test" {
+            return match object.get("suite").and_then(Value::as_str) {
+                Some("d1-corpus") => match crate::conformance::run_d1_corpus() {
+                    Ok(report) => {
+                        json!({"schema_version":"1","job_id":id,"sequence":1,"stage":"d1_corpus","status":if report.passed {"PASS"} else {"FAIL"},"result":report.json})
+                    }
+                    Err(e) => error(Some(id), "d1_corpus", &e),
+                },
+                Some("admission") => {
+                    json!({"schema_version":"1","job_id":id,"sequence":1,"stage":"admission","status":"BLOCKED","reason":"Apple worker and device admission are not implemented"})
+                }
+                _ => error(Some(id), "protocol", "unsupported test suite"),
+            };
         }
         let Some(source) = object.get("source").and_then(Value::as_str) else {
             return error(Some(id), "ingest", "source must be a UTF-8 string");
