@@ -5,6 +5,7 @@ use sha2::{Digest, Sha256};
 pub mod artifacts;
 pub mod service;
 pub mod swift;
+pub mod transition;
 
 pub const MAX_SOURCE_BYTES: usize = 128 * 1024;
 pub const MAX_DIAGNOSTICS: usize = 256;
