@@ -56,6 +56,7 @@ impl Session {
                     | "raw_diagnostic"
                     | "suite"
                     | "initial"
+                    | "manifest"
             )
         }) {
             return error(Some(id), "protocol", "unknown request field");
@@ -74,8 +75,32 @@ impl Session {
                 | "model-d1-state"
                 | "preview-d1-owner"
                 | "preview-native-button"
+                | "validate-deploy-manifest"
         ) {
             return error(Some(id), "protocol", "operation is not supported");
+        }
+        if operation == "validate-deploy-manifest" {
+            let Some(value) = object.get("manifest") else {
+                return error(Some(id), "protocol", "manifest object is required");
+            };
+            let manifest: crate::dock::Manifest = match serde_json::from_value(value.clone()) {
+                Ok(value) => value,
+                Err(e) => {
+                    return error(
+                        Some(id),
+                        "manifest",
+                        &format!("invalid deployment manifest: {e}"),
+                    )
+                }
+            };
+            return match manifest.validate() {
+                Ok(()) => {
+                    json!({"schema_version":"1","job_id":id,"sequence":1,"stage":"manifest_validation","status":"PASS","result":{"manifest_schema":manifest.schema,"bundle_id":manifest.application.bundle_id,"artifact_sha256":manifest.artifact.sha256,"artifact_hash_verification":"NOT_RUN","signature_trust":"NOT_CHECKED","device_installation":"NOT_RUN"}})
+                }
+                Err(e) => {
+                    json!({"schema_version":"1","job_id":id,"sequence":1,"stage":"manifest_validation","status":"FAIL","diagnostics":[{"code":"NPT-E6101","message":e.to_string()}]})
+                }
+            };
         }
         if operation == "test" {
             return match object.get("suite").and_then(Value::as_str) {
