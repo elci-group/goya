@@ -332,4 +332,15 @@ mod tests {
         assert_eq!(report.json["stages"]["target_ir"], "FAIL");
         assert_eq!(report.json["stages"]["apple_typecheck"], "BLOCKED");
     }
+
+    #[test]
+    fn composed_and_decomposed_strings_are_not_treated_as_identical() {
+        let mut cases: serde_json::Value = serde_json::from_str(TEXT_CASES).unwrap();
+        cases["cases"][0]["expected"]["state"]["prior"] = serde_json::json!("é");
+        let report = run_fixture(TEXT_SCENE, &cases.to_string()).unwrap();
+        assert!(!report.passed);
+        assert_eq!(report.json["cases"][0]["status"], "FAIL");
+        assert_eq!(report.json["stages"]["reference_executor"], "FAIL");
+        assert_eq!(report.json["stages"]["target_ir"], "FAIL");
+    }
 }
