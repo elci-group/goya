@@ -7,6 +7,7 @@ pub mod application;
 pub mod application_swift;
 pub mod artifacts;
 pub mod conformance;
+pub mod dock;
 pub mod native_swift;
 pub mod service;
 pub mod source_map;
