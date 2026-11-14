@@ -522,7 +522,7 @@ fn validate_text(
             range,
         ));
     }
-    Ok(text)
+    Ok(Some(text))
 }
 
 fn reject_position(root: &SceneCell, parsed: &ParsedScene) -> Result<(), Diagnostic> {
@@ -580,6 +580,30 @@ fn require_extent(
         ));
     }
     Ok((range, extent.x, extent.y))
+}
+
+fn dips_pair(
+    x_mp: i64,
+    y_mp: i64,
+    range: SourceRange,
+    what: &str,
+) -> Result<(i32, i32), Diagnostic> {
+    if x_mp < 0 || y_mp < 0 || x_mp % MP_PER_DIP != 0 || y_mp % MP_PER_DIP != 0 {
+        return Err(layout_error(
+            format!("{what} {x_mp} by {y_mp} millipoints is not an exact multiple of {MP_PER_DIP}"),
+            Some(range),
+        ));
+    }
+    let x = x_mp / MP_PER_DIP;
+    let y = y_mp / MP_PER_DIP;
+    if x > i64::from(MAX_DIP) || y > i64::from(MAX_DIP) {
+        return Err(cap(
+            format!("{what} {x} by {y} dip exceeds the {MAX_DIP} dip edge bound"),
+            "Use a smaller position or extent.",
+            Some(range),
+        ));
+    }
+    Ok((x as i32, y as i32))
 }
 
 fn dips(width_mp: i64, height_mp: i64, range: SourceRange) -> Result<(i32, i32), Diagnostic> {
@@ -684,15 +708,16 @@ fn layout_error(message: impl Into<String>, range: Option<SourceRange>) -> Diagn
 }
 
 fn property_range(parsed: &ParsedScene, name: &str) -> Option<SourceRange> {
-    property_range_aliases(parsed, name)
+    property_range_at(parsed, &[], name)
 }
 
-fn property_range_aliases(parsed: &ParsedScene, name: &str) -> Option<SourceRange> {
+fn property_range_at(parsed: &ParsedScene, path: &[usize], name: &str) -> Option<SourceRange> {
     parsed
         .entries
         .iter()
         .find(|entry| {
             entry.kind == "property"
+                && entry.scene_path.as_deref() == Some(path)
                 && (entry.name == name
                     || entry.name.replace('-', "_") == name
                     || entry.name.replace('_', "-") == name)
@@ -708,8 +733,8 @@ fn ontology_range(parsed: &ParsedScene) -> Option<SourceRange> {
         .map(|entry| entry.range)
 }
 
-fn id_range(parsed: &ParsedScene) -> Option<SourceRange> {
-    property_range(parsed, "id")
+fn id_range_at(parsed: &ParsedScene, path: &[usize]) -> Option<SourceRange> {
+    property_range_at(parsed, path, "id")
 }
 
 fn entry_range(parsed: &ParsedScene, kind: &str, name: &str) -> Option<SourceRange> {
