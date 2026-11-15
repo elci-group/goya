@@ -29,7 +29,7 @@ pub const MAX_SOURCE_BYTES: usize = 1024 * 1024;
 pub const MAX_TEXT_BYTES: usize = 64 * 1024;
 
 const MAX_TITLE_BYTES: usize = 256;
-const MAX_ID_BYTES: usize = 256;
+pub(crate) const MAX_ID_BYTES: usize = 256;
 
 /// How an authored fact is carried into the Windows proof.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -89,7 +89,42 @@ pub fn admit(source: &str) -> Result<AdmittedWindow, Diagnostic> {
     admit_scene(&handoff.parsed)
 }
 
-fn diagnostic_from_strict(error: goya_lang::StrictParseError) -> Diagnostic {
+/// Static window or the bounded interactive profile.
+pub enum SceneTarget {
+    Static(AdmittedWindow),
+    Interactive(crate::interactive::AdmittedInteractive),
+}
+
+/// Admit a static scene, or a scene the interactive profile can carry.
+///
+/// `admit` stays the static-window gate. Callers that link an executable use
+/// this selector so a button is not forced through the static rejection.
+pub fn open(source: &str) -> Result<SceneTarget, Diagnostic> {
+    if source.len() > MAX_SOURCE_BYTES {
+        return Err(Diagnostic::new(
+            "SASH-PARSE",
+            "ingest",
+            format!(
+                "scene is {} bytes; this profile accepts at most {MAX_SOURCE_BYTES}",
+                source.len()
+            ),
+            "Split the scene or raise the bound in a new admitted profile.",
+        ));
+    }
+    let handoff = handoff::admit(source).map_err(diagnostic_from_strict)?;
+    let scene = &handoff.parsed.scene;
+    if !scene.interactions.is_empty() || control_in(&scene.root) {
+        crate::interactive::admit_parsed(&handoff.parsed).map(SceneTarget::Interactive)
+    } else {
+        admit_scene(&handoff.parsed).map(SceneTarget::Static)
+    }
+}
+
+fn control_in(cell: &SceneCell) -> bool {
+    cell.kind != CellKind::Cell || cell.is_input || cell.children.iter().any(control_in)
+}
+
+pub(crate) fn diagnostic_from_strict(error: goya_lang::StrictParseError) -> Diagnostic {
     let remediation = match error.code {
         "GY-E1000" => "Correct the syntax. Sash does not guess a missing token.",
         "GY-E1001" => "Remove the unknown property. Sash does not drop unrecognised fields.",
@@ -268,6 +303,13 @@ fn walk(
         ));
     }
     *seen += 1;
+    if cell.gestures.is_some() {
+        return Err(cap(
+            "this profile does not compile gesture policy",
+            "Remove the gestures block, or author it on an interactive edit that states copy and paste.",
+            cell_range(parsed, path),
+        ));
+    }
     if cell.kind != CellKind::Cell || cell.is_input {
         return Err(reject_control(cell, parsed, path));
     }
@@ -398,7 +440,7 @@ fn reject_control(cell: &SceneCell, parsed: &ParsedScene, path: &[usize]) -> Dia
     )
 }
 
-fn expect_child_rect(
+pub(crate) fn expect_child_rect(
     cell: &SceneCell,
     parent: RectMp,
     actual: RectMp,
@@ -463,7 +505,7 @@ fn points_to_mp(points: f64) -> i64 {
     (points * MP) as i64
 }
 
-fn reject_visuals(
+pub(crate) fn reject_visuals(
     cell: &SceneCell,
     parsed: &ParsedScene,
     path: &[usize],
@@ -497,7 +539,7 @@ fn reject_visuals(
     Ok(())
 }
 
-fn validate_text(
+pub(crate) fn validate_text(
     cell: &SceneCell,
     parsed: &ParsedScene,
     path: &[usize],
@@ -540,7 +582,7 @@ fn validate_text(
     Ok(Some(text))
 }
 
-fn reject_position(root: &SceneCell, parsed: &ParsedScene) -> Result<(), Diagnostic> {
+pub(crate) fn reject_position(root: &SceneCell, parsed: &ParsedScene) -> Result<(), Diagnostic> {
     let Some(position) = root.position else {
         return Ok(());
     };
@@ -558,7 +600,7 @@ fn reject_position(root: &SceneCell, parsed: &ParsedScene) -> Result<(), Diagnos
     Ok(())
 }
 
-fn require_extent(
+pub(crate) fn require_extent(
     root: &SceneCell,
     parsed: &ParsedScene,
 ) -> Result<(SourceRange, f64, f64), Diagnostic> {
@@ -597,7 +639,7 @@ fn require_extent(
     Ok((range, extent.x, extent.y))
 }
 
-fn dips_pair(
+pub(crate) fn dips_pair(
     x_mp: i64,
     y_mp: i64,
     range: SourceRange,
@@ -621,7 +663,11 @@ fn dips_pair(
     Ok((x as i32, y as i32))
 }
 
-fn dips(width_mp: i64, height_mp: i64, range: SourceRange) -> Result<(i32, i32), Diagnostic> {
+pub(crate) fn dips(
+    width_mp: i64,
+    height_mp: i64,
+    range: SourceRange,
+) -> Result<(i32, i32), Diagnostic> {
     if width_mp <= 0 || height_mp <= 0 || width_mp % MP_PER_DIP != 0 || height_mp % MP_PER_DIP != 0
     {
         return Err(layout_error(
@@ -643,7 +689,7 @@ fn dips(width_mp: i64, height_mp: i64, range: SourceRange) -> Result<(i32, i32),
     Ok((width as i32, height as i32))
 }
 
-fn check_label(
+pub(crate) fn check_label(
     what: &str,
     value: &str,
     max: usize,
@@ -697,7 +743,7 @@ fn is_strong_rtl(c: char) -> bool {
     )
 }
 
-fn cap(
+pub(crate) fn cap(
     message: impl Into<String>,
     remediation: &'static str,
     range: Option<SourceRange>,
@@ -709,7 +755,7 @@ fn cap(
     diagnostic
 }
 
-fn layout_error(message: impl Into<String>, range: Option<SourceRange>) -> Diagnostic {
+pub(crate) fn layout_error(message: impl Into<String>, range: Option<SourceRange>) -> Diagnostic {
     let mut diagnostic = Diagnostic::new(
         "SASH-LAYOUT",
         "admit",
@@ -726,7 +772,11 @@ fn property_range(parsed: &ParsedScene, name: &str) -> Option<SourceRange> {
     property_range_at(parsed, &[], name)
 }
 
-fn property_range_at(parsed: &ParsedScene, path: &[usize], name: &str) -> Option<SourceRange> {
+pub(crate) fn property_range_at(
+    parsed: &ParsedScene,
+    path: &[usize],
+    name: &str,
+) -> Option<SourceRange> {
     parsed
         .entries
         .iter()
@@ -740,7 +790,7 @@ fn property_range_at(parsed: &ParsedScene, path: &[usize], name: &str) -> Option
         .map(|entry| entry.range)
 }
 
-fn ontology_range(parsed: &ParsedScene) -> Option<SourceRange> {
+pub(crate) fn ontology_range(parsed: &ParsedScene) -> Option<SourceRange> {
     parsed
         .entries
         .iter()
@@ -748,11 +798,11 @@ fn ontology_range(parsed: &ParsedScene) -> Option<SourceRange> {
         .map(|entry| entry.range)
 }
 
-fn id_range_at(parsed: &ParsedScene, path: &[usize]) -> Option<SourceRange> {
+pub(crate) fn id_range_at(parsed: &ParsedScene, path: &[usize]) -> Option<SourceRange> {
     property_range_at(parsed, path, "id")
 }
 
-fn entry_range(parsed: &ParsedScene, kind: &str, name: &str) -> Option<SourceRange> {
+pub(crate) fn entry_range(parsed: &ParsedScene, kind: &str, name: &str) -> Option<SourceRange> {
     parsed
         .entries
         .iter()
@@ -760,7 +810,7 @@ fn entry_range(parsed: &ParsedScene, kind: &str, name: &str) -> Option<SourceRan
         .map(|entry| entry.range)
 }
 
-fn cell_range(parsed: &ParsedScene, path: &[usize]) -> Option<SourceRange> {
+pub(crate) fn cell_range(parsed: &ParsedScene, path: &[usize]) -> Option<SourceRange> {
     parsed
         .entries
         .iter()

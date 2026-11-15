@@ -3,10 +3,11 @@
 //! The output directory is created only after the PE policy checks pass.
 //! A failed build does not leave an App.exe behind.
 
-use crate::admit::{self, AdmittedWindow};
-use crate::emit::{self, Generated};
+use crate::admit::{self, SceneTarget};
+use crate::emit::Generated;
+use crate::interactive;
 use crate::pe;
-use crate::report::{self, BuildFacts};
+use crate::report::{self, BuildFacts, SceneEvidence};
 use crate::{Diagnostic, PROFILE_PORTABLE, TARGET_MSVC_X64};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
@@ -20,6 +21,7 @@ pub struct Linked {
     pub output: PathBuf,
     pub exe_sha256: String,
     pub imports: Vec<String>,
+    pub presentation_profile: &'static str,
 }
 
 pub fn link(source: &str, output: &Path) -> Result<Linked, Diagnostic> {
@@ -31,12 +33,11 @@ pub fn link(source: &str, output: &Path) -> Result<Linked, Diagnostic> {
             "Free space and retry. Sash does not delete unrelated build caches.",
         ));
     }
-    let window = admit::admit(source)?;
-    let generated = emit::generate(&window);
+    let prepared = prepare(source)?;
     let tools = probe_tools()?;
     let cache = pinned_windows_cache()?;
     let temp = TempDir::new()?;
-    write_project(&temp.0, &generated)?;
+    write_project(&temp.0, &prepared.generated)?;
     let log = run_link(&temp.0, &cache)?;
     let exe = temp.0.join("target/x86_64-pc-windows-msvc/release/app.exe");
     let pdb = temp.0.join("target/x86_64-pc-windows-msvc/release/app.pdb");
@@ -71,20 +72,115 @@ pub fn link(source: &str, output: &Path) -> Result<Linked, Diagnostic> {
     let facts = BuildFacts {
         exe_sha256: crate::sha256_hex(&exe_bytes),
         pdb_sha256: crate::sha256_hex(&pdb_bytes),
-        manifest_sha256: crate::sha256_hex(generated.manifest_xml.as_bytes()),
-        generated_sha256: crate::sha256_hex(generated.main_rs.as_bytes()),
-        source_digest: crate::hex_encode(&window.source_digest),
+        manifest_sha256: crate::sha256_hex(prepared.generated.manifest_xml.as_bytes()),
+        generated_sha256: crate::sha256_hex(prepared.generated.main_rs.as_bytes()),
+        source_digest: crate::hex_encode(&prepared.source_digest),
         pe: info.clone(),
         rustc: tools.rustc,
         cargo_xwin: tools.cargo_xwin,
         llvm_rc: tools.llvm_rc,
     };
-    promote(output, &exe_bytes, &pdb_bytes, &window, &generated, &facts)?;
+    promote(
+        output,
+        &exe_bytes,
+        &pdb_bytes,
+        &prepared.generated,
+        &prepared.evidence,
+        &facts,
+    )?;
     Ok(Linked {
         output: output.to_path_buf(),
         exe_sha256: facts.exe_sha256,
         imports: info.imports,
+        presentation_profile: prepared.evidence.presentation_profile,
     })
+}
+
+struct Prepared {
+    generated: Generated,
+    evidence: SceneEvidence,
+    source_digest: [u8; 32],
+}
+
+fn prepare(source: &str) -> Result<Prepared, Diagnostic> {
+    match admit::open(source)? {
+        SceneTarget::Static(window) => {
+            let evidence = SceneEvidence {
+                presentation_profile: admit::PROFILE,
+                semantic_id: window.semantic_id.clone(),
+                dispositions: window.dispositions.clone(),
+                unit_name: "static-window",
+                contains: &[
+                    "top-level HWND",
+                    "one STATIC control per admitted text cell",
+                ],
+                not_generated: &[
+                    "banner communications",
+                    "taskbar behaviour",
+                    "startup behaviour",
+                    "actions",
+                    "retention",
+                ],
+            };
+            let source_digest = window.source_digest;
+            Ok(Prepared {
+                generated: crate::emit::generate(&window),
+                evidence,
+                source_digest,
+            })
+        }
+        SceneTarget::Interactive(app) => {
+            let clipboard = app.profile == interactive::PROFILE_CLIPBOARD;
+            let evidence = SceneEvidence {
+                presentation_profile: app.profile,
+                semantic_id: app.semantic_id.clone(),
+                dispositions: app.dispositions.clone(),
+                unit_name: "interactive-window",
+                contains: if clipboard {
+                    &[
+                        "top-level HWND",
+                        "STATIC heading and result",
+                        "one EDIT",
+                        "one BUTTON",
+                        "one D1 integer transition",
+                        "authored copy and paste policy on the edit",
+                    ]
+                } else {
+                    &[
+                        "top-level HWND",
+                        "STATIC heading and result",
+                        "one EDIT",
+                        "one BUTTON",
+                        "one D1 integer transition",
+                    ]
+                },
+                not_generated: if clipboard {
+                    &[
+                        "banner communications",
+                        "taskbar behaviour",
+                        "startup behaviour",
+                        "retention",
+                        "selection policy",
+                        "undo policy",
+                    ]
+                } else {
+                    &[
+                        "banner communications",
+                        "taskbar behaviour",
+                        "startup behaviour",
+                        "retention",
+                        "gesture policy",
+                    ]
+                },
+            };
+            let source_digest = app.source_digest;
+            Ok(Prepared {
+                generated: interactive::generate(&app),
+                evidence,
+                source_digest,
+            })
+        }
+    }
 }
 
 struct Tools {
@@ -288,15 +384,15 @@ fn promote(
     output: &Path,
     exe: &[u8],
     pdb: &[u8],
-    window: &AdmittedWindow,
     generated: &Generated,
+    scene: &SceneEvidence,
     facts: &BuildFacts,
 ) -> Result<(), Diagnostic> {
     fs::create_dir(output).map_err(|error| io_diag("build", &error))?;
     let result = (|| {
         write_new(&output.join("App.exe"), exe)?;
         write_new(&output.join("App.pdb"), pdb)?;
-        for (name, bytes) in report::files(window, generated, facts) {
+        for (name, bytes) in report::files(scene, generated, facts) {
             let path = output.join(name);
             if let Some(parent) = path.parent() {
                 fs::create_dir_all(parent).map_err(|error| io_diag("build", &error))?;

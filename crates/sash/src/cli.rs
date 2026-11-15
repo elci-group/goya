@@ -3,7 +3,7 @@
 //! `check` does not link. `build` links and still reports runtime qualification
 //! as blocked. `verify` never installs, signs, or launches the executable.
 
-use crate::admit::{self, PROFILE};
+use crate::admit::{self, SceneTarget, PROFILE};
 use crate::orchestrate;
 use crate::pe;
 use crate::report;
@@ -151,21 +151,40 @@ fn scene_command(mut base: serde_json::Value, path: &Path, inspect: bool) -> Run
         Ok(source) => source,
         Err(diagnostic) => return finish(base, 1, diagnostic, "scene was not read"),
     };
-    match admit::admit(&source) {
-        Ok(window) => {
+    match admit::open(&source) {
+        Ok(target) => {
+            let (profile, semantic_id, width_dip, height_dip, source_digest, dispositions) =
+                match &target {
+                    SceneTarget::Static(window) => (
+                        PROFILE,
+                        window.semantic_id.as_str(),
+                        window.width_dip,
+                        window.height_dip,
+                        window.source_digest,
+                        &window.dispositions,
+                    ),
+                    SceneTarget::Interactive(app) => (
+                        app.profile,
+                        app.semantic_id.as_str(),
+                        app.width_dip,
+                        app.height_dip,
+                        app.source_digest,
+                        &app.dispositions,
+                    ),
+                };
+            base["presentation_profile"] = serde_json::json!(profile);
             base["status"] = serde_json::json!("ADMITTED");
             base["runtime_qualification"] = serde_json::json!("BLOCKED");
             base["release_admission"] = serde_json::json!("BLOCKED");
-            base["source_digest"] = serde_json::json!(crate::hex_encode(&window.source_digest));
-            base["semantic_id"] = serde_json::json!(window.semantic_id);
-            base["client_dip"] = serde_json::json!([window.width_dip, window.height_dip]);
-            base["dispositions"] = serde_json::json!(window.dispositions.iter().map(|item| {
+            base["source_digest"] = serde_json::json!(crate::hex_encode(&source_digest));
+            base["semantic_id"] = serde_json::json!(semantic_id);
+            base["client_dip"] = serde_json::json!([width_dip, height_dip]);
+            base["dispositions"] = serde_json::json!(dispositions.iter().map(|item| {
                 serde_json::json!({"subject": item.subject, "disposition": item.disposition, "detail": item.detail})
             }).collect::<Vec<_>>());
             base["diagnostics"] = serde_json::json!([]);
             let text = format!(
-                "admitted {PROFILE}\n{} {}x{} dip\nruntime-qualification: BLOCKED\n",
-                window.semantic_id, window.width_dip, window.height_dip
+                "admitted {profile}\n{semantic_id} {width_dip}x{height_dip} dip\nruntime-qualification: BLOCKED\n"
             );
             let _ = inspect;
             Run {
@@ -189,6 +208,7 @@ fn build_command(mut base: serde_json::Value, scene: &Path, out: &Path) -> Run {
     };
     match orchestrate::link(&source, &output) {
         Ok(linked) => {
+            base["presentation_profile"] = serde_json::json!(linked.presentation_profile);
             base["status"] = serde_json::json!("LINKED");
             base["runtime_qualification"] = serde_json::json!("BLOCKED");
             base["release_admission"] = serde_json::json!("BLOCKED");
@@ -494,6 +514,29 @@ mod tests {
         assert_eq!(run.json["status"], "ADMITTED");
         assert_eq!(run.json["runtime_qualification"], "BLOCKED");
         assert_eq!(run.json["client_dip"], serde_json::json!([320, 160]));
+        assert_eq!(run.json["presentation_profile"], PROFILE);
+    }
+
+    #[test]
+    fn interactive_counter_checks_as_its_own_profile() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/fixtures/interactive-counter.gscene"
+        );
+        let run = execute(&[
+            "sash".into(),
+            "check".into(),
+            path.into(),
+            "--format".into(),
+            "json".into(),
+        ]);
+        assert_eq!(run.code, ExitCode::SUCCESS);
+        assert_eq!(
+            run.json["presentation_profile"],
+            crate::interactive::PROFILE_CLIPBOARD
+        );
+        assert_eq!(run.json["runtime_qualification"], "BLOCKED");
+        assert_eq!(run.json["semantic_id"], "window.root");
     }
 
     #[test]

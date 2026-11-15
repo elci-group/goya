@@ -3,9 +3,9 @@
 
 use crate::lexer::{lex, Token, TokenKind};
 use crate::scene::{
-    Anchor, CellKind, EffectRequestDecl, EffectValueType, InteractionClass, InteractionDecl,
-    InteractionExpr, InteractionType, InteractionValue, Scene, SceneCell, StateAssignment,
-    TypedKey, Vec3,
+    Anchor, CellKind, EffectRequestDecl, EffectValueType, GestureDecision, GesturePolicy,
+    InteractionClass, InteractionDecl, InteractionExpr, InteractionType, InteractionValue, Scene,
+    SceneCell, StateAssignment, TypedKey, Vec3,
 };
 use goya_determinism::EffectKind;
 use std::fmt;
@@ -139,6 +139,7 @@ pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
         && root.anchor.is_none()
         && root.authored_id.is_none()
         && root.wrap.is_none()
+        && root.gestures.is_none()
         && !root.scroll
         && !root.is_input;
     if collapse_root {
@@ -179,7 +180,7 @@ pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
                 path.remove(0);
             }
             entry.scene_path = Some(path);
-        } else if entry.kind == "property" {
+        } else if entry.kind == "property" || entry.kind == "gestures" {
             let mut path = stack
                 .last()
                 .map(|(_, path, _)| path.clone())
@@ -245,7 +246,7 @@ pub fn parse_strict(source: &str) -> Result<ParsedScene, StrictParseError> {
                 range: entry.range,
             });
         }
-        if entry.kind == "property" {
+        if entry.kind == "property" || entry.kind == "gestures" {
             let canonical = entry.name.replace('-', "_");
             let key = (entry.scene_path.clone(), canonical);
             if !properties.insert(key) {
@@ -272,6 +273,7 @@ pub fn parse_strict(source: &str) -> Result<ParsedScene, StrictParseError> {
         && root.text_size.is_none()
         && root.anchor.is_none()
         && root.wrap.is_none()
+        && root.gestures.is_none()
         && !root.scroll
         && !root.is_input
         && root.children.len() > 1;
@@ -517,6 +519,7 @@ impl P {
             anchor: None,
             wrap: None,
             scroll: false,
+            gestures: None,
             children: Vec::new(),
         };
         loop {
@@ -600,6 +603,26 @@ impl P {
                         .peek()
                         .cloned()
                         .ok_or(ParseError { line: self.line() })?;
+                    if token.text == "gestures"
+                        && self
+                            .tokens
+                            .get(self.i + 1)
+                            .is_some_and(|next| next.kind == TokenKind::LBrace)
+                    {
+                        self.parse_gestures(&mut cell)?;
+                        self.entries.push(SourceEntry {
+                            kind: "gestures".into(),
+                            name: "gestures".into(),
+                            scene_path: None,
+                            semantic_id: None,
+                            range: SourceRange {
+                                start: token.byte_start,
+                                end: self.tokens[self.i - 1].byte_end,
+                            },
+                            source_digest: [0; 32],
+                        });
+                        continue;
+                    }
                     self.parse_property(&mut cell)?;
                     self.entries.push(SourceEntry {
                         kind: "property".into(),
@@ -853,6 +876,39 @@ impl P {
                 None => return Err(ParseError { line: self.line() }),
             }
         }
+        Ok(())
+    }
+
+    fn parse_gestures(&mut self, cell: &mut SceneCell) -> Result<(), ParseError> {
+        self.expect_ident_value("gestures")?;
+        self.expect(TokenKind::LBrace)?;
+        let mut policy = GesturePolicy::default();
+        while !matches!(self.peek().map(|token| token.kind), Some(TokenKind::RBrace)) {
+            let key = self.expect_ident()?;
+            self.expect(TokenKind::Colon)?;
+            let decision = match self.expect_ident()?.as_str() {
+                "allow" => GestureDecision::Allow,
+                "deny" => GestureDecision::Deny,
+                _ => return Err(ParseError { line: self.line() }),
+            };
+            let slot = match key.as_str() {
+                "copy" => &mut policy.copy,
+                "cut" => &mut policy.cut,
+                "paste" => &mut policy.paste,
+                _ => return Err(ParseError { line: self.line() }),
+            };
+            if slot.is_some() {
+                return Err(ParseError { line: self.line() });
+            }
+            *slot = Some(decision);
+            self.optional_semi();
+        }
+        self.expect(TokenKind::RBrace)?;
+        self.optional_semi();
+        if cell.gestures.is_some() {
+            return Err(ParseError { line: self.line() });
+        }
+        cell.gestures = Some(policy);
         Ok(())
     }
 

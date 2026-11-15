@@ -10,3 +10,6 @@ description = "Sash compiles an admitted Goya scene to a native Windows executab
 goya-lang.workspace = true
 serde_json = "1"
 sha2 = "0.10"
+
+[dev-dependencies]
+goya-executable.workspace = true

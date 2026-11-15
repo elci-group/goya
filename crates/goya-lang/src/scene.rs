@@ -59,7 +59,28 @@ pub struct SceneCell {
     pub wrap: Option<u32>,
     /// Enable a clipped, user-scrollable text viewport in interactive previews.
     pub scroll: bool,
+    /// Element clipboard decisions. `None` means the element authors no policy.
+    /// This is not the experimental scope resolver in [`crate::gestures`].
+    pub gestures: Option<GesturePolicy>,
     pub children: Vec<SceneCell>,
+}
+
+/// One explicit allow or deny. An omitted operation is not a decision.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GestureDecision {
+    Allow,
+    Deny,
+}
+
+/// Element-level copy, cut, and paste decisions.
+///
+/// Each field is `None` when the block does not mention that operation.
+/// Scopes, hard denial, and predicates are not represented.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct GesturePolicy {
+    pub copy: Option<GestureDecision>,
+    pub cut: Option<GestureDecision>,
+    pub paste: Option<GestureDecision>,
 }
 
 /// A parsed scene document.

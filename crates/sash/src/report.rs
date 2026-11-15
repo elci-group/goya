@@ -3,10 +3,19 @@
 //! Runtime qualification is recorded as BLOCKED. These files do not claim a
 //! clean-machine launch, a signature, or release admission.
 
-use crate::admit::{AdmittedWindow, PROFILE};
+use crate::admit::Disposition;
 use crate::emit::Generated;
 use crate::pe::{self, PeInfo};
 use crate::{sha256_hex, DIRECTIVE_ID, PROFILE_PORTABLE, TARGET_MSVC_X64};
+
+pub struct SceneEvidence {
+    pub presentation_profile: &'static str,
+    pub semantic_id: String,
+    pub dispositions: Vec<Disposition>,
+    pub unit_name: &'static str,
+    pub contains: &'static [&'static str],
+    pub not_generated: &'static [&'static str],
+}
 
 pub struct BuildFacts {
     pub exe_sha256: String,
@@ -21,7 +30,7 @@ pub struct BuildFacts {
 }
 
 pub fn files(
-    window: &AdmittedWindow,
+    scene: &SceneEvidence,
     generated: &Generated,
     facts: &BuildFacts,
 ) -> Vec<(&'static str, Vec<u8>)> {
@@ -44,7 +53,7 @@ pub fn files(
         "schema_version": "1",
         "directive": DIRECTIVE_ID,
         "profile": PROFILE_PORTABLE,
-        "presentation_profile": PROFILE,
+        "presentation_profile": scene.presentation_profile,
         "target": TARGET_MSVC_X64,
         "artifacts": [
             {"path": "App.exe", "sha256": facts.exe_sha256, "role": "primary-executable", "required_at_launch": true},
@@ -62,7 +71,7 @@ pub fn files(
         "directive": DIRECTIVE_ID,
         "compiler": "sash",
         "profile": PROFILE_PORTABLE,
-        "presentation_profile": PROFILE,
+        "presentation_profile": scene.presentation_profile,
         "target": TARGET_MSVC_X64,
         "build_host": "linux-cross",
         "claim": "unqualified-cross-link",
@@ -99,9 +108,9 @@ pub fn files(
     });
     let dispositions = serde_json::json!({
         "schema_version": "1",
-        "profile": PROFILE,
-        "semantic_id": window.semantic_id,
-        "dispositions": window.dispositions.iter().map(|item| serde_json::json!({
+        "profile": scene.presentation_profile,
+        "semantic_id": scene.semantic_id,
+        "dispositions": scene.dispositions.iter().map(|item| serde_json::json!({
             "subject": item.subject,
             "disposition": item.disposition,
             "detail": item.detail,
@@ -110,15 +119,16 @@ pub fn files(
     let graph = serde_json::json!({
         "schema_version": "1",
         "units": [{
-            "name": "static-window",
+            "name": scene.unit_name,
             "placement": "linked into App.exe",
-            "contains": ["top-level HWND", "one STATIC control per admitted text cell"],
-            "not_generated": ["banner communications", "taskbar behaviour", "startup behaviour", "actions", "retention"],
+            "contains": scene.contains,
+            "not_generated": scene.not_generated,
         }],
         "incremental_invalidation": "NOT_RUN",
     });
     let readiness = format!(
-        "# Sash release readiness\n\nStatus: BLOCKED\n\nDirective: {DIRECTIVE_ID}\n\nProfile: {PROFILE_PORTABLE}\n\nPresentation: {PROFILE}\n\n`App.exe` is a release-mode PE produced by a Linux cross link. Clean-machine launch, signing, installed integration, accessibility, and performance gates were not run. This file is not a release admission.\n"
+        "# Sash release readiness\n\nStatus: BLOCKED\n\nDirective: {DIRECTIVE_ID}\n\nProfile: {PROFILE_PORTABLE}\n\nPresentation: {}\n\n`App.exe` is a release-mode PE produced by a Linux cross link. Clean-machine launch, signing, installed integration, accessibility, and performance gates were not run. This file is not a release admission.\n",
+        scene.presentation_profile
     );
     vec![
         ("evidence/dependency-manifest.json", pretty(&dependency)),

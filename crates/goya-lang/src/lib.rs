@@ -29,8 +29,8 @@ pub use parser::{
     StrictParseError,
 };
 pub use scene::{
-    hit_test, hit_test_scrolled, layout, Anchor, CellKind, DrawNode, Frame, RectMp, Scene,
-    SceneCell, ScrollOffsets, Vec3,
+    hit_test, hit_test_scrolled, layout, Anchor, CellKind, DrawNode, Frame, GestureDecision,
+    GesturePolicy, RectMp, Scene, SceneCell, ScrollOffsets, Vec3,
 };
 pub use scene::{
     EffectRequestDecl, EffectValueType, InteractionClass, InteractionDecl, InteractionExpr,
@@ -217,9 +217,25 @@ mod tests {
             "gestures: allow"
         );
 
-        // The proposed nested spelling is not yet part of the grammar either.
-        let block = "@ontology demo { @input notes { id: \"notes\" gestures { copy: deny } } }";
-        assert!(parse_strict(block).is_err());
+        let block = "@ontology demo { @input notes { id: \"notes\" text: \"é\" gestures { copy: allow; paste: deny } } }";
+        let parsed = parse_strict(block).unwrap();
+        let policy = parsed
+            .scene
+            .root
+            .gestures
+            .expect("gesture block is preserved");
+        assert_eq!(policy.copy, Some(GestureDecision::Allow));
+        assert_eq!(policy.paste, Some(GestureDecision::Deny));
+        assert_eq!(policy.cut, None);
+        let entry = parsed
+            .entries
+            .iter()
+            .find(|entry| entry.kind == "gestures")
+            .unwrap();
+        assert_eq!(
+            &block[entry.range.start..entry.range.end],
+            "gestures { copy: allow; paste: deny }"
+        );
     }
 
     #[test]
@@ -338,12 +354,14 @@ mod tests {
     #[test]
     fn parser_rejects_geometry_numbers_that_overflow_to_infinity() {
         let huge = "9".repeat(400);
-        let source = format!(
-            "@ontology demo {{ @cell root {{ id: \"root\"; position: ({huge}, 0, 0) }} }}"
-        );
+        let source =
+            format!("@ontology demo {{ @cell root {{ id: \"root\"; position: ({huge}, 0, 0) }} }}");
         assert!(parse(&source).is_err());
         assert!(parse_strict(&source).is_err());
-        assert!(parse_strict("@ontology demo { @cell root { id: \"root\"; position: (1, 0, 0) } }").is_ok());
+        assert!(parse_strict(
+            "@ontology demo { @cell root { id: \"root\"; position: (1, 0, 0) } }"
+        )
+        .is_ok());
     }
 
     const HELLO: &str = "\

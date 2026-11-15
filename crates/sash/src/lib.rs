@@ -9,6 +9,7 @@
 pub mod admit;
 pub mod cli;
 pub mod emit;
+pub mod interactive;
 pub mod orchestrate;
 pub mod pe;
 pub mod report;

@@ -11,8 +11,8 @@ pub struct Generated {
     pub cargo_toml: &'static str,
     pub config_toml: &'static str,
     pub build_rs: &'static str,
-    pub manifest_xml: &'static str,
-    pub resource_script: &'static str,
+    pub manifest_xml: String,
+    pub resource_script: String,
     pub source_map: serde_json::Value,
 }
 
@@ -127,13 +127,13 @@ pub fn generate(window: &AdmittedWindow) -> Generated {
         cargo_toml: CARGO_TOML,
         config_toml: CONFIG_TOML,
         build_rs: BUILD_RS,
-        manifest_xml: MANIFEST,
-        resource_script: RESOURCE_SCRIPT,
+        manifest_xml: MANIFEST.to_string(),
+        resource_script: RESOURCE_SCRIPT.to_string(),
         source_map,
     }
 }
 
-fn array_line(out: &mut String, name: &str, bytes: &[u8]) -> (usize, usize) {
+pub(crate) fn array_line(out: &mut String, name: &str, bytes: &[u8]) -> (usize, usize) {
     out.push_str("const ");
     out.push_str(name);
     out.push_str(": &[u8] = &");
@@ -151,7 +151,7 @@ fn array_line(out: &mut String, name: &str, bytes: &[u8]) -> (usize, usize) {
     (start, end)
 }
 
-fn origin(
+pub(crate) fn origin(
     property: &str,
     generated: &(usize, usize),
     source: &goya_lang::SourceRange,
@@ -165,7 +165,7 @@ fn origin(
     })
 }
 
-const CARGO_TOML: &str = r#"[package]
+pub(crate) const CARGO_TOML: &str = r#"[package]
 name = "app"
 version = "0.0.1"
 edition = "2021"
@@ -182,7 +182,7 @@ strip = "none"
 incremental = false
 "#;
 
-const CONFIG_TOML: &str = r#"[build]
+pub(crate) const CONFIG_TOML: &str = r#"[build]
 incremental = false
 
 [target.x86_64-pc-windows-msvc]
@@ -192,7 +192,7 @@ rustflags = [
 ]
 "#;
 
-const BUILD_RS: &str = r#"fn main() {
+pub(crate) const BUILD_RS: &str = r#"fn main() {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR");
     let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR");
     let rc = std::path::Path::new(&manifest_dir).join("app.rc");

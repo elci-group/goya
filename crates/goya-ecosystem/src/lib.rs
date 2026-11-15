@@ -678,6 +678,7 @@ mod tests {
     fn rugid_text_size_ratio_must_stay_finite() {
         let cell = SceneCell {
             name: "label".into(),
+            authored_id: None,
             kind: CellKind::Cell,
             is_input: false,
             position: None,
@@ -696,6 +697,7 @@ mod tests {
             anchor: None,
             wrap: None,
             scroll: false,
+            gestures: None,
             children: Vec::new(),
         };
         let mut rdf = String::new();

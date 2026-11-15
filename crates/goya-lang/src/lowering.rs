@@ -14,10 +14,11 @@
 //!   geometry).
 //! - `@input` cells → [`goya_ir::Node::Input`] carrying the placeholder.
 //!
-//! Contract: lowering is total (never panics on any scene), deterministic
-//! (lowering twice yields an equal [`Lowered`]), and never loses a scene
-//! name — duplicate cell names are disambiguated with deterministic
-//! numeric suffixes (`"name"`, `"name.2"`, `"name.3"`, ...).
+//! Contract: lowering never panics on a scene, is deterministic (lowering
+//! twice yields an equal [`Lowered`]), and never loses a scene name —
+//! duplicate cell names are disambiguated with deterministic numeric
+//! suffixes (`"name"`, `"name.2"`, `"name.3"`, ...). A gestures block is
+//! rejected rather than dropped, because GY-IR has no policy node.
 
 use std::collections::{BTreeMap, HashSet};
 
@@ -83,12 +84,17 @@ impl Lowered {
 pub enum LowerError {
     /// The scene has no usable root cell.
     MissingRoot,
+    /// Element gesture policy is preserved on the scene cell and is not a GY-IR node.
+    UnsupportedGesture,
 }
 
 impl std::fmt::Display for LowerError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             LowerError::MissingRoot => f.write_str("scene has no root cell"),
+            LowerError::UnsupportedGesture => {
+                f.write_str("gesture policy is not represented in GY-IR")
+            }
         }
     }
 }
@@ -96,12 +102,13 @@ impl std::fmt::Display for LowerError {
 impl std::error::Error for LowerError {}
 
 /// Lower a scene into the unified IR. Runs the deterministic layout engine
-/// to resolve geometry, then builds the module and node table. Total and
-/// deterministic.
+/// to resolve geometry, then builds the module and node table. Deterministic.
+/// A gestures block fails because GY-IR does not represent that policy.
 pub fn lower(scene: &Scene, viewport_w_pt: f64, viewport_h_pt: f64) -> Result<Lowered, LowerError> {
     if scene.root.name.is_empty() {
         return Err(LowerError::MissingRoot);
     }
+    reject_gestures(&scene.root)?;
     let frame = layout(scene, viewport_w_pt, viewport_h_pt);
     // `layout` emits nodes in DFS pre-order (parent, then children), which is
     // exactly the traversal order used below — so pairing by index gives each
@@ -122,6 +129,16 @@ pub fn lower(scene: &Scene, viewport_w_pt: f64, viewport_h_pt: f64) -> Result<Lo
         module: lowerer.module,
         table: lowerer.table,
     })
+}
+
+fn reject_gestures(cell: &SceneCell) -> Result<(), LowerError> {
+    if cell.gestures.is_some() {
+        return Err(LowerError::UnsupportedGesture);
+    }
+    for child in &cell.children {
+        reject_gestures(child)?;
+    }
+    Ok(())
 }
 
 struct Lowerer<'a> {
@@ -503,6 +520,18 @@ mod tests {
         let mut scene = parse(HELLO).unwrap();
         scene.root.name = String::new();
         assert_eq!(lower(&scene, 800.0, 600.0), Err(LowerError::MissingRoot));
+    }
+
+    #[test]
+    fn gesture_policy_is_not_lowered_into_ir() {
+        let scene = parse(
+            "@ontology demo { @input notes { id: \"notes\" text: \"a\" gestures { copy: deny; paste: deny } } }",
+        )
+        .unwrap();
+        assert_eq!(
+            lower(&scene, 80.0, 40.0),
+            Err(LowerError::UnsupportedGesture)
+        );
     }
 
     /// Fuzz-ish totality: empty cells, deep nesting, many siblings — the
