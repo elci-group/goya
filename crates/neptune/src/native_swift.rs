@@ -1,7 +1,7 @@
 //! Experimental, source-only native preview for one input-free D1 button.
 use crate::swift::{Argument, Expr, Identifier};
 use goya_executable::D1Value;
-use goya_lang::{CellKind, InteractionClass, SourceRange};
+use goya_lang::{CellKind, InteractionClass, InteractionType, SourceRange};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
@@ -26,11 +26,105 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+fn verbatim(value: &str) -> String {
+    Expr::Call {
+        callee: Identifier::new("Text").expect("fixed identifier"),
+        arguments: vec![Argument {
+            label: Some(Identifier::new("verbatim").expect("fixed identifier")),
+            value: Expr::StringLiteral(value.to_owned()),
+        }],
+    }
+    .render()
+}
+
+fn value_text(name: &str, value_type: InteractionType) -> Result<String, crate::Diagnostic> {
+    if Identifier::new(name).is_none() {
+        return Err(reject("state field name is not a Swift identifier", None));
+    }
+    Ok(match value_type {
+        InteractionType::Int => format!("Text(verbatim: String(store.state.{name}))"),
+        InteractionType::Text => format!("Text(verbatim: store.state.{name})"),
+        InteractionType::Bool => {
+            format!("Text(verbatim: store.state.{name} ? \"true\" : \"false\")")
+        }
+    })
+}
+
+fn push_readout(swift: &mut String, expression: &str) -> (usize, usize) {
+    swift.push_str("            ");
+    let start = swift.len();
+    swift.push_str(expression);
+    let end = swift.len();
+    swift.push('\n');
+    (start, end)
+}
+
+pub(crate) fn append_readout(
+    swift: &mut String,
+    fields: &[crate::transition_swift::Field],
+) -> Result<Vec<serde_json::Value>, crate::Diagnostic> {
+    let mut rows = Vec::new();
+    for field in fields {
+        push_readout(swift, &verbatim(&field.source_key));
+        let expression = value_text(&field.swift_name, field.value_type)?;
+        let (start, end) = push_readout(swift, &expression);
+        rows.push(serde_json::json!({
+            "role": "state",
+            "source_key": field.source_key,
+            "swift_name": field.swift_name,
+            "type": match field.value_type {
+                InteractionType::Int => "int",
+                InteractionType::Text => "text",
+                InteractionType::Bool => "bool",
+            },
+            "encoding": match field.value_type {
+                InteractionType::Int => "decimal",
+                InteractionType::Text => "utf8",
+                InteractionType::Bool => "true-false",
+            },
+            "swift_range": {"start_byte": start, "end_byte": end}
+        }));
+    }
+    push_readout(swift, &verbatim("revision"));
+    let (start, end) = push_readout(swift, "Text(verbatim: String(store.state.revision))");
+    rows.push(serde_json::json!({
+        "role": "revision",
+        "source_key": "revision",
+        "swift_name": "revision",
+        "type": "uint64",
+        "encoding": "decimal",
+        "swift_range": {"start_byte": start, "end_byte": end}
+    }));
+    Ok(rows)
+}
+
 /// Generate a source preview, without Apple compilation or iOS admission.
 pub fn preview(
     source: &str,
     module: &str,
     initial: BTreeMap<String, D1Value>,
+) -> Result<Preview, crate::Diagnostic> {
+    render(source, module, initial, false)
+}
+
+/// Same button admission as [`preview`], with a live readout of admitted state.
+///
+/// State cells render in UTF-8 key order, then the revision. The view reads
+/// the published state and dispatches only from the button action. Apple
+/// compilation and iOS admission are not run.
+pub fn preview_observable(
+    source: &str,
+    module: &str,
+    initial: BTreeMap<String, D1Value>,
+) -> Result<Preview, crate::Diagnostic> {
+    render(source, module, initial, true)
+}
+
+fn render(
+    source: &str,
+    module: &str,
+    initial: BTreeMap<String, D1Value>,
+    readout: bool,
 ) -> Result<Preview, crate::Diagnostic> {
     crate::validate_module(module)?;
     crate::inspect(source)?;
@@ -130,20 +224,18 @@ pub fn preview(
     let button_start = swift.len();
     swift.push_str("            Button(action: {\n                do {\n                    try store.dispatch0(input: NeptuneInput0())\n                    actionError = nil\n                } catch {\n                    actionError = String(describing: error)\n                }\n            }, label: {\n                ");
     let text_start = swift.len();
-    let text = Expr::Call {
-        callee: Identifier::new("Text").expect("fixed identifier"),
-        arguments: vec![Argument {
-            label: Some(Identifier::new("verbatim").expect("fixed identifier")),
-            value: Expr::StringLiteral(label.clone()),
-        }],
-    }
-    .render();
-    swift.push_str(&text);
+    swift.push_str(&verbatim(label));
     let text_end = swift.len();
-    swift.push_str(
-        "\n            })\n            .frame(maxWidth: .infinity, maxHeight: .infinity)\n",
-    );
+    swift.push_str("\n            })\n");
+    if !readout {
+        swift.push_str("            .frame(maxWidth: .infinity, maxHeight: .infinity)\n");
+    }
     let button_end = swift.len();
+    let readout_rows = if readout {
+        append_readout(&mut swift, owner.state_fields())?
+    } else {
+        Vec::new()
+    };
     swift.push_str("            if let actionError {\n                Text(verbatim: \"Action failed: \" + actionError)\n            }\n        }\n    }\n}\n\n@main\n@MainActor\nstruct NeptuneApp: App {\n    var body: some Scene {\n        WindowGroup {\n            NeptuneRootView()\n        }\n    }\n}\n");
     if swift.len() > 2 * 1024 * 1024 {
         return Err(reject("native preview exceeds 2 MiB", None));
@@ -152,8 +244,8 @@ pub fn preview(
     let swift_range = |start, end| serde_json::json!({"start_byte":start,"end_byte":end});
     let semantic =
         |declared_id: &str| serde_json::json!({"module":module,"declared_id":declared_id});
-    let result = serde_json::json!({
-        "schema_version":"1", "operation":"preview-native-button", "profile":"experimental", "verification":"SOURCE_PREVIEW", "scope":"single_button",
+    let mut result = serde_json::json!({
+        "schema_version":"1", "operation": if readout { "preview-observable-button" } else { "preview-native-button" }, "profile":"experimental", "verification":"SOURCE_PREVIEW", "scope": if readout { "single_button_readout" } else { "single_button" },
         "module":module, "source_sha256":hex(&parsed.source_digest), "initial_state_sha256":hex(&owner.initial_digest()), "initial_hash_contract":"NPT-D1-INIT/1",
         "swift_sha256":format!("{:x}", Sha256::digest(swift.as_bytes())), "swift":swift,
         "reference_program_hash":hex(&action.reference_program_hash),
@@ -165,6 +257,11 @@ pub fn preview(
         "capabilities":{"schema_version":"1","profile":"experimental","frameworks":["SwiftUI","Combine"],"minimum_os":null,"entitlements":[],"usage_description_keys":[],"privacy_declarations":"owner_review_required","test_status":"apple_validation_not_run","fallback":"reject"},
         "stages":{"goya_frontend":"PASS","runtime_limit_parity":"NOT_VERIFIED","apple_validation":"NOT_RUN","ios_admission":"NOT_RUN"}
     });
+    if readout {
+        result["readout"] = serde_json::Value::Array(readout_rows);
+        result["stages"]["state_readout"] = serde_json::json!("SOURCE_PREVIEW");
+        result["stages"]["accessibility"] = serde_json::json!("NOT_VERIFIED");
+    }
     Ok(Preview(result))
 }
 
@@ -190,6 +287,8 @@ mod tests {
         assert!(swift.contains("try store.dispatch0(input: NeptuneInput0())"));
         assert!(swift.contains("Text(verbatim: \"Increment\")"));
         assert!(swift.contains("Text(verbatim: \"Action failed: \" + actionError)"));
+        assert!(swift.contains(".frame(maxWidth: .infinity, maxHeight: .infinity)"));
+        assert!(!swift.contains("store.state"));
         assert!(!swift.contains("try?"));
         let json = first.to_json();
         assert_eq!(json["stages"]["apple_validation"], "NOT_RUN");
@@ -227,11 +326,91 @@ mod tests {
                 preview(&source, "app/main.gscene", initial()).is_err(),
                 "{source}"
             );
+            assert!(
+                preview_observable(&source, "app/main.gscene", initial()).is_err(),
+                "{source}"
+            );
         }
         assert!(preview(SOURCE, "app/main.gscene", BTreeMap::new()).is_err());
         let colored = SOURCE.replace("text: \"Increment\"", "text: \"Increment\" fill: #ffffff");
         let error = preview(&colored, "app/main.gscene", initial()).unwrap_err();
         let range = error.range.unwrap();
         assert_eq!(&colored[range.start..range.end], "fill: #ffffff");
+    }
+    #[test]
+    fn observable_readout_follows_key_order_and_dispatches_only_from_the_button() {
+        let source = r#"@ontology counter {
+  @button increment { id: "button.increment" text: "Increment" }
+  @interaction increment {
+    id: "action.increment";
+    trigger: button.increment.activate;
+    class: D1;
+    state { read count: int; write count: int; write label: text; write ready: bool; }
+    input { }
+    set count = state.count + 1;
+    set label = "ok";
+    set ready = true;
+  }
+}
+"#;
+        let values = BTreeMap::from([
+            ("count".into(), D1Value::Int(0)),
+            ("label".into(), D1Value::Text("é".into())),
+            ("ready".into(), D1Value::Bool(false)),
+        ]);
+        let first = preview_observable(source, "app/main.gscene", values.clone()).unwrap();
+        assert_eq!(
+            first.to_json(),
+            preview_observable(source, "app/main.gscene", values.clone())
+                .unwrap()
+                .to_json()
+        );
+        let swift = first.swift();
+        assert!(!swift.contains(".frame("));
+        assert_eq!(swift.matches("store.dispatch0").count(), 1);
+        let count = swift
+            .find("Text(verbatim: String(store.state.s0))")
+            .unwrap();
+        let label = swift.find("Text(verbatim: store.state.s1)").unwrap();
+        let ready = swift
+            .find("Text(verbatim: store.state.s2 ? \"true\" : \"false\")")
+            .unwrap();
+        let revision = swift
+            .find("Text(verbatim: String(store.state.revision))")
+            .unwrap();
+        assert!(count < label && label < ready && ready < revision);
+        let body = &swift[swift.find("var body").unwrap()..];
+        let readout = &body[body.find("})").unwrap()..body.find("if let actionError").unwrap()];
+        assert!(!readout.contains("dispatch"));
+        let json = first.to_json();
+        assert_eq!(json["operation"], "preview-observable-button");
+        assert_eq!(json["scope"], "single_button_readout");
+        assert_eq!(json["stages"]["state_readout"], "SOURCE_PREVIEW");
+        assert_eq!(json["stages"]["apple_validation"], "NOT_RUN");
+        assert_eq!(json["stages"]["ios_admission"], "NOT_RUN");
+        let rows = json["readout"].as_array().unwrap();
+        assert_eq!(
+            rows.iter()
+                .map(|row| row["source_key"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["count", "label", "ready", "revision"]
+        );
+        assert_eq!(rows[1]["encoding"], "utf8");
+        assert_eq!(rows[2]["encoding"], "true-false");
+        assert_eq!(rows[3]["encoding"], "decimal");
+        for row in rows {
+            let generated = &row["swift_range"];
+            let slice = swift
+                .get(
+                    generated["start_byte"].as_u64().unwrap() as usize
+                        ..generated["end_byte"].as_u64().unwrap() as usize,
+                )
+                .unwrap();
+            assert!(slice.contains("store.state"));
+        }
+        let plain = preview(source, "app/main.gscene", values).unwrap();
+        assert!(!plain.swift().contains("store.state"));
+        assert_eq!(plain.to_json()["scope"], "single_button");
+        assert!(plain.to_json().get("readout").is_none());
     }
 }

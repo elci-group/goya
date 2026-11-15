@@ -558,3 +558,380 @@ fn native_button_preview_cli_and_service_match_and_require_profile() {
     bad["initial"] = serde_json::json!([]);
     assert_eq!(session.handle(&bad)["status"], "FAIL");
 }
+
+#[test]
+fn static_column_preview_cli_and_service_match_and_require_profile() {
+    let scene = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/static-column.gscene");
+    let base = [
+        "preview-static-column",
+        scene,
+        "--module",
+        "app/main.gscene",
+    ];
+    assert!(!Command::new(env!("CARGO_BIN_EXE_neptune"))
+        .args(base)
+        .output()
+        .unwrap()
+        .status
+        .success());
+    let output = Command::new(env!("CARGO_BIN_EXE_neptune"))
+        .args(base)
+        .args(["--profile", "experimental", "--format", "json"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(result["verification"], "SOURCE_PREVIEW");
+    assert_eq!(result["scope"], "static_text_column");
+    assert_eq!(result["cell_count"], 3);
+    assert_eq!(result["stages"]["layout_fidelity"], "NOT_CLAIMED");
+    assert_eq!(result["stages"]["ios_admission"], "NOT_RUN");
+    let swift = result["swift"].as_str().unwrap();
+    let hello = swift.find("Text(verbatim: \"Hello\")").unwrap();
+    let title = swift.find("Text(verbatim: \"Title\")").unwrap();
+    let note = swift.find("Text(verbatim: \"Note\")").unwrap();
+    assert!(hello < title && title < note);
+    let source = std::fs::read_to_string(scene).unwrap();
+    let mut session = neptune::service::Session::default();
+    let request = serde_json::json!({"schema_version":"1","job_id":"column","operation":"preview-static-column","module":"app/main.gscene","profile":"experimental","source":source});
+    let response = session.handle(&request);
+    assert_eq!(response["status"], "PASS");
+    assert_eq!(response["result"], result);
+    let mut missing = request.clone();
+    missing["job_id"] = serde_json::json!("column-missing-profile");
+    missing.as_object_mut().unwrap().remove("profile");
+    assert_eq!(session.handle(&missing)["status"], "FAIL");
+}
+
+#[test]
+fn observable_button_preview_cli_and_service_match_and_require_profile() {
+    let scene = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/native-button.gscene");
+    let initial_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/native-button-initial.json"
+    );
+    let base = [
+        "preview-observable-button",
+        scene,
+        "--module",
+        "app/main.gscene",
+        "--initial",
+        initial_path,
+    ];
+    assert!(!Command::new(env!("CARGO_BIN_EXE_neptune"))
+        .args(base)
+        .output()
+        .unwrap()
+        .status
+        .success());
+    let output = Command::new(env!("CARGO_BIN_EXE_neptune"))
+        .args(base)
+        .args(["--profile", "experimental", "--format", "json"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(result["verification"], "SOURCE_PREVIEW");
+    assert_eq!(result["scope"], "single_button_readout");
+    assert_eq!(result["stages"]["state_readout"], "SOURCE_PREVIEW");
+    assert_eq!(result["stages"]["ios_admission"], "NOT_RUN");
+    let swift = result["swift"].as_str().unwrap();
+    let value = swift
+        .find("Text(verbatim: String(store.state.s0))")
+        .unwrap();
+    let revision = swift
+        .find("Text(verbatim: String(store.state.revision))")
+        .unwrap();
+    assert!(value < revision);
+    assert_eq!(swift.matches("store.dispatch0").count(), 1);
+    let source = std::fs::read_to_string(scene).unwrap();
+    let initial: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(initial_path).unwrap()).unwrap();
+    let mut session = neptune::service::Session::default();
+    let request = serde_json::json!({"schema_version":"1","job_id":"observable","operation":"preview-observable-button","module":"app/main.gscene","profile":"experimental","source":source,"initial":initial});
+    let response = session.handle(&request);
+    assert_eq!(response["status"], "PASS");
+    assert_eq!(response["result"], result);
+    let mut bad = request;
+    bad["job_id"] = serde_json::json!("bad-observable");
+    bad["initial"] = serde_json::json!([]);
+    assert_eq!(session.handle(&bad)["status"], "FAIL");
+}
+
+#[test]
+fn observable_column_preview_cli_and_service_match_and_require_profile() {
+    let scene = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/observable-column.gscene"
+    );
+    let initial_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/observable-column-initial.json"
+    );
+    let base = [
+        "preview-observable-column",
+        scene,
+        "--module",
+        "app/main.gscene",
+        "--initial",
+        initial_path,
+    ];
+    assert!(!Command::new(env!("CARGO_BIN_EXE_neptune"))
+        .args(base)
+        .output()
+        .unwrap()
+        .status
+        .success());
+    let output = Command::new(env!("CARGO_BIN_EXE_neptune"))
+        .args(base)
+        .args(["--profile", "experimental", "--format", "json"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(result["verification"], "SOURCE_PREVIEW");
+    assert_eq!(result["scope"], "static_text_and_one_button");
+    assert_eq!(result["node_count"], 2);
+    assert_eq!(result["stages"]["state_readout"], "SOURCE_PREVIEW");
+    assert_eq!(result["stages"]["layout_fidelity"], "NOT_CLAIMED");
+    assert_eq!(result["stages"]["ios_admission"], "NOT_RUN");
+    let swift = result["swift"].as_str().unwrap();
+    let heading = swift.find("Text(verbatim: \"Counter\")").unwrap();
+    let label = swift.find("Text(verbatim: \"Increment\")").unwrap();
+    let value = swift
+        .find("Text(verbatim: String(store.state.s0))")
+        .unwrap();
+    let revision = swift
+        .find("Text(verbatim: String(store.state.revision))")
+        .unwrap();
+    assert!(heading < label && label < value && value < revision);
+    assert_eq!(swift.matches("store.dispatch0").count(), 1);
+    let source = std::fs::read_to_string(scene).unwrap();
+    let initial: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(initial_path).unwrap()).unwrap();
+    let mut session = neptune::service::Session::default();
+    let request = serde_json::json!({"schema_version":"1","job_id":"observable-column","operation":"preview-observable-column","module":"app/main.gscene","profile":"experimental","source":source,"initial":initial});
+    let response = session.handle(&request);
+    assert_eq!(response["status"], "PASS");
+    assert_eq!(response["result"], result);
+    let mut bad = request;
+    bad["job_id"] = serde_json::json!("bad-observable-column");
+    bad["initial"] = serde_json::json!([]);
+    assert_eq!(session.handle(&bad)["status"], "FAIL");
+}
+
+#[test]
+fn observable_buttons_preview_cli_and_service_match_and_require_profile() {
+    let scene = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/observable-buttons.gscene"
+    );
+    let initial_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/observable-buttons-initial.json"
+    );
+    let base = [
+        "preview-observable-buttons",
+        scene,
+        "--module",
+        "app/main.gscene",
+        "--initial",
+        initial_path,
+    ];
+    assert!(!Command::new(env!("CARGO_BIN_EXE_neptune"))
+        .args(base)
+        .output()
+        .unwrap()
+        .status
+        .success());
+    let output = Command::new(env!("CARGO_BIN_EXE_neptune"))
+        .args(base)
+        .args(["--profile", "experimental", "--format", "json"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(result["verification"], "SOURCE_PREVIEW");
+    assert_eq!(result["scope"], "static_text_and_buttons");
+    assert_eq!(result["node_count"], 3);
+    assert_eq!(result["button_count"], 2);
+    assert_eq!(result["actions"][0]["method"], "dispatch0");
+    assert_eq!(result["actions"][0]["trigger"], "button.mark");
+    assert_eq!(result["actions"][1]["method"], "dispatch1");
+    assert_eq!(result["actions"][1]["trigger"], "button.up");
+    assert_eq!(result["stages"]["state_readout"], "SOURCE_PREVIEW");
+    assert_eq!(result["stages"]["layout_fidelity"], "NOT_CLAIMED");
+    assert_eq!(result["stages"]["ios_admission"], "NOT_RUN");
+    let swift = result["swift"].as_str().unwrap();
+    let up = swift.find("Text(verbatim: \"Up\")").unwrap();
+    let mark = swift.find("Text(verbatim: \"Mark\")").unwrap();
+    assert!(swift.find("store.dispatch1(").unwrap() < up);
+    assert!(up < swift.find("store.dispatch0(").unwrap());
+    assert!(swift.find("store.dispatch0(").unwrap() < mark);
+    let source = std::fs::read_to_string(scene).unwrap();
+    let initial: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(initial_path).unwrap()).unwrap();
+    let mut session = neptune::service::Session::default();
+    let request = serde_json::json!({"schema_version":"1","job_id":"observable-buttons","operation":"preview-observable-buttons","module":"app/main.gscene","profile":"experimental","source":source,"initial":initial});
+    let response = session.handle(&request);
+    assert_eq!(response["status"], "PASS");
+    assert_eq!(response["result"], result);
+    let mut bad = request;
+    bad["job_id"] = serde_json::json!("bad-observable-buttons");
+    bad["initial"] = serde_json::json!([]);
+    assert_eq!(session.handle(&bad)["status"], "FAIL");
+}
+
+#[test]
+fn observable_button_trace_cli_and_service_match_and_require_profile() {
+    let scene = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/observable-buttons.gscene"
+    );
+    let initial_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/observable-buttons-initial.json"
+    );
+    let activations_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/observable-buttons-activations.json"
+    );
+    let base = [
+        "trace-observable-buttons",
+        scene,
+        "--module",
+        "app/main.gscene",
+        "--initial",
+        initial_path,
+        "--activations",
+        activations_path,
+    ];
+    assert!(!Command::new(env!("CARGO_BIN_EXE_neptune"))
+        .args(base)
+        .output()
+        .unwrap()
+        .status
+        .success());
+    let output = Command::new(env!("CARGO_BIN_EXE_neptune"))
+        .args(base)
+        .args(["--profile", "experimental", "--format", "json"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(result["verification"], "HOST_TRACE");
+    assert_eq!(result["scope"], "button_activation_trace");
+    assert_eq!(result["activation_count"], 3);
+    assert_eq!(result["stages"]["host_trace"], "PASS");
+    assert_eq!(result["stages"]["swift_execution"], "NOT_RUN");
+    assert_eq!(result["stages"]["ios_admission"], "NOT_RUN");
+    let steps = result["steps"].as_array().unwrap();
+    assert_eq!(steps.len(), 4);
+    assert_eq!(steps[1]["method"], "dispatch1");
+    assert_eq!(steps[1]["status"], "PASS");
+    assert_eq!(steps[2]["method"], "dispatch0");
+    assert_eq!(steps[3]["revision"], 3);
+    assert_eq!(steps[3]["state"][0]["value"], 2);
+    assert_eq!(steps[3]["state"][1]["value"], "ok");
+    let source = std::fs::read_to_string(scene).unwrap();
+    let initial: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(initial_path).unwrap()).unwrap();
+    let activations: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(activations_path).unwrap()).unwrap();
+    let mut session = neptune::service::Session::default();
+    let request = serde_json::json!({"schema_version":"1","job_id":"observable-trace","operation":"trace-observable-buttons","module":"app/main.gscene","profile":"experimental","source":source,"initial":initial,"activations":activations});
+    let response = session.handle(&request);
+    assert_eq!(response["status"], "PASS");
+    assert_eq!(response["result"], result);
+    let mut bad = request;
+    bad["job_id"] = serde_json::json!("bad-observable-trace");
+    bad["activations"] = serde_json::json!(["action.missing"]);
+    assert_eq!(session.handle(&bad)["status"], "FAIL");
+}
+
+#[test]
+fn observable_column_trace_cli_and_service_match_and_require_profile() {
+    let scene = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/observable-column.gscene"
+    );
+    let initial_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/observable-column-initial.json"
+    );
+    let activations_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/observable-column-activations.json"
+    );
+    let base = [
+        "trace-observable-column",
+        scene,
+        "--module",
+        "app/main.gscene",
+        "--initial",
+        initial_path,
+        "--activations",
+        activations_path,
+    ];
+    assert!(!Command::new(env!("CARGO_BIN_EXE_neptune"))
+        .args(base)
+        .output()
+        .unwrap()
+        .status
+        .success());
+    let output = Command::new(env!("CARGO_BIN_EXE_neptune"))
+        .args(base)
+        .args(["--profile", "experimental", "--format", "json"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(result["verification"], "HOST_TRACE");
+    assert_eq!(result["scope"], "single_button_activation_trace");
+    assert_eq!(result["activation_count"], 2);
+    assert_eq!(result["stages"]["swift_execution"], "NOT_RUN");
+    assert_eq!(result["stages"]["ios_admission"], "NOT_RUN");
+    let steps = result["steps"].as_array().unwrap();
+    assert_eq!(steps.len(), 3);
+    assert_eq!(steps[1]["method"], "dispatch0");
+    assert_eq!(steps[2]["revision"], 2);
+    assert_eq!(steps[2]["state"][0]["value"], 2);
+    let source = std::fs::read_to_string(scene).unwrap();
+    let initial: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(initial_path).unwrap()).unwrap();
+    let activations: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(activations_path).unwrap()).unwrap();
+    let mut session = neptune::service::Session::default();
+    let request = serde_json::json!({"schema_version":"1","job_id":"observable-column-trace","operation":"trace-observable-column","module":"app/main.gscene","profile":"experimental","source":source,"initial":initial,"activations":activations});
+    let response = session.handle(&request);
+    assert_eq!(response["status"], "PASS");
+    assert_eq!(response["result"], result);
+    let mut bad = request;
+    bad["job_id"] = serde_json::json!("bad-observable-column-trace");
+    bad["activations"] = serde_json::json!(["action.missing"]);
+    assert_eq!(session.handle(&bad)["status"], "FAIL");
+}

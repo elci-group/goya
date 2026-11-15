@@ -1,0 +1,24 @@
+@ontology counter {
+  @cell screen {
+    id: "screen"
+    text: "Counter"
+    @button up { id: "button.up" text: "Up" }
+    @button mark { id: "button.mark" text: "Mark" }
+  }
+  @interaction up {
+    id: "action.up";
+    trigger: button.up.activate;
+    class: D1;
+    state { read count: int; write count: int; }
+    input { }
+    set count = state.count + 1;
+  }
+  @interaction mark {
+    id: "action.mark";
+    trigger: button.mark.activate;
+    class: D1;
+    state { write label: text; }
+    input { }
+    set label = "ok";
+  }
+}

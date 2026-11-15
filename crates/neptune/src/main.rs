@@ -410,6 +410,7 @@ fn main() -> ExitCode {
             Some("GY-E1002") => "Goya does not preserve template semantics in strict parsing. Remove the template.",
             Some("GY-E1003") => "A property is declared more than once on the same scene node. Keep one declaration.",
             Some("GY-E1004") => "Goya could not validate the interaction contract. Correct the reported interaction error.",
+            Some("GY-E1005") => "A scene element is missing an authored ID, or the same ID is used twice.",
             _ => { eprintln!("unknown diagnostic code"); return ExitCode::FAILURE; }
         };
         println!("{description}");
@@ -422,9 +423,15 @@ fn main() -> ExitCode {
             && args[1] != "preview-transition"
             && args[1] != "model-d1-state"
             && args[1] != "preview-d1-owner"
-            && args[1] != "preview-native-button")
+            && args[1] != "preview-native-button"
+            && args[1] != "preview-observable-button"
+            && args[1] != "preview-observable-column"
+            && args[1] != "preview-observable-buttons"
+            && args[1] != "trace-observable-buttons"
+            && args[1] != "trace-observable-column"
+            && args[1] != "preview-static-column")
     {
-        eprintln!("usage: neptune <inspect|check> <scene.gscene> [--target ios] [--format json]\n       neptune preview <scene.gscene> --module <project-relative.gscene> [--format json] [--out new-directory]\n       neptune preview-transition <scene.gscene> --module <project-relative.gscene> --profile experimental [--format json]\n       neptune <model-d1-state|preview-d1-owner|preview-native-button> <scene.gscene> --module <project-relative.gscene> --profile experimental --initial <state.json> [--format json]\n       neptune explain <code>");
+        eprintln!("usage: neptune <inspect|check> <scene.gscene> [--target ios] [--format json]\n       neptune preview <scene.gscene> --module <project-relative.gscene> [--format json] [--out new-directory]\n       neptune preview-static-column <scene.gscene> --module <project-relative.gscene> --profile experimental [--format json]\n       neptune preview-transition <scene.gscene> --module <project-relative.gscene> --profile experimental [--format json]\n       neptune <model-d1-state|preview-d1-owner|preview-native-button|preview-observable-button|preview-observable-column|preview-observable-buttons> <scene.gscene> --module <project-relative.gscene> --profile experimental --initial <state.json> [--format json]\n       neptune <trace-observable-buttons|trace-observable-column> <scene.gscene> --module <project-relative.gscene> --profile experimental --initial <state.json> --activations <actions.json> [--format json]\n       neptune explain <code>");
         return ExitCode::from(2);
     }
     let mut json = false;
@@ -433,6 +440,7 @@ fn main() -> ExitCode {
     let mut module = None;
     let mut experimental = false;
     let mut initial_path = None;
+    let mut activations_path = None;
     for option in args[3..].chunks(2) {
         if option.len() != 2 {
             eprintln!("missing option value");
@@ -448,7 +456,13 @@ fn main() -> ExitCode {
             && (args[1] == "preview-transition"
                 || args[1] == "model-d1-state"
                 || args[1] == "preview-d1-owner"
-                || args[1] == "preview-native-button")
+                || args[1] == "preview-native-button"
+                || args[1] == "preview-observable-button"
+                || args[1] == "preview-observable-column"
+                || args[1] == "preview-observable-buttons"
+                || args[1] == "trace-observable-buttons"
+                || args[1] == "trace-observable-column"
+                || args[1] == "preview-static-column")
             && option[1] == "experimental"
             && !experimental
         {
@@ -458,7 +472,13 @@ fn main() -> ExitCode {
                 || args[1] == "preview-transition"
                 || args[1] == "model-d1-state"
                 || args[1] == "preview-d1-owner"
-                || args[1] == "preview-native-button")
+                || args[1] == "preview-native-button"
+                || args[1] == "preview-observable-button"
+                || args[1] == "preview-observable-column"
+                || args[1] == "preview-observable-buttons"
+                || args[1] == "trace-observable-buttons"
+                || args[1] == "trace-observable-column"
+                || args[1] == "preview-static-column")
             && module.is_none()
         {
             module = option[1].to_str();
@@ -469,10 +489,20 @@ fn main() -> ExitCode {
         } else if option[0] == "--initial"
             && (args[1] == "model-d1-state"
                 || args[1] == "preview-d1-owner"
-                || args[1] == "preview-native-button")
+                || args[1] == "preview-native-button"
+                || args[1] == "preview-observable-button"
+                || args[1] == "preview-observable-column"
+                || args[1] == "preview-observable-buttons"
+                || args[1] == "trace-observable-buttons"
+                || args[1] == "trace-observable-column")
             && initial_path.is_none()
         {
             initial_path = Some(std::path::PathBuf::from(&option[1]));
+        } else if option[0] == "--activations"
+            && (args[1] == "trace-observable-buttons" || args[1] == "trace-observable-column")
+            && activations_path.is_none()
+        {
+            activations_path = Some(std::path::PathBuf::from(&option[1]));
         } else {
             eprintln!("unknown or duplicate option");
             return ExitCode::from(2);
@@ -482,7 +512,13 @@ fn main() -> ExitCode {
         || args[1] == "preview-transition"
         || args[1] == "model-d1-state"
         || args[1] == "preview-d1-owner"
-        || args[1] == "preview-native-button")
+        || args[1] == "preview-native-button"
+        || args[1] == "preview-observable-button"
+        || args[1] == "preview-observable-column"
+        || args[1] == "preview-observable-buttons"
+        || args[1] == "trace-observable-buttons"
+        || args[1] == "trace-observable-column"
+        || args[1] == "preview-static-column")
         && module.is_none()
     {
         eprintln!("preview requires --module <project-relative-path.gscene>");
@@ -491,7 +527,13 @@ fn main() -> ExitCode {
     if (args[1] == "preview-transition"
         || args[1] == "model-d1-state"
         || args[1] == "preview-d1-owner"
-        || args[1] == "preview-native-button")
+        || args[1] == "preview-native-button"
+        || args[1] == "preview-observable-button"
+        || args[1] == "preview-observable-column"
+        || args[1] == "preview-observable-buttons"
+        || args[1] == "trace-observable-buttons"
+        || args[1] == "trace-observable-column"
+        || args[1] == "preview-static-column")
         && !experimental
     {
         eprintln!("this operation requires --profile experimental");
@@ -499,10 +541,21 @@ fn main() -> ExitCode {
     }
     if (args[1] == "model-d1-state"
         || args[1] == "preview-d1-owner"
-        || args[1] == "preview-native-button")
+        || args[1] == "preview-native-button"
+        || args[1] == "preview-observable-button"
+        || args[1] == "preview-observable-column"
+        || args[1] == "preview-observable-buttons"
+        || args[1] == "trace-observable-buttons"
+        || args[1] == "trace-observable-column")
         && initial_path.is_none()
     {
         eprintln!("this operation requires --initial <state.json>");
+        return ExitCode::from(2);
+    }
+    if (args[1] == "trace-observable-buttons" || args[1] == "trace-observable-column")
+        && activations_path.is_none()
+    {
+        eprintln!("this operation requires --activations <actions.json>");
         return ExitCode::from(2);
     }
     let mut bytes = Vec::new();
@@ -527,6 +580,11 @@ fn main() -> ExitCode {
     if args[1] == "model-d1-state"
         || args[1] == "preview-d1-owner"
         || args[1] == "preview-native-button"
+        || args[1] == "preview-observable-button"
+        || args[1] == "preview-observable-column"
+        || args[1] == "preview-observable-buttons"
+        || args[1] == "trace-observable-buttons"
+        || args[1] == "trace-observable-column"
     {
         let result = (|| -> Result<serde_json::Value, neptune::Diagnostic> {
             let path = initial_path.as_ref().ok_or_else(|| neptune::Diagnostic {
@@ -566,6 +624,74 @@ fn main() -> ExitCode {
                     neptune::native_swift::preview(&source, module.unwrap_or_default(), initial)?
                         .to_json(),
                 )
+            } else if args[1] == "preview-observable-button" {
+                Ok(neptune::native_swift::preview_observable(
+                    &source,
+                    module.unwrap_or_default(),
+                    initial,
+                )?
+                .to_json())
+            } else if args[1] == "preview-observable-column" {
+                Ok(neptune::observable_column::preview(
+                    &source,
+                    module.unwrap_or_default(),
+                    initial,
+                )?
+                .to_json())
+            } else if args[1] == "preview-observable-buttons" {
+                Ok(neptune::observable_buttons::preview(
+                    &source,
+                    module.unwrap_or_default(),
+                    initial,
+                )?
+                .to_json())
+            } else if args[1] == "trace-observable-buttons" || args[1] == "trace-observable-column"
+            {
+                let path = activations_path
+                    .as_ref()
+                    .ok_or_else(|| neptune::Diagnostic {
+                        code: "NPT-E2104",
+                        message: "activations are required".into(),
+                        range: None,
+                    })?;
+                let mut data = Vec::new();
+                File::open(path)
+                    .and_then(|file| file.take(64 * 1024 + 1).read_to_end(&mut data))
+                    .map_err(|e| neptune::Diagnostic {
+                        code: "NPT-E1000",
+                        message: e.to_string(),
+                        range: None,
+                    })?;
+                if data.len() > 64 * 1024 {
+                    return Err(neptune::Diagnostic {
+                        code: "NPT-E1001",
+                        message: "activation list exceeds 64 KiB".into(),
+                        range: None,
+                    });
+                }
+                let value: serde_json::Value =
+                    serde_json::from_slice(&data).map_err(|e| neptune::Diagnostic {
+                        code: "NPT-E2104",
+                        message: format!("invalid activation JSON: {e}"),
+                        range: None,
+                    })?;
+                let activations = neptune::observable_trace::parse_activations(&value)?;
+                let traced = if args[1] == "trace-observable-column" {
+                    neptune::observable_trace::trace_column(
+                        &source,
+                        module.unwrap_or_default(),
+                        initial,
+                        &activations,
+                    )?
+                } else {
+                    neptune::observable_trace::trace(
+                        &source,
+                        module.unwrap_or_default(),
+                        initial,
+                        &activations,
+                    )?
+                };
+                Ok(traced.to_json())
             } else {
                 Ok(neptune::application_swift::preview(
                     &source,
@@ -592,6 +718,38 @@ fn main() -> ExitCode {
                     println!(
                         "{}",
                         serde_json::json!({"schema_version":"1","operation":args[1].to_string_lossy(),"status":"FAIL","diagnostics":[{"code":diagnostic.code,"message":diagnostic.message,"source_range":diagnostic.range.map(|r| serde_json::json!({"start_byte":r.start,"end_byte":r.end}))}]})
+                    );
+                } else if let Some(range) = diagnostic.range {
+                    eprintln!(
+                        "{}: bytes {}..{}: {}",
+                        diagnostic.code, range.start, range.end, diagnostic.message
+                    );
+                } else {
+                    eprintln!("{}: {}", diagnostic.code, diagnostic.message);
+                }
+                ExitCode::FAILURE
+            }
+        };
+    }
+    if args[1] == "preview-static-column" {
+        return match neptune::static_column::preview(&source, module.unwrap_or_default()) {
+            Ok(preview) => {
+                let value = preview.to_json();
+                if json {
+                    println!("{value}");
+                } else {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string())
+                    );
+                }
+                ExitCode::SUCCESS
+            }
+            Err(diagnostic) => {
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({"schema_version":"1","operation":"preview-static-column","status":"FAIL","diagnostics":[{"code":diagnostic.code,"message":diagnostic.message,"source_range":diagnostic.range.map(|r| serde_json::json!({"start_byte":r.start,"end_byte":r.end}))}]})
                     );
                 } else if let Some(range) = diagnostic.range {
                     eprintln!(

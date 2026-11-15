@@ -56,6 +56,7 @@ impl Session {
                     | "raw_diagnostic"
                     | "suite"
                     | "initial"
+                    | "activations"
                     | "manifest"
             )
         }) {
@@ -75,6 +76,12 @@ impl Session {
                 | "model-d1-state"
                 | "preview-d1-owner"
                 | "preview-native-button"
+                | "preview-observable-button"
+                | "preview-observable-column"
+                | "preview-observable-buttons"
+                | "trace-observable-buttons"
+                | "trace-observable-column"
+                | "preview-static-column"
                 | "validate-deploy-manifest"
                 | "swift-parse"
         ) {
@@ -155,6 +162,11 @@ impl Session {
         if operation == "model-d1-state"
             || operation == "preview-d1-owner"
             || operation == "preview-native-button"
+            || operation == "preview-observable-button"
+            || operation == "preview-observable-column"
+            || operation == "preview-observable-buttons"
+            || operation == "trace-observable-buttons"
+            || operation == "trace-observable-column"
         {
             if object.get("profile").and_then(Value::as_str) != Some("experimental") {
                 return error(
@@ -186,6 +198,37 @@ impl Session {
             } else if operation == "preview-native-button" {
                 crate::native_swift::preview(source, module, initial)
                     .map(|preview| preview.to_json())
+            } else if operation == "preview-observable-button" {
+                crate::native_swift::preview_observable(source, module, initial)
+                    .map(|preview| preview.to_json())
+            } else if operation == "preview-observable-column" {
+                crate::observable_column::preview(source, module, initial)
+                    .map(|preview| preview.to_json())
+            } else if operation == "preview-observable-buttons" {
+                crate::observable_buttons::preview(source, module, initial)
+                    .map(|preview| preview.to_json())
+            } else if operation == "trace-observable-buttons"
+                || operation == "trace-observable-column"
+            {
+                let activations = match object.get("activations") {
+                    Some(value) => match crate::observable_trace::parse_activations(value) {
+                        Ok(actions) => actions,
+                        Err(diagnostic) => return failure(id, "state_validation", &diagnostic),
+                    },
+                    None => {
+                        return error(
+                            Some(id),
+                            "protocol",
+                            "this operation requires an activation list",
+                        )
+                    }
+                };
+                if operation == "trace-observable-column" {
+                    crate::observable_trace::trace_column(source, module, initial, &activations)
+                } else {
+                    crate::observable_trace::trace(source, module, initial, &activations)
+                }
+                .map(|trace| trace.to_json())
             } else {
                 crate::application_swift::preview(source, module, initial)
                     .map(|preview| preview.to_json())
@@ -272,6 +315,28 @@ impl Session {
                     json!({"schema_version":"1","job_id":id,"sequence":1,"stage":"preview","status":"PASS","result":preview.to_json()})
                 }
                 Err(d) => failure(id, "frontend", &d),
+            };
+        }
+        if operation == "preview-static-column" {
+            if object.get("profile").and_then(Value::as_str) != Some("experimental") {
+                return error(
+                    Some(id),
+                    "protocol",
+                    "preview-static-column requires profile experimental",
+                );
+            }
+            let Some(module) = object.get("module").and_then(Value::as_str) else {
+                return error(
+                    Some(id),
+                    "protocol",
+                    "preview-static-column requires a module path",
+                );
+            };
+            return match crate::static_column::preview(source, module) {
+                Ok(preview) => {
+                    json!({"schema_version":"1","job_id":id,"sequence":1,"stage":"preview","status":"PASS","result":preview.to_json()})
+                }
+                Err(diagnostic) => failure(id, "frontend", &diagnostic),
             };
         }
         if operation == "preview" {

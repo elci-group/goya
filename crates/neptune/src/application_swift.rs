@@ -57,6 +57,9 @@ impl Preview {
     pub(crate) fn initial_digest(&self) -> [u8; 32] {
         self.initial_digest
     }
+    pub(crate) fn state_fields(&self) -> &[Field] {
+        &self.state
+    }
     pub fn to_json(&self) -> serde_json::Value {
         fn fields(values: &[Field]) -> Vec<serde_json::Value> {
             values.iter().map(|field| serde_json::json!({"source_key":field.source_key,"swift_name":field.swift_name,"type":type_name(field.value_type)})).collect()

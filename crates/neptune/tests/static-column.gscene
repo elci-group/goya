@@ -1,0 +1,8 @@
+@ontology column {
+  @cell root {
+    id: "column.root"
+    text: "Hello"
+    @cell title { id: "column.title" text: "Title" }
+    @cell note { id: "column.note" text: "Note" }
+  }
+}
