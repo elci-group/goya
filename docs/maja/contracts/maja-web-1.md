@@ -1,0 +1,11 @@
+# MAJA-WEB/1: initial admission policy
+
+The Frampton-dependent policy below is retained as historical context and is superseded for standalone builds by [ADR-002](../adr-002-browser-native.md). The reserved `maja.web.v1` profile remains fail-closed; `maja.web.local.v1` is a separate experimental browser-native profile with its own explicit admission rules.
+
+Status: integration decision for Wave 0, version 0. A fail-closed inspection and CLI skeleton exists, but no deployable production profile is implemented. `maja.web.v1` is a reserved profile identifier, not an assertion of qualified support. This policy ratifies **fail-closed admission only**; it does not authorize emission, a fallback, or a Frampton interface.
+
+Input authority is strict GY-LANG admission and the [frontend handoff](frontend-handoff.md). Initial target IR is reserved as `MAJA-WEB-IR/1`; its concrete schema is not yet approved. Frampton adapter and runtime versions are unavailable; browser compatibility is not established. A prospective build must report these facts as structured failures and must not publish application artifacts. An inspect operation may report recognized source semantics while clearly distinguishing recognition from web support.
+
+All reachable features are REJECTED for production builds until the [admission matrix](../admission-matrix.md) is revised with implementation, real-browser and semantic evidence. No FALLBACK_PROFILE is enabled. Network, storage, service workers, remote fetch, navigation and dynamic imports are denied by default. There is no persistence: no runtime is implemented and reload behavior is unqualified. Accessibility and security requirements are admission conditions, not claims of compliance.
+
+To revise this policy, integration must identify exact GY-LANG/handoff, IR, adapter, runtime and browser profile versions; approve per-feature semantics and diagnostic locations; verify the chosen Frampton implementation; define initial state and bindings; and attach conformance evidence. Only a separately qualified build profile can declare a feature SUPPORTED. Deterministic compilation includes source bytes, every explicitly declared configuration byte, pinned dependencies and compiler settings. Never silently reinterpret an unknown version or feature.

@@ -1,0 +1,3 @@
+@ontology escape {
+    @cell root { id: "root"; text: "<script>alert('x')</script> & hi" }
+}

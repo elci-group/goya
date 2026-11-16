@@ -78,7 +78,7 @@ pub fn layers() -> &'static [Layer] {
         Layer { id: "identity", title: "Identity", summary: "Provenance, clipboard, artifact identity, and watermark measurement." },
         Layer { id: "economy", title: "Settlement", summary: "x402 challenges, allowances, and reconciliation." },
         Layer { id: "anticipate", title: "Motion and anticipation", summary: "Springs, probability fields, and opt-in level-2 prediction." },
-        Layer { id: "compilers", title: "Platform compilers", summary: "Sash for one Win32 window. Neptune for Swift source previews." },
+        Layer { id: "compilers", title: "Platform compilers", summary: "Sash for one Win32 window. Neptune for Swift source previews. Dockyard for one static HTTP executable and an OCI layout." },
     ]
 }
 
@@ -134,6 +134,7 @@ pub fn crates() -> &'static [Crate] {
         Crate { id: "goya-bridge", layer: "anticipate", contract: "GY-BRIDGE/1", status: "implemented", role: "Spring state bridge. Theme colour comes from chroma." },
         Crate { id: "sash", layer: "compilers", contract: "Sash", status: "experimental", role: "Admits one static Win32 window and can emit App.exe. Runtime qualification and release admission stay BLOCKED. Linux cross-link is unqualified." },
         Crate { id: "neptune", layer: "compilers", contract: "Neptune", status: "experimental", role: "Swift source previews and a stdin JSON service. Apple compilation, simulator, and device admission stay BLOCKED." },
+        Crate { id: "dockyard", layer: "compilers", contract: "dockyard.linux.http/0.0.1", status: "experimental", role: "Admits one GET route and emits a crt-static Linux executable plus an OCI image layout. verify leaves image start BLOCKED. start runs that layout with runc when runc is already installed; on an unprivileged host image user 65532 is not applied and runtime qualification stays BLOCKED. Scenes, secrets, and other architectures are rejected." },
     ]
 }
 
@@ -276,7 +277,7 @@ pub fn findings() -> &'static [Finding] {
         Finding { kind: "strength", title: "Layout and the IR stay pure", body: "goya-ir, goya-state, goya-layout, and goya-chroma declare no third-party crates. Layout is a function of module and constraints, in millipoints. Chroma resolution is a function of theme and polarity. If a contrast target cannot be reached, the resolver returns ContrastUnreachable." },
         Finding { kind: "strength", title: "Effects stay outside the VM", body: "D0 is a pure tree. D1 writes only declared state. D2 replays an effect journal and has no live host path. Nondeterministic processes are refused before compilation. VEE workers are emitted after the Rust VM accepts the program, import only the needed stdlib modules, and request an empty capability list." },
         Finding { kind: "boundary", title: "The runtime's dependency note has drifted", body: "The README still says the core IR, state, layout, and runtime crates have no external dependencies. IR, state, layout, and chroma still match that sentence. goya-runtime also depends on unicode-segmentation, goya-speculation, and goya-rpi2, so a frame can consult opt-in level-2 prediction." },
-        Finding { kind: "boundary", title: "Compilers stop at a named gate", body: "Sash can emit one Win32 static window and still reports runtime qualification as BLOCKED. Neptune can emit Swift previews and a D1 state owner and still reports Apple admission as BLOCKED. Neither path is a second Goya runtime." },
+        Finding { kind: "boundary", title: "Compilers stop at a named gate", body: "Sash can emit one Win32 static window and still reports runtime qualification as BLOCKED. Neptune can emit Swift previews and a D1 state owner and still reports Apple admission as BLOCKED. Dockyard verify still reports image start as BLOCKED. dockyard start can run that layout under an already-installed runc and records a read-only root and dropped capabilities; on an unprivileged host it does not apply image user 65532, and runtime qualification stays BLOCKED. None of these paths is a second Goya runtime." },
         Finding { kind: "open", title: "Release gates that are still open", body: "Orca and WCAG conformance, a full Studio IDE, publisher key custody, HRTF subjects beyond the included fixture, a larger watermark corpus, authored control flow, and Landlock coverage on kernels other than the one smoked here. Experimental shells (native ZCode, webview, document, plugin host) document their own qualification limits." },
     ]
 }
@@ -293,6 +294,7 @@ pub fn boundaries() -> &'static [Boundary] {
         Boundary { id: "companions", name: "Companion tools", via: "goya-ecosystem", note: "RUGID rdf_render, 3form-agent NDJSON, an in-process Mesut bridge, and the Theosis CLI. Each call needs its grant." },
         Boundary { id: "chromium", name: "Chromium child", via: "goya-webview", note: "Ephemeral profile and loopback DevTools. --no-sandbox is forbidden. The page is captured back into the Wayland surface." },
         Boundary { id: "foreign", name: "Foreign UI toolchains", via: "sash / neptune", note: "Win32 and Swift outputs are checked artifacts. They do not link the live frame runtime." },
+        Boundary { id: "oci", name: "OCI image layout", via: "dockyard", note: "One static executable in an uncompressed layer. No daemon is required to write the layout. dockyard start uses runc when it is already installed. Isolated networking and image user 65532 are not qualified on an unprivileged host." },
     ]
 }
 
@@ -685,7 +687,7 @@ mod tests {
         let before = ids.len();
         ids.dedup();
         assert_eq!(before, ids.len());
-        assert_eq!(before, 50);
+        assert_eq!(before, 51);
     }
 
     #[test]

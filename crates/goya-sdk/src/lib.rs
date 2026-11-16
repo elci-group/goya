@@ -18,6 +18,16 @@ use std::path::Path;
 
 mod application;
 pub use application::{D1Application, D1ApplicationError, D1_APPLICATION_CONTRACT};
+mod android_button_preview;
+pub use android_button_preview::{
+    emit_android_root_button_preview, emit_android_root_button_preview_mapped,
+    AndroidRootButtonPreview, AndroidRootButtonPreviewError,
+};
+mod android_d1_runtime;
+pub use android_d1_runtime::{
+    emit_android_d1_runtime, emit_android_d1_runtime_mapped, AndroidD1Runtime,
+    AndroidD1RuntimeError,
+};
 
 /// Refusal reason for the experimental Android static-text preview emitter.
 #[derive(Debug)]
@@ -148,7 +158,8 @@ pub fn emit_android_static_text_preview_mapped(
             "text without a source origin",
         ))?;
     let literal = kotlin_string_literal(text);
-    let mut imports = String::from("import android.content.Context\nimport android.widget.TextView\n");
+    let mut imports =
+        String::from("import android.content.Context\nimport android.widget.TextView\n");
     if root.text_size.is_some() {
         imports.push_str("import android.util.TypedValue\n");
     }
@@ -191,14 +202,18 @@ pub fn emit_android_static_text_preview_mapped(
 fn is_kotlin_class_name(name: &str) -> bool {
     const KEYWORDS: &[&str] = &[
         "as",
+        "by",
         "break",
+        "catch",
         "class",
         "continue",
         "do",
         "else",
         "false",
+        "finally",
         "for",
         "fun",
+        "get",
         "if",
         "in",
         "interface",
@@ -218,6 +233,8 @@ fn is_kotlin_class_name(name: &str) -> bool {
         "var",
         "when",
         "while",
+        "where",
+        "set",
     ];
     let mut chars = name.chars();
     let Some(first) = chars.next() else {
@@ -565,6 +582,12 @@ mod tests {
         for invalid in [
             "",
             "class",
+            "by",
+            "catch",
+            "finally",
+            "get",
+            "set",
+            "where",
             "Context",
             "TextView",
             "_",
@@ -598,6 +621,32 @@ mod tests {
             goya_lang::parse_with_source_map(source)
                 .unwrap()
                 .source_digest
+        );
+    }
+
+    #[test]
+    fn android_preview_emission_is_deterministic_and_digest_tracks_source_revision() {
+        let source = "@ontology demo { @cell label { id: \"label\"; text: \"Hi $user é\" } }";
+        let repeated = emit_android_static_text_preview_mapped(source, "WelcomePreview").unwrap();
+        let again = emit_android_static_text_preview_mapped(source, "WelcomePreview").unwrap();
+        assert_eq!(repeated, again);
+
+        // Whitespace is not reflected in the preview's Kotlin output, but the
+        // source digest must still distinguish the exact admitted revision.
+        let reformatted =
+            "@ontology demo {\n    @cell label { id: \"label\"; text: \"Hi $user é\" }\n}";
+        let revised =
+            emit_android_static_text_preview_mapped(reformatted, "WelcomePreview").unwrap();
+        assert_eq!(repeated.kotlin, revised.kotlin);
+        assert_ne!(repeated.source_digest, revised.source_digest);
+
+        assert_eq!(
+            &reformatted[revised.source_range.start..revised.source_range.end],
+            "text: \"Hi $user é\""
+        );
+        assert_eq!(
+            &revised.kotlin[revised.generated_range.start..revised.generated_range.end],
+            "\"Hi \\$user \\u00e9\""
         );
     }
 

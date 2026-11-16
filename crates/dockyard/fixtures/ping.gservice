@@ -1,0 +1,4 @@
+service ping
+listen 39171
+route GET /health
+respond 200 text/plain "ok"

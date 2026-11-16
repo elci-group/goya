@@ -273,6 +273,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "dockyard"
+version = "0.0.1"
+dependencies = [
+ "sha2",
+]
+
+[[package]]
 name = "downcast-rs"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -716,6 +723,10 @@ dependencies = [
 [[package]]
 name = "goya-bridge-physics"
 version = "0.1.8"
+
+[[package]]
+name = "goya-caprichios"
+version = "0.0.1"
 
 [[package]]
 name = "goya-change"
@@ -1317,6 +1328,34 @@ name = "log"
 version = "0.4.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d15f86d12da44cd8d4ec3c73984537eb7f4cadcb9776a575a0a8a05ca11005c"
+
+[[package]]
+name = "maja"
+version = "0.0.1"
+dependencies = [
+ "goya-caprichios",
+ "maja-semantic",
+ "sha2",
+]
+
+[[package]]
+name = "maja-frampton"
+version = "0.0.1"
+
+[[package]]
+name = "maja-runtime"
+version = "0.0.1"
+dependencies = [
+ "goya-lang",
+]
+
+[[package]]
+name = "maja-semantic"
+version = "0.0.1"
+dependencies = [
+ "goya-lang",
+ "sha2",
+]
 
 [[package]]
 name = "memchr"

@@ -1,0 +1,12 @@
+[package]
+name = "maja-runtime-browser-differential"
+version = "0.0.1"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+maja-runtime = { path = "../.." }
+goya-lang = { path = "../../../goya-lang" }
+goya-executable = { path = "../../../goya-executable" }

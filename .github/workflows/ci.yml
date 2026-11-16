@@ -6,6 +6,25 @@ on:
   pull_request:
 
 jobs:
+  swift-bootstrap:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test bootstrap failure and offline behavior
+        run: python3 -m unittest discover -s tests -p test_swift_bootstrap.py -v
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/goya-swift-cache
+          key: swift-linux-x86_64-6.1.2-swiftly-1.2.0-d749d5fe
+      - name: Install verified Swift archives
+        run: |
+          python3 scripts/bootstrap-swift.py --cache "$RUNNER_TEMP/goya-swift-cache" --install-dir "$RUNNER_TEMP/goya-swift-online"
+          "$RUNNER_TEMP/goya-swift-online/swift-6.1.2-RELEASE-ubuntu24.04/usr/bin/swiftc" --version
+      - name: Install again with cached artifacts offline
+        run: |
+          python3 scripts/bootstrap-swift.py --offline --cache "$RUNNER_TEMP/goya-swift-cache" --install-dir "$RUNNER_TEMP/goya-swift-offline"
+          "$RUNNER_TEMP/goya-swift-offline/swift-6.1.2-RELEASE-ubuntu24.04/usr/bin/swiftc" --version
+          printf 'let value = 1\n' | "$RUNNER_TEMP/goya-swift-offline/swift-6.1.2-RELEASE-ubuntu24.04/usr/bin/swiftc" -parse -
   gates:
     runs-on: ubuntu-latest
     steps:
@@ -25,7 +44,8 @@ jobs:
       - name: Uni snapshot
         run: |
           if command -v uni >/dev/null 2>&1; then
-            uni --fail-under 80 .
+            # Windows readiness is deferred; re-enable Edwardian when Windows is a release target.
+            uni --skip edwardian --fail-under 80 .
           else
             echo "uni not available on runner — recorded locally, enforced in dev gates"
           fi

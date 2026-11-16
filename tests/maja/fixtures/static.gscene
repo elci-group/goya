@@ -1,0 +1,6 @@
+@ontology qualification {
+    @cell root {
+        id: "root"
+        @button start { id: "button.start"; text: "Start" }
+    }
+}

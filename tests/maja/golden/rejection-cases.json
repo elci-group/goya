@@ -1,0 +1,7 @@
+[
+  {"fixture":"static.gscene","profile":"maja.web.v1"},
+  {"fixture":"interaction.gscene","profile":"maja.web.v1"},
+  {"fixture":"unknown-property.gscene","profile":"maja.web.v1"},
+  {"fixture":"malformed.gscene","profile":"maja.web.v1"},
+  {"fixture":"static.gscene","profile":"maja.web.unknown"}
+]

@@ -11,9 +11,9 @@ complete Android toolchain lock is asserted.
 | Gate | Status | Evidence or missing work |
 | --- | --- | --- |
 | ARG-G01 Frontend | BLOCKED | `goya_lang::parse_strict` admits only represented semantics: it rejects unknown properties, templates, duplicate canonical properties, missing/duplicate authored IDs, and invalid interactions with structured codes and UTF-8 byte ranges (`crates/goya-lang/src/parser.rs`). `parse_with_source_map` returns sorted declaration/property entries with exact-source SHA-256, byte ranges, within-revision scene paths, and authored semantic IDs where available. This is not yet an Aragon frontend contract or a Kotlin emitter/map. Parse failures from the compatibility parser still carry a line only; `parse_strict` converts these to the corresponding whole-line byte range. Property entries have no independent authored property ID, and scene paths can shift across edits. Negative coverage exists as unit tests in `crates/goya-lang/src/lib.rs`, but no Aragon differential/mutation corpus or release audit is recorded. |
-| ARG-G02 Semantics | BLOCKED | `goya_sdk::emit_android_static_text_preview` emits Kotlin for one strictly admitted static text cell, caps its authored UTF-8 text at 16 KiB, and rejects unsupported scene features. Unit coverage checks the byte boundary and source mapping. Its output has not established layout or text equivalence; there is no Android differential/mutation corpus. |
+| ARG-G02 Semantics | BLOCKED | `goya_sdk::emit_android_static_text_preview` emits Kotlin for one strictly admitted static text cell. `emit_android_root_button_preview` also emits a one-button preview only after canonical GY-IR lowering and D1 compilation confirm the authored callback ID and trigger ActionId match; it rejects actions with inputs. Both remain source previews and do not establish platform equivalence. Unit/integration coverage checks static-text limits and source mapping plus root-button admission, callback identity, and source mapping. There is no Android differential/mutation corpus. See `android-root-button.md`. |
 | ARG-G03 Determinism | BLOCKED | No generated outputs or R1 comparison. |
-| ARG-G04 Android compile | BLOCKED | No generated app or verified pinned Android build environment. |
+| ARG-G04 Android compile | BLOCKED | `aragon-android-project` deterministically generates a minimal starter app for the static-text subset (`android-project.md`), but the generated project has not been built and the Android toolchain has not been verified. |
 | ARG-G05 Emulator | BLOCKED | No emulator execution or recorded artifact. |
 | ARG-G06 Physical device | BLOCKED | No device attached at inspection; no execution. |
 | ARG-G07 Lifecycle | BLOCKED | No recreation, process-death or migration tests. |
@@ -22,7 +22,7 @@ complete Android toolchain lock is asserted.
 | ARG-G10 Packaging | BLOCKED | No release APK, bundle-derived APK set, signature or update test. |
 | ARG-G11 Security | BLOCKED | No application manifest, isolated worker or dependency evidence. |
 | ARG-G12 Performance | BLOCKED | No reviewed budgets, benchmark plan or measurements. |
-| ARG-G13 Documentation | BLOCKED | Usage, deployment and supported-feature documentation require implementation and qualification. |
+| ARG-G13 Documentation | BLOCKED | CLI and generated-project usage and supported-feature limits are documented (`android-compiler.md`, `android-project.md`); deployment and qualification documentation still require later gates. |
 
 The initial inspection and outstanding semantic decisions are recorded in
 `reconnaissance.md` and `semantic-path.md`. A missing evaluator or unavailable

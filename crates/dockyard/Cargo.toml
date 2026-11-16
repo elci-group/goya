@@ -1,0 +1,10 @@
+[package]
+name = "dockyard"
+version = "0.0.1"
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Dockyard compiles an admitted HTTP service to a static executable and an OCI image layout."
+
+[dependencies]
+sha2 = "0.10"

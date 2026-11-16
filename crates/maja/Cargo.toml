@@ -1,0 +1,10 @@
+[package]
+name = "maja"
+version = "0.0.1"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+maja-semantic = { path = "../maja-semantic" }
+goya-caprichios = { path = "../goya-caprichios" }
+sha2 = "0.10"

@@ -1,0 +1,14 @@
+@ontology counter {
+    @cell root {
+        id: "root";
+        @button increment { id: "button.increment"; text: "Increment" }
+    }
+    @interaction add {
+        id: "action.add";
+        trigger: button.increment.activate;
+        class: D1;
+        state { read count: int; write count: int; }
+        input { amount: int; }
+        set count = state.count + input.amount;
+    }
+}

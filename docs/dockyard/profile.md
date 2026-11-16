@@ -1,0 +1,66 @@
+# Dockyard profile `dockyard.linux.http/0.0.1`
+
+Dockyard compiles one admitted HTTP service to a static Linux executable and an OCI image layout. It does not admit a `.gscene` file. `build` and `verify` do not start a container. `start` runs an existing layout when `runc` is already on `PATH`.
+
+The target is `x86_64-unknown-linux-gnu` linked with `crt-static`. That produces a static-pie ELF on a host that already has this standard library. Dockyard does not download a target, a base image, or a toolchain. `x86_64-unknown-linux-musl`, ARM, 32-bit, and Windows triples are rejected.
+
+```text
+dockyard inspect service.gservice
+dockyard check service.gservice --target x86_64-unknown-linux-gnu --profile dockyard.linux.http/0.0.1
+dockyard build service.gservice --target x86_64-unknown-linux-gnu --profile dockyard.linux.http/0.0.1 --out NEW_DIR
+dockyard verify NEW_DIR
+dockyard start NEW_DIR
+```
+
+`check` writes nothing. `build` exits 0 only after the executable and the layout exist. That success still reports image start and runtime qualification as `BLOCKED`. `verify` runs the executable from the image layer, checks the admitted route and one unknown path, and exits 3. It leaves image start `BLOCKED` even when `runc` is installed. `--release` is rejected.
+
+## Admitted source
+
+Exactly four lines, in this order. A final newline is optional. Blank lines, comments, CR, and NUL are rejected.
+
+```text
+service ping
+listen 39171
+route GET /health
+respond 200 text/plain "ok"
+```
+
+`service` is a lowercase name of at most 31 characters. `listen` is a port from 1024 through 65535, without leading zeros, so the image user can bind it. `route` is `GET` and one absolute path of at most 128 bytes. Segments use ASCII letters, digits, and `.` `_` `~` `-`. `.` and `..` segments are rejected. `respond` is status `200`, media type `text/plain`, and a quoted body of 1 to 512 printable ASCII bytes. The body has no quotes or backslashes.
+
+Presentation (`@cell`, `@button`, `@input`, `@ontology`, `@interaction`, `@gesture`) and operational statements (`secret`, `volume`, `env`, `kubernetes`, and the other words in the admission table) are errors. They are not stripped.
+
+## Output
+
+`NEW_DIR` must be a new directory whose parent already exists. A failed build removes its temporary directory and does not leave `NEW_DIR`.
+
+```text
+NEW_DIR/service
+NEW_DIR/oci-layout
+NEW_DIR/index.json
+NEW_DIR/blobs/sha256/...
+NEW_DIR/evidence/report.txt
+```
+
+`service` is the static executable. The OCI layout follows image layout 1.0.0. The single uncompressed layer contains `srv/dockyard/service` with mode `0555` and uid/gid `65532`. The image config sets `User` to `65532:65532`, an absolute entrypoint, the listened port, and labels for the admitted route. `created` is `1970-01-01T00:00:00Z`. The same source bytes produce the same executable, layer, config, manifest, and report on this toolchain. The report records SHA-256 digests and does not record a host path.
+
+The response body is the service contract, so it is present in the executable. Source statements, secrets, and evidence are not copied into the layer. There is no secret syntax to embed.
+
+`verify` checks layout digests, the non-root layer, and the report. It then starts the layer bytes, requests an unknown path, and requests the admitted path. Unknown paths return `404` and `not found`. The admitted path returns `200`, `text/plain`, and the body named by the image label. That process check leaves `image-start: BLOCKED` and exits 3.
+
+`start` reads the same layout and does not write into it. A missing or rejected layout exits 4 with `DK-E4001`. When `runc` cannot be executed, `start` exits 3 and prints `image-start: BLOCKED` with the detail `runc is unavailable. Dockyard does not install a runtime.` Dockyard does not start a Docker daemon. When `runc` is present, the command extracts the layer executable into a bundle and runs `/srv/dockyard/service` with an empty capability set, a read-only root, and `RLIMIT_NOFILE` 1024. The spec has no network namespace, so the host connects to the admitted port on `127.0.0.1`. On this unprivileged host, `runc` accepts only a mapping that covers container uid 0, and the caller can map one uid. The process therefore runs as container uid 0 mapped to the caller. The recorded result exits 3:
+
+```text
+image-start: pass
+runtime: runc
+rootfs: read-only
+capabilities: dropped
+network: host-namespace
+runtime-user: 0 mapped to 1000
+user-applied: BLOCKED
+runtime-qualification: BLOCKED
+detail: image user 65532:65532 was not applied. This caller can map one uid and runc requires container uid 0.
+```
+
+The image config still names user `65532:65532`. A caller that is uid 0 and gid 0 uses that image user and no user namespace. Runtime qualification still exits 3, because the network namespace is absent. A started process that misses the admitted route, the read-only root, the empty capabilities, or the open-file limit exits 4.
+
+This profile is not a release admission. CPU and memory limits, Kubernetes manifests, multi-arch indexes, SBOMs, and provenance are outside it.

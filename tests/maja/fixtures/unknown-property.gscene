@@ -1,0 +1,3 @@
+@ontology qualification {
+    @button start { id: "button.start"; text: "Start"; unsupported_property: "value" }
+}

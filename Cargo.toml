@@ -1,7 +1,13 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/goya-caprichios",
+    "crates/maja",
+    "crates/maja-semantic",
+    "crates/maja-frampton",
+    "crates/maja-runtime",
     "crates/neptune",
+    "crates/dockyard",
     "crates/sash",
     "crates/goya-ir",
     "crates/goya-state",

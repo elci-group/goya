@@ -1,0 +1,13 @@
+[package]
+name = "maja-d1-oracle-tests"
+version = "0.0.1"
+edition = "2021"
+publish = false
+
+[dependencies]
+goya-lang = { path = "../../../crates/goya-lang" }
+goya-sdk = { path = "../../../crates/goya-sdk" }
+goya-executable = { path = "../../../crates/goya-executable" }
+
+# Independent harness; no changes to the root workspace are required.
+[workspace]
