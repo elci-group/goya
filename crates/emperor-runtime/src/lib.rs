@@ -676,6 +676,60 @@ mod tests {
     }
 
     #[test]
+    fn paste_payload_applies_after_focus_moves() {
+        let (mut ir, mut controller) = open_admitted(&counter_json()).expect("admit");
+        assert_eq!(controller.focus, goya_parity::keys::Focus::Edit);
+        assert_eq!(controller.session.edit, "1");
+        assert_eq!(controller.session.count, 0);
+        assert_eq!(controller.session.revision, 0);
+        assert_eq!(controller.session.result, "0");
+        ir.capabilities.paste = true;
+        assert!(host::paste_shortcut_requests_clipboard(&ir, &controller));
+
+        controller.focus = goya_parity::keys::Focus::Button;
+        assert!(!host::paste_shortcut_requests_clipboard(&ir, &controller));
+        assert_eq!(controller.session.edit, "1");
+
+        assert_eq!(
+            host::on_clipboard_text(&ir, &mut controller, Some("9")),
+            host::Step::Changed
+        );
+        assert_eq!(controller.session.edit, "9");
+        assert_eq!(controller.focus, goya_parity::keys::Focus::Button);
+        assert_eq!(controller.session.count, 0);
+        assert_eq!(controller.session.revision, 0);
+        assert_eq!(controller.session.result, "0");
+
+        assert_eq!(
+            host::on_clipboard_text(&ir, &mut controller, Some("")),
+            host::Step::Changed
+        );
+        assert_eq!(controller.session.edit, "");
+        assert_eq!(controller.session.count, 0);
+
+        controller.session.set_edit("1");
+        assert_eq!(
+            host::on_clipboard_text(&ir, &mut controller, None),
+            host::Step::Unchanged
+        );
+        assert_eq!(controller.session.edit, "1");
+        assert_eq!(controller.session.count, 0);
+
+        let (ir, mut controller) = open_admitted(&counter_json()).expect("admit");
+        assert!(!ir.capabilities.paste);
+        controller.focus = goya_parity::keys::Focus::Button;
+        assert!(!host::paste_shortcut_requests_clipboard(&ir, &controller));
+        assert_eq!(
+            host::on_clipboard_text(&ir, &mut controller, Some("9")),
+            host::Step::Unchanged
+        );
+        assert_eq!(controller.session.edit, "1");
+        assert_eq!(controller.session.count, 0);
+        assert_eq!(controller.session.revision, 0);
+        assert_eq!(controller.session.result, "0");
+    }
+
+    #[test]
     fn shift_delete_deny_does_not_change_the_edit() {
         let (mut ir, mut controller) = open_admitted(&counter_json()).expect("admit");
         ir.capabilities.cut = "deny".to_owned();
@@ -751,6 +805,102 @@ mod tests {
         assert_eq!(controller.session.count, 0);
         let release = host::on_pointer_release(&mut controller, &hits, &mut arm, 68.0, 80.0);
         assert_eq!(release.step, host::Step::Unchanged);
+        assert_eq!(controller.session.count, 0);
+    }
+
+    #[test]
+    fn result_press_does_not_move_focus() {
+        let (ir, mut controller) = open_admitted(&counter_json()).expect("admit");
+        let hits = goya_parity::pointer::hit_map(&ir.scene).expect("hits");
+        let mut arm = host::PointerArm::default();
+        assert_eq!(controller.focus, goya_parity::keys::Focus::Edit);
+        assert_eq!(controller.session.edit, "1");
+        assert_eq!(controller.session.count, 0);
+        assert_eq!(controller.session.revision, 0);
+        assert_eq!(controller.session.result, "0");
+
+        let press = host::on_pointer_press(&ir, &mut controller, &hits, &mut arm, 88.0, 128.0);
+        assert_eq!(press.hit.as_deref(), Some("state.count"));
+        assert_eq!(press.step, host::Step::Unchanged);
+        assert_eq!(controller.focus, goya_parity::keys::Focus::Edit);
+        assert_eq!(controller.session.count, 0);
+        assert_eq!(controller.session.revision, 0);
+        assert_eq!(controller.session.edit, "1");
+        assert_eq!(controller.session.result, "0");
+
+        let release = host::on_pointer_release(&mut controller, &hits, &mut arm, 88.0, 128.0);
+        assert_eq!(release.step, host::Step::Unchanged);
+        assert_eq!(controller.session.count, 0);
+
+        let press = host::on_pointer_press(&ir, &mut controller, &hits, &mut arm, 176.0, 80.0);
+        assert_eq!(press.hit.as_deref(), Some("window.add"));
+        assert_eq!(controller.focus, goya_parity::keys::Focus::Button);
+        assert_eq!(controller.session.count, 0);
+
+        let press = host::on_pointer_press(&ir, &mut controller, &hits, &mut arm, 88.0, 128.0);
+        assert_eq!(press.hit.as_deref(), Some("state.count"));
+        assert_eq!(press.step, host::Step::Unchanged);
+        assert_eq!(controller.focus, goya_parity::keys::Focus::Button);
+        assert_eq!(controller.session.count, 0);
+        assert_eq!(controller.session.revision, 0);
+        assert_eq!(controller.session.edit, "1");
+        assert_eq!(controller.session.result, "0");
+
+        let release = host::on_pointer_release(&mut controller, &hits, &mut arm, 176.0, 80.0);
+        assert_eq!(release.step, host::Step::Unchanged);
+        assert_eq!(controller.session.count, 0);
+        assert_eq!(controller.session.revision, 0);
+
+        let press = host::on_pointer_press(&ir, &mut controller, &hits, &mut arm, 8.0, 8.0);
+        assert_eq!(press.hit.as_deref(), Some("window.root"));
+        assert_eq!(press.step, host::Step::Unchanged);
+        assert_eq!(controller.focus, goya_parity::keys::Focus::Button);
+        assert_eq!(controller.session.count, 0);
+    }
+
+    #[test]
+    fn outside_client_press_does_not_move_focus() {
+        let (ir, mut controller) = open_admitted(&counter_json()).expect("admit");
+        let hits = goya_parity::pointer::hit_map(&ir.scene).expect("hits");
+        let mut arm = host::PointerArm::default();
+        assert_eq!(controller.focus, goya_parity::keys::Focus::Edit);
+        assert_eq!(controller.session.edit, "1");
+        assert_eq!(controller.session.count, 0);
+        assert_eq!(controller.session.revision, 0);
+        assert_eq!(controller.session.result, "0");
+
+        let press = host::on_pointer_press(&ir, &mut controller, &hits, &mut arm, -1.0, 0.0);
+        assert_eq!(press.hit.as_deref(), None);
+        assert_eq!(press.step, host::Step::Unchanged);
+        assert_eq!(controller.focus, goya_parity::keys::Focus::Edit);
+        assert_eq!(controller.session.count, 0);
+        assert_eq!(controller.session.revision, 0);
+        assert_eq!(controller.session.edit, "1");
+        assert_eq!(controller.session.result, "0");
+
+        let press = host::on_pointer_press(&ir, &mut controller, &hits, &mut arm, 176.0, 80.0);
+        assert_eq!(press.hit.as_deref(), Some("window.add"));
+        assert_eq!(controller.focus, goya_parity::keys::Focus::Button);
+        assert_eq!(controller.session.count, 0);
+
+        let press = host::on_pointer_press(&ir, &mut controller, &hits, &mut arm, 320.0, 80.0);
+        assert_eq!(press.hit.as_deref(), None);
+        assert_eq!(press.step, host::Step::Unchanged);
+        assert_eq!(controller.focus, goya_parity::keys::Focus::Button);
+        assert_eq!(controller.session.count, 0);
+        assert_eq!(controller.session.revision, 0);
+        assert_eq!(controller.session.edit, "1");
+        assert_eq!(controller.session.result, "0");
+
+        let release = host::on_pointer_release(&mut controller, &hits, &mut arm, 176.0, 80.0);
+        assert_eq!(release.step, host::Step::Unchanged);
+        assert_eq!(controller.session.count, 0);
+        assert_eq!(controller.session.revision, 0);
+
+        let press = host::on_pointer_press(&ir, &mut controller, &hits, &mut arm, 8.0, 160.0);
+        assert_eq!(press.hit.as_deref(), None);
+        assert_eq!(press.step, host::Step::Unchanged);
+        assert_eq!(controller.focus, goya_parity::keys::Focus::Button);
         assert_eq!(controller.session.count, 0);
     }
 
@@ -909,6 +1059,121 @@ mod tests {
         controller.focus = goya_parity::keys::Focus::Button;
         assert_eq!(host::copy_text(&ir, &controller), None);
         assert_eq!(controller.session.edit, "1");
+    }
+
+    #[test]
+    fn empty_edit_copy_offers_an_empty_string() {
+        let (ir, mut controller) = open_admitted(&counter_json()).expect("admit");
+        assert_eq!(controller.focus, goya_parity::keys::Focus::Edit);
+        assert!(ir.capabilities.copy);
+        assert_eq!(ir.capabilities.cut, "default");
+        assert_eq!(controller.session.edit, "1");
+        assert_eq!(controller.session.count, 0);
+        assert_eq!(controller.session.revision, 0);
+        assert_eq!(controller.session.result, "0");
+
+        controller.session.set_edit("");
+        assert_eq!(controller.session.count, 0);
+        assert_eq!(controller.session.revision, 0);
+        assert_eq!(controller.session.result, "0");
+        assert_eq!(controller.session.edit, "");
+
+        assert_eq!(host::copy_text(&ir, &controller), Some(""));
+        assert_eq!(controller.session.edit, "");
+        assert_eq!(controller.session.count, 0);
+        assert_eq!(controller.session.revision, 0);
+        assert_eq!(controller.session.result, "0");
+
+        let effect = host::on_cut(&ir, &mut controller);
+        assert_eq!(effect.step, host::Step::Unchanged);
+        assert!(effect.clipboard.is_none());
+        assert_eq!(controller.session.edit, "");
+        assert_eq!(controller.session.count, 0);
+        assert_eq!(controller.session.revision, 0);
+        assert_eq!(controller.session.result, "0");
+
+        let (ir, mut controller) = open_admitted(&counter_json()).expect("admit");
+        controller.session.set_edit("");
+        controller.focus = goya_parity::keys::Focus::Button;
+        assert_eq!(host::copy_text(&ir, &controller), None);
+        let effect = host::on_cut(&ir, &mut controller);
+        assert_eq!(effect.step, host::Step::Unchanged);
+        assert!(effect.clipboard.is_none());
+        assert_eq!(controller.session.edit, "");
+        assert_eq!(controller.session.count, 0);
+
+        let (mut ir, mut controller) = open_admitted(&counter_json()).expect("admit");
+        controller.session.set_edit("");
+        ir.capabilities.copy = false;
+        assert_eq!(controller.focus, goya_parity::keys::Focus::Edit);
+        assert_eq!(host::copy_text(&ir, &controller), None);
+        assert_eq!(controller.session.edit, "");
+    }
+
+    #[test]
+    fn noncanonical_edit_is_the_clipboard_text() {
+        let (ir, mut controller) = open_admitted(&counter_json()).expect("admit");
+        assert_eq!(controller.focus, goya_parity::keys::Focus::Edit);
+        assert_eq!(controller.session.edit, "1");
+        assert_eq!(controller.session.count, 0);
+        assert_eq!(controller.session.revision, 0);
+        assert_eq!(controller.session.result, "0");
+        assert!(ir.capabilities.copy);
+        assert_eq!(ir.capabilities.cut, "default");
+
+        controller.session.set_edit("00");
+        assert_eq!(controller.session.count, 0);
+        assert_eq!(controller.session.revision, 0);
+        assert_eq!(controller.session.result, "0");
+        assert_eq!(controller.session.edit, "00");
+
+        assert_eq!(host::copy_text(&ir, &controller), Some("00"));
+        assert_eq!(controller.session.edit, "00");
+        assert_eq!(controller.session.count, 0);
+        assert_eq!(controller.session.revision, 0);
+        assert_eq!(controller.session.result, "0");
+
+        let effect = host::on_cut(&ir, &mut controller);
+        assert_eq!(effect.step, host::Step::Changed);
+        assert_eq!(effect.clipboard.as_deref(), Some("00"));
+        assert_eq!(controller.session.edit, "");
+        assert_eq!(controller.session.count, 0);
+        assert_eq!(controller.session.revision, 0);
+        assert_eq!(controller.session.result, "0");
+
+        let (ir, mut controller) = open_admitted(&counter_json()).expect("admit");
+        controller.session.set_edit("-0");
+        assert_eq!(host::copy_text(&ir, &controller), Some("-0"));
+        assert_eq!(controller.session.result, "0");
+        let effect = host::on_cut(&ir, &mut controller);
+        assert_eq!(effect.step, host::Step::Changed);
+        assert_eq!(effect.clipboard.as_deref(), Some("-0"));
+        assert_eq!(controller.session.edit, "");
+        assert_eq!(controller.session.count, 0);
+        assert_eq!(controller.session.revision, 0);
+        assert_eq!(controller.session.result, "0");
+
+        let (ir, mut controller) = open_admitted(&counter_json()).expect("admit");
+        controller.session.set_edit("00");
+        controller.focus = goya_parity::keys::Focus::Button;
+        assert_eq!(host::copy_text(&ir, &controller), None);
+        let effect = host::on_cut(&ir, &mut controller);
+        assert_eq!(effect.step, host::Step::Unchanged);
+        assert!(effect.clipboard.is_none());
+        assert_eq!(controller.session.edit, "00");
+        assert_eq!(controller.session.count, 0);
+        assert_eq!(controller.session.revision, 0);
+        assert_eq!(controller.session.result, "0");
+
+        let (mut ir, mut controller) = open_admitted(&counter_json()).expect("admit");
+        controller.session.set_edit("00");
+        ir.capabilities.copy = false;
+        assert_eq!(controller.focus, goya_parity::keys::Focus::Edit);
+        assert_eq!(host::copy_text(&ir, &controller), None);
+        assert_eq!(controller.session.edit, "00");
+        assert_eq!(controller.session.count, 0);
+        assert_eq!(controller.session.revision, 0);
+        assert_eq!(controller.session.result, "0");
     }
 
     #[test]
@@ -1282,6 +1547,39 @@ mod tests {
         assert_eq!(controller.session.revision, 2);
         assert_eq!(controller.session.result, "0");
         assert_eq!(controller.session.edit, "-1");
+    }
+
+    #[test]
+    fn canonical_i64_min_stores() {
+        let (_ir, mut controller) = open_admitted(&counter_json()).expect("admit");
+        assert_eq!(controller.focus, goya_parity::keys::Focus::Edit);
+        assert_eq!(controller.session.count, 0);
+        assert_eq!(controller.session.revision, 0);
+        assert_eq!(controller.session.result, "0");
+        assert_eq!(controller.session.edit, "1");
+
+        let min_text = i64::MIN.to_string();
+        assert_eq!(min_text, "-9223372036854775808");
+        assert_eq!(min_text.len(), 20);
+
+        controller.session.set_edit(&min_text);
+        assert_eq!(controller.session.count, 0);
+        assert_eq!(controller.session.revision, 0);
+        assert_eq!(controller.session.result, "0");
+
+        assert_eq!(host::on_char(&mut controller, '\n'), host::Step::Changed);
+        assert_eq!(controller.session.count, i64::MIN);
+        assert_eq!(controller.session.revision, 1);
+        assert_eq!(controller.session.result, min_text);
+        assert_eq!(controller.session.edit, min_text);
+
+        controller.session.set_edit("-1");
+        assert_eq!(host::on_char(&mut controller, '\n'), host::Step::Unchanged);
+        assert_eq!(controller.session.count, i64::MIN);
+        assert_eq!(controller.session.revision, 1);
+        assert_eq!(controller.session.result, min_text);
+        assert_eq!(controller.session.edit, "-1");
+        assert_eq!(controller.focus, goya_parity::keys::Focus::Edit);
     }
 
     #[test]

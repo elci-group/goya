@@ -1216,12 +1216,18 @@ impl GoyaWindowInner {
                 _ => None,
             };
             if let Some(navigation) = navigation {
+                if let Some(compose) = self.compose_state.as_mut() {
+                    compose.reset();
+                }
                 self.events
                     .push(PlatformEvent::BrowserNavigation(navigation));
                 return;
             }
         }
         if let Some(shortcut) = shortcut_from_key(self.ctrl, self.shift, key) {
+            if let Some(compose) = self.compose_state.as_mut() {
+                compose.reset();
+            }
             self.events.push(PlatformEvent::Shortcut(shortcut));
             return;
         }
@@ -1251,6 +1257,16 @@ impl GoyaWindowInner {
                 self.events.push(PlatformEvent::KeyChar(c));
             }
         }
+    }
+
+    /// Keyboard focus left the surface. Reset a partial compose sequence when
+    /// one is active, then clear modifier booleans and xkb masks. The keymap,
+    /// enter serial, pointer, and layout group stay.
+    fn leave_keyboard(&mut self) {
+        if let Some(compose) = self.compose_state.as_mut() {
+            compose.reset();
+        }
+        self.clear_keyboard_on_leave();
     }
 
     /// Keyboard focus left the surface. Drop Shift, Ctrl, and Alt, and clear
@@ -4058,7 +4074,15 @@ fn key_chars_with_compose(
         xkbcommon::xkb::compose::Status::Composed => {
             let chars = compose.utf8().unwrap_or_default().chars().collect();
             compose.reset();
-            chars
+            // Backspace and both Enters stay characters. Other ctrl completions
+            // are consumed and emit nothing (GY-ZCODE-004).
+            if evdev_keycode == 14 || evdev_keycode == 28 || evdev_keycode == 96 {
+                key_chars(xkb_state, evdev_keycode, shift, ctrl)
+            } else if ctrl {
+                Vec::new()
+            } else {
+                chars
+            }
         }
         xkbcommon::xkb::compose::Status::Cancelled => {
             compose.reset();
@@ -4179,10 +4203,7 @@ impl Dispatch<WlKeyboard, ()> for GoyaWindowInner {
                 ..
             } => state.handle_key_press(key),
             wl_keyboard::Event::Leave { .. } => {
-                if let Some(compose) = state.compose_state.as_mut() {
-                    compose.reset();
-                }
-                state.clear_keyboard_on_leave();
+                state.leave_keyboard();
             }
             _ => {}
         }
@@ -4759,7 +4780,10 @@ mod key_special_tests {
 
 #[cfg(test)]
 mod shortcut_tests {
-    use super::{shortcut_from_key, GoyaWindowInner, KeyModifiers, PlatformEvent, Shortcut};
+    use super::{
+        shortcut_from_key, BrowserNavigation, GoyaWindowInner, KeyModifiers, PlatformEvent,
+        Shortcut,
+    };
     use xkbcommon::xkb::{self, Context, Keymap};
 
     #[test]
@@ -5006,6 +5030,91 @@ mod shortcut_tests {
     }
 
     #[test]
+    fn keyboard_leave_cancels_a_partial_compose() {
+        use std::ffi::OsStr;
+
+        let context = Context::new(xkb::CONTEXT_NO_FLAGS);
+        let Some(keymap) = Keymap::new_from_names(
+            &context,
+            "",
+            "",
+            "us",
+            "intl",
+            Some(String::new()),
+            xkb::COMPILE_NO_FLAGS,
+        ) else {
+            println!("COMPOSE_LEAVE_SKIPPED");
+            return;
+        };
+        let Ok(table) = xkb::compose::Table::new_from_locale(
+            &context,
+            OsStr::new("C.UTF-8"),
+            xkb::compose::COMPILE_NO_FLAGS,
+        ) else {
+            println!("COMPOSE_LEAVE_SKIPPED");
+            return;
+        };
+
+        let mut inner = GoyaWindowInner::new(80, 24);
+        inner.xkb_state = Some(xkb::State::new(&keymap));
+        inner.compose_state = Some(xkb::compose::State::new(
+            &table,
+            xkb::compose::STATE_NO_FLAGS,
+        ));
+        inner.keyboard_enter_serial = 7;
+        inner.keyboard_group = 2;
+        inner.last_pointer = Some((3.0, 4.0));
+
+        inner.ctrl = false;
+        inner
+            .xkb_state
+            .as_mut()
+            .unwrap()
+            .update_mask(0, 0, 0, 0, 0, 0);
+        inner.handle_key_press(40); // dead acute
+        assert!(inner
+            .events
+            .iter()
+            .all(|event| !matches!(event, PlatformEvent::KeyChar(_))));
+        assert_eq!(
+            inner.compose_state.as_ref().unwrap().status(),
+            xkb::compose::Status::Composing
+        );
+
+        let ctrl_index = keymap.mod_get_index(&"Control");
+        assert_ne!(ctrl_index, xkb::MOD_INVALID);
+        inner.ctrl = true;
+        inner
+            .xkb_state
+            .as_mut()
+            .unwrap()
+            .update_mask(1 << ctrl_index, 0, 0, 0, 0, 0);
+        inner.events.clear();
+        inner.leave_keyboard();
+
+        assert_eq!(
+            inner.compose_state.as_ref().unwrap().status(),
+            xkb::compose::Status::Nothing
+        );
+        assert!(!inner.shift);
+        assert!(!inner.ctrl);
+        assert!(!inner.alt);
+        assert_eq!(inner.keyboard_enter_serial, 7);
+        assert_eq!(inner.keyboard_group, 2);
+        assert_eq!(inner.last_pointer, Some((3.0, 4.0)));
+
+        inner.events.clear();
+        inner.handle_key_press(18); // KEY_E
+        assert_eq!(inner.events, vec![PlatformEvent::KeyChar('e')]);
+
+        inner.events.clear();
+        inner.handle_key_press(45); // KEY_X
+        assert_eq!(inner.events, vec![PlatformEvent::KeyChar('x')]);
+
+        println!("COMPOSE_LEAVE_EXERCISED");
+    }
+
+    #[test]
     fn non_ctrl_behavior_is_unchanged_and_other_ctrl_combos_emit_nothing() {
         // Plain 'c'/'v'/'q' still flow through as KeyChar (wave-3 contract).
         let mut inner = inner_with_ctrl(false);
@@ -5131,6 +5240,342 @@ mod shortcut_tests {
             .events
             .iter()
             .all(|event| !matches!(event, PlatformEvent::Shortcut(_))));
+    }
+
+    #[test]
+    fn shortcut_cancels_a_partial_compose() {
+        use std::ffi::OsStr;
+
+        let context = Context::new(xkb::CONTEXT_NO_FLAGS);
+        let Some(keymap) = Keymap::new_from_names(
+            &context,
+            "",
+            "",
+            "us",
+            "intl",
+            Some(String::new()),
+            xkb::COMPILE_NO_FLAGS,
+        ) else {
+            println!("COMPOSE_CANCEL_SKIPPED");
+            return;
+        };
+        let Ok(table) = xkb::compose::Table::new_from_locale(
+            &context,
+            OsStr::new("C.UTF-8"),
+            xkb::compose::COMPILE_NO_FLAGS,
+        ) else {
+            println!("COMPOSE_CANCEL_SKIPPED");
+            return;
+        };
+
+        let mut inner = GoyaWindowInner::new(80, 24);
+        inner.xkb_state = Some(xkb::State::new(&keymap));
+        inner.compose_state = Some(xkb::compose::State::new(
+            &table,
+            xkb::compose::STATE_NO_FLAGS,
+        ));
+
+        inner.ctrl = false;
+        inner
+            .xkb_state
+            .as_mut()
+            .unwrap()
+            .update_mask(0, 0, 0, 0, 0, 0);
+        inner.handle_key_press(40); // dead acute
+        assert!(inner
+            .events
+            .iter()
+            .all(|event| !matches!(event, PlatformEvent::KeyChar(_))));
+        assert_eq!(
+            inner.compose_state.as_ref().unwrap().status(),
+            xkb::compose::Status::Composing
+        );
+
+        let ctrl_index = keymap.mod_get_index(&"Control");
+        assert_ne!(ctrl_index, xkb::MOD_INVALID);
+        inner.ctrl = true;
+        inner
+            .xkb_state
+            .as_mut()
+            .unwrap()
+            .update_mask(1 << ctrl_index, 0, 0, 0, 0, 0);
+        inner.events.clear();
+        inner.handle_key_press(46); // KEY_C
+        assert_eq!(inner.events, vec![PlatformEvent::Shortcut(Shortcut::Copy)]);
+        assert_eq!(
+            inner.compose_state.as_ref().unwrap().status(),
+            xkb::compose::Status::Nothing
+        );
+
+        inner.ctrl = false;
+        inner
+            .xkb_state
+            .as_mut()
+            .unwrap()
+            .update_mask(0, 0, 0, 0, 0, 0);
+        inner.events.clear();
+        inner.handle_key_press(18); // KEY_E
+        assert_eq!(inner.events, vec![PlatformEvent::KeyChar('e')]);
+
+        println!("COMPOSE_CANCEL_EXERCISED");
+    }
+
+    #[test]
+    fn browser_navigation_cancels_a_partial_compose() {
+        use std::ffi::OsStr;
+
+        let context = Context::new(xkb::CONTEXT_NO_FLAGS);
+        let Some(keymap) = Keymap::new_from_names(
+            &context,
+            "",
+            "",
+            "us",
+            "intl",
+            Some(String::new()),
+            xkb::COMPILE_NO_FLAGS,
+        ) else {
+            println!("COMPOSE_NAV_SKIPPED");
+            return;
+        };
+        let Ok(table) = xkb::compose::Table::new_from_locale(
+            &context,
+            OsStr::new("C.UTF-8"),
+            xkb::compose::COMPILE_NO_FLAGS,
+        ) else {
+            println!("COMPOSE_NAV_SKIPPED");
+            return;
+        };
+
+        let mut inner = GoyaWindowInner::new(80, 24);
+        inner.xkb_state = Some(xkb::State::new(&keymap));
+        inner.compose_state = Some(xkb::compose::State::new(
+            &table,
+            xkb::compose::STATE_NO_FLAGS,
+        ));
+        inner.browser_navigation_keys = true;
+
+        let ctrl_index = keymap.mod_get_index(&"Control");
+        assert_ne!(ctrl_index, xkb::MOD_INVALID);
+        let alt_index = keymap.mod_get_index(&"Mod1");
+        assert_ne!(alt_index, xkb::MOD_INVALID);
+
+        // Alt+Left, Ctrl+R, and F5. Ctrl+Right stays a session shortcut below.
+        let chords = [
+            (true, false, 105u32, BrowserNavigation::Back),
+            (false, true, 19u32, BrowserNavigation::Reload),
+            (false, false, 63u32, BrowserNavigation::Reload),
+        ];
+        for (alt, ctrl, key, navigation) in chords {
+            assert_eq!(
+                inner.compose_state.as_ref().unwrap().status(),
+                xkb::compose::Status::Nothing
+            );
+            inner.alt = false;
+            inner.ctrl = false;
+            inner.shift = false;
+            inner
+                .xkb_state
+                .as_mut()
+                .unwrap()
+                .update_mask(0, 0, 0, 0, 0, 0);
+            inner.events.clear();
+            inner.handle_key_press(40); // dead acute
+            assert!(inner
+                .events
+                .iter()
+                .all(|event| !matches!(event, PlatformEvent::KeyChar(_))));
+            assert_eq!(
+                inner.compose_state.as_ref().unwrap().status(),
+                xkb::compose::Status::Composing
+            );
+
+            inner.events.clear();
+            inner.alt = alt;
+            inner.ctrl = ctrl;
+            let depressed = if alt {
+                1 << alt_index
+            } else if ctrl {
+                1 << ctrl_index
+            } else {
+                0
+            };
+            inner
+                .xkb_state
+                .as_mut()
+                .unwrap()
+                .update_mask(depressed, 0, 0, 0, 0, 0);
+            inner.handle_key_press(key);
+            assert_eq!(
+                inner.events,
+                vec![PlatformEvent::BrowserNavigation(navigation)]
+            );
+            assert_eq!(
+                inner.compose_state.as_ref().unwrap().status(),
+                xkb::compose::Status::Nothing
+            );
+
+            inner.alt = false;
+            inner.ctrl = false;
+            inner.shift = false;
+            inner
+                .xkb_state
+                .as_mut()
+                .unwrap()
+                .update_mask(0, 0, 0, 0, 0, 0);
+            inner.handle_key_press(18); // KEY_E
+            assert_eq!(
+                inner.events,
+                vec![
+                    PlatformEvent::BrowserNavigation(navigation),
+                    PlatformEvent::KeyChar('e'),
+                ]
+            );
+        }
+
+        assert_eq!(
+            inner.compose_state.as_ref().unwrap().status(),
+            xkb::compose::Status::Nothing
+        );
+        inner.alt = false;
+        inner.ctrl = false;
+        inner.shift = false;
+        inner
+            .xkb_state
+            .as_mut()
+            .unwrap()
+            .update_mask(0, 0, 0, 0, 0, 0);
+        inner.events.clear();
+        inner.handle_key_press(40); // dead acute
+        assert!(inner
+            .events
+            .iter()
+            .all(|event| !matches!(event, PlatformEvent::KeyChar(_))));
+        assert_eq!(
+            inner.compose_state.as_ref().unwrap().status(),
+            xkb::compose::Status::Composing
+        );
+        inner.events.clear();
+        inner.ctrl = true;
+        inner.alt = false;
+        inner
+            .xkb_state
+            .as_mut()
+            .unwrap()
+            .update_mask(1 << ctrl_index, 0, 0, 0, 0, 0);
+        inner.handle_key_press(106); // KEY_RIGHT
+        assert_eq!(
+            inner.events,
+            vec![PlatformEvent::Shortcut(Shortcut::SessionNext)]
+        );
+        assert!(inner.events.iter().all(|event| !matches!(
+            event,
+            PlatformEvent::BrowserNavigation(BrowserNavigation::Forward)
+        )));
+        assert_eq!(
+            inner.compose_state.as_ref().unwrap().status(),
+            xkb::compose::Status::Nothing
+        );
+
+        println!("COMPOSE_NAV_EXERCISED");
+    }
+
+    #[test]
+    fn ctrl_suppresses_a_composed_character() {
+        use std::ffi::OsStr;
+
+        let context = Context::new(xkb::CONTEXT_NO_FLAGS);
+        let Some(keymap) = Keymap::new_from_names(
+            &context,
+            "",
+            "",
+            "us",
+            "intl",
+            Some(String::new()),
+            xkb::COMPILE_NO_FLAGS,
+        ) else {
+            println!("COMPOSE_CTRL_SKIPPED");
+            return;
+        };
+        let Ok(table) = xkb::compose::Table::new_from_locale(
+            &context,
+            OsStr::new("C.UTF-8"),
+            xkb::compose::COMPILE_NO_FLAGS,
+        ) else {
+            println!("COMPOSE_CTRL_SKIPPED");
+            return;
+        };
+
+        let mut inner = GoyaWindowInner::new(80, 24);
+        inner.xkb_state = Some(xkb::State::new(&keymap));
+        inner.compose_state = Some(xkb::compose::State::new(
+            &table,
+            xkb::compose::STATE_NO_FLAGS,
+        ));
+
+        inner.ctrl = false;
+        inner
+            .xkb_state
+            .as_mut()
+            .unwrap()
+            .update_mask(0, 0, 0, 0, 0, 0);
+        inner.handle_key_press(40); // dead acute
+        inner.handle_key_press(18); // KEY_E
+        assert_eq!(inner.events, vec![PlatformEvent::KeyChar('é')]);
+        assert_eq!(
+            inner.compose_state.as_ref().unwrap().status(),
+            xkb::compose::Status::Nothing
+        );
+
+        let before_dead = inner.events.len();
+        inner.handle_key_press(40); // dead acute
+        assert_eq!(
+            inner.compose_state.as_ref().unwrap().status(),
+            xkb::compose::Status::Composing
+        );
+        assert!(inner.events[before_dead..]
+            .iter()
+            .all(|event| !matches!(event, PlatformEvent::KeyChar(_))));
+
+        let ctrl_index = keymap.mod_get_index(&"Control");
+        assert_ne!(ctrl_index, xkb::MOD_INVALID);
+        inner.ctrl = true;
+        inner
+            .xkb_state
+            .as_mut()
+            .unwrap()
+            .update_mask(1 << ctrl_index, 0, 0, 0, 0, 0);
+        inner.events.clear();
+        inner.handle_key_press(18); // KEY_E
+        assert!(inner.events.is_empty());
+        assert_eq!(
+            inner.compose_state.as_ref().unwrap().status(),
+            xkb::compose::Status::Nothing
+        );
+
+        inner.ctrl = false;
+        inner
+            .xkb_state
+            .as_mut()
+            .unwrap()
+            .update_mask(0, 0, 0, 0, 0, 0);
+        inner.events.clear();
+        inner.handle_key_press(18); // KEY_E
+        assert_eq!(inner.events, vec![PlatformEvent::KeyChar('e')]);
+
+        inner.ctrl = true;
+        inner
+            .xkb_state
+            .as_mut()
+            .unwrap()
+            .update_mask(1 << ctrl_index, 0, 0, 0, 0, 0);
+        inner.events.clear();
+        inner.handle_key_press(28); // KEY_ENTER
+        assert_eq!(inner.events, vec![PlatformEvent::KeyChar('\n')]);
+        inner.events.clear();
+        inner.handle_key_press(14); // KEY_BACKSPACE
+        assert_eq!(inner.events, vec![PlatformEvent::KeyChar('\u{8}')]);
+
+        println!("COMPOSE_CTRL_EXERCISED");
     }
 }
 
