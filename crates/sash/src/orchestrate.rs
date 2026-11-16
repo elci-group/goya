@@ -12,9 +12,10 @@ use crate::windows_target::WindowsTarget;
 use crate::{Diagnostic, PROFILE_PORTABLE};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, UNIX_EPOCH};
 
 const MIN_FREE_BYTES: u64 = 1_200_000_000;
 
@@ -38,13 +39,40 @@ pub fn link(
             "Free space and retry. Sash does not delete unrelated build caches.",
         ));
     }
-    let prepared = prepare(source)?;
+    let mut prepared = prepare(source)?;
+    prepared.generated.manifest_xml = crate::windows_target::stamp_processor_architecture(
+        &prepared.generated.manifest_xml,
+        target,
+    )
+    .map_err(|message| {
+        Diagnostic::new(
+            "SASH-LINK",
+            "emit",
+            message,
+            "Keep one processorArchitecture=\"amd64\" attribute in the manifest template.",
+        )
+    })?;
     let tools = probe_tools(target)?;
     let cache = pinned_windows_cache()?;
-    let temp = TempDir::new()?;
-    write_project(&temp.0, &prepared.generated, target)?;
-    let log = run_link(&temp.0, &cache, target)?;
-    let release = temp.0.join("target").join(target.triple).join("release");
+    // The directory name is a function of the generated crate and the triple.
+    // A unique directory changes the PDB, and `/Brepro` then changes the
+    // CodeView GUID embedded in App.exe.
+    let key = build_directory_key(
+        target.triple,
+        &[
+            &prepared.source_digest,
+            prepared.generated.main_rs.as_bytes(),
+            prepared.generated.manifest_xml.as_bytes(),
+            prepared.generated.cargo_toml.as_bytes(),
+            prepared.generated.build_rs.as_bytes(),
+            prepared.generated.resource_script.as_bytes(),
+            crate::windows_target::cargo_config(target).as_bytes(),
+        ],
+    );
+    let temp = TempDir::new(&key)?;
+    write_project(&temp.path, &prepared.generated, target)?;
+    let log = run_link(&temp.path, &cache, target)?;
+    let release = temp.path.join("target").join(target.triple).join("release");
     let exe = release.join("app.exe");
     let pdb = release.join("app.pdb");
     if !exe.is_file() {
@@ -215,6 +243,9 @@ fn probe_tools(target: WindowsTarget) -> Result<Tools, Diagnostic> {
     }
     let cargo_xwin = version("cargo", &["xwin", "--version"])?;
     let llvm_rc = llvm_rc_identity()?;
+    // The linker shim is a Python program. It rewrites rustc's random
+    // symbols.o path before lld records that path in the PDB.
+    let _python = version("python3", &["--version"])?;
     Ok(Tools {
         rustc: rustc.trim().to_string(),
         cargo_xwin: cargo_xwin.trim().to_string(),
@@ -296,8 +327,72 @@ fn write_project(
     write_new(&dir.join("app.manifest"), generated.manifest_xml.as_bytes())?;
     write_new(&dir.join("app.rc"), generated.resource_script.as_bytes())?;
     write_new(&dir.join("src/main.rs"), generated.main_rs.as_bytes())?;
+    write_linker_shim(dir)?;
     Ok(())
 }
+
+/// `lld-link` shim. rustc writes `symbols.o` in a random directory. That path
+/// is the only PDB difference left after the build directory itself is stable,
+/// and `/Brepro` then copies it into the CodeView GUID. The shim gives lld one
+/// stable path. It is not a Windows launch.
+fn write_linker_shim(dir: &Path) -> Result<(), Diagnostic> {
+    let shim_dir = dir.join("shim");
+    fs::create_dir(&shim_dir).map_err(|error| io_diag("emit", &error))?;
+    let path = shim_dir.join("lld-link");
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o755)
+        .open(&path)
+        .map_err(|error| io_diag("emit", &error))?;
+    file.write_all(LINKER_SHIM.as_bytes())
+        .map_err(|error| io_diag("emit", &error))?;
+    file.set_modified(UNIX_EPOCH + Duration::from_secs(1_700_000_000))
+        .map_err(|error| io_diag("emit", &error))?;
+    Ok(())
+}
+
+const LINKER_SHIM: &str = r#"#!/usr/bin/env python3
+import os, shutil, sys
+
+real = os.environ["SASH_LLD_LINK"]
+deps = os.environ["SASH_DEPS_DIR"]
+stable = os.path.join(deps, "symbols.o")
+
+def rewrite(arg):
+    norm = arg.replace("\\", "/")
+    if norm.endswith("/symbols.o") and "/rustc" in norm:
+        os.makedirs(deps, exist_ok=True)
+        shutil.copyfile(arg, stable)
+        return stable
+    if arg.startswith("@") and os.path.isfile(arg[1:]):
+        return "@" + rewrite_response(arg[1:])
+    return arg
+
+def rewrite_response(path):
+    data = open(path, "rb").read()
+    utf16 = data.startswith(b"\xff\xfe")
+    text = data[2:].decode("utf-16-le") if utf16 else data.decode()
+    lines = []
+    for line in text.splitlines():
+        quoted = len(line) >= 2 and line[0] == '"' and line[-1] == '"'
+        inner = line[1:-1].replace('\\"', '"') if quoted else line
+        new = rewrite(inner)
+        if quoted:
+            lines.append('"' + new.replace('"', '\\"') + '"')
+        else:
+            lines.append(new)
+    out = "\n".join(lines) + "\n"
+    dest = os.path.join(deps, "linker-arguments")
+    os.makedirs(deps, exist_ok=True)
+    blob = b"\xff\xfe" + out.encode("utf-16-le") if utf16 else out.encode()
+    with open(dest, "wb") as handle:
+        handle.write(blob)
+    return dest
+
+args = [rewrite(arg) for arg in sys.argv[1:]]
+os.execv(real, [real, *args])
+"#;
 
 fn write_new(path: &Path, bytes: &[u8]) -> Result<(), Diagnostic> {
     let mut file = OpenOptions::new()
@@ -306,6 +401,10 @@ fn write_new(path: &Path, bytes: &[u8]) -> Result<(), Diagnostic> {
         .open(path)
         .map_err(|error| io_diag("emit", &error))?;
     file.write_all(bytes)
+        .map_err(|error| io_diag("emit", &error))?;
+    // Source mtimes are not part of the scene. A fixed stamp keeps them out
+    // of any debug record that stores file times.
+    file.set_modified(UNIX_EPOCH + Duration::from_secs(1_700_000_000))
         .map_err(|error| io_diag("emit", &error))?;
     Ok(())
 }
@@ -362,9 +461,34 @@ fn active_rustup_toolchain() -> Option<String> {
     }
 }
 
+fn lld_link_binary(cache: &Path) -> Result<PathBuf, Diagnostic> {
+    let cached = cache.join("lld-link");
+    if cached.is_file() {
+        return Ok(cached);
+    }
+    Err(Diagnostic::new(
+        "SASH-TOOLCHAIN",
+        "build",
+        "the pinned xwin cache has no lld-link",
+        "Restore the local windows-msvc-sysroot cache. Sash does not download a linker.",
+    ))
+}
+
 fn run_link(project: &Path, cache: &Path, target: WindowsTarget) -> Result<String, Diagnostic> {
     // clang uses the existing splat. clang-cl looks for a separate CRT unpack
     // and would download the SDK when that unpack is absent.
+    let lld = lld_link_binary(cache)?;
+    let inherited = std::env::var_os("PATH").unwrap_or_default();
+    let mut paths = vec![project.join("shim")];
+    paths.extend(std::env::split_paths(&inherited));
+    let path_var = std::env::join_paths(paths).map_err(|_| {
+        Diagnostic::new(
+            "SASH-TOOLCHAIN",
+            "build",
+            "PATH could not include the linker shim",
+            "Remove a NUL from PATH and retry.",
+        )
+    })?;
     let mut command = Command::new("cargo");
     command
         .arg("xwin")
@@ -384,6 +508,16 @@ fn run_link(project: &Path, cache: &Path, target: WindowsTarget) -> Result<Strin
         .env("CARGO_NET_OFFLINE", "true")
         .env("XWIN_CACHE_DIR", cache)
         .env("XWIN_CROSS_COMPILER", "clang")
+        .env("PATH", path_var)
+        .env("SASH_LLD_LINK", &lld)
+        .env(
+            "SASH_DEPS_DIR",
+            project
+                .join("target")
+                .join(target.triple)
+                .join("release")
+                .join("deps"),
+        )
         .env_remove("RUSTFLAGS")
         .env_remove("CARGO_ENCODED_RUSTFLAGS");
     // The generated crate is outside this repo, so rustup would otherwise
@@ -515,23 +649,94 @@ fn io_diag(stage: &'static str, error: &io::Error) -> Diagnostic {
     )
 }
 
-struct TempDir(PathBuf);
+/// First 16 hex characters of a SHA-256 over the target and the crate bytes.
+///
+/// The same scene, generator, and triple always produce the same build
+/// directory. That is what lets `/Brepro` see the same PDB paths on a second
+/// link. It is not a Windows launch.
+fn build_directory_key(target: &str, parts: &[&[u8]]) -> String {
+    let mut bytes = Vec::new();
+    bytes.extend(target.as_bytes());
+    bytes.push(0xff);
+    for part in parts {
+        bytes.extend((part.len() as u64).to_le_bytes());
+        bytes.extend(*part);
+    }
+    crate::sha256_hex(&bytes)[..16].to_string()
+}
+
+struct TempDir {
+    path: PathBuf,
+    lock: PathBuf,
+}
 
 impl TempDir {
-    fn new() -> Result<Self, Diagnostic> {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|duration| duration.as_nanos())
-            .unwrap_or(0);
-        let path = std::env::temp_dir().join(format!("sash-build-{}-{nanos}", std::process::id()));
-        fs::create_dir(&path).map_err(|error| io_diag("build", &error))?;
-        Ok(Self(path))
+    fn new(key: &str) -> Result<Self, Diagnostic> {
+        let root = std::env::temp_dir();
+        let path = root.join(format!("sash-build-{key}"));
+        let lock = root.join(format!("sash-build-{key}.lock"));
+        acquire_build_lock(&lock)?;
+        if path.exists() {
+            if let Err(error) = fs::remove_dir_all(&path) {
+                let _ = fs::remove_file(&lock);
+                return Err(io_diag("build", &error));
+            }
+        }
+        if let Err(error) = fs::create_dir(&path) {
+            let _ = fs::remove_file(&lock);
+            return Err(io_diag("build", &error));
+        }
+        Ok(Self { path, lock })
     }
+}
+
+fn acquire_build_lock(lock: &Path) -> Result<(), Diagnostic> {
+    for _ in 0..4 {
+        match OpenOptions::new().write(true).create_new(true).open(lock) {
+            Ok(mut file) => {
+                writeln!(file, "{}", std::process::id())
+                    .map_err(|error| io_diag("build", &error))?;
+                return Ok(());
+            }
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                if lock_holder_dead(lock) && fs::remove_file(lock).is_ok() {
+                    continue;
+                }
+                return Err(Diagnostic::new(
+                    "SASH-LINK",
+                    "build",
+                    format!("another sash link holds {}", lock.display()),
+                    "Wait for that link to finish, or remove the lock file if that process has exited.",
+                ));
+            }
+            Err(error) => return Err(io_diag("build", &error)),
+        }
+    }
+    Err(Diagnostic::new(
+        "SASH-LINK",
+        "build",
+        format!("could not claim {}", lock.display()),
+        "Remove the lock file if no sash link is running and retry.",
+    ))
+}
+
+fn lock_holder_dead(lock: &Path) -> bool {
+    let Ok(text) = fs::read_to_string(lock) else {
+        return false;
+    };
+    let Ok(pid) = text.trim().parse::<u32>() else {
+        return false;
+    };
+    if pid == std::process::id() {
+        return false;
+    }
+    !Path::new(&format!("/proc/{pid}")).exists()
 }
 
 impl Drop for TempDir {
     fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
+        let _ = fs::remove_dir_all(&self.path);
+        let _ = fs::remove_file(&self.lock);
     }
 }
 
@@ -561,7 +766,26 @@ pub fn classify_link_failure(log: &str) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::classify_link_failure;
+    use super::{build_directory_key, classify_link_failure};
+
+    #[test]
+    fn build_directory_key_follows_the_crate_and_the_target() {
+        let same = build_directory_key("x86_64-pc-windows-msvc", &[b"crate"]);
+        assert_eq!(
+            same,
+            build_directory_key("x86_64-pc-windows-msvc", &[b"crate"])
+        );
+        assert_ne!(
+            same,
+            build_directory_key("i686-pc-windows-msvc", &[b"crate"])
+        );
+        assert_ne!(
+            same,
+            build_directory_key("x86_64-pc-windows-msvc", &[b"other"])
+        );
+        assert_eq!(same.len(), 16);
+        assert!(same.chars().all(|byte| byte.is_ascii_hexdigit()));
+    }
 
     #[test]
     fn native_tool_failures_keep_their_codes() {

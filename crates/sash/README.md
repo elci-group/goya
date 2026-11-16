@@ -28,13 +28,13 @@ sash build project.gscene --target aarch64-pc-windows-msvc --profile portable-na
 sash verify /path/to/new-dir/App.exe --evidence /path/to/new-dir/evidence
 ```
 
-`check` does not create an executable. `build` exits 0 only after the linker produces an image that passes the PE policy. That success still reports runtime qualification and release admission as BLOCKED. `verify` exits 3 when the PE checks pass and the image has not been launched on Windows. It does not sign, install, or start the program.
+`check` does not create an executable. `build` exits 0 only after the linker produces an image that passes the PE policy. That success still reports runtime qualification and release admission as BLOCKED. `verify` exits 3 when the PE checks pass and the image has not been launched on Windows. It reports the triple of the PE machine and the presentation profile named by the manifest assembly identity. The static-window assembly version `0.0.1.0` is profile `sash.win32.static-window/0.0.3`. An explicit `--target` that is not that machine fails verify. `verify` does not sign, install, or start the program.
 
 `--out` must be a new directory. A failed build does not leave an `App.exe` there.
 
 ## This host
 
-Linux can cross-link when the Rust standard library for the selected triple, `cargo-xwin` 0.22, `llvm-rc`, `rust-lld`, and a local `windows-msvc-sysroot` marked `DONE` are already present. Sash does not download a target or that SDK. The build report calls the result an unqualified cross-link.
+Linux can cross-link when the Rust standard library for the selected triple, `cargo-xwin` 0.22, `llvm-rc`, `rust-lld`, and a local `windows-msvc-sysroot` marked `DONE` are already present. Sash does not download a target or that SDK. The link passes `/Brepro`, names the build directory from the generated crate and the target, and gives lld one stable `symbols.o` path. Two links of `fixtures/static-window.gscene` and two links of `fixtures/interactive-counter.gscene` on this host produced the same `App.exe` bytes and the same `App.pdb` bytes for x64, i686, and ARM64. Those pair hashes predate the manifest stamp and still say `processorArchitecture="amd64"` on i686 and ARM64, so the current verifier rejects them. One later static link embeds `x86` at `/tmp/sash-stamp-i686/App.exe` and `arm64` at `/tmp/sash-stamp-arm64/App.exe`. Each of those is a single link, not a second pair. The embedded manifest `processorArchitecture` follows the triple: `x86`, `amd64`, or `arm64`. A mismatch fails promotion. The build report calls the result an unqualified cross-link and leaves R1, R2, and the same-host pair unclaimed, because one link does not compare a second worker. `verify` rejects a report that marks those claims PASS. None of those images was launched.
 
 A Windows launch was not run for the proof recorded in `docs/sash/reconnaissance.md`. Import inspection is not a clean-machine test.
 

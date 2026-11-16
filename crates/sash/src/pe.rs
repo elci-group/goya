@@ -97,6 +97,21 @@ pub fn policy_errors(info: &PeInfo) -> Vec<String> {
         if text.contains("requireAdministrator") || text.contains("highestAvailable") {
             errors.push("manifest requests more than asInvoker".into());
         }
+        if let Some(target) = crate::windows_target::by_machine(info.machine) {
+            let expected = format!(
+                "processorArchitecture=\"{}\"",
+                target.processor_architecture
+            );
+            if !text.contains(&expected) {
+                errors.push(format!(
+                    "manifest processorArchitecture is not {}",
+                    target.processor_architecture
+                ));
+            }
+        }
+        if presentation_profile(&info.manifest).is_none() {
+            errors.push("manifest assembly identity is not a Sash presentation profile".into());
+        }
     }
     if !info.has_version_resource {
         errors.push("version resource is missing".into());
@@ -454,6 +469,31 @@ fn read_u32(bytes: &[u8], offset: usize) -> Result<u32, String> {
     Ok(u32::from_le_bytes([slice[0], slice[1], slice[2], slice[3]]))
 }
 
+/// Map one embedded assembly identity to the presentation profile that emits it.
+///
+/// The static-window manifest version stays `0.0.1.0` for profile
+/// `sash.win32.static-window/0.0.3`. Interactive profiles use `0.0.1.0` and
+/// `0.0.2.0`. Any other name or version is not that profile.
+pub fn presentation_profile(manifest: &[u8]) -> Option<&'static str> {
+    let text = String::from_utf8_lossy(manifest);
+    let static_name = text.matches("name=\"ELCI.Goya.Sash.StaticWindow\"").count();
+    let interactive_name = text
+        .matches("name=\"ELCI.Goya.Sash.InteractiveWindow\"")
+        .count();
+    let version_001 = text.matches("version=\"0.0.1.0\"").count();
+    let version_002 = text.matches("version=\"0.0.2.0\"").count();
+    if static_name == 1 && interactive_name == 0 && version_001 == 1 && version_002 == 0 {
+        return Some(crate::admit::PROFILE);
+    }
+    if static_name == 0 && interactive_name == 1 && version_001 == 1 && version_002 == 0 {
+        return Some(crate::interactive::PROFILE);
+    }
+    if static_name == 0 && interactive_name == 1 && version_001 == 0 && version_002 == 1 {
+        return Some(crate::interactive::PROFILE_CLIPBOARD);
+    }
+    None
+}
+
 pub fn format_flags(characteristics: u16) -> String {
     let mut names = Vec::new();
     for (flag, name) in [
@@ -474,6 +514,11 @@ pub fn format_flags(characteristics: u16) -> String {
         let _ = write!(out, "{name}");
     }
     out
+}
+
+#[cfg(test)]
+pub(crate) fn synthetic_gui_image(machine: u16, magic: u16, dll_characteristics: u16) -> Vec<u8> {
+    tests::image(machine, magic, dll_characteristics)
 }
 
 #[cfg(test)]
@@ -500,7 +545,7 @@ mod tests {
         )
     }
 
-    fn image(machine: u16, magic: u16, dll_characteristics: u16) -> Vec<u8> {
+    pub(super) fn image(machine: u16, magic: u16, dll_characteristics: u16) -> Vec<u8> {
         let mut bytes = vec![0u8; 0x800];
         bytes[0] = b'M';
         bytes[1] = b'Z';
@@ -528,7 +573,15 @@ mod tests {
         put_u32(&mut bytes, section + 20, 0x400);
         put_u32(&mut bytes, 0x40C, 0x1040);
         bytes[0x440..0x44C].copy_from_slice(b"kernel32.dll");
-        let manifest = b"level=\"asInvoker\" uiAccess=\"false\" PerMonitorV2";
+        let arch = match machine {
+            MACHINE_I686 => "x86",
+            MACHINE_ARM64 => "arm64",
+            _ => "amd64",
+        };
+        let manifest = format!(
+            "level=\"asInvoker\" uiAccess=\"false\" PerMonitorV2 processorArchitecture=\"{arch}\" name=\"ELCI.Goya.Sash.StaticWindow\" version=\"0.0.1.0\""
+        );
+        let manifest = manifest.as_bytes();
         // Resource root at file 0x600 / RVA 0x1200.
         put_u16(&mut bytes, 0x600 + 14, 2);
         put_u32(&mut bytes, 0x610, RT_VERSION);
@@ -566,6 +619,10 @@ mod tests {
             policy_errors(&info).is_empty(),
             "{:?}",
             policy_errors(&info)
+        );
+        assert_eq!(
+            presentation_profile(&info.manifest),
+            Some(crate::admit::PROFILE)
         );
     }
 
@@ -659,6 +716,45 @@ mod tests {
         assert!(errors
             .iter()
             .any(|error| error.contains("not an admitted Windows target")));
+    }
+
+    #[test]
+    fn assembly_identity_selects_the_presentation_profile() {
+        assert_eq!(
+            presentation_profile(br#"name="ELCI.Goya.Sash.InteractiveWindow" version="0.0.2.0""#),
+            Some(crate::interactive::PROFILE_CLIPBOARD)
+        );
+        assert_eq!(
+            presentation_profile(br#"name="ELCI.Goya.Sash.InteractiveWindow" version="0.0.1.0""#),
+            Some(crate::interactive::PROFILE)
+        );
+        assert!(
+            presentation_profile(br#"name="ELCI.Goya.Sash.StaticWindow" version="0.0.2.0""#)
+                .is_none()
+        );
+        assert!(presentation_profile(
+            br#"name="ELCI.Goya.Sash.StaticWindow" version="0.0.1.0" name="ELCI.Goya.Sash.InteractiveWindow" version="0.0.1.0""#
+        )
+        .is_none());
+        let mut info = parse_pe(&synthetic()).unwrap();
+        info.manifest =
+            b"level=\"asInvoker\" uiAccess=\"false\" PerMonitorV2 processorArchitecture=\"amd64\""
+                .to_vec();
+        assert!(policy_errors(&info)
+            .iter()
+            .any(|error| error.contains("assembly identity")));
+    }
+
+    #[test]
+    fn manifest_architecture_must_match_the_machine() {
+        let mut info = parse_pe(&synthetic()).unwrap();
+        info.manifest =
+            b"level=\"asInvoker\" uiAccess=\"false\" PerMonitorV2 processorArchitecture=\"x86\""
+                .to_vec();
+        let errors = policy_errors(&info);
+        assert!(errors
+            .iter()
+            .any(|error| error.contains("processorArchitecture is not amd64")));
     }
 
     #[test]

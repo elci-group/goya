@@ -12,7 +12,7 @@ Malicious or accidental scene text, paths in `--out`, and a toolchain that downl
 
 ## Controls in this slice
 
-Admission rejects unknown syntax and unsupported reachable features before emission. Authored title, text, and id are written as decimal byte arrays, not interpolated into Rust strings, the resource script, or argument vectors. The PE reader bounds size, sections, imports, and resource walks, and it does not echo a hostile DLL name. Promotion requires an AMD64 PE32+ GUI image, a non-zero entry, `asInvoker`, per-monitor V2, a version resource, ASLR, DEP, control-flow guard, and an allowlist of system DLL names. CRT redistributable imports fail the build. The link does not download an SDK. `verify` cannot sign or launch.
+Admission rejects unknown syntax and unsupported reachable features before emission. Authored title, text, and id are written as decimal byte arrays, not interpolated into Rust strings, the resource script, or argument vectors. The PE reader bounds size, sections, imports, and resource walks, and it does not echo a hostile DLL name. Promotion requires a PE32 i686, PE32+ x64, or PE32+ ARM64 GUI image whose manifest `processorArchitecture` is `x86`, `amd64`, or `arm64` for that machine, a Sash assembly identity for one presentation profile, a non-zero entry, `asInvoker`, per-monitor V2, a version resource, ASLR, DEP, control-flow guard, and an allowlist of system DLL names. `verify` reports that machine and profile. High-entropy ASLR is required on the two 64-bit machines. CRT redistributable imports fail the build. The link does not download an SDK. `verify` cannot sign or launch.
 
 ## Limits
 

@@ -104,7 +104,13 @@ pub fn files(
             "crt_static": true,
             "control_flow_guard": "requested",
         },
-        "reproducibility": {"r1": "NOT_RUN", "r2": "NOT_RUN", "r3": "NOT_APPLICABLE"},
+        "reproducibility": {
+            "r1": "NOT_RUN",
+            "r2": "NOT_RUN",
+            "r3": "NOT_APPLICABLE",
+            "host_pair": "NOT_COMPARED",
+            "note": "One link does not compare a second worker. /Brepro, a stable build directory, and a stable symbols.o path are what a later same-host pair can measure.",
+        },
         "reason": "This host linked a PE. It did not launch the executable on Windows.",
     });
     let dispositions = serde_json::json!({
@@ -158,6 +164,19 @@ fn pretty(value: &serde_json::Value) -> Vec<u8> {
     bytes
 }
 
+/// A report that marks R1, R2, R3, or the same-host pair as PASS.
+///
+/// `verify` does not compare two workers and does not launch Windows, so it
+/// cannot confirm those claims.
+pub fn reproducibility_claim_is_unconfirmed(report: &serde_json::Value) -> bool {
+    let Some(block) = report.get("reproducibility") else {
+        return false;
+    };
+    ["r1", "r2", "r3", "host_pair"]
+        .iter()
+        .any(|key| block.get(*key).and_then(|value| value.as_str()) == Some("PASS"))
+}
+
 pub fn runtime_claim_is_unconfirmed(report: &serde_json::Value) -> bool {
     report
         .get("runtime_qualification")
@@ -175,4 +194,79 @@ pub fn reported_exe_hash(report: &serde_json::Value) -> Option<&str> {
 
 pub fn sha256_matches(bytes: &[u8], expected: &str) -> bool {
     sha256_hex(bytes) == expected
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::admit::Disposition;
+    use crate::emit::Generated;
+    use crate::pe::PeInfo;
+
+    #[test]
+    fn build_report_leaves_reproducibility_unclaimed() {
+        let generated = Generated {
+            main_rs: String::new(),
+            cargo_toml: "",
+            config_toml: "",
+            build_rs: "",
+            manifest_xml: String::new(),
+            resource_script: String::new(),
+            source_map: serde_json::json!({}),
+        };
+        let scene = SceneEvidence {
+            presentation_profile: "sash.win32.static-window/0.0.3",
+            semantic_id: "window.root".into(),
+            dispositions: vec![Disposition {
+                subject: "label".into(),
+                disposition: "native",
+                detail: "static".into(),
+            }],
+            unit_name: "static-window",
+            contains: &["top-level HWND"],
+            not_generated: &["startup behaviour"],
+        };
+        let facts = BuildFacts {
+            target_triple: "x86_64-pc-windows-msvc".into(),
+            exe_sha256: "ab".into(),
+            pdb_sha256: "cd".into(),
+            manifest_sha256: "ef".into(),
+            generated_sha256: "01".into(),
+            source_digest: "02".into(),
+            pe: PeInfo {
+                machine: 0x8664,
+                magic: 0x020B,
+                subsystem: 2,
+                entry: 1,
+                dll_characteristics: 0xC160,
+                characteristics: 0x22,
+                imports: vec!["KERNEL32.dll".into()],
+                delay_imports: Vec::new(),
+                manifest: Vec::new(),
+                has_version_resource: true,
+            },
+            rustc: "rustc test".into(),
+            cargo_xwin: "cargo-xwin test".into(),
+            llvm_rc: "llvm-rc test".into(),
+        };
+        let report_bytes = files(&scene, &generated, &facts)
+            .into_iter()
+            .find(|(name, _)| *name == "evidence/build-report.json")
+            .expect("build report")
+            .1;
+        let report: serde_json::Value = serde_json::from_slice(&report_bytes).unwrap();
+        assert_eq!(report["claim"], "unqualified-cross-link");
+        assert_eq!(report["runtime_qualification"], "BLOCKED");
+        assert_eq!(report["reproducibility"]["r1"], "NOT_RUN");
+        assert_eq!(report["reproducibility"]["r2"], "NOT_RUN");
+        assert_eq!(report["reproducibility"]["r3"], "NOT_APPLICABLE");
+        assert_eq!(report["reproducibility"]["host_pair"], "NOT_COMPARED");
+        assert!(!reproducibility_claim_is_unconfirmed(&report));
+        let mut forged = report.clone();
+        forged["reproducibility"]["r2"] = serde_json::json!("PASS");
+        assert!(reproducibility_claim_is_unconfirmed(&forged));
+        forged["reproducibility"]["r2"] = serde_json::json!("NOT_RUN");
+        forged["reproducibility"]["host_pair"] = serde_json::json!("PASS");
+        assert!(reproducibility_claim_is_unconfirmed(&forged));
+    }
 }

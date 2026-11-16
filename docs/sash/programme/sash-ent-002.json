@@ -2,19 +2,19 @@
   "directive": "SASH-ENT-002",
   "directive_version": "0.0.1",
   "recorded_on": "2026-11-15",
-  "source_revision": "be438ed01e1805f197874284e5f5908b54f4a8f6",
+  "source_revision": "1d08291b4ebf634d33c0f9f89e0d656c1f9268cf",
   "compiler_constant": "SASH-ENT-001",
   "target_profile": "sash.win32.static-window/0.0.3",
   "deployment_profile": "portable-native",
   "target": "x86_64-pc-windows-msvc",
   "integration_decision": "HOLD",
   "first_gate": "Real Windows execution of the existing static-window profile",
-  "summary": "Static-window and interactive-counter links are unqualified cross-links for i686-pc-windows-msvc (PE32), x86_64-pc-windows-msvc (PE32+), and aarch64-pc-windows-msvc (PE32+). Profile sash.win32.interactive/0.0.2 links the counter with one heading, one integer edit, one button, one checked D1 addition, permitted copy, denied paste, Enter activation, and class unregister on close. The i686 image calls SetWindowLongW. The x64 and ARM64 images call SetWindowLongPtrW. Executable launch is BLOCKED on every architecture. Scenes without a gestures block stay on sash.win32.interactive/0.0.1.",
+  "summary": "Static-window and interactive-counter links are unqualified cross-links for i686-pc-windows-msvc (PE32), x86_64-pc-windows-msvc (PE32+), and aarch64-pc-windows-msvc (PE32+). Profile sash.win32.interactive/0.0.2 links the counter with one heading, one integer edit, one button, one checked D1 addition, permitted copy, denied paste, Enter activation, and class unregister on close. The i686 image calls SetWindowLongW. The x64 and ARM64 images call SetWindowLongPtrW. Executable launch is BLOCKED on every architecture. Scenes without a gestures block stay on sash.win32.interactive/0.0.1. Two links of the static fixture and two links of the interactive counter on this host produced identical App.exe bytes and identical PDB bytes for x64, i686, and ARM64. Each build report leaves R1, R2, and host_pair unclaimed. The same-host i686 and ARM64 images still embed processorArchitecture amd64, and the current verifier rejects them. One later static link embeds x86 for i686 and one embeds arm64 for ARM64. Those two images were not launched and are not a same-host pair. verify now reports the PE machine and the manifest assembly profile instead of the x64 static-window default.",
   "gates": {
     "library_tests": {
       "status": "PASS",
       "command": "cargo test -p sash --offline --lib",
-      "result": "44 passed, 0 failed, 0 ignored"
+      "result": "51 passed, 0 failed, 0 ignored"
     },
     "static_window_link": {
       "status": "PASS",
@@ -154,6 +154,219 @@
       "release_admission": "BLOCKED",
       "note": "Native ARM64 PE32+. The import name SetWindowLongPtrW is present. SetWindowLongW is absent. The image was not launched."
     },
+    "static_x64_repro_pair": {
+      "status": "PASS",
+      "claim": "unqualified-cross-link",
+      "measured_on": "2026-11-16",
+      "outputs": [
+        "/tmp/sash-repro-g/App.exe",
+        "/tmp/sash-repro-h/App.exe"
+      ],
+      "bytes": 231936,
+      "sha256": "b60cd84ab0daf87681902eccef8d55b76acfbec619804d03786e3646eb16f558",
+      "pdb_sha256": "db437db47a3f77606d8cc5020cf123e748ed46203936c33de5ed8383bad84d51",
+      "scene_sha256": "617250a533dd349d6a6186d18dbb320cc1fe6a50f6d245381b9f80d004822962",
+      "machine": "0x8664",
+      "magic": "0x020b",
+      "entry_rva": 129056,
+      "dll_characteristics": "0xc160",
+      "verify_exit": 3,
+      "runtime_qualification": "BLOCKED",
+      "release_admission": "BLOCKED",
+      "note": "Two consecutive x64 links of fixtures/static-window.gscene produced identical App.exe bytes and identical App.pdb bytes. /Brepro is set, the build directory is named from the generated crate and the triple, and rustc's random symbols.o path is rewritten before lld. Measured on the uncommitted worktree after 1d08291. This does not replace the earlier static-window hash. The image was not launched."
+    },
+    "static_i686_repro_pair": {
+      "status": "PASS",
+      "claim": "unqualified-cross-link",
+      "measured_on": "2026-11-16",
+      "outputs": [
+        "/tmp/sash-repro-i686a/App.exe",
+        "/tmp/sash-repro-i686b/App.exe"
+      ],
+      "bytes": 195072,
+      "sha256": "d92bef2afb68466c65d4a7d64b94b6564e032427084f0f22b03983261ed16bf5",
+      "pdb_sha256": "e888ca07726f4e50cd052e150f5c14db5647ef37ce32a4539b49778c92d6197a",
+      "scene_sha256": "617250a533dd349d6a6186d18dbb320cc1fe6a50f6d245381b9f80d004822962",
+      "machine": "0x014c",
+      "magic": "0x010b",
+      "entry_rva": 130048,
+      "dll_characteristics": "0xc140",
+      "verify_exit": 3,
+      "runtime_qualification": "BLOCKED",
+      "release_admission": "BLOCKED",
+      "note": "Two consecutive i686 links of the same static fixture produced identical App.exe bytes and identical App.pdb bytes. High-entropy ASLR is unset, which PE32 policy allows. The recorded verify_exit was measured before the processorArchitecture stamp. This image still says amd64, and the current verifier rejects it. The image was not launched."
+    },
+    "static_arm64_repro_pair": {
+      "status": "PASS",
+      "claim": "unqualified-cross-link",
+      "measured_on": "2026-11-16",
+      "outputs": [
+        "/tmp/sash-repro-arm64a/App.exe",
+        "/tmp/sash-repro-arm64b/App.exe"
+      ],
+      "bytes": 224256,
+      "sha256": "717f2e7793224c793a97db4f85676462617c42c42fd284351198ba0dfccee259",
+      "pdb_sha256": "6db59c48f71d5b431f928ef55510f7a070419db24c4c8c220669f513a3d400d9",
+      "scene_sha256": "617250a533dd349d6a6186d18dbb320cc1fe6a50f6d245381b9f80d004822962",
+      "machine": "0xaa64",
+      "magic": "0x020b",
+      "entry_rva": 128976,
+      "dll_characteristics": "0xc160",
+      "verify_exit": 3,
+      "runtime_qualification": "BLOCKED",
+      "release_admission": "BLOCKED",
+      "note": "Two consecutive native ARM64 links of fixtures/static-window.gscene produced identical App.exe bytes and identical App.pdb bytes. Machine 0xaa64 is PE32+, not an x64 image. This does not replace the earlier static-arm64 hash. The recorded verify_exit was measured before the processorArchitecture stamp. This image still says amd64, and the current verifier rejects it. The image was not launched."
+    },
+    "interactive_x64_repro_pair": {
+      "status": "PASS",
+      "claim": "unqualified-cross-link",
+      "measured_on": "2026-11-16",
+      "presentation_profile": "sash.win32.interactive/0.0.2",
+      "outputs": [
+        "/tmp/sash-repro-ix-a/App.exe",
+        "/tmp/sash-repro-ix-b/App.exe"
+      ],
+      "bytes": 236032,
+      "sha256": "97dc90d8bab50709ddcd3ec7a4468ca596f348c5a52df8cc53b9091957512ba4",
+      "pdb_sha256": "efc82903213d7fc8376551a3e8a5731bbd88e30fcd330cef83abb92c68291071",
+      "scene_sha256": "c550e4608d8217b84c946732fd2ecd9944c800d8979dc332dbea7d87fa9d61fd",
+      "machine": "0x8664",
+      "magic": "0x020b",
+      "entry_rva": 132672,
+      "dll_characteristics": "0xc160",
+      "verify_exit": 3,
+      "runtime_qualification": "BLOCKED",
+      "release_admission": "BLOCKED",
+      "note": "Two consecutive x64 links of fixtures/interactive-counter.gscene produced identical App.exe bytes and identical App.pdb bytes. This does not replace the earlier interactive-cut hash. R1 and R2 stay NOT_RUN. The image was not launched."
+    },
+    "interactive_i686_repro_pair": {
+      "status": "PASS",
+      "claim": "unqualified-cross-link",
+      "measured_on": "2026-11-16",
+      "presentation_profile": "sash.win32.interactive/0.0.2",
+      "outputs": [
+        "/tmp/sash-repro-ix86a/App.exe",
+        "/tmp/sash-repro-ix86b/App.exe"
+      ],
+      "bytes": 199680,
+      "sha256": "6821a03fb209d9f5cfd2311ffef1b984ca7d23aea8f24355132afc2c80f22b21",
+      "pdb_sha256": "62ac787718eb74cc5d120cdb773e16daed28d3408c6bac6c797eebd41e2ed0b4",
+      "scene_sha256": "c550e4608d8217b84c946732fd2ecd9944c800d8979dc332dbea7d87fa9d61fd",
+      "machine": "0x014c",
+      "magic": "0x010b",
+      "entry_rva": 133632,
+      "dll_characteristics": "0xc140",
+      "verify_exit": 3,
+      "runtime_qualification": "BLOCKED",
+      "release_admission": "BLOCKED",
+      "note": "Two consecutive i686 links of fixtures/interactive-counter.gscene produced identical App.exe bytes and identical App.pdb bytes. The import name SetWindowLongW is present. SetWindowLongPtrW is absent. High-entropy ASLR is unset, which PE32 policy allows. This does not replace the earlier interactive-i686 hash. R1 and R2 stay NOT_RUN. The recorded verify_exit was measured before the processorArchitecture stamp. This image still says amd64, and the current verifier rejects it. The image was not launched."
+    },
+    "interactive_arm64_repro_pair": {
+      "status": "PASS",
+      "claim": "unqualified-cross-link",
+      "measured_on": "2026-11-16",
+      "presentation_profile": "sash.win32.interactive/0.0.2",
+      "outputs": [
+        "/tmp/sash-repro-iarm64a/App.exe",
+        "/tmp/sash-repro-iarm64b/App.exe"
+      ],
+      "bytes": 228864,
+      "sha256": "ccc575973745b657e8c0aff68f5cb7a3fe0a7eceb5626168cd2ceca7428adfec",
+      "pdb_sha256": "86b27c3144495185127349e35600f11ee311bf970ec37b1ffc9769f4521ce506",
+      "scene_sha256": "c550e4608d8217b84c946732fd2ecd9944c800d8979dc332dbea7d87fa9d61fd",
+      "machine": "0xaa64",
+      "magic": "0x020b",
+      "entry_rva": 132496,
+      "dll_characteristics": "0xc160",
+      "verify_exit": 3,
+      "runtime_qualification": "BLOCKED",
+      "release_admission": "BLOCKED",
+      "note": "Two consecutive native ARM64 links of fixtures/interactive-counter.gscene produced identical App.exe bytes and identical App.pdb bytes. Machine 0xaa64 is PE32+. The import name SetWindowLongPtrW is present. SetWindowLongW is absent. This does not replace the earlier interactive-arm64 hash. R1 and R2 stay NOT_RUN. The recorded verify_exit was measured before the processorArchitecture stamp. This image still says amd64, and the current verifier rejects it. The image was not launched."
+    },
+    "static_i686_architecture_stamp": {
+      "status": "PASS",
+      "claim": "unqualified-cross-link",
+      "measured_on": "2026-11-16",
+      "target": "i686-pc-windows-msvc",
+      "presentation_profile": "sash.win32.static-window/0.0.3",
+      "output": "/tmp/sash-stamp-i686/App.exe",
+      "bytes": 195072,
+      "sha256": "ab0078ca6ef225e0eb18aaca5024979937476ea2ceab8adec836f21685ab27b3",
+      "pdb_sha256": "fb95594850f7044df2ba2813940003e9dd06c6416cc6b817c9295641f6fe8f83",
+      "scene_sha256": "617250a533dd349d6a6186d18dbb320cc1fe6a50f6d245381b9f80d004822962",
+      "manifest_sha256": "fd0fb6b7177fbd30eac148ac2d73e43567e910d73fcd34130e1cea0189ea24fd",
+      "processor_architecture": "x86",
+      "machine": "0x014c",
+      "magic": "0x010b",
+      "entry_rva": 130048,
+      "dll_characteristics": "0xc140",
+      "verify_exit": 3,
+      "runtime_qualification": "BLOCKED",
+      "release_admission": "BLOCKED",
+      "note": "One static link after the processorArchitecture stamp. The embedded manifest says x86. The pre-stamp i686 pair still says amd64 and the current verifier rejects it. This is not a same-host pair. R1, R2, and host_pair stay unclaimed. The image was not launched."
+    },
+    "static_arm64_architecture_stamp": {
+      "status": "PASS",
+      "claim": "unqualified-cross-link",
+      "measured_on": "2026-11-16",
+      "target": "aarch64-pc-windows-msvc",
+      "presentation_profile": "sash.win32.static-window/0.0.3",
+      "output": "/tmp/sash-stamp-arm64/App.exe",
+      "bytes": 224256,
+      "sha256": "743d2443e5d28d79c9ad5246cf96de1173f9fa3d4e48fa0e53a65af7c9717067",
+      "pdb_sha256": "13dbee124823f973a8199cbc0a8e06d5ee39b88bec5bb9498ed9875107a16990",
+      "scene_sha256": "617250a533dd349d6a6186d18dbb320cc1fe6a50f6d245381b9f80d004822962",
+      "manifest_sha256": "79719522a34c12a15ac5ced36d908087cc1d4db502dfc1516b2f771ba931e716",
+      "processor_architecture": "arm64",
+      "machine": "0xaa64",
+      "magic": "0x020b",
+      "entry_rva": 128976,
+      "dll_characteristics": "0xc160",
+      "verify_exit": 3,
+      "runtime_qualification": "BLOCKED",
+      "release_admission": "BLOCKED",
+      "note": "One native ARM64 static link after the processorArchitecture stamp. The embedded manifest says arm64. Machine 0xaa64 is PE32+. The pre-stamp ARM64 pair still says amd64 and the current verifier rejects it. This is not a same-host pair. R1, R2, and host_pair stay unclaimed. The image was not launched."
+    },
+    "verify_reports_image_identity": {
+      "status": "PASS",
+      "measured_on": "2026-11-16",
+      "checks": [
+        {
+          "output": "/tmp/sash-stamp-i686/App.exe",
+          "verify_exit": 3,
+          "target": "i686-pc-windows-msvc",
+          "presentation_profile": "sash.win32.static-window/0.0.3"
+        },
+        {
+          "output": "/tmp/sash-stamp-arm64/App.exe",
+          "verify_exit": 3,
+          "target": "aarch64-pc-windows-msvc",
+          "presentation_profile": "sash.win32.static-window/0.0.3"
+        },
+        {
+          "output": "/tmp/sash-repro-ix-a/App.exe",
+          "verify_exit": 3,
+          "target": "x86_64-pc-windows-msvc",
+          "presentation_profile": "sash.win32.interactive/0.0.2"
+        },
+        {
+          "output": "/tmp/sash-repro-ix86a/App.exe",
+          "verify_exit": 1,
+          "target": "i686-pc-windows-msvc",
+          "presentation_profile": "sash.win32.interactive/0.0.2",
+          "note": "The embedded architecture is still amd64, so structure fails. The reported target and profile are read from this image."
+        }
+      ],
+      "requested_target_mismatch": {
+        "output": "/tmp/sash-stamp-i686/App.exe",
+        "requested": "x86_64-pc-windows-msvc",
+        "verify_exit": 1,
+        "reported_target": "i686-pc-windows-msvc"
+      },
+      "runtime_qualification": "BLOCKED",
+      "release_admission": "BLOCKED",
+      "note": "verify does not report the CLI default triple or the static-window profile for every image. A requested target that is not the PE machine fails, and the JSON target stays the image machine. This does not launch Windows."
+    },
     "windows_execution": {
       "status": "BLOCKED",
       "reason": "This host has no Windows session, Wine, QEMU, or libvirt image. GitHub CI is ubuntu-latest only. A cross-link is not a launch. i686 and ARM64 still need native execution; ARM64 emulation of an x64 image does not qualify."
@@ -276,7 +489,10 @@
     "Static profile remains sash.win32.static-window/0.0.3 and still rejects buttons, inputs, interactions, and gestures.",
     "Notifications, taskbar identity, and startup registration are not compiled.",
     "verify still exits 3 when the PE checks pass and the image has not been launched.",
-    "source_revision is the parent of the three-target link. Runtime qualification stays BLOCKED."
+    "source_revision is 1d08291, the parent of this record. Runtime qualification stays BLOCKED.",
+    "Identical App.exe bytes on this host are not a Windows launch and do not bump a profile.",
+    "Stamping processorArchitecture does not bump a profile. Interactive i686 and ARM64 have not been linked again after the stamp.",
+    "verify reporting the image machine and assembly profile does not bump a profile and does not launch Windows."
   ],
-  "next_unblock": "A native Windows session must launch the x64, i686, and ARM64 images separately, on matching hardware. For x64 that is /tmp/sash-ent002/static-window/App.exe and /tmp/sash-ent002/interactive-cut/App.exe. For i686 that is /tmp/sash-ent002/static-i686/App.exe and /tmp/sash-ent002/interactive-i686/App.exe. For ARM64 that is /tmp/sash-ent002/static-arm64/App.exe and /tmp/sash-ent002/interactive-arm64/App.exe. Record process exit separately from these links."
+  "next_unblock": "A native Windows session must launch the x64, i686, and ARM64 images separately, on matching hardware. For x64 that is /tmp/sash-ent002/static-window/App.exe and /tmp/sash-ent002/interactive-cut/App.exe. For i686 static that is /tmp/sash-stamp-i686/App.exe. For ARM64 static that is /tmp/sash-stamp-arm64/App.exe. The earlier i686 and ARM64 images still embed processorArchitecture amd64, and the current verifier rejects them. Interactive i686 and ARM64 have not been linked again after the stamp. Record process exit separately from these links."
 }

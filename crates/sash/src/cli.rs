@@ -43,6 +43,7 @@ pub fn execute(args: &[std::ffi::OsString]) -> Run {
     }
     let mut positionals = Vec::new();
     let mut target = TARGET_MSVC_X64.to_string();
+    let mut target_explicit = false;
     let mut json = false;
     let mut profile = PROFILE_PORTABLE.to_string();
     let mut release = false;
@@ -68,6 +69,7 @@ pub fn execute(args: &[std::ffi::OsString]) -> Run {
                 return cli_error(2, "--target needs a value");
             };
             target = value.to_string();
+            target_explicit = true;
             index += 2;
         } else if text == "--profile" {
             let Some(value) = args.get(index + 1).and_then(|value| value.to_str()) else {
@@ -143,7 +145,12 @@ pub fn execute(args: &[std::ffi::OsString]) -> Run {
             let Some(path) = one_path(&positionals) else {
                 return cli_error(2, "expected one executable path");
             };
-            verify_command(base, path, evidence.as_deref())
+            verify_command(
+                base,
+                path,
+                evidence.as_deref(),
+                target_explicit.then_some(admitted),
+            )
         }
         _ => usage(),
     }
@@ -245,7 +252,16 @@ fn build_command(
     }
 }
 
-fn verify_command(mut base: serde_json::Value, exe: &Path, evidence: Option<&Path>) -> Run {
+fn verify_command(
+    mut base: serde_json::Value,
+    exe: &Path,
+    evidence: Option<&Path>,
+    requested: Option<crate::windows_target::WindowsTarget>,
+) -> Run {
+    // The command default is x64. Verify must not report that until the image
+    // itself names a machine and a presentation profile.
+    base["target"] = serde_json::Value::Null;
+    base["presentation_profile"] = serde_json::Value::Null;
     let bytes = match read_limited(exe, MAX_EXE) {
         Ok(bytes) => bytes,
         Err(diagnostic) => return finish(base, 1, diagnostic, "executable was not read"),
@@ -267,6 +283,20 @@ fn verify_command(mut base: serde_json::Value, exe: &Path, evidence: Option<&Pat
         }
     };
     let mut problems = pe::policy_errors(&info);
+    if let Some(image) = crate::windows_target::by_machine(info.machine) {
+        base["target"] = serde_json::json!(image.triple);
+        if let Some(requested) = requested {
+            if requested.machine != image.machine {
+                problems.push(format!(
+                    "image target is {}, not the requested {}",
+                    image.triple, requested.triple
+                ));
+            }
+        }
+    }
+    if let Some(profile) = pe::presentation_profile(&info.manifest) {
+        base["presentation_profile"] = serde_json::json!(profile);
+    }
     if let Some(dir) = evidence {
         match evidence_problems(dir, &bytes) {
             Ok(more) => problems.extend(more),
@@ -281,12 +311,20 @@ fn verify_command(mut base: serde_json::Value, exe: &Path, evidence: Option<&Pat
     if problems.is_empty() {
         base["status"] = serde_json::json!("BLOCKED");
         base["diagnostics"] = serde_json::json!([]);
+        let target = base["target"]
+            .as_str()
+            .unwrap_or("unrecognized")
+            .to_string();
+        let profile = base["presentation_profile"]
+            .as_str()
+            .unwrap_or("unrecognized")
+            .to_string();
         Run {
             code: ExitCode::from(3),
             json: base,
-            text:
-                "pe-structure: PASS\nruntime-qualification: BLOCKED\nrelease-admission: BLOCKED\n"
-                    .into(),
+            text: format!(
+                "pe-structure: PASS\ntarget: {target}\npresentation-profile: {profile}\nruntime-qualification: BLOCKED\nrelease-admission: BLOCKED\n"
+            ),
         }
     } else {
         finish(
@@ -330,6 +368,9 @@ fn evidence_problems(dir: &Path, exe: &[u8]) -> Result<Vec<String>, Diagnostic> 
     }
     if report::runtime_claim_is_unconfirmed(&report) {
         problems.push("this verifier does not accept a runtime or release pass claim".into());
+    }
+    if report::reproducibility_claim_is_unconfirmed(&report) {
+        problems.push("this verifier does not accept a reproducibility pass claim".into());
     }
     Ok(problems)
 }
@@ -619,5 +660,50 @@ mod tests {
         assert!(message.contains("i686-pc-windows-msvc"));
         assert!(message.contains("x86_64-pc-windows-msvc"));
         assert!(message.contains("aarch64-pc-windows-msvc"));
+    }
+
+    #[test]
+    fn verify_reports_the_image_machine_and_profile() {
+        let dir = std::env::temp_dir();
+        let i686 = dir.join(format!("sash-verify-i686-{}.exe", std::process::id()));
+        let bytes = pe::synthetic_gui_image(0x014C, 0x010B, 0x0040 | 0x0100 | 0x4000);
+        std::fs::write(&i686, &bytes).unwrap();
+        let run = execute(&[
+            "sash".into(),
+            "verify".into(),
+            i686.as_os_str().to_os_string(),
+            "--format".into(),
+            "json".into(),
+        ]);
+        let _ = std::fs::remove_file(&i686);
+        assert_eq!(run.code, ExitCode::from(3));
+        assert_eq!(run.json["target"], "i686-pc-windows-msvc");
+        assert_eq!(run.json["presentation_profile"], PROFILE);
+        assert_eq!(run.json["pe_structure"], "PASS");
+        assert_eq!(run.json["runtime_qualification"], "BLOCKED");
+    }
+
+    #[test]
+    fn verify_rejects_a_requested_target_that_is_not_the_image() {
+        let dir = std::env::temp_dir();
+        let arm64 = dir.join(format!("sash-verify-arm64-{}.exe", std::process::id()));
+        let bytes = pe::synthetic_gui_image(0xAA64, 0x020B, 0x0020 | 0x0040 | 0x0100 | 0x4000);
+        std::fs::write(&arm64, &bytes).unwrap();
+        let run = execute(&[
+            "sash".into(),
+            "verify".into(),
+            arm64.as_os_str().to_os_string(),
+            "--target".into(),
+            "i686-pc-windows-msvc".into(),
+            "--format".into(),
+            "json".into(),
+        ]);
+        let _ = std::fs::remove_file(&arm64);
+        assert_eq!(run.code, ExitCode::from(1));
+        assert_eq!(run.json["target"], "aarch64-pc-windows-msvc");
+        assert_eq!(run.json["presentation_profile"], PROFILE);
+        let message = run.json["diagnostics"][0]["message"].as_str().unwrap();
+        assert!(message.contains("image target is aarch64-pc-windows-msvc"));
+        assert!(message.contains("not the requested i686-pc-windows-msvc"));
     }
 }

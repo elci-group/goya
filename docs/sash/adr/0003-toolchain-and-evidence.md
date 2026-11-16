@@ -20,7 +20,7 @@ Static CRT and control-flow guard are requested in the generated `.cargo/config.
 
 The output directory is created only after those checks pass. Failure removes that directory. `verify` never signs, installs, or launches. A report that marks runtime qualification or release admission as PASS is rejected.
 
-Linux output is labelled `unqualified-cross-link`. Wine is not evidence. R1 and R2 are `NOT_RUN` until two comparable builds exist.
+Linux output is labelled `unqualified-cross-link`. Wine is not evidence. R1 and R2 stay `NOT_RUN` in each build report. A same-host pair is a separate measurement. It is not those two worker gates, and `verify` rejects a report that marks either of them PASS.
 
 ## Consequences
 
