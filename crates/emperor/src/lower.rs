@@ -311,6 +311,23 @@ mod tests {
         let report = emperor_runtime::oracle(&lowered.json).expect("oracle");
         assert_eq!((report.count, report.revision), (1, 1));
         assert!(!report.paste_allowed);
+        let interaction =
+            emperor_runtime::exercise_interaction(&lowered.json).expect("interaction");
+        assert_eq!(
+            interaction,
+            emperor_runtime::InteractionReport {
+                count: 3,
+                revision: 2,
+                edit: "2".to_owned(),
+                focus: "button".to_owned(),
+                paste_ignored: true,
+                copy_allowed: true,
+                paste_allowed: false,
+                add_hit: true,
+                rects_stable: true,
+                space_activates: true,
+            }
+        );
     }
 
     #[test]

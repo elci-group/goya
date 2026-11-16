@@ -81,3 +81,50 @@ fn benchmark_does_not_invent_a_number() {
     assert!(!rendered.contains("150 ms"));
     assert_eq!(run.json["stages"][0]["status"], "BLOCKED");
 }
+
+#[test]
+fn interaction_suite_dispatches_the_admitted_counter() {
+    let scene = fixture("interactive-counter.gscene");
+    let run = run(&["test", &scene, "--suite", "interaction"]);
+    assert_eq!(run.code, 0, "{}", run.text);
+    assert_eq!(run.json["count"].as_i64(), Some(3));
+    assert_eq!(run.json["revision"].as_u64(), Some(2));
+    assert_eq!(run.json["edit"], "2");
+    assert_eq!(run.json["focus"], "button");
+    assert_eq!(run.json["paste_ignored"], true);
+    assert_eq!(run.json["copy_allowed"], true);
+    assert_eq!(run.json["paste_allowed"], false);
+    assert_eq!(run.json["add_hit"], true);
+    assert_eq!(run.json["rects_stable"], true);
+    assert_eq!(run.json["space_activates"], true);
+    let stages = run.json["stages"].as_array().expect("stages");
+    assert_eq!(stages.len(), 13);
+    for stage in stages.iter().take(6) {
+        assert_eq!(stage["status"], "PASS");
+    }
+    for stage in stages.iter().skip(6) {
+        assert_eq!(stage["status"], "NOT_APPLICABLE");
+        assert_eq!(
+            stage["detail"],
+            "interaction suite is scripted dispatch, not a seat or compositor launch"
+        );
+    }
+    assert_eq!(stages[11]["name"], "runtime-conformance");
+    assert_ne!(stages[11]["status"], "PASS");
+    assert!(!run.json.to_string().contains("150 ms"));
+    assert!(!run.text.contains("wayland"));
+}
+
+#[test]
+fn desktop_sota_stays_blocked_and_unknown_suites_exit_2() {
+    let scene = fixture("interactive-counter.gscene");
+    let blocked = run(&["test", &scene, "--suite", "desktop-sota"]);
+    assert_eq!(blocked.code, 3, "{}", blocked.text);
+    assert!(!blocked.json.to_string().contains("150 ms"));
+    let unknown = run(&["test", &scene, "--suite", "seat"]);
+    assert_eq!(unknown.code, 2, "{}", unknown.text);
+    let conformance = run(&["test", &scene, "--suite", "conformance"]);
+    assert_eq!(conformance.code, 0, "{}", conformance.text);
+    assert_eq!(conformance.json["count"].as_i64(), Some(1));
+    assert_eq!(conformance.json["revision"].as_u64(), Some(1));
+}

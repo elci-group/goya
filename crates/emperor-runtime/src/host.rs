@@ -7,7 +7,7 @@ use goya_layout::Rect;
 use goya_parity::keys::{Focus, KeyController};
 use goya_parity::pointer::HitMap;
 use goya_runtime::Primitive;
-use goya_wayland::{GoyaWindow, KeySpecial, PlatformEvent, Shortcut};
+use goya_wayland::{GoyaWindow, KeyModifiers, KeySpecial, PlatformEvent, Shortcut};
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{press_add, Element, NativeIr, OracleReport, VK_SPACE, VK_TAB, WM_KEYDOWN};
@@ -19,13 +19,33 @@ const GLYPH_PX: u32 = 8;
 
 pub(crate) enum WindowMode {
     Smoke,
-    Live { max_frames: Option<u32> },
+    /// Apply the scripted counter, then present that frame once.
+    Exercise,
+    Live {
+        max_frames: Option<u32>,
+    },
 }
 
-enum Step {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Step {
     Unchanged,
     Changed,
     Quit,
+}
+
+pub(crate) struct PointerEffect {
+    pub step: Step,
+    pub hit: Option<String>,
+}
+
+/// Button id recorded by a press. Release inside that id activates.
+///
+/// Sash activates from `WM_COMMAND` note 0 (`BN_CLICKED`), which the system
+/// button posts on release inside the control. This arm is that rule on the
+/// hit map. It is not a seat grab and it does not call a pointer-capture API.
+#[derive(Debug, Default)]
+pub(crate) struct PointerArm {
+    button_id: Option<String>,
 }
 
 struct SceneFrame {
@@ -58,6 +78,10 @@ pub(crate) fn run_window(
     };
     let mut window = GoyaWindow::create(title, ir.width_dip, ir.height_dip)
         .map_err(|err| format!("wayland: {err}"))?;
+    let mut arm = PointerArm::default();
+    if matches!(mode, WindowMode::Exercise) {
+        crate::exercise::apply_visible_script(ir, &mut controller, &hits, &mut arm)?;
+    }
 
     let mut dirty = true;
     let mut presented = 0u32;
@@ -76,7 +100,7 @@ pub(crate) fn run_window(
             break;
         }
         for event in window.poll() {
-            match on_event(ir, &mut controller, &hits, &mut window, event) {
+            match on_event(ir, &mut controller, &hits, &mut arm, &mut window, event) {
                 Step::Changed => dirty = true,
                 Step::Quit => quit = true,
                 Step::Unchanged => {}
@@ -108,7 +132,7 @@ pub(crate) fn run_window(
         if window.close_requested() {
             break;
         }
-        if matches!(mode, WindowMode::Smoke) && presented >= 1 {
+        if matches!(mode, WindowMode::Smoke | WindowMode::Exercise) && presented >= 1 {
             break;
         }
     }
@@ -126,51 +150,44 @@ fn on_event(
     ir: &NativeIr,
     controller: &mut KeyController,
     hits: &HitMap,
+    arm: &mut PointerArm,
     window: &mut GoyaWindow,
     event: PlatformEvent,
 ) -> Step {
     match event {
-        PlatformEvent::PointerPress(x, y) => on_pointer(ir, controller, hits, x, y),
+        PlatformEvent::PointerPress(x, y) => on_pointer_press(ir, controller, hits, arm, x, y).step,
+        PlatformEvent::PointerRelease(x, y) => on_pointer_release(controller, hits, arm, x, y).step,
         PlatformEvent::KeyChar(ch) => on_char(controller, ch),
         PlatformEvent::KeySpecial(KeySpecial::Tab) => on_tab(controller, false),
-        PlatformEvent::KeySpecialWithModifiers { key, modifiers } => match key {
-            KeySpecial::Tab => on_tab(controller, modifiers.shift),
-            // Denied Shift+Delete is a cut. It must not change the edit.
-            KeySpecial::Delete if modifiers.shift && ir.capabilities.cut == "deny" => {
-                Step::Unchanged
+        PlatformEvent::KeySpecialWithModifiers { key, modifiers } => {
+            let effect = on_modified_special(ir, controller, key, modifiers);
+            if let Some(text) = effect.clipboard.as_deref() {
+                window.set_clipboard_text(text);
             }
-            _ => Step::Unchanged,
-        },
+            effect.step
+        }
         PlatformEvent::Shortcut(Shortcut::Copy) => {
-            if ir.capabilities.copy {
-                window.set_clipboard_text(&controller.session.edit);
+            if let Some(text) = copy_text(ir, controller) {
+                window.set_clipboard_text(text);
             }
             Step::Unchanged
         }
         PlatformEvent::Shortcut(Shortcut::Paste) => {
-            if ir.capabilities.paste {
+            if paste_shortcut_requests_clipboard(ir) {
                 window.request_clipboard_text();
             }
             Step::Unchanged
         }
         PlatformEvent::Shortcut(Shortcut::Quit) => Step::Quit,
-        PlatformEvent::ClipboardText(text) => match text {
-            Some(text) if ir.capabilities.paste => {
-                controller.session.set_edit(&text);
-                Step::Changed
-            }
-            // Denied paste ignores a clipboard payload, including an empty one.
-            _ => Step::Unchanged,
-        },
-        PlatformEvent::Resized(_, _) => Step::Changed,
+        PlatformEvent::ClipboardText(text) => on_clipboard_text(ir, controller, text.as_deref()),
+        PlatformEvent::Resized(_, _) => on_resize(ir),
         PlatformEvent::CloseRequested => Step::Quit,
         // IME composition is not qualified. These events are ignored.
         PlatformEvent::Preedit(_)
         | PlatformEvent::PreeditWithCursor { .. }
         | PlatformEvent::CommitText(_)
-        | PlatformEvent::DeleteSurroundingText { .. } => Step::Unchanged,
+        | PlatformEvent::DeleteSurroundingText { .. } => ignore_ime(controller),
         PlatformEvent::PointerMove(_, _)
-        | PlatformEvent::PointerRelease(_, _)
         | PlatformEvent::PointerScroll(_)
         | PlatformEvent::PointerScrollDelta { .. }
         | PlatformEvent::KeySpecial(_)
@@ -180,50 +197,95 @@ fn on_event(
     }
 }
 
-fn on_pointer(
+pub(crate) fn on_pointer_press(
     ir: &NativeIr,
     controller: &mut KeyController,
     hits: &HitMap,
+    arm: &mut PointerArm,
     x: f64,
     y: f64,
-) -> Step {
+) -> PointerEffect {
     let Some(control) = hits.at(dip_from_surface_px(x), dip_from_surface_px(y)) else {
-        return Step::Unchanged;
+        arm.button_id = None;
+        return PointerEffect {
+            step: Step::Unchanged,
+            hit: None,
+        };
     };
+    let hit = control.semantic_id.clone();
     let role = ir
         .elements
         .iter()
-        .find(|element| element.id == control.semantic_id)
+        .find(|element| element.id == hit)
         .map(|element| element.role.as_str());
-    let is_button = role == Some("button") || control.semantic_id == "window.add";
-    let is_edit = role == Some("edit") || control.semantic_id == "window.amount";
+    let is_button = role == Some("button") || hit == "window.add";
+    let is_edit = role == Some("edit") || hit == "window.amount";
     let before = view(controller);
     if is_button {
         controller.focus = Focus::Button;
-        press_add(controller);
+        arm.button_id = Some(hit.clone());
     } else if is_edit {
         controller.focus = Focus::Edit;
+        arm.button_id = None;
     } else {
-        return Step::Unchanged;
+        arm.button_id = None;
+        return PointerEffect {
+            step: Step::Unchanged,
+            hit: Some(hit),
+        };
     }
-    if view(controller) == before {
+    PointerEffect {
+        step: step_if_changed(controller, &before),
+        hit: Some(hit),
+    }
+}
+
+pub(crate) fn on_pointer_release(
+    controller: &mut KeyController,
+    hits: &HitMap,
+    arm: &mut PointerArm,
+    x: f64,
+    y: f64,
+) -> PointerEffect {
+    let hit = hits
+        .at(dip_from_surface_px(x), dip_from_surface_px(y))
+        .map(|control| control.semantic_id.clone());
+    let armed = arm.button_id.take();
+    let Some(armed_id) = armed else {
+        return PointerEffect {
+            step: Step::Unchanged,
+            hit,
+        };
+    };
+    if hit.as_deref() != Some(armed_id.as_str()) {
+        return PointerEffect {
+            step: Step::Unchanged,
+            hit,
+        };
+    }
+    let before = view(controller);
+    press_add(controller);
+    PointerEffect {
+        step: step_if_changed(controller, &before),
+        hit,
+    }
+}
+
+fn step_if_changed(controller: &KeyController, before: &View) -> Step {
+    if &view(controller) == before {
         Step::Unchanged
     } else {
         Step::Changed
     }
 }
 
-fn on_char(controller: &mut KeyController, ch: char) -> Step {
+pub(crate) fn on_char(controller: &mut KeyController, ch: char) -> Step {
     let before = view(controller);
     match ch {
         '\n' => press_add(controller),
-        ' ' if controller.focus == Focus::Button => {
-            controller.on_key(WM_KEYDOWN, VK_SPACE, false);
-        }
+        // Space is Dispatch. The button activates. The edit does not change.
         ' ' => {
-            let mut edit = controller.session.edit.clone();
-            edit.push(' ');
-            controller.session.set_edit(&edit);
+            controller.on_key(WM_KEYDOWN, VK_SPACE, false);
         }
         '\u{8}' => {
             if controller.focus == Focus::Edit {
@@ -246,7 +308,7 @@ fn on_char(controller: &mut KeyController, ch: char) -> Step {
     }
 }
 
-fn on_tab(controller: &mut KeyController, shift_down: bool) -> Step {
+pub(crate) fn on_tab(controller: &mut KeyController, shift_down: bool) -> Step {
     let before = controller.focus;
     controller.on_key(WM_KEYDOWN, VK_TAB, shift_down);
     if controller.focus == before {
@@ -254,6 +316,94 @@ fn on_tab(controller: &mut KeyController, shift_down: bool) -> Step {
     } else {
         Step::Changed
     }
+}
+
+pub(crate) struct SpecialEffect {
+    pub step: Step,
+    pub clipboard: Option<String>,
+}
+
+/// Shift+Delete is a cut while the edit is focused.
+///
+/// `deny` publishes nothing and leaves the edit. `allow` and `default` publish
+/// the whole edit and clear it. Button focus does not cut. Ctrl+Shift+Delete
+/// is not this chord.
+pub(crate) fn on_modified_special(
+    ir: &NativeIr,
+    controller: &mut KeyController,
+    key: KeySpecial,
+    modifiers: KeyModifiers,
+) -> SpecialEffect {
+    if key == KeySpecial::Delete && modifiers.shift && !modifiers.ctrl {
+        return cut_edit(ir, controller);
+    }
+    if key == KeySpecial::Tab {
+        return SpecialEffect {
+            step: on_tab(controller, modifiers.shift),
+            clipboard: None,
+        };
+    }
+    SpecialEffect {
+        step: Step::Unchanged,
+        clipboard: None,
+    }
+}
+
+fn cut_edit(ir: &NativeIr, controller: &mut KeyController) -> SpecialEffect {
+    if ir.capabilities.cut == "deny"
+        || controller.focus != Focus::Edit
+        || controller.session.edit.is_empty()
+    {
+        return SpecialEffect {
+            step: Step::Unchanged,
+            clipboard: None,
+        };
+    }
+    let text = controller.session.edit.clone();
+    controller.session.set_edit("");
+    SpecialEffect {
+        step: Step::Changed,
+        clipboard: Some(text),
+    }
+}
+
+/// Clipboard text the window may publish. `None` when copy is denied.
+pub(crate) fn copy_text<'a>(ir: &NativeIr, controller: &'a KeyController) -> Option<&'a str> {
+    if ir.capabilities.copy {
+        Some(controller.session.edit.as_str())
+    } else {
+        None
+    }
+}
+
+/// Allowed paste asks the window for text. Denied paste does not.
+pub(crate) fn paste_shortcut_requests_clipboard(ir: &NativeIr) -> bool {
+    ir.capabilities.paste
+}
+
+/// Apply a clipboard payload. Denied paste ignores every payload, including empty text.
+pub(crate) fn on_clipboard_text(
+    ir: &NativeIr,
+    controller: &mut KeyController,
+    text: Option<&str>,
+) -> Step {
+    match text {
+        Some(text) if ir.capabilities.paste => {
+            controller.session.set_edit(text);
+            Step::Changed
+        }
+        _ => Step::Unchanged,
+    }
+}
+
+/// Resize dirties the frame. It does not rewrite DIP rectangles.
+pub(crate) fn on_resize(_ir: &NativeIr) -> Step {
+    Step::Changed
+}
+
+/// Preedit, commit, and surrounding-delete are not qualified input.
+pub(crate) fn ignore_ime(_controller: &KeyController) -> Step {
+    Step::Unchanged
 }
 
 fn scene_frame(ir: &NativeIr, controller: &KeyController) -> Result<SceneFrame, String> {

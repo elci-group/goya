@@ -453,7 +453,7 @@ fn test_scene(invocation: Invocation) -> Run {
             "desktop-sota has no measurements in compiler 0.0.1",
         );
     }
-    if suite != "conformance" {
+    if suite != "conformance" && suite != "interaction" {
         return fault_run(
             &invocation,
             Fault::new(2, "EMP-USAGE", format!("unknown suite {suite}")),
@@ -467,6 +467,9 @@ fn test_scene(invocation: Invocation) -> Run {
         Ok(lowered) => lowered,
         Err(fault) => return admission_failure(&invocation, fault),
     };
+    if suite == "interaction" {
+        return interaction_suite(&invocation, &lowered);
+    }
     match emperor_runtime::oracle(&lowered.json) {
         Ok(report) if report.count == 1 && report.revision == 1 && !report.paste_allowed => {
             let mut stages = Stages::new();
@@ -499,6 +502,74 @@ fn test_scene(invocation: Invocation) -> Run {
         ),
         Err(message) => fault_run(&invocation, Fault::new(5, "EMP-RUNTIME", message)),
     }
+}
+
+fn interaction_suite(invocation: &Invocation, lowered: &Lowered) -> Run {
+    match emperor_runtime::exercise_interaction(&lowered.json) {
+        Ok(report) if interaction_passed(&report) => {
+            let mut stages = Stages::new();
+            push_admission(&mut stages, lowered);
+            stages.fill(
+                Status::NotApplicable,
+                "interaction suite is scripted dispatch, not a seat or compositor launch",
+            );
+            finish(
+                invocation,
+                0,
+                stages,
+                format!(
+                    "count={} revision={} edit={} focus={}\n",
+                    report.count, report.revision, report.edit, report.focus
+                ),
+                json!({
+                    "count": report.count,
+                    "revision": report.revision,
+                    "edit": report.edit,
+                    "focus": report.focus,
+                    "paste_ignored": report.paste_ignored,
+                    "copy_allowed": report.copy_allowed,
+                    "paste_allowed": report.paste_allowed,
+                    "add_hit": report.add_hit,
+                    "rects_stable": report.rects_stable,
+                    "space_activates": report.space_activates,
+                }),
+            )
+        }
+        Ok(report) => fault_run(
+            invocation,
+            Fault::new(5, "EMP-RUNTIME", interaction_fault(&report)),
+        ),
+        Err(message) => fault_run(invocation, Fault::new(5, "EMP-RUNTIME", message)),
+    }
+}
+
+fn interaction_passed(report: &emperor_runtime::InteractionReport) -> bool {
+    report.count == 3
+        && report.revision == 2
+        && report.edit == "2"
+        && report.focus == "button"
+        && report.paste_ignored
+        && report.copy_allowed
+        && !report.paste_allowed
+        && report.add_hit
+        && report.rects_stable
+        && report.space_activates
+}
+
+fn interaction_fault(report: &emperor_runtime::InteractionReport) -> String {
+    format!(
+        "interaction count {} revision {} edit {} focus {} paste_ignored {} copy {} paste {} add_hit {} rects_stable {} space {}",
+        report.count,
+        report.revision,
+        report.edit,
+        report.focus,
+        report.paste_ignored,
+        report.copy_allowed,
+        report.paste_allowed,
+        report.add_hit,
+        report.rects_stable,
+        report.space_activates
+    )
 }
 
 fn package(invocation: Invocation) -> Run {

@@ -7,7 +7,10 @@
 
 #![forbid(unsafe_code)]
 
+mod exercise;
 mod host;
+
+pub use exercise::{exercise_interaction, InteractionReport};
 
 use goya_parity::keys::KeyController;
 
@@ -125,6 +128,8 @@ pub enum RunMode {
     Oracle,
     /// Open the Wayland host and present one frame.
     Smoke,
+    /// Run the scripted counter on the Wayland host and present that frame.
+    Exercise,
     /// Pump until close, or until `max_frames` pumps when set.
     Live { max_frames: Option<u32> },
 }
@@ -144,6 +149,7 @@ pub fn run(nir_json: &str, mode: RunMode) -> Result<OracleReport, String> {
             Ok(report(&controller, 0, "not-requested"))
         }
         RunMode::Smoke => host::run_window(&ir, controller, host::WindowMode::Smoke),
+        RunMode::Exercise => host::run_window(&ir, controller, host::WindowMode::Exercise),
         RunMode::Live { max_frames } => {
             host::run_window(&ir, controller, host::WindowMode::Live { max_frames })
         }
@@ -232,7 +238,7 @@ pub(crate) fn press_add(controller: &mut KeyController) {
     controller.on_key(WM_KEYDOWN, VK_RETURN, false);
 }
 
-fn open_admitted(nir_json: &str) -> Result<(NativeIr, KeyController), String> {
+pub(crate) fn open_admitted(nir_json: &str) -> Result<(NativeIr, KeyController), String> {
     let ir: NativeIr = serde_json::from_str(nir_json).map_err(|err| err.to_string())?;
     if ir.schema != SCHEMA {
         return Err(format!("schema {} is not {SCHEMA}", ir.schema));
@@ -374,8 +380,8 @@ mod tests {
             source_digest_sha256: "test".to_owned(),
             scene: SCENE.to_owned(),
             action_id: "action.add".to_owned(),
-            state_id: "state.count".to_owned(),
-            input_id: "window.amount".to_owned(),
+            state_id: "count".to_owned(),
+            input_id: "amount".to_owned(),
             initial_state: 0,
             initial_input: 1,
             width_dip: 320,
@@ -561,8 +567,8 @@ mod tests {
             source_digest_sha256: "test",
             scene: SCENE,
             action_id: "action.add",
-            state_id: "state.count",
-            input_id: "window.amount",
+            state_id: "count",
+            input_id: "amount",
             initial_state: 0,
             initial_input: 1,
             width_dip: 320,
@@ -580,5 +586,228 @@ mod tests {
         let mut mismatched = scene.clone();
         mismatched.copy = false;
         assert!(assert_scene_matches(&mismatched).is_err());
+    }
+
+    #[test]
+    fn interaction_script_matches_the_admitted_counter() {
+        let ir = counter_ir();
+        assert_eq!(ir.schema, SCHEMA);
+        assert_eq!(ir.capabilities.filesystem, "none");
+        assert!(ir.capabilities.copy);
+        assert!(!ir.capabilities.paste);
+        assert_eq!(ir.state_id, "count");
+        assert_eq!(ir.input_id, "amount");
+        let add = ir
+            .elements
+            .iter()
+            .find(|element| element.id == "window.add")
+            .expect("add");
+        assert_eq!(
+            (add.x_dip, add.y_dip, add.width_dip, add.height_dip),
+            (136, 64, 80, 32)
+        );
+        let report = exercise_interaction(&counter_json()).expect("interaction");
+        assert_eq!(
+            report,
+            InteractionReport {
+                count: 3,
+                revision: 2,
+                edit: "2".to_owned(),
+                focus: "button".to_owned(),
+                paste_ignored: true,
+                copy_allowed: true,
+                paste_allowed: false,
+                add_hit: true,
+                rects_stable: true,
+                space_activates: true,
+            }
+        );
+    }
+
+    #[test]
+    fn denied_paste_ignores_shortcut_empty_and_payload() {
+        let (ir, mut controller) = open_admitted(&counter_json()).expect("admit");
+        assert!(!host::paste_shortcut_requests_clipboard(&ir));
+        assert_eq!(controller.session.edit, "1");
+        assert_eq!(
+            host::on_clipboard_text(&ir, &mut controller, Some("9")),
+            host::Step::Unchanged
+        );
+        assert_eq!(
+            host::on_clipboard_text(&ir, &mut controller, Some("")),
+            host::Step::Unchanged
+        );
+        assert_eq!(
+            host::on_clipboard_text(&ir, &mut controller, None),
+            host::Step::Unchanged
+        );
+        assert_eq!(controller.session.edit, "1");
+
+        let (mut allowed, mut controller) = open_admitted(&counter_json()).expect("admit");
+        allowed.capabilities.paste = true;
+        assert!(host::paste_shortcut_requests_clipboard(&allowed));
+        assert_eq!(
+            host::on_clipboard_text(&allowed, &mut controller, None),
+            host::Step::Unchanged
+        );
+        assert_eq!(controller.session.edit, "1");
+        assert_eq!(
+            host::on_clipboard_text(&allowed, &mut controller, Some("")),
+            host::Step::Changed
+        );
+        assert_eq!(controller.session.edit, "");
+        assert_eq!(
+            host::on_clipboard_text(&allowed, &mut controller, Some("9")),
+            host::Step::Changed
+        );
+        assert_eq!(controller.session.edit, "9");
+    }
+
+    #[test]
+    fn shift_delete_deny_does_not_change_the_edit() {
+        let (mut ir, mut controller) = open_admitted(&counter_json()).expect("admit");
+        ir.capabilities.cut = "deny".to_owned();
+        controller.session.set_edit("12");
+        let step = host::on_modified_special(
+            &ir,
+            &mut controller,
+            goya_wayland::KeySpecial::Delete,
+            goya_wayland::KeyModifiers {
+                shift: true,
+                ctrl: false,
+            },
+        );
+        assert_eq!(step.step, host::Step::Unchanged);
+        assert!(step.clipboard.is_none());
+        assert_eq!(controller.session.edit, "12");
+        assert_eq!(controller.session.count, 0);
+    }
+
+    #[test]
+    fn button_release_inside_activates_and_outside_does_not() {
+        let (ir, mut controller) = open_admitted(&counter_json()).expect("admit");
+        let hits = goya_parity::pointer::hit_map(&ir.scene).expect("hits");
+        let mut arm = host::PointerArm::default();
+        let press = host::on_pointer_press(&ir, &mut controller, &hits, &mut arm, 176.0, 80.0);
+        assert_eq!(press.hit.as_deref(), Some("window.add"));
+        assert_eq!(controller.focus, goya_parity::keys::Focus::Button);
+        assert_eq!(controller.session.count, 0);
+        let outside = host::on_pointer_release(&mut controller, &hits, &mut arm, 8.0, 8.0);
+        assert_eq!(outside.step, host::Step::Unchanged);
+        assert_eq!(controller.session.count, 0);
+        assert_eq!(controller.session.revision, 0);
+        let late = host::on_pointer_release(&mut controller, &hits, &mut arm, 176.0, 80.0);
+        assert_eq!(late.step, host::Step::Unchanged);
+        assert_eq!(controller.session.count, 0);
+
+        let press = host::on_pointer_press(&ir, &mut controller, &hits, &mut arm, 176.0, 80.0);
+        assert_eq!(press.step, host::Step::Unchanged);
+        let inside = host::on_pointer_release(&mut controller, &hits, &mut arm, 176.0, 80.0);
+        assert_eq!(inside.hit.as_deref(), Some("window.add"));
+        assert_eq!(inside.step, host::Step::Changed);
+        assert_eq!(controller.session.count, 1);
+        assert_eq!(controller.session.revision, 1);
+        assert_eq!(controller.session.edit, "1");
+    }
+
+    #[test]
+    fn edit_press_focuses_without_activating() {
+        let (ir, mut controller) = open_admitted(&counter_json()).expect("admit");
+        let hits = goya_parity::pointer::hit_map(&ir.scene).expect("hits");
+        let mut arm = host::PointerArm::default();
+        let press = host::on_pointer_press(&ir, &mut controller, &hits, &mut arm, 68.0, 80.0);
+        assert_eq!(press.hit.as_deref(), Some("window.amount"));
+        assert_eq!(controller.focus, goya_parity::keys::Focus::Edit);
+        assert_eq!(controller.session.count, 0);
+        let release = host::on_pointer_release(&mut controller, &hits, &mut arm, 68.0, 80.0);
+        assert_eq!(release.step, host::Step::Unchanged);
+        assert_eq!(controller.session.count, 0);
+    }
+
+    #[test]
+    fn space_on_the_edit_does_not_insert() {
+        let (_ir, mut controller) = open_admitted(&counter_json()).expect("admit");
+        assert_eq!(host::on_char(&mut controller, ' '), host::Step::Unchanged);
+        assert_eq!(controller.session.edit, "1");
+        assert_eq!(controller.session.count, 0);
+        assert_eq!(controller.focus, goya_parity::keys::Focus::Edit);
+    }
+
+    #[test]
+    fn admitted_cut_publishes_the_edit_and_clears_it() {
+        let (ir, mut controller) = open_admitted(&counter_json()).expect("admit");
+        assert_eq!(ir.capabilities.cut, "default");
+        let effect = host::on_modified_special(
+            &ir,
+            &mut controller,
+            goya_wayland::KeySpecial::Delete,
+            goya_wayland::KeyModifiers {
+                shift: true,
+                ctrl: false,
+            },
+        );
+        assert_eq!(effect.step, host::Step::Changed);
+        assert_eq!(effect.clipboard.as_deref(), Some("1"));
+        assert_eq!(controller.session.edit, "");
+        assert_eq!(controller.session.count, 0);
+
+        let (ir, mut controller) = open_admitted(&counter_json()).expect("admit");
+        controller.focus = goya_parity::keys::Focus::Button;
+        let effect = host::on_modified_special(
+            &ir,
+            &mut controller,
+            goya_wayland::KeySpecial::Delete,
+            goya_wayland::KeyModifiers {
+                shift: true,
+                ctrl: false,
+            },
+        );
+        assert_eq!(effect.step, host::Step::Unchanged);
+        assert!(effect.clipboard.is_none());
+        assert_eq!(controller.session.edit, "1");
+    }
+
+    #[test]
+    fn resize_dirties_without_moving_dip_rects() {
+        let (ir, _controller) = open_admitted(&counter_json()).expect("admit");
+        let before = ir.elements.clone();
+        assert_eq!(host::on_resize(&ir), host::Step::Changed);
+        assert_eq!(ir.elements, before);
+    }
+
+    #[test]
+    fn copy_text_follows_the_capability() {
+        let (mut ir, controller) = open_admitted(&counter_json()).expect("admit");
+        assert_eq!(
+            host::copy_text(&ir, &controller),
+            Some(controller.session.edit.as_str())
+        );
+        ir.capabilities.copy = false;
+        assert_eq!(host::copy_text(&ir, &controller), None);
+        assert_eq!(controller.session.edit, "1");
+    }
+
+    #[test]
+    fn ime_events_do_not_change_the_edit() {
+        let (_ir, controller) = open_admitted(&counter_json()).expect("admit");
+        let edit = controller.session.edit.clone();
+        let count = controller.session.count;
+        assert_eq!(host::ignore_ime(&controller), host::Step::Unchanged);
+        assert_eq!(controller.session.edit, edit);
+        assert_eq!(controller.session.count, count);
+    }
+
+    #[test]
+    #[ignore = "opens one Wayland window and presents the scripted counter"]
+    fn exercise_presents_the_scripted_counter() {
+        let display = std::env::var("WAYLAND_DISPLAY").unwrap_or_default();
+        assert!(!display.is_empty(), "WAYLAND_DISPLAY is unset");
+        let report = run(&counter_json(), RunMode::Exercise).expect("window");
+        assert_eq!(report.wayland, "opened");
+        assert!(report.presented >= 1, "{report:?}");
+        assert_eq!(report.count, 3);
+        assert_eq!(report.revision, 2);
+        assert!(report.copy_allowed);
+        assert!(!report.paste_allowed);
     }
 }

@@ -3825,8 +3825,8 @@ fn key_char(keycode: u32, shift: bool) -> Option<char> {
                 ']'
             }
         }
-        14 => '\u{8}', // backspace
-        28 => '\n',    // enter
+        14 => '\u{8}',   // backspace
+        28 | 96 => '\n', // enter and keypad enter
         39 => {
             if shift {
                 ':'
@@ -3987,7 +3987,7 @@ fn key_chars(
     // even when a custom keymap assigns a different UTF-8 representation.
     match keycode {
         14 => return vec!['\u{8}'],
-        28 => return vec!['\n'],
+        28 | 96 => return vec!['\n'],
         _ => {}
     }
     if let Some(xkb_state) = xkb_state {
@@ -4713,6 +4713,12 @@ mod key_special_tests {
 mod shortcut_tests {
     use super::{shortcut_from_key, GoyaWindowInner, KeyModifiers, PlatformEvent, Shortcut};
     use xkbcommon::xkb::{self, Context, Keymap};
+
+    #[test]
+    fn keypad_enter_is_newline() {
+        assert_eq!(super::key_chars(None, 28, false, false), vec!['\n']);
+        assert_eq!(super::key_chars(None, 96, false, false), vec!['\n']);
+    }
 
     #[test]
     fn helper_mapping_table() {

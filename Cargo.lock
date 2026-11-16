@@ -890,6 +890,7 @@ dependencies = [
  "goya-executable",
  "goya-ir",
  "goya-vee",
+ "serde",
  "sha2",
  "unicode-segmentation",
 ]
@@ -964,6 +965,8 @@ dependencies = [
  "goya-runtime",
  "goya-state",
  "goya-vee",
+ "serde",
+ "thiserror 1.0.69",
 ]
 
 [[package]]

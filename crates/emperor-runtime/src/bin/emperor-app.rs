@@ -1,6 +1,6 @@
 //! Process entry for one admitted counter.
 //!
-//! `--oracle` is the default. `--smoke` and `--live` open the Wayland host.
+//! `--oracle` is the default. `--smoke`, `--exercise`, and `--live` open the Wayland host.
 //! Exit 0 prints the report. Exit 1 is usage or a bad native IR. Exit 5 is a
 //! Wayland or runtime failure.
 
@@ -16,6 +16,7 @@ include!(concat!(env!("OUT_DIR"), "/embed.rs"));
 enum Mode {
     Oracle,
     Smoke,
+    Exercise,
     Live,
 }
 
@@ -70,6 +71,7 @@ fn app() -> Result<emperor_runtime::OracleReport, AppError> {
     let mode = match args.mode {
         Mode::Oracle => emperor_runtime::RunMode::Oracle,
         Mode::Smoke => emperor_runtime::RunMode::Smoke,
+        Mode::Exercise => emperor_runtime::RunMode::Exercise,
         Mode::Live => emperor_runtime::RunMode::Live {
             max_frames: args.frames,
         },
@@ -86,6 +88,7 @@ fn parse_args() -> Result<Args, String> {
         match arg.as_str() {
             "--oracle" => set_mode(&mut mode, Mode::Oracle)?,
             "--smoke" => set_mode(&mut mode, Mode::Smoke)?,
+            "--exercise" => set_mode(&mut mode, Mode::Exercise)?,
             "--live" => set_mode(&mut mode, Mode::Live)?,
             "--frames" => {
                 let value = args.next().ok_or("missing value for --frames")?;
@@ -114,7 +117,7 @@ fn parse_args() -> Result<Args, String> {
 
 fn set_mode(slot: &mut Option<Mode>, mode: Mode) -> Result<(), String> {
     if slot.is_some() {
-        return Err("pass only one of --oracle, --smoke, or --live".into());
+        return Err("pass only one of --oracle, --smoke, --exercise, or --live".into());
     }
     *slot = Some(mode);
     Ok(())
