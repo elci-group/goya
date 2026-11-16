@@ -3,7 +3,7 @@
 //! Minimal, honest scope per GY-WAYLAND-001: one window, pointer events
 //! mapped to surface-local pixels, and the goya render list presented via a
 //! shared-memory buffer. Keyboard input additionally surfaces ctrl+c /
-//! ctrl+v / ctrl+q as [`PlatformEvent::Shortcut`] events (GY-ZCODE-004),
+//! ctrl+v / ctrl+q / ctrl+x (Cut) as [`PlatformEvent::Shortcut`] events (GY-ZCODE-004),
 //! plus ctrl+Left / ctrl+Right as [`Shortcut::SessionPrevious`] /
 //! [`Shortcut::SessionNext`] for multi-session switching (GY-ZCODE-006);
 //! this shortcut path requires the compositor's xkb keymap — the keymap-free
@@ -482,7 +482,7 @@ pub enum PlatformEvent {
         x: f64,
         y: f64,
     },
-    /// Ctrl+c / ctrl+v / ctrl+q (GY-ZCODE-004). Only produced by the xkb
+    /// Ctrl+c / ctrl+v / ctrl+q / ctrl+x (Cut) (GY-ZCODE-004). Only produced by the xkb
     /// state path; the keymap-free evdev fallback tracks no ctrl modifier
     /// and therefore never emits shortcuts.
     Shortcut(Shortcut),
@@ -518,16 +518,21 @@ pub enum PlatformEvent {
     CloseRequested,
 }
 
-/// Application-level shortcut keys (GY-ZCODE-004): ctrl+c / ctrl+v / ctrl+q,
-/// extended in GY-ZCODE-006 with ctrl+Left / ctrl+Right session switching.
-/// All are recognised through the compositor's xkb state path (ctrl modifier
-/// tracking plus evdev keycode). The keymap-free evdev fallback path never
-/// emits these because it does not track ctrl.
+/// Application-level shortcut keys (GY-ZCODE-004): ctrl+c / ctrl+v / ctrl+q /
+/// ctrl+x (Cut), extended in GY-ZCODE-006 with ctrl+Left / ctrl+Right session
+/// switching. Ctrl+c and ctrl+v are shortcuts only without shift. Ctrl+Insert
+/// (evdev 110) is Copy and Shift+Insert is Paste. Ctrl+Q and the session
+/// chords ignore shift. Ctrl+Shift+C, Ctrl+Shift+V, Ctrl+Shift+Insert, and
+/// Ctrl+Shift+X are not shortcuts. All are recognised through the compositor's
+/// xkb state path (ctrl modifier tracking plus evdev keycode). The keymap-free
+/// evdev fallback path never emits these because it does not track ctrl.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Shortcut {
     Copy,
     Paste,
     Quit,
+    /// ctrl+x without shift (evdev KEY_X is 45).
+    Cut,
     /// ctrl+Right (evdev 106): switch to the next session (GY-ZCODE-006).
     SessionNext,
     /// ctrl+Left (evdev 105): switch to the previous session (GY-ZCODE-006).
@@ -1089,6 +1094,9 @@ struct GoyaWindowInner {
     /// Serial of the latest keyboard enter, required by `set_selection`.
     keyboard_enter_serial: u32,
     clipboard: ClipboardState,
+    /// Layout group from the latest `wl_keyboard.modifiers` event. Leave
+    /// clears modifier masks but keeps this group.
+    keyboard_group: u32,
     shift: bool,
     ctrl: bool,
     alt: bool,
@@ -1164,6 +1172,7 @@ impl GoyaWindowInner {
             pending_offer_mimes: Vec::new(),
             keyboard_enter_serial: 0,
             clipboard: ClipboardState::new(),
+            keyboard_group: 0,
             shift: false,
             ctrl: false,
             alt: false,
@@ -1191,12 +1200,12 @@ pub struct GoyaWindow {
 impl GoyaWindowInner {
     /// Compositor-free key press handling (GY-ZCODE-004): resolve one pressed
     /// evdev keycode against the current modifier state into platform events.
-    /// Order matters: ctrl+c/v/q and ctrl+Left/Right map to
-    /// `PlatformEvent::Shortcut` first;
+    /// Order matters: ctrl+c/v/x without shift, ctrl+Insert, Shift+Insert,
+    /// ctrl+q, and ctrl+Left/Right map to `PlatformEvent::Shortcut` first;
     /// otherwise navigation keeps its `KeySpecial` semantics and text keys go
     /// through XKB Compose → `KeyChar`, byte-identical to the pre-shortcut
-    /// behavior. Other ctrl combos produce no events (the char path returns
-    /// nothing while ctrl is held).
+    /// behavior. On the xkb path, ctrl suppresses `KeyChar`. The keymap-free
+    /// fallback can still emit a letter for a ctrl combo that is not a shortcut.
     fn handle_key_press(&mut self, key: u32) {
         if self.browser_navigation_keys {
             let navigation = match key {
@@ -1212,7 +1221,7 @@ impl GoyaWindowInner {
                 return;
             }
         }
-        if let Some(shortcut) = shortcut_from_key(self.ctrl, key) {
+        if let Some(shortcut) = shortcut_from_key(self.ctrl, self.shift, key) {
             self.events.push(PlatformEvent::Shortcut(shortcut));
             return;
         }
@@ -1241,6 +1250,19 @@ impl GoyaWindowInner {
             for c in chars {
                 self.events.push(PlatformEvent::KeyChar(c));
             }
+        }
+    }
+
+    /// Keyboard focus left the surface. Drop Shift, Ctrl, and Alt, and clear
+    /// depressed, latched, and locked xkb modifiers, so a key before the next
+    /// `Modifiers` event is not a stale shortcut. The keymap, enter serial,
+    /// pointer, and layout group stay.
+    fn clear_keyboard_on_leave(&mut self) {
+        self.shift = false;
+        self.ctrl = false;
+        self.alt = false;
+        if let Some(xkb_state) = self.xkb_state.as_mut() {
+            xkb_state.update_mask(0, 0, 0, 0, 0, self.keyboard_group);
         }
     }
 }
@@ -3949,9 +3971,11 @@ fn keymap_state_from_fd(
 /// multi-scalar commits as ordered `KeyChar` events.
 ///
 /// Modifier rules (frozen contract):
-/// - Ctrl held: emit no `KeyChar`. Ctrl+c/v/q are promoted to
+/// - Ctrl held: emit no `KeyChar`. Ctrl+c/v without shift, ctrl+x without
+///   shift (Cut), and ctrl+q (shift ignored) are promoted to
 ///   `PlatformEvent::Shortcut` upstream (see [`shortcut_from_key`]); all
-///   other ctrl combos stay inert.
+///   other ctrl combos stay inert on this path. Ctrl+Shift+C, Ctrl+Shift+V,
+///   and Ctrl+Shift+X are not shortcuts and still emit no `KeyChar`.
 /// - Plain / shifted characters flow through as `KeyChar` via the xkb map.
 fn key_char_from_state(
     xkb_state: &xkbcommon::xkb::State,
@@ -3997,7 +4021,7 @@ fn key_chars(
     }
     // NOTE (GY-ZCODE-004): this keymap-free evdev fallback tracks no ctrl
     // modifier, so it emits NO `PlatformEvent::Shortcut` events — the
-    // ctrl+c/v/q shortcut contract is served exclusively by the xkb state
+    // ctrl+c/v/x/q shortcut contract is served exclusively by the xkb state
     // path (`shortcut_from_key` via `handle_key_press`). This asymmetry is
     // intentional and documented in the frozen contract.
     key_char(keycode, shift)
@@ -4047,18 +4071,34 @@ fn key_chars_with_compose(
 }
 
 /// Pure decision helper (GY-ZCODE-004 contract, extended by GY-ZCODE-006):
-/// map ctrl + evdev keycode to an application shortcut. Recognised combos are
-/// ctrl+c (46), ctrl+v (47), ctrl+q (16), ctrl+Left (105 →
-/// `SessionPrevious`) and ctrl+Right (106 → `SessionNext`); every other
-/// combination — including plain (non-ctrl) presses of those keys — yields
-/// None and keeps its existing semantics (arrows stay `KeySpecial`).
-fn shortcut_from_key(ctrl: bool, keycode: u32) -> Option<Shortcut> {
+/// map ctrl + shift + evdev keycode to an application shortcut. Recognised
+/// combos are ctrl+c (46) and ctrl+v (47) without shift, ctrl+Insert (110)
+/// as Copy, Shift+Insert as Paste, ctrl+x (45 → [`Shortcut::Cut`], only
+/// without shift), ctrl+q (16), ctrl+Left (105 → `SessionPrevious`) and
+/// ctrl+Right (106 → `SessionNext`). Ctrl+Q and ctrl+Left/Right ignore
+/// shift. Ctrl+Shift+C, Ctrl+Shift+V, Ctrl+Shift+Insert, and Ctrl+Shift+X
+/// are not shortcuts. Every other combination — including plain presses of
+/// those keys — yields None and keeps its existing semantics (arrows stay
+/// `KeySpecial`). Insert is matched before the ctrl guard so Shift+Insert
+/// is not swallowed.
+fn shortcut_from_key(ctrl: bool, shift: bool, keycode: u32) -> Option<Shortcut> {
+    // KEY_INSERT. The only chord that fires without ctrl is Shift+Insert.
+    if keycode == 110 {
+        return if ctrl && !shift {
+            Some(Shortcut::Copy)
+        } else if !ctrl && shift {
+            Some(Shortcut::Paste)
+        } else {
+            None
+        };
+    }
     if !ctrl {
         return None;
     }
     match keycode {
-        46 => Some(Shortcut::Copy),             // KEY_C
-        47 => Some(Shortcut::Paste),            // KEY_V
+        45 if !shift => Some(Shortcut::Cut),    // KEY_X
+        46 if !shift => Some(Shortcut::Copy),   // KEY_C
+        47 if !shift => Some(Shortcut::Paste),  // KEY_V
         16 => Some(Shortcut::Quit),             // KEY_Q
         105 => Some(Shortcut::SessionPrevious), // KEY_LEFT
         106 => Some(Shortcut::SessionNext),     // KEY_RIGHT
@@ -4122,6 +4162,7 @@ impl Dispatch<WlKeyboard, ()> for GoyaWindowInner {
                 group,
                 ..
             } => {
+                state.keyboard_group = group;
                 state.shift = mods_depressed & 0x1 != 0; // ShiftMask
                 state.ctrl = mods_depressed & 0x4 != 0; // ControlMask
                 if let Some(xkb_state) = state.xkb_state.as_mut() {
@@ -4141,8 +4182,23 @@ impl Dispatch<WlKeyboard, ()> for GoyaWindowInner {
                 if let Some(compose) = state.compose_state.as_mut() {
                     compose.reset();
                 }
+                state.clear_keyboard_on_leave();
             }
             _ => {}
+        }
+    }
+}
+
+impl GoyaWindowInner {
+    /// Left button `0x110`. A release with no surface point is outside the
+    /// admitted client. It is not the last in-surface point.
+    fn push_left_button(&mut self, pressed: bool) {
+        let point = self.last_pointer;
+        match (pressed, point) {
+            (true, Some((x, y))) => self.events.push(PlatformEvent::PointerPress(x, y)),
+            (false, Some((x, y))) => self.events.push(PlatformEvent::PointerRelease(x, y)),
+            (false, None) => self.events.push(PlatformEvent::PointerRelease(-1.0, -1.0)),
+            (true, None) => {}
         }
     }
 }
@@ -4178,19 +4234,11 @@ impl Dispatch<WlPointer, ()> for GoyaWindowInner {
                 button: 0x110,
                 state: WEnum::Value(bs),
                 ..
-            } => {
-                if let Some((x, y)) = state.last_pointer {
-                    match bs {
-                        wl_pointer::ButtonState::Pressed => {
-                            state.events.push(PlatformEvent::PointerPress(x, y));
-                        }
-                        wl_pointer::ButtonState::Released => {
-                            state.events.push(PlatformEvent::PointerRelease(x, y));
-                        }
-                        _ => {}
-                    }
-                }
-            }
+            } => match bs {
+                wl_pointer::ButtonState::Pressed => state.push_left_button(true),
+                wl_pointer::ButtonState::Released => state.push_left_button(false),
+                _ => {}
+            },
             // Vertical wheel (REL_WHEEL equivalent): only the vertical axis
             // is mapped; horizontal-axis devices emit nothing (GY-ZCODE-003).
             wl_pointer::Event::Axis {
@@ -4722,33 +4770,66 @@ mod shortcut_tests {
 
     #[test]
     fn helper_mapping_table() {
-        // GY-ZCODE-004: ctrl+c/v/q via evdev keycodes.
-        assert_eq!(shortcut_from_key(true, 46), Some(Shortcut::Copy)); // KEY_C
-        assert_eq!(shortcut_from_key(true, 47), Some(Shortcut::Paste)); // KEY_V
-        assert_eq!(shortcut_from_key(true, 16), Some(Shortcut::Quit)); // KEY_Q
-                                                                       // GY-ZCODE-006: ctrl+Left/Right cycle sessions.
+        // GY-ZCODE-004: ctrl+c/v/q via evdev keycodes. ctrl+x is Cut below.
+        // Ctrl+Q ignores shift. Ctrl+Shift+C and Ctrl+Shift+V are not shortcuts.
+        assert_eq!(shortcut_from_key(true, false, 46), Some(Shortcut::Copy)); // KEY_C
+        assert_eq!(shortcut_from_key(true, false, 47), Some(Shortcut::Paste)); // KEY_V
+        assert_eq!(shortcut_from_key(true, false, 16), Some(Shortcut::Quit)); // KEY_Q
+        assert_eq!(shortcut_from_key(true, true, 46), None);
+        assert_eq!(shortcut_from_key(true, true, 47), None);
+        assert_eq!(shortcut_from_key(true, true, 16), Some(Shortcut::Quit));
+        // GY-ZCODE-006: ctrl+Left/Right cycle sessions.
         assert_eq!(
-            shortcut_from_key(true, 105),
+            shortcut_from_key(true, false, 105),
             Some(Shortcut::SessionPrevious)
         ); // KEY_LEFT
-        assert_eq!(shortcut_from_key(true, 106), Some(Shortcut::SessionNext)); // KEY_RIGHT
-                                                                               // Non-ctrl presses of the same keys stay plain text / KeySpecial,
-                                                                               // not shortcuts.
-        assert_eq!(shortcut_from_key(false, 46), None);
-        assert_eq!(shortcut_from_key(false, 47), None);
-        assert_eq!(shortcut_from_key(false, 16), None);
-        assert_eq!(shortcut_from_key(false, 105), None);
-        assert_eq!(shortcut_from_key(false, 106), None);
-        assert_eq!(shortcut_from_key(false, 999), None);
+        assert_eq!(
+            shortcut_from_key(true, false, 106),
+            Some(Shortcut::SessionNext)
+        ); // KEY_RIGHT
+        assert_eq!(
+            shortcut_from_key(true, true, 105),
+            Some(Shortcut::SessionPrevious)
+        );
+        assert_eq!(
+            shortcut_from_key(true, true, 106),
+            Some(Shortcut::SessionNext)
+        );
+        // Non-ctrl presses of the same keys stay plain text / KeySpecial,
+        // not shortcuts.
+        assert_eq!(shortcut_from_key(false, false, 46), None);
+        assert_eq!(shortcut_from_key(false, false, 47), None);
+        assert_eq!(shortcut_from_key(false, false, 16), None);
+        assert_eq!(shortcut_from_key(false, false, 105), None);
+        assert_eq!(shortcut_from_key(false, false, 106), None);
+        assert_eq!(shortcut_from_key(false, false, 999), None);
+    }
+
+    #[test]
+    fn insert_chords() {
+        // KEY_INSERT is evdev 110. key_special does not map it.
+        assert_eq!(shortcut_from_key(true, false, 110), Some(Shortcut::Copy));
+        assert_eq!(shortcut_from_key(false, true, 110), Some(Shortcut::Paste));
+        assert_eq!(shortcut_from_key(true, true, 110), None);
+        assert_eq!(shortcut_from_key(false, false, 110), None);
+    }
+
+    #[test]
+    fn ctrl_x_is_cut_without_shift() {
+        // KEY_X is evdev 45. Ctrl+Shift+X stays inert. Plain X is not a shortcut.
+        assert_eq!(shortcut_from_key(true, false, 45), Some(Shortcut::Cut));
+        assert_eq!(shortcut_from_key(true, true, 45), None);
+        assert_eq!(shortcut_from_key(false, false, 45), None);
     }
 
     #[test]
     fn other_ctrl_combos_stay_inert() {
-        // Ctrl held, but not c/v/q or Left/Right: helper must yield None for
+        // Ctrl held, but not c/v/x/q or Left/Right: helper must yield None for
         // letters, digits, navigation codes and unknown codes alike.
-        for kc in [16 - 1, 30, 31, 32, 44, 45, 48, 2, 11, 57, 1, 999, 0] {
+        // Ctrl+A (keycode 30) stays inert.
+        for kc in [16 - 1, 30, 31, 32, 44, 48, 2, 11, 57, 1, 999, 0] {
             assert_eq!(
-                shortcut_from_key(true, kc),
+                shortcut_from_key(true, false, kc),
                 None,
                 "ctrl+keycode {kc} must stay inert"
             );
@@ -4856,6 +4937,75 @@ mod shortcut_tests {
     }
 
     #[test]
+    fn xkb_path_insert_chords_and_ctrl_shift_c_is_not_copy() {
+        let mut inner = inner_with_ctrl(true);
+        inner.handle_key_press(110); // KEY_INSERT
+        assert_eq!(inner.events, vec![PlatformEvent::Shortcut(Shortcut::Copy)]);
+
+        let mut inner = inner_with_ctrl(false);
+        inner.shift = true;
+        inner.handle_key_press(110);
+        assert_eq!(inner.events, vec![PlatformEvent::Shortcut(Shortcut::Paste)]);
+
+        let mut inner = inner_with_ctrl(true);
+        inner.shift = true;
+        inner.handle_key_press(110);
+        assert!(inner.events.is_empty(), "ctrl+shift+insert emits nothing");
+
+        inner.events.clear();
+        inner.handle_key_press(46); // KEY_C
+        assert!(
+            inner
+                .events
+                .iter()
+                .all(|event| !matches!(event, PlatformEvent::Shortcut(_))),
+            "ctrl+shift+c on the xkb path emits no shortcut"
+        );
+    }
+
+    #[test]
+    fn xkb_path_emits_cut_for_ctrl_x_and_nothing_for_ctrl_shift_x() {
+        let mut inner = inner_with_ctrl(true);
+        inner.handle_key_press(45); // KEY_X
+        assert_eq!(inner.events, vec![PlatformEvent::Shortcut(Shortcut::Cut)]);
+        inner.events.clear();
+        inner.shift = true;
+        inner.handle_key_press(45);
+        assert!(
+            inner.events.is_empty(),
+            "ctrl+shift+x stays inert and must not emit KeyChar"
+        );
+    }
+
+    #[test]
+    fn keyboard_leave_drops_stale_ctrl() {
+        let mut inner = inner_with_ctrl(true);
+        inner.handle_key_press(45); // KEY_X
+        assert_eq!(inner.events, vec![PlatformEvent::Shortcut(Shortcut::Cut)]);
+        inner.clear_keyboard_on_leave();
+        assert!(!inner.shift);
+        assert!(!inner.ctrl);
+        assert!(!inner.alt);
+        inner.events.clear();
+        inner.handle_key_press(45);
+        assert_eq!(inner.events, vec![PlatformEvent::KeyChar('x')]);
+        assert!(
+            inner
+                .events
+                .iter()
+                .all(|event| !matches!(event, PlatformEvent::Shortcut(_))),
+            "a key after leave must not stay a shortcut"
+        );
+        inner.shift = true;
+        inner.ctrl = true;
+        inner.alt = true;
+        inner.clear_keyboard_on_leave();
+        assert!(!inner.shift);
+        assert!(!inner.ctrl);
+        assert!(!inner.alt);
+    }
+
+    #[test]
     fn non_ctrl_behavior_is_unchanged_and_other_ctrl_combos_emit_nothing() {
         // Plain 'c'/'v'/'q' still flow through as KeyChar (wave-3 contract).
         let mut inner = inner_with_ctrl(false);
@@ -4868,6 +5018,119 @@ mod shortcut_tests {
         let mut inner = inner_with_ctrl(true);
         inner.handle_key_press(30); // KEY_A
         assert!(inner.events.is_empty());
+    }
+
+    #[test]
+    fn delete_is_never_a_shortcut() {
+        // KEY_DELETE is evdev 111. It is not Cut, Copy, or a character.
+        for (ctrl, shift) in [(false, false), (true, false), (false, true), (true, true)] {
+            assert_eq!(
+                shortcut_from_key(ctrl, shift, 111),
+                None,
+                "ctrl={ctrl} shift={shift}"
+            );
+        }
+
+        let mut plain = inner_with_ctrl(false);
+        plain.handle_key_press(111);
+        assert_eq!(
+            plain.events,
+            vec![PlatformEvent::KeySpecial(super::KeySpecial::Delete)]
+        );
+
+        let mut shift_only = inner_with_ctrl(false);
+        shift_only.shift = true;
+        shift_only.handle_key_press(111);
+        assert_eq!(
+            shift_only.events,
+            vec![PlatformEvent::KeySpecialWithModifiers {
+                key: super::KeySpecial::Delete,
+                modifiers: KeyModifiers {
+                    shift: true,
+                    ctrl: false,
+                },
+            }]
+        );
+
+        let mut ctrl_only = inner_with_ctrl(true);
+        ctrl_only.handle_key_press(111);
+        assert_eq!(
+            ctrl_only.events,
+            vec![PlatformEvent::KeySpecialWithModifiers {
+                key: super::KeySpecial::Delete,
+                modifiers: KeyModifiers {
+                    shift: false,
+                    ctrl: true,
+                },
+            }]
+        );
+
+        let mut both = inner_with_ctrl(true);
+        both.shift = true;
+        both.handle_key_press(111);
+        assert_eq!(
+            both.events,
+            vec![PlatformEvent::KeySpecialWithModifiers {
+                key: super::KeySpecial::Delete,
+                modifiers: KeyModifiers {
+                    shift: true,
+                    ctrl: true,
+                },
+            }]
+        );
+
+        for events in [
+            &plain.events,
+            &shift_only.events,
+            &ctrl_only.events,
+            &both.events,
+        ] {
+            assert!(events.iter().all(|event| !matches!(
+                event,
+                PlatformEvent::Shortcut(_) | PlatformEvent::KeyChar(_)
+            )));
+        }
+    }
+
+    #[test]
+    fn ctrl_does_not_swallow_enter_or_tab() {
+        let mut inner = inner_with_ctrl(true);
+        inner.handle_key_press(28);
+        assert_eq!(inner.events, vec![PlatformEvent::KeyChar('\n')]);
+        inner.events.clear();
+        inner.handle_key_press(96);
+        assert_eq!(inner.events, vec![PlatformEvent::KeyChar('\n')]);
+
+        inner.events.clear();
+        inner.handle_key_press(15);
+        assert_eq!(
+            inner.events,
+            vec![PlatformEvent::KeySpecialWithModifiers {
+                key: super::KeySpecial::Tab,
+                modifiers: KeyModifiers {
+                    shift: false,
+                    ctrl: true,
+                },
+            }]
+        );
+
+        inner.events.clear();
+        inner.shift = true;
+        inner.handle_key_press(15);
+        assert_eq!(
+            inner.events,
+            vec![PlatformEvent::KeySpecialWithModifiers {
+                key: super::KeySpecial::Tab,
+                modifiers: KeyModifiers {
+                    shift: true,
+                    ctrl: true,
+                },
+            }]
+        );
+        assert!(inner
+            .events
+            .iter()
+            .all(|event| !matches!(event, PlatformEvent::Shortcut(_))));
     }
 }
 
@@ -5912,5 +6175,35 @@ mod browser_navigation_compatibility {
             inner.events.pop(),
             Some(PlatformEvent::BrowserNavigation(BrowserNavigation::Reload))
         );
+    }
+}
+
+#[cfg(test)]
+mod pointer_tests {
+    use super::*;
+
+    #[test]
+    fn release_after_leave_is_outside() {
+        let mut inner = GoyaWindowInner::new(320, 240);
+        inner.last_pointer = Some((176.0, 80.0));
+        inner.push_left_button(true);
+        assert_eq!(
+            inner.events,
+            vec![PlatformEvent::PointerPress(176.0, 80.0)]
+        );
+
+        inner.events.clear();
+        // Leave drops the surface point. The release must not reuse it.
+        inner.last_pointer = None;
+        inner.push_left_button(false);
+        assert_eq!(
+            inner.events,
+            vec![PlatformEvent::PointerRelease(-1.0, -1.0)]
+        );
+
+        inner.events.clear();
+        inner.last_pointer = None;
+        inner.push_left_button(true);
+        assert!(inner.events.is_empty());
     }
 }

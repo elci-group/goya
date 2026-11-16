@@ -24,4 +24,4 @@ A scripted interaction suite must not call `set_edit` on denied paste, must not 
 
 ## Working tree
 
-The cut paragraph above describes commit `594bac7`. The working tree now publishes and clears the focused edit on Shift+Delete when cut is `allow` or `default` and the edit is non-empty. `deny` still returns unchanged and does not call `set_edit`. The publish is the whole edit, not a selection. Button focus does not cut. Denied paste and the copy gate are unchanged. This still does not install a sandbox. EMP-M1-11 stays unmet.
+The cut paragraph above describes commit `594bac7`. The working tree now publishes and clears the focused edit on Shift+Delete, and on Ctrl+X, when cut is `allow` or `default`, focus is the edit, and the edit is non-empty. `deny` still returns unchanged and does not call `set_edit`. The publish is the whole edit, not a selection. Button focus does not cut or copy. Copy publishes only when the capability is true and focus is the edit. Denied paste is unchanged. This still does not install a sandbox. EMP-M1-11 stays unmet. See `clipboard-security.md`.

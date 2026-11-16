@@ -516,6 +516,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     PlatformEvent::Shortcut(Shortcut::Paste) => window.request_clipboard_text(),
                     PlatformEvent::Shortcut(Shortcut::SessionNext | Shortcut::SessionPrevious) => {}
+                    PlatformEvent::Shortcut(Shortcut::Cut) => {}
                     PlatformEvent::BrowserNavigation(action) => {
                         let _ = command_tx.try_send(BrowserCommand::Navigate(action));
                     }

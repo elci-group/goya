@@ -627,7 +627,7 @@ mod tests {
     #[test]
     fn denied_paste_ignores_shortcut_empty_and_payload() {
         let (ir, mut controller) = open_admitted(&counter_json()).expect("admit");
-        assert!(!host::paste_shortcut_requests_clipboard(&ir));
+        assert!(!host::paste_shortcut_requests_clipboard(&ir, &controller));
         assert_eq!(controller.session.edit, "1");
         assert_eq!(
             host::on_clipboard_text(&ir, &mut controller, Some("9")),
@@ -645,7 +645,10 @@ mod tests {
 
         let (mut allowed, mut controller) = open_admitted(&counter_json()).expect("admit");
         allowed.capabilities.paste = true;
-        assert!(host::paste_shortcut_requests_clipboard(&allowed));
+        assert!(host::paste_shortcut_requests_clipboard(
+            &allowed,
+            &controller
+        ));
         assert_eq!(
             host::on_clipboard_text(&allowed, &mut controller, None),
             host::Step::Unchanged
@@ -661,6 +664,15 @@ mod tests {
             host::Step::Changed
         );
         assert_eq!(controller.session.edit, "9");
+
+        let (mut button_focus, mut controller) = open_admitted(&counter_json()).expect("admit");
+        button_focus.capabilities.paste = true;
+        controller.focus = goya_parity::keys::Focus::Button;
+        assert!(!host::paste_shortcut_requests_clipboard(
+            &button_focus,
+            &controller
+        ));
+        assert_eq!(controller.session.edit, "1");
     }
 
     #[test]
@@ -708,6 +720,24 @@ mod tests {
         assert_eq!(controller.session.count, 1);
         assert_eq!(controller.session.revision, 1);
         assert_eq!(controller.session.edit, "1");
+    }
+
+    #[test]
+    fn release_without_a_position_does_not_activate() {
+        let (ir, mut controller) = open_admitted(&counter_json()).expect("admit");
+        let hits = goya_parity::pointer::hit_map(&ir.scene).expect("hits");
+        let mut arm = host::PointerArm::default();
+        let press = host::on_pointer_press(&ir, &mut controller, &hits, &mut arm, 176.0, 80.0);
+        assert_eq!(press.hit.as_deref(), Some("window.add"));
+        assert_eq!(controller.focus, goya_parity::keys::Focus::Button);
+        assert_eq!(controller.session.count, 0);
+        let outside = host::on_pointer_release(&mut controller, &hits, &mut arm, -1.0, -1.0);
+        assert_eq!(outside.step, host::Step::Unchanged);
+        assert_eq!(controller.session.count, 0);
+        assert_eq!(controller.session.revision, 0);
+        let late = host::on_pointer_release(&mut controller, &hits, &mut arm, 176.0, 80.0);
+        assert_eq!(late.step, host::Step::Unchanged);
+        assert_eq!(controller.session.count, 0);
     }
 
     #[test]
@@ -768,6 +798,95 @@ mod tests {
     }
 
     #[test]
+    fn delete_chords_that_are_not_cuts() {
+        // Cut is Shift+Delete without ctrl. `allow` matches `default`.
+        // Plain Delete, Ctrl+Delete, and Ctrl+Shift+Delete copy nothing.
+        let (mut ir, mut controller) = open_admitted(&counter_json()).expect("admit");
+        ir.capabilities.cut = "allow".to_owned();
+        controller.session.set_edit("12");
+        assert_eq!(controller.focus, goya_parity::keys::Focus::Edit);
+        let count = controller.session.count;
+        let revision = controller.session.revision;
+
+        let shift_delete = host::on_modified_special(
+            &ir,
+            &mut controller,
+            goya_wayland::KeySpecial::Delete,
+            goya_wayland::KeyModifiers {
+                shift: true,
+                ctrl: false,
+            },
+        );
+        assert_eq!(shift_delete.step, host::Step::Changed);
+        assert_eq!(shift_delete.clipboard.as_deref(), Some("12"));
+        assert_eq!(controller.session.edit, "");
+        assert_eq!(controller.session.count, count);
+        assert_eq!(controller.session.revision, revision);
+
+        controller.session.set_edit("12");
+        let ctrl_shift_delete = host::on_modified_special(
+            &ir,
+            &mut controller,
+            goya_wayland::KeySpecial::Delete,
+            goya_wayland::KeyModifiers {
+                shift: true,
+                ctrl: true,
+            },
+        );
+        assert_eq!(ctrl_shift_delete.step, host::Step::Unchanged);
+        assert!(ctrl_shift_delete.clipboard.is_none());
+        assert_eq!(controller.session.edit, "12");
+        assert_eq!(controller.session.count, count);
+        assert_eq!(controller.session.revision, revision);
+
+        let ctrl_delete = host::on_modified_special(
+            &ir,
+            &mut controller,
+            goya_wayland::KeySpecial::Delete,
+            goya_wayland::KeyModifiers {
+                shift: false,
+                ctrl: true,
+            },
+        );
+        assert_eq!(ctrl_delete.step, host::Step::Unchanged);
+        assert!(ctrl_delete.clipboard.is_none());
+        assert_eq!(controller.session.edit, "12");
+        assert_eq!(controller.session.count, count);
+        assert_eq!(controller.session.revision, revision);
+
+        let plain_delete = host::on_modified_special(
+            &ir,
+            &mut controller,
+            goya_wayland::KeySpecial::Delete,
+            goya_wayland::KeyModifiers {
+                shift: false,
+                ctrl: false,
+            },
+        );
+        assert_eq!(plain_delete.step, host::Step::Unchanged);
+        assert!(plain_delete.clipboard.is_none());
+        assert_eq!(controller.session.edit, "12");
+        assert_eq!(controller.session.count, count);
+        assert_eq!(controller.session.revision, revision);
+
+        controller.focus = goya_parity::keys::Focus::Button;
+        let button_shift_delete = host::on_modified_special(
+            &ir,
+            &mut controller,
+            goya_wayland::KeySpecial::Delete,
+            goya_wayland::KeyModifiers {
+                shift: true,
+                ctrl: false,
+            },
+        );
+        assert_eq!(button_shift_delete.step, host::Step::Unchanged);
+        assert!(button_shift_delete.clipboard.is_none());
+        assert_eq!(controller.session.edit, "12");
+        assert_eq!(controller.session.count, count);
+        assert_eq!(controller.session.revision, revision);
+    }
+
+    #[test]
     fn resize_dirties_without_moving_dip_rects() {
         let (ir, _controller) = open_admitted(&counter_json()).expect("admit");
         let before = ir.elements.clone();
@@ -777,7 +896,8 @@ mod tests {
 
     #[test]
     fn copy_text_follows_the_capability() {
-        let (mut ir, controller) = open_admitted(&counter_json()).expect("admit");
+        let (mut ir, mut controller) = open_admitted(&counter_json()).expect("admit");
+        assert_eq!(controller.focus, goya_parity::keys::Focus::Edit);
         assert_eq!(
             host::copy_text(&ir, &controller),
             Some(controller.session.edit.as_str())
@@ -785,6 +905,48 @@ mod tests {
         ir.capabilities.copy = false;
         assert_eq!(host::copy_text(&ir, &controller), None);
         assert_eq!(controller.session.edit, "1");
+        ir.capabilities.copy = true;
+        controller.focus = goya_parity::keys::Focus::Button;
+        assert_eq!(host::copy_text(&ir, &controller), None);
+        assert_eq!(controller.session.edit, "1");
+    }
+
+    #[test]
+    fn on_cut_clears_a_focused_edit_unless_blocked() {
+        let (ir, mut controller) = open_admitted(&counter_json()).expect("admit");
+        assert_eq!(ir.capabilities.cut, "default");
+        assert_eq!(controller.focus, goya_parity::keys::Focus::Edit);
+        assert_eq!(controller.session.edit, "1");
+        let count = controller.session.count;
+        let effect = host::on_cut(&ir, &mut controller);
+        assert_eq!(effect.step, host::Step::Changed);
+        assert_eq!(effect.clipboard.as_deref(), Some("1"));
+        assert_eq!(controller.session.edit, "");
+        assert_eq!(controller.session.count, count);
+
+        let (ir, mut controller) = open_admitted(&counter_json()).expect("admit");
+        controller.focus = goya_parity::keys::Focus::Button;
+        let effect = host::on_cut(&ir, &mut controller);
+        assert_eq!(effect.step, host::Step::Unchanged);
+        assert!(effect.clipboard.is_none());
+        assert_eq!(controller.session.edit, "1");
+        assert_eq!(controller.session.count, 0);
+
+        let (mut ir, mut controller) = open_admitted(&counter_json()).expect("admit");
+        ir.capabilities.cut = "deny".to_owned();
+        let effect = host::on_cut(&ir, &mut controller);
+        assert_eq!(effect.step, host::Step::Unchanged);
+        assert!(effect.clipboard.is_none());
+        assert_eq!(controller.session.edit, "1");
+        assert_eq!(controller.session.count, 0);
+
+        let (ir, mut controller) = open_admitted(&counter_json()).expect("admit");
+        controller.session.set_edit("");
+        let effect = host::on_cut(&ir, &mut controller);
+        assert_eq!(effect.step, host::Step::Unchanged);
+        assert!(effect.clipboard.is_none());
+        assert_eq!(controller.session.edit, "");
+        assert_eq!(controller.session.count, 0);
     }
 
     #[test]
@@ -795,6 +957,331 @@ mod tests {
         assert_eq!(host::ignore_ime(&controller), host::Step::Unchanged);
         assert_eq!(controller.session.edit, edit);
         assert_eq!(controller.session.count, count);
+    }
+
+    #[test]
+    fn focused_frame_uses_the_live_session() {
+        let (ir, mut controller) = open_admitted(&counter_json()).expect("admit");
+        assert_eq!(goya_wayland::MP_PER_PX, 250);
+        let scale = goya_wayland::MP_PER_PX;
+        let rect = |x: i32, y: i32, width: i32, height: i32| goya_layout::Rect {
+            x: i64::from(x) * scale,
+            y: i64::from(y) * scale,
+            width: i64::from(width) * scale,
+            height: i64::from(height) * scale,
+        };
+        let client = rect(0, 0, 320, 160);
+        let edit = rect(8, 64, 120, 32);
+        let button = rect(136, 64, 80, 32);
+        let result = rect(8, 112, 160, 32);
+        let focus_fill = Some(0xFFD6E4F5);
+
+        let expect_frame = |controller: &goya_parity::keys::KeyController,
+                            fills: [Option<u32>; 5]| {
+            let frame = host::scene_frame(&ir, controller).expect("frame");
+            assert_eq!(
+                frame.primitives,
+                vec![
+                    goya_runtime::Primitive::Panel(client),
+                    goya_runtime::Primitive::Text(client, "Count".to_owned()),
+                    goya_runtime::Primitive::Text(edit, controller.session.edit.clone()),
+                    goya_runtime::Primitive::Button(button, "Add".to_owned()),
+                    goya_runtime::Primitive::Text(result, controller.session.result.clone()),
+                ]
+            );
+            assert_eq!(frame.fills.as_slice(), fills);
+            assert_eq!(frame.foregrounds, vec![None; 5]);
+            assert_eq!(frame.fills.iter().filter(|fill| fill.is_some()).count(), 1);
+            assert!(frame.fills[0].is_none());
+            assert!(frame.fills[1].is_none());
+            assert!(frame.fills[4].is_none());
+            frame
+        };
+
+        assert_eq!(controller.focus, goya_parity::keys::Focus::Edit);
+        assert_eq!(controller.session.edit, "1");
+        assert_eq!(controller.session.result, "0");
+        assert_eq!(controller.session.count, 0);
+        assert_eq!(controller.session.revision, 0);
+        expect_frame(&controller, [None, None, focus_fill, None, None]);
+
+        assert_eq!(host::on_char(&mut controller, ' '), host::Step::Unchanged);
+        assert_eq!(controller.session.edit, "1");
+        assert_eq!(controller.session.count, 0);
+        assert_eq!(controller.session.revision, 0);
+        assert_eq!(controller.session.result, "0");
+        expect_frame(&controller, [None, None, focus_fill, None, None]);
+
+        assert_eq!(host::on_tab(&mut controller, false), host::Step::Changed);
+        assert_eq!(controller.focus, goya_parity::keys::Focus::Button);
+        expect_frame(&controller, [None, None, None, focus_fill, None]);
+
+        assert_eq!(host::on_tab(&mut controller, true), host::Step::Changed);
+        assert_eq!(controller.focus, goya_parity::keys::Focus::Edit);
+        assert_eq!(host::on_char(&mut controller, '\n'), host::Step::Changed);
+        assert_eq!(controller.session.count, 1);
+        assert_eq!(controller.session.revision, 1);
+        assert_eq!(controller.session.edit, "1");
+        assert_eq!(controller.session.result, "1");
+        let frame = expect_frame(&controller, [None, None, focus_fill, None, None]);
+        match &frame.primitives[2] {
+            goya_runtime::Primitive::Text(rect, text) => {
+                assert_eq!(rect, &edit);
+                assert_eq!(text, "1");
+            }
+            other => panic!("edit primitive was {other:?}"),
+        }
+        match &frame.primitives[4] {
+            goya_runtime::Primitive::Text(rect, text) => {
+                assert_eq!(rect, &result);
+                assert_eq!(text, "1");
+            }
+            other => panic!("result primitive was {other:?}"),
+        }
+
+        controller.session.set_edit("e\u{0301}x");
+        let count = controller.session.count;
+        let revision = controller.session.revision;
+        let result_text = controller.session.result.clone();
+        assert_eq!(host::on_char(&mut controller, '\u{8}'), host::Step::Changed);
+        assert_eq!(controller.session.edit, "e\u{0301}");
+        assert_eq!(controller.session.count, count);
+        assert_eq!(controller.session.revision, revision);
+        assert_eq!(controller.session.result, result_text);
+        let frame = expect_frame(&controller, [None, None, focus_fill, None, None]);
+        match &frame.primitives[2] {
+            goya_runtime::Primitive::Text(_, text) => assert_eq!(text, &controller.session.edit),
+            other => panic!("edit primitive was {other:?}"),
+        }
+
+        assert_eq!(host::on_tab(&mut controller, false), host::Step::Changed);
+        assert_eq!(controller.focus, goya_parity::keys::Focus::Button);
+        let edit_text = controller.session.edit.clone();
+        assert_eq!(
+            host::on_char(&mut controller, '\u{8}'),
+            host::Step::Unchanged
+        );
+        assert_eq!(controller.session.edit, edit_text);
+        assert_eq!(controller.session.count, count);
+        assert_eq!(controller.session.revision, revision);
+        assert_eq!(controller.session.result, result_text);
+        let frame = expect_frame(&controller, [None, None, None, focus_fill, None]);
+        match &frame.primitives[2] {
+            goya_runtime::Primitive::Text(_, text) => assert_eq!(text, &controller.session.edit),
+            other => panic!("edit primitive was {other:?}"),
+        }
+    }
+
+    #[test]
+    fn digits_append_only_on_the_edit() {
+        let (ir, mut controller) = open_admitted(&counter_json()).expect("admit");
+        assert_eq!(controller.focus, goya_parity::keys::Focus::Edit);
+        assert_eq!(controller.session.edit, "1");
+
+        assert_eq!(host::on_char(&mut controller, '2'), host::Step::Changed);
+        assert_eq!(controller.session.edit, "12");
+        assert_eq!(controller.session.count, 0);
+        assert_eq!(controller.session.revision, 0);
+        assert_eq!(controller.session.result, "0");
+
+        assert_eq!(host::on_char(&mut controller, 'é'), host::Step::Changed);
+        assert!(controller.session.edit.ends_with('é'));
+        assert_eq!(controller.session.edit, "12é");
+        assert_eq!(controller.session.count, 0);
+
+        let edit = controller.session.edit.clone();
+        assert_eq!(host::on_char(&mut controller, '\t'), host::Step::Unchanged);
+        assert_eq!(host::on_char(&mut controller, '\r'), host::Step::Unchanged);
+        assert_eq!(controller.session.edit, edit);
+
+        let to_button = host::on_modified_special(
+            &ir,
+            &mut controller,
+            goya_wayland::KeySpecial::Tab,
+            goya_wayland::KeyModifiers {
+                shift: false,
+                ctrl: true,
+            },
+        );
+        assert_eq!(to_button.step, host::Step::Changed);
+        assert_eq!(controller.focus, goya_parity::keys::Focus::Button);
+        assert_eq!(controller.session.edit, edit);
+        assert_eq!(controller.session.count, 0);
+
+        assert_eq!(host::on_char(&mut controller, '3'), host::Step::Unchanged);
+        assert_eq!(controller.session.edit, edit);
+
+        let to_edit = host::on_modified_special(
+            &ir,
+            &mut controller,
+            goya_wayland::KeySpecial::Tab,
+            goya_wayland::KeyModifiers {
+                shift: true,
+                ctrl: true,
+            },
+        );
+        assert_eq!(to_edit.step, host::Step::Changed);
+        assert_eq!(controller.focus, goya_parity::keys::Focus::Edit);
+        assert_eq!(controller.session.edit, edit);
+        assert_eq!(controller.session.count, 0);
+
+        controller.session.set_edit("1");
+        assert_eq!(host::on_char(&mut controller, '\n'), host::Step::Changed);
+        assert_eq!(controller.session.count, 1);
+        assert_eq!(controller.session.revision, 1);
+        assert_eq!(controller.session.result, "1");
+        assert_eq!(controller.session.edit, "1");
+    }
+
+    #[test]
+    fn rejected_edit_does_not_store() {
+        let (_ir, mut controller) = open_admitted(&counter_json()).expect("admit");
+        assert_eq!(controller.session.edit, "1");
+        assert_eq!(controller.session.count, 0);
+        assert_eq!(controller.session.revision, 0);
+        assert_eq!(controller.session.result, "0");
+        assert_eq!(controller.focus, goya_parity::keys::Focus::Edit);
+
+        assert_eq!(host::on_char(&mut controller, '\u{8}'), host::Step::Changed);
+        assert_eq!(controller.session.edit, "");
+        assert_eq!(host::on_char(&mut controller, '\n'), host::Step::Unchanged);
+        assert_eq!(controller.session.edit, "");
+        assert_eq!(controller.session.count, 0);
+        assert_eq!(controller.session.revision, 0);
+        assert_eq!(controller.session.result, "0");
+
+        assert_eq!(host::on_char(&mut controller, '0'), host::Step::Changed);
+        assert_eq!(host::on_char(&mut controller, '0'), host::Step::Changed);
+        assert_eq!(controller.session.edit, "00");
+        assert_eq!(host::on_char(&mut controller, '\n'), host::Step::Unchanged);
+        assert_eq!(controller.session.edit, "00");
+        assert_eq!(controller.session.count, 0);
+        assert_eq!(controller.session.revision, 0);
+        assert_eq!(controller.session.result, "0");
+
+        controller.session.set_edit("1");
+        assert_eq!(host::on_char(&mut controller, ','), host::Step::Changed);
+        assert_eq!(controller.session.edit, "1,");
+        assert_eq!(host::on_char(&mut controller, '\n'), host::Step::Unchanged);
+        assert_eq!(controller.session.edit, "1,");
+        assert_eq!(controller.session.count, 0);
+
+        controller.session.set_edit("");
+        assert_eq!(host::on_char(&mut controller, '-'), host::Step::Changed);
+        assert_eq!(host::on_char(&mut controller, '0'), host::Step::Changed);
+        assert_eq!(controller.session.edit, "-0");
+        assert_eq!(host::on_char(&mut controller, '\n'), host::Step::Unchanged);
+        assert_eq!(controller.session.edit, "-0");
+        assert_eq!(controller.session.count, 0);
+
+        let overflow = "9223372036854775808";
+        controller.session.set_edit(overflow);
+        assert_eq!(host::on_char(&mut controller, '\n'), host::Step::Unchanged);
+        assert_eq!(controller.session.edit, overflow);
+        assert_eq!(controller.session.count, 0);
+        assert_eq!(controller.session.revision, 0);
+        assert_eq!(controller.session.result, "0");
+
+        controller.session.set_edit("1");
+        assert_eq!(host::on_char(&mut controller, '\n'), host::Step::Changed);
+        assert_eq!(controller.session.count, 1);
+        assert_eq!(controller.session.revision, 1);
+        assert_eq!(controller.session.result, "1");
+        assert_eq!(controller.session.edit, "1");
+
+        assert_eq!(host::on_tab(&mut controller, false), host::Step::Changed);
+        assert_eq!(controller.focus, goya_parity::keys::Focus::Button);
+        assert_eq!(host::on_char(&mut controller, '0'), host::Step::Unchanged);
+        assert_eq!(controller.session.edit, "1");
+        assert_eq!(host::on_char(&mut controller, '\n'), host::Step::Changed);
+        assert_eq!(controller.session.count, 2);
+        assert_eq!(controller.session.revision, 2);
+        assert_eq!(controller.session.result, "2");
+        assert_eq!(controller.session.edit, "1");
+    }
+
+    #[test]
+    fn checked_add_overflow_does_not_store() {
+        let (_ir, mut controller) = open_admitted(&counter_json()).expect("admit");
+        assert_eq!(controller.session.edit, "1");
+        assert_eq!(controller.session.count, 0);
+        assert_eq!(controller.session.revision, 0);
+        assert_eq!(controller.session.result, "0");
+        assert_eq!(controller.focus, goya_parity::keys::Focus::Edit);
+
+        controller.session.count = i64::MAX;
+        assert_eq!(controller.session.edit, "1");
+        assert_eq!(host::on_char(&mut controller, '\n'), host::Step::Unchanged);
+        assert_eq!(controller.session.count, i64::MAX);
+        assert_eq!(controller.session.revision, 0);
+        assert_eq!(controller.session.result, "0");
+        assert_eq!(controller.session.edit, "1");
+
+        // Enter is not focus-gated. This failure is the addition.
+        assert_eq!(host::on_tab(&mut controller, false), host::Step::Changed);
+        assert_eq!(controller.focus, goya_parity::keys::Focus::Button);
+        assert_eq!(host::on_char(&mut controller, '\n'), host::Step::Unchanged);
+        assert_eq!(controller.focus, goya_parity::keys::Focus::Button);
+        assert_eq!(controller.session.count, i64::MAX);
+        assert_eq!(controller.session.revision, 0);
+        assert_eq!(controller.session.result, "0");
+        assert_eq!(controller.session.edit, "1");
+        assert_eq!(host::on_tab(&mut controller, true), host::Step::Changed);
+        assert_eq!(controller.focus, goya_parity::keys::Focus::Edit);
+        assert_eq!(controller.session.count, i64::MAX);
+        assert_eq!(controller.session.revision, 0);
+        assert_eq!(controller.session.result, "0");
+        assert_eq!(controller.session.edit, "1");
+
+        controller.session.count = i64::MIN;
+        controller.session.set_edit("-1");
+        assert_eq!(host::on_char(&mut controller, '\n'), host::Step::Unchanged);
+        assert_eq!(controller.session.count, i64::MIN);
+        assert_eq!(controller.session.revision, 0);
+        assert_eq!(controller.session.result, "0");
+        assert_eq!(controller.session.edit, "-1");
+
+        controller.session.count = 0;
+        controller.session.revision = u64::MAX;
+        controller.session.set_edit("1");
+        assert_eq!(host::on_char(&mut controller, '\n'), host::Step::Unchanged);
+        assert_eq!(controller.session.count, 0);
+        assert_eq!(controller.session.revision, u64::MAX);
+        assert_eq!(controller.session.result, "0");
+        assert_eq!(controller.session.edit, "1");
+
+        // i64::MAX plus 0 stores. The count is not rejected by itself.
+        controller.session.count = i64::MAX;
+        controller.session.revision = 0;
+        controller.session.set_edit("0");
+        assert_eq!(host::on_char(&mut controller, '\n'), host::Step::Changed);
+        assert_eq!(controller.session.count, i64::MAX);
+        assert_eq!(controller.session.revision, 1);
+        assert_eq!(controller.session.result, "9223372036854775807");
+        assert_eq!(controller.session.edit, "0");
+
+        controller.session.count = 0;
+        controller.session.revision = 0;
+        controller.session.set_edit("1");
+        assert_eq!(host::on_char(&mut controller, '\n'), host::Step::Changed);
+        assert_eq!(controller.session.count, 1);
+        assert_eq!(controller.session.revision, 1);
+        assert_eq!(controller.session.result, "1");
+        assert_eq!(controller.session.edit, "1");
+
+        assert_eq!(host::on_char(&mut controller, '\u{8}'), host::Step::Changed);
+        assert_eq!(controller.session.edit, "");
+        assert_eq!(host::on_char(&mut controller, '-'), host::Step::Changed);
+        assert_eq!(host::on_char(&mut controller, '1'), host::Step::Changed);
+        assert_eq!(controller.session.edit, "-1");
+        assert_eq!(controller.session.count, 1);
+        assert_eq!(controller.session.revision, 1);
+        assert_eq!(controller.session.result, "1");
+        assert_eq!(host::on_char(&mut controller, '\n'), host::Step::Changed);
+        assert_eq!(controller.session.count, 0);
+        assert_eq!(controller.session.revision, 2);
+        assert_eq!(controller.session.result, "0");
+        assert_eq!(controller.session.edit, "-1");
     }
 
     #[test]

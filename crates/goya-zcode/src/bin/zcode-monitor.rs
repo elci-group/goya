@@ -219,7 +219,7 @@ fn shortcut_switch_delta(shortcut: Shortcut) -> Option<isize> {
     match shortcut {
         Shortcut::SessionNext => Some(1),
         Shortcut::SessionPrevious => Some(-1),
-        Shortcut::Copy | Shortcut::Paste | Shortcut::Quit => None,
+        Shortcut::Copy | Shortcut::Paste | Shortcut::Quit | Shortcut::Cut => None,
     }
 }
 
@@ -1264,6 +1264,7 @@ fn run_live(
                         }
                         // Handled above via shortcut_switch_delta.
                         Shortcut::SessionNext | Shortcut::SessionPrevious => {}
+                        Shortcut::Cut => {}
                     }
                 }
                 _ => {}
@@ -1383,6 +1384,7 @@ mod input_event_tests {
         assert_eq!(shortcut_switch_delta(Shortcut::Copy), None);
         assert_eq!(shortcut_switch_delta(Shortcut::Paste), None);
         assert_eq!(shortcut_switch_delta(Shortcut::Quit), None);
+        assert_eq!(shortcut_switch_delta(Shortcut::Cut), None);
     }
 
     #[test]

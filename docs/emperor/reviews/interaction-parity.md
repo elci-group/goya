@@ -71,3 +71,5 @@ The sections above describe commit `594bac7`. The working tree has since moved f
 - Evdev 28 and 96 both become `KeyChar('\n')` before the XKB path, and that character still calls `press_add`.
 - Shift+Delete with cut `allow` or `default` publishes the whole focused edit and clears it. `deny` does not. This is not the Sash selection cut.
 - A button press records the control id and does not activate. Release on that same id calls `press_add`. Release elsewhere, or a release with no press, does not. A press outside the button clears the arm. `--exercise` presents that scripted frame (count 3, revision 2) on a real Wayland window. The compositor is not identified. EMP-M1-25 stays unmet.
+- Copy publishes the whole edit only while focus is the edit and copy is allowed. Button focus publishes nothing. Ctrl+X is `Shortcut::Cut` and uses the same whole-field cut as Shift+Delete. There is still no selection. See `clipboard-parity.md`.
+- Plain Delete, Ctrl+Delete, and Ctrl+Shift+Delete do not cut and do not remove text. Cut `allow` follows the same whole-field rule as `default`. There is no caret. See `delete-parity.md`.

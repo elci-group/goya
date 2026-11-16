@@ -48,10 +48,10 @@ pub(crate) struct PointerArm {
     button_id: Option<String>,
 }
 
-struct SceneFrame {
-    primitives: Vec<Primitive>,
-    fills: Vec<Option<u32>>,
-    foregrounds: Vec<Option<u32>>,
+pub(crate) struct SceneFrame {
+    pub(crate) primitives: Vec<Primitive>,
+    pub(crate) fills: Vec<Option<u32>>,
+    pub(crate) foregrounds: Vec<Option<u32>>,
 }
 
 #[derive(PartialEq, Eq)]
@@ -172,8 +172,15 @@ fn on_event(
             }
             Step::Unchanged
         }
+        PlatformEvent::Shortcut(Shortcut::Cut) => {
+            let effect = on_cut(ir, controller);
+            if let Some(text) = effect.clipboard.as_deref() {
+                window.set_clipboard_text(text);
+            }
+            effect.step
+        }
         PlatformEvent::Shortcut(Shortcut::Paste) => {
-            if paste_shortcut_requests_clipboard(ir) {
+            if paste_shortcut_requests_clipboard(ir, controller) {
                 window.request_clipboard_text();
             }
             Step::Unchanged
@@ -294,7 +301,7 @@ pub(crate) fn on_char(controller: &mut KeyController, ch: char) -> Step {
             }
         }
         _ => {
-            if controller.focus == Focus::Edit {
+            if controller.focus == Focus::Edit && !ch.is_control() {
                 let mut edit = controller.session.edit.clone();
                 edit.push(ch);
                 controller.session.set_edit(&edit);
@@ -327,7 +334,7 @@ pub(crate) struct SpecialEffect {
 ///
 /// `deny` publishes nothing and leaves the edit. `allow` and `default` publish
 /// the whole edit and clear it. Button focus does not cut. Ctrl+Shift+Delete
-/// is not this chord.
+/// is not this chord. Ctrl+X uses [`on_cut`] with the same rules.
 pub(crate) fn on_modified_special(
     ir: &NativeIr,
     controller: &mut KeyController,
@@ -335,7 +342,7 @@ pub(crate) fn on_modified_special(
     modifiers: KeyModifiers,
 ) -> SpecialEffect {
     if key == KeySpecial::Delete && modifiers.shift && !modifiers.ctrl {
-        return cut_edit(ir, controller);
+        return on_cut(ir, controller);
     }
     if key == KeySpecial::Tab {
         return SpecialEffect {
@@ -349,7 +356,11 @@ pub(crate) fn on_modified_special(
     }
 }
 
-fn cut_edit(ir: &NativeIr, controller: &mut KeyController) -> SpecialEffect {
+/// Publish and clear the whole edit, or leave it untouched.
+///
+/// `deny`, non-edit focus, and an empty edit publish nothing. `allow` and
+/// `default` publish the edit and clear it. There is no selection.
+pub(crate) fn on_cut(ir: &NativeIr, controller: &mut KeyController) -> SpecialEffect {
     if ir.capabilities.cut == "deny"
         || controller.focus != Focus::Edit
         || controller.session.edit.is_empty()
@@ -367,18 +378,24 @@ fn cut_edit(ir: &NativeIr, controller: &mut KeyController) -> SpecialEffect {
     }
 }
 
-/// Clipboard text the window may publish. `None` when copy is denied.
+/// Clipboard text the window may publish.
+///
+/// `Some` only when copy is allowed and focus is the edit, including an
+/// empty edit. Button focus returns `None` and does not change the edit.
 pub(crate) fn copy_text<'a>(ir: &NativeIr, controller: &'a KeyController) -> Option<&'a str> {
-    if ir.capabilities.copy {
+    if ir.capabilities.copy && controller.focus == Focus::Edit {
         Some(controller.session.edit.as_str())
     } else {
         None
     }
 }
 
-/// Allowed paste asks the window for text. Denied paste does not.
-pub(crate) fn paste_shortcut_requests_clipboard(ir: &NativeIr) -> bool {
-    ir.capabilities.paste
+/// Allowed paste on the edit asks the window for text.
+///
+/// Button focus does not request the clipboard. Denied paste does not.
+/// A payload that arrives after focus moves is not decided here.
+pub(crate) fn paste_shortcut_requests_clipboard(ir: &NativeIr, controller: &KeyController) -> bool {
+    ir.capabilities.paste && controller.focus == Focus::Edit
 }
 
 /// Apply a clipboard payload. Denied paste ignores every payload, including empty text.
@@ -406,7 +423,7 @@ pub(crate) fn ignore_ime(_controller: &KeyController) -> Step {
     Step::Unchanged
 }
 
-fn scene_frame(ir: &NativeIr, controller: &KeyController) -> Result<SceneFrame, String> {
+pub(crate) fn scene_frame(ir: &NativeIr, controller: &KeyController) -> Result<SceneFrame, String> {
     let client = find_role(ir, "client")?;
     let edit = find_role(ir, "edit")?;
     let button = find_role(ir, "button")?;
