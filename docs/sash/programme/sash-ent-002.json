@@ -2,19 +2,19 @@
   "directive": "SASH-ENT-002",
   "directive_version": "0.0.1",
   "recorded_on": "2026-11-15",
-  "source_revision": "38c2f6132ef532e5b9b58b6a017e1f03cc1b3f5a",
+  "source_revision": "be438ed01e1805f197874284e5f5908b54f4a8f6",
   "compiler_constant": "SASH-ENT-001",
   "target_profile": "sash.win32.static-window/0.0.3",
   "deployment_profile": "portable-native",
   "target": "x86_64-pc-windows-msvc",
   "integration_decision": "HOLD",
   "first_gate": "Real Windows execution of the existing static-window profile",
-  "summary": "Static-window link remains unqualified on Windows. Profile sash.win32.interactive/0.0.2 links the counter with one heading, one integer edit, one button, one checked D1 addition, permitted copy, denied paste, Enter activation, and class unregister on close. The new value is stored only when the result text reads back as that value. A denied cut also drops Shift+Delete. This counter omits cut, so the system cut command remains. Executable launch is BLOCKED. Scenes without a gestures block stay on sash.win32.interactive/0.0.1.",
+  "summary": "Static-window and interactive-counter links are unqualified cross-links for i686-pc-windows-msvc (PE32), x86_64-pc-windows-msvc (PE32+), and aarch64-pc-windows-msvc (PE32+). Profile sash.win32.interactive/0.0.2 links the counter with one heading, one integer edit, one button, one checked D1 addition, permitted copy, denied paste, Enter activation, and class unregister on close. The i686 image calls SetWindowLongW. The x64 and ARM64 images call SetWindowLongPtrW. Executable launch is BLOCKED on every architecture. Scenes without a gestures block stay on sash.win32.interactive/0.0.1.",
   "gates": {
     "library_tests": {
       "status": "PASS",
       "command": "cargo test -p sash --offline --lib",
-      "result": "34 passed, 0 failed, 0 ignored"
+      "result": "44 passed, 0 failed, 0 ignored"
     },
     "static_window_link": {
       "status": "PASS",
@@ -78,9 +78,85 @@
       ],
       "note": "Copy is allowed. Paste is denied on the edit. Cut was not authored, so the system cut command remains on this image. A scene that denies cut also drops Shift+Delete before the edit changes. Delete without Shift is not a cut. Enter activates the button. Space is delivered to the focused control. Close unregisters the window class. A failed message pump destroys the window first. The result text is written before the value and revision are stored. The count changes only when that text reads back as the new value. A different readback restores the previous result text while the window is live. A nested activation during that write is ignored. A release that starts during that write drops the commit. A failed text update leaves the previous value. The image was not launched."
     },
+    "static_i686_link": {
+      "status": "PASS",
+      "claim": "unqualified-cross-link",
+      "target": "i686-pc-windows-msvc",
+      "presentation_profile": "sash.win32.static-window/0.0.3",
+      "output": "/tmp/sash-ent002/static-i686/App.exe",
+      "bytes": 195072,
+      "sha256": "144b6ac4421039354747e782f5b5d373f75ebe184c40fcf3403e66fb6fd474b6",
+      "pdb_sha256": "1fb84904510712b29976ce4329dead241321fce1c586ae54110d3e65cc4aa5cb",
+      "scene_sha256": "617250a533dd349d6a6186d18dbb320cc1fe6a50f6d245381b9f80d004822962",
+      "machine": "0x014c",
+      "magic": "0x010b",
+      "entry_rva": 130048,
+      "dll_characteristics": "0xc140",
+      "verify_exit": 3,
+      "runtime_qualification": "BLOCKED",
+      "release_admission": "BLOCKED",
+      "note": "PE32. High-entropy ASLR is not set and is not required. The image was not launched."
+    },
+    "static_arm64_link": {
+      "status": "PASS",
+      "claim": "unqualified-cross-link",
+      "target": "aarch64-pc-windows-msvc",
+      "presentation_profile": "sash.win32.static-window/0.0.3",
+      "output": "/tmp/sash-ent002/static-arm64/App.exe",
+      "bytes": 224256,
+      "sha256": "aa37ce6e955b989170befec54a16f9614e736159f9af30af41eac4aeea597cd9",
+      "pdb_sha256": "51555fdd62b747253b81e515cd8a1ee2a4396e80d31aad7942a1d25bf5f1a44d",
+      "scene_sha256": "617250a533dd349d6a6186d18dbb320cc1fe6a50f6d245381b9f80d004822962",
+      "machine": "0xaa64",
+      "magic": "0x020b",
+      "entry_rva": 128976,
+      "dll_characteristics": "0xc160",
+      "verify_exit": 3,
+      "runtime_qualification": "BLOCKED",
+      "release_admission": "BLOCKED",
+      "note": "Native ARM64 PE32+, not an x64 image. The image was not launched."
+    },
+    "interactive_i686_link": {
+      "status": "PASS",
+      "claim": "unqualified-cross-link",
+      "target": "i686-pc-windows-msvc",
+      "presentation_profile": "sash.win32.interactive/0.0.2",
+      "output": "/tmp/sash-ent002/interactive-i686/App.exe",
+      "bytes": 199680,
+      "sha256": "79aa11bcc593abe0d5e1ebdc920fb0157835e1120af37eff2f7329d0ed4337b9",
+      "pdb_sha256": "3ba267b548df63a6399160a01cc466be6b2c0689d88a5372fc2546caf98931ae",
+      "scene_sha256": "c550e4608d8217b84c946732fd2ecd9944c800d8979dc332dbea7d87fa9d61fd",
+      "machine": "0x014c",
+      "magic": "0x010b",
+      "entry_rva": 133632,
+      "dll_characteristics": "0xc140",
+      "verify_exit": 3,
+      "runtime_qualification": "BLOCKED",
+      "release_admission": "BLOCKED",
+      "note": "PE32. The import name SetWindowLongW is present. SetWindowLongPtrW is absent. The image was not launched."
+    },
+    "interactive_arm64_link": {
+      "status": "PASS",
+      "claim": "unqualified-cross-link",
+      "target": "aarch64-pc-windows-msvc",
+      "presentation_profile": "sash.win32.interactive/0.0.2",
+      "output": "/tmp/sash-ent002/interactive-arm64/App.exe",
+      "bytes": 228864,
+      "sha256": "3ce66be4334bd70409f9bb2f696c064d54bcd3715aed1bf182d1e5f8a0c4d482",
+      "pdb_sha256": "7c88b4720ae9a71d186d04a86bd43afdc259c8b60b1f74e689dff73e24fb6e38",
+      "scene_sha256": "c550e4608d8217b84c946732fd2ecd9944c800d8979dc332dbea7d87fa9d61fd",
+      "machine": "0xaa64",
+      "magic": "0x020b",
+      "entry_rva": 132496,
+      "dll_characteristics": "0xc160",
+      "verify_exit": 3,
+      "runtime_qualification": "BLOCKED",
+      "release_admission": "BLOCKED",
+      "note": "Native ARM64 PE32+. The import name SetWindowLongPtrW is present. SetWindowLongW is absent. The image was not launched."
+    },
     "windows_execution": {
       "status": "BLOCKED",
-      "reason": "This host has no Windows x64 session, Wine, QEMU, or libvirt image. GitHub CI is ubuntu-latest only. A cross-link is not a launch."
+      "reason": "This host has no Windows session, Wine, QEMU, or libvirt image. GitHub CI is ubuntu-latest only. A cross-link is not a launch. i686 and ARM64 still need native execution; ARM64 emulation of an x64 image does not qualify."
     }
   },
   "toolchain": {
@@ -200,7 +276,7 @@
     "Static profile remains sash.win32.static-window/0.0.3 and still rejects buttons, inputs, interactions, and gestures.",
     "Notifications, taskbar identity, and startup registration are not compiled.",
     "verify still exits 3 when the PE checks pass and the image has not been launched.",
-    "The interactive worktree is uncommitted on source_revision."
+    "source_revision is the parent of the three-target link. Runtime qualification stays BLOCKED."
   ],
-  "next_unblock": "A native Windows x64 session must launch /tmp/sash-ent002/static-window/App.exe and /tmp/sash-ent002/interactive-cut/App.exe, observe the window and controls, exercise Enter, the denied paste, and the D1 commit, close each window, and record process exit separately from these links."
+  "next_unblock": "A native Windows session must launch the x64, i686, and ARM64 images separately, on matching hardware. For x64 that is /tmp/sash-ent002/static-window/App.exe and /tmp/sash-ent002/interactive-cut/App.exe. For i686 that is /tmp/sash-ent002/static-i686/App.exe and /tmp/sash-ent002/interactive-i686/App.exe. For ARM64 that is /tmp/sash-ent002/static-arm64/App.exe and /tmp/sash-ent002/interactive-arm64/App.exe. Record process exit separately from these links."
 }

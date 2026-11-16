@@ -1076,8 +1076,14 @@ struct NonClientMetricsW {
     padded_border_width: i32,
 }
 
+#[cfg(target_pointer_width = "64")]
 const _: () = assert!(std::mem::size_of::<WndClassExW>() == 80);
+#[cfg(target_pointer_width = "32")]
+const _: () = assert!(std::mem::size_of::<WndClassExW>() == 48);
+#[cfg(target_pointer_width = "64")]
 const _: () = assert!(std::mem::size_of::<Msg>() == 48);
+#[cfg(target_pointer_width = "32")]
+const _: () = assert!(std::mem::size_of::<Msg>() == 28);
 const _: () = assert!(std::mem::size_of::<Rect>() == 16);
 const _: () = assert!(std::mem::size_of::<LogFontW>() == 92);
 const _: () = assert!(std::mem::size_of::<NonClientMetricsW>() == 504);
@@ -1132,8 +1138,26 @@ extern "system" {
     fn SetWindowTextW(hwnd: *mut c_void, text: *const u16) -> i32;
     fn SetFocus(hwnd: *mut c_void) -> *mut c_void;
     fn GetKeyState(key: i32) -> i16;
-    fn SetWindowLongPtrW(hwnd: *mut c_void, index: i32, new_long: isize) -> isize;
     fn CallWindowProcW(prev: isize, hwnd: *mut c_void, msg: u32, wparam: usize, lparam: isize) -> isize;
+}
+
+#[cfg(all(windows, target_pointer_width = "32"))]
+#[link(name = "user32")]
+extern "system" {
+    fn SetWindowLongW(hwnd: *mut c_void, index: i32, new_long: i32) -> i32;
+}
+
+#[cfg(not(all(windows, target_pointer_width = "32")))]
+#[link(name = "user32")]
+extern "system" {
+    fn SetWindowLongPtrW(hwnd: *mut c_void, index: i32, new_long: isize) -> isize;
+}
+
+unsafe fn set_window_long_ptr(hwnd: *mut c_void, index: i32, new_long: isize) -> isize {
+    #[cfg(all(windows, target_pointer_width = "32"))]
+    return SetWindowLongW(hwnd, index, new_long as i32) as isize;
+    #[cfg(not(all(windows, target_pointer_width = "32")))]
+    return SetWindowLongPtrW(hwnd, index, new_long);
 }
 
 #[link(name = "gdi32")]
@@ -1386,7 +1410,7 @@ unsafe fn release(hwnd: *mut c_void) {
     if previous != 0 {
         let edit = HWNDS[INPUT_INDEX].load(Ordering::Relaxed);
         if !edit.is_null() {
-            SetWindowLongPtrW(edit, GWLP_WNDPROC, previous);
+            set_window_long_ptr(edit, GWLP_WNDPROC, previous);
         }
     }
     RemovePropW(hwnd, PROP_SEMANTIC.as_ptr());
@@ -1478,7 +1502,7 @@ unsafe fn setup(hwnd: *mut c_void) -> i32 {
         ID_LENS[index].store(Box::into_raw(Box::new(id_len)), Ordering::Relaxed);
         HWNDS[index].store(child, Ordering::Relaxed);
         if cell.role == ROLE_EDIT {
-            let previous = SetWindowLongPtrW(child, GWLP_WNDPROC, edit_proc as usize as isize);
+            let previous = set_window_long_ptr(child, GWLP_WNDPROC, edit_proc as usize as isize);
             if previous == 0 {
                 return 1;
             }
@@ -1744,6 +1768,9 @@ mod tests {
             .contains("const PASTE_ALLOWED: bool = false;"));
         assert!(generated.main_rs.contains("ROOT_ID_UNITS"));
         assert!(generated.main_rs.contains("UnregisterClassW"));
+        assert!(generated.main_rs.contains("SetWindowLongW"));
+        assert!(generated.main_rs.contains("SetWindowLongPtrW"));
+        assert!(generated.main_rs.contains("target_pointer_width = \"32\""));
         assert!(generated.main_rs.contains("KeyAction::Activate"));
         assert!(generated.main_rs.contains("ACTIVATING"));
         assert!(generated.main_rs.contains("RELEASED"));

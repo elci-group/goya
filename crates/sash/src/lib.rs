@@ -13,6 +13,7 @@ pub mod interactive;
 pub mod orchestrate;
 pub mod pe;
 pub mod report;
+pub mod windows_target;
 
 use std::fmt;
 

@@ -1,12 +1,12 @@
 # Sash
 
-Sash is Goya's Windows compiler. It admits a GY-LANG/1 scene and, for the one linked profile, produces a native `App.exe`.
+Sash is Goya's Windows compiler. It admits a GY-LANG/1 scene and produces a native `App.exe` for one of three Windows architectures.
 
 Aragon remains the Android compiler. Neptune remains the iOS compiler. Sylyca is the former name of this Windows backend, not a second toolchain.
 
 ## What links today
 
-Profile `sash.win32.static-window/0.0.3` on target `x86_64-pc-windows-msvc`.
+Profiles `sash.win32.static-window/0.0.3`, `sash.win32.interactive/0.0.1`, and `sash.win32.interactive/0.0.2` select among `i686-pc-windows-msvc`, `x86_64-pc-windows-msvc`, and `aarch64-pc-windows-msvc`. i686 is PE32. x64 and ARM64 are PE32+. None of the three has been launched on Windows. A successful build is still an unqualified cross-link.
 
 Labels use the system message font for the window DPI. The font is recreated on `WM_DPICHANGED`. Authored text size is still rejected. DPI scaling has not been executed on a Windows machine.
 
@@ -22,8 +22,9 @@ The generated program is a Win32 window. It is not an Electron, WebView, or WinU
 
 ```text
 sash inspect project.gscene
+sash check project.gscene --target i686-pc-windows-msvc
 sash check project.gscene --target x86_64-pc-windows-msvc
-sash build project.gscene --profile portable-native --release --out /path/to/new-dir
+sash build project.gscene --target aarch64-pc-windows-msvc --profile portable-native --release --out /path/to/new-dir
 sash verify /path/to/new-dir/App.exe --evidence /path/to/new-dir/evidence
 ```
 
@@ -33,7 +34,7 @@ sash verify /path/to/new-dir/App.exe --evidence /path/to/new-dir/evidence
 
 ## This host
 
-Linux can cross-link when the Rust Windows standard library, `cargo-xwin` 0.22, `llvm-rc`, `rust-lld`, and a local `windows-msvc-sysroot` marked `DONE` are already present. Sash does not download that SDK. The build report calls the result an unqualified cross-link.
+Linux can cross-link when the Rust standard library for the selected triple, `cargo-xwin` 0.22, `llvm-rc`, `rust-lld`, and a local `windows-msvc-sysroot` marked `DONE` are already present. Sash does not download a target or that SDK. The build report calls the result an unqualified cross-link.
 
 A Windows launch was not run for the proof recorded in `docs/sash/reconnaissance.md`. Import inspection is not a clean-machine test.
 

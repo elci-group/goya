@@ -8,7 +8,7 @@ use std::fmt::Write as _;
 const MAX_PE_BYTES: usize = 64 * 1024 * 1024;
 const DOS_E_LFANEW: usize = 0x3C;
 const PE_MAGIC: &[u8] = b"PE\0\0";
-const MACHINE_AMD64: u16 = 0x8664;
+const PE32: u16 = 0x010B;
 const PE32_PLUS: u16 = 0x20B;
 const SUBSYSTEM_WINDOWS_GUI: u16 = 2;
 const FILE_EXECUTABLE: u16 = 0x0002;
@@ -42,11 +42,22 @@ pub struct PeInfo {
 /// image meets the structural checks this host can perform.
 pub fn policy_errors(info: &PeInfo) -> Vec<String> {
     let mut errors = Vec::new();
-    if info.machine != MACHINE_AMD64 {
-        errors.push(format!("machine {:#06x} is not AMD64", info.machine));
-    }
-    if info.magic != PE32_PLUS {
-        errors.push(format!("optional magic {:#06x} is not PE32+", info.magic));
+    let target = crate::windows_target::by_machine(info.machine);
+    match target {
+        None => errors.push(format!(
+            "machine {:#06x} is not an admitted Windows target",
+            info.machine
+        )),
+        Some(target) => {
+            if info.magic != target.optional_magic {
+                let kind = if target.optional_magic == PE32 {
+                    "PE32"
+                } else {
+                    "PE32+"
+                };
+                errors.push(format!("optional magic {:#06x} is not {kind}", info.magic));
+            }
+        }
     }
     if info.subsystem != SUBSYSTEM_WINDOWS_GUI {
         errors.push(format!(
@@ -60,12 +71,16 @@ pub fn policy_errors(info: &PeInfo) -> Vec<String> {
     if info.characteristics & FILE_EXECUTABLE == 0 || info.characteristics & FILE_DLL != 0 {
         errors.push("image is not an executable application".into());
     }
-    for (flag, name) in [
-        (HIGH_ENTROPY_VA, "high-entropy ASLR"),
+    let mut flags = Vec::with_capacity(4);
+    if target.is_some_and(|target| target.pointer_bits == 64) {
+        flags.push((HIGH_ENTROPY_VA, "high-entropy ASLR"));
+    }
+    flags.extend_from_slice(&[
         (DYNAMIC_BASE, "ASLR"),
         (NX_COMPAT, "DEP/NX"),
         (GUARD_CF, "control-flow guard"),
-    ] {
+    ]);
+    for (flag, name) in flags {
         if info.dll_characteristics & flag == 0 {
             errors.push(format!("{name} is not set in the PE optional header"));
         }
@@ -137,25 +152,31 @@ pub fn parse_pe(bytes: &[u8]) -> Result<PeInfo, String> {
         return Err("optional header is too small".into());
     }
     let magic = read_u16(bytes, optional)?;
+    let (rva_count_off, dir_base) = match magic {
+        PE32 => (92, 96),
+        PE32_PLUS => (108, 112),
+        _ => return Err("optional magic is not PE32 or PE32+".into()),
+    };
     let entry = read_u32(bytes, optional + 16)?;
     let subsystem = read_u16(bytes, optional + 68)?;
     let dll_characteristics = read_u16(bytes, optional + 70)?;
-    let dir_count = read_u32(bytes, optional + 108)? as usize;
-    if dir_count > 16 || optional + 112 + dir_count * 8 > section_table {
+    let dir_count = read_u32(bytes, optional + rva_count_off)? as usize;
+    let table = optional + dir_base;
+    if dir_count > 16 || table + dir_count * 8 > section_table {
         return Err("data directories are truncated".into());
     }
     let sections = read_sections(bytes, section_table, sections)?;
     let imports = read_import_dlls(
         bytes,
         &sections,
-        directory(bytes, optional, dir_count, DIR_IMPORT)?,
+        directory(bytes, table, dir_count, DIR_IMPORT)?,
     )?;
     let delay_imports = read_delay_dlls(
         bytes,
         &sections,
-        directory(bytes, optional, dir_count, DIR_DELAY)?,
+        directory(bytes, table, dir_count, DIR_DELAY)?,
     )?;
-    let resource = directory(bytes, optional, dir_count, DIR_RESOURCE)?;
+    let resource = directory(bytes, table, dir_count, DIR_RESOURCE)?;
     let (manifest, has_version_resource) = read_resources(bytes, &sections, resource)?;
     Ok(PeInfo {
         machine,
@@ -241,16 +262,11 @@ fn read_sections(bytes: &[u8], table: usize, count: usize) -> Result<Vec<Section
     Ok(sections)
 }
 
-fn directory(
-    bytes: &[u8],
-    optional: usize,
-    count: usize,
-    index: usize,
-) -> Result<(u32, u32), String> {
+fn directory(bytes: &[u8], table: usize, count: usize, index: usize) -> Result<(u32, u32), String> {
     if index >= count {
         return Ok((0, 0));
     }
-    let off = optional + 112 + index * 8;
+    let off = table + index * 8;
     Ok((read_u32(bytes, off)?, read_u32(bytes, off + 4)?))
 }
 
@@ -472,29 +488,38 @@ mod tests {
         buf[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
     }
 
+    const MACHINE_AMD64: u16 = 0x8664;
+    const MACHINE_I686: u16 = 0x014C;
+    const MACHINE_ARM64: u16 = 0xAA64;
+
     fn synthetic() -> Vec<u8> {
+        image(
+            MACHINE_AMD64,
+            PE32_PLUS,
+            HIGH_ENTROPY_VA | DYNAMIC_BASE | NX_COMPAT | GUARD_CF,
+        )
+    }
+
+    fn image(machine: u16, magic: u16, dll_characteristics: u16) -> Vec<u8> {
         let mut bytes = vec![0u8; 0x800];
         bytes[0] = b'M';
         bytes[1] = b'Z';
         put_u32(&mut bytes, 0x3C, 0x80);
         bytes[0x80..0x84].copy_from_slice(b"PE\0\0");
-        put_u16(&mut bytes, 0x84, MACHINE_AMD64);
+        put_u16(&mut bytes, 0x84, machine);
         put_u16(&mut bytes, 0x86, 1);
         put_u16(&mut bytes, 0x94, 240);
         put_u16(&mut bytes, 0x96, FILE_EXECUTABLE | 0x0020);
-        put_u16(&mut bytes, 0x98, PE32_PLUS);
+        put_u16(&mut bytes, 0x98, magic);
         put_u32(&mut bytes, 0x98 + 16, 0x1000);
         put_u16(&mut bytes, 0x98 + 68, SUBSYSTEM_WINDOWS_GUI);
-        put_u16(
-            &mut bytes,
-            0x98 + 70,
-            HIGH_ENTROPY_VA | DYNAMIC_BASE | NX_COMPAT | GUARD_CF,
-        );
-        put_u32(&mut bytes, 0x98 + 108, 16);
-        put_u32(&mut bytes, 0x98 + 112 + 8, 0x1000);
-        put_u32(&mut bytes, 0x98 + 112 + 12, 40);
-        put_u32(&mut bytes, 0x98 + 112 + 16, 0x1200);
-        put_u32(&mut bytes, 0x98 + 112 + 20, 0x200);
+        put_u16(&mut bytes, 0x98 + 70, dll_characteristics);
+        let (rva_count_off, dir_base) = if magic == PE32 { (92, 96) } else { (108, 112) };
+        put_u32(&mut bytes, 0x98 + rva_count_off, 16);
+        put_u32(&mut bytes, 0x98 + dir_base + 8, 0x1000);
+        put_u32(&mut bytes, 0x98 + dir_base + 12, 40);
+        put_u32(&mut bytes, 0x98 + dir_base + 16, 0x1200);
+        put_u32(&mut bytes, 0x98 + dir_base + 20, 0x200);
         let section = 0x98 + 240;
         bytes[section..section + 6].copy_from_slice(b".rdata");
         put_u32(&mut bytes, section + 8, 0x400);
@@ -562,5 +587,89 @@ mod tests {
         bytes[0x440..0x44C].copy_from_slice(b"../secret\0\0\0");
         let error = parse_pe(&bytes).unwrap_err();
         assert!(!error.contains("secret"));
+    }
+
+    fn assert_same_payload(info: &PeInfo) {
+        assert_eq!(info.imports, vec!["kernel32.dll".to_string()]);
+        assert!(info.delay_imports.is_empty());
+        assert!(info.has_version_resource);
+        assert!(std::str::from_utf8(&info.manifest)
+            .unwrap()
+            .contains("asInvoker"));
+    }
+
+    #[test]
+    fn i686_pe32_allows_policy_without_high_entropy_aslr() {
+        let info = parse_pe(&image(
+            MACHINE_I686,
+            PE32,
+            DYNAMIC_BASE | NX_COMPAT | GUARD_CF,
+        ))
+        .unwrap();
+        assert_eq!(info.machine, MACHINE_I686);
+        assert_eq!(info.magic, PE32);
+        assert_eq!(info.dll_characteristics & HIGH_ENTROPY_VA, 0);
+        assert_same_payload(&info);
+        assert!(
+            policy_errors(&info).is_empty(),
+            "{:?}",
+            policy_errors(&info)
+        );
+    }
+
+    #[test]
+    fn arm64_pe32_plus_passes_policy() {
+        let info = parse_pe(&image(
+            MACHINE_ARM64,
+            PE32_PLUS,
+            HIGH_ENTROPY_VA | DYNAMIC_BASE | NX_COMPAT | GUARD_CF,
+        ))
+        .unwrap();
+        assert_eq!(info.machine, MACHINE_ARM64);
+        assert_eq!(info.magic, PE32_PLUS);
+        assert_same_payload(&info);
+        assert!(
+            policy_errors(&info).is_empty(),
+            "{:?}",
+            policy_errors(&info)
+        );
+    }
+
+    #[test]
+    fn amd64_without_high_entropy_aslr_fails_policy() {
+        let info = parse_pe(&image(
+            MACHINE_AMD64,
+            PE32_PLUS,
+            DYNAMIC_BASE | NX_COMPAT | GUARD_CF,
+        ))
+        .unwrap();
+        let errors = policy_errors(&info);
+        assert!(errors
+            .iter()
+            .any(|error| error.contains("high-entropy ASLR")));
+    }
+
+    #[test]
+    fn unknown_machine_fails_policy() {
+        let mut bytes = synthetic();
+        put_u16(&mut bytes, 0x84, 0x01C4);
+        let info = parse_pe(&bytes).unwrap();
+        assert_eq!(info.machine, 0x01C4);
+        let errors = policy_errors(&info);
+        assert!(errors
+            .iter()
+            .any(|error| error.contains("not an admitted Windows target")));
+    }
+
+    #[test]
+    fn i686_bytes_with_pe32_plus_magic_fail_policy() {
+        let info = parse_pe(&image(
+            MACHINE_I686,
+            PE32_PLUS,
+            DYNAMIC_BASE | NX_COMPAT | GUARD_CF,
+        ))
+        .unwrap();
+        let errors = policy_errors(&info);
+        assert!(errors.iter().any(|error| error.ends_with("is not PE32")));
     }
 }

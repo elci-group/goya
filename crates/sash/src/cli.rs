@@ -97,11 +97,14 @@ pub fn execute(args: &[std::ffi::OsString]) -> Run {
             index += 1;
         }
     }
-    if target != TARGET_MSVC_X64 {
+    let Some(admitted) = crate::windows_target::admit_triple(&target) else {
         return refuse(format!(
-            "target {target} is not admitted; the only linked target is {TARGET_MSVC_X64}"
+            "target {target} is not admitted; admitted targets are {}, {}, and {}",
+            crate::windows_target::X86.triple,
+            crate::windows_target::X64.triple,
+            crate::windows_target::ARM64.triple,
         ));
-    }
+    };
     if profile != PROFILE_PORTABLE {
         return refuse(format!(
             "profile {profile} is not admitted; the only profile is {PROFILE_PORTABLE}"
@@ -112,7 +115,7 @@ pub fn execute(args: &[std::ffi::OsString]) -> Run {
         "directive": DIRECTIVE_ID,
         "compiler": "sash",
         "operation": command,
-        "target": target,
+        "target": admitted.triple,
         "profile": profile,
         "presentation_profile": PROFILE,
         "format": if json { "json" } else { "text" },
@@ -134,7 +137,7 @@ pub fn execute(args: &[std::ffi::OsString]) -> Run {
             let Some(out) = out else {
                 return cli_error(2, "build requires --out");
             };
-            build_command(base, path, &out)
+            build_command(base, path, &out, admitted)
         }
         "verify" => {
             let Some(path) = one_path(&positionals) else {
@@ -197,7 +200,12 @@ fn scene_command(mut base: serde_json::Value, path: &Path, inspect: bool) -> Run
     }
 }
 
-fn build_command(mut base: serde_json::Value, scene: &Path, out: &Path) -> Run {
+fn build_command(
+    mut base: serde_json::Value,
+    scene: &Path,
+    out: &Path,
+    target: crate::windows_target::WindowsTarget,
+) -> Run {
     let output = match fresh_output(out) {
         Ok(path) => path,
         Err(diagnostic) => return finish(base, 2, diagnostic, "output path was rejected"),
@@ -206,7 +214,7 @@ fn build_command(mut base: serde_json::Value, scene: &Path, out: &Path) -> Run {
         Ok(source) => source,
         Err(diagnostic) => return finish(base, 1, diagnostic, "scene was not read"),
     };
-    match orchestrate::link(&source, &output) {
+    match orchestrate::link(&source, &output, target) {
         Ok(linked) => {
             base["presentation_profile"] = serde_json::json!(linked.presentation_profile);
             base["status"] = serde_json::json!("LINKED");
@@ -342,7 +350,7 @@ fn finish(mut base: serde_json::Value, code: u8, diagnostic: Diagnostic, summary
 fn usage() -> Run {
     cli_error(
         2,
-        "usage: sash inspect|check|build|verify <path> [--target x86_64-pc-windows-msvc] [--profile portable-native] [--release] [--out dir] [--evidence dir] [--format json]",
+        "usage: sash inspect|check|build|verify <path> [--target i686-pc-windows-msvc|x86_64-pc-windows-msvc|aarch64-pc-windows-msvc] [--profile portable-native] [--release] [--out dir] [--evidence dir] [--format json]",
     )
 }
 
@@ -515,6 +523,7 @@ mod tests {
         assert_eq!(run.json["runtime_qualification"], "BLOCKED");
         assert_eq!(run.json["client_dip"], serde_json::json!([320, 160]));
         assert_eq!(run.json["presentation_profile"], PROFILE);
+        assert_eq!(run.json["target"], TARGET_MSVC_X64);
     }
 
     #[test]
@@ -572,5 +581,43 @@ mod tests {
         ]);
         assert_eq!(run.code, ExitCode::from(1));
         assert_eq!(run.json["diagnostics"][0]["code"], "SASH-DEPLOY");
+    }
+
+    #[test]
+    fn check_records_each_admitted_windows_triple() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/static-window.gscene");
+        for triple in ["i686-pc-windows-msvc", "aarch64-pc-windows-msvc"] {
+            let run = execute(&[
+                "sash".into(),
+                "check".into(),
+                path.into(),
+                "--target".into(),
+                triple.into(),
+                "--format".into(),
+                "json".into(),
+            ]);
+            assert_eq!(run.code, ExitCode::SUCCESS);
+            assert_eq!(run.json["status"], "ADMITTED");
+            assert_eq!(run.json["runtime_qualification"], "BLOCKED");
+            assert_eq!(run.json["target"], triple);
+        }
+    }
+
+    #[test]
+    fn thumb_target_is_rejected() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/static-window.gscene");
+        let run = execute(&[
+            "sash".into(),
+            "check".into(),
+            path.into(),
+            "--target".into(),
+            "thumbv7a-pc-windows-msvc".into(),
+        ]);
+        assert_eq!(run.code, ExitCode::from(1));
+        assert_eq!(run.json["diagnostics"][0]["code"], "SASH-DEPLOY");
+        let message = run.json["diagnostics"][0]["message"].as_str().unwrap();
+        assert!(message.contains("i686-pc-windows-msvc"));
+        assert!(message.contains("x86_64-pc-windows-msvc"));
+        assert!(message.contains("aarch64-pc-windows-msvc"));
     }
 }

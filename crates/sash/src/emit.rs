@@ -362,8 +362,14 @@ struct NonClientMetricsW {
     padded_border_width: i32,
 }
 
+#[cfg(target_pointer_width = "64")]
 const _: () = assert!(std::mem::size_of::<WndClassExW>() == 80);
+#[cfg(target_pointer_width = "32")]
+const _: () = assert!(std::mem::size_of::<WndClassExW>() == 48);
+#[cfg(target_pointer_width = "64")]
 const _: () = assert!(std::mem::size_of::<Msg>() == 48);
+#[cfg(target_pointer_width = "32")]
+const _: () = assert!(std::mem::size_of::<Msg>() == 28);
 const _: () = assert!(std::mem::size_of::<Rect>() == 16);
 const _: () = assert!(std::mem::size_of::<LogFontW>() == 92);
 const _: () = assert!(std::mem::size_of::<NonClientMetricsW>() == 504);

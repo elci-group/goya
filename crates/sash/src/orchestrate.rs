@@ -8,7 +8,8 @@ use crate::emit::Generated;
 use crate::interactive;
 use crate::pe;
 use crate::report::{self, BuildFacts, SceneEvidence};
-use crate::{Diagnostic, PROFILE_PORTABLE, TARGET_MSVC_X64};
+use crate::windows_target::WindowsTarget;
+use crate::{Diagnostic, PROFILE_PORTABLE};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -24,7 +25,11 @@ pub struct Linked {
     pub presentation_profile: &'static str,
 }
 
-pub fn link(source: &str, output: &Path) -> Result<Linked, Diagnostic> {
+pub fn link(
+    source: &str,
+    output: &Path,
+    target: crate::windows_target::WindowsTarget,
+) -> Result<Linked, Diagnostic> {
     if !free_enough(output) {
         return Err(Diagnostic::new(
             "SASH-TOOLCHAIN",
@@ -34,13 +39,14 @@ pub fn link(source: &str, output: &Path) -> Result<Linked, Diagnostic> {
         ));
     }
     let prepared = prepare(source)?;
-    let tools = probe_tools()?;
+    let tools = probe_tools(target)?;
     let cache = pinned_windows_cache()?;
     let temp = TempDir::new()?;
-    write_project(&temp.0, &prepared.generated)?;
-    let log = run_link(&temp.0, &cache)?;
-    let exe = temp.0.join("target/x86_64-pc-windows-msvc/release/app.exe");
-    let pdb = temp.0.join("target/x86_64-pc-windows-msvc/release/app.pdb");
+    write_project(&temp.0, &prepared.generated, target)?;
+    let log = run_link(&temp.0, &cache, target)?;
+    let release = temp.0.join("target").join(target.triple).join("release");
+    let exe = release.join("app.exe");
+    let pdb = release.join("app.pdb");
     if !exe.is_file() {
         return Err(link_error(&log, "the linker did not produce app.exe"));
     }
@@ -70,6 +76,7 @@ pub fn link(source: &str, output: &Path) -> Result<Linked, Diagnostic> {
         ));
     }
     let facts = BuildFacts {
+        target_triple: target.triple.to_string(),
         exe_sha256: crate::sha256_hex(&exe_bytes),
         pdb_sha256: crate::sha256_hex(&pdb_bytes),
         manifest_sha256: crate::sha256_hex(prepared.generated.manifest_xml.as_bytes()),
@@ -189,16 +196,21 @@ struct Tools {
     llvm_rc: String,
 }
 
-fn probe_tools() -> Result<Tools, Diagnostic> {
+fn probe_tools(target: WindowsTarget) -> Result<Tools, Diagnostic> {
     let rustc = version("rustc", &["--version"])?;
     let sysroot = version("rustc", &["--print", "sysroot"])?;
-    let target_lib = Path::new(sysroot.trim()).join("lib/rustlib/x86_64-pc-windows-msvc");
+    let target_lib = Path::new(sysroot.trim())
+        .join("lib/rustlib")
+        .join(target.triple);
     if !target_lib.is_dir() {
         return Err(Diagnostic::new(
             "SASH-TOOLCHAIN",
             "build",
-            "the Rust standard library for x86_64-pc-windows-msvc is not installed",
-            "Install that target with rustup before asking Sash to link.",
+            format!(
+                "the Rust standard library for {} is not installed",
+                target.triple
+            ),
+            "Install that target with rustup before asking Sash to link. Sash does not download a target.",
         ));
     }
     let cargo_xwin = version("cargo", &["xwin", "--version"])?;
@@ -269,14 +281,17 @@ fn version(program: &str, args: &[&str]) -> Result<String, Diagnostic> {
     Ok(text)
 }
 
-fn write_project(dir: &Path, generated: &Generated) -> Result<(), Diagnostic> {
+fn write_project(
+    dir: &Path,
+    generated: &Generated,
+    target: WindowsTarget,
+) -> Result<(), Diagnostic> {
     fs::create_dir(dir.join("src")).map_err(|error| io_diag("emit", &error))?;
     fs::create_dir(dir.join(".cargo")).map_err(|error| io_diag("emit", &error))?;
     write_new(&dir.join("Cargo.toml"), generated.cargo_toml.as_bytes())?;
-    write_new(
-        &dir.join(".cargo/config.toml"),
-        generated.config_toml.as_bytes(),
-    )?;
+    // generated.config_toml names only the x64 triple.
+    let config = crate::windows_target::cargo_config(target);
+    write_new(&dir.join(".cargo/config.toml"), config.as_bytes())?;
     write_new(&dir.join("build.rs"), generated.build_rs.as_bytes())?;
     write_new(&dir.join("app.manifest"), generated.manifest_xml.as_bytes())?;
     write_new(&dir.join("app.rc"), generated.resource_script.as_bytes())?;
@@ -330,7 +345,24 @@ fn pinned_windows_cache() -> Result<PathBuf, Diagnostic> {
     Ok(cache)
 }
 
-fn run_link(project: &Path, cache: &Path) -> Result<String, Diagnostic> {
+fn active_rustup_toolchain() -> Option<String> {
+    let output = Command::new("rustup")
+        .args(["show", "active-toolchain"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8(output.stdout).ok()?;
+    let name = text.split_whitespace().next()?.trim();
+    if name.is_empty() {
+        None
+    } else {
+        Some(name.to_string())
+    }
+}
+
+fn run_link(project: &Path, cache: &Path, target: WindowsTarget) -> Result<String, Diagnostic> {
     // clang uses the existing splat. clang-cl looks for a separate CRT unpack
     // and would download the SDK when that unpack is absent.
     let mut command = Command::new("cargo");
@@ -342,7 +374,7 @@ fn run_link(project: &Path, cache: &Path) -> Result<String, Diagnostic> {
         .arg("--release")
         .arg("--offline")
         .arg("--target")
-        .arg(TARGET_MSVC_X64)
+        .arg(target.triple)
         .arg("--manifest-path")
         .arg(project.join("Cargo.toml"))
         .current_dir(project)
@@ -354,6 +386,12 @@ fn run_link(project: &Path, cache: &Path) -> Result<String, Diagnostic> {
         .env("XWIN_CROSS_COMPILER", "clang")
         .env_remove("RUSTFLAGS")
         .env_remove("CARGO_ENCODED_RUSTFLAGS");
+    // The generated crate is outside this repo, so rustup would otherwise
+    // ignore rust-toolchain.toml and compile with the default toolchain.
+    // That toolchain does not have the standard library probe_tools checked.
+    if let Some(toolchain) = active_rustup_toolchain() {
+        command.env("RUSTUP_TOOLCHAIN", toolchain);
+    }
     let output = command.output().map_err(|_| {
         Diagnostic::new(
             "SASH-TOOLCHAIN",

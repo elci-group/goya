@@ -6,7 +6,7 @@
 use crate::admit::Disposition;
 use crate::emit::Generated;
 use crate::pe::{self, PeInfo};
-use crate::{sha256_hex, DIRECTIVE_ID, PROFILE_PORTABLE, TARGET_MSVC_X64};
+use crate::{sha256_hex, DIRECTIVE_ID, PROFILE_PORTABLE};
 
 pub struct SceneEvidence {
     pub presentation_profile: &'static str,
@@ -18,6 +18,7 @@ pub struct SceneEvidence {
 }
 
 pub struct BuildFacts {
+    pub target_triple: String,
     pub exe_sha256: String,
     pub pdb_sha256: String,
     pub manifest_sha256: String,
@@ -54,7 +55,7 @@ pub fn files(
         "directive": DIRECTIVE_ID,
         "profile": PROFILE_PORTABLE,
         "presentation_profile": scene.presentation_profile,
-        "target": TARGET_MSVC_X64,
+        "target": facts.target_triple,
         "artifacts": [
             {"path": "App.exe", "sha256": facts.exe_sha256, "role": "primary-executable", "required_at_launch": true},
             {"path": "App.pdb", "sha256": facts.pdb_sha256, "role": "private-symbols", "required_at_launch": false}
@@ -72,7 +73,7 @@ pub fn files(
         "compiler": "sash",
         "profile": PROFILE_PORTABLE,
         "presentation_profile": scene.presentation_profile,
-        "target": TARGET_MSVC_X64,
+        "target": facts.target_triple,
         "build_host": "linux-cross",
         "claim": "unqualified-cross-link",
         "status": "LINKED",
