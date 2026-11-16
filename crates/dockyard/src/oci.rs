@@ -174,21 +174,84 @@ pub fn read_archive(bytes: &[u8]) -> Result<Vec<ArchiveEntry>, &'static str> {
         if stored != u64::from(checksum(&block)) {
             return Err("tar checksum does not match");
         }
-        let name_end = block[..100]
+        if block[500..512].iter().any(|byte| *byte != 0) {
+            return Err("tar header padding is not zero");
+        }
+        if block[148..154]
             .iter()
-            .position(|byte| *byte == 0)
-            .unwrap_or(100);
+            .any(|byte| !(b'0'..=b'7').contains(byte))
+            || block[154] != 0
+            || block[155] != b' '
+        {
+            return Err("tar checksum field is not packed");
+        }
+        for field in [
+            &block[100..108],
+            &block[108..116],
+            &block[116..124],
+            &block[124..136],
+            &block[136..148],
+        ] {
+            if !numeric_field_is_packed(field) {
+                return Err("tar numeric field is not packed");
+            }
+        }
+        let name_end = match block[..100].iter().position(|byte| *byte == 0) {
+            Some(end) => end,
+            None => return Err("tar name is not terminated"),
+        };
+        if block[name_end + 1..100].iter().any(|byte| *byte != 0) {
+            return Err("tar name padding is not zero");
+        }
         let name = std::str::from_utf8(&block[..name_end]).map_err(|_| "tar name is not utf-8")?;
-        if name.is_empty() || name.starts_with('/') || name.contains("..") {
+        if name.is_empty() || name.starts_with('/') || name.contains("..") || name.contains("//") {
             return Err("tar name is rejected");
         }
         let size = read_octal(&block[124..136])? as usize;
         let mode = read_octal(&block[100..108])? as u32;
         let uid = read_octal(&block[108..116])? as u32;
         let gid = read_octal(&block[116..124])? as u32;
-        let is_dir = block[156] == b'5';
+        let typeflag = block[156];
+        let is_dir = typeflag == b'5';
         if is_dir && size != 0 {
             return Err("directory entry has a payload");
+        }
+        if !is_dir && typeflag != b'0' && typeflag != b'\0' {
+            return Err("tar entry is not a regular file");
+        }
+        if (is_dir && !name.ends_with('/')) || (!is_dir && name.ends_with('/')) {
+            return Err("tar name is rejected");
+        }
+        if &block[257..263] != b"ustar\0" {
+            return Err("tar magic is not ustar");
+        }
+        if block[157..257].iter().any(|byte| *byte != 0) {
+            return Err("tar link name is not empty");
+        }
+        if block[345..500].iter().any(|byte| *byte != 0) {
+            return Err("tar prefix is not empty");
+        }
+        let mtime = read_octal(&block[136..148])?;
+        if mtime != 0 {
+            return Err("tar mtime is not zero");
+        }
+        if block[329..345].iter().any(|byte| *byte != 0) {
+            return Err("tar device number is set");
+        }
+        if uid != UID || gid != UID {
+            return Err("tar owner is not the profile user");
+        }
+        if mode != MODE {
+            return Err("tar mode is not the profile mode");
+        }
+        if &block[263..265] != b"00" {
+            return Err("tar version is not 00");
+        }
+        if &block[265..272] != b"nonroot" || block[272..297].iter().any(|byte| *byte != 0) {
+            return Err("tar user name is not the profile name");
+        }
+        if &block[297..304] != b"nonroot" || block[304..329].iter().any(|byte| *byte != 0) {
+            return Err("tar group name is not the profile name");
         }
         if offset + size > bytes.len() {
             return Err("tar payload overruns the archive");
@@ -210,6 +273,13 @@ pub fn read_archive(bytes: &[u8]) -> Result<Vec<ArchiveEntry>, &'static str> {
         });
     }
     Err("tar ended without a trailer")
+}
+
+fn numeric_field_is_packed(field: &[u8]) -> bool {
+    match field.split_last() {
+        Some((0, digits)) => digits.iter().all(|byte| (b'0'..=b'7').contains(byte)),
+        _ => false,
+    }
 }
 
 fn read_octal(field: &[u8]) -> Result<u64, &'static str> {
@@ -308,5 +378,260 @@ mod tests {
     #[test]
     fn empty_executable_is_rejected() {
         assert!(pack(b"", &service()).is_err());
+    }
+
+    fn ustar_with_typeflag(payload: &[u8], typeflag: u8) -> Vec<u8> {
+        let mut block = header(&entry("link", false, payload)).expect("header");
+        block[156] = typeflag;
+        let sum = checksum(&block);
+        write_checksum(&mut block[148..156], sum).expect("checksum");
+        let mut bytes = block.to_vec();
+        bytes.extend_from_slice(payload);
+        let pad = (512 - (payload.len() % 512)) % 512;
+        bytes.extend(std::iter::repeat_n(0, pad));
+        bytes.extend_from_slice(&[0u8; 1024]);
+        bytes
+    }
+
+    #[test]
+    fn special_typeflags_are_not_regular_files() {
+        for typeflag in [b'2', b'1', b'x'] {
+            for payload in [&[][..], &b"body"[..]] {
+                let bytes = ustar_with_typeflag(payload, typeflag);
+                assert_eq!(read_archive(&bytes), Err("tar entry is not a regular file"));
+            }
+        }
+    }
+
+    #[test]
+    fn nul_typeflag_regular_file_roundtrips() {
+        let payload = b"hi";
+        let mut bytes = archive(&[entry("file", false, payload)]).expect("archive");
+        assert_eq!(bytes[156], b'0');
+        bytes[156] = b'\0';
+        let mut block = [0u8; 512];
+        block.copy_from_slice(&bytes[..512]);
+        let sum = checksum(&block);
+        write_checksum(&mut block[148..156], sum).expect("checksum");
+        bytes[..512].copy_from_slice(&block);
+        let entries = read_archive(&bytes).expect("read");
+        assert_eq!(entries.len(), 1);
+        assert!(!entries[0].is_dir);
+        assert_eq!(entries[0].data, payload);
+    }
+
+    fn recompute_checksum(bytes: &mut [u8]) {
+        let mut block = [0u8; 512];
+        block.copy_from_slice(&bytes[..512]);
+        let sum = checksum(&block);
+        write_checksum(&mut block[148..156], sum).expect("checksum");
+        bytes[..512].copy_from_slice(&block);
+    }
+
+    #[test]
+    fn link_name_must_be_empty() {
+        let mut bytes = archive(&[entry("file", false, b"hi")]).expect("archive");
+        bytes[157] = b'L';
+        recompute_checksum(&mut bytes);
+        assert_eq!(read_archive(&bytes), Err("tar link name is not empty"));
+    }
+
+    #[test]
+    fn prefix_must_be_empty() {
+        let mut bytes = archive(&[entry("file", false, b"hi")]).expect("archive");
+        bytes[345] = b'P';
+        recompute_checksum(&mut bytes);
+        assert_eq!(read_archive(&bytes), Err("tar prefix is not empty"));
+    }
+
+    #[test]
+    fn magic_must_be_ustar() {
+        let mut bytes = archive(&[entry("file", false, b"hi")]).expect("archive");
+        bytes[257..263].copy_from_slice(b"ustar ");
+        recompute_checksum(&mut bytes);
+        assert_eq!(read_archive(&bytes), Err("tar magic is not ustar"));
+    }
+
+    #[test]
+    fn mtime_must_be_zero() {
+        let mut bytes = archive(&[entry("file", false, b"hi")]).expect("archive");
+        write_octal(&mut bytes[136..148], 1).expect("mtime");
+        recompute_checksum(&mut bytes);
+        assert_eq!(read_archive(&bytes), Err("tar mtime is not zero"));
+    }
+
+    #[test]
+    fn numeric_field_must_be_packed() {
+        let mut block = header(&entry("file", false, b"hi")).expect("header");
+        assert_eq!(block[147], 0);
+        block[147] = b' ';
+        let sum = checksum(&block);
+        write_checksum(&mut block[148..156], sum).expect("checksum");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar numeric field is not packed")
+        );
+    }
+
+    #[test]
+    fn checksum_field_must_be_packed() {
+        let mut block = header(&entry("file", false, b"hi")).expect("header");
+        block[155] = b'x';
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar checksum field is not packed")
+        );
+    }
+
+    #[test]
+    fn header_padding_must_be_zero() {
+        let mut block = header(&entry("file", false, b"hi")).expect("header");
+        block[500] = 1;
+        recompute_checksum(&mut block);
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar header padding is not zero")
+        );
+    }
+
+    #[test]
+    fn device_number_must_be_unset() {
+        let mut bytes = archive(&[entry("file", false, b"hi")]).expect("archive");
+        bytes[329] = 1;
+        recompute_checksum(&mut bytes);
+        assert_eq!(read_archive(&bytes), Err("tar device number is set"));
+    }
+
+    fn archive_with_header(block: [u8; 512], payload: &[u8]) -> Vec<u8> {
+        let mut bytes = block.to_vec();
+        bytes.extend_from_slice(payload);
+        let pad = (512 - (payload.len() % 512)) % 512;
+        bytes.extend(std::iter::repeat_n(0, pad));
+        bytes.extend_from_slice(&[0u8; 1024]);
+        bytes
+    }
+
+    #[test]
+    fn uid_change_is_not_the_profile_user() {
+        let mut block = header(&entry("file", false, b"hi")).expect("header");
+        write_octal(&mut block[108..116], u64::from(UID) + 1).expect("uid");
+        let sum = checksum(&block);
+        write_checksum(&mut block[148..156], sum).expect("checksum");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar owner is not the profile user")
+        );
+    }
+
+    #[test]
+    fn mode_change_is_not_the_profile_mode() {
+        let mut block = header(&entry("file", false, b"hi")).expect("header");
+        write_octal(&mut block[100..108], u64::from(MODE) + 1).expect("mode");
+        let sum = checksum(&block);
+        write_checksum(&mut block[148..156], sum).expect("checksum");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar mode is not the profile mode")
+        );
+    }
+
+    #[test]
+    fn version_change_is_not_00() {
+        let mut block = header(&entry("file", false, b"hi")).expect("header");
+        block[263] = b'1';
+        let sum = checksum(&block);
+        write_checksum(&mut block[148..156], sum).expect("checksum");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar version is not 00")
+        );
+    }
+
+    #[test]
+    fn user_name_change_is_not_the_profile_name() {
+        let mut block = header(&entry("file", false, b"hi")).expect("header");
+        block[272] = b'x';
+        let sum = checksum(&block);
+        write_checksum(&mut block[148..156], sum).expect("checksum");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar user name is not the profile name")
+        );
+    }
+
+    #[test]
+    fn group_name_change_is_not_the_profile_name() {
+        let mut block = header(&entry("file", false, b"hi")).expect("header");
+        block[304] = b'x';
+        let sum = checksum(&block);
+        write_checksum(&mut block[148..156], sum).expect("checksum");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar group name is not the profile name")
+        );
+    }
+
+    #[test]
+    fn regular_file_name_must_not_end_with_slash() {
+        let block = header(&entry("srv/dockyard/service/", false, b"hi")).expect("header");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar name is rejected")
+        );
+    }
+
+    #[test]
+    fn directory_name_must_end_with_slash() {
+        let block = header(&entry("srv", true, &[])).expect("header");
+        assert_eq!(
+            read_archive(&archive_with_header(block, &[])),
+            Err("tar name is rejected")
+        );
+    }
+
+    #[test]
+    fn name_with_empty_segment_is_rejected() {
+        let block = header(&entry("srv//dockyard", false, b"hi")).expect("header");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar name is rejected")
+        );
+    }
+
+    #[test]
+    fn name_padding_must_be_zero() {
+        let mut block = header(&entry("file", false, b"hi")).expect("header");
+        let nul = block[..100]
+            .iter()
+            .position(|byte| *byte == 0)
+            .expect("nul");
+        block[nul + 1] = b' ';
+        let sum = checksum(&block);
+        write_checksum(&mut block[148..156], sum).expect("checksum");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar name padding is not zero")
+        );
+    }
+
+    #[test]
+    fn name_must_be_nul_terminated() {
+        let name = "a".repeat(100);
+        let mut block = header(&entry(&name, false, b"hi")).expect("header");
+        let sum = checksum(&block);
+        write_checksum(&mut block[148..156], sum).expect("checksum");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar name is not terminated")
+        );
+    }
+
+    #[test]
+    fn config_json_omits_env_cmd_and_volumes() {
+        let image = pack(b"not-an-elf-but-stable", &service()).expect("pack");
+        let text = std::str::from_utf8(&image.blobs[1].1).expect("config");
+        assert!(!text.contains("\"Env\""));
+        assert!(!text.contains("\"Cmd\""));
+        assert!(!text.contains("\"Volumes\""));
     }
 }

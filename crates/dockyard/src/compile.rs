@@ -8,7 +8,7 @@ use crate::oci::{self, read_archive, sha256_hex, ImageFiles};
 use crate::{CONTENT_TYPE, CREATED, IMAGE_USER, LINK_MODE, METHOD, PROFILE, STATUS, TARGET};
 use std::fs;
 use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpStream};
+use std::net::{Shutdown, SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -304,6 +304,7 @@ fn respond(stream: &mut TcpStream) -> std::io::Result<()> {
         }
     }
     let Some(head_end) = header_end(&buffer[..filled]) else {
+        let _ = stream.shutdown(std::net::Shutdown::Write);
         return Ok(());
     };
     let head = &buffer[..head_end];
@@ -312,10 +313,12 @@ fn respond(stream: &mut TcpStream) -> std::io::Result<()> {
         .position(|pair| pair == b"\r\n")
         .unwrap_or(head.len());
     if request_matches(&head[..line_end]) {
-        write_response(stream, "200 OK", BODY)
+        write_response(stream, "200 OK", BODY)?;
     } else {
-        write_response(stream, "404 Not Found", b"not found")
+        write_response(stream, "404 Not Found", b"not found")?;
     }
+    let _ = stream.shutdown(std::net::Shutdown::Write);
+    Ok(())
 }
 
 fn header_end(bytes: &[u8]) -> Option<usize> {
@@ -644,6 +647,182 @@ fn exercise(checked: &Checked) -> Result<(), String> {
             ));
         }
     }
+    let pipelined = exchange_pipelined(checked.port, &checked.path)?;
+    if pipelined.status != 200 || pipelined.content_type != CONTENT_TYPE {
+        return Err(format!(
+            "admitted route returned {} {}",
+            pipelined.status, pipelined.content_type
+        ));
+    }
+    if sha256_hex(&pipelined.body) != checked.body_sha256 {
+        return Err("response body does not match the image label".to_string());
+    }
+    let followed = exchange(checked.port, &checked.path)?;
+    if followed.status != 200 || followed.content_type != CONTENT_TYPE {
+        return Err(format!(
+            "admitted route returned {} {}",
+            followed.status, followed.content_type
+        ));
+    }
+    if sha256_hex(&followed.body) != checked.body_sha256 {
+        return Err("response body does not match the image label".to_string());
+    }
+    exchange_unterminated(checked.port)?;
+    exchange_line_feed(checked.port, &checked.path)?;
+    let split = exchange_split_header(checked.port, &checked.path)?;
+    if split.status != 200 || split.content_type != CONTENT_TYPE {
+        return Err(format!(
+            "split header returned {} {}",
+            split.status, split.content_type
+        ));
+    }
+    if sha256_hex(&split.body) != checked.body_sha256 {
+        return Err("response body does not match the image label".to_string());
+    }
+    let lowercase = exchange_line(checked.port, &format!("get {} HTTP/1.1", checked.path))?;
+    if lowercase.status != 404
+        || lowercase.content_type != CONTENT_TYPE
+        || lowercase.body != b"not found"
+    {
+        return Err(format!(
+            "lowercase method returned {} {}",
+            lowercase.status, lowercase.content_type
+        ));
+    }
+    let flipped = flip_first_ascii_letter(&checked.path)?;
+    let case_flipped = exchange_line(checked.port, &format!("GET {flipped} HTTP/1.1"))?;
+    if case_flipped.status != 404
+        || case_flipped.content_type != CONTENT_TYPE
+        || case_flipped.body != b"not found"
+    {
+        return Err(format!(
+            "case-flipped path returned {} {}",
+            case_flipped.status, case_flipped.content_type
+        ));
+    }
+    let empty_query = exchange_line(checked.port, &format!("GET {}? HTTP/1.1", checked.path))?;
+    if empty_query.status != 404
+        || empty_query.content_type != CONTENT_TYPE
+        || empty_query.body != b"not found"
+    {
+        return Err(format!(
+            "empty query returned {} {}",
+            empty_query.status, empty_query.content_type
+        ));
+    }
+    let kept = exchange_keep_alive(checked.port, &checked.path)?;
+    if kept.status != 200 || kept.content_type != CONTENT_TYPE {
+        return Err(format!(
+            "keep-alive returned {} {}",
+            kept.status, kept.content_type
+        ));
+    }
+    if sha256_hex(&kept.body) != checked.body_sha256 {
+        return Err("response body does not match the image label".to_string());
+    }
+    let version_prefix = exchange_line(checked.port, &format!("GET {} HTTP/1.10", checked.path))?;
+    if version_prefix.status != 404
+        || version_prefix.content_type != CONTENT_TYPE
+        || version_prefix.body != b"not found"
+    {
+        return Err(format!(
+            "version prefix returned {} {}",
+            version_prefix.status, version_prefix.content_type
+        ));
+    }
+    let extra_space = exchange_line(checked.port, &format!("GET  {} HTTP/1.1", checked.path))?;
+    if extra_space.status != 404
+        || extra_space.content_type != CONTENT_TYPE
+        || extra_space.body != b"not found"
+    {
+        return Err(format!(
+            "extra space returned {} {}",
+            extra_space.status, extra_space.content_type
+        ));
+    }
+    let expect_header = exchange_expect(checked.port, &checked.path)?;
+    if expect_header.status != 200 || expect_header.content_type != CONTENT_TYPE {
+        return Err(format!(
+            "expect header returned {} {}",
+            expect_header.status, expect_header.content_type
+        ));
+    }
+    if sha256_hex(&expect_header.body) != checked.body_sha256 {
+        return Err("response body does not match the image label".to_string());
+    }
+    let lowercase_version = exchange_line(checked.port, &format!("GET {} http/1.1", checked.path))?;
+    if lowercase_version.status != 404
+        || lowercase_version.content_type != CONTENT_TYPE
+        || lowercase_version.body != b"not found"
+    {
+        return Err(format!(
+            "lowercase version returned {} {}",
+            lowercase_version.status, lowercase_version.content_type
+        ));
+    }
+    if !checked.path.starts_with('/') {
+        return Err("admitted path has no slash".to_string());
+    }
+    let probe = format!("/.{}", checked.path);
+    let dot_segment = exchange_line(checked.port, &format!("GET {probe} HTTP/1.1"))?;
+    if dot_segment.status != 404
+        || dot_segment.content_type != CONTENT_TYPE
+        || dot_segment.body != b"not found"
+    {
+        return Err(format!(
+            "dot segment returned {} {}",
+            dot_segment.status, dot_segment.content_type
+        ));
+    }
+    let full_header = exchange_full_header(checked.port, &checked.path)?;
+    if full_header.status != 200 || full_header.content_type != CONTENT_TYPE {
+        return Err(format!(
+            "full header returned {} {}",
+            full_header.status, full_header.content_type
+        ));
+    }
+    if sha256_hex(&full_header.body) != checked.body_sha256 {
+        return Err("response body does not match the image label".to_string());
+    }
+    let tab = exchange_line(checked.port, &format!("GET\t{} HTTP/1.1", checked.path))?;
+    if tab.status != 404 || tab.content_type != CONTENT_TYPE || tab.body != b"not found" {
+        return Err(format!("tab returned {} {}", tab.status, tab.content_type));
+    }
+    let versionless = exchange_line(checked.port, &format!("GET {}", checked.path))?;
+    if versionless.status != 404
+        || versionless.content_type != CONTENT_TYPE
+        || versionless.body != b"not found"
+    {
+        return Err(format!(
+            "versionless request returned {} {}",
+            versionless.status, versionless.content_type
+        ));
+    }
+    exchange_overlong_header(checked.port)?;
+    let trailing_space = exchange_line(checked.port, &format!("GET {} HTTP/1.1 ", checked.path))?;
+    if trailing_space.status != 404
+        || trailing_space.content_type != CONTENT_TYPE
+        || trailing_space.body != b"not found"
+    {
+        return Err(format!(
+            "trailing space returned {} {}",
+            trailing_space.status, trailing_space.content_type
+        ));
+    }
+    let http2 = exchange_line(checked.port, &format!("GET {} HTTP/2.0", checked.path))?;
+    if http2.status != 404 || http2.content_type != CONTENT_TYPE || http2.body != b"not found" {
+        return Err(format!(
+            "http2 returned {} {}",
+            http2.status, http2.content_type
+        ));
+    }
+    let empty = exchange_empty(checked.port)?;
+    if empty.status != 404 || empty.content_type != CONTENT_TYPE || empty.body != b"not found" {
+        return Err(format!(
+            "empty request returned {} {}",
+            empty.status, empty.content_type
+        ));
+    }
     drop(reap);
     drop(cleanup);
     Ok(())
@@ -655,8 +834,258 @@ pub(crate) struct Response {
     pub(crate) body: Vec<u8>,
 }
 
+fn flip_first_ascii_letter(path: &str) -> Result<String, String> {
+    let mut bytes = path.as_bytes().to_vec();
+    let index = bytes
+        .iter()
+        .position(|byte| byte.is_ascii_alphabetic())
+        .ok_or_else(|| "admitted path has no letter to flip".to_string())?;
+    bytes[index] = if bytes[index].is_ascii_uppercase() {
+        bytes[index].to_ascii_lowercase()
+    } else {
+        bytes[index].to_ascii_uppercase()
+    };
+    String::from_utf8(bytes).map_err(|_| "admitted path has no letter to flip".to_string())
+}
+
 fn exchange(port: u16, path: &str) -> Result<Response, String> {
     exchange_line(port, &format!("GET {path} HTTP/1.1"))
+}
+
+fn exchange_pipelined(port: u16, path: &str) -> Result<Response, String> {
+    let address = SocketAddr::from(([127, 0, 0, 1], port));
+    let mut stream = TcpStream::connect_timeout(&address, Duration::from_secs(2))
+        .map_err(|error| format!("cannot connect to 127.0.0.1:{port}: {error}"))?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .map_err(|error| format!("cannot set read timeout: {error}"))?;
+    stream
+        .set_write_timeout(Some(Duration::from_secs(2)))
+        .map_err(|error| format!("cannot set write timeout: {error}"))?;
+    let request = format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+    stream
+        .write_all(request.repeat(2).as_bytes())
+        .map_err(|error| format!("cannot write request: {error}"))?;
+    let mut bytes = Vec::new();
+    stream
+        .read_to_end(&mut bytes)
+        .map_err(|error| format!("cannot read response: {error}"))?;
+    response_from_bytes(&bytes)
+}
+
+fn require_no_response(bytes: &[u8]) -> Result<(), String> {
+    if bytes.is_empty() {
+        Ok(())
+    } else {
+        Err("unterminated request received a response".to_string())
+    }
+}
+
+fn exchange_unterminated(port: u16) -> Result<(), String> {
+    let address = SocketAddr::from(([127, 0, 0, 1], port));
+    let mut stream = TcpStream::connect_timeout(&address, Duration::from_secs(2))
+        .map_err(|error| format!("cannot connect to 127.0.0.1:{port}: {error}"))?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .map_err(|error| format!("cannot set read timeout: {error}"))?;
+    stream
+        .set_write_timeout(Some(Duration::from_secs(2)))
+        .map_err(|error| format!("cannot set write timeout: {error}"))?;
+    stream
+        .write_all(&[b'A'; 2048])
+        .map_err(|error| format!("cannot write request: {error}"))?;
+    let mut bytes = Vec::new();
+    stream
+        .read_to_end(&mut bytes)
+        .map_err(|error| format!("cannot read response: {error}"))?;
+    require_no_response(&bytes)
+}
+
+fn exchange_line_feed(port: u16, path: &str) -> Result<(), String> {
+    let address = SocketAddr::from(([127, 0, 0, 1], port));
+    let mut stream = TcpStream::connect_timeout(&address, Duration::from_secs(2))
+        .map_err(|error| format!("cannot connect to 127.0.0.1:{port}: {error}"))?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .map_err(|error| format!("cannot set read timeout: {error}"))?;
+    stream
+        .set_write_timeout(Some(Duration::from_secs(2)))
+        .map_err(|error| format!("cannot set write timeout: {error}"))?;
+    let request = format!("GET {path} HTTP/1.1\nHost: 127.0.0.1\n\n");
+    stream
+        .write_all(request.as_bytes())
+        .map_err(|error| format!("cannot write request: {error}"))?;
+    stream
+        .shutdown(Shutdown::Write)
+        .map_err(|error| format!("cannot shut write half: {error}"))?;
+    let mut bytes = Vec::new();
+    stream
+        .read_to_end(&mut bytes)
+        .map_err(|error| format!("cannot read response: {error}"))?;
+    if bytes.is_empty() {
+        Ok(())
+    } else {
+        Err("line feed request received a response".to_string())
+    }
+}
+
+fn exchange_split_header(port: u16, path: &str) -> Result<Response, String> {
+    let address = SocketAddr::from(([127, 0, 0, 1], port));
+    let mut stream = TcpStream::connect_timeout(&address, Duration::from_secs(2))
+        .map_err(|error| format!("cannot connect to 127.0.0.1:{port}: {error}"))?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .map_err(|error| format!("cannot set read timeout: {error}"))?;
+    stream
+        .set_write_timeout(Some(Duration::from_secs(2)))
+        .map_err(|error| format!("cannot set write timeout: {error}"))?;
+    stream
+        .write_all(format!("GET {path} HTTP/1.1\r\n").as_bytes())
+        .map_err(|error| format!("cannot write request: {error}"))?;
+    stream
+        .write_all(b"Host: 127.0.0.1\r\n\r\n")
+        .map_err(|error| format!("cannot write request: {error}"))?;
+    let mut bytes = Vec::new();
+    stream
+        .read_to_end(&mut bytes)
+        .map_err(|error| format!("cannot read response: {error}"))?;
+    response_from_bytes(&bytes)
+}
+
+fn exchange_keep_alive(port: u16, path: &str) -> Result<Response, String> {
+    let address = SocketAddr::from(([127, 0, 0, 1], port));
+    let mut stream = TcpStream::connect_timeout(&address, Duration::from_secs(2))
+        .map_err(|error| format!("cannot connect to 127.0.0.1:{port}: {error}"))?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .map_err(|error| format!("cannot set read timeout: {error}"))?;
+    stream
+        .set_write_timeout(Some(Duration::from_secs(2)))
+        .map_err(|error| format!("cannot set write timeout: {error}"))?;
+    let request =
+        format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: keep-alive\r\n\r\n");
+    stream
+        .write_all(request.as_bytes())
+        .map_err(|error| format!("cannot write request: {error}"))?;
+    let mut bytes = Vec::new();
+    stream
+        .read_to_end(&mut bytes)
+        .map_err(|error| format!("cannot read response: {error}"))?;
+    response_from_bytes(&bytes)
+}
+
+fn exchange_expect(port: u16, path: &str) -> Result<Response, String> {
+    let address = SocketAddr::from(([127, 0, 0, 1], port));
+    let mut stream = TcpStream::connect_timeout(&address, Duration::from_secs(2))
+        .map_err(|error| format!("cannot connect to 127.0.0.1:{port}: {error}"))?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .map_err(|error| format!("cannot set read timeout: {error}"))?;
+    stream
+        .set_write_timeout(Some(Duration::from_secs(2)))
+        .map_err(|error| format!("cannot set write timeout: {error}"))?;
+    let request = format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nExpect: 100-continue\r\n\r\n");
+    stream
+        .write_all(request.as_bytes())
+        .map_err(|error| format!("cannot write request: {error}"))?;
+    let mut bytes = Vec::new();
+    stream
+        .read_to_end(&mut bytes)
+        .map_err(|error| format!("cannot read response: {error}"))?;
+    if count_occurrences(&bytes, b"100 Continue") != 0 {
+        return Err("expect header received continue".to_string());
+    }
+    response_from_bytes(&bytes)
+}
+
+fn full_header(path: &str) -> Vec<u8> {
+    let head = format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nX-Pad: ");
+    let tail = b"\r\n\r\n";
+    let prefix = head.as_bytes();
+    let mut bytes = vec![b'a'; 2048];
+    let tail_at = bytes.len() - tail.len();
+    assert!(
+        prefix.len() + tail.len() <= bytes.len(),
+        "header prefix fits in 2048 bytes"
+    );
+    bytes[..prefix.len()].copy_from_slice(prefix);
+    bytes[tail_at..].copy_from_slice(tail);
+    bytes
+}
+
+fn exchange_full_header(port: u16, path: &str) -> Result<Response, String> {
+    let address = SocketAddr::from(([127, 0, 0, 1], port));
+    let mut stream = TcpStream::connect_timeout(&address, Duration::from_secs(2))
+        .map_err(|error| format!("cannot connect to 127.0.0.1:{port}: {error}"))?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .map_err(|error| format!("cannot set read timeout: {error}"))?;
+    stream
+        .set_write_timeout(Some(Duration::from_secs(2)))
+        .map_err(|error| format!("cannot set write timeout: {error}"))?;
+    let request = full_header(path);
+    stream
+        .write_all(&request)
+        .map_err(|error| format!("cannot write request: {error}"))?;
+    let mut bytes = Vec::new();
+    stream
+        .read_to_end(&mut bytes)
+        .map_err(|error| format!("cannot read response: {error}"))?;
+    response_from_bytes(&bytes)
+}
+
+fn overlong_header() -> Vec<u8> {
+    let mut bytes = vec![b'b'; 2048];
+    assert!(
+        count_occurrences(&bytes, b"\r\n\r\n") == 0,
+        "overlong prefix contains a header terminator"
+    );
+    bytes.extend_from_slice(b"\r\n\r\n");
+    bytes
+}
+
+fn empty_request() -> &'static [u8] {
+    b"\r\n\r\n"
+}
+
+fn exchange_empty(port: u16) -> Result<Response, String> {
+    let address = SocketAddr::from(([127, 0, 0, 1], port));
+    let mut stream = TcpStream::connect_timeout(&address, Duration::from_secs(2))
+        .map_err(|error| format!("cannot connect to 127.0.0.1:{port}: {error}"))?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .map_err(|error| format!("cannot set read timeout: {error}"))?;
+    stream
+        .set_write_timeout(Some(Duration::from_secs(2)))
+        .map_err(|error| format!("cannot set write timeout: {error}"))?;
+    stream
+        .write_all(empty_request())
+        .map_err(|error| format!("cannot write request: {error}"))?;
+    let mut bytes = Vec::new();
+    stream
+        .read_to_end(&mut bytes)
+        .map_err(|error| format!("cannot read response: {error}"))?;
+    response_from_bytes(&bytes)
+}
+
+fn exchange_overlong_header(port: u16) -> Result<(), String> {
+    let address = SocketAddr::from(([127, 0, 0, 1], port));
+    let mut stream = TcpStream::connect_timeout(&address, Duration::from_secs(2))
+        .map_err(|error| format!("cannot connect to 127.0.0.1:{port}: {error}"))?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .map_err(|error| format!("cannot set read timeout: {error}"))?;
+    stream
+        .set_write_timeout(Some(Duration::from_secs(2)))
+        .map_err(|error| format!("cannot set write timeout: {error}"))?;
+    stream
+        .write_all(&overlong_header())
+        .map_err(|error| format!("cannot write request: {error}"))?;
+    let mut bytes = Vec::new();
+    stream
+        .read_to_end(&mut bytes)
+        .map_err(|error| format!("cannot read response: {error}"))?;
+    require_no_response(&bytes).map_err(|_| "overlong header received a response".to_string())
 }
 
 fn exchange_line(port: u16, request_line: &str) -> Result<Response, String> {
@@ -1153,6 +1582,82 @@ mod tests {
         assert!(!source.contains("0.0.0.0"));
     }
 
+    #[test]
+    fn emitted_source_locks_the_get_matcher() {
+        let service = crate::admit(include_str!("../fixtures/ping.gservice")).expect("fixture");
+        let source = emit_source(&service);
+        assert!(source.contains("strip_prefix(b\"GET \")"));
+        assert!(source.contains("b\"\\r\\n\\r\\n\""));
+        assert!(!source.contains("eq_ignore_ascii_case"));
+    }
+
+    #[test]
+    fn flips_the_first_ascii_letter_and_keeps_the_exact_suffix() {
+        assert_eq!(
+            flip_first_ascii_letter("/health").expect("health"),
+            "/Health"
+        );
+        assert_eq!(
+            flip_first_ascii_letter("/Health").expect("Health"),
+            "/health"
+        );
+        assert_eq!(
+            flip_first_ascii_letter("/").expect_err("slash"),
+            "admitted path has no letter to flip"
+        );
+        let service = crate::admit(include_str!("../fixtures/ping.gservice")).expect("fixture");
+        let source = emit_source(&service);
+        assert!(source.contains("b\" HTTP/1.1\""));
+        assert!(!source.contains("eq_ignore_ascii_case"));
+    }
+
+    #[test]
+    fn emitted_source_uses_the_exact_suffix_alternation() {
+        let service = crate::admit(include_str!("../fixtures/ping.gservice")).expect("fixture");
+        let source = emit_source(&service);
+        assert!(source.contains("b\" HTTP/1.1\" | b\" HTTP/1.0\""));
+        assert!(source.contains("b\" HTTP/1.1\""));
+        assert!(source.contains("b\" HTTP/1.0\""));
+        assert!(!source.contains("HTTP/1.10"));
+        assert!(!source.contains("eq_ignore_ascii_case"));
+    }
+
+    #[test]
+    fn full_header_is_one_buffer_and_version_stays_exact() {
+        let header = full_header("/health");
+        assert_eq!(header.len(), 2048);
+        assert!(header.ends_with(b"\r\n\r\n"));
+        assert!(count_occurrences(&header, b"GET /health HTTP/1.1\r\n") >= 1);
+        assert_eq!(count_occurrences(&header, b"\r\n\r\n"), 1);
+        let service = crate::admit(include_str!("../fixtures/ping.gservice")).expect("fixture");
+        let source = emit_source(&service);
+        assert!(!source.contains("http/1.1"));
+        assert!(source.contains("b\" HTTP/1.1\""));
+    }
+
+    #[test]
+    fn overlong_header_ends_past_the_buffer_and_get_prefix_stays() {
+        let header = overlong_header();
+        assert_eq!(header.len(), 2052);
+        assert_eq!(&header[..2048], &[b'b'; 2048][..]);
+        assert!(header.ends_with(b"\r\n\r\n"));
+        assert_eq!(count_occurrences(&header[..2048], b"\r\n\r\n"), 0);
+        let service = crate::admit(include_str!("../fixtures/ping.gservice")).expect("fixture");
+        let source = emit_source(&service);
+        assert!(source.contains("b\"GET \""));
+        assert!(source.contains("let mut buffer = [0u8; 2048];"));
+    }
+
+    #[test]
+    fn empty_request_is_the_terminator_and_http1_suffix_stays() {
+        assert_eq!(empty_request(), b"\r\n\r\n");
+        let service = crate::admit(include_str!("../fixtures/ping.gservice")).expect("fixture");
+        let source = emit_source(&service);
+        assert!(source.contains("strip_prefix(b\"GET \")"));
+        assert!(source.contains("b\" HTTP/1.1\" | b\" HTTP/1.0\""));
+        assert!(!source.contains("HTTP/2.0"));
+    }
+
     fn response_bytes(status: u16, reason: &str, body: &[u8]) -> Vec<u8> {
         let mut bytes =
             exact_header(&format!("HTTP/1.1 {status} {reason}"), body.len()).into_bytes();
@@ -1186,6 +1691,41 @@ mod tests {
             panic!("duplicated status line was accepted");
         };
         assert_eq!(duplicated, "response status line is not unique");
+    }
+
+    #[test]
+    fn one_response_shuts_the_write_half() {
+        let service = crate::admit(include_str!("../fixtures/ping.gservice")).expect("fixture");
+        let source = emit_source(&service);
+        assert!(source.contains("Shutdown::Write"));
+        assert!(source.contains("connection: close"));
+        assert!(source.contains("127.0.0.1:{PORT}"));
+        let admitted = response_bytes(200, "OK", b"ok");
+        let mut pipelined = admitted.clone();
+        pipelined.extend_from_slice(&admitted);
+        assert!(response_from_bytes(&pipelined).is_err());
+    }
+
+    #[test]
+    fn missing_terminator_shuts_the_write_half() {
+        assert!(require_no_response(b"").is_ok());
+        let started = b"HTTP/1.1 200 OK";
+        assert!(started.starts_with(b"HTTP/1.1"));
+        assert_eq!(
+            require_no_response(started).expect_err("status line"),
+            "unterminated request received a response"
+        );
+        let service = crate::admit(include_str!("../fixtures/ping.gservice")).expect("fixture");
+        let source = emit_source(&service);
+        assert!(source.contains("Shutdown::Write"));
+        let marker = "let Some(head_end) = header_end(&buffer[..filled]) else {";
+        let start = source.find(marker).expect("missing terminator branch");
+        let after = &source[start..];
+        let shutdown = after.find("Shutdown::Write").expect("write shutdown");
+        let ret = after.find("return Ok(())").expect("return");
+        assert!(shutdown < ret);
+        assert!(!after[..ret].contains("HTTP/1.1"));
+        assert!(after[ret..].contains("write_response"));
     }
 
     #[test]

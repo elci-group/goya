@@ -364,11 +364,64 @@ fn namespace_listeners(pid: u32, port: u16) -> Result<(), String> {
     let tcp = fs::read_to_string(format!("/proc/{pid}/net/tcp"))
         .map_err(|_| "cannot read listener table".to_string())?;
     loopback_listen(&tcp, port)?;
+    only_loopback_peers(&tcp)?;
     match fs::read_to_string(format!("/proc/{pid}/net/tcp6")) {
-        Ok(tcp6) => reject_ipv6_listen(&tcp6, port),
-        Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
-        Err(_) => Err("cannot read listener table".to_string()),
+        Ok(tcp6) => reject_ipv6_listen(&tcp6, port)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read listener table".to_string()),
     }
+    let dev = fs::read_to_string(format!("/proc/{pid}/net/dev"))
+        .map_err(|_| "cannot read network devices".to_string())?;
+    only_loopback_device(&dev)?;
+    let route = fs::read_to_string(format!("/proc/{pid}/net/route"))
+        .map_err(|_| "cannot read route table".to_string())?;
+    only_loopback_routes(&route)?;
+    match fs::read_to_string(format!("/proc/{pid}/net/if_inet6")) {
+        Ok(inet6) => only_loopback_addresses(&inet6)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read address table".to_string()),
+    }
+    match fs::read_to_string(format!("/proc/{pid}/net/arp")) {
+        Ok(arp) => only_no_neighbors(&arp)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read neighbor table".to_string()),
+    }
+    match fs::read_to_string(format!("/proc/{pid}/net/udp")) {
+        Ok(udp) => only_no_udp(&udp)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read udp table".to_string()),
+    }
+    match fs::read_to_string(format!("/proc/{pid}/net/raw")) {
+        Ok(raw) => only_no_raw(&raw)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read raw table".to_string()),
+    }
+    match fs::read_to_string(format!("/proc/{pid}/net/udp6")) {
+        Ok(udp6) => only_no_udp6(&udp6)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read udp6 table".to_string()),
+    }
+    match fs::read_to_string(format!("/proc/{pid}/net/packet")) {
+        Ok(packet) => only_no_packet(&packet)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read packet table".to_string()),
+    }
+    match fs::read_to_string(format!("/proc/{pid}/net/udplite")) {
+        Ok(udplite) => only_no_udplite(&udplite)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read udplite table".to_string()),
+    }
+    match fs::read_to_string(format!("/proc/{pid}/net/icmp")) {
+        Ok(icmp) => only_no_icmp(&icmp)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read icmp table".to_string()),
+    }
+    match fs::read_to_string(format!("/proc/{pid}/net/icmp6")) {
+        Ok(icmp6) => only_no_icmp6(&icmp6)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read icmp6 table".to_string()),
+    }
+    Ok(())
 }
 
 pub(crate) fn loopback_listen(tcp: &str, port: u16) -> Result<(), String> {
@@ -395,6 +448,25 @@ pub(crate) fn loopback_listen(tcp: &str, port: u16) -> Result<(), String> {
     }
 }
 
+pub(crate) fn only_loopback_peers(tcp: &str) -> Result<(), String> {
+    for line in tcp.lines().skip(1) {
+        if line.is_empty() {
+            continue;
+        }
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        let Some(remote) = fields.get(2) else {
+            return Err("network namespace has a foreign connection".to_string());
+        };
+        let Some((address, _)) = remote.split_once(':') else {
+            return Err("network namespace has a foreign connection".to_string());
+        };
+        if !address.eq_ignore_ascii_case("0100007F") && !address.eq_ignore_ascii_case("00000000") {
+            return Err("network namespace has a foreign connection".to_string());
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn reject_ipv6_listen(tcp6: &str, port: u16) -> Result<(), String> {
     let suffix = format!(":{port:04X}");
     for line in tcp6.lines().skip(1) {
@@ -414,6 +486,102 @@ fn ends_with_ignore_ascii_case(value: &str, suffix: &str) -> bool {
         return false;
     };
     tail.len() == suffix.len() && tail.eq_ignore_ascii_case(suffix)
+}
+
+pub(crate) fn only_loopback_device(dev: &str) -> Result<(), String> {
+    let mut names = Vec::new();
+    for line in dev.lines().skip(2) {
+        let name = line.split(':').next().unwrap_or("").trim();
+        if name.is_empty() {
+            continue;
+        }
+        names.push(name);
+    }
+    if names.len() == 1 && names[0] == "lo" {
+        Ok(())
+    } else {
+        Err("network namespace has another interface".to_string())
+    }
+}
+
+pub(crate) fn only_loopback_routes(route: &str) -> Result<(), String> {
+    for line in route.lines().skip(1) {
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        if fields.is_empty() {
+            continue;
+        }
+        if fields.len() < 2 || fields[0] != "lo" || fields[1].eq_ignore_ascii_case("00000000") {
+            return Err("network namespace has a foreign route".to_string());
+        }
+        if fields.len() >= 3 && !fields[2].eq_ignore_ascii_case("00000000") {
+            return Err("network namespace has a gateway".to_string());
+        }
+        if fields.len() >= 8 && fields[7].eq_ignore_ascii_case("00000000") {
+            return Err("network namespace has a default mask".to_string());
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn only_loopback_addresses(table: &str) -> Result<(), String> {
+    for line in table.lines() {
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        if fields.is_empty() {
+            continue;
+        }
+        if fields.last().copied() != Some("lo") {
+            return Err("network namespace has a foreign address".to_string());
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn only_no_neighbors(arp: &str) -> Result<(), String> {
+    for (index, line) in arp.lines().enumerate() {
+        if line.is_empty() {
+            continue;
+        }
+        // The proc header is the first line. A neighbor row in that place is not a header.
+        if index == 0 && line.starts_with("IP address") {
+            continue;
+        }
+        return Err("network namespace has a neighbor".to_string());
+    }
+    Ok(())
+}
+
+pub(crate) fn only_no_udp(udp: &str) -> Result<(), String> {
+    for line in udp.lines().skip(1) {
+        if line.is_empty() {
+            continue;
+        }
+        return Err("network namespace has a udp socket".to_string());
+    }
+    Ok(())
+}
+
+pub(crate) fn only_no_raw(text: &str) -> Result<(), String> {
+    only_no_udp(text).map_err(|_| "network namespace has a raw socket".to_string())
+}
+
+pub(crate) fn only_no_udp6(text: &str) -> Result<(), String> {
+    only_no_udp(text).map_err(|_| "network namespace has a udp6 socket".to_string())
+}
+
+pub(crate) fn only_no_packet(text: &str) -> Result<(), String> {
+    only_no_udp(text).map_err(|_| "network namespace has a packet socket".to_string())
+}
+
+pub(crate) fn only_no_udplite(text: &str) -> Result<(), String> {
+    only_no_udp(text).map_err(|_| "network namespace has a udplite socket".to_string())
+}
+
+pub(crate) fn only_no_icmp(text: &str) -> Result<(), String> {
+    only_no_udp(text).map_err(|_| "network namespace has an icmp socket".to_string())
+}
+
+pub(crate) fn only_no_icmp6(text: &str) -> Result<(), String> {
+    only_no_udp(text).map_err(|_| "network namespace has an icmp6 socket".to_string())
 }
 
 const AF_INET: i32 = 2;
@@ -847,5 +1015,177 @@ mod tests {
         );
         assert_eq!(reject_ipv6_listen(&established_v6, 80), Ok(()));
         assert_eq!(reject_ipv6_listen("", 80), Ok(()));
+    }
+
+    #[test]
+    fn only_loopback_device_accepts_only_lo() {
+        let headers = "Inter-| Receive | Transmit\n face |bytes |bytes\n";
+        let other = "network namespace has another interface";
+        let lo = format!("{headers}    lo: 0 0 ...\n");
+        assert_eq!(only_loopback_device(&lo), Ok(()));
+        let both = format!("{headers}    lo: 0 0 ...\n  eth0: ...\n");
+        assert_eq!(only_loopback_device(&both), Err(other.to_string()));
+        let eth0 = format!("{headers}  eth0: ...\n");
+        assert_eq!(only_loopback_device(&eth0), Err(other.to_string()));
+        assert_eq!(only_loopback_device(headers), Err(other.to_string()));
+        let blank = format!("{headers}\n    lo: 0 0 ...\n");
+        assert_eq!(only_loopback_device(&blank), Ok(()));
+        let lo0 = format!("{headers}    lo0: 0 0 ...\n");
+        assert_eq!(only_loopback_device(&lo0), Err(other.to_string()));
+    }
+
+    #[test]
+    fn only_loopback_routes_rejects_foreign_and_default() {
+        let header = "Iface Destination Gateway Flags RefCnt Use Metric Mask MTU Window IRTT\n";
+        let foreign = "network namespace has a foreign route";
+        let lo_route = "lo 0000007F 00000000 0001 0 0 0 000000FF 0 0 0";
+        let lo = format!("{header}{lo_route}\n");
+        assert_eq!(only_loopback_routes(&lo), Ok(()));
+        let both = format!("{header}{lo_route}\neth0 00000000 0100000A 0003 ...\n");
+        assert_eq!(only_loopback_routes(&both), Err(foreign.to_string()));
+        let default_on_lo = format!("{header}lo 00000000 00000000 0001 ...\n");
+        assert_eq!(
+            only_loopback_routes(&default_on_lo),
+            Err(foreign.to_string())
+        );
+        assert_eq!(only_loopback_routes(header), Ok(()));
+        let missing_destination = format!("{header}lo\n");
+        assert_eq!(
+            only_loopback_routes(&missing_destination),
+            Err(foreign.to_string())
+        );
+    }
+
+    #[test]
+    fn only_loopback_routes_rejects_gateway_and_default_mask() {
+        let header = "Iface Destination Gateway Flags RefCnt Use Metric Mask MTU Window IRTT\n";
+        let lo_route = "lo 0000007F 00000000 0001 0 0 0 000000FF 0 0 0";
+        assert_eq!(
+            only_loopback_routes(&format!("{header}{lo_route}\n")),
+            Ok(())
+        );
+        let gateway = format!("{header}lo 0000007F 0100000A 0003 0 0 0 000000FF 0 0 0\n");
+        assert_eq!(
+            only_loopback_routes(&gateway),
+            Err("network namespace has a gateway".to_string())
+        );
+        let default_mask = format!("{header}lo 0000007F 00000000 0001 0 0 0 00000000 0 0 0\n");
+        assert_eq!(
+            only_loopback_routes(&default_mask),
+            Err("network namespace has a default mask".to_string())
+        );
+        let default_dest = format!("{header}lo 00000000 0100000A 0003 0 0 0 000000FF 0 0 0\n");
+        assert_eq!(
+            only_loopback_routes(&default_dest),
+            Err("network namespace has a foreign route".to_string())
+        );
+    }
+
+    #[test]
+    fn only_loopback_addresses_accepts_lo_and_rejects_foreign() {
+        let foreign = "network namespace has a foreign address";
+        let lo = "00000000000000000000000000000001 01 80 10 80 lo\n";
+        assert_eq!(only_loopback_addresses(lo), Ok(()));
+        let both = "00000000000000000000000000000001 01 80 10 80 lo\n\
+                    fe800000000000000000000000000001 01 40 20 80 lo\n";
+        assert_eq!(only_loopback_addresses(both), Ok(()));
+        let eth0 = "00000000000000000000000000000001 01 80 10 80 eth0\n";
+        assert_eq!(only_loopback_addresses(eth0), Err(foreign.to_string()));
+        assert_eq!(only_loopback_addresses(""), Ok(()));
+        assert_eq!(only_loopback_addresses("eth0"), Err(foreign.to_string()));
+    }
+
+    #[test]
+    fn only_no_neighbors_rejects_any_neighbor_row() {
+        let header =
+            "IP address       HW type     Flags       HW address            Mask     Device\n";
+        let neighbor =
+            "192.168.1.1      0x1         0x2         aa:bb:cc:dd:ee:ff     *        eth0\n";
+        let err = "network namespace has a neighbor";
+        assert_eq!(only_no_neighbors(header), Ok(()));
+        assert_eq!(only_no_neighbors(""), Ok(()));
+        assert_eq!(
+            only_no_neighbors(&format!("{header}{neighbor}")),
+            Err(err.to_string())
+        );
+        assert_eq!(only_no_neighbors(neighbor), Err(err.to_string()));
+    }
+
+    #[test]
+    fn only_loopback_peers_rejects_a_foreign_connection() {
+        let header = "sl local_address rem_address st\n";
+        let err = "network namespace has a foreign connection";
+        let unspecified = format!("{header}0: 0100007F:0050 00000000:0000 0A\n");
+        assert_eq!(only_loopback_peers(&unspecified), Ok(()));
+        let loopback = format!("{header}0: 0100007F:0050 0100007F:1F90 01\n");
+        assert_eq!(only_loopback_peers(&loopback), Ok(()));
+        let foreign = format!("{header}0: 0100007F:0050 0A000001:1F90 01\n");
+        assert_eq!(only_loopback_peers(&foreign), Err(err.to_string()));
+        let no_colon = format!("{header}0: 0100007F:0050 0100007F 01\n");
+        assert_eq!(only_loopback_peers(&no_colon), Err(err.to_string()));
+    }
+
+    #[test]
+    fn only_no_udp_rejects_a_socket_row() {
+        let header = "sl local_address rem_address st\n";
+        assert_eq!(only_no_udp(header), Ok(()));
+        assert_eq!(only_no_udp(""), Ok(()));
+        let row = format!("{header}0: 00000000:0044 00000000:0000 07\n");
+        assert_eq!(
+            only_no_udp(&row),
+            Err("network namespace has a udp socket".to_string())
+        );
+    }
+
+    #[test]
+    fn only_no_raw_and_udp6_reject_a_socket_row() {
+        let header = "sl local_address rem_address st\n";
+        let row = format!("{header}0: 00000000:0044 00000000:0000 07\n");
+        assert_eq!(only_no_raw(header), Ok(()));
+        assert_eq!(only_no_udp6(header), Ok(()));
+        assert_eq!(
+            only_no_raw(&row),
+            Err("network namespace has a raw socket".to_string())
+        );
+        assert_eq!(
+            only_no_udp6(&row),
+            Err("network namespace has a udp6 socket".to_string())
+        );
+    }
+
+    #[test]
+    fn only_no_packet_and_udplite_reject_a_socket_row() {
+        let header = "sl local_address rem_address st\n";
+        let row = format!("{header}0: 00000000:0044 00000000:0000 07\n");
+        assert_eq!(only_no_packet(header), Ok(()));
+        assert_eq!(only_no_udplite(header), Ok(()));
+        assert_eq!(only_no_packet(""), Ok(()));
+        assert_eq!(only_no_udplite(""), Ok(()));
+        assert_eq!(
+            only_no_packet(&row),
+            Err("network namespace has a packet socket".to_string())
+        );
+        assert_eq!(
+            only_no_udplite(&row),
+            Err("network namespace has a udplite socket".to_string())
+        );
+    }
+
+    #[test]
+    fn only_no_icmp_and_icmp6_reject_a_socket_row() {
+        let header = "sl local_address rem_address st\n";
+        let row = format!("{header}0: 00000000:0044 00000000:0000 07\n");
+        assert_eq!(only_no_icmp(header), Ok(()));
+        assert_eq!(only_no_icmp6(header), Ok(()));
+        assert_eq!(only_no_icmp(""), Ok(()));
+        assert_eq!(only_no_icmp6(""), Ok(()));
+        assert_eq!(
+            only_no_icmp(&row),
+            Err("network namespace has an icmp socket".to_string())
+        );
+        assert_eq!(
+            only_no_icmp6(&row),
+            Err("network namespace has an icmp6 socket".to_string())
+        );
     }
 }
