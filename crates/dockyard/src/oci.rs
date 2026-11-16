@@ -162,11 +162,20 @@ pub fn read_archive(bytes: &[u8]) -> Result<Vec<ArchiveEntry>, &'static str> {
             .map_err(|_| "tar block is short")?;
         offset += 512;
         if block == [0u8; 512] {
-            if offset + 512 > bytes.len() || bytes[offset..offset + 512] != [0u8; 512] {
+            if offset + 512 > bytes.len() {
                 return Err("tar trailer is incomplete");
             }
+            if bytes[offset..offset + 512] != [0u8; 512] {
+                return Err("tar trailer is not zero");
+            }
             if offset + 512 != bytes.len() {
-                return Err("tar has bytes after the trailer");
+                if bytes[offset + 512..].iter().any(|byte| *byte != 0) {
+                    return Err("tar has bytes after the trailer");
+                }
+                return Err("tar trailer is repeated");
+            }
+            if entries.is_empty() {
+                return Err("tar archive is empty");
             }
             if !entries
                 .iter()
@@ -210,7 +219,26 @@ pub fn read_archive(bytes: &[u8]) -> Result<Vec<ArchiveEntry>, &'static str> {
             return Err("tar name padding is not zero");
         }
         let name = std::str::from_utf8(&block[..name_end]).map_err(|_| "tar name is not utf-8")?;
-        if name.is_empty() || name.starts_with('/') || name.contains("..") || name.contains("//") {
+        if !name.is_ascii() {
+            return Err("tar name is not ascii");
+        }
+        if name.is_empty()
+            || name.starts_with('/')
+            || name.contains("..")
+            || name.contains("//")
+            || name.contains(' ')
+            || name.contains('\\')
+            || name.contains('\t')
+            || name.contains('*')
+            || name.contains(':')
+            || name.contains('?')
+            || name.contains('|')
+            || name.contains('<')
+            || name.contains('>')
+            || name.contains('{')
+            || name.contains('}')
+            || name.contains(']')
+        {
             return Err("tar name is rejected");
         }
         let size = read_octal(&block[124..136])? as usize;
@@ -288,6 +316,9 @@ pub fn read_archive(bytes: &[u8]) -> Result<Vec<ArchiveEntry>, &'static str> {
         if !is_dir && size == 0 {
             return Err("tar executable is empty");
         }
+        if !is_dir && size > 8 * 1024 * 1024 {
+            return Err("tar executable is too large");
+        }
         if offset + size > bytes.len() {
             return Err("tar payload overruns the archive");
         }
@@ -306,6 +337,11 @@ pub fn read_archive(bytes: &[u8]) -> Result<Vec<ArchiveEntry>, &'static str> {
             is_dir,
             data,
         });
+    }
+    if let Some(entry) = entries.last() {
+        if !entry.is_dir && entry.data.len().is_multiple_of(512) {
+            return Err("tar ended on a payload block");
+        }
     }
     Err("tar ended without a trailer")
 }
@@ -634,6 +670,99 @@ mod tests {
     }
 
     #[test]
+    fn name_with_space_or_backslash_is_rejected() {
+        let block = header(&entry("srv/dockyard/service ", false, b"hi")).expect("header");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar name is rejected")
+        );
+        let block = header(&entry("srv\\dockyard/service", false, b"hi")).expect("header");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar name is rejected")
+        );
+    }
+
+    #[test]
+    fn name_with_tab_or_asterisk_is_rejected() {
+        let block = header(&entry("srv/\tdockyard/service", false, b"hi")).expect("header");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar name is rejected")
+        );
+        let block = header(&entry("srv/dockyard/service*", false, b"hi")).expect("header");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar name is rejected")
+        );
+    }
+
+    #[test]
+    fn name_must_be_ascii() {
+        let block = header(&entry("srv/döckyard/service", false, b"hi")).expect("header");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar name is not ascii")
+        );
+    }
+
+    #[test]
+    fn name_with_colon_or_question_is_rejected() {
+        let block = header(&entry("srv/dockyard:service", false, b"hi")).expect("header");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar name is rejected")
+        );
+        let block = header(&entry("srv/dockyard/service?", false, b"hi")).expect("header");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar name is rejected")
+        );
+    }
+
+    #[test]
+    fn name_with_bar_or_less_than_is_rejected() {
+        let block = header(&entry("srv/dockyard|service", false, b"hi")).expect("header");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar name is rejected")
+        );
+        let block = header(&entry("srv/dockyard/service<", false, b"hi")).expect("header");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar name is rejected")
+        );
+    }
+
+    #[test]
+    fn name_with_greater_than_or_brace_is_rejected() {
+        let block = header(&entry("srv/dockyard>service", false, b"hi")).expect("header");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar name is rejected")
+        );
+        let block = header(&entry("srv/dockyard/service{", false, b"hi")).expect("header");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar name is rejected")
+        );
+    }
+
+    #[test]
+    fn name_with_closing_brace_or_bracket_is_rejected() {
+        let block = header(&entry("srv/dockyard}service", false, b"hi")).expect("header");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar name is rejected")
+        );
+        let block = header(&entry("srv/dockyard/service]", false, b"hi")).expect("header");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar name is rejected")
+        );
+    }
+
+    #[test]
     fn name_padding_must_be_zero() {
         let mut block = header(&entry("file", false, b"hi")).expect("header");
         let nul = block[..100]
@@ -699,6 +828,57 @@ mod tests {
         ]);
         let entries = read_archive(&built.expect("archive")).expect("read");
         assert_eq!(entries.len(), 2);
+    }
+
+    #[test]
+    fn empty_archive_is_rejected() {
+        assert_eq!(read_archive(&[0u8; 1024]), Err("tar archive is empty"));
+    }
+
+    #[test]
+    fn repeated_zero_trailer_is_rejected() {
+        assert_eq!(read_archive(&[0u8; 1536]), Err("tar trailer is repeated"));
+        let mut bytes = vec![0u8; 1024];
+        bytes.extend_from_slice(&[0x01; 512]);
+        assert_eq!(read_archive(&bytes), Err("tar has bytes after the trailer"));
+    }
+
+    #[test]
+    fn nonzero_trailer_block_is_rejected() {
+        let mut bytes = vec![0u8; 512];
+        bytes.extend_from_slice(&[0x01; 512]);
+        assert_eq!(read_archive(&bytes), Err("tar trailer is not zero"));
+        let built = archive(&[entry("srv/dockyard/service", false, b"hi")]).expect("archive");
+        assert_eq!(
+            read_archive(&built[..built.len() - 512]),
+            Err("tar trailer is incomplete")
+        );
+    }
+
+    #[test]
+    fn missing_trailer_is_rejected() {
+        let built = archive(&[entry("srv/dockyard/service", false, b"hi")]).expect("archive");
+        assert_eq!(
+            read_archive(&built[..built.len() - 1024]),
+            Err("tar ended without a trailer")
+        );
+        let payload = vec![b'A'; 512];
+        let built = archive(&[entry("srv/dockyard/service", false, &payload)]).expect("archive");
+        assert_eq!(
+            read_archive(&built[..built.len() - 1024]),
+            Err("tar ended on a payload block")
+        );
+    }
+
+    #[test]
+    fn executable_larger_than_eight_mib_is_rejected() {
+        let mut block = header(&entry("srv/dockyard/service", false, b"hi")).expect("header");
+        write_octal(&mut block[124..136], 8 * 1024 * 1024 + 1).expect("size");
+        let sum = checksum(&block);
+        write_checksum(&mut block[148..156], sum).expect("checksum");
+        let mut bytes = block.to_vec();
+        bytes.extend_from_slice(&[0u8; 1024]);
+        assert_eq!(read_archive(&bytes), Err("tar executable is too large"));
     }
 
     #[test]

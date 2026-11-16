@@ -471,6 +471,102 @@ fn namespace_listeners(pid: u32, port: u16) -> Result<(), String> {
         Err(error) if error.kind() == ErrorKind::NotFound => {}
         Err(_) => return Err("cannot read multicast6 filter table".to_string()),
     }
+    match fs::read_to_string(format!("/proc/{pid}/net/rt_cache")) {
+        Ok(rtcache) => only_no_rtcache(&rtcache)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read route cache".to_string()),
+    }
+    match fs::read_to_string(format!("/proc/{pid}/net/rt_acct")) {
+        Ok(rtacct) => only_no_rtacct(&rtacct)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read route account".to_string()),
+    }
+    match fs::read_to_string(format!("/proc/{pid}/net/psched")) {
+        Ok(psched) => only_psched_line(&psched)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read packet scheduler".to_string()),
+    }
+    match fs::read_to_string(format!("/proc/{pid}/net/rt6_stats")) {
+        Ok(rt6) => only_rt6_stats_line(&rt6)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read ipv6 route stats".to_string()),
+    }
+    match fs::read_to_string(format!("/proc/{pid}/net/wireless")) {
+        Ok(wireless) => only_no_wireless(&wireless)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read wireless table".to_string()),
+    }
+    match fs::read_to_string(format!("/proc/{pid}/net/xfrm_stat")) {
+        Ok(xfrm) => only_zero_xfrm(&xfrm)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read xfrm stat".to_string()),
+    }
+    match fs::read_to_string(format!("/proc/{pid}/net/snmp")) {
+        Ok(snmp) => only_snmp_pairs(&snmp)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read snmp table".to_string()),
+    }
+    match fs::read_to_string(format!("/proc/{pid}/net/snmp6")) {
+        Ok(snmp6) => only_snmp6_counters(&snmp6)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read snmp6 table".to_string()),
+    }
+    match fs::read_to_string(format!("/proc/{pid}/net/sockstat")) {
+        Ok(sockstat) => only_sockstat_lines(&sockstat)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read sockstat".to_string()),
+    }
+    match fs::read_to_string(format!("/proc/{pid}/net/sockstat6")) {
+        Ok(sockstat6) => only_sockstat6_lines(&sockstat6)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read sockstat6".to_string()),
+    }
+    match fs::read_to_string(format!("/proc/{pid}/net/softnet_stat")) {
+        Ok(text) => only_softnet_rows(&text)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read softnet stat".to_string()),
+    }
+    match fs::read_to_string(format!("/proc/{pid}/net/dev_snmp6/lo")) {
+        Ok(text) => only_dev_snmp6_counters(&text)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read loopback device snmp6".to_string()),
+    }
+    match fs::read_to_string(format!("/proc/{pid}/net/stat/ndisc_cache")) {
+        Ok(text) => only_ndisc_cache(&text)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read ndisc cache".to_string()),
+    }
+    match fs::read_to_string(format!("/proc/{pid}/net/stat/arp_cache")) {
+        Ok(text) => only_arp_cache(&text)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read arp cache".to_string()),
+    }
+    match fs::read_to_string(format!("/proc/{pid}/net/stat/rt_cache")) {
+        Ok(text) => only_rt_cache_stat(&text)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read route cache stat".to_string()),
+    }
+    match fs::read_to_string(format!("/proc/{pid}/net/protocols")) {
+        Ok(text) => only_protocol_rows(&text)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read protocol table".to_string()),
+    }
+    match fs::read_dir(format!("/proc/{pid}/net/dev_snmp6")) {
+        Ok(entries) => {
+            let mut names = Vec::new();
+            for entry in entries {
+                let entry = entry.map_err(|_| "cannot read device counters".to_string())?;
+                let name = entry.file_name();
+                let name = name
+                    .to_str()
+                    .ok_or_else(|| "cannot read device counters".to_string())?;
+                names.push(name.to_string());
+            }
+            only_loopback_device_counters(&names)?;
+        }
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read device counters".to_string()),
+    }
     Ok(())
 }
 
@@ -672,6 +768,392 @@ pub(crate) fn only_no_mcfilter(text: &str) -> Result<(), String> {
 
 pub(crate) fn only_no_mcfilter6(text: &str) -> Result<(), String> {
     only_no_udp(text).map_err(|_| "network namespace has an ipv6 multicast filter".to_string())
+}
+
+pub(crate) fn only_no_rtcache(text: &str) -> Result<(), String> {
+    only_no_udp(text).map_err(|_| "network namespace has a route cache".to_string())
+}
+
+pub(crate) fn only_no_rtacct(text: &str) -> Result<(), String> {
+    only_no_udp(text).map_err(|_| "network namespace has a route account".to_string())
+}
+
+pub(crate) fn only_psched_line(text: &str) -> Result<(), String> {
+    one_hex_line(
+        text,
+        Some(4),
+        "network namespace has an extra packet scheduler row",
+        "packet scheduler row is not hex",
+    )
+}
+
+pub(crate) fn only_rt6_stats_line(text: &str) -> Result<(), String> {
+    one_hex_line(
+        text,
+        None,
+        "network namespace has an extra ipv6 route stat",
+        "ipv6 route stat row is not hex",
+    )
+}
+
+pub(crate) fn only_no_wireless(text: &str) -> Result<(), String> {
+    for line in text.lines().skip(2) {
+        if line.is_empty() {
+            continue;
+        }
+        return Err("network namespace has a wireless interface".to_string());
+    }
+    Ok(())
+}
+
+pub(crate) fn only_zero_xfrm(text: &str) -> Result<(), String> {
+    for line in text.lines() {
+        if line.is_empty() {
+            continue;
+        }
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        if fields.len() != 2 {
+            return Err("xfrm stat row is not a counter".to_string());
+        }
+        if fields[1] != "0" {
+            return Err("network namespace has an xfrm counter".to_string());
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn only_snmp_pairs(text: &str) -> Result<(), String> {
+    let rows: Vec<&str> = text.lines().filter(|line| !line.is_empty()).collect();
+    let mut index = 0;
+    while index + 1 < rows.len() {
+        let header: Vec<&str> = rows[index].split_whitespace().collect();
+        let values: Vec<&str> = rows[index + 1].split_whitespace().collect();
+        let header_name = header.first().copied().unwrap_or("");
+        let value_name = values.first().copied().unwrap_or("");
+        if header_name != value_name || !header_name.ends_with(':') {
+            return Err("snmp value row does not match its header".to_string());
+        }
+        if header.len() != values.len() || values.iter().skip(1).any(|field| !snmp_counter(field)) {
+            return Err("snmp value is not a counter".to_string());
+        }
+        index += 2;
+    }
+    if index < rows.len() {
+        return Err("snmp table has a dangling header".to_string());
+    }
+    Ok(())
+}
+
+pub(crate) fn only_snmp6_counters(text: &str) -> Result<(), String> {
+    for line in text.lines() {
+        if line.is_empty() {
+            continue;
+        }
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        if fields.len() != 2 || !snmp_counter(fields[1]) {
+            return Err("snmp6 row is not a counter".to_string());
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn only_sockstat_lines(text: &str) -> Result<(), String> {
+    sockstat_profile(
+        text,
+        &[
+            ("sockets:", &["used"]),
+            ("TCP:", &["inuse", "orphan", "tw", "alloc", "mem"]),
+            ("UDP:", &["inuse", "mem"]),
+            ("UDPLITE:", &["inuse"]),
+            ("RAW:", &["inuse"]),
+            ("FRAG:", &["inuse", "memory"]),
+        ],
+        "sockstat table is not the profile set",
+        "sockstat row is not a counter",
+    )
+}
+
+pub(crate) fn only_sockstat6_lines(text: &str) -> Result<(), String> {
+    sockstat_profile(
+        text,
+        &[
+            ("TCP6:", &["inuse"]),
+            ("UDP6:", &["inuse"]),
+            ("UDPLITE6:", &["inuse"]),
+            ("RAW6:", &["inuse"]),
+            ("FRAG6:", &["inuse", "memory"]),
+        ],
+        "sockstat6 table is not the profile set",
+        "sockstat6 row is not a counter",
+    )
+}
+
+pub(crate) fn only_softnet_rows(text: &str) -> Result<(), String> {
+    let mut width = None;
+    for line in text.lines() {
+        if line.is_empty() {
+            continue;
+        }
+        let mut count = 0usize;
+        for field in line.split_whitespace() {
+            if field.bytes().any(|byte| !byte.is_ascii_hexdigit()) {
+                return Err("softnet row is not hex".to_string());
+            }
+            count += 1;
+        }
+        if count == 0 {
+            return Err("softnet row is not hex".to_string());
+        }
+        match width {
+            Some(expected) if expected != count => {
+                return Err("softnet row width does not match".to_string());
+            }
+            None => width = Some(count),
+            Some(_) => {}
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn only_dev_snmp6_counters(text: &str) -> Result<(), String> {
+    only_snmp6_counters(text).map_err(|_| "device snmp6 row is not a counter".to_string())
+}
+
+pub(crate) fn only_loopback_device_counters(names: &[String]) -> Result<(), String> {
+    for name in names {
+        if name != "lo" {
+            return Err("network namespace has a foreign device counter".to_string());
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn only_ndisc_cache(text: &str) -> Result<(), String> {
+    let mut width = None;
+    for line in text.lines() {
+        if line.is_empty() {
+            continue;
+        }
+        let Some(expected) = width else {
+            let mut count = 0usize;
+            for field in line.split_whitespace() {
+                if !field
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphabetic() || byte == b'_')
+                {
+                    return Err("ndisc cache header is not a name".to_string());
+                }
+                count += 1;
+            }
+            if count == 0 {
+                return Err("ndisc cache header is not a name".to_string());
+            }
+            width = Some(count);
+            continue;
+        };
+        let mut count = 0usize;
+        for field in line.split_whitespace() {
+            if field.bytes().any(|byte| !byte.is_ascii_hexdigit()) {
+                return Err("ndisc cache row is not hex".to_string());
+            }
+            count += 1;
+        }
+        if count != expected {
+            return Err("ndisc cache row width does not match".to_string());
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn only_arp_cache(text: &str) -> Result<(), String> {
+    let mut width = None;
+    for line in text.lines() {
+        if line.is_empty() {
+            continue;
+        }
+        let Some(expected) = width else {
+            let mut count = 0usize;
+            for field in line.split_whitespace() {
+                if !field
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphabetic() || byte == b'_')
+                {
+                    return Err("arp cache header is not a name".to_string());
+                }
+                count += 1;
+            }
+            if count == 0 {
+                return Err("arp cache header is not a name".to_string());
+            }
+            width = Some(count);
+            continue;
+        };
+        let mut count = 0usize;
+        for field in line.split_whitespace() {
+            if field.bytes().any(|byte| !byte.is_ascii_hexdigit()) {
+                return Err("arp cache row is not hex".to_string());
+            }
+            count += 1;
+        }
+        if count != expected {
+            return Err("arp cache row width does not match".to_string());
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn only_rt_cache_stat(text: &str) -> Result<(), String> {
+    let mut width = None;
+    for line in text.lines() {
+        if line.is_empty() {
+            continue;
+        }
+        let Some(expected) = width else {
+            let mut count = 0usize;
+            for field in line.split_whitespace() {
+                if !field
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphabetic() || byte == b'_')
+                {
+                    return Err("route cache stat header is not a name".to_string());
+                }
+                count += 1;
+            }
+            if count == 0 {
+                return Err("route cache stat header is not a name".to_string());
+            }
+            width = Some(count);
+            continue;
+        };
+        let mut count = 0usize;
+        for field in line.split_whitespace() {
+            if field.bytes().any(|byte| !byte.is_ascii_hexdigit()) {
+                return Err("route cache stat row is not hex".to_string());
+            }
+            count += 1;
+        }
+        if count != expected {
+            return Err("route cache stat row width does not match".to_string());
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn only_protocol_rows(text: &str) -> Result<(), String> {
+    let mut width = None;
+    for line in text.lines() {
+        if line.is_empty() {
+            continue;
+        }
+        let Some(expected) = width else {
+            let mut count = 0usize;
+            for field in line.split_whitespace() {
+                if !field
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphabetic() || byte == b'_')
+                {
+                    return Err("protocol header is not a name".to_string());
+                }
+                count += 1;
+            }
+            if count == 0 {
+                return Err("protocol header is not a name".to_string());
+            }
+            width = Some(count);
+            continue;
+        };
+        let mut count = 0usize;
+        for field in line.split_whitespace() {
+            if !field.bytes().all(|byte| {
+                byte.is_ascii_alphabetic() || byte.is_ascii_digit() || byte == b'_' || byte == b'-'
+            }) {
+                return Err("protocol row is not a token".to_string());
+            }
+            count += 1;
+        }
+        if count != expected {
+            return Err("protocol row width does not match".to_string());
+        }
+    }
+    Ok(())
+}
+
+fn sockstat_profile(
+    text: &str,
+    rows: &[(&str, &[&str])],
+    wrong_set: &str,
+    bad_row: &str,
+) -> Result<(), String> {
+    let lines: Vec<&str> = text.lines().filter(|line| !line.is_empty()).collect();
+    if lines.is_empty() {
+        return Ok(());
+    }
+    if lines.len() != rows.len() {
+        return Err(wrong_set.to_string());
+    }
+    for (line, (label, keys)) in lines.iter().zip(rows) {
+        if !sockstat_row(line, label, keys) {
+            return Err(bad_row.to_string());
+        }
+    }
+    Ok(())
+}
+
+fn sockstat_row(line: &str, label: &str, keys: &[&str]) -> bool {
+    let fields: Vec<&str> = line.split_whitespace().collect();
+    if fields.first().copied() != Some(label) || fields.len() != 1 + keys.len() * 2 {
+        return false;
+    }
+    for (index, key) in keys.iter().enumerate() {
+        if fields[1 + index * 2] != *key || !snmp_counter(fields[2 + index * 2]) {
+            return false;
+        }
+    }
+    true
+}
+
+fn snmp_counter(field: &str) -> bool {
+    let digits = field.strip_prefix('-').unwrap_or(field);
+    !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+fn one_hex_line(
+    text: &str,
+    exact_fields: Option<usize>,
+    extra: &'static str,
+    not_hex: &'static str,
+) -> Result<(), String> {
+    let mut row = None;
+    for line in text.lines() {
+        if line.is_empty() {
+            continue;
+        }
+        if row.is_some() {
+            return Err(extra.to_string());
+        }
+        row = Some(line);
+    }
+    let Some(row) = row else {
+        return Ok(());
+    };
+    if !line_is_hex(row, exact_fields) {
+        return Err(not_hex.to_string());
+    }
+    Ok(())
+}
+
+fn line_is_hex(line: &str, exact_fields: Option<usize>) -> bool {
+    let mut count = 0usize;
+    for field in line.split_whitespace() {
+        if field.bytes().any(|byte| !byte.is_ascii_hexdigit()) {
+            return false;
+        }
+        count += 1;
+    }
+    match exact_fields {
+        Some(expected) => count == expected,
+        None => count > 0,
+    }
 }
 
 const AF_INET: i32 = 2;
@@ -1366,6 +1848,332 @@ mod tests {
         assert_eq!(
             only_no_mcfilter6(&row),
             Err("network namespace has an ipv6 multicast filter".to_string())
+        );
+    }
+
+    #[test]
+    fn only_no_rtcache_and_rtacct_reject_a_row() {
+        let header = "sl local_address rem_address st\n";
+        let row = format!("{header}0: 00000000:0044 00000000:0000 07\n");
+        assert_eq!(only_no_rtcache(header), Ok(()));
+        assert_eq!(only_no_rtacct(header), Ok(()));
+        assert_eq!(only_no_rtcache(""), Ok(()));
+        assert_eq!(only_no_rtacct(""), Ok(()));
+        assert_eq!(
+            only_no_rtcache(&row),
+            Err("network namespace has a route cache".to_string())
+        );
+        assert_eq!(
+            only_no_rtacct(&row),
+            Err("network namespace has a route account".to_string())
+        );
+    }
+
+    #[test]
+    fn psched_and_rt6_stats_accept_one_hex_line() {
+        let psched = "000003e8 00000040 000f4240 3b9aca00";
+        let rt6 = "0000000c 00000004 00000000 00000005 00000000 00000001 00000000";
+        assert_eq!(only_psched_line(""), Ok(()));
+        assert_eq!(only_rt6_stats_line(""), Ok(()));
+        assert_eq!(only_psched_line(psched), Ok(()));
+        assert_eq!(only_rt6_stats_line(rt6), Ok(()));
+        assert_eq!(only_rt6_stats_line("0a"), Ok(()));
+        assert_eq!(
+            only_psched_line(&format!("{psched}\n{psched}\n")),
+            Err("network namespace has an extra packet scheduler row".to_string())
+        );
+        assert_eq!(
+            only_rt6_stats_line(&format!("{rt6}\n0a\n")),
+            Err("network namespace has an extra ipv6 route stat".to_string())
+        );
+        assert_eq!(
+            only_psched_line("000003e8 00000040 000f4240 note"),
+            Err("packet scheduler row is not hex".to_string())
+        );
+        assert_eq!(
+            only_psched_line("000003e8 00000040 000f4240"),
+            Err("packet scheduler row is not hex".to_string())
+        );
+        assert_eq!(
+            only_rt6_stats_line("0000000c note"),
+            Err("ipv6 route stat row is not hex".to_string())
+        );
+    }
+
+    #[test]
+    fn wireless_and_xfrm_reject_a_foreign_row() {
+        let header = "\
+Inter-| sta-| Quality | Discarded packets | Missed | WE
+ face | tus | link level noise | nwid crypt frag retry misc | beacon | 22
+";
+        let wireless = format!("{header} wlan0: 0000 10. 0. 0. 0 0 0 0 0 0\n");
+        assert_eq!(only_no_wireless(""), Ok(()));
+        assert_eq!(only_zero_xfrm(""), Ok(()));
+        assert_eq!(only_no_wireless(header), Ok(()));
+        assert_eq!(only_no_wireless("Inter-| sta-\n"), Ok(()));
+        assert_eq!(
+            only_no_wireless(&wireless),
+            Err("network namespace has a wireless interface".to_string())
+        );
+        assert_eq!(only_zero_xfrm("XfrmInError 0"), Ok(()));
+        assert_eq!(only_zero_xfrm("XfrmInError\t0"), Ok(()));
+        assert_eq!(
+            only_zero_xfrm("XfrmInError 1"),
+            Err("network namespace has an xfrm counter".to_string())
+        );
+        assert_eq!(
+            only_zero_xfrm("XfrmInError"),
+            Err("xfrm stat row is not a counter".to_string())
+        );
+    }
+
+    #[test]
+    fn snmp_and_snmp6_accept_integer_counters() {
+        assert_eq!(only_snmp_pairs(""), Ok(()));
+        assert_eq!(only_snmp6_counters(""), Ok(()));
+        assert_eq!(only_snmp_pairs("Ip: Forwarding\nIp: 2"), Ok(()));
+        assert_eq!(
+            only_snmp_pairs("Tcp: RtoAlgorithm RtoMin RtoMax MaxConn\nTcp: 1 200 120000 -1"),
+            Ok(())
+        );
+        assert_eq!(
+            only_snmp_pairs("Ip: Forwarding"),
+            Err("snmp table has a dangling header".to_string())
+        );
+        assert_eq!(
+            only_snmp_pairs("Ip: Forwarding\nIcmp: 2"),
+            Err("snmp value row does not match its header".to_string())
+        );
+        assert_eq!(
+            only_snmp_pairs("Ip: Forwarding\nIp: no"),
+            Err("snmp value is not a counter".to_string())
+        );
+        assert_eq!(only_snmp6_counters("Ip6InReceives\t0"), Ok(()));
+        assert_eq!(only_snmp6_counters("Ip6OutNoRoutes\t-1"), Ok(()));
+        assert_eq!(
+            only_snmp6_counters("Ip6InReceives"),
+            Err("snmp6 row is not a counter".to_string())
+        );
+    }
+
+    #[test]
+    fn sockstat_and_sockstat6_accept_integer_counters() {
+        assert_eq!(only_sockstat_lines(""), Ok(()));
+        assert_eq!(only_sockstat6_lines(""), Ok(()));
+        let sockstat = "\
+sockets: used 1
+TCP: inuse 1 orphan 0 tw 0 alloc 1 mem 1
+UDP: inuse 0 mem 0
+UDPLITE: inuse 0
+RAW: inuse 0
+FRAG: inuse 0 memory 0
+";
+        assert_eq!(only_sockstat_lines(sockstat), Ok(()));
+        let negative = "\
+sockets: used -1
+TCP: inuse 1 orphan 0 tw 0 alloc 1 mem 1
+UDP: inuse 0 mem 0
+UDPLITE: inuse 0
+RAW: inuse 0
+FRAG: inuse 0 memory 0
+";
+        assert_eq!(only_sockstat_lines(negative), Ok(()));
+        let five = "\
+sockets: used 1
+TCP: inuse 1 orphan 0 tw 0 alloc 1 mem 1
+UDP: inuse 0 mem 0
+UDPLITE: inuse 0
+RAW: inuse 0
+";
+        assert_eq!(
+            only_sockstat_lines(five),
+            Err("sockstat table is not the profile set".to_string())
+        );
+        let bad_counter = "\
+sockets: used no
+TCP: inuse 1 orphan 0 tw 0 alloc 1 mem 1
+UDP: inuse 0 mem 0
+UDPLITE: inuse 0
+RAW: inuse 0
+FRAG: inuse 0 memory 0
+";
+        assert_eq!(
+            only_sockstat_lines(bad_counter),
+            Err("sockstat row is not a counter".to_string())
+        );
+        let sockstat6 = "\
+TCP6: inuse 0
+UDP6: inuse 0
+UDPLITE6: inuse 0
+RAW6: inuse 0
+FRAG6: inuse 0 memory -1
+";
+        assert_eq!(only_sockstat6_lines(sockstat6), Ok(()));
+        let four = "\
+TCP6: inuse 0
+UDP6: inuse 0
+UDPLITE6: inuse 0
+RAW6: inuse 0
+";
+        assert_eq!(
+            only_sockstat6_lines(four),
+            Err("sockstat6 table is not the profile set".to_string())
+        );
+        let bad_counter6 = "\
+TCP6: inuse no
+UDP6: inuse 0
+UDPLITE6: inuse 0
+RAW6: inuse 0
+FRAG6: inuse 0 memory -1
+";
+        assert_eq!(
+            only_sockstat6_lines(bad_counter6),
+            Err("sockstat6 row is not a counter".to_string())
+        );
+    }
+
+    #[test]
+    fn softnet_rows_share_one_hex_width() {
+        assert_eq!(only_softnet_rows(""), Ok(()));
+        assert_eq!(only_softnet_rows("0a"), Ok(()));
+        assert_eq!(only_softnet_rows("000003e8 00000040"), Ok(()));
+        assert_eq!(
+            only_softnet_rows("000003e8 00000040\n000003e8 00000040"),
+            Ok(())
+        );
+        assert_eq!(
+            only_softnet_rows("000003e8 00000040\n000003e8"),
+            Err("softnet row width does not match".to_string())
+        );
+        assert_eq!(
+            only_softnet_rows("000003e8 note"),
+            Err("softnet row is not hex".to_string())
+        );
+    }
+
+    #[test]
+    fn dev_snmp6_accepts_integer_counters() {
+        assert_eq!(only_dev_snmp6_counters(""), Ok(()));
+        assert_eq!(only_dev_snmp6_counters("ifIndex\t1"), Ok(()));
+        assert_eq!(only_dev_snmp6_counters("Ip6InReceives\t0"), Ok(()));
+        assert_eq!(only_dev_snmp6_counters("Icmp6OutType143\t-1"), Ok(()));
+        assert_eq!(
+            only_dev_snmp6_counters("Ip6InReceives"),
+            Err("device snmp6 row is not a counter".to_string())
+        );
+        assert_eq!(
+            only_dev_snmp6_counters("Ip6InReceives\tno"),
+            Err("device snmp6 row is not a counter".to_string())
+        );
+        assert_eq!(
+            only_dev_snmp6_counters("Ip6InReceives 1 extra"),
+            Err("device snmp6 row is not a counter".to_string())
+        );
+    }
+
+    #[test]
+    fn device_counters_name_only_loopback() {
+        assert_eq!(only_loopback_device_counters(&[]), Ok(()));
+        assert_eq!(only_loopback_device_counters(&["lo".to_string()]), Ok(()));
+        assert_eq!(
+            only_loopback_device_counters(&["lo".to_string(), "eth0".to_string()]),
+            Err("network namespace has a foreign device counter".to_string())
+        );
+        assert_eq!(
+            only_loopback_device_counters(&["wlp1s0".to_string()]),
+            Err("network namespace has a foreign device counter".to_string())
+        );
+    }
+
+    #[test]
+    fn ndisc_cache_accepts_a_named_header_and_hex_rows() {
+        assert_eq!(only_ndisc_cache(""), Ok(()));
+        assert_eq!(only_ndisc_cache("entries allocs"), Ok(()));
+        assert_eq!(
+            only_ndisc_cache("entries allocs\n00000001 00000000\n0000000a 00000000"),
+            Ok(())
+        );
+        assert_eq!(
+            only_ndisc_cache("entries 1"),
+            Err("ndisc cache header is not a name".to_string())
+        );
+        assert_eq!(
+            only_ndisc_cache("entries allocs\n00000001 note"),
+            Err("ndisc cache row is not hex".to_string())
+        );
+        assert_eq!(
+            only_ndisc_cache("entries allocs\n00000001"),
+            Err("ndisc cache row width does not match".to_string())
+        );
+    }
+
+    #[test]
+    fn arp_cache_accepts_a_named_header_and_hex_rows() {
+        assert_eq!(only_arp_cache(""), Ok(()));
+        assert_eq!(only_arp_cache("entries allocs"), Ok(()));
+        assert_eq!(
+            only_arp_cache("entries allocs\n00000001 00000000\n0000000a 00000000"),
+            Ok(())
+        );
+        assert_eq!(
+            only_arp_cache("entries 1"),
+            Err("arp cache header is not a name".to_string())
+        );
+        assert_eq!(
+            only_arp_cache("entries allocs\n00000001 note"),
+            Err("arp cache row is not hex".to_string())
+        );
+        assert_eq!(
+            only_arp_cache("entries allocs\n00000001"),
+            Err("arp cache row width does not match".to_string())
+        );
+    }
+
+    #[test]
+    fn rt_cache_stat_accepts_a_named_header_and_hex_rows() {
+        assert_eq!(only_rt_cache_stat(""), Ok(()));
+        assert_eq!(only_rt_cache_stat("entries in_hit"), Ok(()));
+        assert_eq!(
+            only_rt_cache_stat("entries in_hit\n00000001 00000000\n0000000a 00000000"),
+            Ok(())
+        );
+        assert_eq!(
+            only_rt_cache_stat("entries 1"),
+            Err("route cache stat header is not a name".to_string())
+        );
+        assert_eq!(
+            only_rt_cache_stat("entries in_hit\n00000001 note"),
+            Err("route cache stat row is not hex".to_string())
+        );
+        assert_eq!(
+            only_rt_cache_stat("entries in_hit\n00000001"),
+            Err("route cache stat row width does not match".to_string())
+        );
+    }
+
+    #[test]
+    fn protocol_rows_accept_named_tokens() {
+        assert_eq!(only_protocol_rows(""), Ok(()));
+        assert_eq!(only_protocol_rows("protocol size"), Ok(()));
+        assert_eq!(
+            only_protocol_rows("protocol size\nTCP 1234\nUDP-Lite -1"),
+            Ok(())
+        );
+        assert_eq!(
+            only_protocol_rows("protocol size\naf_alg 8\nUNIX-STREAM 0"),
+            Ok(())
+        );
+        assert_eq!(
+            only_protocol_rows("protocol 1"),
+            Err("protocol header is not a name".to_string())
+        );
+        assert_eq!(
+            only_protocol_rows("protocol size\nTCP note!"),
+            Err("protocol row is not a token".to_string())
+        );
+        assert_eq!(
+            only_protocol_rows("protocol size\nTCP"),
+            Err("protocol row width does not match".to_string())
         );
     }
 }

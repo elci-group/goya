@@ -1024,6 +1024,347 @@ fn exercise(checked: &Checked) -> Result<(), String> {
             encoded_question.status, encoded_question.content_type
         ));
     }
+    let encoded_backslash =
+        exchange_line(checked.port, &format!("GET {}%5c HTTP/1.1", checked.path))?;
+    if encoded_backslash.status != 404
+        || encoded_backslash.content_type != CONTENT_TYPE
+        || encoded_backslash.body != b"not found"
+    {
+        return Err(format!(
+            "encoded backslash returned {} {}",
+            encoded_backslash.status, encoded_backslash.content_type
+        ));
+    }
+    let encoded_semicolon =
+        exchange_line(checked.port, &format!("GET {}%3b HTTP/1.1", checked.path))?;
+    if encoded_semicolon.status != 404
+        || encoded_semicolon.content_type != CONTENT_TYPE
+        || encoded_semicolon.body != b"not found"
+    {
+        return Err(format!(
+            "encoded semicolon returned {} {}",
+            encoded_semicolon.status, encoded_semicolon.content_type
+        ));
+    }
+    let encoded_hash = exchange_line(checked.port, &format!("GET {}%23 HTTP/1.1", checked.path))?;
+    if encoded_hash.status != 404
+        || encoded_hash.content_type != CONTENT_TYPE
+        || encoded_hash.body != b"not found"
+    {
+        return Err(format!(
+            "encoded hash returned {} {}",
+            encoded_hash.status, encoded_hash.content_type
+        ));
+    }
+    let encoded_tab = exchange_line(checked.port, &format!("GET {}%09 HTTP/1.1", checked.path))?;
+    if encoded_tab.status != 404
+        || encoded_tab.content_type != CONTENT_TYPE
+        || encoded_tab.body != b"not found"
+    {
+        return Err(format!(
+            "encoded tab returned {} {}",
+            encoded_tab.status, encoded_tab.content_type
+        ));
+    }
+    let uppercase_slash =
+        exchange_line(checked.port, &format!("GET {}%2F HTTP/1.1", checked.path))?;
+    if uppercase_slash.status != 404
+        || uppercase_slash.content_type != CONTENT_TYPE
+        || uppercase_slash.body != b"not found"
+    {
+        return Err(format!(
+            "uppercase slash returned {} {}",
+            uppercase_slash.status, uppercase_slash.content_type
+        ));
+    }
+    let padded_version = exchange_line(checked.port, &format!("GET {} HTTP/1.01", checked.path))?;
+    if padded_version.status != 404
+        || padded_version.content_type != CONTENT_TYPE
+        || padded_version.body != b"not found"
+    {
+        return Err(format!(
+            "padded version returned {} {}",
+            padded_version.status, padded_version.content_type
+        ));
+    }
+    let uppercase_parent = exchange_line(
+        checked.port,
+        &format!("GET {}%2E%2E HTTP/1.1", checked.path),
+    )?;
+    if uppercase_parent.status != 404
+        || uppercase_parent.content_type != CONTENT_TYPE
+        || uppercase_parent.body != b"not found"
+    {
+        return Err(format!(
+            "uppercase parent returned {} {}",
+            uppercase_parent.status, uppercase_parent.content_type
+        ));
+    }
+    let options = exchange_line(checked.port, &format!("OPTIONS {} HTTP/1.1", checked.path))?;
+    if options.status != 404 || options.content_type != CONTENT_TYPE || options.body != b"not found"
+    {
+        return Err(format!(
+            "options returned {} {}",
+            options.status, options.content_type
+        ));
+    }
+    let encoded_tilde = exchange_line(checked.port, &format!("GET {}%7E HTTP/1.1", checked.path))?;
+    if encoded_tilde.status != 404
+        || encoded_tilde.content_type != CONTENT_TYPE
+        || encoded_tilde.body != b"not found"
+    {
+        return Err(format!(
+            "encoded tilde returned {} {}",
+            encoded_tilde.status, encoded_tilde.content_type
+        ));
+    }
+    let delete = exchange_line(checked.port, &format!("DELETE {} HTTP/1.1", checked.path))?;
+    if delete.status != 404 || delete.content_type != CONTENT_TYPE || delete.body != b"not found" {
+        return Err(format!(
+            "delete returned {} {}",
+            delete.status, delete.content_type
+        ));
+    }
+    let put = exchange_line(checked.port, &format!("PUT {} HTTP/1.1", checked.path))?;
+    if put.status != 404 || put.content_type != CONTENT_TYPE || put.body != b"not found" {
+        return Err(format!("put returned {} {}", put.status, put.content_type));
+    }
+    let uppercase_question =
+        exchange_line(checked.port, &format!("GET {}%3F HTTP/1.1", checked.path))?;
+    if uppercase_question.status != 404
+        || uppercase_question.content_type != CONTENT_TYPE
+        || uppercase_question.body != b"not found"
+    {
+        return Err(format!(
+            "uppercase question returned {} {}",
+            uppercase_question.status, uppercase_question.content_type
+        ));
+    }
+    let trace = exchange_line(checked.port, &format!("TRACE {} HTTP/1.1", checked.path))?;
+    if trace.status != 404 || trace.content_type != CONTENT_TYPE || trace.body != b"not found" {
+        return Err(format!(
+            "trace returned {} {}",
+            trace.status, trace.content_type
+        ));
+    }
+    let connect = exchange_line(checked.port, &format!("CONNECT {} HTTP/1.1", checked.path))?;
+    if connect.status != 404 || connect.content_type != CONTENT_TYPE || connect.body != b"not found"
+    {
+        return Err(format!(
+            "connect returned {} {}",
+            connect.status, connect.content_type
+        ));
+    }
+    let double_zero_version =
+        exchange_line(checked.port, &format!("GET {} HTTP/1.00", checked.path))?;
+    if double_zero_version.status != 404
+        || double_zero_version.content_type != CONTENT_TYPE
+        || double_zero_version.body != b"not found"
+    {
+        return Err(format!(
+            "double zero version returned {} {}",
+            double_zero_version.status, double_zero_version.content_type
+        ));
+    }
+    let patch = exchange_line(checked.port, &format!("PATCH {} HTTP/1.1", checked.path))?;
+    if patch.status != 404 || patch.content_type != CONTENT_TYPE || patch.body != b"not found" {
+        return Err(format!(
+            "patch returned {} {}",
+            patch.status, patch.content_type
+        ));
+    }
+    let version_tail = exchange_line(checked.port, &format!("GET {} HTTP/1.11", checked.path))?;
+    if version_tail.status != 404
+        || version_tail.content_type != CONTENT_TYPE
+        || version_tail.body != b"not found"
+    {
+        return Err(format!(
+            "version tail returned {} {}",
+            version_tail.status, version_tail.content_type
+        ));
+    }
+    let lowercase_tilde =
+        exchange_line(checked.port, &format!("GET {}%7e HTTP/1.1", checked.path))?;
+    if lowercase_tilde.status != 404
+        || lowercase_tilde.content_type != CONTENT_TYPE
+        || lowercase_tilde.body != b"not found"
+    {
+        return Err(format!(
+            "lowercase tilde returned {} {}",
+            lowercase_tilde.status, lowercase_tilde.content_type
+        ));
+    }
+    let propfind = exchange_line(checked.port, &format!("PROPFIND {} HTTP/1.1", checked.path))?;
+    if propfind.status != 404
+        || propfind.content_type != CONTENT_TYPE
+        || propfind.body != b"not found"
+    {
+        return Err(format!(
+            "propfind returned {} {}",
+            propfind.status, propfind.content_type
+        ));
+    }
+    let longer_version = exchange_line(checked.port, &format!("GET {} HTTP/1.12", checked.path))?;
+    if longer_version.status != 404
+        || longer_version.content_type != CONTENT_TYPE
+        || longer_version.body != b"not found"
+    {
+        return Err(format!(
+            "longer version returned {} {}",
+            longer_version.status, longer_version.content_type
+        ));
+    }
+    let encoded_asterisk =
+        exchange_line(checked.port, &format!("GET {}%2a HTTP/1.1", checked.path))?;
+    if encoded_asterisk.status != 404
+        || encoded_asterisk.content_type != CONTENT_TYPE
+        || encoded_asterisk.body != b"not found"
+    {
+        return Err(format!(
+            "encoded asterisk returned {} {}",
+            encoded_asterisk.status, encoded_asterisk.content_type
+        ));
+    }
+    let mkcol = exchange_line(checked.port, &format!("MKCOL {} HTTP/1.1", checked.path))?;
+    if mkcol.status != 404 || mkcol.content_type != CONTENT_TYPE || mkcol.body != b"not found" {
+        return Err(format!(
+            "mkcol returned {} {}",
+            mkcol.status, mkcol.content_type
+        ));
+    }
+    let extended_version = exchange_line(checked.port, &format!("GET {} HTTP/1.13", checked.path))?;
+    if extended_version.status != 404
+        || extended_version.content_type != CONTENT_TYPE
+        || extended_version.body != b"not found"
+    {
+        return Err(format!(
+            "extended version returned {} {}",
+            extended_version.status, extended_version.content_type
+        ));
+    }
+    let uppercase_asterisk =
+        exchange_line(checked.port, &format!("GET {}%2A HTTP/1.1", checked.path))?;
+    if uppercase_asterisk.status != 404
+        || uppercase_asterisk.content_type != CONTENT_TYPE
+        || uppercase_asterisk.body != b"not found"
+    {
+        return Err(format!(
+            "uppercase asterisk returned {} {}",
+            uppercase_asterisk.status, uppercase_asterisk.content_type
+        ));
+    }
+    let copy = exchange_line(checked.port, &format!("COPY {} HTTP/1.1", checked.path))?;
+    if copy.status != 404 || copy.content_type != CONTENT_TYPE || copy.body != b"not found" {
+        return Err(format!(
+            "copy returned {} {}",
+            copy.status, copy.content_type
+        ));
+    }
+    let further_version = exchange_line(checked.port, &format!("GET {} HTTP/1.14", checked.path))?;
+    if further_version.status != 404
+        || further_version.content_type != CONTENT_TYPE
+        || further_version.body != b"not found"
+    {
+        return Err(format!(
+            "further version returned {} {}",
+            further_version.status, further_version.content_type
+        ));
+    }
+    let encoded_plus = exchange_line(checked.port, &format!("GET {}%2B HTTP/1.1", checked.path))?;
+    if encoded_plus.status != 404
+        || encoded_plus.content_type != CONTENT_TYPE
+        || encoded_plus.body != b"not found"
+    {
+        return Err(format!(
+            "encoded plus returned {} {}",
+            encoded_plus.status, encoded_plus.content_type
+        ));
+    }
+    let move_request = exchange_line(checked.port, &format!("MOVE {} HTTP/1.1", checked.path))?;
+    if move_request.status != 404
+        || move_request.content_type != CONTENT_TYPE
+        || move_request.body != b"not found"
+    {
+        return Err(format!(
+            "move returned {} {}",
+            move_request.status, move_request.content_type
+        ));
+    }
+    let later_version = exchange_line(checked.port, &format!("GET {} HTTP/1.15", checked.path))?;
+    if later_version.status != 404
+        || later_version.content_type != CONTENT_TYPE
+        || later_version.body != b"not found"
+    {
+        return Err(format!(
+            "later version returned {} {}",
+            later_version.status, later_version.content_type
+        ));
+    }
+    let encoded_comma = exchange_line(checked.port, &format!("GET {}%2C HTTP/1.1", checked.path))?;
+    if encoded_comma.status != 404
+        || encoded_comma.content_type != CONTENT_TYPE
+        || encoded_comma.body != b"not found"
+    {
+        return Err(format!(
+            "encoded comma returned {} {}",
+            encoded_comma.status, encoded_comma.content_type
+        ));
+    }
+    let lock = exchange_line(checked.port, &format!("LOCK {} HTTP/1.1", checked.path))?;
+    if lock.status != 404 || lock.content_type != CONTENT_TYPE || lock.body != b"not found" {
+        return Err(format!(
+            "lock returned {} {}",
+            lock.status, lock.content_type
+        ));
+    }
+    let following_version =
+        exchange_line(checked.port, &format!("GET {} HTTP/1.16", checked.path))?;
+    if following_version.status != 404
+        || following_version.content_type != CONTENT_TYPE
+        || following_version.body != b"not found"
+    {
+        return Err(format!(
+            "following version returned {} {}",
+            following_version.status, following_version.content_type
+        ));
+    }
+    let encoded_hyphen = exchange_line(checked.port, &format!("GET {}%2D HTTP/1.1", checked.path))?;
+    if encoded_hyphen.status != 404
+        || encoded_hyphen.content_type != CONTENT_TYPE
+        || encoded_hyphen.body != b"not found"
+    {
+        return Err(format!(
+            "encoded hyphen returned {} {}",
+            encoded_hyphen.status, encoded_hyphen.content_type
+        ));
+    }
+    let unlock = exchange_line(checked.port, &format!("UNLOCK {} HTTP/1.1", checked.path))?;
+    if unlock.status != 404 || unlock.content_type != CONTENT_TYPE || unlock.body != b"not found" {
+        return Err(format!(
+            "unlock returned {} {}",
+            unlock.status, unlock.content_type
+        ));
+    }
+    let next_version = exchange_line(checked.port, &format!("GET {} HTTP/1.17", checked.path))?;
+    if next_version.status != 404
+        || next_version.content_type != CONTENT_TYPE
+        || next_version.body != b"not found"
+    {
+        return Err(format!(
+            "next version returned {} {}",
+            next_version.status, next_version.content_type
+        ));
+    }
+    let encoded_zero = exchange_line(checked.port, &format!("GET {}%30 HTTP/1.1", checked.path))?;
+    if encoded_zero.status != 404
+        || encoded_zero.content_type != CONTENT_TYPE
+        || encoded_zero.body != b"not found"
+    {
+        return Err(format!(
+            "encoded zero returned {} {}",
+            encoded_zero.status, encoded_zero.content_type
+        ));
+    }
     drop(reap);
     drop(cleanup);
     Ok(())
@@ -1916,6 +2257,138 @@ mod tests {
         assert!(!source.contains("%00"));
         assert!(!source.contains("%20"));
         assert!(!source.contains("%3f"));
+    }
+
+    #[test]
+    fn encoded_backslash_semicolon_and_hash_stay_outside_the_matcher() {
+        let service = crate::admit(include_str!("../fixtures/ping.gservice")).expect("fixture");
+        let source = emit_source(&service);
+        assert!(source.contains("strip_prefix(b\"GET \")"));
+        assert!(source.contains("b\" HTTP/1.1\" | b\" HTTP/1.0\""));
+        assert!(!source.contains("%5c"));
+        assert!(!source.contains("%3b"));
+        assert!(!source.contains("%23"));
+    }
+
+    #[test]
+    fn encoded_tab_uppercase_slash_and_padded_version_stay_outside_the_matcher() {
+        let service = crate::admit(include_str!("../fixtures/ping.gservice")).expect("fixture");
+        let source = emit_source(&service);
+        assert!(source.contains("strip_prefix(b\"GET \")"));
+        assert!(source.contains("b\" HTTP/1.1\" | b\" HTTP/1.0\""));
+        assert!(!source.contains("%09"));
+        assert!(!source.contains("%2F"));
+        assert!(!source.contains("HTTP/1.01"));
+    }
+
+    #[test]
+    fn uppercase_parent_options_and_tilde_stay_outside_the_matcher() {
+        let service = crate::admit(include_str!("../fixtures/ping.gservice")).expect("fixture");
+        let source = emit_source(&service);
+        assert!(source.contains("strip_prefix(b\"GET \")"));
+        assert!(source.contains("b\" HTTP/1.1\" | b\" HTTP/1.0\""));
+        assert!(!source.contains("%2E%2E"));
+        assert!(!source.contains("OPTIONS"));
+        assert!(!source.contains("%7E"));
+    }
+
+    #[test]
+    fn delete_put_and_uppercase_question_stay_outside_the_matcher() {
+        let service = crate::admit(include_str!("../fixtures/ping.gservice")).expect("fixture");
+        let source = emit_source(&service);
+        assert!(source.contains("strip_prefix(b\"GET \")"));
+        assert!(source.contains("b\" HTTP/1.1\" | b\" HTTP/1.0\""));
+        assert!(!source.contains("DELETE"));
+        assert!(!source.contains("PUT "));
+        assert!(!source.contains("%3F"));
+    }
+
+    #[test]
+    fn trace_connect_and_double_zero_version_stay_outside_the_matcher() {
+        let service = crate::admit(include_str!("../fixtures/ping.gservice")).expect("fixture");
+        let source = emit_source(&service);
+        assert!(source.contains("strip_prefix(b\"GET \")"));
+        assert!(source.contains("b\" HTTP/1.1\" | b\" HTTP/1.0\""));
+        assert!(!source.contains("TRACE"));
+        assert!(!source.contains("CONNECT"));
+        assert!(!source.contains("HTTP/1.00"));
+    }
+
+    #[test]
+    fn patch_version_tail_and_lowercase_tilde_stay_outside_the_matcher() {
+        let service = crate::admit(include_str!("../fixtures/ping.gservice")).expect("fixture");
+        let source = emit_source(&service);
+        assert!(source.contains("strip_prefix(b\"GET \")"));
+        assert!(source.contains("b\" HTTP/1.1\" | b\" HTTP/1.0\""));
+        assert!(!source.contains("PATCH"));
+        assert!(!source.contains("HTTP/1.11"));
+        assert!(!source.contains("%7e"));
+    }
+
+    #[test]
+    fn propfind_longer_version_and_encoded_asterisk_stay_outside_the_matcher() {
+        let service = crate::admit(include_str!("../fixtures/ping.gservice")).expect("fixture");
+        let source = emit_source(&service);
+        assert!(source.contains("strip_prefix(b\"GET \")"));
+        assert!(source.contains("b\" HTTP/1.1\" | b\" HTTP/1.0\""));
+        assert!(!source.contains("PROPFIND"));
+        assert!(!source.contains("HTTP/1.12"));
+        assert!(!source.contains("%2a"));
+    }
+
+    #[test]
+    fn mkcol_extended_version_and_uppercase_asterisk_stay_outside_the_matcher() {
+        let service = crate::admit(include_str!("../fixtures/ping.gservice")).expect("fixture");
+        let source = emit_source(&service);
+        assert!(source.contains("strip_prefix(b\"GET \")"));
+        assert!(source.contains("b\" HTTP/1.1\" | b\" HTTP/1.0\""));
+        assert!(!source.contains("MKCOL"));
+        assert!(!source.contains("HTTP/1.13"));
+        assert!(!source.contains("%2A"));
+    }
+
+    #[test]
+    fn copy_further_version_and_encoded_plus_stay_outside_the_matcher() {
+        let service = crate::admit(include_str!("../fixtures/ping.gservice")).expect("fixture");
+        let source = emit_source(&service);
+        assert!(source.contains("strip_prefix(b\"GET \")"));
+        assert!(source.contains("b\" HTTP/1.1\" | b\" HTTP/1.0\""));
+        assert!(!source.contains("COPY"));
+        assert!(!source.contains("HTTP/1.14"));
+        assert!(!source.contains("%2B"));
+    }
+
+    #[test]
+    fn move_later_version_and_encoded_comma_stay_outside_the_matcher() {
+        let service = crate::admit(include_str!("../fixtures/ping.gservice")).expect("fixture");
+        let source = emit_source(&service);
+        assert!(source.contains("strip_prefix(b\"GET \")"));
+        assert!(source.contains("b\" HTTP/1.1\" | b\" HTTP/1.0\""));
+        assert!(!source.contains("MOVE"));
+        assert!(!source.contains("HTTP/1.15"));
+        assert!(!source.contains("%2C"));
+    }
+
+    #[test]
+    fn lock_following_version_and_encoded_hyphen_stay_outside_the_matcher() {
+        let service = crate::admit(include_str!("../fixtures/ping.gservice")).expect("fixture");
+        let source = emit_source(&service);
+        assert!(source.contains("strip_prefix(b\"GET \")"));
+        assert!(source.contains("b\" HTTP/1.1\" | b\" HTTP/1.0\""));
+        assert!(!source.contains("LOCK"));
+        assert!(!source.contains("HTTP/1.16"));
+        assert!(!source.contains("%2D"));
+    }
+
+    #[test]
+    fn unlock_next_version_and_encoded_zero_stay_outside_the_matcher() {
+        let service = crate::admit(include_str!("../fixtures/ping.gservice")).expect("fixture");
+        let source = emit_source(&service);
+        assert!(source.contains("strip_prefix(b\"GET \")"));
+        assert!(source.contains("b\" HTTP/1.1\" | b\" HTTP/1.0\""));
+        assert!(!source.contains("UNLOCK"));
+        assert!(!source.contains("HTTP/1.17"));
+        assert!(!source.contains("%30"));
     }
 
     fn response_bytes(status: u16, reason: &str, body: &[u8]) -> Vec<u8> {
