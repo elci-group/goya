@@ -87,6 +87,11 @@ pub fn start(dir: &Path) -> Result<StartReport, Failure> {
     let unknown = exchange_inside(observed.pid, checked.port, "/no-such");
     let admitted = exchange_inside(observed.pid, checked.port, &checked.path);
     let isolated = host_port_closed(checked.port);
+    let listeners = if admitted.is_ok() {
+        namespace_listeners(observed.pid, checked.port)
+    } else {
+        Ok(())
+    };
     drop(stop);
     let stderr_text = fs::read_to_string(&stderr_path).unwrap_or_default();
     let unknown = match unknown {
@@ -140,6 +145,9 @@ pub fn start(dir: &Path) -> Result<StartReport, Failure> {
         ));
     }
     if let Err(detail) = isolated {
+        return Ok(failed(detail, &stderr_text));
+    }
+    if let Err(detail) = listeners {
         return Ok(failed(detail, &stderr_text));
     }
     let user_applied = user_is_image_user && observed.image_uid;
@@ -350,6 +358,62 @@ fn host_port_closed(port: u16) -> Result<(), String> {
         Ok(_) => Err("admitted port answered on the host network".to_string()),
         Err(error) => Err(format!("host port check failed: {error}")),
     }
+}
+
+fn namespace_listeners(pid: u32, port: u16) -> Result<(), String> {
+    let tcp = fs::read_to_string(format!("/proc/{pid}/net/tcp"))
+        .map_err(|_| "cannot read listener table".to_string())?;
+    loopback_listen(&tcp, port)?;
+    match fs::read_to_string(format!("/proc/{pid}/net/tcp6")) {
+        Ok(tcp6) => reject_ipv6_listen(&tcp6, port),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
+        Err(_) => Err("cannot read listener table".to_string()),
+    }
+}
+
+pub(crate) fn loopback_listen(tcp: &str, port: u16) -> Result<(), String> {
+    let port_hex = format!("{port:04X}");
+    let loopback = format!("0100007F:{port_hex}");
+    let wildcard = format!("00000000:{port_hex}");
+    let mut saw_loopback = false;
+    for line in tcp.lines().skip(1) {
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        if fields.len() < 4 || !fields[3].eq_ignore_ascii_case("0A") {
+            continue;
+        }
+        if fields[1].eq_ignore_ascii_case(&wildcard) {
+            return Err("service listens on every interface".to_string());
+        }
+        if fields[1].eq_ignore_ascii_case(&loopback) {
+            saw_loopback = true;
+        }
+    }
+    if saw_loopback {
+        Ok(())
+    } else {
+        Err("service is not listening on 127.0.0.1".to_string())
+    }
+}
+
+pub(crate) fn reject_ipv6_listen(tcp6: &str, port: u16) -> Result<(), String> {
+    let suffix = format!(":{port:04X}");
+    for line in tcp6.lines().skip(1) {
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        if fields.len() < 4 || !fields[3].eq_ignore_ascii_case("0A") {
+            continue;
+        }
+        if ends_with_ignore_ascii_case(fields[1], &suffix) {
+            return Err("service listens on ipv6".to_string());
+        }
+    }
+    Ok(())
+}
+
+fn ends_with_ignore_ascii_case(value: &str, suffix: &str) -> bool {
+    let Some(tail) = value.get(value.len().saturating_sub(suffix.len())..) else {
+        return false;
+    };
+    tail.len() == suffix.len() && tail.eq_ignore_ascii_case(suffix)
 }
 
 const AF_INET: i32 = 2;
@@ -724,5 +788,64 @@ mod tests {
         assert_eq!(cpu_limit("10000 100000\n"), "10000/100000");
         assert_eq!(memory_limit("max\n"), "unset");
         assert_eq!(memory_limit("33554432\n"), "33554432");
+    }
+
+    #[test]
+    fn loopback_listen_reads_small_tables() {
+        let header = "sl local_address rem_address st\n";
+        let listen = format!("{header}0: 0100007F:0050 00000000:0000 0A\n");
+        assert_eq!(loopback_listen(&listen, 80), Ok(()));
+        let lower = format!("{header}0: 0100007f:1f90 00000000:0000 0a\n");
+        assert_eq!(loopback_listen(&lower, 8080), Ok(()));
+        let other_port = format!(
+            "{header}0: 00000000:01BB 00000000:0000 0A\n1: 0100007F:0050 00000000:0000 0A\n"
+        );
+        assert_eq!(loopback_listen(&other_port, 80), Ok(()));
+        let established = format!("{header}0: 0100007F:0050 00000000:0000 01\n");
+        assert_eq!(
+            loopback_listen(&established, 80),
+            Err("service is not listening on 127.0.0.1".to_string())
+        );
+        assert_eq!(
+            loopback_listen(header, 80),
+            Err("service is not listening on 127.0.0.1".to_string())
+        );
+        let wildcard = format!("{header}0: 00000000:0050 00000000:0000 0A\n");
+        assert_eq!(
+            loopback_listen(&wildcard, 80),
+            Err("service listens on every interface".to_string())
+        );
+        let both = format!(
+            "{header}0: 0100007F:0050 00000000:0000 0A\n1: 00000000:0050 00000000:0000 0a\n"
+        );
+        assert_eq!(
+            loopback_listen(&both, 80),
+            Err("service listens on every interface".to_string())
+        );
+        let closed_wildcard = format!(
+            "{header}0: 00000000:0050 00000000:0000 01\n1: 0100007F:0050 00000000:0000 0A\n"
+        );
+        assert_eq!(loopback_listen(&closed_wildcard, 80), Ok(()));
+
+        let ipv6 = format!(
+            "{header}0: 00000000000000000000000000000000:0050 00000000000000000000000000000000:0000 0A\n"
+        );
+        assert_eq!(
+            reject_ipv6_listen(&ipv6, 80),
+            Err("service listens on ipv6".to_string())
+        );
+        let mapped = format!(
+            "{header}0: 0000000000000000FFFF00000100007F:01BB 00000000000000000000000000000000:0000 0a\n"
+        );
+        assert_eq!(
+            reject_ipv6_listen(&mapped, 443),
+            Err("service listens on ipv6".to_string())
+        );
+        assert_eq!(reject_ipv6_listen(&ipv6, 443), Ok(()));
+        let established_v6 = format!(
+            "{header}0: 00000000000000000000000000000000:0050 00000000000000000000000000000000:0000 01\n"
+        );
+        assert_eq!(reject_ipv6_listen(&established_v6, 80), Ok(()));
+        assert_eq!(reject_ipv6_listen("", 80), Ok(()));
     }
 }

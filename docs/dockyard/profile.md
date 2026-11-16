@@ -1,5 +1,9 @@
 # Dockyard profile `dockyard.linux.http/0.0.1`
 
+![Dockyard mark. An engraving of a dock superintendent among cargo, papers, and barrels.](../../assets/Dockyard-logo.jpeg)
+
+This engraving is the Dockyard mark, stored at `assets/Dockyard-logo.jpeg`. It identifies the Dockyard documents. `build` does not copy it into the executable or the image layer.
+
 Dockyard compiles one admitted HTTP service to a static Linux executable and an OCI image layout. It does not admit a `.gscene` file. `build` and `verify` do not start a container. `start` runs an existing layout when `runc` is already on `PATH`.
 
 The target is `x86_64-unknown-linux-gnu` linked with `crt-static`. That produces a static-pie ELF on a host that already has this standard library. Dockyard does not download a target, a base image, or a toolchain. `x86_64-unknown-linux-musl`, ARM, 32-bit, and Windows triples are rejected.
@@ -16,7 +20,7 @@ dockyard start NEW_DIR
 
 ## Admitted source
 
-Exactly four lines, in this order. A final newline is optional. Blank lines, comments, CR, and NUL are rejected.
+Exactly four lines, in this order. A final newline is optional. Blank lines, comments, CR, and NUL are rejected. A source longer than 4096 bytes returns `DK-E0001`. An embedded NUL, an embedded CR, and a leading U+FEFF return `DK-E0002`. Five lines return `DK-E0003`. A blank line and a `#` comment line return `DK-E0005`. `listen` before `service` returns `DK-E0010`. A tab between `service` and the name returns `DK-E0005`.
 
 ```text
 service ping
@@ -51,9 +55,9 @@ NEW_DIR/evidence/provenance.json
 
 The response body is the service contract, so it is present in the executable. Source statements, secrets, and evidence are not copied into the layer. There is no secret syntax to embed.
 
-`verify` checks layout digests, the non-root layer, and the report. It then starts the layer bytes. An unknown path returns `404` and `not found`. The admitted `GET` returns `200`, `text/plain`, and the body named by the image label, for both `HTTP/1.0` and `HTTP/1.1`. The status line is `HTTP/1.1` and the response includes `connection: close`. On the fixture, `POST /health`, `GET /health?x`, and `GET /healthx` each returned `404` and `not found`. That process check leaves `image-start: BLOCKED` and exits 3.
+`verify` checks layout digests, the non-root layer, and the report. It then starts the layer bytes. The executable binds `127.0.0.1` and the admitted port. After the process accepts a connection, `verify` reads `/proc/<pid>/net/tcp` and requires a `LISTEN` entry for that port on `127.0.0.1` (`0100007F`). A `LISTEN` entry for that port on `0.0.0.0` fails the check. The process reads a request until the header terminator before it writes a response. `verify` requires the header block to be exactly `HTTP/1.1 200 OK` or `HTTP/1.1 404 Not Found`, then `content-type: text/plain`, `content-length` set to the body length, then `connection: close`. The status line appears once. An unknown path returns `404` and `not found`. The admitted `GET` returns `200`, `text/plain`, and the body named by the image label, for both `HTTP/1.0` and `HTTP/1.1`. On the fixture, `POST /health`, `GET /health?x`, `GET /healthx`, `HEAD /health`, `GET /health HTTP/1.2`, and `GET http://127.0.0.1:39171/health HTTP/1.1` each returned `404` and `not found`. When `/proc/<pid>/net/tcp6` exists, a `LISTEN` row for the admitted port fails the check. On this host the file existed and that row was absent. That process check leaves `image-start: BLOCKED` and exits 3.
 
-`start` reads the same layout and does not write into it. A missing or rejected layout exits 4 with `DK-E4001`. When `runc` cannot be executed, `start` exits 3 and prints `image-start: BLOCKED` with the detail `runc is unavailable. Dockyard does not install a runtime.` Dockyard does not start a Docker daemon. When `runc` is present, the command extracts the layer executable into a bundle and runs `/srv/dockyard/service` in a new network namespace, with an empty capability set, a read-only root, and `RLIMIT_NOFILE` 1024. Loopback is the only interface. The unknown path and the admitted path are requested inside that namespace. While the process is running, a connection to the admitted port on the host is refused. On this unprivileged host, `runc` accepts only a mapping that covers container uid 0, and the caller can map one uid. The process therefore runs as container uid 0 mapped to the caller. The recorded result exits 3:
+`start` reads the same layout and does not write into it. A missing or rejected layout exits 4 with `DK-E4001`. When `runc` cannot be executed, `start` exits 3 and prints `image-start: BLOCKED` with the detail `runc is unavailable. Dockyard does not install a runtime.` Dockyard does not start a Docker daemon. When `runc` is present, the command extracts the layer executable into a bundle and runs `/srv/dockyard/service` in a new network namespace, with an empty capability set, a read-only root, and `RLIMIT_NOFILE` 1024. The executable binds `127.0.0.1`. Loopback is the only interface. The unknown path and the admitted path are requested inside that namespace. While the process is running, a connection to the admitted port on the host is refused. After the admitted route answered, `start` read the container network namespace listener table. It required a `LISTEN` entry for the admitted port on `127.0.0.1` and rejected a `LISTEN` entry on `0.0.0.0` or in `tcp6`. On this host that check passed. On this unprivileged host, `runc` accepts only a mapping that covers container uid 0, and the caller can map one uid. The process therefore runs as container uid 0 mapped to the caller. The recorded result exits 3:
 
 ```text
 image-start: pass

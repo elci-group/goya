@@ -418,4 +418,85 @@ mod tests {
         );
         assert_eq!(admit(&source).expect_err("32").code, "DK-E0006");
     }
+
+    #[test]
+    fn source_longer_than_4096_is_rejected() {
+        let over = "a".repeat(4097);
+        assert_eq!(over.len(), 4097);
+        assert_eq!(admit(&over).expect_err("4097").code, "DK-E0001");
+    }
+
+    #[test]
+    fn nul_and_cr_in_the_fixture_are_rejected() {
+        let at = ping().find("ping").expect("name") + 2;
+        let mut nul = ping().to_string();
+        nul.insert(at, '\0');
+        assert_eq!(admit(&nul).expect_err("nul").code, "DK-E0002");
+        let mut cr = ping().to_string();
+        cr.insert(at, '\r');
+        assert_eq!(admit(&cr).expect_err("cr").code, "DK-E0002");
+    }
+
+    #[test]
+    fn leading_bom_is_rejected() {
+        let source = format!("\u{feff}{}", ping());
+        assert_eq!(admit(&source).expect_err("bom").code, "DK-E0002");
+    }
+
+    #[test]
+    fn five_lines_are_rejected() {
+        let mut lines: Vec<_> = ping().lines().map(str::to_string).collect();
+        lines.push("extra".to_string());
+        assert_eq!(lines.len(), 5);
+        let source = format!("{}\n", lines.join("\n"));
+        assert_eq!(admit(&source).expect_err("five").code, "DK-E0003");
+    }
+
+    #[test]
+    fn blank_line_and_comment_are_unknown_statements() {
+        // Keyword check runs before strict_split, so these are not DK-E0004.
+        let blank = "service ping\n\nroute GET /health\nrespond 200 text/plain \"ok\"\n";
+        assert_eq!(admit(blank).expect_err("blank").code, "DK-E0005");
+        let comment = "service ping\n# comment\nroute GET /health\nrespond 200 text/plain \"ok\"\n";
+        assert_eq!(admit(comment).expect_err("comment").code, "DK-E0005");
+    }
+
+    #[test]
+    fn listen_before_service_is_out_of_order() {
+        let source =
+            "listen 39171\nservice ping\nroute GET /health\nrespond 200 text/plain \"ok\"\n";
+        assert_eq!(admit(source).expect_err("order").code, "DK-E0010");
+    }
+
+    #[test]
+    fn rejected_service_names() {
+        for name in ["Ping", "ping-", "a--b", "9ping"] {
+            let source = format!(
+                "service {name}\nlisten 39171\nroute GET /health\nrespond 200 text/plain \"ok\"\n"
+            );
+            assert_eq!(admit(&source).expect_err(name).code, "DK-E0006", "{name}");
+        }
+    }
+
+    #[test]
+    fn rejected_routes_and_root_path() {
+        for route in [
+            "route GET /health/",
+            "route GET //health",
+            "route GET /./health",
+        ] {
+            let source =
+                format!("service ping\nlisten 39171\n{route}\nrespond 200 text/plain \"ok\"\n");
+            assert_eq!(admit(&source).expect_err(route).code, "DK-E0008", "{route}");
+        }
+        let source = "service ping\nlisten 39171\nroute GET /\nrespond 200 text/plain \"ok\"\n";
+        assert_eq!(admit(source).expect("root").path, "/");
+    }
+
+    #[test]
+    fn tab_between_service_and_name_is_rejected() {
+        let source =
+            "service\tping\nlisten 39171\nroute GET /health\nrespond 200 text/plain \"ok\"\n";
+        assert_eq!(admit(source).expect_err("tab").code, "DK-E0005");
+    }
 }

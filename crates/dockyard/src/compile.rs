@@ -267,7 +267,7 @@ use std::time::Duration;
 
 const EMIT_TAIL: &str = r#"
 fn main() {
-    let listener = match TcpListener::bind(format!("0.0.0.0:{PORT}")) {
+    let listener = match TcpListener::bind(format!("127.0.0.1:{PORT}")) {
         Ok(listener) => listener,
         Err(error) => {
             eprintln!("dockyard-service: bind failed: {error}");
@@ -295,7 +295,7 @@ fn respond(stream: &mut TcpStream) -> std::io::Result<()> {
             Ok(0) => break,
             Ok(count) => {
                 filled += count;
-                if buffer[..filled].windows(2).any(|pair| pair == b"\r\n") {
+                if header_end(&buffer[..filled]).is_some() {
                     break;
                 }
             }
@@ -303,16 +303,23 @@ fn respond(stream: &mut TcpStream) -> std::io::Result<()> {
             Err(_) => return Ok(()),
         }
     }
-    let line_end = buffer[..filled]
+    let Some(head_end) = header_end(&buffer[..filled]) else {
+        return Ok(());
+    };
+    let head = &buffer[..head_end];
+    let line_end = head
         .windows(2)
         .position(|pair| pair == b"\r\n")
-        .unwrap_or(filled);
-    let line = &buffer[..line_end];
-    if request_matches(line) {
+        .unwrap_or(head.len());
+    if request_matches(&head[..line_end]) {
         write_response(stream, "200 OK", BODY)
     } else {
         write_response(stream, "404 Not Found", b"not found")
     }
+}
+
+fn header_end(bytes: &[u8]) -> Option<usize> {
+    bytes.windows(4).position(|window| window == b"\r\n\r\n")
 }
 
 fn request_matches(line: &[u8]) -> bool {
@@ -583,8 +590,11 @@ fn exercise(checked: &Checked) -> Result<(), String> {
         .stderr(Stdio::null())
         .spawn()
         .map_err(|error| format!("cannot start executable: {error}"))?;
+    let pid = child.id();
     let reap = Reap(Some(child));
     let missing = exchange_when_up(checked.port, "/no-such")?;
+    require_loopback_listener(pid, checked.port)?;
+    reject_ipv6_listener(pid, checked.port)?;
     if missing.status != 404 || missing.content_type != CONTENT_TYPE || missing.body != b"not found"
     {
         return Err(format!(
@@ -613,6 +623,15 @@ fn exercise(checked: &Checked) -> Result<(), String> {
         ("POST", format!("POST {} HTTP/1.1", checked.path)),
         ("query", format!("GET {}?x HTTP/1.1", checked.path)),
         ("prefix", format!("GET {}x HTTP/1.1", checked.path)),
+        ("HEAD", format!("HEAD {} HTTP/1.1", checked.path)),
+        ("version", format!("GET {} HTTP/1.2", checked.path)),
+        (
+            "absolute",
+            format!(
+                "GET http://127.0.0.1:{}{} HTTP/1.1",
+                checked.port, checked.path
+            ),
+        ),
     ] {
         let rejected = exchange_line(checked.port, &line)?;
         if rejected.status != 404
@@ -664,47 +683,111 @@ fn exchange_line(port: u16, request_line: &str) -> Result<Response, String> {
     stream
         .read_to_end(&mut bytes)
         .map_err(|error| format!("cannot read response: {error}"))?;
+    response_from_bytes(&bytes)
+}
+
+fn response_from_bytes(bytes: &[u8]) -> Result<Response, String> {
     let split = bytes
         .windows(4)
         .position(|window| window == b"\r\n\r\n")
         .ok_or_else(|| "response has no header terminator".to_string())?;
-    let header = std::str::from_utf8(&bytes[..split])
-        .map_err(|_| "response header is not utf-8".to_string())?;
-    let body = bytes[split + 4..].to_vec();
-    let status_line = header.lines().next().unwrap_or("");
-    let mut status_parts = status_line.split(' ');
-    if status_parts.next() != Some("HTTP/1.1") {
-        return Err(format!(
-            "response status line is not HTTP/1.1: {status_line}"
-        ));
-    }
-    let status = status_parts
-        .next()
-        .unwrap_or("")
-        .parse::<u16>()
-        .map_err(|_| format!("response status line is not admitted: {status_line}"))?;
-    if !header.lines().any(|line| line == "connection: close") {
-        return Err("response did not close the connection".to_string());
-    }
-    let content_type = header
-        .lines()
-        .find_map(|line| line.strip_prefix("content-type: "))
-        .unwrap_or("")
-        .to_string();
-    let length = header
-        .lines()
-        .find_map(|line| line.strip_prefix("content-length: "))
-        .unwrap_or("");
-    if length != body.len().to_string() {
-        return Err(format!(
-            "content-length {length} does not match {} body bytes",
-            body.len()
-        ));
+    let header = &bytes[..split];
+    let body = &bytes[split + 4..];
+    let Some((status, status_line)) = admitted_response_header(header, body.len()) else {
+        return Err("response header is not the admitted block".to_string());
+    };
+    if count_occurrences(bytes, status_line.as_bytes()) != 1 {
+        return Err("response status line is not unique".to_string());
     }
     Ok(Response {
         status,
-        content_type,
-        body,
+        content_type: CONTENT_TYPE.to_string(),
+        body: body.to_vec(),
+    })
+}
+
+fn admitted_response_header(header: &[u8], body_len: usize) -> Option<(u16, String)> {
+    for (status, reason) in [(200u16, "OK"), (404, "Not Found")] {
+        let status_line = format!("HTTP/1.1 {status} {reason}");
+        if header == exact_header(&status_line, body_len).as_bytes() {
+            return Some((status, status_line));
+        }
+    }
+    None
+}
+
+fn exact_header(status_line: &str, body_len: usize) -> String {
+    let mut header = String::new();
+    header.push_str(status_line);
+    header.push_str("\r\ncontent-type: ");
+    header.push_str(CONTENT_TYPE);
+    header.push_str("\r\ncontent-length: ");
+    header.push_str(&body_len.to_string());
+    header.push_str("\r\nconnection: close");
+    header
+}
+
+fn count_occurrences(haystack: &[u8], needle: &[u8]) -> usize {
+    if needle.is_empty() || haystack.len() < needle.len() {
+        return 0;
+    }
+    haystack
+        .windows(needle.len())
+        .filter(|window| *window == needle)
+        .count()
+}
+
+fn require_loopback_listener(pid: u32, port: u16) -> Result<(), String> {
+    let tcp = fs::read_to_string(format!("/proc/{pid}/net/tcp"))
+        .map_err(|error| format!("cannot read listener table: {error}"))?;
+    let port_hex = format!("{port:04X}");
+    let loopback = format!("0100007F:{port_hex}");
+    let wildcard = format!("00000000:{port_hex}");
+    let mut saw_loopback = false;
+    for line in tcp.lines().skip(1) {
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        if fields.len() < 4 || !fields[3].eq_ignore_ascii_case("0A") {
+            continue;
+        }
+        if fields[1].eq_ignore_ascii_case(&wildcard) {
+            return Err("service listens on every interface".to_string());
+        }
+        if fields[1].eq_ignore_ascii_case(&loopback) {
+            saw_loopback = true;
+        }
+    }
+    if saw_loopback {
+        Ok(())
+    } else {
+        Err("service is not listening on 127.0.0.1".to_string())
+    }
+}
+
+fn reject_ipv6_listener(pid: u32, port: u16) -> Result<(), String> {
+    let path = format!("/proc/{pid}/net/tcp6");
+    let table = match fs::read_to_string(&path) {
+        Ok(table) => table,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(format!("cannot read ipv6 listener table: {error}")),
+    };
+    reject_ipv6_table(&table, port)
+}
+
+fn reject_ipv6_table(table: &str, port: u16) -> Result<(), String> {
+    if tcp6_table_listens(table, port) {
+        Err("service listens on ipv6".to_string())
+    } else {
+        Ok(())
+    }
+}
+
+fn tcp6_table_listens(table: &str, port: u16) -> bool {
+    let suffix = format!(":{port:04X}");
+    table.lines().skip(1).any(|line| {
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        fields.len() >= 4
+            && fields[3].eq_ignore_ascii_case("0A")
+            && fields[1].to_ascii_uppercase().ends_with(&suffix)
     })
 }
 
@@ -1054,8 +1137,75 @@ mod tests {
         let source = emit_source(&service);
         assert!(source.contains("const PORT: u16 = 39171;"));
         assert!(source.contains("const PATH: &[u8] = b\"/health\";"));
+        assert!(source.contains("127.0.0.1:{PORT}"));
+        assert!(source.contains("b\"\\r\\n\\r\\n\""));
+        assert!(!source.contains("0.0.0.0"));
         assert!(source.contains("0x6f, 0x6b"));
         assert!(!source.contains("secret"));
         assert!(!source.contains("fn listen"));
+    }
+
+    #[test]
+    fn emitted_source_sends_connection_close_on_loopback() {
+        let service = crate::admit(include_str!("../fixtures/ping.gservice")).expect("fixture");
+        let source = emit_source(&service);
+        assert!(source.contains("connection: close"));
+        assert!(!source.contains("0.0.0.0"));
+    }
+
+    fn response_bytes(status: u16, reason: &str, body: &[u8]) -> Vec<u8> {
+        let mut bytes =
+            exact_header(&format!("HTTP/1.1 {status} {reason}"), body.len()).into_bytes();
+        bytes.extend_from_slice(b"\r\n\r\n");
+        bytes.extend_from_slice(body);
+        bytes
+    }
+
+    #[test]
+    fn response_header_block_is_exact_and_status_line_is_once() {
+        let admitted = response_from_bytes(&response_bytes(200, "OK", b"ok")).expect("200");
+        assert_eq!(admitted.status, 200);
+        assert_eq!(admitted.content_type, CONTENT_TYPE);
+        assert_eq!(admitted.body, b"ok");
+        let missing =
+            response_from_bytes(&response_bytes(404, "Not Found", b"not found")).expect("404");
+        assert_eq!(missing.status, 404);
+        assert_eq!(missing.body, b"not found");
+
+        let reordered = b"HTTP/1.1 200 OK\r\nconnection: close\r\ncontent-type: text/plain\r\ncontent-length: 2\r\n\r\nok";
+        let Err(reordered_error) = response_from_bytes(reordered) else {
+            panic!("reordered header was accepted");
+        };
+        assert_eq!(reordered_error, "response header is not the admitted block");
+        let extra = b"HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\ncontent-length: 2\r\nconnection: close\r\nx-extra: 1\r\n\r\nok";
+        assert!(response_from_bytes(extra).is_err());
+        let bare = b"HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\ncontent-length: 2\r\n\r\nok";
+        assert!(response_from_bytes(bare).is_err());
+        let Err(duplicated) = response_from_bytes(&response_bytes(200, "OK", b"HTTP/1.1 200 OK"))
+        else {
+            panic!("duplicated status line was accepted");
+        };
+        assert_eq!(duplicated, "response status line is not unique");
+    }
+
+    #[test]
+    fn tcp6_listen_row_for_the_port_is_rejected() {
+        let port = 39171u16;
+        let hex = format!("{port:04X}");
+        let listen = format!(
+            "  sl  local_address remote_address st tx_queue rx_queue\n   0: 00000000000000000000000000000000:{hex} 00000000000000000000000000000000:0000 0A 00000000:00000000\n"
+        );
+        assert_eq!(
+            reject_ipv6_table(&listen, port).expect_err("ipv6 listen"),
+            "service listens on ipv6"
+        );
+        assert!(tcp6_table_listens(&listen.to_ascii_lowercase(), port));
+        assert!(!tcp6_table_listens(&listen.replace(&hex, "0001"), port));
+        assert!(!tcp6_table_listens(&listen.replace(" 0A ", " 01 "), port));
+        let remote_only = format!(
+            "  sl  local_address remote_address st\n   0: 00000000000000000000000000000000:0001 00000000000000000000000000000000:{hex} 0A\n"
+        );
+        assert!(!tcp6_table_listens(&remote_only, port));
+        assert!(reject_ipv6_listener(u32::MAX, port).is_ok());
     }
 }

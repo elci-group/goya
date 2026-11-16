@@ -1,5 +1,9 @@
 # Dockyard gap ledger
 
+![Dockyard mark. An engraving of a dock superintendent among cargo, papers, and barrels.](../../assets/Dockyard-logo.jpeg)
+
+This engraving is the Dockyard mark, stored at `assets/Dockyard-logo.jpeg`. It identifies the Dockyard documents. `build` does not copy it into the executable or the image layer.
+
 Profile `dockyard.linux.http/0.0.1` is the only admitted compiler input. A row stays open until a later profile names it and a test records the result.
 
 | Gap | Current gate | What remains |
@@ -12,6 +16,7 @@ Profile `dockyard.linux.http/0.0.1` is the only admitted compiler input. A row s
 | Secrets | A `secret` statement returns `DK-E0101`. The layer is checked for the absence of source statements. | Runtime injection is not representable in this profile. |
 | SBOM and unsigned provenance | `build` writes `evidence/sbom.spdx.json` and `evidence/provenance.json`. The SBOM is SPDX 2.3 and checksums the one executable. The predicate sets `signature` to null. Two builds of the fixture matched, the layer contained neither document, and `verify` rejected a changed document with exit 4 and `DK-E4001`. | A signed attestation is not written. |
 | Closed layout | `verify` accepts `service`, `oci-layout`, `index.json`, the three blobs named by the index, and `evidence/report.txt`, `evidence/sbom.spdx.json`, and `evidence/provenance.json`. A planted `evidence/kubernetes.yaml`, an extra blob, and a symlink each exited 4 with `DK-E4001`. The messages were `layout is not the closed profile set` and `layout contains a symlink`. | The closed set is not a Kubernetes admission. |
-| Request match | `verify` on the fixture served `GET /health` for `HTTP/1.0` and `HTTP/1.1` with the admitted body. The status line was `HTTP/1.1` and the response included `connection: close`. `POST /health`, `GET /health?x`, and `GET /healthx` each returned `404` and `not found`. | This check runs the layer bytes as the invoking user. It does not change runtime qualification. |
+| Request match | `verify` on the fixture served `GET /health` for `HTTP/1.0` and `HTTP/1.1` with the admitted body. The header block was exactly the `HTTP/1.1` status line, `content-type: text/plain`, `content-length` equal to the body, and `connection: close`, and that status line appeared once. `POST /health`, `GET /health?x`, `GET /healthx`, `HEAD /health`, `GET /health HTTP/1.2`, and `GET http://127.0.0.1:39171/health HTTP/1.1` each returned `404` and `not found` with the same header shape. The process reads until the header terminator before it answers. | This check runs the layer bytes as the invoking user. It does not change runtime qualification. |
+| Loopback listen | `verify` on the fixture recorded a `LISTEN` socket for port 39171 on `127.0.0.1`, no `LISTEN` socket for that port on `0.0.0.0`, and no `LISTEN` row for that port in `tcp6`. `start` then read the container network namespace table and recorded the same loopback listener. The command still exited 3. | This check does not apply image user 65532 and does not change runtime qualification. |
 | Kubernetes | No manifest is written. | A manifest is a later artifact. This host has not applied a securityContext. |
 | Release | `--release` returns `DK-E0202`. | Release admission needs a signed publication policy. |
