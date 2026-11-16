@@ -6,7 +6,7 @@
 
 use std::fmt;
 
-pub const CONTRACT: &str = "goya.compute.work_queue.v1";
+pub const CONTRACT: &str = "goya.compute.work_queue.bounded_process_local.v1";
 pub const RECIPE_VERSION: &str = "0.0.1";
 pub const MAX_CAPACITY: usize = 1_000_000;
 

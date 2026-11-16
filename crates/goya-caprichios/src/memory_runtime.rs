@@ -10,7 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::sync::{Arc, Weak};
 
-pub const CONTRACT: &str = "goya.memory.buffers.v1";
+pub const CONTRACT: &str = "goya.memory.buffers.process_local.v1";
 pub const RECIPE_VERSION: &str = "0.0.1";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

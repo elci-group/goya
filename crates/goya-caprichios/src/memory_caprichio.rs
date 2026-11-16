@@ -7,7 +7,7 @@
 
 use std::fmt;
 
-pub const CONTRACT: &str = "goya.memory.buffers.v1";
+pub const CONTRACT: &str = "goya.memory.buffers.process_local.v1";
 pub const RECIPE: &str = "rust-process-local-memory";
 pub const RECIPE_VERSION: &str = "0.0.1";
 
@@ -262,7 +262,7 @@ mod tests {
     #[test]
     fn canonical_form_is_stable_and_records_all_limits() {
         let ir = declaration().normalize().unwrap();
-        let expected = "contract=goya.memory.buffers.v1\nmax_total_bytes=1048576\nmax_buffer_bytes=65536\nmax_buffers=32\nmax_owners=8\nshared_across_processes=false\npersistent=false\nhardware_backed=false\nzero_copy=false\n";
+        let expected = "contract=goya.memory.buffers.process_local.v1\nmax_total_bytes=1048576\nmax_buffer_bytes=65536\nmax_buffers=32\nmax_owners=8\nshared_across_processes=false\npersistent=false\nhardware_backed=false\nzero_copy=false\n";
         assert_eq!(ir.canonical(), expected);
         assert_eq!(ir, declaration().normalize().unwrap());
         let mut changed = declaration();

@@ -31,6 +31,10 @@ use crate::filesystem_caprichio::{
 use crate::http_caprichio::{
     HttpArtifact, HttpDeclaration, RuntimeCapabilities as HttpRuntime, Target as HttpTarget,
 };
+use crate::input_validation_caprichio::{
+    Artifact as InputValidationArtifact, Declaration as InputValidationDeclaration,
+    HostProfile as InputValidationHost, Target as InputValidationTarget,
+};
 use crate::memory_caprichio::{
     MemoryArtifact, MemoryDeclaration, RuntimeCapabilities as MemoryRuntime, Target as MemoryTarget,
 };
@@ -82,6 +86,7 @@ pub struct Request {
     pub csv: Option<CsvDeclaration>,
     pub priority: Option<PriorityDeclaration>,
     pub parallelism: Option<ParallelismDeclaration>,
+    pub input_validation: Option<InputValidationDeclaration>,
 }
 
 /// Host facts are supplied by the caller; the registry does not infer support
@@ -120,6 +125,8 @@ pub struct HostProfile {
     pub priority_host: PriorityHost,
     pub parallelism_target: ParallelismTarget,
     pub parallelism_runtime: ParallelismRuntime,
+    pub input_validation_target: InputValidationTarget,
+    pub input_validation_host: InputValidationHost,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -141,6 +148,7 @@ pub enum Artifact {
     Csv(CsvArtifact),
     Priority(PriorityArtifact),
     Parallelism(ParallelismArtifact),
+    InputValidation(InputValidationArtifact),
 }
 
 impl Artifact {
@@ -163,6 +171,7 @@ impl Artifact {
             Self::Csv(a) => a.contract,
             Self::Priority(a) => a.contract,
             Self::Parallelism(a) => a.contract,
+            Self::InputValidation(a) => a.contract,
         }
     }
 
@@ -185,6 +194,7 @@ impl Artifact {
             Self::Csv(a) => a.recipe,
             Self::Priority(a) => a.recipe,
             Self::Parallelism(_) => "bounded-process-local-parallel-executor",
+            Self::InputValidation(a) => a.recipe,
         }
     }
 
@@ -207,6 +217,7 @@ impl Artifact {
             Self::Csv(a) => a.recipe_version,
             Self::Priority(a) => a.recipe_version,
             Self::Parallelism(a) => a.recipe_version,
+            Self::InputValidation(a) => a.recipe_version,
         }
     }
 
@@ -229,6 +240,7 @@ impl Artifact {
             Self::Csv(a) => &a.canonical_ir,
             Self::Priority(a) => &a.canonical_ir,
             Self::Parallelism(a) => &a.canonical_ir,
+            Self::InputValidation(a) => &a.canonical_ir,
         }
     }
 
@@ -251,6 +263,7 @@ impl Artifact {
             Self::Csv(a) => &a.source,
             Self::Priority(a) => &a.source,
             Self::Parallelism(a) => &a.source,
+            Self::InputValidation(a) => &a.source,
         }
     }
 }
@@ -278,6 +291,7 @@ pub const fn supported_contracts() -> &'static [&'static str] {
         crate::csv_caprichio::CONTRACT,
         crate::stream_caprichio::CONTRACT,
         crate::filesystem_caprichio::CONTRACT,
+        crate::input_validation_caprichio::CONTRACT,
         crate::memory_caprichio::CONTRACT,
         crate::CONTRACT,
         crate::http_caprichio::CONTRACT,
@@ -309,6 +323,7 @@ pub enum NegotiationError {
     Csv(crate::csv_caprichio::Diagnostic),
     Priority(crate::priority_caprichio::Diagnostic),
     Parallelism(crate::parallelism_caprichio::Diagnostic),
+    InputValidation(crate::input_validation_caprichio::Diagnostic),
 }
 
 impl fmt::Display for NegotiationError {
@@ -345,6 +360,9 @@ impl fmt::Display for NegotiationError {
             Self::Csv(error) => write!(f, "CSV negotiation failed: {error}"),
             Self::Priority(error) => write!(f, "priority queue negotiation failed: {error}"),
             Self::Parallelism(error) => write!(f, "parallelism negotiation failed: {error}"),
+            Self::InputValidation(error) => {
+                write!(f, "input validation negotiation failed: {error}")
+            }
         }
     }
 }
@@ -384,6 +402,7 @@ pub fn negotiate(
             && *id != crate::csv_caprichio::CONTRACT
             && *id != crate::priority_caprichio::CONTRACT
             && *id != crate::parallelism_caprichio::CONTRACT
+            && *id != crate::input_validation_caprichio::CONTRACT
         {
             if catalog::find(id).is_some() {
                 return Err(NegotiationError::UnsupportedCapability((*id).to_owned()));
@@ -409,6 +428,7 @@ pub fn negotiate(
     let needs_csv = ordered.contains(crate::csv_caprichio::CONTRACT);
     let needs_priority = ordered.contains(crate::priority_caprichio::CONTRACT);
     let needs_parallelism = ordered.contains(crate::parallelism_caprichio::CONTRACT);
+    let needs_input_validation = ordered.contains(crate::input_validation_caprichio::CONTRACT);
     if request.network.is_some() && !needs_network {
         return Err(NegotiationError::UnexpectedDeclaration { kind: "network" });
     }
@@ -462,6 +482,11 @@ pub fn negotiate(
     if request.parallelism.is_some() && !needs_parallelism {
         return Err(NegotiationError::UnexpectedDeclaration {
             kind: "parallelism",
+        });
+    }
+    if request.input_validation.is_some() && !needs_input_validation {
+        return Err(NegotiationError::UnexpectedDeclaration {
+            kind: "input_validation",
         });
     }
 
@@ -686,6 +711,23 @@ pub fn negotiate(
                         .map_err(NegotiationError::Parallelism)?,
                 )
             }
+            crate::input_validation_caprichio::CONTRACT => {
+                let declaration = request.input_validation.clone().ok_or(
+                    NegotiationError::MissingDeclaration {
+                        capability: crate::input_validation_caprichio::CONTRACT,
+                    },
+                )?;
+                let ir = declaration
+                    .normalize()
+                    .map_err(NegotiationError::InputValidation)?;
+                Artifact::InputValidation(
+                    ir.lower_checked(
+                        host.input_validation_target,
+                        host.input_validation_host,
+                    )
+                    .map_err(NegotiationError::InputValidation)?,
+                )
+            }
             _ => unreachable!("request IDs validated before lowering"),
         };
         let id = match artifact {
@@ -706,6 +748,7 @@ pub fn negotiate(
             Artifact::Csv(_) => crate::csv_caprichio::CONTRACT,
             Artifact::Priority(_) => crate::priority_caprichio::CONTRACT,
             Artifact::Parallelism(_) => crate::parallelism_caprichio::CONTRACT,
+            Artifact::InputValidation(_) => crate::input_validation_caprichio::CONTRACT,
         };
         result.push(NegotiatedCapability { id, artifact });
     }
@@ -814,6 +857,12 @@ mod tests {
                 standard_threads: true,
                 panic_unwind: true,
                 target_pointer_width_bits: usize::BITS as u8,
+            },
+            input_validation_target: InputValidationTarget::ProcessLocalRust,
+            input_validation_host: InputValidationHost {
+                pointer_width_bits: usize::BITS as u8,
+                standard_library: true,
+                utf8_strings: true,
             },
         }
     }
@@ -939,6 +988,14 @@ mod tests {
         }
     }
 
+    fn input_validation() -> InputValidationDeclaration {
+        InputValidationDeclaration {
+            min_bytes: 1,
+            max_bytes: 16,
+            allowed: crate::input_validation_caprichio::AllowedAscii::Digits,
+        }
+    }
+
     #[test]
     fn mixed_request_is_sorted_and_artifacts_keep_contract_identity() {
         let request = Request {
@@ -973,6 +1030,7 @@ mod tests {
             csv: None,
             priority: None,
             parallelism: None,
+            input_validation: None,
         };
         let result = negotiate(&request, host()).unwrap();
         assert_eq!(
@@ -1079,16 +1137,17 @@ mod tests {
                 "goya.compute.deadline.cooperative_process_local.v1",
                 "goya.compute.parallelism.process_local_rust.v1",
                 "goya.compute.priority_queue.process_local.v1",
-                "goya.compute.progress.v1",
-                "goya.compute.retry_policy.v1",
-                "goya.compute.work_queue.v1",
+                "goya.compute.progress.fixed_total_process_local.v1",
+                "goya.compute.retry_policy.bounded_process_local.v1",
+                "goya.compute.work_queue.bounded_process_local.v1",
                 "goya.data.binary_envelope.v1",
                 "goya.data.checksum.fnv1a64.v1",
                 "goya.data.compression.rle.v1",
                 "goya.data.csv.bounded_crlf.v1",
                 "goya.data.stream.process_local_bounded.v1",
                 "goya.filesystem.read_file.v1",
-                "goya.memory.buffers.v1",
+                "goya.input.ascii_set_validation.process_local.v1",
+                "goya.memory.buffers.process_local.v1",
                 "goya.network.fetch.v1",
                 "goya.network.http.browser_fetch_cors_limited.v1",
                 "goya.storage.kv.v1",
@@ -1096,6 +1155,11 @@ mod tests {
         );
         for definition in catalog::definitions() {
             assert!(!supported_contracts().contains(&definition.id));
+            let proposed = definition.proposed_contract();
+            assert!(
+                !supported_contracts().contains(&proposed.as_str()),
+                "{proposed} collides with an implemented recipe"
+            );
         }
     }
 
@@ -1598,6 +1662,91 @@ mod tests {
     }
 
     #[test]
+    fn ascii_input_validation_registers_only_its_narrow_contract() {
+        let contract = crate::input_validation_caprichio::CONTRACT;
+        assert_eq!(contract, "goya.input.ascii_set_validation.process_local.v1");
+        assert!(supported_contracts().contains(&contract));
+        assert!(!supported_contracts().contains(&"security.input_validation"));
+        assert!(!supported_contracts().contains(&"goya.security.input_validation.v1"));
+        let request = Request {
+            capabilities: vec![
+                crate::filesystem_caprichio::CONTRACT.into(),
+                contract.into(),
+            ],
+            filesystem: Some(filesystem()),
+            input_validation: Some(input_validation()),
+            ..Request::default()
+        };
+        let negotiated = negotiate(&request, host()).unwrap();
+        assert_eq!(
+            negotiated.iter().map(|item| item.id).collect::<Vec<_>>(),
+            [crate::filesystem_caprichio::CONTRACT, contract]
+        );
+        let artifact = &negotiated[1].artifact;
+        assert_eq!(artifact.contract(), contract);
+        assert_eq!(
+            artifact.recipe(),
+            crate::input_validation_caprichio::RECIPE
+        );
+        assert_eq!(
+            artifact.recipe_version(),
+            crate::input_validation_caprichio::RECIPE_VERSION
+        );
+        assert!(artifact.canonical_ir().contains("security_claims=none\n"));
+        assert!(artifact.canonical_ir().contains("allowed_ascii_hex=30313233343536373839\n"));
+        assert!(artifact.source().contains("validate_text"));
+        assert!(artifact.source().contains("MIN_TEXT_BYTES: usize = 1usize"));
+        assert_eq!(negotiated, negotiate(&request, host()).unwrap());
+
+        let missing = Request {
+            capabilities: vec![contract.into()],
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&missing, host()),
+            Err(NegotiationError::MissingDeclaration {
+                capability: contract
+            })
+        );
+        let unexpected = Request {
+            input_validation: Some(input_validation()),
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&unexpected, host()),
+            Err(NegotiationError::UnexpectedDeclaration {
+                kind: "input_validation"
+            })
+        );
+        let mut unsupported_target = host();
+        unsupported_target.input_validation_target = InputValidationTarget::Browser;
+        assert_eq!(
+            negotiate(&request, unsupported_target),
+            Err(NegotiationError::InputValidation(
+                crate::input_validation_caprichio::Diagnostic::UnsupportedTarget
+            ))
+        );
+        let mut no_utf8 = host();
+        no_utf8.input_validation_host.utf8_strings = false;
+        assert_eq!(
+            negotiate(&request, no_utf8),
+            Err(NegotiationError::InputValidation(
+                crate::input_validation_caprichio::Diagnostic::MissingUtf8Strings
+            ))
+        );
+        let draft = Request {
+            capabilities: vec!["security.input_validation".into()],
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&draft, host()),
+            Err(NegotiationError::UnsupportedCapability(
+                "security.input_validation".into()
+            ))
+        );
+    }
+
+    #[test]
     fn rejects_duplicates_and_declaration_mismatches() {
         let duplicate = Request {
             capabilities: vec![crate::CONTRACT.into(), crate::CONTRACT.into()],
@@ -1990,6 +2139,7 @@ mod tests {
             csv: None,
             priority: Some(priority()),
             parallelism: None,
+            input_validation: None,
         };
         let start = Instant::now();
         let iterations = 10_000;

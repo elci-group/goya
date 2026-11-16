@@ -203,7 +203,7 @@ pub const DEFINITIONS: &[Definition] = &[
         summary: "Transfer a sequence of data chunks with bounded incremental access.",
         operations: &["read next chunk", "write chunk", "finish stream"],
         invariants: &[
-            "chunk order is preserved",
+            "accepted chunks keep their relative order",
             "end-of-stream is distinct from read failure",
         ],
     },

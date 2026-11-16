@@ -82,7 +82,7 @@ pub const DEFINITIONS: &[Definition] = &[
         ],
         invariants: &[
             "Reported completed units do not decrease within a task.",
-            "Progress is an estimate unless the work defines an exact total.",
+            "Completed units do not exceed the declared total.",
         ],
     },
     Definition {

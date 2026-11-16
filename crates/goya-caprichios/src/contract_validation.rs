@@ -38,6 +38,7 @@ pub enum Problem {
     EmptyEntry,
     Mismatch,
     UnsupportedVersion,
+    RepeatedText,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -87,6 +88,18 @@ pub fn validate_records(records: &[ContractRecord<'_>]) -> Result<(), Vec<Valida
             definition.invariants,
             &mut issues,
         );
+        let invariant_text: Vec<&str> = definition
+            .invariants
+            .iter()
+            .map(|entry| entry.trim())
+            .filter(|entry| !entry.is_empty())
+            .collect();
+        for operation in definition.operations {
+            let operation = operation.trim();
+            if !operation.is_empty() && invariant_text.contains(&operation) {
+                issues.push(issue(index, id, Field::Operations, Problem::RepeatedText));
+            }
+        }
 
         if record.contract.is_empty() {
             issues.push(issue(index, id, Field::Contract, Problem::Empty));
@@ -146,9 +159,15 @@ fn validate_entries(
     if entries.len() < 2 {
         issues.push(issue(index, id, field, Problem::TooFewEntries));
     }
+    let mut seen = std::collections::BTreeSet::new();
     for entry in entries {
-        if entry.trim().is_empty() {
+        let trimmed = entry.trim();
+        if trimmed.is_empty() {
             issues.push(issue(index, id, field, Problem::EmptyEntry));
+            continue;
+        }
+        if !seen.insert(trimmed) {
+            issues.push(issue(index, id, field, Problem::RepeatedText));
         }
     }
 }
@@ -243,6 +262,47 @@ mod tests {
                 issue(0, "Bad..ID", Field::Version, Problem::UnsupportedVersion),
                 issue(1, "sample.worker", Field::Contract, Problem::Mismatch),
                 issue(2, "sample.worker", Field::DuplicateId, Problem::Duplicate),
+            ]
+        );
+    }
+
+    #[test]
+    fn repeated_operation_and_copied_invariant_text_are_rejected() {
+        static DUPLICATE: Definition = Definition {
+            id: "sample.duplicate_text",
+            summary: "Detect repeated catalog text.",
+            operations: &["validate value", "validate value"],
+            invariants: &[
+                "schema identity is explicit",
+                "validation does not rewrite the input",
+            ],
+        };
+        static COPIED: Definition = Definition {
+            id: "sample.copied_text",
+            summary: "Detect an operation copied into an invariant.",
+            operations: &["validate value", "report violations"],
+            invariants: &[
+                "validate value",
+                "validation does not rewrite the input",
+            ],
+        };
+        let records = [
+            ContractRecord {
+                definition: &DUPLICATE,
+                contract: "goya.sample.duplicate_text.v1",
+                version: DEFINITION_VERSION,
+            },
+            ContractRecord {
+                definition: &COPIED,
+                contract: "goya.sample.copied_text.v1",
+                version: DEFINITION_VERSION,
+            },
+        ];
+        assert_eq!(
+            validate_records(&records).unwrap_err(),
+            vec![
+                issue(0, "sample.duplicate_text", Field::Operations, Problem::RepeatedText),
+                issue(1, "sample.copied_text", Field::Operations, Problem::RepeatedText),
             ]
         );
     }

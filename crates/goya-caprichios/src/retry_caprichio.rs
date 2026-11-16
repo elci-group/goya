@@ -6,7 +6,7 @@
 
 use std::fmt;
 
-pub const CONTRACT: &str = "goya.compute.retry_policy.v1";
+pub const CONTRACT: &str = "goya.compute.retry_policy.bounded_process_local.v1";
 pub const RECIPE_VERSION: &str = "0.0.1";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

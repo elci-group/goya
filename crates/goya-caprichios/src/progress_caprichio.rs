@@ -5,7 +5,7 @@
 
 use std::fmt;
 
-pub const CONTRACT: &str = "goya.compute.progress.v1";
+pub const CONTRACT: &str = "goya.compute.progress.fixed_total_process_local.v1";
 pub const RECIPE_VERSION: &str = "0.0.1";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

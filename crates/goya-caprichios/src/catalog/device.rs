@@ -112,7 +112,7 @@ pub const DEFINITIONS: &[Definition] = &[
         operations: &["subscribe to touch contacts", "read active contact state"],
         invariants: &[
             "contact identifiers remain stable during a contact",
-            "each contact has a defined start and end",
+            "contact start and end are reported only when observed",
         ],
     },
     Definition {
@@ -244,7 +244,7 @@ pub const DEFINITIONS: &[Definition] = &[
         operations: &["list capture sessions", "start or stop a capture session"],
         invariants: &[
             "session state distinguishes pending from active",
-            "stopping a session finalizes its captured data consistently",
+            "stopping a session does not promise finalized or consistent captured data",
         ],
     },
 ];

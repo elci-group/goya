@@ -30,9 +30,12 @@ and membership in an explicit ASCII byte set only.
 `contract_validation` audits draft catalog metadata. The experimental
 `registry` negotiates explicit implemented contract IDs; validation of a
 catalog entry is not proof of an implementation. In particular the broad
-draft HTTP contract is not fulfilled by the narrower HTTPS GET recipe.
+draft HTTP contract is not fulfilled by the narrower HTTPS GET recipe, and the
+broad draft `security.input_validation` contract is not fulfilled by the
+narrower process-local ASCII set-and-length recipe.
 `registry::supported_contracts()` lists the exact contracts with lowering
-recipes; it does not claim that the 80 catalog drafts are implemented.
+recipes; it does not claim that the 80 catalog drafts are implemented. A
+draft's proposed `goya.<id>.v1` string is not reused by a narrower recipe.
 Separate narrow recipes include process-local bounded file reads and metadata,
 and browser GET/POST status and CORS-visible response headers. File access
 uses caller paths and OS permissions without root isolation; the HTTP recipe

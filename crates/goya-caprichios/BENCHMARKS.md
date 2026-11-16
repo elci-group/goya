@@ -7,24 +7,31 @@ draft catalog entries. Results change with machine load and environment.
 Recorded 2026-11-16 on Linux x86_64, rustc 1.95.0 (59807616e 2026-04-14),
 Chrome 157.0.8103.78. Rust tests used the release profile and one test thread.
 
+Catalog validation, queue factory construction, memory factory construction,
+progress factory construction, retry factory construction, and mixed registry
+negotiation were sampled again after the catalog audit started rejecting
+repeated operation and invariant text and after four recipe contract
+identifiers grew longer. Those six rows are that sample. The other rows are
+the earlier sample from the same machine and day.
+
 `cargo test --offline --release -p goya-caprichios --lib benchmark_ -- --ignored --nocapture --test-threads=1`
 
 | Workload | Iterations | Elapsed |
 | --- | ---: | ---: |
-| Queue factory construction | 100,000 | 34.46 ms |
+| Queue factory construction | 100,000 | 28.90 ms |
 | Queue push/pop round trip | 1,000,000 | 32.51 ms |
-| Catalog metadata validation (80 drafts) | 10,000 | 247.08 ms |
+| Catalog metadata validation (80 drafts) | 10,000 | 346.76 ms |
 | Bounded byte-envelope recipe construction | 100,000 | 17.90 ms |
 | Byte-envelope encode/decode, 1 MiB payload | 100 | 254.60 ms |
 | Bounded file-read adapter construction | 100,000 | 33.29 ms |
 | Bounded file reads, 16 KiB | 10,000 | 52.48 ms |
 | CORS-limited HTTP recipe construction | 100,000 | 84.85 ms |
-| Memory factory construction | 100,000 | 27.23 ms |
+| Memory factory construction | 100,000 | 26.73 ms |
 | Memory allocate/write/read/release, 64 KiB | 10,000 | 57.50 ms |
-| Progress factory construction | 100,000 | 18.30 ms |
-| Retry factory construction | 100,000 | 22.60 ms |
+| Progress factory construction | 100,000 | 18.11 ms |
+| Retry factory construction | 100,000 | 18.35 ms |
 | FNV-1a recipe construction | 100,000 | 24.89 ms |
-| Mixed registry negotiation (14 narrow contracts) | 10,000 | 61.57 ms |
+| Mixed registry negotiation (14 narrow contracts) | 10,000 | 53.66 ms |
 | Bounded stream factory construction | 100,000 | 23.57 ms |
 | Bounded stream write/read, 1 KiB | 100,000 | 5.09 ms |
 | RLE encode/decode, repeated 1 MiB | 20 | 16.19 ms |
