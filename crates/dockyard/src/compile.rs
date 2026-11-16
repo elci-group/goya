@@ -823,6 +823,207 @@ fn exercise(checked: &Checked) -> Result<(), String> {
             empty.status, empty.content_type
         ));
     }
+    let leading_space = exchange_line(checked.port, &format!(" GET {} HTTP/1.1", checked.path))?;
+    if leading_space.status != 404
+        || leading_space.content_type != CONTENT_TYPE
+        || leading_space.body != b"not found"
+    {
+        return Err(format!(
+            "leading space returned {} {}",
+            leading_space.status, leading_space.content_type
+        ));
+    }
+    let http09 = exchange_line(checked.port, &format!("GET {} HTTP/0.9", checked.path))?;
+    if http09.status != 404 || http09.content_type != CONTENT_TYPE || http09.body != b"not found" {
+        return Err(format!(
+            "http09 returned {} {}",
+            http09.status, http09.content_type
+        ));
+    }
+    if checked.path.ends_with('/') {
+        return Err("admitted path already ends with a slash".to_string());
+    }
+    let trailing_slash = exchange_line(checked.port, &format!("GET {}/ HTTP/1.1", checked.path))?;
+    if trailing_slash.status != 404
+        || trailing_slash.content_type != CONTENT_TYPE
+        || trailing_slash.body != b"not found"
+    {
+        return Err(format!(
+            "trailing slash returned {} {}",
+            trailing_slash.status, trailing_slash.content_type
+        ));
+    }
+    let fragment = exchange_line(checked.port, &format!("GET {}# HTTP/1.1", checked.path))?;
+    if fragment.status != 404
+        || fragment.content_type != CONTENT_TYPE
+        || fragment.body != b"not found"
+    {
+        return Err(format!(
+            "fragment returned {} {}",
+            fragment.status, fragment.content_type
+        ));
+    }
+    let bare_version = exchange_line(checked.port, &format!("GET {} HTTP/1", checked.path))?;
+    if bare_version.status != 404
+        || bare_version.content_type != CONTENT_TYPE
+        || bare_version.body != b"not found"
+    {
+        return Err(format!(
+            "bare version returned {} {}",
+            bare_version.status, bare_version.content_type
+        ));
+    }
+    if !checked.path.starts_with('/') {
+        return Err("admitted path has no slash".to_string());
+    }
+    let double_slash = exchange_line(checked.port, &format!("GET /{} HTTP/1.1", checked.path))?;
+    if double_slash.status != 404
+        || double_slash.content_type != CONTENT_TYPE
+        || double_slash.body != b"not found"
+    {
+        return Err(format!(
+            "double slash returned {} {}",
+            double_slash.status, double_slash.content_type
+        ));
+    }
+    if checked.path.ends_with('/') {
+        return Err("admitted path already ends with a slash".to_string());
+    }
+    let trailing_dot = exchange_line(checked.port, &format!("GET {}/. HTTP/1.1", checked.path))?;
+    if trailing_dot.status != 404
+        || trailing_dot.content_type != CONTENT_TYPE
+        || trailing_dot.body != b"not found"
+    {
+        return Err(format!(
+            "trailing dot returned {} {}",
+            trailing_dot.status, trailing_dot.content_type
+        ));
+    }
+    let percent_encoding =
+        exchange_line(checked.port, &format!("GET {}%2e HTTP/1.1", checked.path))?;
+    if percent_encoding.status != 404
+        || percent_encoding.content_type != CONTENT_TYPE
+        || percent_encoding.body != b"not found"
+    {
+        return Err(format!(
+            "percent encoding returned {} {}",
+            percent_encoding.status, percent_encoding.content_type
+        ));
+    }
+    let asterisk = exchange_line(checked.port, "GET * HTTP/1.1")?;
+    if asterisk.status != 404
+        || asterisk.content_type != CONTENT_TYPE
+        || asterisk.body != b"not found"
+    {
+        return Err(format!(
+            "asterisk returned {} {}",
+            asterisk.status, asterisk.content_type
+        ));
+    }
+    if checked.path.ends_with('/') {
+        return Err("admitted path already ends with a slash".to_string());
+    }
+    let parent_segment = exchange_line(checked.port, &format!("GET {}/.. HTTP/1.1", checked.path))?;
+    if parent_segment.status != 404
+        || parent_segment.content_type != CONTENT_TYPE
+        || parent_segment.body != b"not found"
+    {
+        return Err(format!(
+            "parent segment returned {} {}",
+            parent_segment.status, parent_segment.content_type
+        ));
+    }
+    let encoded_slash = exchange_line(checked.port, &format!("GET {}%2f HTTP/1.1", checked.path))?;
+    if encoded_slash.status != 404
+        || encoded_slash.content_type != CONTENT_TYPE
+        || encoded_slash.body != b"not found"
+    {
+        return Err(format!(
+            "encoded slash returned {} {}",
+            encoded_slash.status, encoded_slash.content_type
+        ));
+    }
+    let backslash = exchange_line(checked.port, &format!("GET {}\\ HTTP/1.1", checked.path))?;
+    if backslash.status != 404
+        || backslash.content_type != CONTENT_TYPE
+        || backslash.body != b"not found"
+    {
+        return Err(format!(
+            "backslash returned {} {}",
+            backslash.status, backslash.content_type
+        ));
+    }
+    if checked.path.contains('%') {
+        return Err("admitted path contains a percent".to_string());
+    }
+    let encoded_parent = exchange_line(
+        checked.port,
+        &format!("GET {}%2e%2e HTTP/1.1", checked.path),
+    )?;
+    if encoded_parent.status != 404
+        || encoded_parent.content_type != CONTENT_TYPE
+        || encoded_parent.body != b"not found"
+    {
+        return Err(format!(
+            "encoded parent returned {} {}",
+            encoded_parent.status, encoded_parent.content_type
+        ));
+    }
+    let uppercase_percent =
+        exchange_line(checked.port, &format!("GET {}%2E HTTP/1.1", checked.path))?;
+    if uppercase_percent.status != 404
+        || uppercase_percent.content_type != CONTENT_TYPE
+        || uppercase_percent.body != b"not found"
+    {
+        return Err(format!(
+            "uppercase percent returned {} {}",
+            uppercase_percent.status, uppercase_percent.content_type
+        ));
+    }
+    if checked.path.contains(';') {
+        return Err("admitted path contains a semicolon".to_string());
+    }
+    let semicolon = exchange_line(checked.port, &format!("GET {}; HTTP/1.1", checked.path))?;
+    if semicolon.status != 404
+        || semicolon.content_type != CONTENT_TYPE
+        || semicolon.body != b"not found"
+    {
+        return Err(format!(
+            "semicolon returned {} {}",
+            semicolon.status, semicolon.content_type
+        ));
+    }
+    let encoded_nul = exchange_line(checked.port, &format!("GET {}%00 HTTP/1.1", checked.path))?;
+    if encoded_nul.status != 404
+        || encoded_nul.content_type != CONTENT_TYPE
+        || encoded_nul.body != b"not found"
+    {
+        return Err(format!(
+            "encoded nul returned {} {}",
+            encoded_nul.status, encoded_nul.content_type
+        ));
+    }
+    let encoded_space = exchange_line(checked.port, &format!("GET {}%20 HTTP/1.1", checked.path))?;
+    if encoded_space.status != 404
+        || encoded_space.content_type != CONTENT_TYPE
+        || encoded_space.body != b"not found"
+    {
+        return Err(format!(
+            "encoded space returned {} {}",
+            encoded_space.status, encoded_space.content_type
+        ));
+    }
+    let encoded_question =
+        exchange_line(checked.port, &format!("GET {}%3f HTTP/1.1", checked.path))?;
+    if encoded_question.status != 404
+        || encoded_question.content_type != CONTENT_TYPE
+        || encoded_question.body != b"not found"
+    {
+        return Err(format!(
+            "encoded question returned {} {}",
+            encoded_question.status, encoded_question.content_type
+        ));
+    }
     drop(reap);
     drop(cleanup);
     Ok(())
@@ -1656,6 +1857,65 @@ mod tests {
         assert!(source.contains("strip_prefix(b\"GET \")"));
         assert!(source.contains("b\" HTTP/1.1\" | b\" HTTP/1.0\""));
         assert!(!source.contains("HTTP/2.0"));
+    }
+
+    #[test]
+    fn leading_space_http09_and_trailing_slash_stay_outside_the_matcher() {
+        let service = crate::admit(include_str!("../fixtures/ping.gservice")).expect("fixture");
+        let source = emit_source(&service);
+        assert!(source.contains("strip_prefix(b\"GET \")"));
+        assert!(source.contains("b\" HTTP/1.1\" | b\" HTTP/1.0\""));
+        assert!(!source.contains("HTTP/0.9"));
+        assert!(!source.contains("trim_start"));
+    }
+
+    #[test]
+    fn fragment_bare_version_and_double_slash_stay_outside_the_matcher() {
+        let service = crate::admit(include_str!("../fixtures/ping.gservice")).expect("fixture");
+        let source = emit_source(&service);
+        assert!(source.contains("strip_prefix(b\"GET \")"));
+        assert!(source.contains("b\" HTTP/1.1\" | b\" HTTP/1.0\""));
+        assert!(!source.contains("HTTP/0.9"));
+    }
+
+    #[test]
+    fn trailing_dot_percent_and_asterisk_stay_outside_the_matcher() {
+        let service = crate::admit(include_str!("../fixtures/ping.gservice")).expect("fixture");
+        let source = emit_source(&service);
+        assert!(source.contains("strip_prefix(b\"GET \")"));
+        assert!(source.contains("b\" HTTP/1.1\" | b\" HTTP/1.0\""));
+        assert!(!source.contains("%2e"));
+        assert!(!source.contains("trim_start"));
+    }
+
+    #[test]
+    fn parent_encoded_slash_and_backslash_stay_outside_the_matcher() {
+        let service = crate::admit(include_str!("../fixtures/ping.gservice")).expect("fixture");
+        let source = emit_source(&service);
+        assert!(source.contains("strip_prefix(b\"GET \")"));
+        assert!(source.contains("b\" HTTP/1.1\" | b\" HTTP/1.0\""));
+        assert!(!source.contains("%2f"));
+    }
+
+    #[test]
+    fn encoded_parent_uppercase_percent_and_semicolon_stay_outside_the_matcher() {
+        let service = crate::admit(include_str!("../fixtures/ping.gservice")).expect("fixture");
+        let source = emit_source(&service);
+        assert!(source.contains("strip_prefix(b\"GET \")"));
+        assert!(source.contains("b\" HTTP/1.1\" | b\" HTTP/1.0\""));
+        assert!(!source.contains("%2e%2e"));
+        assert!(!source.contains("%2E"));
+    }
+
+    #[test]
+    fn encoded_nul_space_and_question_stay_outside_the_matcher() {
+        let service = crate::admit(include_str!("../fixtures/ping.gservice")).expect("fixture");
+        let source = emit_source(&service);
+        assert!(source.contains("strip_prefix(b\"GET \")"));
+        assert!(source.contains("b\" HTTP/1.1\" | b\" HTTP/1.0\""));
+        assert!(!source.contains("%00"));
+        assert!(!source.contains("%20"));
+        assert!(!source.contains("%3f"));
     }
 
     fn response_bytes(status: u16, reason: &str, body: &[u8]) -> Vec<u8> {

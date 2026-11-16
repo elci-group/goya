@@ -168,6 +168,12 @@ pub fn read_archive(bytes: &[u8]) -> Result<Vec<ArchiveEntry>, &'static str> {
             if offset + 512 != bytes.len() {
                 return Err("tar has bytes after the trailer");
             }
+            if !entries
+                .iter()
+                .any(|entry: &ArchiveEntry| entry.name == "srv/dockyard/service")
+            {
+                return Err("tar executable is missing");
+            }
             return Ok(entries);
         }
         let stored = read_octal(&block[148..156])?;
@@ -252,6 +258,35 @@ pub fn read_archive(bytes: &[u8]) -> Result<Vec<ArchiveEntry>, &'static str> {
         }
         if &block[297..304] != b"nonroot" || block[304..329].iter().any(|byte| *byte != 0) {
             return Err("tar group name is not the profile name");
+        }
+        if name != "srv/" && name != "srv/dockyard/" && name != "srv/dockyard/service" {
+            return Err("tar name is not in the profile");
+        }
+        if entries.iter().any(|entry| entry.name == name) {
+            return Err("tar name is repeated");
+        }
+        let rank = match name {
+            "srv/" => 0,
+            "srv/dockyard/" => 1,
+            "srv/dockyard/service" => 2,
+            _ => return Err("tar name is not in the profile"),
+        };
+        if let Some(previous) = entries.last() {
+            let previous_rank = match previous.name.as_str() {
+                "srv/" => 0,
+                "srv/dockyard/" => 1,
+                "srv/dockyard/service" => 2,
+                _ => return Err("tar name is not in the profile"),
+            };
+            if rank <= previous_rank {
+                return Err("tar names are out of order");
+            }
+            if rank != previous_rank + 1 {
+                return Err("tar names skip a profile entry");
+            }
+        }
+        if !is_dir && size == 0 {
+            return Err("tar executable is empty");
         }
         if offset + size > bytes.len() {
             return Err("tar payload overruns the archive");
@@ -406,7 +441,7 @@ mod tests {
     #[test]
     fn nul_typeflag_regular_file_roundtrips() {
         let payload = b"hi";
-        let mut bytes = archive(&[entry("file", false, payload)]).expect("archive");
+        let mut bytes = archive(&[entry("srv/dockyard/service", false, payload)]).expect("archive");
         assert_eq!(bytes[156], b'0');
         bytes[156] = b'\0';
         let mut block = [0u8; 512];
@@ -624,6 +659,61 @@ mod tests {
             read_archive(&archive_with_header(block, b"hi")),
             Err("tar name is not terminated")
         );
+    }
+
+    #[test]
+    fn name_must_be_in_the_profile() {
+        let bytes = archive(&[entry("file", false, b"hi")]).expect("archive");
+        assert_eq!(read_archive(&bytes), Err("tar name is not in the profile"));
+    }
+
+    #[test]
+    fn name_must_not_be_repeated() {
+        let bytes =
+            archive(&[entry("srv/", true, &[]), entry("srv/", true, &[])]).expect("archive");
+        assert_eq!(read_archive(&bytes), Err("tar name is repeated"));
+    }
+
+    #[test]
+    fn names_must_follow_profile_order() {
+        let built = archive(&[entry("srv/dockyard/", true, &[]), entry("srv/", true, &[])]);
+        assert_eq!(
+            built.as_ref().map(|bytes| read_archive(bytes)),
+            Ok(Err("tar names are out of order"))
+        );
+    }
+
+    #[test]
+    fn names_must_not_skip_a_profile_entry() {
+        let built = archive(&[
+            entry("srv/", true, &[]),
+            entry("srv/dockyard/service", false, b"hi"),
+        ]);
+        assert_eq!(
+            built.as_ref().map(|bytes| read_archive(bytes)),
+            Ok(Err("tar names skip a profile entry"))
+        );
+        let built = archive(&[
+            entry("srv/dockyard/", true, &[]),
+            entry("srv/dockyard/service", false, b"hi"),
+        ]);
+        let entries = read_archive(&built.expect("archive")).expect("read");
+        assert_eq!(entries.len(), 2);
+    }
+
+    #[test]
+    fn archive_must_contain_the_executable() {
+        let built = archive(&[entry("srv/", true, &[]), entry("srv/dockyard/", true, &[])]);
+        assert_eq!(
+            built.as_ref().map(|bytes| read_archive(bytes)),
+            Ok(Err("tar executable is missing"))
+        );
+    }
+
+    #[test]
+    fn executable_payload_must_not_be_empty() {
+        let bytes = archive(&[entry("srv/dockyard/service", false, b"")]).expect("archive");
+        assert_eq!(read_archive(&bytes), Err("tar executable is empty"));
     }
 
     #[test]

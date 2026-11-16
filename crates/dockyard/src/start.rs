@@ -421,6 +421,56 @@ fn namespace_listeners(pid: u32, port: u16) -> Result<(), String> {
         Err(error) if error.kind() == ErrorKind::NotFound => {}
         Err(_) => return Err("cannot read icmp6 table".to_string()),
     }
+    match fs::read_to_string(format!("/proc/{pid}/net/raw6")) {
+        Ok(raw6) => only_no_raw6(&raw6)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read raw6 table".to_string()),
+    }
+    match fs::read_to_string(format!("/proc/{pid}/net/udplite6")) {
+        Ok(udplite6) => only_no_udplite6(&udplite6)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read udplite6 table".to_string()),
+    }
+    match fs::read_to_string(format!("/proc/{pid}/net/ip6_flowlabel")) {
+        Ok(flowlabel) => only_no_flowlabel(&flowlabel)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read flow label table".to_string()),
+    }
+    match fs::read_to_string(format!("/proc/{pid}/net/anycast6")) {
+        Ok(anycast6) => only_no_anycast6(&anycast6)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read anycast6 table".to_string()),
+    }
+    match fs::read_to_string(format!("/proc/{pid}/net/ip_mr_cache")) {
+        Ok(mroute) => only_no_mroute(&mroute)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read multicast cache".to_string()),
+    }
+    match fs::read_to_string(format!("/proc/{pid}/net/ip6_mr_cache")) {
+        Ok(mroute6) => only_no_mroute6(&mroute6)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read multicast6 cache".to_string()),
+    }
+    match fs::read_to_string(format!("/proc/{pid}/net/ip_mr_vif")) {
+        Ok(mvif) => only_no_mvif(&mvif)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read multicast vif table".to_string()),
+    }
+    match fs::read_to_string(format!("/proc/{pid}/net/ip6_mr_vif")) {
+        Ok(mvif6) => only_no_mvif6(&mvif6)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read multicast6 vif table".to_string()),
+    }
+    match fs::read_to_string(format!("/proc/{pid}/net/mcfilter")) {
+        Ok(mcfilter) => only_no_mcfilter(&mcfilter)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read multicast filter table".to_string()),
+    }
+    match fs::read_to_string(format!("/proc/{pid}/net/mcfilter6")) {
+        Ok(mcfilter6) => only_no_mcfilter6(&mcfilter6)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read multicast6 filter table".to_string()),
+    }
     Ok(())
 }
 
@@ -582,6 +632,46 @@ pub(crate) fn only_no_icmp(text: &str) -> Result<(), String> {
 
 pub(crate) fn only_no_icmp6(text: &str) -> Result<(), String> {
     only_no_udp(text).map_err(|_| "network namespace has an icmp6 socket".to_string())
+}
+
+pub(crate) fn only_no_raw6(text: &str) -> Result<(), String> {
+    only_no_udp(text).map_err(|_| "network namespace has a raw6 socket".to_string())
+}
+
+pub(crate) fn only_no_udplite6(text: &str) -> Result<(), String> {
+    only_no_udp(text).map_err(|_| "network namespace has a udplite6 socket".to_string())
+}
+
+pub(crate) fn only_no_flowlabel(text: &str) -> Result<(), String> {
+    only_no_udp(text).map_err(|_| "network namespace has a flow label".to_string())
+}
+
+pub(crate) fn only_no_anycast6(text: &str) -> Result<(), String> {
+    only_no_udp(text).map_err(|_| "network namespace has an anycast address".to_string())
+}
+
+pub(crate) fn only_no_mroute(text: &str) -> Result<(), String> {
+    only_no_udp(text).map_err(|_| "network namespace has a multicast route".to_string())
+}
+
+pub(crate) fn only_no_mroute6(text: &str) -> Result<(), String> {
+    only_no_udp(text).map_err(|_| "network namespace has an ipv6 multicast route".to_string())
+}
+
+pub(crate) fn only_no_mvif(text: &str) -> Result<(), String> {
+    only_no_udp(text).map_err(|_| "network namespace has a multicast vif".to_string())
+}
+
+pub(crate) fn only_no_mvif6(text: &str) -> Result<(), String> {
+    only_no_udp(text).map_err(|_| "network namespace has an ipv6 multicast vif".to_string())
+}
+
+pub(crate) fn only_no_mcfilter(text: &str) -> Result<(), String> {
+    only_no_udp(text).map_err(|_| "network namespace has a multicast filter".to_string())
+}
+
+pub(crate) fn only_no_mcfilter6(text: &str) -> Result<(), String> {
+    only_no_udp(text).map_err(|_| "network namespace has an ipv6 multicast filter".to_string())
 }
 
 const AF_INET: i32 = 2;
@@ -1186,6 +1276,96 @@ mod tests {
         assert_eq!(
             only_no_icmp6(&row),
             Err("network namespace has an icmp6 socket".to_string())
+        );
+    }
+
+    #[test]
+    fn only_no_raw6_and_udplite6_reject_a_socket_row() {
+        let header = "sl local_address rem_address st\n";
+        let row = format!("{header}0: 00000000:0044 00000000:0000 07\n");
+        assert_eq!(only_no_raw6(header), Ok(()));
+        assert_eq!(only_no_udplite6(header), Ok(()));
+        assert_eq!(only_no_raw6(""), Ok(()));
+        assert_eq!(only_no_udplite6(""), Ok(()));
+        assert_eq!(
+            only_no_raw6(&row),
+            Err("network namespace has a raw6 socket".to_string())
+        );
+        assert_eq!(
+            only_no_udplite6(&row),
+            Err("network namespace has a udplite6 socket".to_string())
+        );
+    }
+
+    #[test]
+    fn only_no_flowlabel_and_anycast6_reject_a_row() {
+        let header = "sl local_address rem_address st\n";
+        let row = format!("{header}0: 00000000:0044 00000000:0000 07\n");
+        assert_eq!(only_no_flowlabel(header), Ok(()));
+        assert_eq!(only_no_anycast6(header), Ok(()));
+        assert_eq!(only_no_flowlabel(""), Ok(()));
+        assert_eq!(only_no_anycast6(""), Ok(()));
+        assert_eq!(
+            only_no_flowlabel(&row),
+            Err("network namespace has a flow label".to_string())
+        );
+        assert_eq!(
+            only_no_anycast6(&row),
+            Err("network namespace has an anycast address".to_string())
+        );
+    }
+
+    #[test]
+    fn only_no_mroute_and_mroute6_reject_a_row() {
+        let header = "sl local_address rem_address st\n";
+        let row = format!("{header}0: 00000000:0044 00000000:0000 07\n");
+        assert_eq!(only_no_mroute(header), Ok(()));
+        assert_eq!(only_no_mroute6(header), Ok(()));
+        assert_eq!(only_no_mroute(""), Ok(()));
+        assert_eq!(only_no_mroute6(""), Ok(()));
+        assert_eq!(
+            only_no_mroute(&row),
+            Err("network namespace has a multicast route".to_string())
+        );
+        assert_eq!(
+            only_no_mroute6(&row),
+            Err("network namespace has an ipv6 multicast route".to_string())
+        );
+    }
+
+    #[test]
+    fn only_no_mvif_and_mvif6_reject_a_row() {
+        let header = "sl local_address rem_address st\n";
+        let row = format!("{header}0: 00000000:0044 00000000:0000 07\n");
+        assert_eq!(only_no_mvif(header), Ok(()));
+        assert_eq!(only_no_mvif6(header), Ok(()));
+        assert_eq!(only_no_mvif(""), Ok(()));
+        assert_eq!(only_no_mvif6(""), Ok(()));
+        assert_eq!(
+            only_no_mvif(&row),
+            Err("network namespace has a multicast vif".to_string())
+        );
+        assert_eq!(
+            only_no_mvif6(&row),
+            Err("network namespace has an ipv6 multicast vif".to_string())
+        );
+    }
+
+    #[test]
+    fn only_no_mcfilter_and_mcfilter6_reject_a_row() {
+        let header = "sl local_address rem_address st\n";
+        let row = format!("{header}0: 00000000:0044 00000000:0000 07\n");
+        assert_eq!(only_no_mcfilter(header), Ok(()));
+        assert_eq!(only_no_mcfilter6(header), Ok(()));
+        assert_eq!(only_no_mcfilter(""), Ok(()));
+        assert_eq!(only_no_mcfilter6(""), Ok(()));
+        assert_eq!(
+            only_no_mcfilter(&row),
+            Err("network namespace has a multicast filter".to_string())
+        );
+        assert_eq!(
+            only_no_mcfilter6(&row),
+            Err("network namespace has an ipv6 multicast filter".to_string())
         );
     }
 }
