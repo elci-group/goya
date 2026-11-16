@@ -47,20 +47,20 @@ The response body is the service contract, so it is present in the executable. S
 
 `verify` checks layout digests, the non-root layer, and the report. It then starts the layer bytes, requests an unknown path, and requests the admitted path. Unknown paths return `404` and `not found`. The admitted path returns `200`, `text/plain`, and the body named by the image label. That process check leaves `image-start: BLOCKED` and exits 3.
 
-`start` reads the same layout and does not write into it. A missing or rejected layout exits 4 with `DK-E4001`. When `runc` cannot be executed, `start` exits 3 and prints `image-start: BLOCKED` with the detail `runc is unavailable. Dockyard does not install a runtime.` Dockyard does not start a Docker daemon. When `runc` is present, the command extracts the layer executable into a bundle and runs `/srv/dockyard/service` with an empty capability set, a read-only root, and `RLIMIT_NOFILE` 1024. The spec has no network namespace, so the host connects to the admitted port on `127.0.0.1`. On this unprivileged host, `runc` accepts only a mapping that covers container uid 0, and the caller can map one uid. The process therefore runs as container uid 0 mapped to the caller. The recorded result exits 3:
+`start` reads the same layout and does not write into it. A missing or rejected layout exits 4 with `DK-E4001`. When `runc` cannot be executed, `start` exits 3 and prints `image-start: BLOCKED` with the detail `runc is unavailable. Dockyard does not install a runtime.` Dockyard does not start a Docker daemon. When `runc` is present, the command extracts the layer executable into a bundle and runs `/srv/dockyard/service` in a new network namespace, with an empty capability set, a read-only root, and `RLIMIT_NOFILE` 1024. Loopback is the only interface. The unknown path and the admitted path are requested inside that namespace. While the process is running, a connection to the admitted port on the host is refused. On this unprivileged host, `runc` accepts only a mapping that covers container uid 0, and the caller can map one uid. The process therefore runs as container uid 0 mapped to the caller. The recorded result exits 3:
 
 ```text
 image-start: pass
 runtime: runc
 rootfs: read-only
 capabilities: dropped
-network: host-namespace
+network: namespace
 runtime-user: 0 mapped to 1000
 user-applied: BLOCKED
 runtime-qualification: BLOCKED
 detail: image user 65532:65532 was not applied. This caller can map one uid and runc requires container uid 0.
 ```
 
-The image config still names user `65532:65532`. A caller that is uid 0 and gid 0 uses that image user and no user namespace. Runtime qualification still exits 3, because the network namespace is absent. A started process that misses the admitted route, the read-only root, the empty capabilities, or the open-file limit exits 4.
+The image config still names user `65532:65532`. A caller that is uid 0 and gid 0 uses that image user and no user namespace. Runtime qualification still exits 3 because this host did not apply that user. A started process that misses the admitted route, the read-only root, the empty capabilities, the open-file limit, or the closed host port exits 4.
 
 This profile is not a release admission. CPU and memory limits, Kubernetes manifests, multi-arch indexes, SBOMs, and provenance are outside it.
