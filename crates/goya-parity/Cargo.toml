@@ -1,0 +1,13 @@
+[package]
+name = "goya-parity"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Shared Linux and Windows conformance gate. It does not launch or release."
+
+[dependencies]
+goya-executable.workspace = true
+goya-lang.workspace = true
+goya-sdk.workspace = true
+sash = { path = "../sash" }

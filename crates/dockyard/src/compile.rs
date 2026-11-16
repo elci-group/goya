@@ -165,9 +165,33 @@ fn publish(service: &Service, source: &str, dir: &Path) -> Result<BuildReport, F
             format!("cannot create evidence directory: {error}"),
         )
     })?;
+    let source_sha = sha256_hex(source.as_bytes());
     write_bytes(
         &evidence.join("report.txt"),
         report(source, service, &image).as_bytes(),
+        0o644,
+    )?;
+    write_bytes(
+        &evidence.join("sbom.spdx.json"),
+        crate::sbom::spdx_json(
+            &service.name,
+            &source_sha,
+            &image.executable_sha256,
+            &image.layer_sha256,
+        )
+        .as_bytes(),
+        0o644,
+    )?;
+    write_bytes(
+        &evidence.join("provenance.json"),
+        crate::provenance::predicate(
+            &source_sha,
+            &image.executable_sha256,
+            &image.layer_sha256,
+            &image.config_sha256,
+            &image.manifest_sha256,
+        )
+        .as_bytes(),
         0o644,
     )?;
     set_mode(&binary_path, 0o755)?;
@@ -416,6 +440,14 @@ pub(crate) fn check_layout(dir: &Path) -> Result<Checked, Failure> {
             "manifest does not name one config and one layer",
         ));
     }
+    require_closed_layout(
+        dir,
+        &[
+            index_refs[0].0.as_str(),
+            manifest_refs[0].0.as_str(),
+            manifest_refs[1].0.as_str(),
+        ],
+    )?;
     let config = read_blob(dir, &manifest_refs[0].0, manifest_refs[0].1)?;
     let config_text = std::str::from_utf8(&config)
         .map_err(|_| Failure::output("DK-E4001", "image config is not utf-8"))?;
@@ -453,12 +485,49 @@ pub(crate) fn check_layout(dir: &Path) -> Result<Checked, Failure> {
     if evidence.contains("/home/")
         || !evidence.contains("image-start: BLOCKED")
         || !evidence.contains("runtime-qualification: BLOCKED")
-        || !evidence.contains(&format!("executable-sha256: {}", sha256_hex(&published)))
-        || !evidence.contains(&format!("layer-sha256: {}", sha256_hex(&layer)))
     {
         return Err(Failure::output(
             "DK-E4001",
             "build report does not match the layout",
+        ));
+    }
+    let service_name = report_field(&evidence, "service")?;
+    let source_sha = report_field(&evidence, "source-sha256")?;
+    let executable_sha = report_field(&evidence, "executable-sha256")?;
+    let layer_sha = report_field(&evidence, "layer-sha256")?;
+    let config_sha = report_field(&evidence, "config-sha256")?;
+    let manifest_sha = report_field(&evidence, "manifest-sha256")?;
+    if label(config_text, "service").as_deref() != Some(service_name)
+        || executable_sha != sha256_hex(&published)
+        || layer_sha != sha256_hex(&layer)
+        || config_sha != sha256_hex(&config)
+        || manifest_sha != sha256_hex(&manifest)
+    {
+        return Err(Failure::output(
+            "DK-E4001",
+            "build report does not match the layout",
+        ));
+    }
+    let sbom = read_text(&dir.join("evidence").join("sbom.spdx.json"))?;
+    let expected_sbom = crate::sbom::spdx_json(service_name, source_sha, executable_sha, layer_sha);
+    if sbom != expected_sbom || sbom.contains("/home/") {
+        return Err(Failure::output(
+            "DK-E4001",
+            "sbom does not match the layout",
+        ));
+    }
+    let provenance = read_text(&dir.join("evidence").join("provenance.json"))?;
+    let expected_provenance = crate::provenance::predicate(
+        source_sha,
+        executable_sha,
+        layer_sha,
+        config_sha,
+        manifest_sha,
+    );
+    if provenance != expected_provenance || provenance.contains("/home/") {
+        return Err(Failure::output(
+            "DK-E4001",
+            "provenance does not match the layout",
         ));
     }
     let port = label(config_text, "port")
@@ -533,6 +602,29 @@ fn exercise(checked: &Checked) -> Result<(), String> {
     if sha256_hex(&found.body) != checked.body_sha256 {
         return Err("response body does not match the image label".to_string());
     }
+    let http10 = exchange_line(checked.port, &format!("GET {} HTTP/1.0", checked.path))?;
+    if http10.status != 200
+        || http10.content_type != CONTENT_TYPE
+        || sha256_hex(&http10.body) != checked.body_sha256
+    {
+        return Err("HTTP/1.0 admitted route was not served".to_string());
+    }
+    for (label, line) in [
+        ("POST", format!("POST {} HTTP/1.1", checked.path)),
+        ("query", format!("GET {}?x HTTP/1.1", checked.path)),
+        ("prefix", format!("GET {}x HTTP/1.1", checked.path)),
+    ] {
+        let rejected = exchange_line(checked.port, &line)?;
+        if rejected.status != 404
+            || rejected.content_type != CONTENT_TYPE
+            || rejected.body != b"not found"
+        {
+            return Err(format!(
+                "{label} request returned {} {}",
+                rejected.status, rejected.content_type
+            ));
+        }
+    }
     drop(reap);
     drop(cleanup);
     Ok(())
@@ -545,6 +637,16 @@ pub(crate) struct Response {
 }
 
 fn exchange(port: u16, path: &str) -> Result<Response, String> {
+    exchange_line(port, &format!("GET {path} HTTP/1.1"))
+}
+
+fn exchange_line(port: u16, request_line: &str) -> Result<Response, String> {
+    if request_line
+        .bytes()
+        .any(|byte| byte == b'\r' || byte == b'\n')
+    {
+        return Err("request line is not a single line".to_string());
+    }
     let address = SocketAddr::from(([127, 0, 0, 1], port));
     let mut stream = TcpStream::connect_timeout(&address, Duration::from_secs(2))
         .map_err(|error| format!("cannot connect to 127.0.0.1:{port}: {error}"))?;
@@ -554,7 +656,7 @@ fn exchange(port: u16, path: &str) -> Result<Response, String> {
     stream
         .set_write_timeout(Some(Duration::from_secs(2)))
         .map_err(|error| format!("cannot set write timeout: {error}"))?;
-    let request = format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n");
+    let request = format!("{request_line}\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n");
     stream
         .write_all(request.as_bytes())
         .map_err(|error| format!("cannot write request: {error}"))?;
@@ -570,12 +672,20 @@ fn exchange(port: u16, path: &str) -> Result<Response, String> {
         .map_err(|_| "response header is not utf-8".to_string())?;
     let body = bytes[split + 4..].to_vec();
     let status_line = header.lines().next().unwrap_or("");
-    let status = status_line
-        .split(' ')
-        .nth(1)
+    let mut status_parts = status_line.split(' ');
+    if status_parts.next() != Some("HTTP/1.1") {
+        return Err(format!(
+            "response status line is not HTTP/1.1: {status_line}"
+        ));
+    }
+    let status = status_parts
+        .next()
         .unwrap_or("")
         .parse::<u16>()
         .map_err(|_| format!("response status line is not admitted: {status_line}"))?;
+    if !header.lines().any(|line| line == "connection: close") {
+        return Err("response did not close the connection".to_string());
+    }
     let content_type = header
         .lines()
         .find_map(|line| line.strip_prefix("content-type: "))
@@ -630,6 +740,92 @@ impl Drop for RemoveDir {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.0);
     }
+}
+
+fn require_closed_layout(dir: &Path, blobs: &[&str]) -> Result<(), Failure> {
+    require_real_dir(dir)?;
+    require_names(
+        dir,
+        &["blobs", "evidence", "index.json", "oci-layout", "service"],
+    )?;
+    require_real_dir(&dir.join("blobs"))?;
+    require_names(&dir.join("blobs"), &["sha256"])?;
+    let blob_dir = dir.join("blobs").join("sha256");
+    require_real_dir(&blob_dir)?;
+    let mut expected_blobs = blobs.to_vec();
+    expected_blobs.sort_unstable();
+    expected_blobs.dedup();
+    if expected_blobs.len() != 3 {
+        return Err(Failure::output(
+            "DK-E4001",
+            "layout is not the closed profile set",
+        ));
+    }
+    require_names(&blob_dir, &expected_blobs)?;
+    require_real_dir(&dir.join("evidence"))?;
+    require_names(
+        &dir.join("evidence"),
+        &["provenance.json", "report.txt", "sbom.spdx.json"],
+    )
+}
+
+fn require_names(dir: &Path, expected: &[&str]) -> Result<(), Failure> {
+    let found = entry_names(dir)?;
+    if found.len() != expected.len() || found.iter().zip(expected).any(|(got, want)| got != want) {
+        return Err(Failure::output(
+            "DK-E4001",
+            "layout is not the closed profile set",
+        ));
+    }
+    Ok(())
+}
+
+fn require_real_dir(path: &Path) -> Result<(), Failure> {
+    let metadata = fs::symlink_metadata(path)
+        .map_err(|_| Failure::output("DK-E4001", "layout is not the closed profile set"))?;
+    let kind = metadata.file_type();
+    if kind.is_symlink() {
+        return Err(Failure::output("DK-E4001", "layout contains a symlink"));
+    }
+    if !kind.is_dir() {
+        return Err(Failure::output(
+            "DK-E4001",
+            "layout is not the closed profile set",
+        ));
+    }
+    Ok(())
+}
+
+fn entry_names(dir: &Path) -> Result<Vec<String>, Failure> {
+    let mut names = Vec::new();
+    let entries = fs::read_dir(dir)
+        .map_err(|_| Failure::output("DK-E4001", "layout is not the closed profile set"))?;
+    for entry in entries {
+        let entry = entry
+            .map_err(|_| Failure::output("DK-E4001", "layout is not the closed profile set"))?;
+        let file_type = entry
+            .file_type()
+            .map_err(|_| Failure::output("DK-E4001", "layout is not the closed profile set"))?;
+        if file_type.is_symlink() {
+            return Err(Failure::output("DK-E4001", "layout contains a symlink"));
+        }
+        let name = entry
+            .file_name()
+            .into_string()
+            .map_err(|_| Failure::output("DK-E4001", "layout file name is not utf-8"))?;
+        names.push(name);
+    }
+    names.sort();
+    Ok(names)
+}
+
+fn report_field<'a>(report: &'a str, key: &str) -> Result<&'a str, Failure> {
+    let prefix = format!("{key}: ");
+    report
+        .lines()
+        .find_map(|line| line.strip_prefix(&prefix))
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| Failure::output("DK-E4001", format!("build report has no {key}")))
 }
 
 fn label(config: &str, key: &str) -> Option<String> {

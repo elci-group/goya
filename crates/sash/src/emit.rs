@@ -9,7 +9,6 @@ use crate::{hex_encode, sha256_hex};
 pub struct Generated {
     pub main_rs: String,
     pub cargo_toml: &'static str,
-    pub config_toml: &'static str,
     pub build_rs: &'static str,
     pub manifest_xml: String,
     pub resource_script: String,
@@ -125,7 +124,6 @@ pub fn generate(window: &AdmittedWindow) -> Generated {
     Generated {
         main_rs: main,
         cargo_toml: CARGO_TOML,
-        config_toml: CONFIG_TOML,
         build_rs: BUILD_RS,
         manifest_xml: MANIFEST.to_string(),
         resource_script: RESOURCE_SCRIPT.to_string(),
@@ -180,16 +178,6 @@ panic = "abort"
 debug = true
 strip = "none"
 incremental = false
-"#;
-
-pub(crate) const CONFIG_TOML: &str = r#"[build]
-incremental = false
-
-[target.x86_64-pc-windows-msvc]
-rustflags = [
-  "-C", "target-feature=+crt-static",
-  "-C", "control-flow-guard=checks",
-]
 "#;
 
 pub(crate) const BUILD_RS: &str = r#"fn main() {

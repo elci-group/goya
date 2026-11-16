@@ -39,6 +39,21 @@ impl Drop for TempDir {
     }
 }
 
+fn assert_closed(dir: &Path, detail: &str) {
+    let rejected = dockyard(&["verify", dir.to_str().expect("utf8")]);
+    assert_eq!(
+        rejected.status.code(),
+        Some(4),
+        "{}",
+        String::from_utf8_lossy(&rejected.stderr)
+    );
+    let err = String::from_utf8_lossy(&rejected.stderr);
+    assert!(err.contains("DK-E4002"), "{err}");
+    assert!(err.contains("DK-E4001"), "{err}");
+    assert!(err.contains(detail), "{err}");
+    assert!(!err.contains("/home/"), "{err}");
+}
+
 fn tree(dir: &Path) -> Vec<(String, Vec<u8>)> {
     let mut files = Vec::new();
     walk(dir, dir, &mut files);
@@ -194,6 +209,33 @@ fn build_is_deterministic_and_verify_runs_the_route() {
     assert!(report.contains("image-user: 65532:65532"));
     assert!(!report.contains("/home/"));
 
+    let sbom = fs::read_to_string(first.join("evidence").join("sbom.spdx.json")).expect("sbom");
+    let provenance =
+        fs::read_to_string(first.join("evidence").join("provenance.json")).expect("provenance");
+    assert_eq!(
+        sbom,
+        fs::read_to_string(second.join("evidence").join("sbom.spdx.json")).expect("sbom")
+    );
+    assert_eq!(
+        provenance,
+        fs::read_to_string(second.join("evidence").join("provenance.json")).expect("provenance")
+    );
+    assert!(!sbom.contains("/home/"));
+    assert!(sbom.contains("\"spdxVersion\":\"SPDX-2.3\""));
+    assert!(sbom.contains(&format!(
+        "\"documentNamespace\":\"https://elci.goya.invalid/dockyard/{layer}\""
+    )));
+    assert!(sbom.contains("\"checksumValue\""));
+    assert!(!provenance.contains("/home/"));
+    assert!(provenance.contains("\"signature\":null"));
+    assert!(!provenance.contains("\"signed\""));
+    assert!(!layer_bytes
+        .windows(16)
+        .any(|window| window == b"SPDXRef-DOCUMENT"));
+    assert!(!layer_bytes
+        .windows(16)
+        .any(|window| window == b"\"signature\":null"));
+
     let verified = dockyard(&["verify", first.to_str().expect("utf8")]);
     assert_eq!(
         verified.status.code(),
@@ -207,6 +249,40 @@ fn build_is_deterministic_and_verify_runs_the_route() {
     assert!(verified_text.contains("executable: pass"));
     assert!(verified_text.contains("image-start: BLOCKED"));
     assert!(verified_text.contains("runtime-qualification: BLOCKED"));
+
+    let manifest = second.join("evidence").join("kubernetes.yaml");
+    fs::write(&manifest, "apiVersion: v1\n").expect("planted manifest");
+    assert_closed(&second, "layout is not the closed profile set");
+    fs::remove_file(&manifest).expect("remove planted manifest");
+
+    let extra_blob = second.join("blobs").join("sha256").join("ab".repeat(32));
+    fs::write(&extra_blob, b"extra").expect("extra blob");
+    assert_closed(&second, "layout is not the closed profile set");
+    fs::remove_file(&extra_blob).expect("remove extra blob");
+
+    std::os::unix::fs::symlink("report.txt", second.join("evidence").join("alias"))
+        .expect("symlink");
+    assert_closed(&second, "layout contains a symlink");
+    fs::remove_file(second.join("evidence").join("alias")).expect("remove symlink");
+
+    fs::write(first.join("evidence").join("sbom.spdx.json"), "{}\n").expect("corrupt sbom");
+    let rejected = dockyard(&["verify", first.to_str().expect("utf8")]);
+    assert_eq!(rejected.status.code(), Some(4));
+    let rejected_err = String::from_utf8_lossy(&rejected.stderr);
+    assert!(rejected_err.contains("DK-E4002"));
+    assert!(rejected_err.contains("DK-E4001"));
+    assert!(rejected_err.contains("sbom does not match the layout"));
+
+    fs::write(
+        second.join("evidence").join("provenance.json"),
+        "{\"signature\":true}",
+    )
+    .expect("corrupt provenance");
+    let rejected_provenance = dockyard(&["verify", second.to_str().expect("utf8")]);
+    assert_eq!(rejected_provenance.status.code(), Some(4));
+    let provenance_err = String::from_utf8_lossy(&rejected_provenance.stderr);
+    assert!(provenance_err.contains("DK-E4001"));
+    assert!(provenance_err.contains("provenance does not match the layout"));
 }
 
 #[test]
@@ -269,6 +345,8 @@ fn start_records_an_installed_runc() {
         assert!(stdout.contains("runtime: runc"), "{stdout}");
         assert!(stdout.contains("rootfs: read-only"), "{stdout}");
         assert!(stdout.contains("capabilities: dropped"), "{stdout}");
+        assert!(stdout.contains("cpu: unset"), "{stdout}");
+        assert!(stdout.contains("memory: unset"), "{stdout}");
         assert!(stdout.contains("network: namespace"), "{stdout}");
         assert!(!stdout.contains("host-namespace"), "{stdout}");
         assert!(

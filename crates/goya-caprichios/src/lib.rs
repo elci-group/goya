@@ -1,4 +1,28 @@
 //! Deterministic construction of a small HTTPS GET capability.
+pub mod batching_caprichio;
+pub mod catalog;
+pub mod checksum_caprichio;
+pub mod compression_caprichio;
+pub mod compute_caprichio;
+pub mod compute_runtime;
+pub mod contract_validation;
+pub mod csv_caprichio;
+pub mod data_caprichio;
+pub mod data_runtime;
+pub mod deadline_caprichio;
+pub mod filesystem_caprichio;
+pub mod http_caprichio;
+pub mod input_validation_caprichio;
+pub mod memory_caprichio;
+pub mod memory_runtime;
+pub mod parallelism_caprichio;
+pub mod priority_caprichio;
+pub mod progress_caprichio;
+pub mod registry;
+pub mod retry_caprichio;
+pub mod storage;
+pub mod stream_caprichio;
+
 use std::fmt;
 
 pub const CONTRACT: &str = "goya.network.fetch.v1";
@@ -8,6 +32,41 @@ pub const RECIPE_VERSION: &str = "0.0.1";
 pub enum Target {
     Browser,
     Node,
+}
+/// Runtime facilities required by both recipes, in addition to ES module support.
+/// Hosts must report these from their runtime, rather than infer them from a target name.
+/// The default is deliberately unsupported until capabilities are supplied.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct RuntimeCapabilities {
+    pub fetch: bool,
+    pub abort_controller: bool,
+    pub url: bool,
+    pub uint8_array: bool,
+    /// Both `setTimeout` and `clearTimeout` must be available.
+    pub timers: bool,
+}
+
+impl RuntimeCapabilities {
+    fn validate(self) -> Result<(), Diagnostic> {
+        for (available, message) in [
+            (self.fetch, "target runtime requires fetch"),
+            (
+                self.abort_controller,
+                "target runtime requires AbortController",
+            ),
+            (self.url, "target runtime requires URL"),
+            (self.uint8_array, "target runtime requires Uint8Array"),
+            (
+                self.timers,
+                "target runtime requires setTimeout and clearTimeout",
+            ),
+        ] {
+            if !available {
+                return Err(Diagnostic(message));
+            }
+        }
+        Ok(())
+    }
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct NetworkDeclaration {
@@ -54,12 +113,24 @@ impl NetworkDeclaration {
 }
 
 impl NetworkIr {
+    /// Fail closed before emitting a recipe for a host with missing runtime facilities.
+    pub fn lower_checked(
+        &self,
+        target: Target,
+        capabilities: RuntimeCapabilities,
+    ) -> Result<Artifact, Diagnostic> {
+        capabilities.validate()?;
+        Ok(self.lower(target))
+    }
+
     pub fn canonical(&self) -> String {
         format!(
             "contract={CONTRACT}\ntimeout_ms={}\nconcurrency={}\n",
             self.timeout_ms, self.concurrency
         )
     }
+    /// Emit a recipe assuming all required runtime facilities are available.
+    /// Use `lower_checked` when negotiating an unknown host environment.
     pub fn lower(&self, target: Target) -> Artifact {
         let recipe = match target {
             Target::Browser => "browser-fetch",
@@ -160,5 +231,70 @@ mod tests {
         assert!(d.normalize().is_err());
         d.timeout_ms = u32::MAX;
         assert!(d.normalize().is_err());
+    }
+
+    #[test]
+    fn runtime_negotiation_checks_every_required_facility_for_both_targets() {
+        let ir = declaration().normalize().unwrap();
+        let supported = RuntimeCapabilities {
+            fetch: true,
+            abort_controller: true,
+            url: true,
+            uint8_array: true,
+            timers: true,
+        };
+        let missing = [
+            (
+                RuntimeCapabilities {
+                    fetch: false,
+                    ..supported
+                },
+                "target runtime requires fetch",
+            ),
+            (
+                RuntimeCapabilities {
+                    abort_controller: false,
+                    ..supported
+                },
+                "target runtime requires AbortController",
+            ),
+            (
+                RuntimeCapabilities {
+                    url: false,
+                    ..supported
+                },
+                "target runtime requires URL",
+            ),
+            (
+                RuntimeCapabilities {
+                    uint8_array: false,
+                    ..supported
+                },
+                "target runtime requires Uint8Array",
+            ),
+            (
+                RuntimeCapabilities {
+                    timers: false,
+                    ..supported
+                },
+                "target runtime requires setTimeout and clearTimeout",
+            ),
+        ];
+        for target in [Target::Browser, Target::Node] {
+            assert_eq!(
+                ir.lower_checked(target, supported).unwrap(),
+                ir.lower(target)
+            );
+            for (capabilities, message) in missing {
+                assert_eq!(
+                    ir.lower_checked(target, capabilities),
+                    Err(Diagnostic(message))
+                );
+            }
+            assert_eq!(
+                ir.lower_checked(target, RuntimeCapabilities::default()),
+                Err(Diagnostic("target runtime requires fetch")),
+            );
+        }
     }
 }

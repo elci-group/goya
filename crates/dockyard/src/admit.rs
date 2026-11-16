@@ -365,4 +365,57 @@ mod tests {
             "service ping\nlisten 39171\nroute GET /health\nrespond 200 text/plain \"bad\\nok\"\n";
         assert_eq!(admit(source).expect_err("slash").code, "DK-E0009");
     }
+
+    #[test]
+    fn edge_ports_are_admitted() {
+        for port in [1024u16, 65535] {
+            let source = format!(
+                "service ping\nlisten {port}\nroute GET /health\nrespond 200 text/plain \"ok\"\n"
+            );
+            assert_eq!(admit(&source).expect("edge port").port, port);
+        }
+    }
+
+    #[test]
+    fn body_limit_is_512() {
+        let ok = "a".repeat(512);
+        let source = format!(
+            "service ping\nlisten 39171\nroute GET /health\nrespond 200 text/plain \"{ok}\"\n"
+        );
+        assert_eq!(admit(&source).expect("512").body, ok);
+        let over = "a".repeat(513);
+        let source = format!(
+            "service ping\nlisten 39171\nroute GET /health\nrespond 200 text/plain \"{over}\"\n"
+        );
+        assert_eq!(admit(&source).expect_err("513").code, "DK-E0009");
+    }
+
+    #[test]
+    fn path_limit_is_128() {
+        let ok = format!("/{}", "a".repeat(127));
+        assert_eq!(ok.len(), 128);
+        let source =
+            format!("service ping\nlisten 39171\nroute GET {ok}\nrespond 200 text/plain \"ok\"\n");
+        assert_eq!(admit(&source).expect("128").path, ok);
+        let over = format!("/{}", "a".repeat(128));
+        assert_eq!(over.len(), 129);
+        let source = format!(
+            "service ping\nlisten 39171\nroute GET {over}\nrespond 200 text/plain \"ok\"\n"
+        );
+        assert_eq!(admit(&source).expect_err("129").code, "DK-E0008");
+    }
+
+    #[test]
+    fn service_name_limit_is_31() {
+        let ok = "a".repeat(31);
+        let source = format!(
+            "service {ok}\nlisten 39171\nroute GET /health\nrespond 200 text/plain \"ok\"\n"
+        );
+        assert_eq!(admit(&source).expect("31").name, ok);
+        let over = "a".repeat(32);
+        let source = format!(
+            "service {over}\nlisten 39171\nroute GET /health\nrespond 200 text/plain \"ok\"\n"
+        );
+        assert_eq!(admit(&source).expect_err("32").code, "DK-E0006");
+    }
 }

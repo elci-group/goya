@@ -9,6 +9,7 @@ members = [
     "crates/neptune",
     "crates/dockyard",
     "crates/sash",
+    "crates/goya-parity",
     "crates/goya-ir",
     "crates/goya-state",
     "crates/goya-layout",

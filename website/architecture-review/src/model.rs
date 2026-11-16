@@ -134,7 +134,7 @@ pub fn crates() -> &'static [Crate] {
         Crate { id: "goya-bridge", layer: "anticipate", contract: "GY-BRIDGE/1", status: "implemented", role: "Spring state bridge. Theme colour comes from chroma." },
         Crate { id: "sash", layer: "compilers", contract: "Sash", status: "experimental", role: "Admits one static Win32 window and can emit App.exe. Runtime qualification and release admission stay BLOCKED. Linux cross-link is unqualified." },
         Crate { id: "neptune", layer: "compilers", contract: "Neptune", status: "experimental", role: "Swift source previews and a stdin JSON service. Apple compilation, simulator, and device admission stay BLOCKED." },
-        Crate { id: "dockyard", layer: "compilers", contract: "dockyard.linux.http/0.0.1", status: "experimental", role: "Admits one GET route and emits a crt-static Linux executable plus an OCI image layout. verify leaves image start BLOCKED. start runs that layout with runc when runc is already installed, in a loopback-only network namespace. On an unprivileged host image user 65532 is not applied and runtime qualification stays BLOCKED. Scenes, secrets, and other architectures are rejected." },
+        Crate { id: "dockyard", layer: "compilers", contract: "dockyard.linux.http/0.0.1", status: "experimental", role: "Admits one GET route and emits a crt-static Linux executable plus an OCI image layout. build also writes an SPDX 2.3 document and an unsigned provenance predicate beside the report; neither is in the image layer. verify leaves image start BLOCKED, rejects an evidence mismatch, rejects any file outside that closed set, serves the admitted GET for HTTP/1.0 and HTTP/1.1, and rejects every other request line it sends. start runs that layout with runc when runc is already installed, in a loopback-only network namespace, and reports cpu and memory as unset. On an unprivileged host image user 65532 is not applied and runtime qualification stays BLOCKED. Scenes, secrets, and other architectures are rejected." },
     ]
 }
 
@@ -294,7 +294,7 @@ pub fn boundaries() -> &'static [Boundary] {
         Boundary { id: "companions", name: "Companion tools", via: "goya-ecosystem", note: "RUGID rdf_render, 3form-agent NDJSON, an in-process Mesut bridge, and the Theosis CLI. Each call needs its grant." },
         Boundary { id: "chromium", name: "Chromium child", via: "goya-webview", note: "Ephemeral profile and loopback DevTools. --no-sandbox is forbidden. The page is captured back into the Wayland surface." },
         Boundary { id: "foreign", name: "Foreign UI toolchains", via: "sash / neptune", note: "Win32 and Swift outputs are checked artifacts. They do not link the live frame runtime." },
-        Boundary { id: "oci", name: "OCI image layout", via: "dockyard", note: "One static executable in an uncompressed layer. No daemon is required to write the layout. dockyard start uses runc when it is already installed and records a loopback-only network namespace. Image user 65532 is not qualified on an unprivileged host." },
+        Boundary { id: "oci", name: "OCI image layout", via: "dockyard", note: "One static executable in an uncompressed layer. No daemon is required to write the layout. An SPDX document and an unsigned provenance predicate sit beside the layout and are not in the layer. verify rejects a file outside that closed set. dockyard start uses runc when it is already installed and records a loopback-only network namespace. Image user 65532 is not qualified on an unprivileged host." },
     ]
 }
 

@@ -9,12 +9,17 @@
   "target": "x86_64-pc-windows-msvc",
   "integration_decision": "HOLD",
   "first_gate": "Real Windows execution of the existing static-window profile",
-  "summary": "Static-window and interactive-counter links are unqualified cross-links for i686-pc-windows-msvc (PE32), x86_64-pc-windows-msvc (PE32+), and aarch64-pc-windows-msvc (PE32+). Profile sash.win32.interactive/0.0.2 links the counter with one heading, one integer edit, one button, one checked D1 addition, permitted copy, denied paste, Enter activation, and class unregister on close. The i686 image calls SetWindowLongW. The x64 and ARM64 images call SetWindowLongPtrW. Executable launch is BLOCKED on every architecture. Scenes without a gestures block stay on sash.win32.interactive/0.0.1. Two links of the static fixture and two links of the interactive counter on this host produced identical App.exe bytes and identical PDB bytes for x64, i686, and ARM64. Each build report leaves R1, R2, and host_pair unclaimed. The same-host i686 and ARM64 images still embed processorArchitecture amd64, and the current verifier rejects them. One later static link embeds x86 for i686 and one embeds arm64 for ARM64. Those two images were not launched and are not a same-host pair. verify now reports the PE machine and the manifest assembly profile instead of the x64 static-window default.",
+  "summary": "Static-window and interactive-counter links are unqualified cross-links for i686-pc-windows-msvc (PE32), x86_64-pc-windows-msvc (PE32+), and aarch64-pc-windows-msvc (PE32+). Profile sash.win32.interactive/0.0.2 links the counter with one heading, one integer edit, one button, one checked D1 addition, permitted copy, denied paste, Enter activation, and class unregister on close. The i686 image calls SetWindowLongW. The x64 and ARM64 images call SetWindowLongPtrW. Executable launch is BLOCKED on every architecture. Scenes without a gestures block stay on sash.win32.interactive/0.0.1. Two links of the static fixture and two links of the interactive counter on this host produced identical App.exe bytes and identical PDB bytes for x64, i686, and ARM64. Each build report leaves R1, R2, and host_pair unclaimed. The same-host i686 and ARM64 images still embed processorArchitecture amd64, and the current verifier rejects them. One later static link embeds x86 for i686 and one embeds arm64 for ARM64. One later interactive link embeds x86 for i686 and arm64 for ARM64. The interactive i686 image calls SetWindowLongW. The interactive ARM64 image calls SetWindowLongPtrW. Those images were not launched and are not a same-host pair. verify now reports the PE machine and the manifest assembly profile instead of the x64 static-window default. The link also requires that triple's import libraries in the local sysroot.",
   "gates": {
     "library_tests": {
       "status": "PASS",
       "command": "cargo test -p sash --offline --lib",
-      "result": "51 passed, 0 failed, 0 ignored"
+      "result": "52 passed, 0 failed, 0 ignored"
+    },
+    "selected_architecture_sysroot": {
+      "status": "PASS",
+      "measured_on": "2026-11-16",
+      "note": "The link requires the import-library directory for the selected triple. A fixture sysroot that contains only x86_64-unknown-windows-msvc fails i686 and ARM64 with SASH-TOOLCHAIN. Sash does not download the missing libraries. This check does not launch Windows."
     },
     "static_window_link": {
       "status": "PASS",
@@ -327,6 +332,52 @@
       "release_admission": "BLOCKED",
       "note": "One native ARM64 static link after the processorArchitecture stamp. The embedded manifest says arm64. Machine 0xaa64 is PE32+. The pre-stamp ARM64 pair still says amd64 and the current verifier rejects it. This is not a same-host pair. R1, R2, and host_pair stay unclaimed. The image was not launched."
     },
+    "interactive_i686_architecture_stamp": {
+      "status": "PASS",
+      "claim": "unqualified-cross-link",
+      "measured_on": "2026-11-16",
+      "target": "i686-pc-windows-msvc",
+      "presentation_profile": "sash.win32.interactive/0.0.2",
+      "output": "/tmp/sash-stamp-ix86/App.exe",
+      "bytes": 199680,
+      "sha256": "68e927a104e0bb0994eb6101d68a1aace6f567e49459f3a244af91c02490db00",
+      "pdb_sha256": "29d76e37c5dd1dcf9e5c5b6a02a789eff1722e5afe24b8dc4d3883d62d25a5d1",
+      "scene_sha256": "c550e4608d8217b84c946732fd2ecd9944c800d8979dc332dbea7d87fa9d61fd",
+      "manifest_sha256": "aac7f7cc976c8f5d90879a2eb47c9feedc3d0ada6c4d0df041cc57f7418801c5",
+      "processor_architecture": "x86",
+      "import_note": "SetWindowLongW is present. SetWindowLongPtrW is absent.",
+      "machine": "0x014c",
+      "magic": "0x010b",
+      "entry_rva": 133632,
+      "dll_characteristics": "0xc140",
+      "verify_exit": 3,
+      "runtime_qualification": "BLOCKED",
+      "release_admission": "BLOCKED",
+      "note": "One interactive link after the processorArchitecture stamp. The embedded manifest says x86. The pre-stamp interactive i686 pair still says amd64 and the current verifier rejects it. This is not a same-host pair. R1, R2, and host_pair stay unclaimed. The image was not launched."
+    },
+    "interactive_arm64_architecture_stamp": {
+      "status": "PASS",
+      "claim": "unqualified-cross-link",
+      "measured_on": "2026-11-16",
+      "target": "aarch64-pc-windows-msvc",
+      "presentation_profile": "sash.win32.interactive/0.0.2",
+      "output": "/tmp/sash-stamp-iarm64/App.exe",
+      "bytes": 228864,
+      "sha256": "9296068568e9f0ba3ff1d84a69a451ae3645dbc53e8a0a3025975876c89fddf1",
+      "pdb_sha256": "74bc935830d1e97f62881f53d1a49f5880644e94a03126834ee0711848479b12",
+      "scene_sha256": "c550e4608d8217b84c946732fd2ecd9944c800d8979dc332dbea7d87fa9d61fd",
+      "manifest_sha256": "b88910aadcb99a0beaa16aba0e78d6ca6dbecd2b05737529d9c5a7c15fc31642",
+      "processor_architecture": "arm64",
+      "import_note": "SetWindowLongPtrW is present. SetWindowLongW is absent.",
+      "machine": "0xaa64",
+      "magic": "0x020b",
+      "entry_rva": 132496,
+      "dll_characteristics": "0xc160",
+      "verify_exit": 3,
+      "runtime_qualification": "BLOCKED",
+      "release_admission": "BLOCKED",
+      "note": "One native ARM64 interactive link after the processorArchitecture stamp. The embedded manifest says arm64. Machine 0xaa64 is PE32+. The pre-stamp interactive ARM64 pair still says amd64 and the current verifier rejects it. This is not a same-host pair. R1, R2, and host_pair stay unclaimed. The image was not launched."
+    },
     "verify_reports_image_identity": {
       "status": "PASS",
       "measured_on": "2026-11-16",
@@ -491,8 +542,9 @@
     "verify still exits 3 when the PE checks pass and the image has not been launched.",
     "source_revision is 1d08291, the parent of this record. Runtime qualification stays BLOCKED.",
     "Identical App.exe bytes on this host are not a Windows launch and do not bump a profile.",
-    "Stamping processorArchitecture does not bump a profile. Interactive i686 and ARM64 have not been linked again after the stamp.",
-    "verify reporting the image machine and assembly profile does not bump a profile and does not launch Windows."
+    "Stamping processorArchitecture does not bump a profile. The later interactive i686 and ARM64 links are single images, not a same-host pair, and they are uncommitted on top of dc07679.",
+    "verify reporting the image machine and assembly profile does not bump a profile and does not launch Windows.",
+    "Requiring the selected architecture's import libraries does not bump a profile and does not download an SDK."
   ],
-  "next_unblock": "A native Windows session must launch the x64, i686, and ARM64 images separately, on matching hardware. For x64 that is /tmp/sash-ent002/static-window/App.exe and /tmp/sash-ent002/interactive-cut/App.exe. For i686 static that is /tmp/sash-stamp-i686/App.exe. For ARM64 static that is /tmp/sash-stamp-arm64/App.exe. The earlier i686 and ARM64 images still embed processorArchitecture amd64, and the current verifier rejects them. Interactive i686 and ARM64 have not been linked again after the stamp. Record process exit separately from these links."
+  "next_unblock": "A native Windows session must launch the x64, i686, and ARM64 images separately, on matching hardware. For x64 that is /tmp/sash-ent002/static-window/App.exe and /tmp/sash-ent002/interactive-cut/App.exe. For i686 that is /tmp/sash-stamp-i686/App.exe and /tmp/sash-stamp-ix86/App.exe. For ARM64 that is /tmp/sash-stamp-arm64/App.exe and /tmp/sash-stamp-iarm64/App.exe. The earlier i686 and ARM64 images still embed processorArchitecture amd64, and the current verifier rejects them. Record process exit separately from these links."
 }

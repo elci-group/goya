@@ -4,6 +4,23 @@ Implementation of directive GY-ENT-001 (Rev 1.0, 2026-11-04). Rust + Tov;
 initial target Linux/Wayland. Wave 1 (native foundation) is complete and
 evidenced; see `evidence/GY-WAVE1-001.json` and `docs/contracts.md`.
 
+The primary development objective is one Goya source compiled to a native
+Linux application and a native Windows application. The [parity programme](docs/parity/programme.md)
+describes the remaining gates; `goya-parity` runs its executable checks.
+
+## Start here
+
+- For the core types and guarantees, read the [contract declarations](docs/contracts.md).
+- For a sample project, editing workflow, and preview, see [SDK and Studio](docs/sdk-studio.md).
+- For installation of locally built packages, see [packaging](docs/packaging.md).
+- For native platform status and outstanding qualification, see the
+  [parity programme](docs/parity/programme.md) and [integration gates](docs/integration-gates.md).
+- For the experimental ZCode frontend, start with the [native client](docs/goya-zcode-native.md)
+  and [native workflows](docs/native-workflows.md).
+
+The [documentation guide](#documentation-guide) below links the other subsystem
+references, platform work, design decisions, and evidence.
+
 ## Workspace
 
 | Crate | Contract | Role |
@@ -30,6 +47,11 @@ platform adapters and extensions declare their own dependencies.
 
 ## Build and verify
 
+Install a Rust toolchain and the native development libraries required by the
+platform adapters. On Linux, linking the Wayland-based targets requires the
+`xkbcommon` development library (for example, `libxkbcommon-dev` on Debian
+and Ubuntu).
+
 ```sh
 cargo build --workspace
 cargo test --workspace --lib --tests
@@ -38,8 +60,10 @@ cargo fmt --all -- --check
 cargo run --bin goya-hello   # renders target/goya-hello-frame-*.ppm
 ```
 
-Known host issue: rustdoc cannot load its LLVM shared library here, so
-doctests are excluded (`--lib --tests`); they assert nothing.
+The test command above runs library and integration tests, but excludes
+doctests. Run `cargo test --workspace --doc` separately when rustdoc is
+available. Live platform and external-service checks have additional
+prerequisites and are described in their respective documents.
 
 ## Status
 
@@ -50,8 +74,6 @@ doctests are excluded (`--lib --tests`); they assert nothing.
 - **Wave 4 implementation:** GTK/AT-SPI live snapshot updates, SDK, initial Studio CLI plus loopback browser preview, reproducible local packaging and offline installer, and a deterministic watermark benchmark over synthetic or caller-selected local images with optional ffmpeg codec round trips are present. Orca navigation/WCAG conformance, a full visual IDE, and published distribution remain open. Each report describes only its listed corpus, normalization, transforms, and local ffmpeg build; it does not establish general robustness.
 - **goya-zcode (waves 1–10):** Ten swarm waves grew the ZCode session monitor from a read-only transcript mirror into a send-capable session client: pilot monitor (1); editable composer with KeySpecial input (2); `session/send` behind `--allow-send` plus scrollable history (3); palette theming, Ctrl+C/V clipboard ring, and markdown blocks (4); IME text input and tool-call rows (5); multi-session switching (6); per-session transcript retention and a11y input vocabulary (7); live a11y snapshot (`--a11y-dump`) and Wayland data-device clipboard (8); per-node text colors and a system-clipboard-backed ring (9); tool-row progress stats, protocol robustness tests, and docs consolidation (10). Today the monitor streams a markdown/tool-row transcript, offers an IME-capable composer, system clipboard, per-session history, theming, an a11y snapshot, and multi-session switching. Deferred by design: proportional text, richer tool-call blocks (needs a UI-model decision), the GTK AT-SPI bridge, and operator verification of real screen-reader/clipboard interop. Evidence under `evidence/GY-ZCODE-001.json`…`GY-ZCODE-010.json`.
 - Completion is not claimed for the full roadmap. See [docs/contracts.md](docs/contracts.md#deferred-work-dag-explicit-wave-assignments) and each wave's implementation notes for remaining evidence and release gates.
-# goya
-
 ## Native frontend development (experimental)
 
 The native successor is `goya-zcode-native` (`zcode-native`), documented in
@@ -80,3 +102,24 @@ Serve the synthetic browser fixture with
 that browser example. Real-browser/PDF qualification tests are explicitly
 ignored by the default suite and must be executed separately. Their success
 is not evidence of full parity, Windows/macOS support, or screen-reader use.
+
+## Documentation guide
+
+Documents describe different stages of the project. A design proposal,
+historical wave report, or passing local test is not by itself a release or
+platform qualification claim. Follow the linked gap ledgers and integration
+gates for outstanding work; evidence files record the scope of individual checks.
+
+| Area | Where to start |
+| --- | --- |
+| Core architecture and execution | [Contracts](docs/contracts.md), [Tov adapter](docs/goya-tov.md), [D1 VM](docs/goya-d1-vm.md), [D2 VM](docs/goya-d2-vm.md), [D1 replay](docs/goya-d1-replay.md), [D2 journal](docs/goya-d2-journal.md), [VEE adapter](docs/goya-vee.md) |
+| Native and platform parity | [Parity programme](docs/parity/programme.md), [geometry](docs/parity/geometry.md), [platform differences](docs/parity/platform-differences.md), [integration gates](docs/integration-gates.md), [Swift bootstrap](docs/swift-bootstrap.md) |
+| ZCode frontend | [Original monitor](docs/goya-zcode.md), [native successor](docs/goya-zcode-native.md), [protocol parity](docs/protocol-parity.md), [GUI parity](docs/gui-parity.md), [host attachment](docs/host-attachment.md), [workflows](docs/native-workflows.md) |
+| Browser, documents and plugins | [Browser directive](docs/goya-browser-directive.md), [webview](docs/goya-webview.md), [document adapter](docs/goya-document.md), [plugin host](docs/goya-plugin-host.md) |
+| Accessibility and input | [GTK/AT-SPI bridge](docs/goya-a11y.md), [native accessibility](docs/native-accessibility.md), [gesture grounding](docs/gestures-grounding.md), [gesture decisions](docs/gestures-decisions.md), [gesture threat model](docs/gestures-threat-model.md) |
+| Media, provenance and adapters | [HRTF](docs/goya-hrtf.md), [C2PA](docs/goya-c2pa.md), [watermark benchmark](docs/goya-watermark-benchmark.md), [RPI level 2](docs/goya-rpi2.md), [ecosystem adapters](docs/goya-ecosystem.md) |
+| Maja web target | [Baseline](docs/maja/baseline.md), [admission matrix](docs/maja/admission-matrix.md), [gap ledger](docs/maja/gap-ledger.md), [work packages](docs/maja/work-packages.md), [standalone profile](docs/maja/standalone-profile.md) |
+| Android and Aragon | [Reconnaissance](docs/aragon/reconnaissance.md), [semantic path](docs/aragon/semantic-path.md), [shared handoff gaps](docs/aragon/gssh-gap-ledger.md), [Android project](docs/aragon/android-project.md), [release readiness](docs/aragon/release-readiness.md) |
+| Other native targets | [Neptune](crates/neptune/README.md), [Sash](crates/sash/README.md), [Dockyard](crates/dockyard/README.md), [Caprichios](crates/goya-caprichios/README.md) |
+| Platform adapters | [Windows](platform/windows/README.md), [macOS clipboard](platform/macos/clipboard/README.md), [Android clipboard](platform/android/clipboard/README.md), [Android Gradle](platform/android/gradle/README.md), [iOS gestures](platform/ios/gestures/README.md) |
+| Qualification and reviews | [Maja tests](tests/maja/README.md), [browser tests](tests/maja/browsers/README.md), [architecture review](website/architecture-review/README.md), [Wilder review](docs/wilder-review.md), [evidence](evidence/) |

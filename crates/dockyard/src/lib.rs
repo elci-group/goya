@@ -5,6 +5,8 @@
 mod admit;
 mod compile;
 mod oci;
+mod provenance;
+mod sbom;
 mod start;
 
 pub use admit::{admit, Diagnostic, Service};

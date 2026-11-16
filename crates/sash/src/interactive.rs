@@ -869,7 +869,6 @@ pub fn generate(app: &AdmittedInteractive) -> Generated {
     Generated {
         main_rs: main,
         cargo_toml: emit::CARGO_TOML,
-        config_toml: emit::CONFIG_TOML,
         build_rs: emit::BUILD_RS,
         manifest_xml: manifest_xml(app.profile),
         resource_script: resource_script(app.profile),

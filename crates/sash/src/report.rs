@@ -208,7 +208,6 @@ mod tests {
         let generated = Generated {
             main_rs: String::new(),
             cargo_toml: "",
-            config_toml: "",
             build_rs: "",
             manifest_xml: String::new(),
             resource_script: String::new(),

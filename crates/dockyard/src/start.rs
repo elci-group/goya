@@ -26,6 +26,8 @@ pub struct StartReport {
     pub runtime: String,
     pub rootfs: &'static str,
     pub capabilities: &'static str,
+    pub cpu: String,
+    pub memory: String,
     pub network: &'static str,
     pub runtime_user: String,
     pub user_applied: &'static str,
@@ -137,11 +139,8 @@ pub fn start(dir: &Path) -> Result<StartReport, Failure> {
             &stderr_text,
         ));
     }
-    if !isolated {
-        return Ok(failed(
-            "admitted port answered on the host network".to_string(),
-            &stderr_text,
-        ));
+    if let Err(detail) = isolated {
+        return Ok(failed(detail, &stderr_text));
     }
     let user_applied = user_is_image_user && observed.image_uid;
     Ok(StartReport {
@@ -149,6 +148,8 @@ pub fn start(dir: &Path) -> Result<StartReport, Failure> {
         runtime: "runc".to_string(),
         rootfs: "read-only",
         capabilities: "dropped",
+        cpu: observed.cpu,
+        memory: observed.memory,
         network: "namespace",
         runtime_user: observed.runtime_user,
         user_applied: if user_applied { "pass" } else { "BLOCKED" },
@@ -172,6 +173,8 @@ struct Observation {
     nofile: bool,
     image_uid: bool,
     runtime_user: String,
+    cpu: String,
+    memory: String,
 }
 
 fn runc_available() -> bool {
@@ -340,12 +343,13 @@ fn raise_loopback() -> Result<(), String> {
     Ok(())
 }
 
-fn host_port_closed(port: u16) -> bool {
+fn host_port_closed(port: u16) -> Result<(), String> {
     let address = SocketAddr::from(([127, 0, 0, 1], port));
-    matches!(
-        TcpStream::connect_timeout(&address, Duration::from_millis(200)),
-        Err(error) if error.kind() == ErrorKind::ConnectionRefused
-    )
+    match TcpStream::connect_timeout(&address, Duration::from_millis(200)) {
+        Err(error) if error.kind() == ErrorKind::ConnectionRefused => Ok(()),
+        Ok(_) => Err("admitted port answered on the host network".to_string()),
+        Err(error) => Err(format!("host port check failed: {error}")),
+    }
 }
 
 const AF_INET: i32 = 2;
@@ -403,6 +407,8 @@ fn observe(stop: &StopRunc) -> Result<Observation, String> {
         nofile: nofile_is(&limits, NOFILE),
         image_uid: effective_uid(&status) == Some(IMAGE_UID),
         runtime_user,
+        cpu: cgroup_cpu(pid),
+        memory: cgroup_memory(pid),
     })
 }
 
@@ -473,6 +479,46 @@ fn runtime_user(status: &str, uid_map: &str) -> String {
     }
 }
 
+fn cgroup_cpu(pid: u32) -> String {
+    cgroup_file(pid, "cpu.max")
+        .as_deref()
+        .map_or_else(|| "unobserved".to_string(), cpu_limit)
+}
+
+fn cgroup_memory(pid: u32) -> String {
+    cgroup_file(pid, "memory.max")
+        .as_deref()
+        .map_or_else(|| "unobserved".to_string(), memory_limit)
+}
+
+fn cgroup_file(pid: u32, name: &str) -> Option<String> {
+    let text = fs::read_to_string(format!("/proc/{pid}/cgroup")).ok()?;
+    let relative = text.lines().find_map(|line| line.strip_prefix("0::"))?;
+    let path = Path::new("/sys/fs/cgroup")
+        .join(relative.trim_start_matches('/'))
+        .join(name);
+    fs::read_to_string(path).ok()
+}
+
+pub(crate) fn cpu_limit(text: &str) -> String {
+    let value = text.trim();
+    let mut parts = value.split_whitespace();
+    match (parts.next(), parts.next()) {
+        (Some("max") | None, _) => "unset".to_string(),
+        (Some(quota), Some(period)) => format!("{quota}/{period}"),
+        (Some(quota), None) => quota.to_string(),
+    }
+}
+
+pub(crate) fn memory_limit(text: &str) -> String {
+    let value = text.trim();
+    if value.is_empty() || value == "max" {
+        "unset".to_string()
+    } else {
+        value.to_string()
+    }
+}
+
 pub(crate) fn root_is_readonly(mountinfo: &str) -> bool {
     mountinfo.lines().any(|line| {
         let mut fields = line.split(' ');
@@ -519,6 +565,8 @@ fn blocked(detail: String) -> StartReport {
         runtime: "unavailable".to_string(),
         rootfs: "unobserved",
         capabilities: "unobserved",
+        cpu: "unobserved".to_string(),
+        memory: "unobserved".to_string(),
         network: "unobserved",
         runtime_user: "unobserved".to_string(),
         user_applied: "BLOCKED",
@@ -543,6 +591,8 @@ fn failed(detail: String, stderr: &str) -> StartReport {
         runtime: "runc".to_string(),
         rootfs: "unobserved",
         capabilities: "unobserved",
+        cpu: "unobserved".to_string(),
+        memory: "unobserved".to_string(),
         network: "unobserved",
         runtime_user: "unobserved".to_string(),
         user_applied: "BLOCKED",
@@ -670,5 +720,9 @@ mod tests {
             runtime_user(status, "         0       1000          1\n"),
             "0 mapped to 1000"
         );
+        assert_eq!(cpu_limit("max 100000\n"), "unset");
+        assert_eq!(cpu_limit("10000 100000\n"), "10000/100000");
+        assert_eq!(memory_limit("max\n"), "unset");
+        assert_eq!(memory_limit("33554432\n"), "33554432");
     }
 }

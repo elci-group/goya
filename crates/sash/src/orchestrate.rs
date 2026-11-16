@@ -53,7 +53,7 @@ pub fn link(
         )
     })?;
     let tools = probe_tools(target)?;
-    let cache = pinned_windows_cache()?;
+    let cache = pinned_windows_cache(target)?;
     // The directory name is a function of the generated crate and the triple.
     // A unique directory changes the PDB, and `/Brepro` then changes the
     // CodeView GUID embedded in App.exe.
@@ -320,7 +320,6 @@ fn write_project(
     fs::create_dir(dir.join("src")).map_err(|error| io_diag("emit", &error))?;
     fs::create_dir(dir.join(".cargo")).map_err(|error| io_diag("emit", &error))?;
     write_new(&dir.join("Cargo.toml"), generated.cargo_toml.as_bytes())?;
-    // generated.config_toml names only the x64 triple.
     let config = crate::windows_target::cargo_config(target);
     write_new(&dir.join(".cargo/config.toml"), config.as_bytes())?;
     write_new(&dir.join("build.rs"), generated.build_rs.as_bytes())?;
@@ -409,7 +408,7 @@ fn write_new(path: &Path, bytes: &[u8]) -> Result<(), Diagnostic> {
     Ok(())
 }
 
-fn pinned_windows_cache() -> Result<PathBuf, Diagnostic> {
+fn pinned_windows_cache(target: WindowsTarget) -> Result<PathBuf, Diagnostic> {
     let Some(home) = std::env::var_os("HOME") else {
         return Err(Diagnostic::new(
             "SASH-TOOLCHAIN",
@@ -419,17 +418,7 @@ fn pinned_windows_cache() -> Result<PathBuf, Diagnostic> {
         ));
     };
     let cache = PathBuf::from(home).join(".cache/xwin");
-    let marker = cache.join("windows-msvc-sysroot/DONE");
-    let inner = cache.join("windows-msvc-sysroot/windows-msvc-sysroot");
-    let lib = inner.join("lib/x86_64-unknown-windows-msvc");
-    if !marker.is_file() || !inner.join("include").is_dir() || !lib.is_dir() {
-        return Err(Diagnostic::new(
-            "SASH-TOOLCHAIN",
-            "build",
-            "the pinned windows-msvc-sysroot is not present",
-            "Sash does not download a Windows SDK. Restore the local sysroot marked DONE before linking.",
-        ));
-    }
+    require_pinned_sysroot(&cache, target)?;
     let host_sysroot = version("rustc", &["--print", "sysroot"])?;
     let rust_lld =
         Path::new(host_sysroot.trim()).join("lib/rustlib/x86_64-unknown-linux-gnu/bin/rust-lld");
@@ -442,6 +431,34 @@ fn pinned_windows_cache() -> Result<PathBuf, Diagnostic> {
         ));
     }
     Ok(cache)
+}
+
+/// The selected machine needs its own import libraries. An x64 directory
+/// does not satisfy i686 or ARM64. Sash does not download the missing tree.
+fn require_pinned_sysroot(cache: &Path, target: WindowsTarget) -> Result<(), Diagnostic> {
+    let marker = cache.join("windows-msvc-sysroot/DONE");
+    let inner = cache.join("windows-msvc-sysroot/windows-msvc-sysroot");
+    let lib = inner.join("lib").join(target.sysroot_lib);
+    if !marker.is_file() || !inner.join("include").is_dir() {
+        return Err(Diagnostic::new(
+            "SASH-TOOLCHAIN",
+            "build",
+            "the pinned windows-msvc-sysroot is not present",
+            "Sash does not download a Windows SDK. Restore the local sysroot marked DONE before linking.",
+        ));
+    }
+    if !lib.is_dir() {
+        return Err(Diagnostic::new(
+            "SASH-TOOLCHAIN",
+            "build",
+            format!(
+                "the pinned windows-msvc-sysroot has no libraries for {}",
+                target.triple
+            ),
+            "Restore that architecture in the local sysroot. Sash does not download it.",
+        ));
+    }
+    Ok(())
 }
 
 fn active_rustup_toolchain() -> Option<String> {
@@ -803,5 +820,27 @@ mod tests {
             classify_link_failure("lld-link: error: undefined symbol main"),
             "SASH-LINK"
         );
+    }
+
+    #[test]
+    fn sysroot_libraries_follow_the_selected_triple() {
+        let root = std::env::temp_dir().join(format!("sash-sysroot-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let inner = root.join("windows-msvc-sysroot/windows-msvc-sysroot");
+        std::fs::create_dir_all(inner.join("include")).unwrap();
+        std::fs::create_dir_all(
+            inner
+                .join("lib")
+                .join(crate::windows_target::X64.sysroot_lib),
+        )
+        .unwrap();
+        std::fs::write(root.join("windows-msvc-sysroot/DONE"), b"done").unwrap();
+        assert!(super::require_pinned_sysroot(&root, crate::windows_target::X64).is_ok());
+        let missing = super::require_pinned_sysroot(&root, crate::windows_target::X86).unwrap_err();
+        assert_eq!(missing.code, "SASH-TOOLCHAIN");
+        assert!(missing.message.contains("i686-pc-windows-msvc"));
+        let arm = super::require_pinned_sysroot(&root, crate::windows_target::ARM64).unwrap_err();
+        assert!(arm.message.contains("aarch64-pc-windows-msvc"));
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

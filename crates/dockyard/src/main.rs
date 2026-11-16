@@ -202,6 +202,8 @@ fn start_dir(args: &[std::ffi::OsString], out: &mut dyn Write, err: &mut dyn Wri
             let _ = writeln!(out, "runtime: {}", report.runtime);
             let _ = writeln!(out, "rootfs: {}", report.rootfs);
             let _ = writeln!(out, "capabilities: {}", report.capabilities);
+            let _ = writeln!(out, "cpu: {}", report.cpu);
+            let _ = writeln!(out, "memory: {}", report.memory);
             let _ = writeln!(out, "network: {}", report.network);
             let _ = writeln!(out, "runtime-user: {}", report.runtime_user);
             let _ = writeln!(out, "user-applied: {}", report.user_applied);

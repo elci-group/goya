@@ -12,6 +12,8 @@ pub struct WindowsTarget {
     pub pointer_bits: u16,
     /// `assemblyIdentity` `processorArchitecture` for this machine.
     pub processor_architecture: &'static str,
+    /// Import-library directory under the pinned `windows-msvc-sysroot`.
+    pub sysroot_lib: &'static str,
 }
 
 /// PE32, 32-bit x86. `user32` exports `SetWindowLongW`, not `SetWindowLongPtrW`.
@@ -21,6 +23,7 @@ pub const X86: WindowsTarget = WindowsTarget {
     optional_magic: 0x010B,
     pointer_bits: 32,
     processor_architecture: "x86",
+    sysroot_lib: "i686-unknown-windows-msvc",
 };
 
 /// PE32+, x64. This is the original linked target.
@@ -30,6 +33,7 @@ pub const X64: WindowsTarget = WindowsTarget {
     optional_magic: 0x020B,
     pointer_bits: 64,
     processor_architecture: "amd64",
+    sysroot_lib: "x86_64-unknown-windows-msvc",
 };
 
 /// PE32+, native ARM64. This is not an x64 binary under emulation.
@@ -39,6 +43,7 @@ pub const ARM64: WindowsTarget = WindowsTarget {
     optional_magic: 0x020B,
     pointer_bits: 64,
     processor_architecture: "arm64",
+    sysroot_lib: "aarch64-unknown-windows-msvc",
 };
 
 pub const ADMITTED: &[WindowsTarget] = &[X86, X64, ARM64];
@@ -106,7 +111,12 @@ mod tests {
             assert!(config.contains("target-feature=+crt-static"));
             assert!(config.contains("control-flow-guard=checks"));
             assert!(config.contains("link-arg=/Brepro"));
+            assert!(target.sysroot_lib.ends_with("-unknown-windows-msvc"));
+            assert!(!target.sysroot_lib.contains("linux"));
         }
+        assert_ne!(X86.sysroot_lib, X64.sysroot_lib);
+        assert_ne!(X64.sysroot_lib, ARM64.sysroot_lib);
+        assert_ne!(X86.sysroot_lib, ARM64.sysroot_lib);
     }
 
     #[test]

@@ -878,6 +878,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "goya-parity"
+version = "0.1.8"
+dependencies = [
+ "goya-executable",
+ "goya-lang",
+ "goya-sdk",
+ "sash",
+]
+
+[[package]]
 name = "goya-plugin-host"
 version = "0.1.8"
 dependencies = [
