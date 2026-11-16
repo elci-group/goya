@@ -311,6 +311,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "emperor"
+version = "0.1.8"
+dependencies = [
+ "emperor-runtime",
+ "goya-lang",
+ "sash",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
+name = "emperor-runtime"
+version = "0.1.8"
+dependencies = [
+ "goya-layout",
+ "goya-parity",
+ "goya-runtime",
+ "goya-wayland",
+ "serde",
+ "serde_json",
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

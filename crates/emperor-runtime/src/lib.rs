@@ -1,0 +1,584 @@
+//! Linux runtime for one admitted counter (`emperor.linux.interactive/0.0.1`).
+//!
+//! Preedit and commit text are ignored. That is a limitation, not input-method
+//! support. The crate does not sandbox the process, does not reflow on resize,
+//! and presents through the existing Wayland software host. It is not a Vulkan
+//! renderer and it does not run any other profile.
+
+#![forbid(unsafe_code)]
+
+mod host;
+
+use goya_parity::keys::KeyController;
+
+/// Native IR schema accepted by this runtime.
+const SCHEMA: &str = "GY-EMP-NIR/1";
+/// Profile of the single admitted Linux counter.
+const PROFILE: &str = "emperor.linux.interactive/0.0.1";
+
+pub(crate) const WM_KEYDOWN: u32 = 0x0100;
+pub(crate) const VK_TAB: usize = 9;
+pub(crate) const VK_RETURN: usize = 13;
+pub(crate) const VK_SPACE: usize = 0x20;
+
+/// One lowered control. Coordinates are device-independent pixels.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Element {
+    pub id: String,
+    pub role: String,
+    pub text: String,
+    pub x_dip: i32,
+    pub y_dip: i32,
+    pub width_dip: i32,
+    pub height_dip: i32,
+    pub span_start: usize,
+    pub span_end: usize,
+}
+
+/// Capability flags carried beside the admitted scene.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Capabilities {
+    pub copy: bool,
+    pub paste: bool,
+    pub cut: String,
+    pub filesystem: String,
+    pub network: bool,
+    pub subprocess: bool,
+    pub web_content: bool,
+}
+
+/// Lowered interactive counter. Field order is the canonical JSON order.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NativeIr {
+    pub schema: String,
+    pub profile: String,
+    pub source_digest_sha256: String,
+    pub scene: String,
+    pub action_id: String,
+    pub state_id: String,
+    pub input_id: String,
+    pub initial_state: i64,
+    pub initial_input: i64,
+    pub width_dip: i32,
+    pub height_dip: i32,
+    pub elements: Vec<Element>,
+    pub capabilities: Capabilities,
+}
+
+/// Static control geometry embedded in a compiled scene.
+#[derive(Debug, Clone, Copy)]
+pub struct CompiledElement {
+    pub id: &'static str,
+    pub role: &'static str,
+    pub text: &'static str,
+    pub x_dip: i32,
+    pub y_dip: i32,
+    pub width_dip: i32,
+    pub height_dip: i32,
+    pub span_start: usize,
+    pub span_end: usize,
+}
+
+/// Scene compiled into the process. `nir_json` is the native IR.
+#[derive(Debug, Clone)]
+pub struct CompiledScene {
+    pub nir_json: &'static str,
+    pub schema: &'static str,
+    pub profile: &'static str,
+    pub source_digest_sha256: &'static str,
+    pub scene: &'static str,
+    pub action_id: &'static str,
+    pub state_id: &'static str,
+    pub input_id: &'static str,
+    pub initial_state: i64,
+    pub initial_input: i64,
+    pub width_dip: i32,
+    pub height_dip: i32,
+    pub copy: bool,
+    pub paste: bool,
+    pub cut: &'static str,
+    pub filesystem: &'static str,
+    pub network: bool,
+    pub subprocess: bool,
+    pub web_content: bool,
+    pub elements: &'static [CompiledElement],
+}
+
+/// Headless or hosted result of one counter run.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OracleReport {
+    pub count: i64,
+    pub revision: u64,
+    pub copy_allowed: bool,
+    pub paste_allowed: bool,
+    pub presented: u32,
+    pub wayland: &'static str,
+}
+
+/// How [`run`] drives the admitted counter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunMode {
+    /// One add, no window.
+    Oracle,
+    /// Open the Wayland host and present one frame.
+    Smoke,
+    /// Pump until close, or until `max_frames` pumps when set.
+    Live { max_frames: Option<u32> },
+}
+
+/// Admit `nir_json`, apply one add, and ignore paste when it is denied.
+pub fn oracle(nir_json: &str) -> Result<OracleReport, String> {
+    run(nir_json, RunMode::Oracle)
+}
+
+/// Admit `nir_json` and run it in `mode`.
+pub fn run(nir_json: &str, mode: RunMode) -> Result<OracleReport, String> {
+    let (ir, mut controller) = open_admitted(nir_json)?;
+    match mode {
+        RunMode::Oracle => {
+            press_add(&mut controller);
+            prove_paste_denied(&ir, &mut controller)?;
+            Ok(report(&controller, 0, "not-requested"))
+        }
+        RunMode::Smoke => host::run_window(&ir, controller, host::WindowMode::Smoke),
+        RunMode::Live { max_frames } => {
+            host::run_window(&ir, controller, host::WindowMode::Live { max_frames })
+        }
+    }
+}
+
+/// Apply `times` successful add activations. Enter activates without moving focus.
+pub fn activate_add(nir_json: &str, times: u32) -> Result<OracleReport, String> {
+    let (_ir, mut controller) = open_admitted(nir_json)?;
+    for _ in 0..times {
+        press_add(&mut controller);
+    }
+    Ok(report(&controller, 0, "not-requested"))
+}
+
+/// Attempt a paste and report whether the edit stayed `"1"`.
+///
+/// Denied paste does not change the edit. Allowed paste replaces it, so the
+/// result is false unless the replacement is still `"1"`.
+pub fn paste_is_ignored(nir_json: &str) -> Result<bool, String> {
+    let (ir, mut controller) = open_admitted(nir_json)?;
+    attempt_paste(&ir, &mut controller);
+    Ok(controller.session.edit == "1")
+}
+
+/// Parse `scene.nir_json` and require every compiled field to match it.
+pub fn assert_scene_matches(scene: &CompiledScene) -> Result<(), String> {
+    let ir: NativeIr = serde_json::from_str(scene.nir_json).map_err(|err| err.to_string())?;
+    same("schema", scene.schema, &ir.schema)?;
+    same("profile", scene.profile, &ir.profile)?;
+    same(
+        "source_digest_sha256",
+        scene.source_digest_sha256,
+        &ir.source_digest_sha256,
+    )?;
+    same("scene", scene.scene, &ir.scene)?;
+    same("action_id", scene.action_id, &ir.action_id)?;
+    same("state_id", scene.state_id, &ir.state_id)?;
+    same("input_id", scene.input_id, &ir.input_id)?;
+    same_i64("initial_state", scene.initial_state, ir.initial_state)?;
+    same_i64("initial_input", scene.initial_input, ir.initial_input)?;
+    same_i32("width_dip", scene.width_dip, ir.width_dip)?;
+    same_i32("height_dip", scene.height_dip, ir.height_dip)?;
+    same_bool("copy", scene.copy, ir.capabilities.copy)?;
+    same_bool("paste", scene.paste, ir.capabilities.paste)?;
+    same("cut", scene.cut, &ir.capabilities.cut)?;
+    same("filesystem", scene.filesystem, &ir.capabilities.filesystem)?;
+    same_bool("network", scene.network, ir.capabilities.network)?;
+    same_bool("subprocess", scene.subprocess, ir.capabilities.subprocess)?;
+    same_bool(
+        "web_content",
+        scene.web_content,
+        ir.capabilities.web_content,
+    )?;
+    if scene.elements.len() != ir.elements.len() {
+        return Err(format!(
+            "element count {} does not match {}",
+            scene.elements.len(),
+            ir.elements.len()
+        ));
+    }
+    for (index, (compiled, element)) in scene.elements.iter().zip(&ir.elements).enumerate() {
+        let label = |field: &str| format!("elements[{index}].{field}");
+        same(&label("id"), compiled.id, &element.id)?;
+        same(&label("role"), compiled.role, &element.role)?;
+        same(&label("text"), compiled.text, &element.text)?;
+        same_i32(&label("x_dip"), compiled.x_dip, element.x_dip)?;
+        same_i32(&label("y_dip"), compiled.y_dip, element.y_dip)?;
+        same_i32(&label("width_dip"), compiled.width_dip, element.width_dip)?;
+        same_i32(
+            &label("height_dip"),
+            compiled.height_dip,
+            element.height_dip,
+        )?;
+        same_usize(
+            &label("span_start"),
+            compiled.span_start,
+            element.span_start,
+        )?;
+        same_usize(&label("span_end"), compiled.span_end, element.span_end)?;
+    }
+    Ok(())
+}
+
+pub(crate) fn press_add(controller: &mut KeyController) {
+    controller.on_key(WM_KEYDOWN, VK_RETURN, false);
+}
+
+fn open_admitted(nir_json: &str) -> Result<(NativeIr, KeyController), String> {
+    let ir: NativeIr = serde_json::from_str(nir_json).map_err(|err| err.to_string())?;
+    if ir.schema != SCHEMA {
+        return Err(format!("schema {} is not {SCHEMA}", ir.schema));
+    }
+    if ir.profile != PROFILE {
+        return Err(format!("profile {} is not {PROFILE}", ir.profile));
+    }
+    if ir.capabilities.filesystem != "none" {
+        return Err(format!(
+            "filesystem {} is not admitted for this profile",
+            ir.capabilities.filesystem
+        ));
+    }
+    if ir.capabilities.network || ir.capabilities.subprocess || ir.capabilities.web_content {
+        return Err(
+            "network, subprocess, and web_content are not admitted for this profile".into(),
+        );
+    }
+    if !matches!(ir.capabilities.cut.as_str(), "allow" | "default" | "deny") {
+        return Err(format!("cut {} is not admitted", ir.capabilities.cut));
+    }
+    for element in &ir.elements {
+        if !matches!(
+            element.role.as_str(),
+            "client" | "edit" | "button" | "result" | "static"
+        ) {
+            return Err(format!("role {} is not admitted", element.role));
+        }
+    }
+    let controller = KeyController::open(&ir.scene).map_err(|err| err.to_string())?;
+    if controller.session.count != ir.initial_state {
+        return Err(format!(
+            "lowering bug: initial count {} does not match admitted {}",
+            ir.initial_state, controller.session.count
+        ));
+    }
+    let expected_edit = ir.initial_input.to_string();
+    if controller.session.edit != expected_edit {
+        return Err(format!(
+            "lowering bug: initial edit {} does not match formatted input {expected_edit}",
+            controller.session.edit
+        ));
+    }
+    if controller.session.copy_allowed != ir.capabilities.copy {
+        return Err(format!(
+            "lowering bug: copy flag admitted {} does not match capabilities {}",
+            controller.session.copy_allowed, ir.capabilities.copy
+        ));
+    }
+    if controller.session.paste_allowed != ir.capabilities.paste {
+        return Err(format!(
+            "lowering bug: paste flag admitted {} does not match capabilities {}",
+            controller.session.paste_allowed, ir.capabilities.paste
+        ));
+    }
+    Ok((ir, controller))
+}
+
+/// Denied paste leaves the edit alone. Allowed paste is not forced into that path.
+fn attempt_paste(ir: &NativeIr, controller: &mut KeyController) {
+    if ir.capabilities.paste {
+        controller.session.set_edit("999");
+    }
+}
+
+fn prove_paste_denied(ir: &NativeIr, controller: &mut KeyController) -> Result<(), String> {
+    if ir.capabilities.paste {
+        return Ok(());
+    }
+    let before = controller.session.edit.clone();
+    attempt_paste(ir, controller);
+    if controller.session.edit != before {
+        return Err("paste changed the edit".into());
+    }
+    Ok(())
+}
+
+fn report(controller: &KeyController, presented: u32, wayland: &'static str) -> OracleReport {
+    OracleReport {
+        count: controller.session.count,
+        revision: controller.session.revision,
+        copy_allowed: controller.session.copy_allowed,
+        paste_allowed: controller.session.paste_allowed,
+        presented,
+        wayland,
+    }
+}
+
+fn same(field: &str, compiled: &str, ir: &str) -> Result<(), String> {
+    if compiled == ir {
+        Ok(())
+    } else {
+        Err(format!("{field} does not match native ir"))
+    }
+}
+
+fn same_i64(field: &str, compiled: i64, ir: i64) -> Result<(), String> {
+    if compiled == ir {
+        Ok(())
+    } else {
+        Err(format!("{field} {compiled} does not match {ir}"))
+    }
+}
+
+fn same_i32(field: &str, compiled: i32, ir: i32) -> Result<(), String> {
+    if compiled == ir {
+        Ok(())
+    } else {
+        Err(format!("{field} {compiled} does not match {ir}"))
+    }
+}
+
+fn same_usize(field: &str, compiled: usize, ir: usize) -> Result<(), String> {
+    if compiled == ir {
+        Ok(())
+    } else {
+        Err(format!("{field} {compiled} does not match {ir}"))
+    }
+}
+
+fn same_bool(field: &str, compiled: bool, ir: bool) -> Result<(), String> {
+    if compiled == ir {
+        Ok(())
+    } else {
+        Err(format!("{field} {compiled} does not match {ir}"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SCENE: &str = include_str!("../../sash/fixtures/interactive-counter.gscene");
+
+    fn counter_ir() -> NativeIr {
+        NativeIr {
+            schema: SCHEMA.to_owned(),
+            profile: PROFILE.to_owned(),
+            source_digest_sha256: "test".to_owned(),
+            scene: SCENE.to_owned(),
+            action_id: "action.add".to_owned(),
+            state_id: "state.count".to_owned(),
+            input_id: "window.amount".to_owned(),
+            initial_state: 0,
+            initial_input: 1,
+            width_dip: 320,
+            height_dip: 160,
+            elements: vec![
+                Element {
+                    id: "window.root".to_owned(),
+                    role: "client".to_owned(),
+                    text: "Count".to_owned(),
+                    x_dip: 0,
+                    y_dip: 0,
+                    width_dip: 320,
+                    height_dip: 160,
+                    span_start: 0,
+                    span_end: 0,
+                },
+                Element {
+                    id: "window.amount".to_owned(),
+                    role: "edit".to_owned(),
+                    text: "1".to_owned(),
+                    x_dip: 8,
+                    y_dip: 64,
+                    width_dip: 120,
+                    height_dip: 32,
+                    span_start: 0,
+                    span_end: 0,
+                },
+                Element {
+                    id: "window.add".to_owned(),
+                    role: "button".to_owned(),
+                    text: "Add".to_owned(),
+                    x_dip: 136,
+                    y_dip: 64,
+                    width_dip: 80,
+                    height_dip: 32,
+                    span_start: 0,
+                    span_end: 0,
+                },
+                Element {
+                    id: "state.count".to_owned(),
+                    role: "result".to_owned(),
+                    text: "0".to_owned(),
+                    x_dip: 8,
+                    y_dip: 112,
+                    width_dip: 160,
+                    height_dip: 32,
+                    span_start: 0,
+                    span_end: 0,
+                },
+            ],
+            capabilities: Capabilities {
+                copy: true,
+                paste: false,
+                cut: "default".to_owned(),
+                filesystem: "none".to_owned(),
+                network: false,
+                subprocess: false,
+                web_content: false,
+            },
+        }
+    }
+
+    fn counter_json() -> String {
+        serde_json::to_string(&counter_ir()).expect("counter serializes")
+    }
+
+    #[test]
+    fn oracle_stores_zero_plus_one() {
+        let report = oracle(&counter_json()).expect("oracle");
+        assert_eq!(report.count, 1);
+        assert_eq!(report.revision, 1);
+        assert!(report.copy_allowed);
+        assert!(!report.paste_allowed);
+        assert_eq!(report.presented, 0);
+        assert_eq!(report.wayland, "not-requested");
+    }
+
+    #[test]
+    fn two_activations_store_count_two() {
+        let report = activate_add(&counter_json(), 2).expect("two adds");
+        assert_eq!(report.count, 2);
+        assert_eq!(report.revision, 2);
+        assert!(!report.paste_allowed);
+        assert_eq!(report.presented, 0);
+        assert_eq!(report.wayland, "not-requested");
+    }
+
+    #[test]
+    fn unknown_field_is_rejected() {
+        let mut value = serde_json::to_value(counter_ir()).expect("value");
+        value
+            .as_object_mut()
+            .expect("object")
+            .insert("extra".to_owned(), serde_json::json!(true));
+        let json = serde_json::to_string(&value).expect("json");
+        assert!(oracle(&json).is_err());
+    }
+
+    #[test]
+    fn wrong_schema_is_rejected() {
+        let mut ir = counter_ir();
+        ir.schema = "nope".to_owned();
+        let json = serde_json::to_string(&ir).expect("json");
+        let err = oracle(&json).expect_err("schema");
+        assert!(err.contains("nope"), "{err}");
+    }
+
+    #[test]
+    fn denied_paste_leaves_the_edit_at_one() {
+        assert!(paste_is_ignored(&counter_json()).expect("paste"));
+    }
+
+    #[test]
+    fn privileged_filesystem_is_rejected() {
+        let mut ir = counter_ir();
+        ir.capabilities.filesystem = "deny".to_owned();
+        let err = oracle(&serde_json::to_string(&ir).expect("json")).expect_err("filesystem");
+        assert!(err.contains("filesystem"), "{err}");
+    }
+
+    #[test]
+    fn canonical_json_keeps_field_order() {
+        let json = counter_json();
+        assert!(json.starts_with(
+            "{\"schema\":\"GY-EMP-NIR/1\",\"profile\":\"emperor.linux.interactive/0.0.1\","
+        ));
+    }
+
+    const ELEMENTS: &[CompiledElement] = &[
+        CompiledElement {
+            id: "window.root",
+            role: "client",
+            text: "Count",
+            x_dip: 0,
+            y_dip: 0,
+            width_dip: 320,
+            height_dip: 160,
+            span_start: 0,
+            span_end: 0,
+        },
+        CompiledElement {
+            id: "window.amount",
+            role: "edit",
+            text: "1",
+            x_dip: 8,
+            y_dip: 64,
+            width_dip: 120,
+            height_dip: 32,
+            span_start: 0,
+            span_end: 0,
+        },
+        CompiledElement {
+            id: "window.add",
+            role: "button",
+            text: "Add",
+            x_dip: 136,
+            y_dip: 64,
+            width_dip: 80,
+            height_dip: 32,
+            span_start: 0,
+            span_end: 0,
+        },
+        CompiledElement {
+            id: "state.count",
+            role: "result",
+            text: "0",
+            x_dip: 8,
+            y_dip: 112,
+            width_dip: 160,
+            height_dip: 32,
+            span_start: 0,
+            span_end: 0,
+        },
+    ];
+
+    #[test]
+    fn compiled_scene_matches_its_json() {
+        let json = Box::leak(counter_json().into_boxed_str());
+        let scene = CompiledScene {
+            nir_json: json,
+            schema: SCHEMA,
+            profile: PROFILE,
+            source_digest_sha256: "test",
+            scene: SCENE,
+            action_id: "action.add",
+            state_id: "state.count",
+            input_id: "window.amount",
+            initial_state: 0,
+            initial_input: 1,
+            width_dip: 320,
+            height_dip: 160,
+            copy: true,
+            paste: false,
+            cut: "default",
+            filesystem: "none",
+            network: false,
+            subprocess: false,
+            web_content: false,
+            elements: ELEMENTS,
+        };
+        assert_scene_matches(&scene).expect("match");
+        let mut mismatched = scene.clone();
+        mismatched.copy = false;
+        assert!(assert_scene_matches(&mismatched).is_err());
+    }
+}

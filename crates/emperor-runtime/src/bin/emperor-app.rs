@@ -1,0 +1,140 @@
+//! Process entry for one admitted counter.
+//!
+//! `--oracle` is the default. `--smoke` and `--live` open the Wayland host.
+//! Exit 0 prints the report. Exit 1 is usage or a bad native IR. Exit 5 is a
+//! Wayland or runtime failure.
+
+#![forbid(unsafe_code)]
+
+use std::env;
+use std::fs;
+use std::path::{Component, Path, PathBuf};
+use std::process::ExitCode;
+
+include!(concat!(env!("OUT_DIR"), "/embed.rs"));
+
+enum Mode {
+    Oracle,
+    Smoke,
+    Live,
+}
+
+struct Args {
+    mode: Mode,
+    frames: Option<u32>,
+    nir: Option<PathBuf>,
+}
+
+enum AppError {
+    Usage(String),
+    Runtime(String),
+}
+
+fn main() -> ExitCode {
+    match app() {
+        Ok(report) => {
+            println!(
+                "count={} revision={} presented={} wayland={} copy={} paste={}",
+                report.count,
+                report.revision,
+                report.presented,
+                report.wayland,
+                report.copy_allowed,
+                report.paste_allowed
+            );
+            ExitCode::SUCCESS
+        }
+        Err(AppError::Usage(message)) => {
+            eprintln!("emperor-app: {message}");
+            ExitCode::from(1)
+        }
+        Err(AppError::Runtime(message)) => {
+            eprintln!("emperor-app: {message}");
+            ExitCode::from(5)
+        }
+    }
+}
+
+fn app() -> Result<emperor_runtime::OracleReport, AppError> {
+    let args = parse_args().map_err(AppError::Usage)?;
+    let json = if let Some(path) = &args.nir {
+        read_nir(path)?
+    } else if let Some(scene) = embedded() {
+        emperor_runtime::assert_scene_matches(scene).map_err(AppError::Usage)?;
+        scene.nir_json.to_owned()
+    } else {
+        return Err(AppError::Usage(
+            "no native ir: pass --nir PATH or embed a CompiledScene".into(),
+        ));
+    };
+    let mode = match args.mode {
+        Mode::Oracle => emperor_runtime::RunMode::Oracle,
+        Mode::Smoke => emperor_runtime::RunMode::Smoke,
+        Mode::Live => emperor_runtime::RunMode::Live {
+            max_frames: args.frames,
+        },
+    };
+    emperor_runtime::run(&json, mode).map_err(classify)
+}
+
+fn parse_args() -> Result<Args, String> {
+    let mut mode = None;
+    let mut frames = None;
+    let mut nir = None;
+    let mut args = env::args().skip(1);
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--oracle" => set_mode(&mut mode, Mode::Oracle)?,
+            "--smoke" => set_mode(&mut mode, Mode::Smoke)?,
+            "--live" => set_mode(&mut mode, Mode::Live)?,
+            "--frames" => {
+                let value = args.next().ok_or("missing value for --frames")?;
+                let parsed = value
+                    .parse::<u32>()
+                    .map_err(|_| format!("bad --frames {value}"))?;
+                if frames.replace(parsed).is_some() {
+                    return Err("duplicate --frames".into());
+                }
+            }
+            "--nir" => {
+                let value = args.next().ok_or("missing value for --nir")?;
+                if nir.replace(PathBuf::from(value)).is_some() {
+                    return Err("duplicate --nir".into());
+                }
+            }
+            other => return Err(format!("unknown argument {other}")),
+        }
+    }
+    let mode = mode.unwrap_or(Mode::Oracle);
+    if frames.is_some() && !matches!(mode, Mode::Live) {
+        return Err("--frames requires --live".into());
+    }
+    Ok(Args { mode, frames, nir })
+}
+
+fn set_mode(slot: &mut Option<Mode>, mode: Mode) -> Result<(), String> {
+    if slot.is_some() {
+        return Err("pass only one of --oracle, --smoke, or --live".into());
+    }
+    *slot = Some(mode);
+    Ok(())
+}
+
+fn read_nir(path: &Path) -> Result<String, AppError> {
+    if path
+        .components()
+        .any(|component| matches!(component, Component::ParentDir))
+    {
+        return Err(AppError::Usage("nir path must not contain ..".into()));
+    }
+    fs::read_to_string(path)
+        .map_err(|err| AppError::Usage(format!("could not read {}: {err}", path.display())))
+}
+
+fn classify(err: String) -> AppError {
+    if err.starts_with("wayland:") {
+        AppError::Runtime(err)
+    } else {
+        AppError::Usage(err)
+    }
+}

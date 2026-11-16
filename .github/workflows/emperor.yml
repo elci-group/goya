@@ -1,0 +1,372 @@
+# Emperor CI. Separate from .github/workflows/ci.yml.
+# A missing emperor crate fails the compile and test jobs until it lands.
+# Blocked-evidence jobs exit 0 because their JSON status is BLOCKED.
+# A green blocked-evidence job is not a qualification pass.
+name: emperor-ci
+
+"on":
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: "emperor-${{ github.ref }}"
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  # Packages may be absent on this branch. Failure until they land is accepted.
+  # Keep -D warnings. Do not ignore a clippy or fmt failure.
+  fmt-and-lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          components: rustfmt, clippy
+      - name: Check emperor formatting
+        run: cargo fmt --manifest-path crates/emperor/Cargo.toml -- --check
+      - name: Check emperor-runtime formatting
+        run: cargo fmt --manifest-path crates/emperor-runtime/Cargo.toml -- --check
+      - name: Clippy deny warnings
+        run: cargo clippy -p emperor -p emperor-runtime --all-targets -- -D warnings
+
+  unit-and-property-tests:
+    needs: fmt-and-lint
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.95.0
+      - name: Unit and property tests
+        run: cargo test -p emperor -p emperor-runtime --offline --lib --tests
+
+  frontend-contract-tests:
+    needs: unit-and-property-tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.95.0
+      # Emperor package tests are the contract tests. The full package is the
+      # contract run, including any oracle tests. This is not a workspace run.
+      - name: Emperor package contract tests
+        run: cargo test -p emperor --offline --lib --tests
+
+  native-ir-validation:
+    needs: unit-and-property-tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.95.0
+      - name: Native IR library tests
+        run: cargo test -p emperor-runtime --offline --lib
+
+  x86_64-elf-build:
+    needs: unit-and-property-tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.95.0
+      - name: Build emperor
+        run: cargo build -p emperor --offline
+      - name: "admission check only; ELF launch is local"
+        run: cargo run -p emperor --offline -- check crates/sash/fixtures/interactive-counter.gscene --target x86_64-unknown-linux-gnu --format json
+
+  arm64-elf-build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record BLOCKED arm64 evidence
+        env:
+          EMPEROR_SOURCE: ${{ github.sha }}
+        run: |
+          echo "This job exits 0 because the evidence status is BLOCKED, not because ARM64 succeeded."
+          mkdir -p evidence/emperor/linux-arm64
+          python3 - <<'PY'
+          import json, os, re
+          source = os.environ["EMPEROR_SOURCE"]
+          if re.fullmatch(r"[0-9a-fA-F]{40}", source) is None:
+              raise SystemExit("source must be github.sha")
+          doc = {
+              "status": "BLOCKED",
+              "job": "arm64-elf-build",
+              "justification": "This runner neither launches an aarch64 machine nor treats cross-compilation as qualification.",
+              "source": source,
+          }
+          text = json.dumps(doc, indent=2) + "\n"
+          if "PASS" in text:
+              raise SystemExit("blocked evidence must not say PASS")
+          path = "evidence/emperor/linux-arm64/ci-blocked.json"
+          with open(path, "w", encoding="utf-8") as fh:
+              fh.write(text)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: emperor-arm64-blocked
+          path: evidence/emperor/linux-arm64/ci-blocked.json
+          if-no-files-found: error
+
+  host-wayland-integration:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record BLOCKED Wayland evidence
+        env:
+          EMPEROR_SOURCE: ${{ github.sha }}
+        run: |
+          echo "This job exits 0 because the evidence status is BLOCKED. JSON must not say PASS. There is no Wayland display on this runner."
+          mkdir -p evidence/emperor/compositor
+          python3 - <<'PY'
+          import json, os, re
+          source = os.environ["EMPEROR_SOURCE"]
+          if re.fullmatch(r"[0-9a-fA-F]{40}", source) is None:
+              raise SystemExit("source must be github.sha")
+          doc = {
+              "status": "BLOCKED",
+              "job": "host-wayland-integration",
+              "justification": "GitHub-hosted ubuntu has no Wayland display and a headless test is not a window launch.",
+              "source": source,
+          }
+          text = json.dumps(doc, indent=2) + "\n"
+          if "PASS" in text:
+              raise SystemExit("blocked evidence must not say PASS")
+          path = "evidence/emperor/compositor/ci-blocked.json"
+          with open(path, "w", encoding="utf-8") as fh:
+              fh.write(text)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: emperor-wayland-blocked
+          path: evidence/emperor/compositor/ci-blocked.json
+          if-no-files-found: error
+
+  compositor-matrix:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record BLOCKED compositor-matrix evidence
+        env:
+          EMPEROR_SOURCE: ${{ github.sha }}
+        run: |
+          echo "This job exits 0 because the evidence status is BLOCKED, not because a compositor matrix ran."
+          mkdir -p evidence/emperor/compositor
+          python3 - <<'PY'
+          import json, os, re
+          source = os.environ["EMPEROR_SOURCE"]
+          if re.fullmatch(r"[0-9a-fA-F]{40}", source) is None:
+              raise SystemExit("source must be github.sha")
+          doc = {
+              "status": "BLOCKED",
+              "job": "compositor-matrix",
+              "justification": "Mutter, KWin, wlroots, and COSMIC are not pinned or executed in this workflow.",
+              "source": source,
+          }
+          text = json.dumps(doc, indent=2) + "\n"
+          if "PASS" in text:
+              raise SystemExit("blocked evidence must not say PASS")
+          path = "evidence/emperor/compositor/matrix-blocked.json"
+          with open(path, "w", encoding="utf-8") as fh:
+              fh.write(text)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: emperor-compositor-matrix-blocked
+          path: evidence/emperor/compositor/matrix-blocked.json
+          if-no-files-found: error
+
+  performance-regression:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record BLOCKED performance evidence
+        env:
+          EMPEROR_SOURCE: ${{ github.sha }}
+        run: |
+          echo "This job exits 0 because the evidence status is BLOCKED. No benchmark numbers are recorded."
+          mkdir -p evidence/emperor/performance
+          python3 - <<'PY'
+          import json, os, re
+          source = os.environ["EMPEROR_SOURCE"]
+          if re.fullmatch(r"[0-9a-fA-F]{40}", source) is None:
+              raise SystemExit("source must be github.sha")
+          doc = {
+              "status": "BLOCKED",
+              "job": "performance-regression",
+              "benchmarks": "none recorded",
+              "justification": "No benchmark numbers are recorded. Provisional targets in GY-EMP-001 are not measurements.",
+              "source": source,
+          }
+          text = json.dumps(doc, indent=2) + "\n"
+          if "PASS" in text:
+              raise SystemExit("blocked evidence must not say PASS")
+          path = "evidence/emperor/performance/ci-blocked.json"
+          with open(path, "w", encoding="utf-8") as fh:
+              fh.write(text)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: emperor-performance-blocked
+          path: evidence/emperor/performance/ci-blocked.json
+          if-no-files-found: error
+
+  security-analysis:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record BLOCKED security evidence
+        env:
+          EMPEROR_SOURCE: ${{ github.sha }}
+        run: |
+          echo "This job exits 0 because the evidence status is BLOCKED. Dependency review, seccomp, and Landlock are not executed here."
+          mkdir -p evidence/emperor/security
+          python3 - <<'PY'
+          import json, os, re
+          source = os.environ["EMPEROR_SOURCE"]
+          if re.fullmatch(r"[0-9a-fA-F]{40}", source) is None:
+              raise SystemExit("source must be github.sha")
+          doc = {
+              "status": "BLOCKED",
+              "job": "security-analysis",
+              "justification": "Dependency review, seccomp, and Landlock are not executed here. No CVE results are recorded.",
+              "source": source,
+          }
+          text = json.dumps(doc, indent=2) + "\n"
+          if "PASS" in text:
+              raise SystemExit("blocked evidence must not say PASS")
+          path = "evidence/emperor/security/ci-blocked.json"
+          with open(path, "w", encoding="utf-8") as fh:
+              fh.write(text)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: emperor-security-blocked
+          path: evidence/emperor/security/ci-blocked.json
+          if-no-files-found: error
+
+  package-verification:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record BLOCKED packaging evidence
+        env:
+          EMPEROR_SOURCE: ${{ github.sha }}
+        run: |
+          echo "This job exits 0 because the evidence status is BLOCKED. linux-archive is not produced in CI."
+          mkdir -p evidence/emperor/packaging
+          python3 - <<'PY'
+          import json, os, re
+          source = os.environ["EMPEROR_SOURCE"]
+          if re.fullmatch(r"[0-9a-fA-F]{40}", source) is None:
+              raise SystemExit("source must be github.sha")
+          doc = {
+              "status": "BLOCKED",
+              "job": "package-verification",
+              "formats": {
+                  "AppImage": "BLOCKED",
+                  "Flatpak": "BLOCKED",
+                  "deb": "BLOCKED",
+                  "rpm": "BLOCKED",
+              },
+              "linux_archive": "not produced in CI",
+              "justification": "AppImage, Flatpak, deb, and rpm are BLOCKED. linux-archive is not produced in CI.",
+              "source": source,
+          }
+          text = json.dumps(doc, indent=2) + "\n"
+          if "PASS" in text:
+              raise SystemExit("blocked evidence must not say PASS")
+          path = "evidence/emperor/packaging/ci-blocked.json"
+          with open(path, "w", encoding="utf-8") as fh:
+              fh.write(text)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: emperor-packaging-blocked
+          path: evidence/emperor/packaging/ci-blocked.json
+          if-no-files-found: error
+
+  sash-parity:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record BLOCKED Sash parity evidence
+        env:
+          EMPEROR_SOURCE: ${{ github.sha }}
+        run: |
+          echo "This job exits 0 because the evidence status is BLOCKED. Wine is not started."
+          mkdir -p evidence/emperor/parity
+          python3 - <<'PY'
+          import json, os, re
+          source = os.environ["EMPEROR_SOURCE"]
+          if re.fullmatch(r"[0-9a-fA-F]{40}", source) is None:
+              raise SystemExit("source must be github.sha")
+          doc = {
+              "status": "BLOCKED",
+              "job": "sash-parity",
+              "justification": "Sash Windows execution remains blocked on this runner; a Linux test does not close the Windows gate.",
+              "source": source,
+          }
+          text = json.dumps(doc, indent=2) + "\n"
+          if "PASS" in text:
+              raise SystemExit("blocked evidence must not say PASS")
+          path = "evidence/emperor/parity/ci-blocked.json"
+          with open(path, "w", encoding="utf-8") as fh:
+              fh.write(text)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: emperor-parity-blocked
+          path: evidence/emperor/parity/ci-blocked.json
+          if-no-files-found: error
+
+  release-admission:
+    needs:
+      - fmt-and-lint
+      - unit-and-property-tests
+      - x86_64-elf-build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: "The job conclusion in GitHub will be success; the JSON decision must still be BLOCKED"
+        env:
+          EMPEROR_SOURCE: ${{ github.sha }}
+        run: |
+          echo "The job conclusion in GitHub will be success; the JSON decision must still be BLOCKED."
+          mkdir -p evidence/emperor/release
+          python3 - <<'PY'
+          import json, os, re
+          source = os.environ["EMPEROR_SOURCE"]
+          if re.fullmatch(r"[0-9a-fA-F]{40}", source) is None:
+              raise SystemExit("source must be github.sha")
+          doc = {
+              "status": "BLOCKED",
+              "job": "release-admission",
+              "decision": "not admitted",
+              "reasons": [
+                  "no signed artifact",
+                  "no clean-machine install",
+                  "no Wayland launch in CI",
+                  "no Windows parity launch",
+                  "phases E2-E6 unmet",
+              ],
+              "justification": "The job conclusion in GitHub will be success; the JSON decision must still be BLOCKED.",
+              "source": source,
+          }
+          text = json.dumps(doc, indent=2) + "\n"
+          if "PASS" in text:
+              raise SystemExit("blocked evidence must not say PASS")
+          if doc["status"] != "BLOCKED" or doc["decision"] != "not admitted":
+              raise SystemExit("release evidence is not admitted")
+          path = "evidence/emperor/release/ci-blocked.json"
+          with open(path, "w", encoding="utf-8") as fh:
+              fh.write(text)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: emperor-release-blocked
+          path: evidence/emperor/release/ci-blocked.json
+          if-no-files-found: error
