@@ -238,6 +238,10 @@ pub fn read_archive(bytes: &[u8]) -> Result<Vec<ArchiveEntry>, &'static str> {
             || name.contains('{')
             || name.contains('}')
             || name.contains(']')
+            || name.contains('[')
+            || name.contains('=')
+            || name.contains('(')
+            || name.contains(')')
         {
             return Err("tar name is rejected");
         }
@@ -756,6 +760,34 @@ mod tests {
             Err("tar name is rejected")
         );
         let block = header(&entry("srv/dockyard/service]", false, b"hi")).expect("header");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar name is rejected")
+        );
+    }
+
+    #[test]
+    fn name_with_opening_bracket_or_equals_is_rejected() {
+        let block = header(&entry("srv/dockyard[service", false, b"hi")).expect("header");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar name is rejected")
+        );
+        let block = header(&entry("srv/dockyard/service=", false, b"hi")).expect("header");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar name is rejected")
+        );
+    }
+
+    #[test]
+    fn name_with_parentheses_is_rejected() {
+        let block = header(&entry("srv/dockyard(service", false, b"hi")).expect("header");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar name is rejected")
+        );
+        let block = header(&entry("srv/dockyard/service)", false, b"hi")).expect("header");
         assert_eq!(
             read_archive(&archive_with_header(block, b"hi")),
             Err("tar name is rejected")

@@ -567,6 +567,38 @@ fn namespace_listeners(pid: u32, port: u16) -> Result<(), String> {
         Err(error) if error.kind() == ErrorKind::NotFound => {}
         Err(_) => return Err("cannot read device counters".to_string()),
     }
+    match fs::read_dir(format!("/proc/{pid}/net/stat")) {
+        Ok(entries) => {
+            let mut names = Vec::new();
+            for entry in entries {
+                let entry = entry.map_err(|_| "cannot read stat directory".to_string())?;
+                let name = entry.file_name();
+                let name = name
+                    .to_str()
+                    .ok_or_else(|| "cannot read stat directory".to_string())?;
+                names.push(name.to_string());
+            }
+            only_stat_names(&names)?;
+        }
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read stat directory".to_string()),
+    }
+    match fs::read_dir(format!("/proc/{pid}/net/netfilter")) {
+        Ok(entries) => {
+            let mut names = Vec::new();
+            for entry in entries {
+                let entry = entry.map_err(|_| "cannot read netfilter directory".to_string())?;
+                let name = entry.file_name();
+                let name = name
+                    .to_str()
+                    .ok_or_else(|| "cannot read netfilter directory".to_string())?;
+                names.push(name.to_string());
+            }
+            only_netfilter_names(&names)?;
+        }
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read netfilter directory".to_string()),
+    }
     Ok(())
 }
 
@@ -923,6 +955,24 @@ pub(crate) fn only_loopback_device_counters(names: &[String]) -> Result<(), Stri
     for name in names {
         if name != "lo" {
             return Err("network namespace has a foreign device counter".to_string());
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn only_stat_names(names: &[String]) -> Result<(), String> {
+    for name in names {
+        if name != "arp_cache" && name != "ndisc_cache" && name != "rt_cache" {
+            return Err("network namespace has a foreign stat file".to_string());
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn only_netfilter_names(names: &[String]) -> Result<(), String> {
+    for name in names {
+        if name != "nf_log" {
+            return Err("network namespace has a foreign netfilter file".to_string());
         }
     }
     Ok(())
@@ -2082,6 +2132,46 @@ FRAG6: inuse 0 memory -1
         assert_eq!(
             only_loopback_device_counters(&["wlp1s0".to_string()]),
             Err("network namespace has a foreign device counter".to_string())
+        );
+    }
+
+    #[test]
+    fn stat_directory_names_the_profile_set() {
+        assert_eq!(only_stat_names(&[]), Ok(()));
+        assert_eq!(only_stat_names(&["arp_cache".to_string()]), Ok(()));
+        assert_eq!(
+            only_stat_names(&[
+                "ndisc_cache".to_string(),
+                "arp_cache".to_string(),
+                "rt_cache".to_string()
+            ]),
+            Ok(())
+        );
+        assert_eq!(
+            only_stat_names(&["rt_cache".to_string(), "nf_conntrack".to_string()]),
+            Err("network namespace has a foreign stat file".to_string())
+        );
+        assert_eq!(
+            only_stat_names(&["softnet_stat".to_string()]),
+            Err("network namespace has a foreign stat file".to_string())
+        );
+    }
+
+    #[test]
+    fn netfilter_directory_names_only_the_log() {
+        assert_eq!(only_netfilter_names(&[]), Ok(()));
+        assert_eq!(only_netfilter_names(&["nf_log".to_string()]), Ok(()));
+        assert_eq!(
+            only_netfilter_names(&["nf_log".to_string(), "nf_log".to_string()]),
+            Ok(())
+        );
+        assert_eq!(
+            only_netfilter_names(&["nf_log".to_string(), "ip_tables_names".to_string()]),
+            Err("network namespace has a foreign netfilter file".to_string())
+        );
+        assert_eq!(
+            only_netfilter_names(&["xt_recent".to_string()]),
+            Err("network namespace has a foreign netfilter file".to_string())
         );
     }
 

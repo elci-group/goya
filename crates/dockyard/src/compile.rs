@@ -1365,6 +1365,68 @@ fn exercise(checked: &Checked) -> Result<(), String> {
             encoded_zero.status, encoded_zero.content_type
         ));
     }
+    let proppatch = exchange_line(
+        checked.port,
+        &format!("PROPPATCH {} HTTP/1.1", checked.path),
+    )?;
+    if proppatch.status != 404
+        || proppatch.content_type != CONTENT_TYPE
+        || proppatch.body != b"not found"
+    {
+        return Err(format!(
+            "proppatch returned {} {}",
+            proppatch.status, proppatch.content_type
+        ));
+    }
+    let subsequent_version =
+        exchange_line(checked.port, &format!("GET {} HTTP/1.18", checked.path))?;
+    if subsequent_version.status != 404
+        || subsequent_version.content_type != CONTENT_TYPE
+        || subsequent_version.body != b"not found"
+    {
+        return Err(format!(
+            "subsequent version returned {} {}",
+            subsequent_version.status, subsequent_version.content_type
+        ));
+    }
+    let encoded_one = exchange_line(checked.port, &format!("GET {}%31 HTTP/1.1", checked.path))?;
+    if encoded_one.status != 404
+        || encoded_one.content_type != CONTENT_TYPE
+        || encoded_one.body != b"not found"
+    {
+        return Err(format!(
+            "encoded one returned {} {}",
+            encoded_one.status, encoded_one.content_type
+        ));
+    }
+    let report = exchange_line(checked.port, &format!("REPORT {} HTTP/1.1", checked.path))?;
+    if report.status != 404 || report.content_type != CONTENT_TYPE || report.body != b"not found" {
+        return Err(format!(
+            "report returned {} {}",
+            report.status, report.content_type
+        ));
+    }
+    let additional_version =
+        exchange_line(checked.port, &format!("GET {} HTTP/1.19", checked.path))?;
+    if additional_version.status != 404
+        || additional_version.content_type != CONTENT_TYPE
+        || additional_version.body != b"not found"
+    {
+        return Err(format!(
+            "additional version returned {} {}",
+            additional_version.status, additional_version.content_type
+        ));
+    }
+    let encoded_two = exchange_line(checked.port, &format!("GET {}%32 HTTP/1.1", checked.path))?;
+    if encoded_two.status != 404
+        || encoded_two.content_type != CONTENT_TYPE
+        || encoded_two.body != b"not found"
+    {
+        return Err(format!(
+            "encoded two returned {} {}",
+            encoded_two.status, encoded_two.content_type
+        ));
+    }
     drop(reap);
     drop(cleanup);
     Ok(())
@@ -2389,6 +2451,28 @@ mod tests {
         assert!(!source.contains("UNLOCK"));
         assert!(!source.contains("HTTP/1.17"));
         assert!(!source.contains("%30"));
+    }
+
+    #[test]
+    fn proppatch_subsequent_version_and_encoded_one_stay_outside_the_matcher() {
+        let service = crate::admit(include_str!("../fixtures/ping.gservice")).expect("fixture");
+        let source = emit_source(&service);
+        assert!(source.contains("strip_prefix(b\"GET \")"));
+        assert!(source.contains("b\" HTTP/1.1\" | b\" HTTP/1.0\""));
+        assert!(!source.contains("PROPPATCH"));
+        assert!(!source.contains("HTTP/1.18"));
+        assert!(!source.contains("%31"));
+    }
+
+    #[test]
+    fn report_additional_version_and_encoded_two_stay_outside_the_matcher() {
+        let service = crate::admit(include_str!("../fixtures/ping.gservice")).expect("fixture");
+        let source = emit_source(&service);
+        assert!(source.contains("strip_prefix(b\"GET \")"));
+        assert!(source.contains("b\" HTTP/1.1\" | b\" HTTP/1.0\""));
+        assert!(!source.contains("REPORT"));
+        assert!(!source.contains("HTTP/1.19"));
+        assert!(!source.contains("%32"));
     }
 
     fn response_bytes(status: u16, reason: &str, body: &[u8]) -> Vec<u8> {
