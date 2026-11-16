@@ -8,7 +8,7 @@ use goya_executable::{
     CapabilityLabel, D1Instruction, D1Outcome, D1Program, D1Snapshot, D1Value, D2Instruction,
     D2Outcome, D2Program, EffectJournal, EffectResultType, InputSnapshot, StateContract,
 };
-use goya_ir::ActionId;
+use goya_ir::{ActionId, Node};
 
 use crate::scene::{
     CellKind, EffectValueType, InteractionClass, InteractionDecl, InteractionExpr, InteractionType,

@@ -1,0 +1,36 @@
+// Boundary conditions test file for Android differential testing
+@ontology boundary_conditions {
+    // Input with zero max-length
+    @cell zero_max {
+        id: "zero_max";
+        text: "text";
+        max-length: 0;
+    }
+    
+    // Input with negative max-length (edge case)
+    @cell negative_max {
+        id: "negative_max";
+        text: "text";
+        max-length: -1;
+    }
+    
+    // Input with extremely large max-length
+    @cell huge_max {
+        id: "huge_max";
+        text: "text";
+        max-length: 1000000;
+    }
+    
+    // Empty text field
+    @cell empty_text {
+        id: "empty_text";
+        text: "";
+    }
+    
+    // Text exactly at boundary
+    @cell exact_boundary {
+        id: "exact_boundary";
+        text: "x".repeat(10000);
+        max-length: 10000;
+    }
+}

@@ -1,0 +1,117 @@
+{
+    "validation_rules": {
+        "basic_inputs": {
+            "username": {
+                "type": "text",
+                "max_length": 50,
+                "required": true,
+                "validation_pattern": "^[a-zA-Z0-9_]+$",
+                "error_message": "Username can only contain letters, numbers, and underscores"
+            },
+            "password": {
+                "type": "password",
+                "max_length": 20,
+                "required": true,
+                "min_length": 8,
+                "error_message": "Password must be at least 8 characters long"
+            },
+            "email": {
+                "type": "email",
+                "max_length": 100,
+                "required": true,
+                "validation_pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",
+                "error_message": "Please enter a valid email address"
+            }
+        },
+        "placeholder_inputs": {
+            "name": {
+                "type": "text",
+                "max_length": 100,
+                "required": true,
+                "min_length": 2,
+                "error_message": "Name must be at least 2 characters long"
+            },
+            "email": {
+                "type": "email",
+                "max_length": 100,
+                "required": true,
+                "error_message": "Please enter a valid email address"
+            },
+            "phone": {
+                "type": "phone",
+                "max_length": 20,
+                "required": false,
+                "validation_pattern": "^\\+?\\d{10,}$",
+                "error_message": "Please enter a valid phone number"
+            },
+            "address": {
+                "type": "text",
+                "max_length": 200,
+                "required": false,
+                "error_message": "Address is too long (max 200 characters)"
+            }
+        },
+        "max_length_inputs": {
+            "all_fields": {
+                "max_length_validation": true,
+                "show_remaining_chars": true,
+                "allow_overflow": false,
+                "error_on_exceed": true
+            }
+        },
+        "mutation_cases": {
+            "invalid_inputs": {
+                "empty_input": {
+                    "expected_behavior": "reject_or_show_error",
+                    "error_type": "required_field"
+                },
+                "special_characters": {
+                    "expected_behavior": "sanitize_or_reject",
+                    "error_type": "invalid_characters"
+                },
+                "unicode_text": {
+                    "expected_behavior": "accept_or_warn",
+                    "error_type": "none"
+                }
+            },
+            "boundary_conditions": {
+                "zero_max_length": {
+                    "expected_behavior": "use_default_or_reject",
+                    "error_type": "invalid_parameter"
+                },
+                "negative_max_length": {
+                    "expected_behavior": "normalize_or_reject",
+                    "error_type": "invalid_parameter"
+                },
+                "empty_text": {
+                    "expected_behavior": "accept_or_show_placeholder",
+                    "error_type": "none"
+                }
+            }
+        },
+        "integration": {
+            "complex_forms": {
+                "validation_flow": "real-time",
+                "error_display": "inline",
+                "submission_validation": "client_server",
+                "field_dependencies": true
+            }
+        }
+    },
+    "test_config": {
+        "differential_testing": {
+            "enabled": true,
+            "compare_with_expected": true,
+            "allow_variances": ["formatting", "whitespace"]
+        },
+        "mutation_testing": {
+            "enabled": true,
+            "include_edge_cases": true,
+            "include_invalid_inputs": true
+        },
+        "performance_testing": {
+            "enabled": true,
+            "benchmarks": ["memory_usage", "generation_time", "validation_time"]
+        }
+    }
+}

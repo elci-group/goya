@@ -198,7 +198,7 @@ pub fn emit_android_root_button_preview_mapped(
     })
 }
 
-fn kotlin_string_literal(value: &str) -> String {
+pub fn kotlin_string_literal(value: &str) -> String {
     let mut output = String::from("\"");
     for character in value.chars() {
         match character {

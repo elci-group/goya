@@ -16,7 +16,13 @@ fn write_preview_bundle(path: &std::path::Path, bundle: &str) -> io::Result<()> 
     // Prepare all bytes before creating the output directory. create_dir and
     // create_new reject existing paths rather than replacing user files.
     let mut files = Vec::new();
-    for name in ["App.swift", "source-map.json", "capabilities.json"] {
+    for name in [
+        "App.swift",
+        "source-map.json",
+        "capabilities.json",
+        "AndroidInputPreview.kt",
+        "AndroidD1Runtime.kt",
+    ] {
         let content = artifacts
             .get(name)
             .and_then(serde_json::Value::as_str)
@@ -94,22 +100,54 @@ fn main() -> ExitCode {
         return serve();
     }
     if args.len() == 3 && args[1] == "swift-parse" {
-        let output = std::process::Command::new("swiftc")
-            .args(["-frontend", "-parse"])
-            .arg(&args[2])
-            .output();
-        return match output {
-            Ok(result) if result.status.success() => {
+        let source = (|| -> io::Result<String> {
+            let file = File::open(&args[2])?;
+            let mut bytes = Vec::new();
+            file.take(neptune::service::MAX_REQUEST_BYTES + 1)
+                .read_to_end(&mut bytes)?;
+            if bytes.len() as u64 > neptune::service::MAX_REQUEST_BYTES {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "source exceeds 256 KiB",
+                ));
+            }
+            String::from_utf8(bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+        })();
+        let source = match source {
+            Ok(source) => source,
+            Err(error) => {
+                eprintln!("could not read Swift source: {error}");
+                return ExitCode::FAILURE;
+            }
+        };
+        let result = neptune::service::parse_swift_source(&source, "cli");
+        return match result["status"].as_str() {
+            Some("PASS") => {
                 println!("{{\"schema_version\":\"1\",\"operation\":\"swift-parse\",\"status\":\"PASS\",\"validation\":\"swift_syntax_only\",\"apple_sdk_validation\":\"NOT_RUN\"}}");
                 ExitCode::SUCCESS
             }
-            Ok(result) => {
-                eprintln!("{}", String::from_utf8_lossy(&result.stderr));
-                ExitCode::FAILURE
-            }
-            Err(error) => {
-                eprintln!("could not run swiftc: {error}");
+            Some("BLOCKED") => {
+                eprintln!(
+                    "{}",
+                    result["reason"].as_str().unwrap_or("swiftc unavailable")
+                );
                 ExitCode::from(3)
+            }
+            _ => {
+                if let Some(text) = result["diagnostics"].as_str() {
+                    eprintln!("{text}");
+                    if result["diagnostics_truncated"] == true {
+                        eprintln!("[diagnostics truncated]");
+                    }
+                } else {
+                    eprintln!(
+                        "{}",
+                        result["diagnostics"][0]["message"]
+                            .as_str()
+                            .unwrap_or("Swift parse failed")
+                    );
+                }
+                ExitCode::FAILURE
             }
         };
     }

@@ -5,6 +5,160 @@ use std::collections::BTreeSet;
 pub const MAX_REQUEST_BYTES: u64 = 256 * 1024;
 pub const MAX_JOBS: usize = 1024;
 
+const SWIFT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+const MAX_SWIFT_DIAGNOSTICS: usize = 16 * 1024;
+
+/// Run a bounded syntax-only check using the host's `swiftc` on PATH.
+pub fn parse_swift_source(source: &str, id: &str) -> Value {
+    swift_parse(
+        std::process::Command::new("swiftc").args(["-frontend", "-parse", "-"]),
+        source,
+        id,
+        SWIFT_TIMEOUT,
+    )
+}
+
+// Pump both pipes concurrently: a compiler may fill stderr before it consumes
+// stdin. Completion messages, rather than blocking joins, keep the deadline
+// effective even if another process inherits a compiler pipe.
+fn swift_parse(
+    command: &mut std::process::Command,
+    source: &str,
+    id: &str,
+    timeout: std::time::Duration,
+) -> Value {
+    use std::io::{Read, Write};
+    use std::process::Stdio;
+    use std::sync::mpsc;
+    use std::time::Instant;
+
+    if source.len() as u64 > MAX_REQUEST_BYTES {
+        return error(Some(id), "swift_parse", "source exceeds request limit");
+    }
+    let mut child = match command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(e) => {
+            return json!({"schema_version":"1","job_id":id,"sequence":1,"stage":"swift_parse","status":"BLOCKED","reason":format!("swiftc unavailable: {e}"),"apple_sdk_validation":"NOT_RUN"})
+        }
+    };
+    let start = Instant::now();
+    let mut stdin = child.stdin.take().expect("piped compiler stdin");
+    let mut stderr = child.stderr.take().expect("piped compiler stderr");
+    let source = source.as_bytes().to_vec();
+    let (write_tx, write_rx) = mpsc::sync_channel(1);
+    if let Err(e) = std::thread::Builder::new()
+        .name("neptune-swift-stdin".into())
+        .spawn(move || {
+            let result = stdin.write_all(&source);
+            drop(stdin);
+            let _ = write_tx.send(result);
+        })
+    {
+        let _ = child.kill();
+        let _ = child.wait();
+        return error(
+            Some(id),
+            "swift_parse",
+            &format!("could not start compiler input worker: {e}"),
+        );
+    }
+    let (read_tx, read_rx) = mpsc::sync_channel(1);
+    if let Err(e) = std::thread::Builder::new()
+        .name("neptune-swift-stderr".into())
+        .spawn(move || {
+            let mut diagnostics = Vec::new();
+            let mut truncated = false;
+            let mut buffer = [0; 4096];
+            let result = loop {
+                match stderr.read(&mut buffer) {
+                    Ok(0) => break Ok((diagnostics, truncated)),
+                    Ok(count) => {
+                        let kept = count.min(MAX_SWIFT_DIAGNOSTICS - diagnostics.len());
+                        diagnostics.extend_from_slice(&buffer[..kept]);
+                        truncated |= kept < count;
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(e) => break Err(e),
+                }
+            };
+            let _ = read_tx.send(result);
+        })
+    {
+        let _ = child.kill();
+        let _ = child.wait();
+        return error(
+            Some(id),
+            "swift_parse",
+            &format!("could not start compiler diagnostic worker: {e}"),
+        );
+    }
+    let mut status = None;
+    let mut written = None;
+    let mut diagnostics = None;
+    loop {
+        match child.try_wait() {
+            Ok(value) => status = status.or(value),
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return error(
+                    Some(id),
+                    "swift_parse",
+                    &format!("could not wait for swiftc: {e}"),
+                );
+            }
+        }
+        if written.is_none() {
+            if let Ok(result) = write_rx.try_recv() {
+                written = Some(result);
+            }
+        }
+        if diagnostics.is_none() {
+            if let Ok(result) = read_rx.try_recv() {
+                diagnostics = Some(result);
+            }
+        }
+        if status.is_some() && written.is_some() && diagnostics.is_some() {
+            break;
+        }
+        if start.elapsed() >= timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            return error(Some(id), "swift_parse", "swiftc exceeded its runtime limit");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let (bytes, truncated) = match diagnostics.unwrap() {
+        Ok(value) => value,
+        Err(e) => {
+            return error(
+                Some(id),
+                "swift_parse",
+                &format!("could not read swiftc diagnostics: {e}"),
+            )
+        }
+    };
+    if !status.unwrap().success() {
+        let mut text = String::from_utf8_lossy(&bytes).into_owned();
+        let mut end = text.len().min(MAX_SWIFT_DIAGNOSTICS);
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        let truncated = truncated || end < text.len();
+        text.truncate(end);
+        return json!({"schema_version":"1","job_id":id,"sequence":1,"stage":"swift_parse","status":"FAIL","diagnostics":text,"diagnostics_truncated":truncated,"apple_sdk_validation":"NOT_RUN"});
+    }
+    if written.unwrap().is_err() {
+        return error(Some(id), "swift_parse", "could not send source to swiftc");
+    }
+    json!({"schema_version":"1","job_id":id,"sequence":1,"stage":"swift_parse","status":"PASS","validation":"swift_syntax_only","apple_sdk_validation":"NOT_RUN"})
+}
+
 #[derive(Default)]
 pub struct Session {
     jobs: BTreeSet<String>,
@@ -91,33 +245,7 @@ impl Session {
             let Some(source) = object.get("source").and_then(Value::as_str) else {
                 return error(Some(id), "swift_parse", "source string is required");
             };
-            let mut child = match std::process::Command::new("swiftc")
-                .args(["-frontend", "-parse", "-"])
-                .stdin(std::process::Stdio::piped())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::piped())
-                .spawn()
-            {
-                Ok(child) => child,
-                Err(e) => {
-                    return json!({"schema_version":"1","job_id":id,"sequence":1,"stage":"swift_parse","status":"BLOCKED","reason":format!("swiftc unavailable: {e}"),"apple_sdk_validation":"NOT_RUN"})
-                }
-            };
-            if let Some(mut stdin) = child.stdin.take() {
-                use std::io::Write;
-                if stdin.write_all(source.as_bytes()).is_err() {
-                    return error(Some(id), "swift_parse", "could not send source to swiftc");
-                }
-            }
-            return match child.wait_with_output() {
-                Ok(result) if result.status.success() => {
-                    json!({"schema_version":"1","job_id":id,"sequence":1,"stage":"swift_parse","status":"PASS","validation":"swift_syntax_only","apple_sdk_validation":"NOT_RUN"})
-                }
-                Ok(result) => {
-                    json!({"schema_version":"1","job_id":id,"sequence":1,"stage":"swift_parse","status":"FAIL","diagnostics":String::from_utf8_lossy(&result.stderr)})
-                }
-                Err(e) => error(Some(id), "swift_parse", &e.to_string()),
-            };
+            return parse_swift_source(source, id);
         }
         if operation == "validate-deploy-manifest" {
             let Some(value) = object.get("manifest") else {
@@ -374,6 +502,111 @@ fn error(id: Option<&str>, stage: &str, message: &str) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Reuse this test binary as a compiler; no PATH mutation or Swift install.
+    #[test]
+    fn controlled_compiler() {
+        let Ok(mode) = std::env::var("NEPTUNE_TEST_COMPILER_MODE") else {
+            return;
+        };
+        use std::io::{Read, Write};
+        match mode.as_str() {
+            "flood" => {
+                std::io::stderr()
+                    .write_all(&vec![b'x'; 512 * 1024])
+                    .unwrap();
+                let mut source = Vec::new();
+                std::io::stdin().read_to_end(&mut source).unwrap();
+                assert_eq!(source.len(), MAX_REQUEST_BYTES as usize);
+                std::process::exit(1);
+            }
+            "hang" => loop {
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            },
+            "reject" => std::process::exit(1),
+            "accept" => {
+                let mut source = String::new();
+                std::io::stdin().read_to_string(&mut source).unwrap();
+                assert_eq!(source, "let answer = 42");
+                std::process::exit(0);
+            }
+            _ => panic!("unknown compiler helper mode"),
+        }
+    }
+
+    fn compiler(mode: &str) -> std::process::Command {
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        command
+            .args([
+                "--exact",
+                "service::tests::controlled_compiler",
+                "--nocapture",
+            ])
+            .env("NEPTUNE_TEST_COMPILER_MODE", mode);
+        command
+    }
+
+    #[test]
+    fn compiler_drains_stderr_while_writing_source_and_bounds_diagnostics() {
+        let report = swift_parse(
+            &mut compiler("flood"),
+            &"s".repeat(MAX_REQUEST_BYTES as usize),
+            "flood",
+            std::time::Duration::from_secs(5),
+        );
+        assert_eq!(report["status"], "FAIL");
+        assert_eq!(
+            report["diagnostics"].as_str().unwrap().len(),
+            MAX_SWIFT_DIAGNOSTICS
+        );
+        assert_eq!(report["diagnostics_truncated"], true);
+        assert_eq!(report["apple_sdk_validation"], "NOT_RUN");
+    }
+
+    #[test]
+    fn compiler_timeout_covers_blocked_stdin() {
+        let start = std::time::Instant::now();
+        let report = swift_parse(
+            &mut compiler("hang"),
+            &"s".repeat(MAX_REQUEST_BYTES as usize),
+            "hang",
+            std::time::Duration::from_millis(100),
+        );
+        assert_eq!(report["status"], "FAIL");
+        assert_eq!(
+            report["diagnostics"][0]["message"],
+            "swiftc exceeded its runtime limit"
+        );
+        assert!(start.elapsed() < std::time::Duration::from_secs(3));
+    }
+
+    #[test]
+    fn compiler_success_failure_and_missing_tool_have_distinct_results() {
+        let timeout = std::time::Duration::from_secs(5);
+        let accepted = swift_parse(
+            &mut compiler("accept"),
+            "let answer = 42",
+            "accept",
+            timeout,
+        );
+        assert_eq!(accepted["status"], "PASS");
+        assert_eq!(accepted["validation"], "swift_syntax_only");
+        assert_eq!(accepted["apple_sdk_validation"], "NOT_RUN");
+        let rejected = swift_parse(
+            &mut compiler("reject"),
+            &"s".repeat(MAX_REQUEST_BYTES as usize),
+            "reject",
+            timeout,
+        );
+        assert_eq!(rejected["status"], "FAIL");
+        let missing = swift_parse(
+            &mut std::process::Command::new("/nonexistent/neptune-test-swiftc"),
+            "",
+            "missing",
+            timeout,
+        );
+        assert_eq!(missing["status"], "BLOCKED");
+    }
 
     #[test]
     fn failed_protocol_requests_consume_valid_job_ids() {

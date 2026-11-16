@@ -3,6 +3,29 @@ use std::process::Command;
 use std::process::Stdio;
 
 #[test]
+fn swift_parse_reports_missing_source_before_missing_compiler() {
+    let binary = env!("CARGO_BIN_EXE_neptune");
+    let missing = Command::new(binary)
+        .args(["swift-parse", "/definitely/missing/neptune.swift"])
+        .env("PATH", "")
+        .output()
+        .unwrap();
+    assert_eq!(missing.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("could not read Swift source"));
+
+    let unavailable = Command::new(binary)
+        .args([
+            "swift-parse",
+            concat!(env!("CARGO_MANIFEST_DIR"), "/tests/static.gscene"),
+        ])
+        .env("PATH", "")
+        .output()
+        .unwrap();
+    assert_eq!(unavailable.status.code(), Some(3));
+    assert!(String::from_utf8_lossy(&unavailable.stderr).contains("swiftc unavailable"));
+}
+
+#[test]
 fn missing_input_has_machine_readable_failure() {
     let output = Command::new(env!("CARGO_BIN_EXE_neptune"))
         .args([

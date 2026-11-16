@@ -5,6 +5,50 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
+const MAX_TEXT_BYTES: usize = goya_executable::D1_MAX_TEXT_BYTES;
+const MAX_SNAPSHOT_BYTES: usize = goya_executable::D1_MAX_SNAPSHOT_BYTES;
+const MAX_REGISTER_BYTES: usize = goya_executable::D1_MAX_REGISTER_BYTES;
+
+fn value_size(value: &Scalar) -> usize {
+    match value {
+        Scalar::Int(_) => goya_executable::D1_INT_VALUE_BYTES,
+        Scalar::Text(text) => text.len(),
+        Scalar::Bool(_) => goya_executable::D1_BOOL_VALUE_BYTES,
+    }
+}
+
+fn map_size(values: &BTreeMap<String, Scalar>) -> Option<usize> {
+    values.iter().try_fold(
+        goya_executable::D1_SNAPSHOT_HEADER_BYTES,
+        |size, (key, value)| {
+            size.checked_add(goya_executable::D1_SNAPSHOT_ENTRY_BYTES)?
+                .checked_add(key.len())?
+                .checked_add(value_size(value))
+        },
+    )
+}
+
+fn map_error(values: &BTreeMap<String, Scalar>) -> Option<&'static str> {
+    if values
+        .values()
+        .any(|value| matches!(value, Scalar::Text(text) if text.len() > MAX_TEXT_BYTES))
+    {
+        return Some("text_limit");
+    }
+    if map_size(values).is_none_or(|size| size > MAX_SNAPSHOT_BYTES) {
+        return Some("snapshot_limit");
+    }
+    None
+}
+
+fn scalar_error(value: &Scalar) -> Option<&'static str> {
+    matches!(value, Scalar::Text(text) if text.len() > MAX_TEXT_BYTES).then_some("text_limit")
+}
+
+fn register_cost(name: &str, value: &Scalar) -> Option<usize> {
+    name.len().checked_add(value_size(value))
+}
+
 const SCENE: &str = include_str!("../conformance/d1-increment.gscene");
 const CASES: &str = include_str!("../conformance/d1-cases.json");
 const TEXT_SCENE: &str = include_str!("../conformance/d1-text.gscene");
@@ -84,36 +128,55 @@ fn target_expression(
     expr: &Expression,
     state: &BTreeMap<String, Scalar>,
     inputs: &BTreeMap<String, Scalar>,
+    registers: &mut BTreeMap<String, Scalar>,
+    register_bytes: &mut usize,
 ) -> Result<Scalar, String> {
-    match &expr.operation {
-        Operation::Constant(goya_lang::InteractionValue::Int(value)) => Ok(Scalar::Int(*value)),
+    let value = match &expr.operation {
+        Operation::Constant(goya_lang::InteractionValue::Int(value)) => Scalar::Int(*value),
         Operation::Constant(goya_lang::InteractionValue::Text(value)) => {
-            Ok(Scalar::Text(value.clone()))
+            Scalar::Text(value.clone())
         }
-        Operation::Constant(goya_lang::InteractionValue::Bool(value)) => Ok(Scalar::Bool(*value)),
+        Operation::Constant(goya_lang::InteractionValue::Bool(value)) => Scalar::Bool(*value),
         Operation::State(key) => state
             .get(key)
             .cloned()
-            .ok_or_else(|| "missing_state".into()),
+            .ok_or_else(|| "missing_state".to_owned())?,
         Operation::Input(key) => inputs
             .get(key)
             .cloned()
-            .ok_or_else(|| "missing_input".into()),
+            .ok_or_else(|| "missing_input".to_owned())?,
         Operation::CheckedAdd(left, right) => {
             let (Scalar::Int(left), Scalar::Int(right)) = (
-                target_expression(left, state, inputs)?,
-                target_expression(right, state, inputs)?,
+                target_expression(left, state, inputs, registers, register_bytes)?,
+                target_expression(right, state, inputs, registers, register_bytes)?,
             ) else {
                 return Err("type_mismatch".into());
             };
             i64::try_from(i128::from(left) + i128::from(right))
                 .map(Scalar::Int)
-                .map_err(|_| "arithmetic_overflow".into())
+                .map_err(|_| "arithmetic_overflow".to_owned())?
         }
+    };
+    if let Some(error) = scalar_error(&value) {
+        return Err(error.into());
     }
+    let register_name = format!("r{}", registers.len());
+    let cost = register_cost(&register_name, &value).ok_or("register_limit")?;
+    let total = register_bytes.checked_add(cost).ok_or("register_limit")?;
+    if total > MAX_REGISTER_BYTES {
+        return Err("register_limit".into());
+    }
+    registers.insert(register_name, value.clone());
+    *register_bytes = total;
+    Ok(value)
 }
 
 fn target_run(action: &Transition, case: &Case) -> Outcome {
+    if let Some(error) = map_error(&case.state).or_else(|| map_error(&case.inputs)) {
+        return Outcome::Error {
+            error: error.into(),
+        };
+    }
     let expected_state: std::collections::BTreeSet<_> = action
         .state_reads
         .iter()
@@ -167,20 +230,40 @@ fn target_run(action: &Transition, case: &Case) -> Outcome {
             error: "input_schema".into(),
         };
     }
+    let combined = map_size(&case.state)
+        .and_then(|state| map_size(&case.inputs).and_then(|inputs| state.checked_add(inputs)));
+    if combined.is_none_or(|size| size > MAX_SNAPSHOT_BYTES) {
+        return Outcome::Error {
+            error: "snapshot_limit".into(),
+        };
+    }
+    let mut registers = BTreeMap::new();
+    let mut register_bytes = 0;
     let mut writes = Vec::new();
     for assignment in &action.assignments {
-        match target_expression(&assignment.value, &case.state, &case.inputs) {
+        match target_expression(
+            &assignment.value,
+            &case.state,
+            &case.inputs,
+            &mut registers,
+            &mut register_bytes,
+        ) {
             Ok(value) => writes.push((assignment.key.clone(), value)),
             Err(error) => return Outcome::Error { error },
         }
+    }
+    let mut state = case.state.clone();
+    state.extend(writes);
+    if let Some(error) = map_error(&state) {
+        return Outcome::Error {
+            error: error.into(),
+        };
     }
     let Some(revision) = case.revision.checked_add(1) else {
         return Outcome::Error {
             error: "revision_overflow".into(),
         };
     };
-    let mut state = case.state.clone();
-    state.extend(writes);
     Outcome::Ok { revision, state }
 }
 
@@ -195,8 +278,22 @@ fn reference_run(action: &goya_lang::CompiledInteraction, case: &Case) -> Result
         .iter()
         .map(|(k, v)| (k.clone(), v.to_d1()))
         .collect();
-    let snapshot = D1Snapshot::new(case.revision, values).map_err(|e| e.to_string())?;
-    let inputs = InputSnapshot::new(inputs).map_err(|e| e.to_string())?;
+    let snapshot = match D1Snapshot::new(case.revision, values) {
+        Ok(value) => value,
+        Err(error) => {
+            return Ok(Outcome::Error {
+                error: normalize_d1_error(error)?,
+            })
+        }
+    };
+    let inputs = match InputSnapshot::new(inputs) {
+        Ok(value) => value,
+        Err(error) => {
+            return Ok(Outcome::Error {
+                error: normalize_d1_error(error)?,
+            })
+        }
+    };
     match action.execute(&snapshot, &inputs) {
         Ok(outcome) => {
             let mut state = BTreeMap::new();
@@ -228,7 +325,31 @@ fn reference_run(action: &goya_lang::CompiledInteraction, case: &Case) -> Result
         Err(goya_lang::TransitionError::InputTypeMismatch) => Ok(Outcome::Error {
             error: "input_schema".into(),
         }),
+        Err(goya_lang::TransitionError::VmRejected(error)) => match normalize_vm_error(&error) {
+            Some(error) => Ok(Outcome::Error {
+                error: error.into(),
+            }),
+            None => Err(format!("unexpected reference error: {error}")),
+        },
         Err(error) => Err(format!("unexpected reference error: {error}")),
+    }
+}
+
+fn normalize_vm_error(error: &str) -> Option<&'static str> {
+    match error {
+        "text state value exceeds the byte limit" => Some("text_limit"),
+        "snapshot exceeds the byte limit" => Some("snapshot_limit"),
+        "D1 registers exceed the byte limit" => Some("register_limit"),
+        _ => None,
+    }
+}
+
+fn normalize_d1_error(error: goya_executable::D1Error) -> Result<String, String> {
+    match error {
+        goya_executable::D1Error::TextTooLarge => Ok("text_limit".into()),
+        goya_executable::D1Error::SnapshotTooLarge => Ok("snapshot_limit".into()),
+        goya_executable::D1Error::RegisterLimit => Ok("register_limit".into()),
+        other => Err(format!("unexpected D1 construction error: {other}")),
     }
 }
 
@@ -248,6 +369,21 @@ fn application_run(
         Err(D1ApplicationError::StateSchemaMismatch) => {
             return Ok(Outcome::Error {
                 error: "state_schema".into(),
+            })
+        }
+        Err(D1ApplicationError::InvalidState(error))
+        | Err(D1ApplicationError::InvalidInput(error)) => {
+            return Ok(Outcome::Error {
+                error: normalize_d1_error(error)?,
+            });
+        }
+        Err(D1ApplicationError::InvalidState(error))
+        | Err(D1ApplicationError::InvalidInput(error)) => {
+            if app.values() != &before || app.revision() != revision_before {
+                return Err("application changed state after a failed action".into());
+            }
+            Ok(Outcome::Error {
+                error: normalize_d1_error(error)?,
             })
         }
         Err(error) => {
@@ -286,6 +422,18 @@ fn application_run(
                 D1ApplicationError::ActionFailed(goya_lang::TransitionError::VmRejected(
                     message,
                 )) if message == "state revision counter exhausted" => "revision_overflow",
+                D1ApplicationError::ActionFailed(goya_lang::TransitionError::VmRejected(
+                    message,
+                )) => match normalize_vm_error(&message) {
+                    Some(error) => error,
+                    None => return Err(format!("unexpected application error: {message}")),
+                },
+                D1ApplicationError::ActionFailed(goya_lang::TransitionError::VmRejected(
+                    message,
+                )) => match normalize_vm_error(&message) {
+                    Some(error) => error,
+                    None => return Err(format!("unexpected application error: {message}")),
+                },
                 other => return Err(format!("unexpected application error: {other}")),
             };
             Ok(Outcome::Error {

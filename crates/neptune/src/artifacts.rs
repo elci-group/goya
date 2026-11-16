@@ -7,7 +7,13 @@ use std::{
 };
 
 const MAX_FILE_BYTES: u64 = 1024 * 1024;
-const FILES: [&str; 3] = ["App.swift", "source-map.json", "capabilities.json"];
+const FILES: [&str; 5] = [
+    "App.swift",
+    "source-map.json",
+    "capabilities.json",
+    "AndroidInputPreview.kt",
+    "AndroidD1Runtime.kt",
+];
 
 /// Artifact bytes and source identity checked together against one report.
 pub struct VerifiedPreview {
@@ -95,6 +101,7 @@ fn verify_parts(
     artifacts: std::collections::BTreeMap<String, Vec<u8>>,
 ) -> io::Result<VerifiedPreview> {
     if report["schema_version"] != "1"
+        || report["stages"]["goya_frontend"] != "PASS"
         || report["stages"]["ios_admission"] != "NOT_RUN"
         || report["stages"]["apple_validation"] != "NOT_RUN"
     {
@@ -138,4 +145,72 @@ fn verify_parts(
         hashes: verified,
         input_sha256,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::{json, Value};
+
+    fn bundle() -> Value {
+        let artifacts = json!({
+            "App.swift": "import SwiftUI\n",
+            "source-map.json": "{}",
+            "capabilities.json": "{}",
+            "AndroidInputPreview.kt": "// Enhanced Android input preview\nclass GoyaAndroidInputPreview { }",
+            "AndroidD1Runtime.kt": "// Enhanced Android D1 runtime\nclass GoyaAndroidD1Runtime { }"
+        });
+        let hashes: serde_json::Map<String, Value> = artifacts
+            .as_object()
+            .unwrap()
+            .iter()
+            .map(|(name, value)| {
+                (
+                    name.clone(),
+                    json!(format!(
+                        "{:x}",
+                        Sha256::digest(value.as_str().unwrap().as_bytes())
+                    )),
+                )
+            })
+            .collect();
+        json!({
+            "schema_version":"2", "operation":"preview", "verification":"SOURCE_PREVIEW",
+            "artifacts": artifacts,
+            "report": {
+                "schema_version":"1", "input_sha256":"0".repeat(64),
+                "artifact_sha256": hashes,
+                "stages":{"goya_frontend":"PASS", "ios_admission":"NOT_RUN", "apple_validation":"NOT_RUN"}
+            }
+        })
+    }
+
+    #[test]
+    fn preview_requires_successful_frontend_and_unrun_platform_validation() {
+        assert!(verify_preview_bundle(&bundle()).is_ok());
+        for (stage, invalid) in [
+            ("goya_frontend", Value::Null),
+            ("goya_frontend", json!("FAIL")),
+            ("goya_frontend", json!(true)),
+            ("ios_admission", json!("PASS")),
+            ("apple_validation", json!("PASS")),
+        ] {
+            let mut bundle = bundle();
+            bundle["report"]["stages"][stage] = invalid;
+            assert!(verify_preview_bundle(&bundle).is_err(), "accepted {stage}");
+        }
+    }
+
+    #[test]
+    fn bundle_rejects_tampered_artifacts_and_hash_sets() {
+        let mut changed = bundle();
+        changed["artifacts"]["App.swift"] = json!("changed");
+        assert!(verify_preview_bundle(&changed).is_err());
+        let mut changed = bundle();
+        changed["report"]["artifact_sha256"]["extra"] = json!("0".repeat(64));
+        assert!(verify_preview_bundle(&changed).is_err());
+        let mut changed = bundle();
+        changed["report"]["input_sha256"] = json!("Z".repeat(64));
+        assert!(verify_preview_bundle(&changed).is_err());
+    }
 }

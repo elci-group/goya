@@ -121,5 +121,11 @@ gates for outstanding work; evidence files record the scope of individual checks
 | Maja web target | [Baseline](docs/maja/baseline.md), [admission matrix](docs/maja/admission-matrix.md), [gap ledger](docs/maja/gap-ledger.md), [work packages](docs/maja/work-packages.md), [standalone profile](docs/maja/standalone-profile.md) |
 | Android and Aragon | [Reconnaissance](docs/aragon/reconnaissance.md), [semantic path](docs/aragon/semantic-path.md), [shared handoff gaps](docs/aragon/gssh-gap-ledger.md), [Android project](docs/aragon/android-project.md), [release readiness](docs/aragon/release-readiness.md) |
 | Other native targets | [Neptune](crates/neptune/README.md), [Sash](crates/sash/README.md), [Dockyard](crates/dockyard/README.md), [Caprichios](crates/goya-caprichios/README.md) |
+| Emperor Linux compiler | [Programme overview](docs/emperor/README.md), [GY-EMP-001 specification](docs/emperor/GY-EMP-001.md), [gap ledger](docs/emperor/gap-ledger.md), [threat model](docs/emperor/threat-model.md), [evidence rules](docs/emperor/evidence.md), [cross-platform oracle](docs/emperor/contracts/gy-cross-parity-1.md) |
 | Platform adapters | [Windows](platform/windows/README.md), [macOS clipboard](platform/macos/clipboard/README.md), [Android clipboard](platform/android/clipboard/README.md), [Android Gradle](platform/android/gradle/README.md), [iOS gestures](platform/ios/gestures/README.md) |
 | Qualification and reviews | [Maja tests](tests/maja/README.md), [browser tests](tests/maja/browsers/README.md), [architecture review](website/architecture-review/README.md), [Wilder review](docs/wilder-review.md), [evidence](evidence/) |
+
+Several root-level phase and implementation reports are historical snapshots.
+Check their dates and compare their claims with current source and test results
+before using them as current status. The subsystem programme documents above
+record their own qualification limits and unmet gates.

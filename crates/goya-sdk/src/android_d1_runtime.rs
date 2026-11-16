@@ -5,7 +5,7 @@
 //! one state map and applies each action as a checked, atomic transition.
 
 use goya_lang::{
-    InteractionClass, InteractionExpr, InteractionType, InteractionValue, SourceRange,
+    CellKind, InteractionClass, InteractionExpr, InteractionType, InteractionValue, SourceRange,
 };
 use std::{error::Error, fmt};
 

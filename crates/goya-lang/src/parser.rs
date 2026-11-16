@@ -8,6 +8,7 @@ use crate::scene::{
     SceneCell, StateAssignment, TypedKey, Vec3,
 };
 use goya_determinism::EffectKind;
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -24,7 +25,7 @@ impl fmt::Display for ParseError {
 impl std::error::Error for ParseError {}
 
 /// An end-exclusive UTF-8 byte range in the original scene source.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SourceRange {
     pub start: usize,
     pub end: usize,
@@ -521,6 +522,25 @@ impl P {
             scroll: false,
             gestures: None,
             children: Vec::new(),
+            placeholder: None,
+            max_length: None,
+            input_type: None,
+            rich_text: None,
+            validation_rules: Vec::new(),
+            masking: None,
+            accessibility: None,
+            localization: None,
+            error_severity: None,
+            formatting: None,
+            autocomplete: None,
+            drag_drop: None,
+            copy_paste: None,
+            input_history: None,
+            wcag_compliance: None,
+            screen_reader: None,
+            high_contrast: None,
+            rtl_support: None,
+            unicode_support: None,
         };
         loop {
             match self.peek().map(|t| t.kind) {

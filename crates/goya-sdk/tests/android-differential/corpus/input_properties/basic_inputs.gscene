@@ -1,0 +1,37 @@
+// Basic input properties test file for Android differential testing
+@ontology basic_inputs {
+    // Standard text input field
+    @cell username {
+        id: "username";
+        text: "Enter your username";
+        max-length: 50;
+    }
+    
+    // Password input field
+    @cell password {
+        id: "password";
+        text: "Enter your password";
+        max-length: 20;
+    }
+    
+    // Email input field
+    @cell email {
+        id: "email";
+        text: "Enter your email address";
+        max-length: 100;
+    }
+    
+    // Simple text field
+    @cell simple_text {
+        id: "simple_text";
+        text: "Hello World";
+    }
+    
+    // Input with text size and color
+    @cell styled_input {
+        id: "styled_input";
+        text: "Styled text";
+        text-size: 16;
+        fill: #E0E0E0;
+    }
+}

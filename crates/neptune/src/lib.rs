@@ -204,7 +204,7 @@ pub fn preview_static_text(source: &str) -> Result<SourcePreview, Diagnostic> {
     let expr = swift::Expr::Call {
         callee: swift::Identifier::new("Text").expect("fixed Swift identifier"),
         arguments: vec![swift::Argument {
-            label: None,
+            label: Some(swift::Identifier::new("verbatim").expect("fixed Swift identifier")),
             value: swift::Expr::StringLiteral(ir_text.expect("validated IR text").clone()),
         }],
     }
@@ -415,7 +415,7 @@ mod tests {
         );
         assert_eq!(
             &preview.swift[preview.swift_range.start..preview.swift_range.end],
-            "Text(\"é\\\\(name)\")"
+            "Text(verbatim: \"é\\\\(name)\")"
         );
         assert_eq!(preview, preview_static_text(source).unwrap());
         let colored = "@ontology x { @cell root { id: \"root\" text: \"hi\" fill: #ffffff } }";
@@ -426,6 +426,16 @@ mod tests {
         let diagnostic = preview_static_text(button).unwrap_err();
         assert_eq!(diagnostic.code, "NPT-E2104");
         assert!(button[diagnostic.range.unwrap().start..].starts_with("@button"));
+    }
+
+    #[test]
+    fn preview_preserves_markdown_as_verbatim_text() {
+        let source = "@ontology x { @cell root { id: \"root\" text: \"**hello** [link](https://example.com)\" } }";
+        let preview = preview_static_text(source).unwrap();
+        assert_eq!(
+            &preview.swift[preview.swift_range.start..preview.swift_range.end],
+            "Text(verbatim: \"**hello** [link](https://example.com)\")"
+        );
     }
 
     #[test]

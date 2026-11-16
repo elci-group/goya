@@ -1,8 +1,25 @@
 # Neptune source preview
 
-Neptune currently provides an experimental Swift source preview for one `.gscene` cell with an authored `id` and static `text`. It does not provide an admitted iOS build. `check` reports failure until a native mapping is admitted; Apple compilation and device verification have not run.
+Neptune provides experimental Swift source previews for selected `.gscene`
+subsets, ranging from a single static cell to observable button scenes with
+bounded D1 state transitions. It does not provide an admitted iOS build.
+`check` reports failure until a native mapping is admitted; Apple compilation
+and device verification have not run.
 
-`neptune inspect <file> --target ios --format json` returns a machine-readable inspection. `neptune preview <file> --module app/main.gscene --format json` returns a source-preview bundle with generated Swift, source map, capability inventory, hashes, and stage status. `--module` is the canonical project-relative identity of the input, supplied by the caller; it must use ASCII path components and cannot contain `.` or `..` components. It is a logical identity, not a file lookup.
+From the workspace root, run the host-side tests and a source preview with:
+
+```sh
+cargo test -p neptune
+cargo run -p neptune -- preview crates/neptune/tests/static.gscene --module app/main.gscene --format json
+cargo run -p neptune -- test --suite d1-corpus --format json
+```
+
+The corpus compares host-side implementations; it does not execute generated
+Swift. The optional `swift-parse` operation requires `swiftc` on `PATH`.
+See [the pinned Swift bootstrap](../../docs/swift-bootstrap.md) for a Linux
+toolchain; it does not provide an Apple SDK or device qualification.
+
+`neptune inspect <file> --target ios --format json` returns a machine-readable inspection. `neptune preview <file> --module app/main.gscene --format json` returns a source-preview bundle with generated Swift, source map, capability inventory, hashes, and stage status. Its single static cell emits `Text(verbatim:)`, preserving authored text instead of treating it as a localization key. `--module` is the canonical project-relative identity of the input, supplied by the caller; it must use ASCII path components and cannot contain `.` or `..` components. It is a logical identity, not a file lookup.
 
 `neptune preview-static-column <file> --module app/main.gscene --profile experimental --format json` emits a source-only SwiftUI column for 1–32 static `@cell` nodes, at most 16 levels deep. A cell may contain authored `text`, child cells, or both. Text is emitted before that cell's children, and sibling order follows the scene. The shared IR text sequence must match. Each text uses `Text(verbatim:)`, so the authored characters are the content. Fill, stroke, type size, anchor, wrap, scroll, absolute and proportional geometry, buttons, inputs, and interactions are rejected. A leaf with no text is rejected. The generated `VStack` records child order only; it does not reproduce solved rectangles, Dynamic Type, safe area, or accessibility behavior. Apple compilation and iOS admission stay unrun. The one-cell `preview` command is unchanged.
 
@@ -52,7 +69,17 @@ Operations are `inspect`, `check`, `preview`, `preview-static-column`, `preview-
 
 Each event contains `schema_version`, `job_id`, `sequence` (currently always 1), `stage`, and `status`. A successful `inspect` means inspection completed; its result separately reports the failed iOS validation. A successful `preview` means source generation completed, with verification labeled `SOURCE_PREVIEW`. A `check` cannot currently pass. Build, cancellation, artifact retrieval, multi-event streaming, and persistent idempotency are not implemented and must not be inferred from this protocol.
 
-`neptune serve` accepts `validate-deploy-manifest` with a typed `manifest` object matching `goya.neptune.deploy/0.0.1`. This validates structure and supported settings; it does not read the referenced IPA, validate Apple signatures, or contact a device. The CLI `dock-verify` additionally checks the IPA SHA-256 against actual bytes.
+`neptune serve` accepts `validate-deploy-manifest` with a typed `manifest` object matching `goya.neptune.deploy/0.0.1`. The minimum OS version must have two or three nonempty numeric components, such as `17.0` or `18.1.2`. This validates structure and supported settings; it does not read the referenced IPA, validate Apple signatures, or contact a device. The CLI `dock-verify` additionally checks the IPA SHA-256 against actual bytes.
 
-`neptune swift-parse <generated.swift>` invokes the installed Swift frontend in parse-only mode. A pass confirms syntax parsing; it does not resolve Apple frameworks, type-check against an iOS SDK, link, or run the app. Missing Swift returns exit code 3.
- The JSON-lines service accepts the same operation as `swift-parse` with a `source` string; request size is bounded by the protocol limit.
+`neptune swift-parse <generated.swift>` reads a UTF-8 source file of at most
+256 KiB and invokes the installed Swift frontend in parse-only mode, passing
+the source on standard input. A pass confirms syntax parsing; it does not
+resolve Apple frameworks, type-check against an iOS SDK, link, or run the app.
+Missing Swift returns exit code 3; an unreadable or oversized file fails before
+the compiler is started. Compiler diagnostics refer to standard input.
+The JSON-lines service accepts the same operation as `swift-parse` with a
+`source` string; request size is bounded by the protocol limit. The service
+allows 15 seconds for the compiler and its pipes to finish, terminates and
+reaps the direct compiler process on timeout, and limits returned diagnostics
+to 16 KiB. A failed compiler response indicates whether diagnostics were
+truncated. The standalone CLI uses the same timeout and diagnostic limit.

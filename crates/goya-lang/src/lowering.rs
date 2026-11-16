@@ -226,12 +226,16 @@ impl<'a> Lowerer<'a> {
                 (id, id, Role::Button)
             }
             CellKind::Input => {
-                // Editable field: the placeholder is the scene `text:` value;
-                // focus and typed content are host-side state (Wave 2).
+                // Editable field: the placeholder is the scene `text:` value
+                // or dedicated `placeholder:` property; focus and typed content
+                // are host-side state (Wave 2).
                 // Children are lowered so buttons inside an input keep the
                 // same depth-first ActionIds as interaction compilation.
+                let placeholder = cell.placeholder
+                    .clone()
+                    .unwrap_or_else(|| cell.text.clone().unwrap_or_default());
                 let input_id = self.push(Node::Input {
-                    placeholder: cell.text.clone().unwrap_or_default(),
+                    placeholder,
                 });
                 let mut kid_keys = Vec::new();
                 let mut kid_ids = Vec::new();

@@ -281,10 +281,7 @@ mod tests {
             id: "sample.copied_text",
             summary: "Detect an operation copied into an invariant.",
             operations: &["validate value", "report violations"],
-            invariants: &[
-                "validate value",
-                "validation does not rewrite the input",
-            ],
+            invariants: &["validate value", "validation does not rewrite the input"],
         };
         let records = [
             ContractRecord {
@@ -301,8 +298,18 @@ mod tests {
         assert_eq!(
             validate_records(&records).unwrap_err(),
             vec![
-                issue(0, "sample.duplicate_text", Field::Operations, Problem::RepeatedText),
-                issue(1, "sample.copied_text", Field::Operations, Problem::RepeatedText),
+                issue(
+                    0,
+                    "sample.duplicate_text",
+                    Field::Operations,
+                    Problem::RepeatedText
+                ),
+                issue(
+                    1,
+                    "sample.copied_text",
+                    Field::Operations,
+                    Problem::RepeatedText
+                ),
             ]
         );
     }

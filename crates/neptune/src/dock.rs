@@ -105,7 +105,8 @@ impl Manifest {
             return Err(Error::Field("artifact"));
         }
         let path = Path::new(&self.artifact.path);
-        if path.is_absolute()
+        if path.as_os_str().is_empty()
+            || path.is_absolute()
             || path
                 .components()
                 .any(|c| !matches!(c, Component::Normal(_)))
@@ -137,9 +138,11 @@ impl Manifest {
         let mut hash = Sha256::new();
         let mut buffer = [0u8; 64 * 1024];
         loop {
-            let count = reader
-                .read(&mut buffer)
-                .map_err(|_| Error::ArtifactMissing)?;
+            let count = match reader.read(&mut buffer) {
+                Ok(count) => count,
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(_) => return Err(Error::ArtifactMissing),
+            };
             if count == 0 {
                 break;
             }
@@ -156,9 +159,69 @@ fn version(value: &str) -> bool {
     let mut it = value.split('.');
     let Some(a) = it.next() else { return false };
     let Some(b) = it.next() else { return false };
-    a.bytes().all(|c| c.is_ascii_digit())
-        && b.bytes().all(|c| c.is_ascii_digit())
-        && it.all(|p| !p.is_empty() && p.bytes().all(|c| c.is_ascii_digit()))
+    let numeric = |part: &str| !part.is_empty() && part.bytes().all(|c| c.is_ascii_digit());
+    numeric(a)
+        && numeric(b)
+        && match it.next() {
+            Some(patch) => numeric(patch) && it.next().is_none(),
+            None => true,
+        }
+}
+
+#[cfg(test)]
+mod tests {
+    fn manifest() -> super::Manifest {
+        serde_json::from_value(serde_json::json!({
+            "schema": super::MANIFEST_SCHEMA,
+            "application": {"name":"App", "bundle_id":"com.example.app", "version":"1.0", "build":1},
+            "target": {"platform":"ios", "architecture":"arm64", "minimum_os":"17.0"},
+            "artifact": {"kind":"ipa", "path":"App.ipa", "sha256":format!("{:x}", <sha2::Sha256 as sha2::Digest>::digest(b"ipa"))},
+            "signing": {"mode":"development", "identity":"Developer", "profile":"profile"},
+            "deployment": {"transport":"usb", "preserve_data":true, "launch_after_install":false}
+        })).unwrap()
+    }
+
+    #[test]
+    fn artifact_path_must_name_a_relative_file() {
+        let mut manifest = manifest();
+        assert_eq!(manifest.validate(), Ok(()));
+        for path in ["", ".", "../App.ipa", "/App.ipa"] {
+            manifest.artifact.path = path.into();
+            assert_eq!(
+                manifest.validate(),
+                Err(super::Error::ArtifactPath),
+                "{path}"
+            );
+        }
+    }
+
+    #[test]
+    fn artifact_reader_retries_interrupted_reads() {
+        struct InterruptedOnce(bool, std::io::Cursor<&'static [u8]>);
+        impl std::io::Read for InterruptedOnce {
+            fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+                if !self.0 {
+                    self.0 = true;
+                    return Err(std::io::ErrorKind::Interrupted.into());
+                }
+                std::io::Read::read(&mut self.1, buffer)
+            }
+        }
+        assert_eq!(
+            manifest().verify_artifact_reader(InterruptedOnce(false, std::io::Cursor::new(b"ipa"))),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn minimum_os_requires_two_or_three_nonempty_numeric_components() {
+        for valid in ["17.0", "18.1.2"] {
+            assert!(super::version(valid), "{valid}");
+        }
+        for invalid in ["", ".", ".18", "18.", "18", "18.0.", "18.0.1.2", "18.x"] {
+            assert!(!super::version(invalid), "{invalid}");
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

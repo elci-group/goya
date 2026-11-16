@@ -39,8 +39,8 @@ use crate::memory_caprichio::{
     MemoryArtifact, MemoryDeclaration, RuntimeCapabilities as MemoryRuntime, Target as MemoryTarget,
 };
 use crate::parallelism_caprichio::{
-    ParallelismArtifact, ParallelismDeclaration,
-    RuntimeCapabilities as ParallelismRuntime, Target as ParallelismTarget,
+    ParallelismArtifact, ParallelismDeclaration, RuntimeCapabilities as ParallelismRuntime,
+    Target as ParallelismTarget,
 };
 use crate::priority_caprichio::{
     Artifact as PriorityArtifact, Declaration as PriorityDeclaration, HostProfile as PriorityHost,
@@ -698,11 +698,12 @@ pub fn negotiate(
                 )
             }
             crate::parallelism_caprichio::CONTRACT => {
-                let declaration = request.parallelism.ok_or(
-                    NegotiationError::MissingDeclaration {
-                        capability: crate::parallelism_caprichio::CONTRACT,
-                    },
-                )?;
+                let declaration =
+                    request
+                        .parallelism
+                        .ok_or(NegotiationError::MissingDeclaration {
+                            capability: crate::parallelism_caprichio::CONTRACT,
+                        })?;
                 let ir = declaration
                     .normalize()
                     .map_err(NegotiationError::Parallelism)?;
@@ -721,11 +722,8 @@ pub fn negotiate(
                     .normalize()
                     .map_err(NegotiationError::InputValidation)?;
                 Artifact::InputValidation(
-                    ir.lower_checked(
-                        host.input_validation_target,
-                        host.input_validation_host,
-                    )
-                    .map_err(NegotiationError::InputValidation)?,
+                    ir.lower_checked(host.input_validation_target, host.input_validation_host)
+                        .map_err(NegotiationError::InputValidation)?,
                 )
             }
             _ => unreachable!("request IDs validated before lowering"),
@@ -1684,16 +1682,15 @@ mod tests {
         );
         let artifact = &negotiated[1].artifact;
         assert_eq!(artifact.contract(), contract);
-        assert_eq!(
-            artifact.recipe(),
-            crate::input_validation_caprichio::RECIPE
-        );
+        assert_eq!(artifact.recipe(), crate::input_validation_caprichio::RECIPE);
         assert_eq!(
             artifact.recipe_version(),
             crate::input_validation_caprichio::RECIPE_VERSION
         );
         assert!(artifact.canonical_ir().contains("security_claims=none\n"));
-        assert!(artifact.canonical_ir().contains("allowed_ascii_hex=30313233343536373839\n"));
+        assert!(artifact
+            .canonical_ir()
+            .contains("allowed_ascii_hex=30313233343536373839\n"));
         assert!(artifact.source().contains("validate_text"));
         assert!(artifact.source().contains("MIN_TEXT_BYTES: usize = 1usize"));
         assert_eq!(negotiated, negotiate(&request, host()).unwrap());
