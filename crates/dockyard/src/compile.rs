@@ -1427,6 +1427,304 @@ fn exercise(checked: &Checked) -> Result<(), String> {
             encoded_two.status, encoded_two.content_type
         ));
     }
+    let mkcalendar = exchange_line(
+        checked.port,
+        &format!("MKCALENDAR {} HTTP/1.1", checked.path),
+    )?;
+    if mkcalendar.status != 404
+        || mkcalendar.content_type != CONTENT_TYPE
+        || mkcalendar.body != b"not found"
+    {
+        return Err(format!(
+            "mkcalendar returned {} {}",
+            mkcalendar.status, mkcalendar.content_type
+        ));
+    }
+    let another_version = exchange_line(checked.port, &format!("GET {} HTTP/1.20", checked.path))?;
+    if another_version.status != 404
+        || another_version.content_type != CONTENT_TYPE
+        || another_version.body != b"not found"
+    {
+        return Err(format!(
+            "another version returned {} {}",
+            another_version.status, another_version.content_type
+        ));
+    }
+    let encoded_three = exchange_line(checked.port, &format!("GET {}%33 HTTP/1.1", checked.path))?;
+    if encoded_three.status != 404
+        || encoded_three.content_type != CONTENT_TYPE
+        || encoded_three.body != b"not found"
+    {
+        return Err(format!(
+            "encoded three returned {} {}",
+            encoded_three.status, encoded_three.content_type
+        ));
+    }
+    let search = exchange_line(checked.port, &format!("SEARCH {} HTTP/1.1", checked.path))?;
+    if search.status != 404 || search.content_type != CONTENT_TYPE || search.body != b"not found" {
+        return Err(format!(
+            "search returned {} {}",
+            search.status, search.content_type
+        ));
+    }
+    let extra_version = exchange_line(checked.port, &format!("GET {} HTTP/1.21", checked.path))?;
+    if extra_version.status != 404
+        || extra_version.content_type != CONTENT_TYPE
+        || extra_version.body != b"not found"
+    {
+        return Err(format!(
+            "extra version returned {} {}",
+            extra_version.status, extra_version.content_type
+        ));
+    }
+    let encoded_four = exchange_line(checked.port, &format!("GET {}%34 HTTP/1.1", checked.path))?;
+    if encoded_four.status != 404
+        || encoded_four.content_type != CONTENT_TYPE
+        || encoded_four.body != b"not found"
+    {
+        return Err(format!(
+            "encoded four returned {} {}",
+            encoded_four.status, encoded_four.content_type
+        ));
+    }
+    let bind = exchange_line(checked.port, &format!("BIND {} HTTP/1.1", checked.path))?;
+    if bind.status != 404 || bind.content_type != CONTENT_TYPE || bind.body != b"not found" {
+        return Err(format!(
+            "bind returned {} {}",
+            bind.status, bind.content_type
+        ));
+    }
+    let spare_version = exchange_line(checked.port, &format!("GET {} HTTP/1.22", checked.path))?;
+    if spare_version.status != 404
+        || spare_version.content_type != CONTENT_TYPE
+        || spare_version.body != b"not found"
+    {
+        return Err(format!(
+            "spare version returned {} {}",
+            spare_version.status, spare_version.content_type
+        ));
+    }
+    let encoded_five = exchange_line(checked.port, &format!("GET {}%35 HTTP/1.1", checked.path))?;
+    if encoded_five.status != 404
+        || encoded_five.content_type != CONTENT_TYPE
+        || encoded_five.body != b"not found"
+    {
+        return Err(format!(
+            "encoded five returned {} {}",
+            encoded_five.status, encoded_five.content_type
+        ));
+    }
+    let unbind = exchange_line(checked.port, &format!("UNBIND {} HTTP/1.1", checked.path))?;
+    if unbind.status != 404 || unbind.content_type != CONTENT_TYPE || unbind.body != b"not found" {
+        return Err(format!(
+            "unbind returned {} {}",
+            unbind.status, unbind.content_type
+        ));
+    }
+    let fresh_version = exchange_line(checked.port, &format!("GET {} HTTP/1.23", checked.path))?;
+    if fresh_version.status != 404
+        || fresh_version.content_type != CONTENT_TYPE
+        || fresh_version.body != b"not found"
+    {
+        return Err(format!(
+            "fresh version returned {} {}",
+            fresh_version.status, fresh_version.content_type
+        ));
+    }
+    let encoded_six = exchange_line(checked.port, &format!("GET {}%36 HTTP/1.1", checked.path))?;
+    if encoded_six.status != 404
+        || encoded_six.content_type != CONTENT_TYPE
+        || encoded_six.body != b"not found"
+    {
+        return Err(format!(
+            "encoded six returned {} {}",
+            encoded_six.status, encoded_six.content_type
+        ));
+    }
+    let rebind = exchange_line(checked.port, &format!("REBIND {} HTTP/1.1", checked.path))?;
+    if rebind.status != 404 || rebind.content_type != CONTENT_TYPE || rebind.body != b"not found" {
+        return Err(format!(
+            "rebind returned {} {}",
+            rebind.status, rebind.content_type
+        ));
+    }
+    let open_version = exchange_line(checked.port, &format!("GET {} HTTP/1.24", checked.path))?;
+    if open_version.status != 404
+        || open_version.content_type != CONTENT_TYPE
+        || open_version.body != b"not found"
+    {
+        return Err(format!(
+            "open version returned {} {}",
+            open_version.status, open_version.content_type
+        ));
+    }
+    let encoded_seven = exchange_line(checked.port, &format!("GET {}%37 HTTP/1.1", checked.path))?;
+    if encoded_seven.status != 404
+        || encoded_seven.content_type != CONTENT_TYPE
+        || encoded_seven.body != b"not found"
+    {
+        return Err(format!(
+            "encoded seven returned {} {}",
+            encoded_seven.status, encoded_seven.content_type
+        ));
+    }
+    let checkout = exchange_line(checked.port, &format!("CHECKOUT {} HTTP/1.1", checked.path))?;
+    if checkout.status != 404
+        || checkout.content_type != CONTENT_TYPE
+        || checkout.body != b"not found"
+    {
+        return Err(format!(
+            "checkout returned {} {}",
+            checkout.status, checkout.content_type
+        ));
+    }
+    let clear_version = exchange_line(checked.port, &format!("GET {} HTTP/1.25", checked.path))?;
+    if clear_version.status != 404
+        || clear_version.content_type != CONTENT_TYPE
+        || clear_version.body != b"not found"
+    {
+        return Err(format!(
+            "clear version returned {} {}",
+            clear_version.status, clear_version.content_type
+        ));
+    }
+    let encoded_eight = exchange_line(checked.port, &format!("GET {}%38 HTTP/1.1", checked.path))?;
+    if encoded_eight.status != 404
+        || encoded_eight.content_type != CONTENT_TYPE
+        || encoded_eight.body != b"not found"
+    {
+        return Err(format!(
+            "encoded eight returned {} {}",
+            encoded_eight.status, encoded_eight.content_type
+        ));
+    }
+    let checkin = exchange_line(checked.port, &format!("CHECKIN {} HTTP/1.1", checked.path))?;
+    if checkin.status != 404 || checkin.content_type != CONTENT_TYPE || checkin.body != b"not found"
+    {
+        return Err(format!(
+            "checkin returned {} {}",
+            checkin.status, checkin.content_type
+        ));
+    }
+    let plain_version = exchange_line(checked.port, &format!("GET {} HTTP/1.26", checked.path))?;
+    if plain_version.status != 404
+        || plain_version.content_type != CONTENT_TYPE
+        || plain_version.body != b"not found"
+    {
+        return Err(format!(
+            "plain version returned {} {}",
+            plain_version.status, plain_version.content_type
+        ));
+    }
+    let encoded_nine = exchange_line(checked.port, &format!("GET {}%39 HTTP/1.1", checked.path))?;
+    if encoded_nine.status != 404
+        || encoded_nine.content_type != CONTENT_TYPE
+        || encoded_nine.body != b"not found"
+    {
+        return Err(format!(
+            "encoded nine returned {} {}",
+            encoded_nine.status, encoded_nine.content_type
+        ));
+    }
+    let uncheckout = exchange_line(
+        checked.port,
+        &format!("UNCHECKOUT {} HTTP/1.1", checked.path),
+    )?;
+    if uncheckout.status != 404
+        || uncheckout.content_type != CONTENT_TYPE
+        || uncheckout.body != b"not found"
+    {
+        return Err(format!(
+            "uncheckout returned {} {}",
+            uncheckout.status, uncheckout.content_type
+        ));
+    }
+    let brief_version = exchange_line(checked.port, &format!("GET {} HTTP/1.27", checked.path))?;
+    if brief_version.status != 404
+        || brief_version.content_type != CONTENT_TYPE
+        || brief_version.body != b"not found"
+    {
+        return Err(format!(
+            "brief version returned {} {}",
+            brief_version.status, brief_version.content_type
+        ));
+    }
+    let encoded_colon = exchange_line(checked.port, &format!("GET {}%3A HTTP/1.1", checked.path))?;
+    if encoded_colon.status != 404
+        || encoded_colon.content_type != CONTENT_TYPE
+        || encoded_colon.body != b"not found"
+    {
+        return Err(format!(
+            "encoded colon returned {} {}",
+            encoded_colon.status, encoded_colon.content_type
+        ));
+    }
+    let mkactivity = exchange_line(
+        checked.port,
+        &format!("MKACTIVITY {} HTTP/1.1", checked.path),
+    )?;
+    if mkactivity.status != 404
+        || mkactivity.content_type != CONTENT_TYPE
+        || mkactivity.body != b"not found"
+    {
+        return Err(format!(
+            "mkactivity returned {} {}",
+            mkactivity.status, mkactivity.content_type
+        ));
+    }
+    let firm_version = exchange_line(checked.port, &format!("GET {} HTTP/1.28", checked.path))?;
+    if firm_version.status != 404
+        || firm_version.content_type != CONTENT_TYPE
+        || firm_version.body != b"not found"
+    {
+        return Err(format!(
+            "firm version returned {} {}",
+            firm_version.status, firm_version.content_type
+        ));
+    }
+    let encoded_less = exchange_line(checked.port, &format!("GET {}%3C HTTP/1.1", checked.path))?;
+    if encoded_less.status != 404
+        || encoded_less.content_type != CONTENT_TYPE
+        || encoded_less.body != b"not found"
+    {
+        return Err(format!(
+            "encoded less returned {} {}",
+            encoded_less.status, encoded_less.content_type
+        ));
+    }
+    let version_control = exchange_line(
+        checked.port,
+        &format!("VERSION-CONTROL {} HTTP/1.1", checked.path),
+    )?;
+    if version_control.status != 404
+        || version_control.content_type != CONTENT_TYPE
+        || version_control.body != b"not found"
+    {
+        return Err(format!(
+            "version-control returned {} {}",
+            version_control.status, version_control.content_type
+        ));
+    }
+    let still_version = exchange_line(checked.port, &format!("GET {} HTTP/1.29", checked.path))?;
+    if still_version.status != 404
+        || still_version.content_type != CONTENT_TYPE
+        || still_version.body != b"not found"
+    {
+        return Err(format!(
+            "still version returned {} {}",
+            still_version.status, still_version.content_type
+        ));
+    }
+    let encoded_equals = exchange_line(checked.port, &format!("GET {}%3D HTTP/1.1", checked.path))?;
+    if encoded_equals.status != 404
+        || encoded_equals.content_type != CONTENT_TYPE
+        || encoded_equals.body != b"not found"
+    {
+        return Err(format!(
+            "encoded equals returned {} {}",
+            encoded_equals.status, encoded_equals.content_type
+        ));
+    }
     drop(reap);
     drop(cleanup);
     Ok(())
@@ -2473,6 +2771,116 @@ mod tests {
         assert!(!source.contains("REPORT"));
         assert!(!source.contains("HTTP/1.19"));
         assert!(!source.contains("%32"));
+    }
+
+    #[test]
+    fn mkcalendar_another_version_and_encoded_three_stay_outside_the_matcher() {
+        let service = crate::admit(include_str!("../fixtures/ping.gservice")).expect("fixture");
+        let source = emit_source(&service);
+        assert!(source.contains("strip_prefix(b\"GET \")"));
+        assert!(source.contains("b\" HTTP/1.1\" | b\" HTTP/1.0\""));
+        assert!(!source.contains("MKCALENDAR"));
+        assert!(!source.contains("HTTP/1.20"));
+        assert!(!source.contains("%33"));
+    }
+
+    #[test]
+    fn search_extra_version_and_encoded_four_stay_outside_the_matcher() {
+        let service = crate::admit(include_str!("../fixtures/ping.gservice")).expect("fixture");
+        let source = emit_source(&service);
+        assert!(source.contains("strip_prefix(b\"GET \")"));
+        assert!(source.contains("b\" HTTP/1.1\" | b\" HTTP/1.0\""));
+        assert!(!source.contains("SEARCH"));
+        assert!(!source.contains("HTTP/1.21"));
+        assert!(!source.contains("%34"));
+    }
+
+    #[test]
+    fn bind_spare_version_and_encoded_five_stay_outside_the_matcher() {
+        let service = crate::admit(include_str!("../fixtures/ping.gservice")).expect("fixture");
+        let source = emit_source(&service);
+        assert!(source.contains("strip_prefix(b\"GET \")"));
+        assert!(source.contains("b\" HTTP/1.1\" | b\" HTTP/1.0\""));
+        assert!(!source.contains("BIND"));
+        assert!(!source.contains("HTTP/1.22"));
+        assert!(!source.contains("%35"));
+    }
+
+    #[test]
+    fn unbind_fresh_version_and_encoded_six_stay_outside_the_matcher() {
+        let service = crate::admit(include_str!("../fixtures/ping.gservice")).expect("fixture");
+        let source = emit_source(&service);
+        assert!(source.contains("strip_prefix(b\"GET \")"));
+        assert!(source.contains("b\" HTTP/1.1\" | b\" HTTP/1.0\""));
+        assert!(!source.contains("UNBIND"));
+        assert!(!source.contains("HTTP/1.23"));
+        assert!(!source.contains("%36"));
+    }
+
+    #[test]
+    fn rebind_open_version_and_encoded_seven_stay_outside_the_matcher() {
+        let service = crate::admit(include_str!("../fixtures/ping.gservice")).expect("fixture");
+        let source = emit_source(&service);
+        assert!(source.contains("strip_prefix(b\"GET \")"));
+        assert!(source.contains("b\" HTTP/1.1\" | b\" HTTP/1.0\""));
+        assert!(!source.contains("REBIND"));
+        assert!(!source.contains("HTTP/1.24"));
+        assert!(!source.contains("%37"));
+    }
+
+    #[test]
+    fn checkout_clear_version_and_encoded_eight_stay_outside_the_matcher() {
+        let service = crate::admit(include_str!("../fixtures/ping.gservice")).expect("fixture");
+        let source = emit_source(&service);
+        assert!(source.contains("strip_prefix(b\"GET \")"));
+        assert!(source.contains("b\" HTTP/1.1\" | b\" HTTP/1.0\""));
+        assert!(!source.contains("CHECKOUT"));
+        assert!(!source.contains("HTTP/1.25"));
+        assert!(!source.contains("%38"));
+    }
+
+    #[test]
+    fn checkin_plain_version_and_encoded_nine_stay_outside_the_matcher() {
+        let service = crate::admit(include_str!("../fixtures/ping.gservice")).expect("fixture");
+        let source = emit_source(&service);
+        assert!(source.contains("strip_prefix(b\"GET \")"));
+        assert!(source.contains("b\" HTTP/1.1\" | b\" HTTP/1.0\""));
+        assert!(!source.contains("CHECKIN"));
+        assert!(!source.contains("HTTP/1.26"));
+        assert!(!source.contains("%39"));
+    }
+
+    #[test]
+    fn uncheckout_brief_version_and_encoded_colon_stay_outside_the_matcher() {
+        let service = crate::admit(include_str!("../fixtures/ping.gservice")).expect("fixture");
+        let source = emit_source(&service);
+        assert!(source.contains("strip_prefix(b\"GET \")"));
+        assert!(source.contains("b\" HTTP/1.1\" | b\" HTTP/1.0\""));
+        assert!(!source.contains("UNCHECKOUT"));
+        assert!(!source.contains("HTTP/1.27"));
+        assert!(!source.contains("%3A"));
+    }
+
+    #[test]
+    fn mkactivity_firm_version_and_encoded_less_stay_outside_the_matcher() {
+        let service = crate::admit(include_str!("../fixtures/ping.gservice")).expect("fixture");
+        let source = emit_source(&service);
+        assert!(source.contains("strip_prefix(b\"GET \")"));
+        assert!(source.contains("b\" HTTP/1.1\" | b\" HTTP/1.0\""));
+        assert!(!source.contains("MKACTIVITY"));
+        assert!(!source.contains("HTTP/1.28"));
+        assert!(!source.contains("%3C"));
+    }
+
+    #[test]
+    fn version_control_still_version_and_encoded_equals_stay_outside_the_matcher() {
+        let service = crate::admit(include_str!("../fixtures/ping.gservice")).expect("fixture");
+        let source = emit_source(&service);
+        assert!(source.contains("strip_prefix(b\"GET \")"));
+        assert!(source.contains("b\" HTTP/1.1\" | b\" HTTP/1.0\""));
+        assert!(!source.contains("VERSION-CONTROL"));
+        assert!(!source.contains("HTTP/1.29"));
+        assert!(!source.contains("%3D"));
     }
 
     fn response_bytes(status: u16, reason: &str, body: &[u8]) -> Vec<u8> {

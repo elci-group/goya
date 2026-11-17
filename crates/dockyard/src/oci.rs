@@ -242,6 +242,26 @@ pub fn read_archive(bytes: &[u8]) -> Result<Vec<ArchiveEntry>, &'static str> {
             || name.contains('=')
             || name.contains('(')
             || name.contains(')')
+            || name.contains(',')
+            || name.contains('@')
+            || name.contains('#')
+            || name.contains('&')
+            || name.contains('\'')
+            || name.contains('"')
+            || name.contains('!')
+            || name.contains(';')
+            || name.contains('$')
+            || name.contains('+')
+            || name.contains('~')
+            || name.contains('`')
+            || name.contains('^')
+            || name.contains('%')
+            || name.contains('\n')
+            || name.contains('\r')
+            || name.contains('\x0b')
+            || name.contains('\x0c')
+            || name.contains('\x0e')
+            || name.contains('\x0f')
         {
             return Err("tar name is rejected");
         }
@@ -788,6 +808,146 @@ mod tests {
             Err("tar name is rejected")
         );
         let block = header(&entry("srv/dockyard/service)", false, b"hi")).expect("header");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar name is rejected")
+        );
+    }
+
+    #[test]
+    fn name_with_comma_or_at_is_rejected() {
+        let block = header(&entry("srv/dockyard,service", false, b"hi")).expect("header");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar name is rejected")
+        );
+        let block = header(&entry("srv/dockyard/service@", false, b"hi")).expect("header");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar name is rejected")
+        );
+    }
+
+    #[test]
+    fn name_with_hash_or_ampersand_is_rejected() {
+        let block = header(&entry("srv/dockyard#service", false, b"hi")).expect("header");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar name is rejected")
+        );
+        let block = header(&entry("srv/dockyard/service&", false, b"hi")).expect("header");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar name is rejected")
+        );
+    }
+
+    #[test]
+    fn name_with_apostrophe_or_quotation_is_rejected() {
+        let block = header(&entry("srv/dockyard'service", false, b"hi")).expect("header");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar name is rejected")
+        );
+        let block = header(&entry("srv/dockyard/service\"", false, b"hi")).expect("header");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar name is rejected")
+        );
+    }
+
+    #[test]
+    fn name_with_bang_or_semicolon_is_rejected() {
+        let block = header(&entry("srv/dockyard!service", false, b"hi")).expect("header");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar name is rejected")
+        );
+        let block = header(&entry("srv/dockyard/service;", false, b"hi")).expect("header");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar name is rejected")
+        );
+    }
+
+    #[test]
+    fn name_with_dollar_or_plus_is_rejected() {
+        let block = header(&entry("srv/dockyard$service", false, b"hi")).expect("header");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar name is rejected")
+        );
+        let block = header(&entry("srv/dockyard/service+", false, b"hi")).expect("header");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar name is rejected")
+        );
+    }
+
+    #[test]
+    fn name_with_tilde_or_backtick_is_rejected() {
+        let block = header(&entry("srv/dockyard~service", false, b"hi")).expect("header");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar name is rejected")
+        );
+        let block = header(&entry("srv/dockyard/service`", false, b"hi")).expect("header");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar name is rejected")
+        );
+    }
+
+    #[test]
+    fn name_with_caret_or_percent_is_rejected() {
+        let block = header(&entry("srv/dockyard^service", false, b"hi")).expect("header");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar name is rejected")
+        );
+        let block = header(&entry("srv/dockyard/service%", false, b"hi")).expect("header");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar name is rejected")
+        );
+    }
+
+    #[test]
+    fn name_with_newline_or_carriage_return_is_rejected() {
+        let block = header(&entry("srv/dockyard\nservice", false, b"hi")).expect("header");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar name is rejected")
+        );
+        let block = header(&entry("srv/dockyard/service\r", false, b"hi")).expect("header");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar name is rejected")
+        );
+    }
+
+    #[test]
+    fn name_with_vertical_tab_or_form_feed_is_rejected() {
+        let block = header(&entry("srv/dockyard\x0bservice", false, b"hi")).expect("header");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar name is rejected")
+        );
+        let block = header(&entry("srv/dockyard/service\x0c", false, b"hi")).expect("header");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar name is rejected")
+        );
+    }
+
+    #[test]
+    fn name_with_shift_out_or_shift_in_is_rejected() {
+        let block = header(&entry("srv/dockyard\x0eservice", false, b"hi")).expect("header");
+        assert_eq!(
+            read_archive(&archive_with_header(block, b"hi")),
+            Err("tar name is rejected")
+        );
+        let block = header(&entry("srv/dockyard/service\x0f", false, b"hi")).expect("header");
         assert_eq!(
             read_archive(&archive_with_header(block, b"hi")),
             Err("tar name is rejected")

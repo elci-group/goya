@@ -71,16 +71,16 @@ pub fn start(dir: &Path) -> Result<StartReport, Failure> {
             code: "DK-E5002",
             message: format!("runc failed to start: {error}"),
         })?;
-    let stop = StopRunc {
+    let mut stop = StopRunc {
         root: state,
         id,
         child: Some(child),
     };
-    let observed = match observe_when_ready(&stop) {
+    let observed = match observe_when_ready(&mut stop) {
         Ok(observed) => observed,
         Err(detail) => {
-            drop(stop);
             let stderr_text = fs::read_to_string(&stderr_path).unwrap_or_default();
+            drop(stop);
             return Ok(failed(detail, &stderr_text));
         }
     };
@@ -202,15 +202,21 @@ fn container_id() -> String {
     format!("dockyard-{}-{nanos}", std::process::id())
 }
 
-fn observe_when_ready(stop: &StopRunc) -> Result<Observation, String> {
-    let deadline = Instant::now() + Duration::from_secs(2);
+fn observe_when_ready(stop: &mut StopRunc) -> Result<Observation, String> {
+    // A loaded host can take longer than a couple of seconds to publish state.
+    let deadline = Instant::now() + Duration::from_secs(15);
     let mut last = String::from("runc state was not ready");
     while Instant::now() < deadline {
         match observe(stop) {
             Ok(observed) => return Ok(observed),
             Err(error) => {
                 last = error;
-                std::thread::sleep(Duration::from_millis(20));
+                if let Some(child) = stop.child.as_mut() {
+                    if let Ok(Some(status)) = child.try_wait() {
+                        return Err(format!("{last} (runc exited {status})"));
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(50));
             }
         }
     }
@@ -599,6 +605,56 @@ fn namespace_listeners(pid: u32, port: u16) -> Result<(), String> {
         Err(error) if error.kind() == ErrorKind::NotFound => {}
         Err(_) => return Err("cannot read netfilter directory".to_string()),
     }
+    match fs::read_to_string(format!("/proc/{pid}/net/netfilter/nf_log")) {
+        Ok(text) => only_nf_log_rows(&text)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read netfilter log".to_string()),
+    }
+    match fs::read_to_string(format!("/proc/{pid}/net/connector")) {
+        Ok(text) => only_connector_rows(&text)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read connector".to_string()),
+    }
+    match fs::read_to_string(format!("/proc/{pid}/net/bnep")) {
+        Ok(text) => only_bnep_rows(&text)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read bnep".to_string()),
+    }
+    match fs::read_to_string(format!("/proc/{pid}/net/hci")) {
+        Ok(text) => only_hci_rows(&text)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read hci".to_string()),
+    }
+    match fs::read_to_string(format!("/proc/{pid}/net/l2cap")) {
+        Ok(text) => only_l2cap_rows(&text)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read l2cap".to_string()),
+    }
+    match fs::read_to_string(format!("/proc/{pid}/net/rfcomm")) {
+        Ok(text) => only_rfcomm_rows(&text)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read rfcomm".to_string()),
+    }
+    match fs::read_to_string(format!("/proc/{pid}/net/sco")) {
+        Ok(text) => only_sco_rows(&text)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read sco".to_string()),
+    }
+    match fs::read_to_string(format!("/proc/{pid}/net/dev_mcast")) {
+        Ok(text) => only_dev_mcast_rows(&text)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read dev_mcast".to_string()),
+    }
+    match fs::read_to_string(format!("/proc/{pid}/net/netlink")) {
+        Ok(text) => only_netlink_rows(&text)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read netlink".to_string()),
+    }
+    match fs::read_to_string(format!("/proc/{pid}/net/ptype")) {
+        Ok(text) => only_ptype_rows(&text)?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot read ptype".to_string()),
+    }
     Ok(())
 }
 
@@ -973,6 +1029,422 @@ pub(crate) fn only_netfilter_names(names: &[String]) -> Result<(), String> {
     for name in names {
         if name != "nf_log" {
             return Err("network namespace has a foreign netfilter file".to_string());
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn only_nf_log_rows(text: &str) -> Result<(), String> {
+    for line in text.lines() {
+        if line.is_empty() {
+            continue;
+        }
+        let mut count = 0usize;
+        for field in line.split_whitespace() {
+            let ok = match count {
+                0 => field.bytes().all(|byte| byte.is_ascii_digit()),
+                1 => field
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphabetic() || byte == b'_'),
+                2 => {
+                    let bytes = field.as_bytes();
+                    bytes.len() >= 2
+                        && bytes[0] == b'('
+                        && bytes[bytes.len() - 1] == b')'
+                        && bytes[1..bytes.len() - 1]
+                            .iter()
+                            .all(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
+                }
+                _ => false,
+            };
+            if !ok {
+                return Err("netfilter log row is not a record".to_string());
+            }
+            count += 1;
+        }
+        if count != 3 {
+            return Err("netfilter log row width does not match".to_string());
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn only_connector_rows(text: &str) -> Result<(), String> {
+    let mut header = true;
+    for line in text.lines() {
+        if line.is_empty() {
+            continue;
+        }
+        if header {
+            let mut count = 0usize;
+            for field in line.split_whitespace() {
+                if !field
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphabetic() || byte == b'_')
+                {
+                    return Err("connector header is not a name".to_string());
+                }
+                count += 1;
+            }
+            if count != 2 {
+                return Err("connector header is not a name".to_string());
+            }
+            header = false;
+            continue;
+        }
+        let mut count = 0usize;
+        for field in line.split_whitespace() {
+            let ok = match count {
+                0 => field
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphabetic() || byte == b'_'),
+                1 => {
+                    field
+                        .bytes()
+                        .all(|byte| byte.is_ascii_digit() || byte == b':')
+                        && field.bytes().any(|byte| byte.is_ascii_digit())
+                }
+                _ => false,
+            };
+            if !ok {
+                return Err("connector row is not a record".to_string());
+            }
+            count += 1;
+        }
+        if count != 2 {
+            return Err("connector row width does not match".to_string());
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn only_bnep_rows(text: &str) -> Result<(), String> {
+    let mut header = true;
+    for line in text.lines() {
+        if line.is_empty() {
+            continue;
+        }
+        if header {
+            let mut count = 0usize;
+            for field in line.split_whitespace() {
+                if !field
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphabetic() || byte == b'_')
+                {
+                    return Err("bnep header is not a name".to_string());
+                }
+                count += 1;
+            }
+            if count != 7 {
+                return Err("bnep header is not a name".to_string());
+            }
+            header = false;
+            continue;
+        }
+        let mut count = 0usize;
+        for field in line.split_whitespace() {
+            let ok = match count {
+                0 => field.bytes().all(|byte| byte.is_ascii_hexdigit()),
+                1..=6 => field.bytes().all(|byte| byte.is_ascii_digit()),
+                _ => false,
+            };
+            if !ok {
+                return Err("bnep row is not a record".to_string());
+            }
+            count += 1;
+        }
+        if count != 7 {
+            return Err("bnep row width does not match".to_string());
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn only_hci_rows(text: &str) -> Result<(), String> {
+    let mut header = true;
+    for line in text.lines() {
+        if line.is_empty() {
+            continue;
+        }
+        if header {
+            let mut count = 0usize;
+            for field in line.split_whitespace() {
+                if !field
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphabetic() || byte == b'_')
+                {
+                    return Err("hci header is not a name".to_string());
+                }
+                count += 1;
+            }
+            if count != 7 {
+                return Err("hci header is not a name".to_string());
+            }
+            header = false;
+            continue;
+        }
+        let mut count = 0usize;
+        for field in line.split_whitespace() {
+            let ok = match count {
+                0 => field.bytes().all(|byte| byte.is_ascii_hexdigit()),
+                1..=6 => field.bytes().all(|byte| byte.is_ascii_digit()),
+                _ => false,
+            };
+            if !ok {
+                return Err("hci row is not a record".to_string());
+            }
+            count += 1;
+        }
+        if count != 7 {
+            return Err("hci row width does not match".to_string());
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn only_l2cap_rows(text: &str) -> Result<(), String> {
+    let mut header = true;
+    for line in text.lines() {
+        if line.is_empty() {
+            continue;
+        }
+        if header {
+            let mut count = 0usize;
+            for field in line.split_whitespace() {
+                if !field
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphabetic() || byte == b'_')
+                {
+                    return Err("l2cap header is not a name".to_string());
+                }
+                count += 1;
+            }
+            if count != 7 {
+                return Err("l2cap header is not a name".to_string());
+            }
+            header = false;
+            continue;
+        }
+        let mut count = 0usize;
+        for field in line.split_whitespace() {
+            let ok = match count {
+                0 => field.bytes().all(|byte| byte.is_ascii_hexdigit()),
+                1..=6 => field.bytes().all(|byte| byte.is_ascii_digit()),
+                _ => false,
+            };
+            if !ok {
+                return Err("l2cap row is not a record".to_string());
+            }
+            count += 1;
+        }
+        if count != 7 {
+            return Err("l2cap row width does not match".to_string());
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn only_rfcomm_rows(text: &str) -> Result<(), String> {
+    let mut header = true;
+    for line in text.lines() {
+        if line.is_empty() {
+            continue;
+        }
+        if header {
+            let mut count = 0usize;
+            for field in line.split_whitespace() {
+                if !field
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphabetic() || byte == b'_')
+                {
+                    return Err("rfcomm header is not a name".to_string());
+                }
+                count += 1;
+            }
+            if count != 7 {
+                return Err("rfcomm header is not a name".to_string());
+            }
+            header = false;
+            continue;
+        }
+        let mut count = 0usize;
+        for field in line.split_whitespace() {
+            let ok = match count {
+                0 => field.bytes().all(|byte| byte.is_ascii_hexdigit()),
+                1..=6 => field.bytes().all(|byte| byte.is_ascii_digit()),
+                _ => false,
+            };
+            if !ok {
+                return Err("rfcomm row is not a record".to_string());
+            }
+            count += 1;
+        }
+        if count != 7 {
+            return Err("rfcomm row width does not match".to_string());
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn only_sco_rows(text: &str) -> Result<(), String> {
+    let mut header = true;
+    for line in text.lines() {
+        if line.is_empty() {
+            continue;
+        }
+        if header {
+            let mut count = 0usize;
+            for field in line.split_whitespace() {
+                if !field
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphabetic() || byte == b'_')
+                {
+                    return Err("sco header is not a name".to_string());
+                }
+                count += 1;
+            }
+            if count != 7 {
+                return Err("sco header is not a name".to_string());
+            }
+            header = false;
+            continue;
+        }
+        let mut count = 0usize;
+        for field in line.split_whitespace() {
+            let ok = match count {
+                0 => field.bytes().all(|byte| byte.is_ascii_hexdigit()),
+                1..=6 => field.bytes().all(|byte| byte.is_ascii_digit()),
+                _ => false,
+            };
+            if !ok {
+                return Err("sco row is not a record".to_string());
+            }
+            count += 1;
+        }
+        if count != 7 {
+            return Err("sco row width does not match".to_string());
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn only_dev_mcast_rows(text: &str) -> Result<(), String> {
+    for line in text.lines() {
+        if line.is_empty() {
+            continue;
+        }
+        let mut count = 0usize;
+        for field in line.split_whitespace() {
+            let ok = match count {
+                0 | 2 | 3 => !field.is_empty() && field.bytes().all(|byte| byte.is_ascii_digit()),
+                1 => {
+                    !field.is_empty()
+                        && field.bytes().all(|byte| {
+                            byte.is_ascii_alphanumeric()
+                                || byte == b'_'
+                                || byte == b'-'
+                                || byte == b'.'
+                        })
+                }
+                4 => !field.is_empty() && field.bytes().all(|byte| byte.is_ascii_hexdigit()),
+                _ => false,
+            };
+            if !ok {
+                return Err("dev_mcast row is not a record".to_string());
+            }
+            count += 1;
+        }
+        if count != 5 {
+            return Err("dev_mcast row width does not match".to_string());
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn only_netlink_rows(text: &str) -> Result<(), String> {
+    let mut header = true;
+    for line in text.lines() {
+        if line.is_empty() {
+            continue;
+        }
+        if header {
+            let mut count = 0usize;
+            for field in line.split_whitespace() {
+                if !field
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphabetic() || byte == b'_')
+                {
+                    return Err("netlink header is not a name".to_string());
+                }
+                count += 1;
+            }
+            if count != 10 {
+                return Err("netlink header is not a name".to_string());
+            }
+            header = false;
+            continue;
+        }
+        let mut count = 0usize;
+        for field in line.split_whitespace() {
+            let ok = match count {
+                0 | 3 => field.bytes().all(|byte| byte.is_ascii_hexdigit()),
+                1 | 2 | 4..=9 => field.bytes().all(|byte| byte.is_ascii_digit()),
+                _ => false,
+            };
+            if !ok {
+                return Err("netlink row is not a record".to_string());
+            }
+            count += 1;
+        }
+        if count != 10 {
+            return Err("netlink row width does not match".to_string());
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn only_ptype_rows(text: &str) -> Result<(), String> {
+    let mut header = true;
+    for line in text.lines() {
+        if line.is_empty() {
+            continue;
+        }
+        if header {
+            let mut count = 0usize;
+            for field in line.split_whitespace() {
+                if !field
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphabetic() || byte == b'_')
+                {
+                    return Err("ptype header is not a name".to_string());
+                }
+                count += 1;
+            }
+            if count != 3 {
+                return Err("ptype header is not a name".to_string());
+            }
+            header = false;
+            continue;
+        }
+        let mut count = 0usize;
+        for field in line.split_whitespace() {
+            let ok = match count {
+                0 => field.bytes().all(|byte| byte.is_ascii_hexdigit()),
+                1 => field.bytes().all(|byte| {
+                    byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-' || byte == b'.'
+                }),
+                2 => field
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_'),
+                _ => false,
+            };
+            if !ok {
+                return Err("ptype row is not a record".to_string());
+            }
+            count += 1;
+        }
+        if count != 2 && count != 3 {
+            return Err("ptype row width does not match".to_string());
         }
     }
     Ok(())
@@ -2172,6 +2644,306 @@ FRAG6: inuse 0 memory -1
         assert_eq!(
             only_netfilter_names(&["xt_recent".to_string()]),
             Err("network namespace has a foreign netfilter file".to_string())
+        );
+    }
+
+    #[test]
+    fn nf_log_rows_accept_numbered_records() {
+        assert_eq!(only_nf_log_rows(""), Ok(()));
+        assert_eq!(only_nf_log_rows("0 NONE ()"), Ok(()));
+        assert_eq!(only_nf_log_rows(" 0 NONE ()\n10 nfnetlink_log ()"), Ok(()));
+        assert_eq!(
+            only_nf_log_rows("NONE 0 ()"),
+            Err("netfilter log row is not a record".to_string())
+        );
+        assert_eq!(
+            only_nf_log_rows("0 note! ()"),
+            Err("netfilter log row is not a record".to_string())
+        );
+        assert_eq!(
+            only_nf_log_rows("0 NONE () extra"),
+            Err("netfilter log row is not a record".to_string())
+        );
+        assert_eq!(
+            only_nf_log_rows("0 NONE"),
+            Err("netfilter log row width does not match".to_string())
+        );
+    }
+
+    #[test]
+    fn connector_rows_accept_a_named_header() {
+        assert_eq!(only_connector_rows(""), Ok(()));
+        assert_eq!(only_connector_rows("Name ID"), Ok(()));
+        assert_eq!(only_connector_rows("Name ID\ncn_proc 1:1"), Ok(()));
+        assert_eq!(
+            only_connector_rows("Name ID\ncn_proc 1:1\naf_alg 2:3"),
+            Ok(())
+        );
+        assert_eq!(
+            only_connector_rows("Name 1"),
+            Err("connector header is not a name".to_string())
+        );
+        assert_eq!(
+            only_connector_rows("Name ID\ncn-proc 1:1"),
+            Err("connector row is not a record".to_string())
+        );
+        assert_eq!(
+            only_connector_rows("Name ID\ncn_proc 1-1"),
+            Err("connector row is not a record".to_string())
+        );
+        assert_eq!(
+            only_connector_rows("Name ID\ncn_proc"),
+            Err("connector row width does not match".to_string())
+        );
+    }
+
+    #[test]
+    fn bnep_rows_accept_a_named_header() {
+        assert_eq!(only_bnep_rows(""), Ok(()));
+        assert_eq!(only_bnep_rows("\n"), Ok(()));
+        assert_eq!(
+            only_bnep_rows("sk RefCnt Rmem Wmem User Inode Parent"),
+            Ok(())
+        );
+        assert_eq!(
+            only_bnep_rows(
+                "sk RefCnt Rmem Wmem User Inode Parent\n0000000000000000 2 0 0 0 7641 0\n0000000000000000 2 0 0 0 7642 0"
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            only_bnep_rows("sk RefCnt Rmem Wmem User Inode 1"),
+            Err("bnep header is not a name".to_string())
+        );
+        assert_eq!(
+            only_bnep_rows(
+                "sk RefCnt Rmem Wmem User Inode Parent\n0000000000000000 2 0 0 0 note 0"
+            ),
+            Err("bnep row is not a record".to_string())
+        );
+        assert_eq!(
+            only_bnep_rows("sk RefCnt Rmem Wmem User Inode Parent\n0000000000000000 2 0 0 0 7641"),
+            Err("bnep row width does not match".to_string())
+        );
+    }
+
+    #[test]
+    fn hci_rows_accept_a_named_header() {
+        assert_eq!(only_hci_rows(""), Ok(()));
+        assert_eq!(only_hci_rows("\n"), Ok(()));
+        assert_eq!(
+            only_hci_rows("sk RefCnt Rmem Wmem User Inode Parent"),
+            Ok(())
+        );
+        assert_eq!(
+            only_hci_rows(
+                "sk RefCnt Rmem Wmem User Inode Parent\n0000000000000000 2 0 0 0 9110 0\n0000000000000000 2 0 0 0 9103 0"
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            only_hci_rows("sk RefCnt Rmem Wmem User Inode 1"),
+            Err("hci header is not a name".to_string())
+        );
+        assert_eq!(
+            only_hci_rows("sk RefCnt Rmem Wmem User Inode Parent\n0000000000000000 2 0 0 0 note 0"),
+            Err("hci row is not a record".to_string())
+        );
+        assert_eq!(
+            only_hci_rows("sk RefCnt Rmem Wmem User Inode Parent\n0000000000000000 2 0 0 0 9110"),
+            Err("hci row width does not match".to_string())
+        );
+    }
+
+    #[test]
+    fn l2cap_rows_accept_a_named_header() {
+        assert_eq!(only_l2cap_rows(""), Ok(()));
+        assert_eq!(only_l2cap_rows("\n"), Ok(()));
+        assert_eq!(
+            only_l2cap_rows("sk RefCnt Rmem Wmem User Inode Parent"),
+            Ok(())
+        );
+        assert_eq!(
+            only_l2cap_rows(
+                "sk RefCnt Rmem Wmem User Inode Parent\n0000000000000000 2 0 0 0 2340021 0\n0000000000000000 2 0 0 0 2337166 0"
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            only_l2cap_rows("sk RefCnt Rmem Wmem User Inode 1"),
+            Err("l2cap header is not a name".to_string())
+        );
+        assert_eq!(
+            only_l2cap_rows(
+                "sk RefCnt Rmem Wmem User Inode Parent\n0000000000000000 2 0 0 0 note 0"
+            ),
+            Err("l2cap row is not a record".to_string())
+        );
+        assert_eq!(
+            only_l2cap_rows(
+                "sk RefCnt Rmem Wmem User Inode Parent\n0000000000000000 2 0 0 0 2340021"
+            ),
+            Err("l2cap row width does not match".to_string())
+        );
+    }
+
+    #[test]
+    fn rfcomm_rows_accept_a_named_header() {
+        assert_eq!(only_rfcomm_rows(""), Ok(()));
+        assert_eq!(only_rfcomm_rows("\n"), Ok(()));
+        assert_eq!(
+            only_rfcomm_rows("sk RefCnt Rmem Wmem User Inode Parent"),
+            Ok(())
+        );
+        assert_eq!(
+            only_rfcomm_rows(
+                "sk RefCnt Rmem Wmem User Inode Parent\n0000000000000000 2 0 0 0 2337168 0\n0000000000000000 2 0 0 0 2337167 0"
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            only_rfcomm_rows("sk RefCnt Rmem Wmem User Inode 1"),
+            Err("rfcomm header is not a name".to_string())
+        );
+        assert_eq!(
+            only_rfcomm_rows(
+                "sk RefCnt Rmem Wmem User Inode Parent\n0000000000000000 2 0 0 0 note 0"
+            ),
+            Err("rfcomm row is not a record".to_string())
+        );
+        assert_eq!(
+            only_rfcomm_rows(
+                "sk RefCnt Rmem Wmem User Inode Parent\n0000000000000000 2 0 0 0 2337168"
+            ),
+            Err("rfcomm row width does not match".to_string())
+        );
+    }
+
+    #[test]
+    fn sco_rows_accept_a_named_header() {
+        assert_eq!(only_sco_rows(""), Ok(()));
+        assert_eq!(only_sco_rows("\n"), Ok(()));
+        assert_eq!(
+            only_sco_rows("sk RefCnt Rmem Wmem User Inode Parent"),
+            Ok(())
+        );
+        assert_eq!(
+            only_sco_rows(
+                "sk RefCnt Rmem Wmem User Inode Parent\n0000000000000000 2 0 0 1000 16077 0\n0000000000000000 2 0 0 1000 16078 0"
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            only_sco_rows("sk RefCnt Rmem Wmem User Inode 1"),
+            Err("sco header is not a name".to_string())
+        );
+        assert_eq!(
+            only_sco_rows(
+                "sk RefCnt Rmem Wmem User Inode Parent\n0000000000000000 2 0 0 1000 note 0"
+            ),
+            Err("sco row is not a record".to_string())
+        );
+        assert_eq!(
+            only_sco_rows(
+                "sk RefCnt Rmem Wmem User Inode Parent\n0000000000000000 2 0 0 1000 16077"
+            ),
+            Err("sco row width does not match".to_string())
+        );
+    }
+
+    #[test]
+    fn dev_mcast_rows_accept_device_rows() {
+        assert_eq!(only_dev_mcast_rows(""), Ok(()));
+        assert_eq!(only_dev_mcast_rows("\n"), Ok(()));
+        assert_eq!(
+            only_dev_mcast_rows(
+                "2 wlp1s0 2 0 01005e000001\n2 lo 2 0 333300000001\n4 br-lan.0 1 1 deadbeef"
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            only_dev_mcast_rows("2 wlp1s0 two 0 01005e000001"),
+            Err("dev_mcast row is not a record".to_string())
+        );
+        assert_eq!(
+            only_dev_mcast_rows("2 wlp1s0 2 0 01005e000001 extra"),
+            Err("dev_mcast row is not a record".to_string())
+        );
+        assert_eq!(
+            only_dev_mcast_rows("2 wlp1s0 2 0"),
+            Err("dev_mcast row width does not match".to_string())
+        );
+    }
+
+    #[test]
+    fn netlink_rows_accept_a_named_header() {
+        assert_eq!(only_netlink_rows(""), Ok(()));
+        assert_eq!(only_netlink_rows("\n"), Ok(()));
+        assert_eq!(
+            only_netlink_rows("sk Eth Pid Groups Rmem Wmem Dump Locks Drops Inode"),
+            Ok(())
+        );
+        assert_eq!(
+            only_netlink_rows(
+                "sk Eth Pid Groups Rmem Wmem Dump Locks Drops Inode\n0000000000000000 0 0 00000000 0 0 0 2 0 17\n0000000000000000 0 846 000405d1 0 0 0 2 0 2579"
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            only_netlink_rows("sk Eth Pid Groups Rmem Wmem Dump Locks Drops 1"),
+            Err("netlink header is not a name".to_string())
+        );
+        assert_eq!(
+            only_netlink_rows(
+                "sk Eth Pid Groups Rmem Wmem Dump Locks Drops Inode\n0000000000000000 0 0 note 0 0 0 2 0 17"
+            ),
+            Err("netlink row is not a record".to_string())
+        );
+        assert_eq!(
+            only_netlink_rows(
+                "sk Eth Pid Groups Rmem Wmem Dump Locks Drops Inode\n0000000000000000 0 0 00000000 0 0 0 2 0"
+            ),
+            Err("netlink row width does not match".to_string())
+        );
+    }
+
+    #[test]
+    fn ptype_rows_accept_a_named_header() {
+        assert_eq!(only_ptype_rows(""), Ok(()));
+        assert_eq!(only_ptype_rows("\n"), Ok(()));
+        assert_eq!(only_ptype_rows("Type Device Function"), Ok(()));
+        assert_eq!(only_ptype_rows("Type Device Function\n0800 ip_rcv"), Ok(()));
+        assert_eq!(
+            only_ptype_rows("Type Device Function\n0806 lo arp_rcv"),
+            Ok(())
+        );
+        assert_eq!(
+            only_ptype_rows("Type Device Function\n0800 ip_rcv\n0806 lo arp_rcv"),
+            Ok(())
+        );
+        assert_eq!(
+            only_ptype_rows("Type Device"),
+            Err("ptype header is not a name".to_string())
+        );
+        assert_eq!(
+            only_ptype_rows("Type Device 1"),
+            Err("ptype header is not a name".to_string())
+        );
+        assert_eq!(
+            only_ptype_rows("Type Device Function\nnote ip_rcv"),
+            Err("ptype row is not a record".to_string())
+        );
+        assert_eq!(
+            only_ptype_rows("Type Device Function\n0800 ip_rcv+"),
+            Err("ptype row is not a record".to_string())
+        );
+        assert_eq!(
+            only_ptype_rows("Type Device Function\n0806 lo arp_rcv extra"),
+            Err("ptype row is not a record".to_string())
+        );
+        assert_eq!(
+            only_ptype_rows("Type Device Function\n0800"),
+            Err("ptype row width does not match".to_string())
         );
     }
 
