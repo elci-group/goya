@@ -32,9 +32,15 @@ expressible. A target maps one point to one device-independent unit (dp on
 Android, DIP on Windows) and rejects any scene its native layout cannot
 reproduce, as Sash already does for cells the solver would move or shrink.
 
-**Open.** Font scaling and the dp rounding and clipping policy belong to
-Aragon Phase 3 and must be differential-tested against `goya_lang::layout`
-across parent sizes. Responsive layout needs a new profile.
+**Open.** Responsive layout needs a new profile. Font scaling stays open for
+every target.
+
+**Aragon (Phase 3, target decision, not a GSSH change).** One point is one
+dp; millipoint rects come from a Kotlin mirror of `goya_lang::layout` that is
+differential-tested on the JVM across parent sizes; each pixel edge is
+rounded half up on its own, and clipping follows the reference (children
+clamped into parents except under `scroll`). Text is not font-scaled. See
+`docs/aragon/android-scene.md`.
 
 ## D2 — Actions
 
@@ -115,8 +121,9 @@ lexical errors. Lowered GY-IR nodes already carry `semantic_id` and
 **Alternatives.** Child-index paths (they shift on edit) or content hashes
 (they change on any edit). Both remain lookup aids only.
 
-**Open.** Quinta editor IDs and generated-code (Kotlin/Swift) source maps keyed
-by these origins are target work (Aragon Phase 3). The unused `KotlinMapping`
+**Open.** Quinta editor IDs and a Swift source map keyed by these origins
+are target work. Aragon's Kotlin map (`ARAGON-SOURCE-MAP/1`, Phase 3) is
+implemented in `crates/goya-sdk/src/kotlin.rs`. The unused `KotlinMapping`
 in `crates/neptune/src/source_map.rs` is not that map.
 
 ## D6 — Strict rejection

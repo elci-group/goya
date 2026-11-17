@@ -1,5 +1,5 @@
 use goya_sdk::{
-    emit_android_d1_runtime, emit_android_root_button_preview,
+    compile_android_scene, emit_android_d1_runtime, emit_android_root_button_preview,
     emit_android_static_text_preview_named,
 };
 use std::{
@@ -45,7 +45,7 @@ android {
 kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
 "#;
 fn usage() -> ! {
-    eprintln!("usage: aragon-android-project <input.gscene> <output-directory> [--root-button] [--initial key=int:value|text:value|bool:value ...]");
+    eprintln!("usage: aragon-android-project <input.gscene> <output-directory> [--scene | --root-button [--initial key=int:value|text:value|bool:value ...]]");
     process::exit(2);
 }
 
@@ -132,12 +132,16 @@ fn make_executable(_file: &fs::File) -> std::io::Result<()> {
 fn main() {
     let args: Vec<_> = env::args_os().skip(1).collect();
     if args.len() == 1 && (args[0] == "--help" || args[0] == "-h") {
-        println!("usage: aragon-android-project <input.gscene> <output-directory> [--root-button] [--initial key=int:value|text:value|bool:value ...]");
-        println!("Generate a deterministic Android starter app for a static-text or root-button D1 preview.");
+        println!("usage: aragon-android-project <input.gscene> <output-directory> [--scene | --root-button [--initial key=int:value|text:value|bool:value ...]]");
+        println!("Generate a deterministic Android app: --scene compiles a GSSH/2 scene; without it, a static-text or root-button D1 preview.");
         process::exit(0);
     }
     if args.len() < 2 {
         usage();
+    }
+    if args.len() == 3 && args[2] == "--scene" {
+        generate_scene(&args[0], Path::new(&args[1]));
+        return;
     }
 
     let mut root_button = false;
@@ -252,26 +256,29 @@ fn main() {
         "GoyaStaticTextPreview"
     };
     let preview_file = format!("app/src/main/java/dev/goya/preview/{preview_name}.kt");
-    let mut files: Vec<(&str, Vec<u8>)> = vec![
-        ("settings.gradle.kts", format!("pluginManagement {{ repositories {{ google(); mavenCentral(); gradlePluginPortal() }} }}\ndependencyResolutionManagement {{ repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS); repositories {{ google(); mavenCentral() }} }}\nrootProject.name = \"{project_name}\"\ninclude(\":app\")\n").into_bytes()),
-        ("build.gradle.kts", ROOT_BUILD.as_bytes().to_vec()),
-        ("gradle.properties", GRADLE_PROPERTIES.as_bytes().to_vec()),
-        ("gradlew", GRADLEW.to_vec()),
-        ("gradlew.bat", GRADLEW_BAT.to_vec()),
-        ("gradle/wrapper/gradle-wrapper.jar", WRAPPER_JAR.to_vec()),
-        ("gradle/wrapper/gradle-wrapper.properties", WRAPPER_PROPERTIES.to_vec()),
-        ("gradle/verification-metadata.xml", VERIFICATION_METADATA.to_vec()),
-        ("app/build.gradle.kts", APP_BUILD.as_bytes().to_vec()),
-        ("app/src/main/AndroidManifest.xml", "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"><application android:theme=\"@android:style/Theme.Material.Light\" android:label=\"Goya preview\"><activity android:name=\"dev.goya.preview.MainActivity\" android:exported=\"true\"><intent-filter><action android:name=\"android.intent.action.MAIN\"/><category android:name=\"android.intent.category.LAUNCHER\"/></intent-filter></activity></application></manifest>\n".as_bytes().to_vec()),
-        (preview_file.as_str(), format!("package {PACKAGE}\n\n{preview}").into_bytes()),
-        ("app/src/main/java/dev/goya/preview/MainActivity.kt", main_activity.into_bytes()),
-    ];
+    let mut files = base_files(project_name);
+    files.push((
+        preview_file,
+        format!("package {PACKAGE}\n\n{preview}").into_bytes(),
+    ));
+    files.push((
+        "app/src/main/java/dev/goya/preview/MainActivity.kt".to_owned(),
+        main_activity.into_bytes(),
+    ));
     if root_button {
         files.push((
-            "app/src/main/java/dev/goya/preview/GoyaD1Runtime.kt",
+            "app/src/main/java/dev/goya/preview/GoyaD1Runtime.kt".to_owned(),
             format!("package {PACKAGE}\n\n{runtime}").into_bytes(),
         ));
     }
+    write_or_exit(root, &files);
+}
+
+fn write_or_exit(root: &Path, files: &[(String, Vec<u8>)]) {
+    let files: Vec<(&str, Vec<u8>)> = files
+        .iter()
+        .map(|(path, bytes)| (path.as_str(), bytes.clone()))
+        .collect();
     create_project(root, &files).unwrap_or_else(|(path, error)| {
         eprintln!(
             "could not create project output at {} (destination must not already exist): {error}",
@@ -279,6 +286,50 @@ fn main() {
         );
         process::exit(1);
     });
+}
+
+/// Gradle, wrapper and manifest files shared by every generated project.
+fn base_files(project_name: &str) -> Vec<(String, Vec<u8>)> {
+    vec![
+        ("settings.gradle.kts".to_owned(), format!("pluginManagement {{ repositories {{ google(); mavenCentral(); gradlePluginPortal() }} }}\ndependencyResolutionManagement {{ repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS); repositories {{ google(); mavenCentral() }} }}\nrootProject.name = \"{project_name}\"\ninclude(\":app\")\n").into_bytes()),
+        ("build.gradle.kts".to_owned(), ROOT_BUILD.as_bytes().to_vec()),
+        ("gradle.properties".to_owned(), GRADLE_PROPERTIES.as_bytes().to_vec()),
+        ("gradlew".to_owned(), GRADLEW.to_vec()),
+        ("gradlew.bat".to_owned(), GRADLEW_BAT.to_vec()),
+        ("gradle/wrapper/gradle-wrapper.jar".to_owned(), WRAPPER_JAR.to_vec()),
+        ("gradle/wrapper/gradle-wrapper.properties".to_owned(), WRAPPER_PROPERTIES.to_vec()),
+        ("gradle/verification-metadata.xml".to_owned(), VERIFICATION_METADATA.to_vec()),
+        ("app/build.gradle.kts".to_owned(), APP_BUILD.as_bytes().to_vec()),
+        ("app/src/main/AndroidManifest.xml".to_owned(), "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"><application android:theme=\"@android:style/Theme.Material.Light\" android:label=\"Goya preview\"><activity android:name=\"dev.goya.preview.MainActivity\" android:exported=\"true\"><intent-filter><action android:name=\"android.intent.action.MAIN\"/><category android:name=\"android.intent.category.LAUNCHER\"/></intent-filter></activity></application></manifest>\n".as_bytes().to_vec()),
+    ]
+}
+
+/// `--scene`: compile a GSSH/2 scene with the Aragon scene compiler.
+fn generate_scene(input: &std::ffi::OsStr, root: &Path) {
+    let source = fs::read_to_string(input).unwrap_or_else(|error| {
+        eprintln!("could not read scene {}: {error}", input.to_string_lossy());
+        process::exit(1);
+    });
+    let scene = compile_android_scene(&source).unwrap_or_else(|error| {
+        eprintln!("scene rejected at bytes {error}");
+        process::exit(1);
+    });
+    let mut files = base_files("GoyaScene");
+    for file in &scene.files {
+        files.push((
+            format!("app/src/main/java/dev/goya/preview/{}", file.name),
+            file.text.clone().into_bytes(),
+        ));
+    }
+    files.push((
+        "app/src/main/java/dev/goya/preview/MainActivity.kt".to_owned(),
+        format!("package {PACKAGE}\n\nimport android.app.Activity\nimport android.os.Bundle\nimport android.widget.Toast\n\nclass MainActivity : Activity() {{\n    override fun onCreate(savedInstanceState: Bundle?) {{\n        super.onCreate(savedInstanceState)\n        setContentView(GoyaSceneView(this) {{ message -> Toast.makeText(this, message, Toast.LENGTH_LONG).show() }})\n    }}\n}}\n").into_bytes(),
+    ));
+    files.push((
+        "aragon-source-map.json".to_owned(),
+        scene.source_map.to_json().into_bytes(),
+    ));
+    write_or_exit(root, &files);
 }
 
 fn kotlin_string_literal(value: &str) -> String {

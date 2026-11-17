@@ -54,7 +54,8 @@ JAVA_HOME=~/.local/opt/jdk-21.0.13+9 ANDROID_HOME=~/.local/opt/android-sdk \
     bash scripts/check-android-apk-build.sh
 ```
 
-The script generates the static-text and root-button qualification projects,
+The script generates the static-text, root-button and compiled-scene
+qualification projects,
 builds each one twice into an unsigned release APK (`assembleRelease`) from
 fresh copies at different paths, offline, with strict verification, and
 requires both builds to be byte-identical to each other and to the SHA-256
@@ -65,12 +66,14 @@ Result on this host, 17 November 2026 (Linux x86-64):
 ```text
 static: cd3e6f15892278b35490a3d46cb90109d069e870d9b20ec7e506c6d584f9b06b
 root-button: 47af8d6c0932c4aa6e19b0ee7576d8887eda269f056a8e40934e71e1efbab89e
+scene: ddabde96440df056f3a638f1d740df9fb4ee81362f9f320ba775afe00feb1754
 Locked-toolchain release APK builds are reproducible and match the recorded hashes.
 ```
 
 Exit 0, offline with strict verification. Each hash is the same across both
 builds of that project. The root-button hash also equals an earlier
-prototype build of the same project on 17 November 2026.
+prototype build of the same project on 17 November 2026. The scene project
+was added in Phase 3; adding it left the two earlier hashes unchanged.
 
 ## What this does not establish
 
@@ -80,6 +83,6 @@ prototype build of the same project on 17 November 2026.
   belong to ARG-G10.
 * Reproducibility is shown on one host and one OS. A second host or a
   different `GRADLE_USER_HOME` has not been tested.
-* Only the two qualification scenes are built. Any change to the emitters
+* Only the three qualification scenes are built. Any change to the emitters
   changes the APK hash; the recorded hashes are then updated in the same
   change, with the reason.

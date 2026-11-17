@@ -1,5 +1,8 @@
 # Aragon Android static-text compiler CLI
 
+For whole scenes use the scene compiler instead ([`android-scene.md`](android-scene.md),
+`aragon-android-project --scene`). This CLI covers only the one-cell preview.
+
 `aragon-androidc` is a standalone command around the SDK's experimental
 static-text preview emitter. It reads a `.gscene` source file and writes
 generated Kotlin:

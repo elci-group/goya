@@ -270,3 +270,65 @@ fn emits_the_locked_gradle_wrapper_and_dependency_checksums() {
         assert_eq!(mode & 0o111, 0o111, "gradlew must be executable");
     }
 }
+
+#[test]
+fn scene_mode_emits_the_compiled_gssh2_scene_and_its_source_map() {
+    let scratch = Scratch::new();
+    let source = scratch.path("input.gscene");
+    let scene = r#"@ontology demo {
+  @state { taps: int = 0 session; }
+  @cell root { id: "root";
+    @cell label { id: "label"; position: (8, 8, 0); extent: (200, 32, 0); text: "Taps" }
+    @button tap { id: "button.tap"; position: (8, 48, 0); extent: (120, 48, 0); text: "Tap" }
+  }
+  @interaction tap { id: "action.tap"; trigger: button.tap.activate; class: D1;
+    state { read taps: int; write taps: int; } input { } set taps = state.taps + 1; }
+}"#;
+    fs::write(&source, scene).unwrap();
+    let first = scratch.path("first");
+    let second = scratch.path("second");
+    for output in [&first, &second] {
+        let status = cli()
+            .arg(&source)
+            .arg(output)
+            .arg("--scene")
+            .status()
+            .unwrap();
+        assert!(status.success());
+    }
+    let generated = files(&first);
+    assert_eq!(generated, files(&second));
+    let compiled = goya_sdk::compile_android_scene(scene).unwrap();
+    for file in &compiled.files {
+        assert_eq!(
+            generated[&format!("app/src/main/java/dev/goya/preview/{}", file.name)],
+            file.text.as_bytes()
+        );
+    }
+    assert_eq!(
+        generated["aragon-source-map.json"],
+        compiled.source_map.to_json().as_bytes()
+    );
+    assert!(generated.contains_key("gradle/verification-metadata.xml"));
+    let activity =
+        String::from_utf8(generated["app/src/main/java/dev/goya/preview/MainActivity.kt"].clone())
+            .unwrap();
+    assert!(activity.contains("setContentView(GoyaSceneView(this)"));
+
+    // Refusals report the byte range and leave no output behind.
+    let refused = scratch.path("refused.gscene");
+    fs::write(
+        &refused,
+        r#"@ontology demo { @cell root { id: "root"; text-size: 12; } }"#,
+    )
+    .unwrap();
+    let output = cli()
+        .arg(&refused)
+        .arg(scratch.path("none"))
+        .arg("--scene")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("scene rejected at bytes 42.."));
+    assert!(!scratch.path("none").exists());
+}

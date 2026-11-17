@@ -24,9 +24,19 @@ pub use android_button_preview::{
     kotlin_string_literal, AndroidRootButtonPreview, AndroidRootButtonPreviewError,
 };
 mod android_d1_runtime;
+mod android_scene;
+pub use android_scene::{
+    compile_android_scene, compile_android_scene_with, AndroidScene, AndroidSceneError,
+    AndroidSceneOptions, AndroidSceneReason, ANDROID_SCENE_MAX_CELLS, ANDROID_SCENE_MAX_TEXT_BYTES,
+    ANDROID_SCENE_PACKAGE, ANDROID_SCENE_SPEC,
+};
+mod kotlin;
 pub use android_d1_runtime::{
     emit_android_d1_runtime, emit_android_d1_runtime_mapped, AndroidD1Runtime,
     AndroidD1RuntimeError,
+};
+pub use kotlin::{
+    AndroidSourceMap, KotlinFile, SourceMapEntry, SourceMapError, ANDROID_SOURCE_MAP_CONTRACT,
 };
 
 /// Refusal reason for the experimental Android static-text preview emitter.

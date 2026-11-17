@@ -32,10 +32,25 @@ assembleRelease` builds an unsigned release APK; the first build needs network
 access to fetch Gradle and the verified dependencies unless they are cached.
 
 Project generation itself does not run Gradle or create an APK.
-`scripts/check-android-apk-build.sh` builds both qualification projects
+`scripts/check-android-apk-build.sh` builds the three qualification projects
 offline, twice each, and checks the APKs against recorded hashes. No generated
 APK has been installed or run, so emulator, device and platform behavior are
 not established.
+
+## Compiled scene project
+
+`--scene` compiles a GSSH/2 scene with the Aragon scene compiler
+([`android-scene.md`](android-scene.md)) instead of using a preview:
+
+```sh
+cargo run --offline -p goya-sdk --bin aragon-android-project -- \
+  scene.gscene generated-scene --scene
+```
+
+It writes the generated specification, view and D1 runtime sources, a
+`MainActivity` that shows failures in a toast, and `aragon-source-map.json`
+at the project root. A refused construct is reported with its byte range,
+and nothing is written.
 
 ## Root-button D1 project
 

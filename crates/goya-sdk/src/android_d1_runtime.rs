@@ -56,7 +56,20 @@ pub fn emit_android_d1_runtime_mapped(
         return Err(AndroidD1RuntimeError::InvalidClassName);
     }
     let handoff = goya_lang::handoff::admit(source).map_err(AndroidD1RuntimeError::StrictParse)?;
-    let scene = &handoff.parsed.scene;
+    emit_for_parsed(&handoff.parsed, class_name)
+}
+
+/// Emit the runtime for a scene that has already passed strict admission
+/// (GSSH/1 or GSSH/2). The caller owns admission; this function still
+/// re-checks the D1-only surface through the canonical compiler.
+pub(crate) fn emit_for_parsed(
+    parsed: &goya_lang::ParsedScene,
+    class_name: &str,
+) -> Result<AndroidD1Runtime, AndroidD1RuntimeError> {
+    if !super::is_kotlin_class_name(class_name) {
+        return Err(AndroidD1RuntimeError::InvalidClassName);
+    }
+    let scene = &parsed.scene;
     if scene.interactions.is_empty() {
         return Err(AndroidD1RuntimeError::Unsupported(
             "scenes without D1 actions",
@@ -114,8 +127,7 @@ pub fn emit_android_d1_runtime_mapped(
                 .ok_or(AndroidD1RuntimeError::Unsupported(
                     "actions without authored IDs",
                 ))?;
-            handoff
-                .parsed
+            parsed
                 .entries
                 .iter()
                 .find(|e| e.kind == "interaction" && e.semantic_id.as_deref() == Some(id.as_str()))
@@ -223,7 +235,7 @@ pub fn emit_android_d1_runtime_mapped(
     out.push_str("    companion object { const val MAX_SNAPSHOT_BYTES = 1048576; const val MAX_TEXT_BYTES = 65536; const val MAX_REGISTER_BYTES = 1048576 }\n}\n");
     Ok(AndroidD1Runtime {
         kotlin: out,
-        source_digest: handoff.parsed.source_digest,
+        source_digest: parsed.source_digest,
         action_ranges,
     })
 }
