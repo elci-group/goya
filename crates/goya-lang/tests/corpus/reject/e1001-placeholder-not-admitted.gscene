@@ -1,0 +1,4 @@
+// profile: both
+// expect: GY-E1001
+// at: placeholder: "Name";
+@ontology demo { @input f { id: "f"; placeholder: "Name"; } }

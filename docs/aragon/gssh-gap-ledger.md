@@ -6,6 +6,18 @@ implemented. No applicable `AGENTS.md` was found by searching the checkout's
 parent tree. Workspace license is MIT OR Apache-2.0 (`LICENSE-MIT`,
 `LICENSE-APACHE`).
 
+## Phase 1 resolution (17 November 2026)
+
+The six areas below are decided in [`docs/gssh/decisions.md`](../gssh/decisions.md)
+and implemented as the Candidate contract [`GSSH/2`](../gssh/GSSH-2.md):
+provenance, strict rejection, field bindings and persistence declarations are
+implemented with a conformance corpus; adaptive layout and actions are fixed
+to the existing GY-LANG/1 geometry and D1/D2 models, with extensions
+rejected. Remaining open items: the meaning of `@input` `text:` (placeholder
+versus initial content), display bindings, durable-state migrations, secure
+storage, font scaling, and architecture approval of GSSH/2. The tables below
+are the original H0 inspection, kept for reference.
+
 ## Representation decision
 
 The canonical authoring authority is GY-LANG/1's parsed `Scene`, because it

@@ -19,28 +19,19 @@ mod parser;
 mod scene;
 mod transition;
 
-use goya_ir::Node;
-
 pub use handoff::{SemanticHandoff, CONTRACT as SEMANTIC_HANDOFF_CONTRACT};
 
 pub use hotswap::SceneStore;
 pub use lexer::{lex, LexError, Token, TokenKind};
 pub use lowering::{lower, LowerError, Lowered, NodeKey, NodeRecord, NodeTable, Role};
 pub use parser::{
-    parse, parse_strict, parse_with_source_map, ParseError, ParsedScene, SourceEntry, SourceRange,
+    parse, parse_strict, parse_strict_gssh2, parse_with_source_map, Declarations, InputBinding,
+    KeyUse, ParseError, ParsedScene, SourceEntry, SourceRange, StateDecl, StateLifetime,
     StrictParseError,
 };
 pub use scene::{
     hit_test, hit_test_scrolled, layout, Anchor, CellKind, DrawNode, Frame, GestureDecision,
     GesturePolicy, RectMp, Scene, SceneCell, ScrollOffsets, Vec3,
-    // Phase 2 enhanced types
-    InputType, RichTextFormatting, TextAlign, ValidationRule, CrossFieldRule, ContextAwareRule,
-    InputMasking, MaskType, AccessibilityConfig, LiveRegion, LocalizationConfig,
-    NumberFormat, DateFormat, TimeFormat, ErrorSeverity, InputFormatting, FormatType,
-    AutocompleteConfig, AutocompleteSource, DragDropConfig, CopyPasteConfig,
-    InputHistoryConfig, WCAGCompliance, FocusIndicator, ScreenReaderConfig,
-    AnnouncementRate, HighContrastConfig, HighContrastColorScheme, RtlConfig,
-    TextDirection, LayoutDirection, UnicodeSupportConfig, TextNormalization,
 };
 pub use scene::{
     EffectRequestDecl, EffectValueType, InteractionClass, InteractionDecl, InteractionExpr,
@@ -57,6 +48,7 @@ pub const LANG_CONTRACT: &str = "GY-LANG/1";
 #[cfg(test)]
 mod tests {
     use super::*;
+    use goya_ir::Node;
 
     #[test]
     fn source_map_preserves_unicode_ranges_and_duplicate_names() {
@@ -351,13 +343,13 @@ mod tests {
     }
 
     #[test]
-    fn strict_parser_syntax_failure_points_to_source_line() {
+    fn strict_parser_syntax_failure_spans_construct_through_offending_token() {
         let source = "@ontology demo {\n  @cell root {\n    text \"missing-colon\"\n  }\n}";
         let error = parse_strict(source).unwrap_err();
         assert_eq!(error.code, "GY-E1000");
         assert_eq!(
             &source[error.range.start..error.range.end],
-            "    text \"missing-colon\""
+            "text \"missing-colon\""
         );
     }
 
@@ -792,128 +784,122 @@ mod tests {
             if let Ok(scene) = parse(&input) {
                 let frame = layout(&scene, 800.0, 600.0);
                 let _ = hit_test(&frame, 0, 0);
-        let _ = lower(&scene, 800.0, 600.0);
+                let _ = lower(&scene, 800.0, 600.0);
+            }
+        }
     }
-}
 
-// Test cases for enhanced parser features
+    // Test cases for enhanced parser features
 
-#[test]
-fn enhanced_property_admission_parses_input() {
-    let src = "@ontology app { @input field { id: \"field\" input: true; } }";
-    let scene = parse(src).unwrap();
-    let input_cell = scene.root.children.first().unwrap();
-    assert_eq!(input_cell.kind, CellKind::Input);
-    assert!(input_cell.is_input);
-}
+    #[test]
+    fn enhanced_property_admission_parses_input() {
+        let src = "@ontology app { @input field { id: \"field\" input: true; } }";
+        let scene = parse(src).unwrap();
+        // One named cell is the scene root. The ontology wrapper is not a cell.
+        let input_cell = &scene.root;
+        assert_eq!(input_cell.name, "field");
+        assert_eq!(input_cell.kind, CellKind::Input);
+        assert!(input_cell.is_input);
+    }
 
-#[test]
-fn enhanced_property_admission_parses_placeholder() {
-    let src = "@ontology app { @input field { placeholder: \"Enter text\" } }";
-    let scene = parse(src).unwrap();
-    let input_cell = scene.root.children.first().unwrap();
-    assert_eq!(input_cell.placeholder.as_deref(), Some("Enter text"));
-}
+    #[test]
+    fn enhanced_property_admission_parses_placeholder() {
+        let src = "@ontology app { @input field { placeholder: \"Enter text\" } }";
+        let scene = parse(src).unwrap();
+        let input_cell = &scene.root;
+        assert_eq!(input_cell.placeholder.as_deref(), Some("Enter text"));
+    }
 
-#[test]
-fn enhanced_property_admission_parses_max_length() {
-    let src = "@ontology app { @input field { max-length: 10; } }";
-    let scene = parse(src).unwrap();
-    let input_cell = scene.root.children.first().unwrap();
-    assert_eq!(input_cell.max_length, Some(10));
-}
+    #[test]
+    fn enhanced_property_admission_parses_max_length() {
+        let src = "@ontology app { @input field { max-length: 10; } }";
+        let scene = parse(src).unwrap();
+        let input_cell = &scene.root;
+        assert_eq!(input_cell.max_length, Some(10));
+    }
 
-#[test]
-fn enhanced_property_admission_parses_max_length_alternative() {
-    let src = "@ontology app { @input field { max_length: 20; } }";
-    let scene = parse(src).unwrap();
-    let input_cell = scene.root.children.first().unwrap();
-    assert_eq!(input_cell.max_length, Some(20));
-}
+    #[test]
+    fn enhanced_property_admission_parses_max_length_alternative() {
+        let src = "@ontology app { @input field { max_length: 20; } }";
+        let scene = parse(src).unwrap();
+        let input_cell = &scene.root;
+        assert_eq!(input_cell.max_length, Some(20));
+    }
 
-#[test]
-fn enhanced_property_parsing_handles_all_new_properties() {
-    let src = "@ontology app { @input field { input: true; placeholder: \"Username\"; max-length: 50; } }";
-    let scene = parse(src).unwrap();
-    let input_cell = scene.root.children.first().unwrap();
-    assert!(input_cell.is_input);
-    assert_eq!(input_cell.placeholder.as_deref(), Some("Username"));
-    assert_eq!(input_cell.max_length, Some(50));
-}
+    #[test]
+    fn enhanced_property_parsing_handles_all_new_properties() {
+        let src = "@ontology app { @input field { input: true; placeholder: \"Username\"; max-length: 50; } }";
+        let scene = parse(src).unwrap();
+        let input_cell = &scene.root;
+        assert!(input_cell.is_input);
+        assert_eq!(input_cell.placeholder.as_deref(), Some("Username"));
+        assert_eq!(input_cell.max_length, Some(50));
+    }
 
-#[test]
-fn multi_cell_support_with_scrolling() {
-    let src = "@ontology app { @cell container { scroll: true @input field1 { position: (0, 0, 0) } @input field2 { position: (0, 50, 0) } } }";
-    let scene = parse(src).unwrap();
-    let container = scene.root.children.first().unwrap();
-    assert!(container.scroll);
-    assert_eq!(container.children.len(), 2);
-    assert!(container.children[0].is_input);
-    assert!(container.children[1].is_input);
-}
+    #[test]
+    fn multi_cell_support_with_scrolling() {
+        let src = "@ontology app { @cell container { scroll: true @input field1 { position: (0, 0, 0) } @input field2 { position: (0, 50, 0) } } }";
+        let scene = parse(src).unwrap();
+        let container = &scene.root;
+        assert_eq!(container.name, "container");
+        assert!(container.scroll);
+        assert_eq!(container.children.len(), 2);
+        assert!(container.children[0].is_input);
+        assert!(container.children[1].is_input);
+    }
 
-#[test]
-fn enhanced_gesture_parsing_supports_focus_blur() {
-    let src = "@ontology app { @input field { gestures { focus: allow; blur: deny; } } }";
-    let scene = parse(src).unwrap();
-    let input_cell = scene.root.children.first().unwrap();
-    let gestures = input_cell.gestures.unwrap();
-    assert_eq!(gestures.focus, Some(GestureDecision::Allow));
-    assert_eq!(gestures.blur, Some(GestureDecision::Deny));
-    assert_eq!(gestures.copy, None);
-    assert_eq!(gestures.cut, None);
-    assert_eq!(gestures.paste, None);
-    assert_eq!(gestures.select, None);
-    assert_eq!(gestures.submit, None);
-}
+    #[test]
+    fn unpreserved_gesture_keys_are_syntax_errors_with_exact_ranges() {
+        // focus/blur/select/submit were never given meaning by any consumer.
+        for key in ["focus", "blur", "select", "submit"] {
+            let src =
+                format!("@ontology app {{ @input field {{ gestures {{ {key}: allow; }} }} }}");
+            let error = parse(&src).unwrap_err();
+            assert_eq!(
+                &src[error.range.start..error.range.end],
+                format!("{key}: allow")
+            );
+        }
+    }
 
-#[test]
-fn enhanced_gesture_parsing_supports_select_submit() {
-    let src = "@ontology app { @input field { gestures { select: allow; submit: deny; } } }";
-    let scene = parse(src).unwrap();
-    let input_cell = scene.root.children.first().unwrap();
-    let gestures = input_cell.gestures.unwrap();
-    assert_eq!(gestures.select, Some(GestureDecision::Allow));
-    assert_eq!(gestures.submit, Some(GestureDecision::Deny));
-}
+    #[test]
+    fn input_state_initialization_supports_input_binding() {
+        let src = "@ontology app { @button trigger { } @interaction process { trigger: button.trigger.activate; class: D1; state { write value: int; } input { field: int; } set value = input.field; } }";
+        let scene = parse(src).unwrap();
+        assert_eq!(scene.root.name, "trigger");
+        assert_eq!(scene.root.kind, CellKind::Button);
+        assert!(scene.root.children.is_empty());
+        let interaction = &scene.interactions[0];
+        assert_eq!(interaction.name, "process");
+        assert_eq!(interaction.inputs.len(), 1);
+        assert_eq!(interaction.inputs[0].name, "field");
+        assert_eq!(interaction.inputs[0].value_type, InteractionType::Int);
+    }
 
-#[test]
-fn input_state_initialization_supports_input_binding() {
-    let src = "@ontology app { @button trigger { } @interaction process { trigger: button.trigger.activate; class: D1; state { write value: int; } input { field: int; } set value = input.field; } }";
-    let scene = parse(src).unwrap();
-    assert_eq!(scene.root.children.len(), 2);
-    let interaction = &scene.interactions[0];
-    assert_eq!(interaction.name, "process");
-    assert_eq!(interaction.inputs.len(), 1);
-    assert_eq!(interaction.inputs[0].name, "field");
-    assert_eq!(interaction.inputs[0].value_type, InteractionType::Int);
-}
+    #[test]
+    fn enhanced_properties_backward_compatibility() {
+        // Ensure existing properties still work
+        let src = "@ontology app { @cell root { position: (0, 0, 0); extent: (100, 100, 0); text: \"test\"; wrap: 20; scroll: true; fill: #ff0000; } }";
+        let scene = parse(src).unwrap();
+        let root = scene.root;
+        assert!(root.position.is_some());
+        assert!(root.extent.is_some());
+        assert_eq!(root.text.as_deref(), Some("test"));
+        assert_eq!(root.wrap, Some(20));
+        assert!(root.scroll);
+        assert_eq!(root.fill, Some(0xFF0000));
+    }
 
-#[test]
-fn enhanced_properties_backward_compatibility() {
-    // Ensure existing properties still work
-    let src = "@ontology app { @cell root { position: (0, 0, 0); extent: (100, 100, 0); text: \"test\"; wrap: 20; scroll: true; fill: #ff0000; } }";
-    let scene = parse(src).unwrap();
-    let root = scene.root;
-    assert!(root.position.is_some());
-    assert!(root.extent.is_some());
-    assert_eq!(root.text.as_deref(), Some("test"));
-    assert_eq!(root.wrap, Some(20));
-    assert!(root.scroll);
-    assert_eq!(root.fill, Some(0xFF0000));
-}
-
-#[test]
-fn lower_preserves_new_input_properties() {
-    let src = "@ontology app { @input field { placeholder: \"Email address\"; max-length: 255; } }";
-    let scene = parse(src).unwrap();
-    let lowered = lower(&scene, 800.0, 600.0).unwrap();
-    let field_record = lowered.table.get("field").unwrap();
-    let Node::Input { placeholder } = lowered.module.node(field_record.ir_node).unwrap() else {
-        panic!("Expected Input node");
-    };
-    assert_eq!(placeholder, "Email address");
-}
-
+    #[test]
+    fn lower_preserves_new_input_properties() {
+        let src =
+            "@ontology app { @input field { placeholder: \"Email address\"; max-length: 255; } }";
+        let scene = parse(src).unwrap();
+        let lowered = lower(&scene, 800.0, 600.0).unwrap();
+        let field_record = lowered.table.get("field").unwrap();
+        let Node::Input { placeholder } = lowered.module.node(field_record.ir_node).unwrap() else {
+            panic!("Expected Input node");
+        };
+        assert_eq!(placeholder, "Email address");
     }
 }

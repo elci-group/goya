@@ -1,0 +1,4 @@
+// profile: both
+// expect: GY-E1003
+// at: text-size: 12;
+@ontology demo { @cell root { id: "r"; text_size: 10; text-size: 12; } }

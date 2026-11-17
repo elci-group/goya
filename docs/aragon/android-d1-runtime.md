@@ -20,9 +20,26 @@ revision range; `snapshot()` reads the state and revision together.
 
 The generated runtime applies the D1 limits for 256 state keys, 64 KiB UTF-8
 text values, 1 MiB measured snapshots, 1 MiB live register storage, and checked
-revision increments. Invalid UTF-16 input is rejected as `INVALID_TEXT` before
-UTF-8 byte accounting. Failures are returned as `DispatchResult.Failure` with
-an `ErrorCode`; failures leave both state and revision unchanged. Initial
-state schema/type/budget errors are rejected by construction. The runtime
-does not provide persistence, migration, input-widget binding, or UI layout.
-Kotlin compilation and Android/device qualification remain separate gates.
+revision increments. During dispatch, malformed UTF-16 text returns
+`INVALID_TEXT`; text exceeding the per-value limit returns `TEXT_LIMIT`.
+Failures are returned as `DispatchResult.Failure` with an `ErrorCode` and leave
+both state and revision unchanged. Construction rejects invalid state with
+`IllegalArgumentException`: schema mismatch reports `STATE_SCHEMA`, type
+mismatch reports `STATE_TYPE`, malformed UTF-16 reports `INVALID_TEXT`, a
+text value above the per-value limit reports `TEXT_LIMIT`, and a state map
+above the measured snapshot limit reports `SNAPSHOT_LIMIT`.
+
+The opt-in strict Kotlin qualification runs the generated-runtime conformance
+test and fails if its Kotlin/Java toolchain is unavailable:
+
+```sh
+bash scripts/check-android-d1-kotlin.sh
+```
+
+The test executes generated Kotlin for its covered dispatch and constructor
+cases, including atomic failures and the revision boundary. A separate Rust
+test exercises the canonical D1 executor; these checks are not a direct
+differential comparison. This is a standalone Kotlin/JVM check, not an Android
+SDK build or platform qualification. The runtime does not provide persistence,
+migration, input-widget binding, or UI layout; Android compilation and device
+qualification remain separate gates.

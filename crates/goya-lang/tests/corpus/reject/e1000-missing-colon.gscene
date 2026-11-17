@@ -1,0 +1,8 @@
+// profile: both
+// expect: GY-E1000
+// at: text "missing-colon"
+@ontology demo {
+  @cell root {
+    text "missing-colon"
+  }
+}

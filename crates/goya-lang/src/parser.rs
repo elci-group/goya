@@ -1,5 +1,5 @@
 //! Recursive-descent parser: tokens → Scene. Total on all inputs; every
-//! failure is `ParseError { line }`.
+//! failure is a `ParseError` with a line and an exact UTF-8 byte range.
 
 use crate::lexer::{lex, Token, TokenKind};
 use crate::scene::{
@@ -8,12 +8,16 @@ use crate::scene::{
     SceneCell, StateAssignment, TypedKey, Vec3,
 };
 use goya_determinism::EffectKind;
-use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::fmt;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParseError {
     pub line: usize,
+    /// End-exclusive UTF-8 byte range from the start of the construct being
+    /// parsed through the offending token. At end of input the range ends at
+    /// the source length.
+    pub range: SourceRange,
 }
 
 impl fmt::Display for ParseError {
@@ -25,7 +29,7 @@ impl fmt::Display for ParseError {
 impl std::error::Error for ParseError {}
 
 /// An end-exclusive UTF-8 byte range in the original scene source.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SourceRange {
     pub start: usize,
     pub end: usize,
@@ -55,6 +59,65 @@ pub struct ParsedScene {
     /// SHA-256 of the exact UTF-8 source bytes parsed for this snapshot.
     /// This identifies a revision; authored element IDs provide identity.
     pub source_digest: [u8; 32],
+    /// GSSH/2 declarations. Empty unless the source authors them; GSSH/1
+    /// strict admission rejects any that are present.
+    pub declarations: Declarations,
+}
+
+/// How long a declared state value lives (GSSH/2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StateLifetime {
+    /// Lives for one application process; never written to storage.
+    Session,
+    /// Restored across process death by a platform storage adapter.
+    Durable,
+}
+
+/// One `@state` entry: `key: type = initial lifetime;`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StateDecl {
+    pub key: String,
+    pub value_type: InteractionType,
+    pub initial: InteractionValue,
+    pub lifetime: StateLifetime,
+    pub range: SourceRange,
+}
+
+/// One interaction input bound to an authored `@input` element:
+/// `key: type from "element.id"` (GSSH/2).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InputBinding {
+    /// Structural name of the owning interaction.
+    pub interaction: String,
+    pub input: String,
+    pub value_type: InteractionType,
+    /// Authored ID of the bound `@input` element.
+    pub field_id: String,
+    pub range: SourceRange,
+}
+
+/// Where an interaction declares one state or input key.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KeyUse {
+    /// Structural name of the owning interaction.
+    pub interaction: String,
+    pub key: String,
+    /// `read count: int`, `write count: int` or `amount: int` (with any
+    /// `from "..."` clause).
+    pub range: SourceRange,
+}
+
+/// GSSH/2 declarations retained beside the GY-LANG/1 scene, plus the
+/// interaction key ranges used to report them precisely.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Declarations {
+    /// The `@state` block's entries and the block's source range, if authored.
+    pub state: Option<(Vec<StateDecl>, SourceRange)>,
+    pub bindings: Vec<InputBinding>,
+    /// Every `read`/`write` key of every interaction, in source order.
+    pub state_uses: Vec<KeyUse>,
+    /// Every input key of every interaction, in source order.
+    pub input_keys: Vec<KeyUse>,
 }
 
 /// A construct accepted for legacy compatibility but rejected by strict
@@ -74,6 +137,10 @@ impl fmt::Display for StrictParseError {
             "GY-E1002" => "unsupported template construct",
             "GY-E1003" => "duplicate property",
             "GY-E1004" => "invalid interaction",
+            "GY-E1005" => "missing or duplicate authored ID",
+            "GY-E1006" => "declaration requires GSSH/2 admission",
+            "GY-E1007" => "invalid input binding",
+            "GY-E1008" => "invalid state declaration",
             _ => "strict parsing failed",
         };
         write!(f, "{}: {} '{}'", self.code, description, self.name)
@@ -91,13 +158,28 @@ pub fn parse(source: &str) -> Result<Scene, ParseError> {
 pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
     let tokens = match lex(source) {
         Ok(t) => t,
-        Err(e) => return Err(ParseError { line: e.line }),
+        Err(e) => {
+            return Err(ParseError {
+                line: e.line,
+                range: SourceRange {
+                    start: e.byte_start,
+                    end: e.byte_end,
+                },
+            })
+        }
     };
     let mut p = P {
         tokens,
         i: 0,
         interactions: Vec::new(),
         entries: Vec::new(),
+        source_len: source.len(),
+        anchor: 0,
+        depth: 0,
+        state: None,
+        bindings: Vec::new(),
+        state_uses: Vec::new(),
+        input_keys: Vec::new(),
     };
     p.expect_at_word("ontology")?;
     let ontology_start = p.tokens[p.i - 1].byte_start;
@@ -107,8 +189,9 @@ pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
     let ontology_end = p.tokens[p.i - 1].byte_end;
     // A document is exactly one ontology block. Do not silently accept
     // trailing tokens, which can hide a malformed second root or typo.
-    if p.peek().is_some() {
-        return Err(ParseError { line: p.line() });
+    if let Some(token) = p.peek() {
+        p.anchor = token.byte_start;
+        return Err(p.err());
     }
     // Keep an origin for the implicit ontology body. It is also the only
     // declaration-like source span available when the body itself becomes
@@ -196,6 +279,18 @@ pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
                 entry.semantic_id = cell.authored_id.clone();
             }
         }
+        if entry.kind == "binding" {
+            entry.semantic_id = p
+                .bindings
+                .iter()
+                .find(|binding| binding.range == entry.range)
+                .and_then(|binding| {
+                    p.interactions
+                        .iter()
+                        .find(|interaction| interaction.name == binding.interaction)
+                })
+                .and_then(|interaction| interaction.authored_id.clone());
+        }
         if entry.kind == "interaction" {
             entry.semantic_id = p
                 .interactions
@@ -213,6 +308,12 @@ pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
         },
         entries: p.entries,
         source_digest,
+        declarations: Declarations {
+            state: p.state,
+            bindings: p.bindings,
+            state_uses: p.state_uses,
+            input_keys: p.input_keys,
+        },
     })
 }
 
@@ -227,17 +328,37 @@ fn cell_at_path<'a>(root: &'a SceneCell, path: &[usize]) -> Option<&'a SceneCell
 /// Parse using the canonical GY-LANG grammar, then reject compatibility
 /// constructs whose semantics the current AST discards. The returned range
 /// is a half-open UTF-8 byte range in `source`.
+///
+/// This is the GSSH/1 profile: `@state` blocks and `from` input bindings are
+/// rejected with `GY-E1006`, because GSSH/1 consumers do not implement them.
 pub fn parse_strict(source: &str) -> Result<ParsedScene, StrictParseError> {
+    strict(source, false)
+}
+
+/// Strict GSSH/2 admission: everything [`parse_strict`] admits and checks,
+/// plus `@state` declarations and `from` input bindings. When a scene has
+/// interactions, every state key they use must be declared exactly once with
+/// the same type, every declared key must be used, and every interaction
+/// input must be bound to one authored `@input` element. Bool inputs cannot
+/// be bound to a text field.
+pub fn parse_strict_gssh2(source: &str) -> Result<ParsedScene, StrictParseError> {
+    let parsed = strict(source, true)?;
+    validate_declarations(&parsed)?;
+    Ok(parsed)
+}
+
+fn strict(source: &str, gssh2: bool) -> Result<ParsedScene, StrictParseError> {
     let parsed = parse_with_source_map(source).map_err(|error| StrictParseError {
         code: "GY-E1000",
         name: format!("syntax at line {}", error.line),
-        range: source_line_range(source, error.line),
+        range: error.range,
     })?;
     let mut properties = std::collections::BTreeSet::new();
     for entry in &parsed.entries {
         let unsupported = match entry.kind.as_str() {
             "property" if !is_known_property(&entry.name) => Some("GY-E1001"),
             "template" => Some("GY-E1002"),
+            "state" | "binding" if !gssh2 => Some("GY-E1006"),
             _ => None,
         };
         if let Some(code) = unsupported {
@@ -358,17 +479,174 @@ pub fn parse_strict(source: &str) -> Result<ParsedScene, StrictParseError> {
     Ok(parsed)
 }
 
-fn source_line_range(source: &str, line: usize) -> SourceRange {
-    let start = source
-        .match_indices('\n')
-        .nth(line.saturating_sub(2))
-        .map(|(index, _)| index + 1)
-        .unwrap_or_else(|| if line <= 1 { 0 } else { source.len() });
-    let end = source[start..]
-        .find('\n')
-        .map(|offset| start + offset)
-        .unwrap_or(source.len());
-    SourceRange { start, end }
+/// `0`, or an optional `-` and a digit string without a leading zero.
+/// `-0`, `+1`, `01`, `1_000` and fractions are not canonical.
+pub(crate) fn is_canonical_decimal(text: &str) -> bool {
+    let digits = text.strip_prefix('-').unwrap_or(text);
+    !digits.is_empty()
+        && digits.bytes().all(|b| b.is_ascii_digit())
+        && (digits == "0" || !digits.starts_with('0'))
+        && text != "-0"
+}
+
+fn declaration_error(code: &'static str, name: String, range: SourceRange) -> StrictParseError {
+    StrictParseError { code, name, range }
+}
+
+fn validate_declarations(parsed: &ParsedScene) -> Result<(), StrictParseError> {
+    let scene = &parsed.scene;
+    let declared = &parsed.declarations;
+    let key_range = |uses: &[KeyUse], interaction: &str, key: &str| {
+        uses.iter()
+            .find(|item| item.interaction == interaction && item.key == key)
+            .map(|item| item.range)
+            .unwrap_or(SourceRange { start: 0, end: 0 })
+    };
+    let mut inputs_by_id = BTreeMap::new();
+    collect_inputs(&scene.root, &mut inputs_by_id);
+    let bindings = &parsed.declarations.bindings;
+    for binding in bindings {
+        match inputs_by_id.get(binding.field_id.as_str()) {
+            None => {
+                return Err(declaration_error(
+                    "GY-E1007",
+                    format!("no element has id '{}'", binding.field_id),
+                    binding.range,
+                ))
+            }
+            Some(false) => {
+                return Err(declaration_error(
+                    "GY-E1007",
+                    format!("element '{}' is not an @input", binding.field_id),
+                    binding.range,
+                ))
+            }
+            Some(true) => {}
+        }
+        if binding.value_type == InteractionType::Bool {
+            return Err(declaration_error(
+                "GY-E1007",
+                format!(
+                    "bool input '{}' cannot be bound to a text field",
+                    binding.input
+                ),
+                binding.range,
+            ));
+        }
+        if bindings.iter().any(|other| {
+            other.interaction == binding.interaction
+                && other.field_id == binding.field_id
+                && other.range.start < binding.range.start
+        }) {
+            return Err(declaration_error(
+                "GY-E1007",
+                format!(
+                    "field '{}' is bound twice in interaction '{}'",
+                    binding.field_id, binding.interaction
+                ),
+                binding.range,
+            ));
+        }
+    }
+    for interaction in &scene.interactions {
+        for input in &interaction.inputs {
+            let bound = bindings.iter().any(|binding| {
+                binding.interaction == interaction.name && binding.input == input.name
+            });
+            if !bound {
+                return Err(declaration_error(
+                    "GY-E1007",
+                    format!(
+                        "input '{}' of interaction '{}' has no field binding",
+                        input.name, interaction.name
+                    ),
+                    key_range(&declared.input_keys, &interaction.name, &input.name),
+                ));
+            }
+        }
+    }
+
+    // State coverage: every used key declared with the same type; every
+    // declared key used. Interactions are checked in source order.
+    let mut used: BTreeMap<&str, (InteractionType, &str)> = BTreeMap::new();
+    for interaction in &scene.interactions {
+        for key in interaction
+            .state_reads
+            .iter()
+            .chain(&interaction.state_writes)
+        {
+            used.entry(key.name.as_str())
+                .or_insert((key.value_type, interaction.name.as_str()));
+        }
+    }
+    let empty = Vec::new();
+    let (decls, block_range) = match &parsed.declarations.state {
+        Some((decls, range)) => (decls, Some(*range)),
+        None => (&empty, None),
+    };
+    for interaction in &scene.interactions {
+        for key in interaction
+            .state_reads
+            .iter()
+            .chain(&interaction.state_writes)
+        {
+            match decls.iter().find(|decl| decl.key == key.name) {
+                None => {
+                    return Err(declaration_error(
+                        "GY-E1008",
+                        format!(
+                            "state '{}' used by interaction '{}' is not declared in @state",
+                            key.name, interaction.name
+                        ),
+                        key_range(&declared.state_uses, &interaction.name, &key.name),
+                    ))
+                }
+                Some(decl) if decl.value_type != key.value_type => {
+                    return Err(declaration_error(
+                        "GY-E1008",
+                        format!(
+                        "state '{}' is declared with a different type than interaction '{}' uses",
+                        key.name, interaction.name
+                    ),
+                        decl.range,
+                    ))
+                }
+                Some(_) => {}
+            }
+        }
+    }
+    if let Some(decl) = decls
+        .iter()
+        .find(|decl| !used.contains_key(decl.key.as_str()))
+    {
+        return Err(declaration_error(
+            "GY-E1008",
+            format!(
+                "state '{}' is declared but no interaction uses it",
+                decl.key
+            ),
+            decl.range,
+        ));
+    }
+    if decls.is_empty() {
+        if let Some(range) = block_range {
+            return Err(declaration_error(
+                "GY-E1008",
+                "empty @state block".into(),
+                range,
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn collect_inputs<'a>(cell: &'a SceneCell, out: &mut BTreeMap<&'a str, bool>) {
+    if let Some(id) = cell.authored_id.as_deref() {
+        out.insert(id, cell.kind == CellKind::Input);
+    }
+    for child in &cell.children {
+        collect_inputs(child, out);
+    }
 }
 
 fn is_known_property(name: &str) -> bool {
@@ -399,11 +677,11 @@ enum AuthoredIdError {
     Duplicate { id: String, path: Vec<usize> },
 }
 
-impl AuthoredIdError {
-    fn to_string(&self) -> String {
+impl fmt::Display for AuthoredIdError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Missing { name, .. } => format!("missing ID for {name}"),
-            Self::Duplicate { id, .. } => id.clone(),
+            Self::Missing { name, .. } => write!(f, "missing ID for {name}"),
+            Self::Duplicate { id, .. } => write!(f, "{id}"),
         }
     }
 }
@@ -446,9 +724,55 @@ struct P {
     i: usize,
     interactions: Vec<InteractionDecl>,
     entries: Vec<SourceEntry>,
+    source_len: usize,
+    /// Start of the construct currently being parsed; diagnostics span from
+    /// here through the offending token.
+    anchor: usize,
+    /// Cell-body nesting depth. The ontology body is depth 1.
+    depth: usize,
+    state: Option<(Vec<StateDecl>, SourceRange)>,
+    bindings: Vec<InputBinding>,
+    state_uses: Vec<KeyUse>,
+    input_keys: Vec<KeyUse>,
 }
 
 impl P {
+    fn error_at(&self, line: usize, start: usize, end: usize) -> ParseError {
+        ParseError {
+            line,
+            range: SourceRange {
+                start: self.anchor.min(start),
+                end,
+            },
+        }
+    }
+
+    /// Error at the next unconsumed token, or at end of input.
+    fn err(&self) -> ParseError {
+        match self.peek() {
+            Some(token) => self.error_at(token.line, token.byte_start, token.byte_end),
+            None => self.error_at(self.line(), self.source_len, self.source_len),
+        }
+    }
+
+    /// Error at the token just consumed, for validation after reading it.
+    fn err_prev(&self) -> ParseError {
+        match self
+            .i
+            .checked_sub(1)
+            .and_then(|index| self.tokens.get(index))
+        {
+            Some(token) => self.error_at(token.line, token.byte_start, token.byte_end),
+            None => self.err(),
+        }
+    }
+
+    fn mark(&mut self) {
+        if let Some(token) = self.peek() {
+            self.anchor = token.byte_start;
+        }
+    }
+
     fn peek(&self) -> Option<&Token> {
         self.tokens.get(self.i)
     }
@@ -472,9 +796,9 @@ impl P {
         match self.peek() {
             Some(t) if t.kind == kind => match self.bump() {
                 Some(t) => Ok(t),
-                None => Err(ParseError { line: self.line() }),
+                None => Err(self.err()),
             },
-            _ => Err(ParseError { line: self.line() }),
+            _ => Err(self.err()),
         }
     }
 
@@ -484,7 +808,7 @@ impl P {
                 self.bump();
                 Ok(())
             }
-            _ => Err(ParseError { line: self.line() }),
+            _ => Err(self.err()),
         }
     }
 
@@ -492,10 +816,10 @@ impl P {
         if matches!(self.peek().map(|t| t.kind), Some(TokenKind::Ident)) {
             match self.bump() {
                 Some(t) => Ok(t.text),
-                None => Err(ParseError { line: self.line() }),
+                None => Err(self.err()),
             }
         } else {
-            Err(ParseError { line: self.line() })
+            Err(self.err())
         }
     }
 
@@ -524,36 +848,22 @@ impl P {
             children: Vec::new(),
             placeholder: None,
             max_length: None,
-            input_type: None,
-            rich_text: None,
-            validation_rules: Vec::new(),
-            masking: None,
-            accessibility: None,
-            localization: None,
-            error_severity: None,
-            formatting: None,
-            autocomplete: None,
-            drag_drop: None,
-            copy_paste: None,
-            input_history: None,
-            wcag_compliance: None,
-            screen_reader: None,
-            high_contrast: None,
-            rtl_support: None,
-            unicode_support: None,
         };
+        self.depth += 1;
         loop {
+            self.mark();
             match self.peek().map(|t| t.kind) {
-                None => return Err(ParseError { line: self.line() }),
+                None => return Err(self.err()),
                 Some(TokenKind::RBrace) => {
                     self.bump();
+                    self.depth -= 1;
                     return Ok(cell);
                 }
                 Some(TokenKind::AtWord) => {
                     // The match guard guarantees a token exists; still
                     // explicit rather than unwrap.
                     let Some(tok) = self.bump() else {
-                        return Err(ParseError { line: self.line() });
+                        return Err(self.err());
                     };
                     let word = tok.text;
                     match word.as_str() {
@@ -598,6 +908,27 @@ impl P {
                             });
                             self.interactions.push(interaction);
                         }
+                        "state" => {
+                            // GSSH/2 state declarations live only in the
+                            // ontology body, at most once.
+                            if self.depth != 1 || self.state.is_some() {
+                                return Err(self.err_prev());
+                            }
+                            let decls = self.parse_state_block()?;
+                            let range = SourceRange {
+                                start: tok.byte_start,
+                                end: self.tokens[self.i - 1].byte_end,
+                            };
+                            self.entries.push(SourceEntry {
+                                kind: "state".into(),
+                                name: "state".into(),
+                                scene_path: None,
+                                semantic_id: None,
+                                range,
+                                source_digest: [0; 32],
+                            });
+                            self.state = Some((decls, range));
+                        }
                         "template" => {
                             // Recognised and skipped with its block: visual
                             // state and templates are Wave-3 expression work.
@@ -615,14 +946,11 @@ impl P {
                                 source_digest: [0; 32],
                             });
                         }
-                        _ => return Err(ParseError { line: self.line() }),
+                        _ => return Err(self.err_prev()),
                     }
                 }
                 Some(TokenKind::Ident) => {
-                    let token = self
-                        .peek()
-                        .cloned()
-                        .ok_or(ParseError { line: self.line() })?;
+                    let token = self.peek().cloned().ok_or_else(|| self.err())?;
                     if token.text == "gestures"
                         && self
                             .tokens
@@ -656,12 +984,13 @@ impl P {
                         source_digest: [0; 32],
                     });
                 }
-                Some(_) => return Err(ParseError { line: self.line() }),
+                Some(_) => return Err(self.err()),
             }
         }
     }
 
     fn parse_interaction(&mut self, name: String) -> Result<InteractionDecl, ParseError> {
+        let interaction_start = self.anchor;
         self.expect(TokenKind::LBrace)?;
         let authored_id = if self
             .peek()
@@ -688,7 +1017,7 @@ impl P {
         let class = match self.expect_ident()?.as_str() {
             "D1" => InteractionClass::D1,
             "D2" => InteractionClass::D2,
-            _ => return Err(ParseError { line: self.line() }),
+            _ => return Err(self.err_prev()),
         };
         self.optional_semi();
 
@@ -719,7 +1048,7 @@ impl P {
                     "int64" => EffectValueType::Int64,
                     "text" => EffectValueType::Text,
                     "bool" => EffectValueType::Bool,
-                    _ => return Err(ParseError { line: self.line() }),
+                    _ => return Err(self.err_prev()),
                 };
                 requests.push(EffectRequestDecl {
                     name: request_name,
@@ -738,15 +1067,24 @@ impl P {
         let mut state_reads = Vec::new();
         let mut state_writes = Vec::new();
         while !matches!(self.peek().map(|t| t.kind), Some(TokenKind::RBrace)) {
+            let use_start = self.peek().map(|t| t.byte_start).unwrap_or(self.source_len);
             let mode = self.expect_ident()?;
             let target = match mode.as_str() {
                 "read" => &mut state_reads,
                 "write" => &mut state_writes,
-                _ => return Err(ParseError { line: self.line() }),
+                _ => return Err(self.err_prev()),
             };
             let key = self.expect_ident()?;
             self.expect(TokenKind::Colon)?;
             let value_type = self.parse_interaction_type()?;
+            self.state_uses.push(KeyUse {
+                interaction: name.clone(),
+                key: key.clone(),
+                range: SourceRange {
+                    start: use_start,
+                    end: self.tokens[self.i - 1].byte_end,
+                },
+            });
             target.push(TypedKey {
                 name: key,
                 value_type,
@@ -759,15 +1097,54 @@ impl P {
         self.expect(TokenKind::LBrace)?;
         let mut inputs = Vec::new();
         while !matches!(self.peek().map(|t| t.kind), Some(TokenKind::RBrace)) {
+            self.mark();
+            let key_start = self.peek().map(|t| t.byte_start).unwrap_or(self.source_len);
             let key = self.expect_ident()?;
             self.expect(TokenKind::Colon)?;
             let value_type = self.parse_interaction_type()?;
+            // GSSH/2: `key: type from "<input element id>"` binds the input
+            // to the current text of one authored @input element.
+            if self
+                .peek()
+                .is_some_and(|t| t.kind == TokenKind::Ident && t.text == "from")
+            {
+                self.bump();
+                let field = self.expect(TokenKind::Str)?;
+                let range = SourceRange {
+                    start: key_start,
+                    end: field.byte_end,
+                };
+                self.entries.push(SourceEntry {
+                    kind: "binding".into(),
+                    name: key.clone(),
+                    scene_path: None,
+                    semantic_id: None,
+                    range,
+                    source_digest: [0; 32],
+                });
+                self.bindings.push(InputBinding {
+                    interaction: name.clone(),
+                    input: key.clone(),
+                    value_type,
+                    field_id: field.text,
+                    range,
+                });
+            }
+            self.input_keys.push(KeyUse {
+                interaction: name.clone(),
+                key: key.clone(),
+                range: SourceRange {
+                    start: key_start,
+                    end: self.tokens[self.i - 1].byte_end,
+                },
+            });
             inputs.push(TypedKey {
                 name: key,
                 value_type,
             });
             self.optional_semi();
         }
+        self.anchor = interaction_start;
         self.expect(TokenKind::RBrace)?;
 
         let mut assignments = Vec::new();
@@ -794,6 +1171,68 @@ impl P {
         })
     }
 
+    /// `{ key: type = literal session|durable; ... }` after `@state`.
+    fn parse_state_block(&mut self) -> Result<Vec<StateDecl>, ParseError> {
+        self.expect(TokenKind::LBrace)?;
+        let mut decls: Vec<StateDecl> = Vec::new();
+        while !matches!(self.peek().map(|t| t.kind), Some(TokenKind::RBrace)) {
+            self.mark();
+            let start = self.peek().map(|t| t.byte_start).unwrap_or(self.source_len);
+            let key = self.expect_ident()?;
+            if decls.iter().any(|decl| decl.key == key) {
+                return Err(self.err_prev());
+            }
+            self.expect(TokenKind::Colon)?;
+            let value_type = self.parse_interaction_type()?;
+            self.expect(TokenKind::Equal)?;
+            let initial = match (value_type, self.peek().map(|t| t.kind)) {
+                (InteractionType::Int, Some(TokenKind::Number)) => {
+                    let text = self.bump().ok_or_else(|| self.err())?.text;
+                    // Canonical decimal only: no `_`, `+`, fraction or `-0`.
+                    if !is_canonical_decimal(&text) {
+                        return Err(self.err_prev());
+                    }
+                    InteractionValue::Int(text.parse().map_err(|_| self.err_prev())?)
+                }
+                (InteractionType::Text, Some(TokenKind::Str)) => {
+                    InteractionValue::Text(self.bump().ok_or_else(|| self.err())?.text)
+                }
+                (InteractionType::Bool, Some(TokenKind::Ident)) => {
+                    match self.bump().ok_or_else(|| self.err())?.text.as_str() {
+                        "true" => InteractionValue::Bool(true),
+                        "false" => InteractionValue::Bool(false),
+                        _ => return Err(self.err_prev()),
+                    }
+                }
+                _ => return Err(self.err()),
+            };
+            let lifetime = match self.expect_ident()?.as_str() {
+                "session" => StateLifetime::Session,
+                "durable" => StateLifetime::Durable,
+                _ => return Err(self.err_prev()),
+            };
+            let end = self.expect(TokenKind::Semicolon)?.byte_end;
+            let range = SourceRange { start, end };
+            self.entries.push(SourceEntry {
+                kind: "state-key".into(),
+                name: key.clone(),
+                scene_path: None,
+                semantic_id: None,
+                range,
+                source_digest: [0; 32],
+            });
+            decls.push(StateDecl {
+                key,
+                value_type,
+                initial,
+                lifetime,
+                range,
+            });
+        }
+        self.expect(TokenKind::RBrace)?;
+        Ok(decls)
+    }
+
     fn parse_effect_kind(&mut self) -> Result<EffectKind, ParseError> {
         match self.expect_ident()?.as_str() {
             "network" => Ok(EffectKind::Network),
@@ -801,7 +1240,7 @@ impl P {
             "clock" => Ok(EffectKind::Clock),
             "random" => Ok(EffectKind::Random),
             "global_mutable" => Ok(EffectKind::GlobalMutable),
-            _ => Err(ParseError { line: self.line() }),
+            _ => Err(self.err_prev()),
         }
     }
 
@@ -811,7 +1250,7 @@ impl P {
             "int" => Ok(InteractionType::Int),
             "text" => Ok(InteractionType::Text),
             "bool" => Ok(InteractionType::Bool),
-            _ => Err(ParseError { line: self.line() }),
+            _ => Err(self.err_prev()),
         }
     }
 
@@ -827,18 +1266,12 @@ impl P {
     fn parse_interaction_atom(&mut self) -> Result<InteractionExpr, ParseError> {
         match self.peek().map(|t| t.kind) {
             Some(TokenKind::Number) => {
-                let text = self
-                    .bump()
-                    .ok_or(ParseError { line: self.line() })?
-                    .text
-                    .replace('_', "");
-                let value = text
-                    .parse::<i64>()
-                    .map_err(|_| ParseError { line: self.line() })?;
+                let text = self.bump().ok_or_else(|| self.err())?.text.replace('_', "");
+                let value = text.parse::<i64>().map_err(|_| self.err_prev())?;
                 Ok(InteractionExpr::Literal(InteractionValue::Int(value)))
             }
             Some(TokenKind::Str) => Ok(InteractionExpr::Literal(InteractionValue::Text(
-                self.bump().ok_or(ParseError { line: self.line() })?.text,
+                self.bump().ok_or_else(|| self.err())?.text,
             ))),
             Some(TokenKind::Ident) => {
                 let head = self.expect_ident()?;
@@ -856,10 +1289,10 @@ impl P {
                             Ok(InteractionExpr::Effect(key))
                         }
                     }
-                    _ => Err(ParseError { line: self.line() }),
+                    _ => Err(self.err_prev()),
                 }
             }
-            _ => Err(ParseError { line: self.line() }),
+            _ => Err(self.err()),
         }
     }
 
@@ -871,7 +1304,7 @@ impl P {
             self.bump();
             Ok(())
         } else {
-            Err(ParseError { line: self.line() })
+            Err(self.err())
         }
     }
 
@@ -893,7 +1326,7 @@ impl P {
                 Some(TokenKind::LBrace) => depth += 1,
                 Some(TokenKind::RBrace) => depth -= 1,
                 Some(_) => {}
-                None => return Err(ParseError { line: self.line() }),
+                None => return Err(self.err()),
             }
         }
         Ok(())
@@ -903,30 +1336,33 @@ impl P {
         self.expect_ident_value("gestures")?;
         self.expect(TokenKind::LBrace)?;
         let mut policy = GesturePolicy::default();
+        let block_start = self.anchor;
         while !matches!(self.peek().map(|token| token.kind), Some(TokenKind::RBrace)) {
+            self.mark();
             let key = self.expect_ident()?;
             self.expect(TokenKind::Colon)?;
             let decision = match self.expect_ident()?.as_str() {
                 "allow" => GestureDecision::Allow,
                 "deny" => GestureDecision::Deny,
-                _ => return Err(ParseError { line: self.line() }),
+                _ => return Err(self.err_prev()),
             };
             let slot = match key.as_str() {
                 "copy" => &mut policy.copy,
                 "cut" => &mut policy.cut,
                 "paste" => &mut policy.paste,
-                _ => return Err(ParseError { line: self.line() }),
+                _ => return Err(self.err_prev()),
             };
             if slot.is_some() {
-                return Err(ParseError { line: self.line() });
+                return Err(self.err_prev());
             }
             *slot = Some(decision);
             self.optional_semi();
         }
         self.expect(TokenKind::RBrace)?;
         self.optional_semi();
+        self.anchor = block_start;
         if cell.gestures.is_some() {
-            return Err(ParseError { line: self.line() });
+            return Err(self.err());
         }
         cell.gestures = Some(policy);
         Ok(())
@@ -957,11 +1393,11 @@ impl P {
                     Some(t) if t.kind == TokenKind::Number => {
                         self.bump().expect("invariant").text.replace('_', "")
                     }
-                    _ => return Err(ParseError { line: self.line() }),
+                    _ => return Err(self.err()),
                 };
-                let value: i64 = text.parse().map_err(|_| ParseError { line: self.line() })?;
+                let value: i64 = text.parse().map_err(|_| self.err_prev())?;
                 if value <= 0 || value > u32::MAX as i64 {
-                    return Err(ParseError { line: self.line() });
+                    return Err(self.err_prev());
                 }
                 cell.wrap = Some(value as u32);
             }
@@ -970,7 +1406,7 @@ impl P {
                 cell.scroll = match value.as_str() {
                     "true" => true,
                     "false" => false,
-                    _ => return Err(ParseError { line: self.line() }),
+                    _ => return Err(self.err_prev()),
                 };
             }
             "text-anchor" | "text_anchor" => {
@@ -979,8 +1415,22 @@ impl P {
                     "start" => Anchor::Start,
                     "middle" => Anchor::Middle,
                     "end" => Anchor::End,
-                    _ => return Err(ParseError { line: self.line() }),
+                    _ => return Err(self.err_prev()),
                 });
+            }
+            "placeholder" => cell.placeholder = Some(self.expect(TokenKind::Str)?.text),
+            "max-length" | "max_length" => {
+                let text = match self.peek() {
+                    Some(token) if token.kind == TokenKind::Number => {
+                        self.bump().expect("invariant").text.replace('_', "")
+                    }
+                    _ => return Err(self.err()),
+                };
+                let value: i64 = text.parse().map_err(|_| self.err_prev())?;
+                if value < 0 {
+                    return Err(self.err_prev());
+                }
+                cell.max_length = Some(value);
             }
             // Unknown properties are consumed as scalar values so the
             // language can grow without breaking older parsers.
@@ -1014,19 +1464,17 @@ impl P {
         match self.peek() {
             Some(t) if t.kind == TokenKind::Number => {
                 let text = self.bump().expect("invariant").text.replace('_', "");
-                let value = text
-                    .parse::<f64>()
-                    .map_err(|_| ParseError { line: self.line() })?;
+                let value = text.parse::<f64>().map_err(|_| self.err_prev())?;
                 // Finite authored coordinates and sizes are required for
                 // deterministic layout. Rust accepts sufficiently large
                 // decimal literals as infinity, which otherwise flows into
                 // geometry and can silently poison hit testing and previews.
                 if !value.is_finite() {
-                    return Err(ParseError { line: self.line() });
+                    return Err(self.err_prev());
                 }
                 Ok(value)
             }
-            _ => Err(ParseError { line: self.line() }),
+            _ => Err(self.err()),
         }
     }
 
@@ -1043,11 +1491,11 @@ impl P {
                     }
                     6 => u32::from_str_radix(&hex, 16).unwrap_or(0),
                     8 => u32::from_str_radix(&hex[..6], 16).unwrap_or(0),
-                    _ => return Err(ParseError { line: self.line() }),
+                    _ => return Err(self.err_prev()),
                 };
                 Ok(v)
             }
-            _ => Err(ParseError { line: self.line() }),
+            _ => Err(self.err()),
         }
     }
 
@@ -1073,7 +1521,7 @@ impl P {
                 self.bump();
                 Ok(())
             }
-            _ => Err(ParseError { line: self.line() }),
+            _ => Err(self.err()),
         }
     }
 }

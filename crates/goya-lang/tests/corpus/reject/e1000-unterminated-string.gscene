@@ -1,0 +1,6 @@
+// profile: both
+// expect: GY-E1000
+// at: "never closed }\n}\n
+@ontology demo {
+  @cell root { id: "never closed }
+}

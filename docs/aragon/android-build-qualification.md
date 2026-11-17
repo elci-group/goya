@@ -30,6 +30,11 @@ the standard checked locations (`~/Android/Sdk`, `/usr/lib/android-sdk`, or
 installation/configuration**. No Android device or emulator qualification was
 performed.
 
+On 17 November 2026 a user-local Temurin JDK 21.0.13+9 was added under
+`~/.local/opt` (not on the default `PATH`). With `JAVA_HOME` set to it, the
+preflight's JDK checks can pass; the Android SDK and `adb` are still absent, so
+the preflight still reports missing prerequisites and the build stays blocked.
+
 After the preflight reports ready, run the project checks from
 `platform/android/gradle`:
 

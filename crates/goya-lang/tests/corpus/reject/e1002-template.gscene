@@ -1,0 +1,4 @@
+// profile: both
+// expect: GY-E1002
+// at: @template card { text: "x" }
+@ontology hello { @cell root { @template card { text: "x" } } }

@@ -1,0 +1,32 @@
+// profile: gssh2
+// One field feeds two interactions; text and bool state; mixed lifetimes.
+@ontology notes {
+  @state {
+    title: text = "Untitled" durable;
+    saved: bool = false session;
+    edits: int = -1 session;
+  }
+  @cell root {
+    id: "notes.root";
+    @input title_field { id: "notes.title"; text: "Untitled"; }
+    @button rename { id: "notes.rename"; text: "Rename"; }
+    @button save { id: "notes.save"; text: "Save"; }
+  }
+  @interaction rename {
+    id: "action.rename";
+    trigger: button.rename.activate;
+    class: D1;
+    state { read edits: int; write title: text; write edits: int; }
+    input { value: text from "notes.title"; }
+    set title = input.value;
+    set edits = state.edits + 1;
+  }
+  @interaction save {
+    id: "action.save";
+    trigger: button.save.activate;
+    class: D1;
+    state { write saved: bool; }
+    input { }
+    set saved = true;
+  }
+}

@@ -1,0 +1,5 @@
+// profile: both
+// No interactions: neither profile requires a @state block.
+@ontology plain {
+  @cell root { id: "plain.root"; @cell a { id: "plain.a"; text: "a"; } @cell b { id: "plain.b"; text: "b"; } }
+}

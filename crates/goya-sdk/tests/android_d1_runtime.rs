@@ -103,6 +103,20 @@ fn android_runtime_refuses_state_names_that_collapse_to_one_kotlin_identifier() 
 }
 
 #[test]
+fn android_runtime_constructor_classifies_initial_text_and_snapshot_limits() {
+    let generated = emit_android_d1_runtime_mapped(SOURCE, "CounterRuntime").unwrap();
+    assert!(generated.kotlin.contains(
+        "if (!validUnicode(initialState)) throw IllegalArgumentException(\"INVALID_TEXT\")"
+    ));
+    assert!(generated.kotlin.contains(
+        "if (!withinTextLimit(initialState)) throw IllegalArgumentException(\"TEXT_LIMIT\")"
+    ));
+    assert!(generated.kotlin.contains(
+        "if (mapSize(initialState) > MAX_SNAPSHOT_BYTES) throw IllegalArgumentException(\"SNAPSHOT_LIMIT\")"
+    ));
+}
+
+#[test]
 fn generated_ranges_are_valid_utf8_boundaries_and_point_into_their_sources() {
     let source = SOURCE.replace("counter", "cøunter");
     let generated = emit_android_d1_runtime_mapped(&source, "CounterRuntime").unwrap();
@@ -123,16 +137,67 @@ fn emitted_kotlin_dispatch_matches_d1_transition_and_failure_atomicity_when_tool
         time::{SystemTime, UNIX_EPOCH},
     };
 
-    if Command::new("kotlinc").arg("-version").output().is_err()
-        || Command::new("java").arg("-version").output().is_err()
-    {
-        eprintln!("Kotlin execution conformance skipped: kotlinc/java are unavailable");
+    let generated = emit_android_d1_runtime_mapped(SOURCE, "CounterRuntime").unwrap();
+    let mut states = String::new();
+    let mut assignments = String::new();
+    for index in 0..17 {
+        states.push_str(&format!("write text_{index}: text; "));
+        assignments.push_str(&format!("set text_{index} = input.value; "));
+    }
+    let aggregate_source = format!(
+        "@ontology aggregate {{ @button go {{ id: \"button.go\"; }} @interaction fill {{ id: \"action.fill\"; trigger: button.go.activate; class: D1; state {{ {states} }} input {{ value: text; }} {assignments} }} }}"
+    );
+    let aggregate = emit_android_d1_runtime_mapped(&aggregate_source, "AggregateRuntime").unwrap();
+    let kotlin = format!("{}\n{}", generated.kotlin, aggregate.kotlin);
+
+    let kotlin_required = std::env::var("ARAGON_REQUIRE_KOTLIN").as_deref() == Ok("1");
+    let toolchain_available = ["kotlinc", "java"].iter().all(|tool| {
+        Command::new(tool)
+            .arg("-version")
+            .output()
+            .is_ok_and(|output| output.status.success())
+    });
+    if !toolchain_available {
+        if kotlin_required {
+            panic!("Kotlin execution conformance required by ARAGON_REQUIRE_KOTLIN=1, but kotlinc/java are missing or their -version checks failed");
+        }
+        eprintln!("Kotlin execution conformance skipped: kotlinc/java are unavailable or their -version checks failed");
         return;
     }
 
-    let generated = emit_android_d1_runtime_mapped(SOURCE, "CounterRuntime").unwrap();
     let harness = r#"
 fun main() {
+    val malformed = String(charArrayOf(0xD800.toChar()))
+    val invalidInitialText = runCatching { CounterRuntime(mapOf(
+        "count" to CounterRuntime.Value.IntValue(0L),
+        "label" to CounterRuntime.Value.TextValue(malformed),
+        "enabled" to CounterRuntime.Value.BoolValue(false)
+    )) }.exceptionOrNull()
+    check(invalidInitialText is IllegalArgumentException && invalidInitialText.message == "INVALID_TEXT")
+
+    val tooLongInitialText = "x".repeat(65537)
+    val oversizedInitialText = runCatching { CounterRuntime(mapOf(
+        "count" to CounterRuntime.Value.IntValue(0L),
+        "label" to CounterRuntime.Value.TextValue(tooLongInitialText),
+        "enabled" to CounterRuntime.Value.BoolValue(false)
+    )) }.exceptionOrNull()
+    check(oversizedInitialText is IllegalArgumentException && oversizedInitialText.message == "TEXT_LIMIT")
+
+    val maxText = "é".repeat(32768)
+    check(maxText.toByteArray(Charsets.UTF_8).size == 65536)
+    val boundaryInitialState = CounterRuntime(mapOf(
+        "count" to CounterRuntime.Value.IntValue(0L),
+        "label" to CounterRuntime.Value.TextValue(maxText),
+        "enabled" to CounterRuntime.Value.BoolValue(false)
+    ))
+    check(boundaryInitialState.state["label"] == CounterRuntime.Value.TextValue(maxText))
+
+    val aggregateInitialState = (0 until 17).associate { index ->
+        "text_$index" to AggregateRuntime.Value.TextValue(maxText)
+    }
+    val oversizedSnapshot = runCatching { AggregateRuntime(aggregateInitialState) }.exceptionOrNull()
+    check(oversizedSnapshot is IllegalArgumentException && oversizedSnapshot.message == "SNAPSHOT_LIMIT")
+
     val rt = CounterRuntime(mapOf(
         "count" to CounterRuntime.Value.IntValue(4L),
         "label" to CounterRuntime.Value.TextValue("start"),
@@ -144,8 +209,6 @@ fun main() {
     check(rt.dispatch("action.increment.v1", mapOf("amount" to CounterRuntime.Value.IntValue(1L), "extra" to CounterRuntime.Value.BoolValue(true))) == CounterRuntime.DispatchResult.Failure(CounterRuntime.ErrorCode.INPUT_SCHEMA))
     check(rt.state == committed && rt.revision == 1uL)
     check(rt.dispatch("action.label.v1", mapOf("value" to CounterRuntime.Value.TextValue("café 🧪"))) == CounterRuntime.DispatchResult.Success(2uL))
-    val maxText = "é".repeat(32768)
-    check(maxText.toByteArray(Charsets.UTF_8).size == 65536)
     check(rt.dispatch("action.label.v1", mapOf("value" to CounterRuntime.Value.TextValue(maxText))) == CounterRuntime.DispatchResult.Success(3uL))
     val afterUnicode = rt.state
     val tooLong = "é".repeat(32769)
@@ -157,7 +220,7 @@ fun main() {
         "enabled" to CounterRuntime.Value.BoolValue(false)
     ))
     check(overflow.dispatch("action.increment.v1", mapOf("amount" to CounterRuntime.Value.IntValue(1L))) == CounterRuntime.DispatchResult.Failure(CounterRuntime.ErrorCode.ARITHMETIC_OVERFLOW))
-    check(overflow.state["count"] == CounterRuntime.Value.IntValue(Long.MAX_VALUE) && overflow.revision == 0L)
+    check(overflow.state["count"] == CounterRuntime.Value.IntValue(Long.MAX_VALUE) && overflow.revision == 0uL)
     check(rt.dispatch("action.enabled.v1", mapOf("value" to CounterRuntime.Value.BoolValue(true))) == CounterRuntime.DispatchResult.Success(4uL))
     val minimum = CounterRuntime(mapOf(
         "count" to CounterRuntime.Value.IntValue(0L),
@@ -174,7 +237,6 @@ fun main() {
     val revisionState = revisionEdge.state
     check(revisionEdge.dispatch("action.increment.v1", mapOf("amount" to CounterRuntime.Value.IntValue(1L))) == CounterRuntime.DispatchResult.Failure(CounterRuntime.ErrorCode.REVISION_OVERFLOW))
     check(revisionEdge.state == revisionState && revisionEdge.revision == ULong.MAX_VALUE)
-    val malformed = String(charArrayOf(0xD800.toChar()))
     val malformedResult = rt.dispatch("action.label.v1", mapOf("value" to CounterRuntime.Value.TextValue(malformed)))
     check(malformedResult == CounterRuntime.DispatchResult.Failure(CounterRuntime.ErrorCode.INVALID_TEXT))
     check(rt.revision == 4uL)
@@ -188,7 +250,7 @@ fun main() {
     fs::create_dir_all(&dir).unwrap();
     let source_path = dir.join("Conformance.kt");
     let jar_path = dir.join("conformance.jar");
-    fs::write(&source_path, format!("{}\n{}", generated.kotlin, harness)).unwrap();
+    fs::write(&source_path, format!("{kotlin}\n{harness}")).unwrap();
     let compile = Command::new("kotlinc")
         .arg(&source_path)
         .arg("-include-runtime")
@@ -265,4 +327,26 @@ fn authored_interactions_match_the_canonical_goya_d1_executor() {
         )
         .unwrap();
     assert_eq!(enabled.next_state["enabled"], D1Value::Bool(true));
+}
+
+#[test]
+fn input_free_actions_emit_explicitly_typed_kotlin_collections() {
+    // Kotlin cannot infer `setOf()` or `mapOf()` with no elements. Compiling
+    // the generated root-button project exposed this; keep it typed.
+    let source = r#"@ontology demo {
+        @button increment { id: "button.increment"; text: "Increment" }
+        @interaction increment {
+            id: "action.increment";
+            trigger: button.increment.activate;
+            class: D1;
+            state { write count: int; }
+            input { }
+            set count = 1;
+        }
+    }"#;
+    let runtime = emit_android_d1_runtime_mapped(source, "GoyaD1Runtime").unwrap();
+    assert!(runtime.kotlin.contains("inputs.keys != setOf<String>()"));
+    assert!(runtime.kotlin.contains("val snapshot = mapOf<String, Value>("));
+    assert!(!runtime.kotlin.contains("setOf()"));
+    assert!(!runtime.kotlin.contains("= mapOf()"));
 }

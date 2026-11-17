@@ -1,0 +1,9 @@
+// profile: both
+@ontology hello {
+  @cell root {
+    id: "window.root";
+    text: "Hello, ✓ wörld";
+    text-size: 14;
+    extent: (80, 40, 0);
+  }
+}

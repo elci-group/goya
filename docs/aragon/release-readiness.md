@@ -2,18 +2,55 @@
 
 Status: **BLOCKED**. The canonical Goya frontend now has strict admission and
 source-origin records, and Neptune has a verified source map for its narrow
-Swift text preview. Goya's SDK also emits an experimental Kotlin `TextView`
-preview for a single, unstyled static text cell, rejecting features outside
-that subset. These are implementation capabilities, not Aragon release
-evidence. No Android build, APK, AAB, benchmark, device qualification or
-complete Android toolchain lock is asserted.
+Swift text preview. Goya's SDK also emits experimental Kotlin previews for a
+single static text cell and a root button, plus a standalone scalar D1 runtime
+and deterministic starter project. These are implementation capabilities,
+not Aragon release evidence. No Android SDK build, APK, AAB, benchmark, device
+qualification or complete Android toolchain lock is asserted. The opt-in
+Kotlin/JVM D1 conformance runner is `scripts/check-android-d1-kotlin.sh`; it
+does not qualify Android platform behavior.
+
+## Phase 0 cleanup (17 November 2026)
+
+Scaffolding committed in `99a2872` was removed because it was not evidence for
+any gate: the `emit_android_root_input_preview`, `emit_android_scrollable_preview`
+and `emit_android_d1_runtime_with_form` emitters (the first line-scanned source
+instead of using `parse_strict`, the second ignored its source, and the third
+emitted Kotlin referencing undeclared members), `runtime/form_engine.rs`, the
+never-populated GY-LANG "Phase 2" input/accessibility types and `SceneCell`
+fields, `tests/integration/` and `crates/goya-sdk/tests/android-differential/`
+(neither was compiled), and their string-only tests. Uncommitted edits to the
+removed files are kept in the `git stash` entry named "aragon phase 0". Root-level
+`IMPLEMENTATION_*` and `PHASE*` reports are marked superseded.
+
+With a local JDK and Kotlin compiler, the strict checks found and fixed two
+defects: generated D1 dispatch for an input-free action emitted an untyped
+`setOf()` (now `setOf<String>()`, likewise the snapshot `mapOf`), and the
+`Button` test stub was final. Both of these now pass on this host:
+
+```sh
+bash scripts/check-android-d1-kotlin.sh
+bash scripts/check-android-project-kotlin.sh --require-kotlin
+```
+
+They ran with Temurin JDK 21.0.13+9 and kotlinc-jvm 2.0.21, installed under
+`~/.local/opt` from archives verified against their published SHA-256 digests
+(`d7f5d5cf…66d1c` and `0352c0a4…bcf2a`) and selected with `JAVA_HOME`/`PATH`
+for the command. This is a Kotlin/JVM result against Android API stubs, not a
+locked Android toolchain or SDK build.
+
+Resolved in Phase 1 (`docs/gssh/decisions.md`, D6): `placeholder:` and
+`max-length:` are compatibility-parser only and rejected by strict admission;
+the `focus`/`blur`/`select`/`submit` gesture keys are removed. The unused
+`KotlinMapping` in `crates/neptune/src/source_map.rs` remains and is not the
+Android source map.
 
 | Gate | Status | Evidence or missing work |
 | --- | --- | --- |
-| ARG-G01 Frontend | BLOCKED | `goya_lang::parse_strict` admits only represented semantics: it rejects unknown properties, templates, duplicate canonical properties, missing/duplicate authored IDs, and invalid interactions with structured codes and UTF-8 byte ranges (`crates/goya-lang/src/parser.rs`). `parse_with_source_map` returns sorted declaration/property entries with exact-source SHA-256, byte ranges, within-revision scene paths, and authored semantic IDs where available. This is not yet an Aragon frontend contract or a Kotlin emitter/map. Parse failures from the compatibility parser still carry a line only; `parse_strict` converts these to the corresponding whole-line byte range. Property entries have no independent authored property ID, and scene paths can shift across edits. Negative coverage exists as unit tests in `crates/goya-lang/src/lib.rs`, but no Aragon differential/mutation corpus or release audit is recorded. |
-| ARG-G02 Semantics | BLOCKED | `goya_sdk::emit_android_static_text_preview` emits Kotlin for one strictly admitted static text cell. `emit_android_root_button_preview` also emits a one-button preview only after canonical GY-IR lowering and D1 compilation confirm the authored callback ID and trigger ActionId match; it rejects actions with inputs. Both remain source previews and do not establish platform equivalence. Unit/integration coverage checks static-text limits and source mapping plus root-button admission, callback identity, and source mapping. There is no Android differential/mutation corpus. See `android-root-button.md`. |
-| ARG-G03 Determinism | BLOCKED | No generated outputs or R1 comparison. |
-| ARG-G04 Android compile | BLOCKED | `aragon-android-project` deterministically generates a minimal starter app for the static-text subset (`android-project.md`), but the generated project has not been built and the Android toolchain has not been verified. |
+| ARG-G01 Frontend | BLOCKED | Phase 1 (17 Nov 2026) implemented the shared handoff as Candidate contract `GSSH/2` (`docs/gssh/GSSH-2.md`, decisions in `docs/gssh/decisions.md`): `handoff::admit_v2` adds declared state with initial values and lifetimes, input-to-`@input` bindings with mandatory coverage and the reference conversion `convert_field`, and identity-keyed origins for elements, properties (`element#property`), interactions, state keys and bindings. All parse and strict diagnostics now carry exact UTF-8 byte ranges. `crates/goya-lang/tests/strict_corpus.rs` holds the negative corpus (28 fixtures with exact expected spans) and token/byte mutation sweeps under both profiles. Still missing for this gate: architecture approval of GSSH/2; a decision on `@input` `text:` (placeholder versus initial content); a Kotlin emitter and Android source map consuming GSSH/2 (Phase 3); and a release audit. |
+| ARG-G02 Semantics | BLOCKED | `goya_sdk::emit_android_static_text_preview` emits Kotlin for one strictly admitted static text cell. `emit_android_root_button_preview` emits a one-button preview only after canonical GY-IR lowering and D1 compilation confirm the authored callback ID and trigger ActionId match; it rejects actions with inputs. `emit_android_d1_runtime` emits a standalone scalar D1 runtime with atomic state transitions; the strict Kotlin/JVM qualification runner covers a bounded conformance harness. These source/runtime checks do not establish Android platform equivalence. There is no Android differential/mutation corpus. See `android-root-button.md` and `android-d1-runtime.md`. |
+| ARG-G03 Determinism | BLOCKED | Local qualification checks compare generated static-text and root-button project trees for deterministic output (`scripts/check-android-project-kotlin.sh`). No release R1 comparison or complete Android toolchain lock is recorded. |
+| ARG-G04 Android compile | BLOCKED | `aragon-android-project` deterministically generates starter apps for the static-text and opt-in root-button D1 subsets (`android-project.md`). The project checker compiles generated Kotlin against minimal Android API stubs only (passing with `--require-kotlin` on 17 November 2026); no generated project has been built with the Android SDK and the Android toolchain is not verified. |
 | ARG-G05 Emulator | BLOCKED | No emulator execution or recorded artifact. |
 | ARG-G06 Physical device | BLOCKED | No device attached at inspection; no execution. |
 | ARG-G07 Lifecycle | BLOCKED | No recreation, process-death or migration tests. |

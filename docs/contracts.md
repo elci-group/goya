@@ -377,6 +377,28 @@ Unification plan: a GY-IR/2 amendment will define a shared node table so
 both frontends lower into one IR; scheduled Wave 2c alongside the EDC
 canonical IR work.
 
+## GSSH/1 and GSSH/2 — Shared semantic handoff (`crates/goya-lang`)
+
+Status: GSSH/1 Candidate (in use by Sash, Emperor, goya-parity and the Aragon
+previews); GSSH/2 Candidate, 2026-11-17, awaiting architecture approval.
+Specification: [`docs/gssh/GSSH-2.md`](gssh/GSSH-2.md); decisions:
+[`docs/gssh/decisions.md`](gssh/decisions.md).
+
+- `handoff::admit` / `parse_strict` (GSSH/1) is the GY-LANG/1 strict profile
+  and rejects GSSH/2 declarations with `GY-E1006`.
+- `handoff::admit_v2` / `parse_strict_gssh2` (GSSH/2) adds `@state { key:
+  type = initial session|durable; }`, `input { key: type from "<@input id>"; }`
+  with mandatory input and state coverage (`GY-E1007`, `GY-E1008`), the
+  reference field conversion `handoff::convert_field`, and identity-keyed
+  source origins (`handoff::Origin`).
+- GY-LANG/1 amendment (all parser modes): `ParseError` and `LexError` carry
+  exact UTF-8 byte ranges, and strict `GY-E1000` uses them instead of the
+  whole source line. The `focus`/`blur`/`select`/`submit` gesture keys are
+  removed. The compatibility parser records GSSH/2 syntax without validating
+  it.
+- Conformance: `crates/goya-lang/tests/strict_corpus.rs` (exact-span reject
+  fixtures, accept fixtures, token and byte mutation sweeps).
+
 ## Correction — Vico Vee reconnaissance (2026-11-04)
 
 The GY-001 reconnaissance table incorrectly identified Vico Vee as the thin

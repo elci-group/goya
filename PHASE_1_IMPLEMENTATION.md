@@ -1,5 +1,14 @@
 # Phase 1: Source Map Infrastructure Extension
 
+> **Historical — superseded 2026-11-17 (Aragon Phase 0).** The Kotlin mapping
+> additions described here (`KotlinMapping`, `kotlin_mappings`,
+> `map_kotlin_location`) remain in `crates/neptune/src/source_map.rs` but have no
+> callers, and the "Android input preview" they claim to connect was removed as
+> scaffolding. Neptune is the iOS compiler; an Android source map belongs to the
+> Aragon handoff work, not Neptune's Swift map schema. Its ✅ claims are not
+> evidence. Current status is
+> [`docs/aragon/release-readiness.md`](docs/aragon/release-readiness.md).
+
 ## Summary
 
 Successfully extended the existing source map infrastructure to support Android Kotlin emissions as requested in the Phase 1 deliverables.

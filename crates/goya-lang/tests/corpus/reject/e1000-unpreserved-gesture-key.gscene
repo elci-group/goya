@@ -1,0 +1,4 @@
+// profile: both
+// expect: GY-E1000
+// at: focus: allow
+@ontology demo { @input f { id: "f"; gestures { focus: allow; } } }

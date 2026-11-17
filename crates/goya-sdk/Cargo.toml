@@ -13,7 +13,3 @@ goya-runtime.workspace = true
 goya-state.workspace = true
 goya-executable.workspace = true
 goya-vee.workspace = true
-serde = { version = "1.0", features = ["derive"] }
-thiserror = "1.0"
-sha2 = "0.10"
-regex = "1.0"

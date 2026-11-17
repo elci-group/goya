@@ -1,0 +1,4 @@
+// profile: gssh2
+// expect: GY-E1008
+// at: @state { }
+@ontology demo { @state { } @cell root { id: "r"; } }

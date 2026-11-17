@@ -39,6 +39,10 @@ pub struct Token {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LexError {
     pub line: usize,
+    /// End-exclusive UTF-8 byte range of the offending input: the
+    /// unrecognised character, or an unterminated string through end of input.
+    pub byte_start: usize,
+    pub byte_end: usize,
 }
 
 impl fmt::Display for LexError {
@@ -164,7 +168,11 @@ fn push_token(
             *i += 1;
         }
         if *i >= chars.len() {
-            return Err(LexError { line: start_line });
+            return Err(LexError {
+                line: start_line,
+                byte_start: byte_offsets[start],
+                byte_end: byte_offsets[chars.len()],
+            });
         }
         *i += 1; // closing quote
         tokens.push(t(
@@ -220,5 +228,9 @@ fn push_token(
         ));
         return Ok(());
     }
-    Err(LexError { line: *line })
+    Err(LexError {
+        line: *line,
+        byte_start: byte_offsets[*i],
+        byte_end: byte_offsets[*i + 1],
+    })
 }

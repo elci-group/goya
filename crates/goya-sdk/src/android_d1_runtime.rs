@@ -5,7 +5,7 @@
 //! one state map and applies each action as a checked, atomic transition.
 
 use goya_lang::{
-    CellKind, InteractionClass, InteractionExpr, InteractionType, InteractionValue, SourceRange,
+    InteractionClass, InteractionExpr, InteractionType, InteractionValue, SourceRange,
 };
 use std::{error::Error, fmt};
 
@@ -145,7 +145,7 @@ pub fn emit_android_d1_runtime_mapped(
     }
     out.push_str(")\n    val requiredStateTypes: Map<String, String> get() = stateTypes.toMap()\n");
     out.push_str("    private var values: Map<String, Value>\n    @get:Synchronized var revision: ULong = initialRevision\n        private set\n    @get:Synchronized val state: Map<String, Value> get() = values.toMap()\n    @Synchronized fun snapshot(): Snapshot = Snapshot(revision, values.toMap())\n");
-    out.push_str("    init { if (initialState.keys != stateTypes.keys) throw IllegalArgumentException(\"STATE_SCHEMA\"); if (!validMap(initialState) || mapSize(initialState) > MAX_SNAPSHOT_BYTES) throw IllegalArgumentException(\"SNAPSHOT_LIMIT\"); if (initialState.any { (k, v) -> kind(v) != stateTypes[k] }) throw IllegalArgumentException(\"STATE_TYPE\"); values = initialState.toMap() }\n");
+    out.push_str("    init { if (initialState.keys != stateTypes.keys) throw IllegalArgumentException(\"STATE_SCHEMA\"); if (!validUnicode(initialState)) throw IllegalArgumentException(\"INVALID_TEXT\"); if (!withinTextLimit(initialState)) throw IllegalArgumentException(\"TEXT_LIMIT\"); if (mapSize(initialState) > MAX_SNAPSHOT_BYTES) throw IllegalArgumentException(\"SNAPSHOT_LIMIT\"); if (initialState.any { (k, v) -> kind(v) != stateTypes[k] }) throw IllegalArgumentException(\"STATE_TYPE\"); values = initialState.toMap() }\n");
     out.push_str("    @Synchronized fun dispatch(actionId: String, inputs: Map<String, Value>): DispatchResult {\n        return when (actionId) {\n");
     for i in &scene.interactions {
         let id = i
@@ -160,7 +160,7 @@ pub fn emit_android_d1_runtime_mapped(
             .iter()
             .map(|k| (k.name.as_str(), k.value_type))
             .collect::<std::collections::BTreeMap<_, _>>();
-        out.push_str("                if (inputs.keys != setOf(");
+        out.push_str("                if (inputs.keys != setOf<String>(");
         for (n, key) in input_types.keys().enumerate() {
             if n > 0 {
                 out.push_str(", ");
@@ -181,7 +181,7 @@ pub fn emit_android_d1_runtime_mapped(
         for key in &touched {
             out.push_str(&format!("                val s_{} = values[{}] ?: return DispatchResult.Failure(ErrorCode.STATE_SCHEMA)\n", safe_ident(key), kotlin_string(key)));
         }
-        out.push_str("                val snapshot = mapOf(");
+        out.push_str("                val snapshot = mapOf<String, Value>(");
         for (n, key) in touched.iter().enumerate() {
             if n > 0 {
                 out.push_str(", ");

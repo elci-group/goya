@@ -1,0 +1,4 @@
+// profile: both
+// expect: GY-E1005
+// at: @cell child { id: "same"; }
+@ontology hello { @cell root { id: "same"; @cell child { id: "same"; } } }

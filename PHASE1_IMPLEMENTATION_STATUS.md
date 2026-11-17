@@ -1,5 +1,14 @@
 # Phase 1 Android Emitter Implementation - Current Status Report
 
+> **Historical — superseded 2026-11-17 (Aragon Phase 0).** This report
+> describes scaffolding committed in `99a2872` and since removed: the input,
+> scrollable and "enhanced" D1 emitters, `runtime/form_engine.rs`, the unpopulated
+> GY-LANG "Phase 2" input types, `tests/integration/` and
+> `crates/goya-sdk/tests/android-differential/`. Those emitters bypassed strict
+> admission or ignored their source, and their generated Kotlin did not compile.
+> Its ✅ claims are not evidence. Current status is
+> [`docs/aragon/release-readiness.md`](docs/aragon/release-readiness.md).
+
 ## Executive Summary
 
 **STATUS**: ✅ **IMPLEMENTATION COMPLETE WITH MINOR COMPILATION ISSUES**

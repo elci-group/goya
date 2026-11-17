@@ -1,0 +1,15 @@
+// profile: gssh2
+// expect: GY-E1007
+// at: flag: bool from "f.flag"
+@ontology demo {
+  @state { on: bool = false session; }
+  @cell root { id: "f.root"; @input flag { id: "f.flag"; } @button go { id: "f.go"; } }
+  @interaction go {
+    id: "action.go";
+    trigger: button.go.activate;
+    class: D1;
+    state { write on: bool; }
+    input { flag: bool from "f.flag"; }
+    set on = input.flag;
+  }
+}

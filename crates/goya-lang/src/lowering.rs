@@ -231,12 +231,11 @@ impl<'a> Lowerer<'a> {
                 // are host-side state (Wave 2).
                 // Children are lowered so buttons inside an input keep the
                 // same depth-first ActionIds as interaction compilation.
-                let placeholder = cell.placeholder
+                let placeholder = cell
+                    .placeholder
                     .clone()
                     .unwrap_or_else(|| cell.text.clone().unwrap_or_default());
-                let input_id = self.push(Node::Input {
-                    placeholder,
-                });
+                let input_id = self.push(Node::Input { placeholder });
                 let mut kid_keys = Vec::new();
                 let mut kid_ids = Vec::new();
                 for child in &cell.children {

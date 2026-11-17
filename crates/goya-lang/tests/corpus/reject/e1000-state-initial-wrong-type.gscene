@@ -1,0 +1,39 @@
+// profile: both
+// expect: GY-E1000
+// at: count: int = "0"
+@ontology counter {
+  @state {
+    count: int = "0" durable;
+  }
+  @cell root {
+    id: "window.root";
+    text: "Count";
+    extent: (80, 40, 0);
+    @input amount {
+      id: "window.amount";
+      text: "1";
+      position: (2, 16, 0);
+      extent: (30, 8, 0);
+    }
+    @button add {
+      id: "window.add";
+      text: "Add";
+      position: (34, 16, 0);
+      extent: (20, 8, 0);
+    }
+    @cell total {
+      id: "state.count";
+      text: "0";
+      position: (2, 28, 0);
+      extent: (40, 8, 0);
+    }
+  }
+  @interaction add {
+    id: "action.add";
+    trigger: button.add.activate;
+    class: D1;
+    state { read count: int; write count: int; }
+    input { amount: int from "window.amount"; }
+    set count = state.count + input.amount;
+  }
+}

@@ -21,34 +21,12 @@ pub use application::{D1Application, D1ApplicationError, D1_APPLICATION_CONTRACT
 mod android_button_preview;
 pub use android_button_preview::{
     emit_android_root_button_preview, emit_android_root_button_preview_mapped,
-    AndroidRootButtonPreview, AndroidRootButtonPreviewError,
-    kotlin_string_literal,
+    kotlin_string_literal, AndroidRootButtonPreview, AndroidRootButtonPreviewError,
 };
-mod android_input_preview;
-pub use android_input_preview::{
-    emit_android_root_input_preview, emit_android_root_input_preview_named,
-    AndroidRootInputPreview, AndroidRootInputPreviewError,
-    kotlin_string_literal as input_kotlin_string_literal,
-};
-
-mod android_scrollable_preview;
-pub use android_scrollable_preview::{
-    emit_android_scrollable_preview, emit_android_scrollable_preview_named,
-    AndroidScrollablePreview, AndroidScrollablePreviewError,
-    kotlin_string_literal as scrollable_kotlin_string_literal,
-};
-
 mod android_d1_runtime;
 pub use android_d1_runtime::{
     emit_android_d1_runtime, emit_android_d1_runtime_mapped, AndroidD1Runtime,
     AndroidD1RuntimeError,
-};
-
-mod android_d1_runtime_enhanced;
-pub use android_d1_runtime_enhanced::{
-    emit_android_d1_runtime_with_form, emit_android_d1_runtime_with_form_named,
-    AndroidD1Runtime as EnhancedAndroidD1Runtime,
-    AndroidD1RuntimeError as EnhancedAndroidD1RuntimeError,
 };
 
 /// Refusal reason for the experimental Android static-text preview emitter.
@@ -268,7 +246,6 @@ fn is_kotlin_class_name(name: &str) -> bool {
         && !matches!(name, "Context" | "TextView")
         && !KEYWORDS.contains(&name)
 }
-
 
 pub use goya_executable::{
     CapabilityLabel, D1Outcome, D1Snapshot, D1Value, D2Outcome, EffectJournal, EffectResult,
@@ -788,29 +765,3 @@ mod tests {
         assert!(request.source_code.contains("GOYA_D2_PROGRAM_HASH"));
     }
 }
-
-/// Enhanced Android input preview emitter with IME integration and validation.
-///
-/// Supports:
-/// - Input types (text, password, email) with IME integration
-/// - Placeholder text binding
-/// - Max-length validation in UI layer
-/// - Validation error messages
-/// - Real-time input validation
-/// - Form submission support
-/// - Focus/blur/select/submit gesture integration
-pub fn emit_android_input_preview(source: &str) -> Result<String, AndroidRootInputPreviewError> {
-    android_input_preview::emit_android_root_input_preview(source)
-}
-
-// The enhanced Android D1 runtime functions are already re-exported from the enhanced module
-
-// Phase 3: Advanced Runtime Components
-mod runtime;
-pub use runtime::form_engine::{
-    FormEngine, FormBuilder, FormConfig, FormFieldConfig, FormFieldMapping,
-    FormGenerationResult, FormSourceMap, FormMetadata, FormAccessibilityConfig,
-    FormLocalizationConfig, FormValidationResult, FieldValidationResult,
-    CrossFieldValidationError, ValidationError, ValidationWarning,
-    FormEngineError, FieldBuilder, ValidationMode,
-};
