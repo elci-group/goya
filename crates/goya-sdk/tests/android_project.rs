@@ -78,7 +78,7 @@ fn emits_a_deterministic_minimal_android_project() {
     }
     let first_files = files(&first);
     assert_eq!(first_files, files(&second));
-    assert_eq!(first_files.len(), 7);
+    assert_eq!(first_files.len(), 12);
     let preview = String::from_utf8(
         first_files["app/src/main/java/dev/goya/preview/GoyaStaticTextPreview.kt"].clone(),
     )
@@ -219,4 +219,54 @@ fn root_button_project_emits_signed_minimum_as_long_min_value() {
         fs::read_to_string(output.join("app/src/main/java/dev/goya/preview/MainActivity.kt"))
             .unwrap();
     assert!(activity.contains("GoyaD1Runtime.Value.IntValue(Long.MIN_VALUE)"));
+}
+
+#[test]
+fn emits_the_locked_gradle_wrapper_and_dependency_checksums() {
+    use sha2::{Digest, Sha256};
+    let scratch = Scratch::new();
+    let source = scratch.path("input.gscene");
+    fs::write(
+        &source,
+        r#"@ontology demo { @cell label { id: "label"; text: "Locked" } }"#,
+    )
+    .unwrap();
+    let output = scratch.path("project");
+    assert!(cli().arg(&source).arg(&output).status().unwrap().success());
+    let generated = files(&output);
+    let hex = |bytes: &[u8]| {
+        Sha256::digest(bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
+    };
+    // Gradle 8.9's published wrapper jar checksum
+    // (https://services.gradle.org/distributions/gradle-8.9-wrapper.jar.sha256).
+    assert_eq!(
+        hex(&generated["gradle/wrapper/gradle-wrapper.jar"]),
+        "498495120a03b9a6ab5d155f5de3c8f0d986a449153702fb80fc80e134484f17"
+    );
+    let properties =
+        String::from_utf8(generated["gradle/wrapper/gradle-wrapper.properties"].clone()).unwrap();
+    assert!(properties.contains("gradle-8.9-bin.zip"));
+    assert!(properties.contains(
+        "distributionSha256Sum=d725d707bfabd4dfdc958c624003b3c80accc03f7037b5122c4b1d0ef15cecab"
+    ));
+    let metadata =
+        String::from_utf8(generated["gradle/verification-metadata.xml"].clone()).unwrap();
+    assert!(metadata.contains("<verify-metadata>true</verify-metadata>"));
+    assert!(metadata.contains(r#"name="gradle" version="8.7.3""#));
+    let gradle_properties = String::from_utf8(generated["gradle.properties"].clone()).unwrap();
+    assert!(gradle_properties.contains("android.builder.sdkDownload=false"));
+    let app = String::from_utf8(generated["app/build.gradle.kts"].clone()).unwrap();
+    assert!(app.contains(r#"buildToolsVersion = "34.0.0""#));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = fs::metadata(output.join("gradlew"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o111, 0o111, "gradlew must be executable");
+    }
 }

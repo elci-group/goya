@@ -5,8 +5,10 @@ source-origin records, and Neptune has a verified source map for its narrow
 Swift text preview. Goya's SDK also emits experimental Kotlin previews for a
 single static text cell and a root button, plus a standalone scalar D1 runtime
 and deterministic starter project. These are implementation capabilities,
-not Aragon release evidence. No Android SDK build, APK, AAB, benchmark, device
-qualification or complete Android toolchain lock is asserted. The opt-in
+not Aragon release evidence. Phase 2 locked one Android toolchain and builds
+both generated projects into reproducible unsigned release APKs on this host
+(`android-toolchain-lock.md`); no APK has been installed or run, and no AAB,
+signing, benchmark or device qualification is asserted. The opt-in
 Kotlin/JVM D1 conformance runner is `scripts/check-android-d1-kotlin.sh`; it
 does not qualify Android platform behavior.
 
@@ -49,8 +51,8 @@ Android source map.
 | --- | --- | --- |
 | ARG-G01 Frontend | BLOCKED | Phase 1 (17 Nov 2026) implemented the shared handoff as Candidate contract `GSSH/2` (`docs/gssh/GSSH-2.md`, decisions in `docs/gssh/decisions.md`): `handoff::admit_v2` adds declared state with initial values and lifetimes, input-to-`@input` bindings with mandatory coverage and the reference conversion `convert_field`, and identity-keyed origins for elements, properties (`element#property`), interactions, state keys and bindings. All parse and strict diagnostics now carry exact UTF-8 byte ranges. `crates/goya-lang/tests/strict_corpus.rs` holds the negative corpus (28 fixtures with exact expected spans) and token/byte mutation sweeps under both profiles. Still missing for this gate: architecture approval of GSSH/2; a decision on `@input` `text:` (placeholder versus initial content); a Kotlin emitter and Android source map consuming GSSH/2 (Phase 3); and a release audit. |
 | ARG-G02 Semantics | BLOCKED | `goya_sdk::emit_android_static_text_preview` emits Kotlin for one strictly admitted static text cell. `emit_android_root_button_preview` emits a one-button preview only after canonical GY-IR lowering and D1 compilation confirm the authored callback ID and trigger ActionId match; it rejects actions with inputs. `emit_android_d1_runtime` emits a standalone scalar D1 runtime with atomic state transitions; the strict Kotlin/JVM qualification runner covers a bounded conformance harness. These source/runtime checks do not establish Android platform equivalence. There is no Android differential/mutation corpus. See `android-root-button.md` and `android-d1-runtime.md`. |
-| ARG-G03 Determinism | BLOCKED | Local qualification checks compare generated static-text and root-button project trees for deterministic output (`scripts/check-android-project-kotlin.sh`). No release R1 comparison or complete Android toolchain lock is recorded. |
-| ARG-G04 Android compile | BLOCKED | `aragon-android-project` deterministically generates starter apps for the static-text and opt-in root-button D1 subsets (`android-project.md`). The project checker compiles generated Kotlin against minimal Android API stubs only (passing with `--require-kotlin` on 17 November 2026); no generated project has been built with the Android SDK and the Android toolchain is not verified. |
+| ARG-G03 Determinism | BLOCKED | Phase 2 (17 Nov 2026): the toolchain is locked (`android-toolchain-lock.md`: Temurin 21.0.13+9, Gradle 8.9 by SHA-256, AGP 8.7.3, Kotlin 2.0.21, platform 35 r2, build-tools 34.0.0, and SHA-256 dependency verification for all 246 build components). `scripts/check-android-apk-build.sh` builds the static-text and root-button projects twice each, offline, with strict verification, from fresh copies at different paths; all four unsigned release APKs matched their twins and the recorded hashes (`cd3e6f15…f9b06b`, `47af8d6c…ab89e`). Still missing: a second host or OS, the release R1 comparison, and signed/bundle outputs. Dependency checksums were trusted on first use, not signature-verified. |
+| ARG-G04 Android compile | BLOCKED | `aragon-android-project` emits the locked Gradle wrapper and verification metadata (`android-project.md`), and both generated qualification projects build with the Android SDK into unsigned release APKs with the locked toolchain (`scripts/check-android-apk-build.sh`, 17 Nov 2026). This covers only the two narrow emitted subsets (one static text cell; one root button with D1). Still missing: the wider language surface (Phase 3), lint and a signed release build. |
 | ARG-G05 Emulator | BLOCKED | No emulator execution or recorded artifact. |
 | ARG-G06 Physical device | BLOCKED | No device attached at inspection; no execution. |
 | ARG-G07 Lifecycle | BLOCKED | No recreation, process-death or migration tests. |

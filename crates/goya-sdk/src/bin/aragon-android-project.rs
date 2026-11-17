@@ -13,12 +13,43 @@ use std::{
 const CLASS_NAME: &str = "GoyaStaticTextPreview";
 const BUTTON_CLASS_NAME: &str = "GoyaRootButtonPreview";
 const PACKAGE: &str = "dev.goya.preview";
+
+// Locked Gradle wrapper and dependency checksums for the toolchain in
+// docs/aragon/android-toolchain-lock.md. The wrapper jar is Gradle 8.9's
+// official jar (SHA-256 498495...4f17); the properties pin the 8.9
+// distribution by SHA-256; verification-metadata.xml pins every resolved
+// plugin and build dependency by SHA-256.
+const GRADLEW: &[u8] = include_bytes!("../../android-template/gradlew");
+const GRADLEW_BAT: &[u8] = include_bytes!("../../android-template/gradlew.bat");
+const WRAPPER_JAR: &[u8] =
+    include_bytes!("../../android-template/gradle/wrapper/gradle-wrapper.jar");
+const WRAPPER_PROPERTIES: &[u8] =
+    include_bytes!("../../android-template/gradle/wrapper/gradle-wrapper.properties");
+const VERIFICATION_METADATA: &[u8] =
+    include_bytes!("../../android-template/gradle/verification-metadata.xml");
+
+const ROOT_BUILD: &str = "plugins { id(\"com.android.application\") version \"8.7.3\" apply false; id(\"org.jetbrains.kotlin.android\") version \"2.0.21\" apply false }\n";
+// `android.builder.sdkDownload=false`: AGP must fail rather than install SDK
+// packages that are not in the lock.
+const GRADLE_PROPERTIES: &str = "org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8\nandroid.useAndroidX=true\nandroid.builder.sdkDownload=false\nkotlin.code.style=official\n";
+const APP_BUILD: &str = r#"plugins { id("com.android.application"); id("org.jetbrains.kotlin.android") }
+
+android {
+    namespace = "dev.goya.preview"
+    compileSdk = 35
+    buildToolsVersion = "34.0.0"
+    defaultConfig { applicationId = "dev.goya.preview"; minSdk = 23; targetSdk = 35; versionCode = 1; versionName = "1.0" }
+    compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
+}
+
+kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
+"#;
 fn usage() -> ! {
     eprintln!("usage: aragon-android-project <input.gscene> <output-directory> [--root-button] [--initial key=int:value|text:value|bool:value ...]");
     process::exit(2);
 }
 
-fn validate_layout(files: &[(&str, String)]) -> Result<(), (PathBuf, std::io::Error)> {
+fn validate_layout(files: &[(&str, Vec<u8>)]) -> Result<(), (PathBuf, std::io::Error)> {
     let mut paths = HashSet::new();
     for (relative, _) in files {
         let relative = Path::new(relative);
@@ -64,7 +95,7 @@ fn validate_layout(files: &[(&str, String)]) -> Result<(), (PathBuf, std::io::Er
     Ok(())
 }
 
-fn create_project(root: &Path, files: &[(&str, String)]) -> Result<(), (PathBuf, std::io::Error)> {
+fn create_project(root: &Path, files: &[(&str, Vec<u8>)]) -> Result<(), (PathBuf, std::io::Error)> {
     validate_layout(files)?;
     fs::create_dir(root).map_err(|error| (root.to_path_buf(), error))?;
 
@@ -78,9 +109,23 @@ fn create_project(root: &Path, files: &[(&str, String)]) -> Result<(), (PathBuf,
             .create_new(true)
             .open(&path)
             .map_err(|error| (path.clone(), error))?;
-        file.write_all(contents.as_bytes())
+        file.write_all(contents)
             .map_err(|error| (path.clone(), error))?;
+        if *relative == "gradlew" {
+            make_executable(&file).map_err(|error| (path.clone(), error))?;
+        }
     }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn make_executable(file: &fs::File) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    file.set_permissions(fs::Permissions::from_mode(0o755))
+}
+
+#[cfg(not(unix))]
+fn make_executable(_file: &fs::File) -> std::io::Result<()> {
     Ok(())
 }
 
@@ -207,19 +252,24 @@ fn main() {
         "GoyaStaticTextPreview"
     };
     let preview_file = format!("app/src/main/java/dev/goya/preview/{preview_name}.kt");
-    let mut files = vec![
-        ("settings.gradle.kts", format!("pluginManagement {{ repositories {{ google(); mavenCentral(); gradlePluginPortal() }} }}\ndependencyResolutionManagement {{ repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS); repositories {{ google(); mavenCentral() }} }}\nrootProject.name = \"{project_name}\"\ninclude(\":app\")\n")),
-        ("build.gradle.kts", "plugins { id(\"com.android.application\") version \"8.7.3\" apply false; id(\"org.jetbrains.kotlin.android\") version \"2.0.21\" apply false }\n".to_owned()),
-        ("gradle.properties", "org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8\nandroid.useAndroidX=true\nkotlin.code.style=official\n".to_owned()),
-        ("app/build.gradle.kts", "plugins { id(\"com.android.application\"); id(\"org.jetbrains.kotlin.android\") }\n\nandroid { namespace = \"dev.goya.preview\"; compileSdk = 35; defaultConfig { applicationId = \"dev.goya.preview\"; minSdk = 23; targetSdk = 35; versionCode = 1; versionName = \"1.0\" } }\n".to_owned()),
-        ("app/src/main/AndroidManifest.xml", "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"><application android:theme=\"@android:style/Theme.Material.Light\" android:label=\"Goya preview\"><activity android:name=\"dev.goya.preview.MainActivity\" android:exported=\"true\"><intent-filter><action android:name=\"android.intent.action.MAIN\"/><category android:name=\"android.intent.category.LAUNCHER\"/></intent-filter></activity></application></manifest>\n".to_owned()),
-        (preview_file.as_str(), format!("package {PACKAGE}\n\n{preview}")),
-        ("app/src/main/java/dev/goya/preview/MainActivity.kt", main_activity),
+    let mut files: Vec<(&str, Vec<u8>)> = vec![
+        ("settings.gradle.kts", format!("pluginManagement {{ repositories {{ google(); mavenCentral(); gradlePluginPortal() }} }}\ndependencyResolutionManagement {{ repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS); repositories {{ google(); mavenCentral() }} }}\nrootProject.name = \"{project_name}\"\ninclude(\":app\")\n").into_bytes()),
+        ("build.gradle.kts", ROOT_BUILD.as_bytes().to_vec()),
+        ("gradle.properties", GRADLE_PROPERTIES.as_bytes().to_vec()),
+        ("gradlew", GRADLEW.to_vec()),
+        ("gradlew.bat", GRADLEW_BAT.to_vec()),
+        ("gradle/wrapper/gradle-wrapper.jar", WRAPPER_JAR.to_vec()),
+        ("gradle/wrapper/gradle-wrapper.properties", WRAPPER_PROPERTIES.to_vec()),
+        ("gradle/verification-metadata.xml", VERIFICATION_METADATA.to_vec()),
+        ("app/build.gradle.kts", APP_BUILD.as_bytes().to_vec()),
+        ("app/src/main/AndroidManifest.xml", "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"><application android:theme=\"@android:style/Theme.Material.Light\" android:label=\"Goya preview\"><activity android:name=\"dev.goya.preview.MainActivity\" android:exported=\"true\"><intent-filter><action android:name=\"android.intent.action.MAIN\"/><category android:name=\"android.intent.category.LAUNCHER\"/></intent-filter></activity></application></manifest>\n".as_bytes().to_vec()),
+        (preview_file.as_str(), format!("package {PACKAGE}\n\n{preview}").into_bytes()),
+        ("app/src/main/java/dev/goya/preview/MainActivity.kt", main_activity.into_bytes()),
     ];
     if root_button {
         files.push((
             "app/src/main/java/dev/goya/preview/GoyaD1Runtime.kt",
-            format!("package {PACKAGE}\n\n{runtime}"),
+            format!("package {PACKAGE}\n\n{runtime}").into_bytes(),
         ));
     }
     create_project(root, &files).unwrap_or_else(|(path, error)| {
@@ -309,9 +359,9 @@ mod tests {
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         let files = [
-            ("first.txt", "would be written".to_owned()),
-            ("block", "file".to_owned()),
-            ("block/child.txt", "conflicts with file".to_owned()),
+            ("first.txt", b"would be written".to_vec()),
+            ("block", b"file".to_vec()),
+            ("block/child.txt", b"conflicts with file".to_vec()),
         ];
 
         let result = create_project(&root, &files);

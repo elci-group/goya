@@ -13,3 +13,6 @@ goya-runtime.workspace = true
 goya-state.workspace = true
 goya-executable.workspace = true
 goya-vee.workspace = true
+
+[dev-dependencies]
+sha2 = "0.10"

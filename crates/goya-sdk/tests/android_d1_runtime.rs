@@ -346,7 +346,9 @@ fn input_free_actions_emit_explicitly_typed_kotlin_collections() {
     }"#;
     let runtime = emit_android_d1_runtime_mapped(source, "GoyaD1Runtime").unwrap();
     assert!(runtime.kotlin.contains("inputs.keys != setOf<String>()"));
-    assert!(runtime.kotlin.contains("val snapshot = mapOf<String, Value>("));
+    assert!(runtime
+        .kotlin
+        .contains("val snapshot = mapOf<String, Value>("));
     assert!(!runtime.kotlin.contains("setOf()"));
     assert!(!runtime.kotlin.contains("= mapOf()"));
 }

@@ -20,13 +20,22 @@ destination.
 Generated file contents and paths are deterministic for the same source; no
 timestamps, generated identifiers, or machine-specific paths are included.
 
-The project intentionally has no Gradle wrapper or dependency lock. It is a
-starter project, not a reproducible Android toolchain claim. Building it needs
-an installed Gradle, JDK, Android SDK, and network/cache availability for the
-pinned plugins. Project generation does not run Gradle, create an APK, or
-establish Android compatibility or device behavior. Aragon's Android build
-and qualification gates therefore remain blocked until those checks are
-performed and recorded.
+The project carries the locked toolchain described in
+[`android-toolchain-lock.md`](android-toolchain-lock.md): the Gradle 8.9
+wrapper (`gradlew`, `gradlew.bat`, the official wrapper jar, and a
+distribution pinned by SHA-256), `gradle/verification-metadata.xml` with
+SHA-256 checksums for every plugin and build dependency, an explicit
+`buildToolsVersion`, and `android.builder.sdkDownload=false`. These files are
+copied verbatim from `crates/goya-sdk/android-template/`. With the locked JDK
+and SDK packages installed, `./gradlew --dependency-verification strict
+assembleRelease` builds an unsigned release APK; the first build needs network
+access to fetch Gradle and the verified dependencies unless they are cached.
+
+Project generation itself does not run Gradle or create an APK.
+`scripts/check-android-apk-build.sh` builds both qualification projects
+offline, twice each, and checks the APKs against recorded hashes. No generated
+APK has been installed or run, so emulator, device and platform behavior are
+not established.
 
 ## Root-button D1 project
 

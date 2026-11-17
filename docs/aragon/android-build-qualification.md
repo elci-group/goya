@@ -35,6 +35,14 @@ On 17 November 2026 a user-local Temurin JDK 21.0.13+9 was added under
 preflight's JDK checks can pass; the Android SDK and `adb` are still absent, so
 the preflight still reports missing prerequisites and the build stays blocked.
 
+On 17 November 2026 the Android SDK packages in
+[`android-toolchain-lock.md`](android-toolchain-lock.md) were installed under
+`~/.local/opt/android-sdk`. With `JAVA_HOME` and `ANDROID_HOME` set to the
+locked JDK and that SDK, the preflight reports all checked prerequisites
+present (exit 0). `adb` is installed in `platform-tools` but is not on the
+default `PATH`, and no device is attached. Generated Aragon projects are
+built by `scripts/check-android-apk-build.sh`, described in the lock document.
+
 After the preflight reports ready, run the project checks from
 `platform/android/gradle`:
 
