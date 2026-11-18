@@ -2417,6 +2417,7 @@ mod tests {
         );
         // A session-scoped declaration requires neither.
         let session_scoped = Request {
+            capabilities: vec![contract.into()],
             bluetooth_continuity: Some(BluetoothContinuityDeclaration {
                 persist_across_launches: false,
                 ..bluetooth_continuity()
