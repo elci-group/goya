@@ -93,7 +93,11 @@ pub fn lower_static_window(
 
     IrDocument {
         version: IR_VERSION.to_string(),
-        profile: crate::admit::PROFILE.to_string(),
+        profile: if floor.is_legacy() {
+            crate::admit::PROFILE_LEGACY.to_string()
+        } else {
+            crate::admit::PROFILE.to_string()
+        },
         window,
         controls,
         transition: None,
@@ -213,7 +217,16 @@ pub fn lower_interactive_window(
 
     IrDocument {
         version: IR_VERSION.to_string(),
-        profile: admitted.profile.to_string(),
+        profile: match (floor, admitted.profile == crate::interactive::PROFILE_CLIPBOARD) {
+            (crate::api_floor::ApiFloor::Win8, true) => {
+                crate::interactive::PROFILE_CLIPBOARD_LEGACY.to_string()
+            }
+            (crate::api_floor::ApiFloor::Win8, false) => {
+                crate::interactive::PROFILE_LEGACY.to_string()
+            }
+            (_, true) => crate::interactive::PROFILE_CLIPBOARD.to_string(),
+            (_, false) => crate::interactive::PROFILE.to_string(),
+        },
         window,
         controls,
         transition,

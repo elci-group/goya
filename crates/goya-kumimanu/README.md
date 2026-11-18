@@ -119,6 +119,11 @@ a cap of `MAX_PIXELS` = 16 megapixels per present.
   the peer is absent. They run on a private selection named
   `GOYA_KUMIMANU_TEST_*` (suffixed with the process id), so the desktop
   clipboard is never read or replaced.
+- The PRIMARY interop tests in the same file (`kumimanu_reads_primary_text_from_gtk`,
+  `gtk_reads_primary_text_from_kumimanu`) are the exception: PRIMARY is always
+  the real atom, so they briefly borrow the desktop primary selection for the
+  test's duration and release it when the peer or window closes. CLIPBOARD is
+  still never touched.
 - CI runs the headless suites in `unit-and-property-tests` and the
   `#[ignore]` and GTK suites in `kumimanu-display-tests`, which drives them
   with `xvfb-run` in `.github/workflows/emperor.yml`. Xvfb is a real X

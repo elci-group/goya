@@ -1,6 +1,6 @@
 # Blue Moon roadmap
 
-Status: proposed, 18 November 2026 (phases 1–3 complete same day). This is a
+Status: proposed, 18 November 2026 (phases 1–4 complete same day). This is a
 plan, not evidence. Nothing on this page claims Bluetooth hardware
 conformance, native Core Bluetooth execution, or compiler integration that
 does not yet exist.
@@ -118,18 +118,30 @@ Implemented as BLUE-MOON-1 (`docs/blue-moon/BLUE-MOON-1.md`):
 - [x] Both extend `bluetooth_runtime` and follow the BLUE-MOON-1 pattern;
       each has a rustc-piped generated-factory conformance test.
 
-### Phase 4 — Access (Gestures integration) and Profile schema (next)
+### Phase 4 — Access (Gestures integration) and Profile schema (complete 18 November 2026)
 
-- [ ] `goya.hardware.bluetooth.access.v1` — semantic input mapping from
-      supported hardware events, debouncing, long-press detection where raw
-      events are available; system-managed accessibility devices remain
-      system-managed.
-- [ ] Versioned device profile schema and reference profiles (Generic GATT,
-      Battery, Environmental, Heart Rate, HID, Controller, Accessibility
-      Switch, Serial, Audio, Custom), building on BLUE-MOON-2's
-      characteristic policies.
+- [x] BLUE-MOON-6 (`docs/blue-moon/BLUE-MOON-6.md`,
+      `goya.hardware.bluetooth.access.v1`): `bluetooth_access_caprichio` with
+      semantic input mappings (Select/Confirm/Navigate/Back/Custom) over
+      accessibility switches, adaptive controllers, game controllers and
+      custom buttons; single/double/long-press recognition from raw
+      press/release events with host-supplied monotonic timestamps;
+      debouncing; accessible labels on every binding; unmapped events
+      reported, never ignored; and structural protection of system-managed
+      accessibility devices (`intercept_system_managed` declarations are
+      rejected; keyboards/wearables/hearing devices follow system paths and
+      are not modelled).
+- [x] BLUE-MOON-7 (`docs/blue-moon/BLUE-MOON-7.md`,
+      `goya.hardware.bluetooth.profile.v1`): versioned device-profile schema
+      (`DeviceProfileRecord` + `ProfileCharacteristic` with observable GATT
+      properties) validated against per-category specification invariants,
+      a bounded `ProfileRegistry`, and all ten directive reference profiles
+      (`bluetooth.generic-gatt` … `bluetooth.custom`), each proven to
+      normalize and register in conformance tests.
+- [x] Both extend `bluetooth_runtime` and follow the BLUE-MOON-1 pattern;
+      each has a rustc-piped generated-factory conformance test.
 
-### Phase 5 — Goya language and Neptune integration
+### Phase 5 — Goya language and Neptune integration (next)
 
 - [ ] Bluetooth declarations in `goya-lang` (grammar, semantic validation).
 - [ ] Neptune consumes registry-negotiated artifacts; entitlement and
@@ -159,12 +171,17 @@ blocked mandatory gates prevent production qualification (directive §16).
 
 ## Current supported surface
 
-Exactly five implemented Bluetooth contracts:
+Exactly seven implemented Bluetooth contracts:
+`goya.hardware.bluetooth.access.v1` (BLUE-MOON-6),
 `goya.hardware.bluetooth.central.v1` (BLUE-MOON-1),
 `goya.hardware.bluetooth.continuity.v1` (BLUE-MOON-5),
 `goya.hardware.bluetooth.gatt.v1` (BLUE-MOON-2),
-`goya.hardware.bluetooth.guard.v1` (BLUE-MOON-4) and
-`goya.hardware.bluetooth.stream.v1` (BLUE-MOON-3). The 80 draft catalog
-entries remain unimplemented design intent. No other Bluetooth capability —
-advertising, pairing, profiles, audio routing, watchOS/tvOS/visionOS targets
-— is implemented, and none may be reported as such.
+`goya.hardware.bluetooth.guard.v1` (BLUE-MOON-4),
+`goya.hardware.bluetooth.profile.v1` (BLUE-MOON-7) and
+`goya.hardware.bluetooth.stream.v1` (BLUE-MOON-3). This covers six of the
+directive's eight caprichios (Discovery, Link, Access, Control, Stream,
+Guard, Continuity, Profile) as deterministic construction contracts; only
+native execution is outstanding. The 80 draft catalog entries remain
+unimplemented design intent. No other Bluetooth capability — advertising,
+pairing, audio routing, watchOS/tvOS/visionOS targets — is implemented, and
+none may be reported as such.

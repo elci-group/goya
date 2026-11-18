@@ -116,15 +116,42 @@ restoration and persistent-storage facilities only when the declaration
 asks for it, and the canonical IR states `relaunch_promised=none`: Apple's
 Bluetooth state restoration is conditional and no relaunch is promised.
 
-All five do not drive a radio, subscribe to a real peripheral, perform real
-GATT operations, advertise, persist anything, restore state, or generate
-entitlements or usage descriptions. A constructed session is an accounting
-model, not evidence about any Bluetooth adapter. See
+`bluetooth_access_caprichio` (`goya.hardware.bluetooth.access.v1`, recipe
+`apple-ble-access-bounded-mapping`) covers semantic input mapping for
+alternative Bluetooth input devices (accessibility switches, adaptive
+controllers, game controllers, custom buttons). Raw press/release events
+with host-supplied monotonic timestamps are recognised into single, double
+and long presses, mapped through bounded binding tables to semantic actions
+with accessible labels, and debounced. Unmapped events are reported and
+counted, never silently ignored. A declaration that asks to intercept
+system-managed accessibility devices is rejected at normalization, and
+keyboards, wearables and hearing devices follow system paths this recipe
+never models.
+
+`bluetooth_profile_caprichio` (`goya.hardware.bluetooth.profile.v1`, recipe
+`apple-ble-profile-bounded-classification`) covers the versioned
+device-profile schema: a profile describes the externally observable
+capabilities of a class of peripherals (required and optional
+characteristics with GATT-style properties and value bounds), validated
+against per-category specification invariants (Battery 2A19 read, Heart
+Rate 2A37 notify, HID 2A4D notify, Nordic-UART serial, and so on). The ten
+directive reference profiles (`bluetooth.generic-gatt` … `bluetooth.custom`)
+are provided as versioned 1.0.0 definitions. Profiles classify nothing
+against real devices; the canonical IR states
+`spec_validation=category_invariants_only`.
+
+All seven do not drive a radio, subscribe to a real peripheral, perform real
+GATT operations, advertise, persist anything, restore state, receive real
+input events, classify real devices, or generate entitlements or usage
+descriptions. A constructed session is an accounting model, not evidence
+about any Bluetooth adapter. See
 [docs/blue-moon/BLUE-MOON-1.md](../../docs/blue-moon/BLUE-MOON-1.md),
 [docs/blue-moon/BLUE-MOON-2.md](../../docs/blue-moon/BLUE-MOON-2.md),
 [docs/blue-moon/BLUE-MOON-3.md](../../docs/blue-moon/BLUE-MOON-3.md),
 [docs/blue-moon/BLUE-MOON-4.md](../../docs/blue-moon/BLUE-MOON-4.md),
-[docs/blue-moon/BLUE-MOON-5.md](../../docs/blue-moon/BLUE-MOON-5.md) and
+[docs/blue-moon/BLUE-MOON-5.md](../../docs/blue-moon/BLUE-MOON-5.md),
+[docs/blue-moon/BLUE-MOON-6.md](../../docs/blue-moon/BLUE-MOON-6.md),
+[docs/blue-moon/BLUE-MOON-7.md](../../docs/blue-moon/BLUE-MOON-7.md) and
 [docs/blue-moon/roadmap.md](../../docs/blue-moon/roadmap.md).
 
 This crate defines a typed construction boundary for one HTTPS GET.
