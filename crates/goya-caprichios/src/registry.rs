@@ -2117,6 +2117,7 @@ mod tests {
         );
         // A notifications-only declaration does not require indications.
         let notifications_only = Request {
+            capabilities: vec![contract.into()],
             bluetooth_stream: Some(BluetoothStreamDeclaration {
                 characteristics: vec![crate::bluetooth_runtime::StreamCharacteristic::new(
                     "2A6E".to_owned(),
@@ -2131,7 +2132,8 @@ mod tests {
         without_indications
             .bluetooth_stream_host
             .characteristic_indications = false;
-        assert!(negotiate(&notifications_only, without_indications).is_ok());
+        let result = negotiate(&notifications_only, without_indications);
+        assert!(result.is_ok(), "{:?}", result.err());
     }
 
     #[test]
