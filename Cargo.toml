@@ -65,6 +65,7 @@ members = [
     "crates/emperor",
     "crates/emperor-runtime",
     "crates/ie-contract",
+    "crates/ie-cpu",
 ]
 
 [workspace.package]

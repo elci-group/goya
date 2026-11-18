@@ -1335,6 +1335,13 @@ name = "ie-contract"
 version = "0.1.8"
 
 [[package]]
+name = "ie-cpu"
+version = "0.1.8"
+dependencies = [
+ "ie-contract",
+]
+
+[[package]]
 name = "indexmap"
 version = "2.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
