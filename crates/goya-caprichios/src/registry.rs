@@ -630,9 +630,6 @@ pub fn negotiate(
     let needs_bluetooth_central = ordered.contains(crate::bluetooth_caprichio::CONTRACT);
     let needs_bluetooth_gatt = ordered.contains(crate::bluetooth_control_caprichio::CONTRACT);
     let needs_bluetooth_stream = ordered.contains(crate::bluetooth_stream_caprichio::CONTRACT);
-    let needs_windows_hello = ordered.contains(crate::windows_hello_caprichio::CONTRACT);
-    let needs_google_pay = ordered.contains(crate::google_pay_caprichio::CONTRACT);
-    let needs_samsung_pay = ordered.contains(crate::samsung_pay_caprichio::CONTRACT);
     if request.network.is_some() && !needs_network {
         return Err(NegotiationError::UnexpectedDeclaration { kind: "network" });
     }
@@ -740,21 +737,6 @@ pub fn negotiate(
     if request.bluetooth_stream.is_some() && !needs_bluetooth_stream {
         return Err(NegotiationError::UnexpectedDeclaration {
             kind: "bluetooth_stream",
-        });
-    }
-    if request.windows_hello.is_some() && !needs_windows_hello {
-        return Err(NegotiationError::UnexpectedDeclaration {
-            kind: "windows_hello",
-        });
-    }
-    if request.google_pay.is_some() && !needs_google_pay {
-        return Err(NegotiationError::UnexpectedDeclaration {
-            kind: "google_pay",
-        });
-    }
-    if request.samsung_pay.is_some() && !needs_samsung_pay {
-        return Err(NegotiationError::UnexpectedDeclaration {
-            kind: "samsung_pay",
         });
     }
 

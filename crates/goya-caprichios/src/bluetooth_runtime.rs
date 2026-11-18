@@ -710,16 +710,12 @@ impl GattSession {
     /// reads; the observed value arrives from the host and is checked by
     /// `validate_value`.
     pub fn read(&mut self, uuid: &str) -> Result<ReadReceipt, BluetoothError> {
-        let (owned_uuid, access, max_value_bytes) = {
+        let (owned_uuid, max_value_bytes) = {
             let policy = self.policy(uuid)?;
             if !policy.access.permits_read() {
                 return Err(BluetoothError::UnsupportedOperation);
             }
-            (
-                policy.uuid().to_owned(),
-                policy.access,
-                policy.max_value_bytes,
-            )
+            (policy.uuid().to_owned(), policy.max_value_bytes)
         };
         Ok(ReadReceipt {
             command_id: self.next_command_id(),
@@ -738,16 +734,12 @@ impl GattSession {
         mode: WriteMode,
         value: &[u8],
     ) -> Result<WriteReport, BluetoothError> {
-        let (owned_uuid, access, max_value_bytes) = {
+        let (owned_uuid, max_value_bytes) = {
             let policy = self.policy(uuid)?;
             if !policy.access.permits_write() {
                 return Err(BluetoothError::UnsupportedOperation);
             }
-            (
-                policy.uuid().to_owned(),
-                policy.access,
-                policy.max_value_bytes,
-            )
+            (policy.uuid().to_owned(), policy.max_value_bytes)
         };
         if value.len() > max_value_bytes {
             return Err(BluetoothError::ValueTooLarge);
@@ -1700,12 +1692,17 @@ mod tests {
         assert_eq!(session.pending_confirmations(), 0);
         assert_eq!(session.confirm(indication.ordinal()), Err(BluetoothError::UnknownOrdinal));
 
+        // Drain the buffer so later intakes fit the bound of two.
+        assert!(session.take().is_some());
+        assert!(session.take().is_some());
+        assert!(session.take().is_none());
+
         // Cancellation discards buffered items and pending confirmations.
         let pending = session.receive("2A37", &[3]).unwrap();
         assert_eq!(session.pending_confirmations(), 1);
         session.cancel("2A37").unwrap();
         assert_eq!(session.cancel("2A37"), Err(BluetoothError::WrongState));
-        assert_eq!(session.buffered(), 1);
+        assert_eq!(session.buffered(), 0);
         assert_eq!(session.pending_confirmations(), 0);
         assert_eq!(session.cancelled(), 1);
         assert_eq!(
