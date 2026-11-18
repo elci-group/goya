@@ -568,6 +568,16 @@ pub(crate) fn synthetic_gui_image(machine: u16, magic: u16, dll_characteristics:
 }
 
 #[cfg(test)]
+pub(crate) fn synthetic_gui_image_with_manifest(
+    machine: u16,
+    magic: u16,
+    dll_characteristics: u16,
+    manifest: &str,
+) -> Vec<u8> {
+    tests::image_with_manifest(machine, magic, dll_characteristics, manifest)
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -589,6 +599,24 @@ mod tests {
             PE32_PLUS,
             HIGH_ENTROPY_VA | DYNAMIC_BASE | NX_COMPAT | GUARD_CF,
         )
+    }
+
+    pub(super) fn image_with_manifest(
+        machine: u16,
+        magic: u16,
+        dll_characteristics: u16,
+        manifest: &str,
+    ) -> Vec<u8> {
+        let mut bytes = Self::image(machine, magic, dll_characteristics);
+        // The synthetic manifest lives at file 0x720 with room to 0x7FF; the
+        // declared size at 0x664 controls how much the reader consumes.
+        let declared = read_u32(&bytes, 0x664).unwrap() as usize;
+        let manifest = manifest.as_bytes();
+        assert!(manifest.len() <= 0x800 - 0x720, "synthetic manifest too long");
+        bytes[0x720..0x720 + declared].fill(0);
+        bytes[0x720..0x720 + manifest.len()].copy_from_slice(manifest);
+        put_u32(&mut bytes, 0x664, manifest.len() as u32);
+        bytes
     }
 
     pub(super) fn image(machine: u16, magic: u16, dll_characteristics: u16) -> Vec<u8> {

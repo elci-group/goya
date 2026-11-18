@@ -236,7 +236,7 @@ mod tests {
         assert_eq!(first.contract, CONTRACT);
         assert!(first.canonical_ir.contains("target=ios\n"));
         assert!(first.canonical_ir.contains("session=ble_guard_bounded_authorisation\n"));
-        assert!(first.canonical_ir.contains("usage_description_bytes=51\n"));
+        assert!(first.canonical_ir.contains("usage_description_bytes=53\n"));
         assert!(first.canonical_ir.contains("max_authorised_peripherals=4\n"));
         assert!(first.canonical_ir.contains("explicit_selection=required\n"));
         assert!(first.canonical_ir.contains("usage_keys_generated=none\n"));
