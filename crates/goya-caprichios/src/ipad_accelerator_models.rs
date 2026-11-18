@@ -5,9 +5,6 @@
 //! [`crate::accelerator_models!`] from the shared engine. This file holds
 //! only published catalog facts, in release order.
 
-// The shared macro is exported at the crate root.
-pub use crate::accelerator_models;
-
 crate::accelerator_models!(
     "ipad",
     (ipad, "iPad", "A4", None, None),
