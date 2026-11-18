@@ -607,7 +607,7 @@ mod tests {
         dll_characteristics: u16,
         manifest: &str,
     ) -> Vec<u8> {
-        let mut bytes = Self::image(machine, magic, dll_characteristics);
+        let mut bytes = image(machine, magic, dll_characteristics);
         // The synthetic manifest lives at file 0x720 with room to 0x7FF; the
         // declared size at 0x664 controls how much the reader consumes.
         let declared = read_u32(&bytes, 0x664).unwrap() as usize;

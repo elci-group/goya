@@ -58,11 +58,7 @@ pub fn execute(invocation: Invocation) -> Run {
             "benchmark suites are not measured in compiler 0.0.1",
         ),
         CommandKind::Package => package(invocation),
-        CommandKind::Qualify => blocked_dir(
-            invocation,
-            "EMP-QUALIFY",
-            "the linux-release matrix has not been executed",
-        ),
+        CommandKind::Qualify => qualify(invocation),
     }
 }
 

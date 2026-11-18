@@ -1094,11 +1094,12 @@ mod tests {
     fn verify_accepts_the_matching_legacy_floor() {
         let dir = std::env::temp_dir();
         let path = dir.join(format!("sash-verify-legacy-floor-{}.exe", std::process::id()));
-        let manifest = "level=\"asInvoker\" uiAccess=\"false\" \
-            <dpiAware>true</dpiAware> \
-            processorArchitecture=\"amd64\" \
-            name=\"ELCI.Goya.Sash.StaticWindow.Legacy\" version=\"0.0.1.0\"";
-        let manifest = manifest.replace(" \\\n            ", " ");
+        let manifest = concat!(
+            "level=\"asInvoker\" uiAccess=\"false\" ",
+            "<dpiAware>true</dpiAware> ",
+            "processorArchitecture=\"amd64\" ",
+            "name=\"ELCI.Goya.Sash.StaticWindow.Legacy\" version=\"0.0.1.0\""
+        );
         let bytes = pe::synthetic_gui_image_with_manifest(
             0x8664,
             0x020B,
