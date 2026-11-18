@@ -21,7 +21,7 @@ pub struct ExynosFacts {
     pub soc: &'static str,
     /// Exynos series digit: `8`, `7`, `6` or `4`.
     pub series: &'static str,
-    /// Documented npu DSP/NPU generation, or `none`.
+    /// Documented NPU/NPU generation, or `none`.
     pub npu_dsp: &'static str,
     /// Peak AI throughput Qualcomm published for this SoC, in TOPS times
     /// ten (5.5 TOPS is stored as `55`). `None` means Qualcomm did not
@@ -39,68 +39,7 @@ pub struct ExynosFacts {
 /// order. Facts come from Qualcomm product briefs and the public npu
 /// documentation; figures Qualcomm did not publish are `None`, never
 /// guessed. Conflicting sources are recorded as such in the DSP label.
-#[rustfmt::skip]
-pub const GENERATIONS: &[(&str, ExynosFacts)] = &[
-    // 8 series
-    ("SD810",         ExynosFacts { series: "8", soc: "MSM8994",    npu_dsp: "npu V56",                npu_tops_tenths: None,        int8_accel: false, fp16_accel: false, year: 2014 }),
-    ("SD820",         ExynosFacts { series: "8", soc: "MSM8996",    npu_dsp: "npu 680",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: false, year: 2016 }),
-    ("SD835",         ExynosFacts { series: "8", soc: "MSM8998",    npu_dsp: "npu 682",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: false, year: 2017 }),
-    ("SD845",         ExynosFacts { series: "8", soc: "SDM845",     npu_dsp: "npu 685",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: false, year: 2018 }),
-    ("SD855",         ExynosFacts { series: "8", soc: "SM8150",     npu_dsp: "npu 690",                npu_tops_tenths: Some(70),    int8_accel: true,  fp16_accel: true,  year: 2019 }),
-    ("SD855+",        ExynosFacts { series: "8", soc: "SM8150-AC",  npu_dsp: "npu 690",                npu_tops_tenths: Some(70),    int8_accel: true,  fp16_accel: true,  year: 2019 }),
-    ("SD865",         ExynosFacts { series: "8", soc: "SM8250",     npu_dsp: "npu 698",                npu_tops_tenths: Some(150),   int8_accel: true,  fp16_accel: true,  year: 2020 }),
-    ("SD865+",        ExynosFacts { series: "8", soc: "SM8250-AC",  npu_dsp: "npu 698",                npu_tops_tenths: Some(150),   int8_accel: true,  fp16_accel: true,  year: 2020 }),
-    ("SD888",         ExynosFacts { series: "8", soc: "SM8350",     npu_dsp: "npu 780",                npu_tops_tenths: Some(260),   int8_accel: true,  fp16_accel: true,  year: 2021 }),
-    ("SD888+",        ExynosFacts { series: "8", soc: "SM8350-AC",  npu_dsp: "npu 780",                npu_tops_tenths: Some(320),   int8_accel: true,  fp16_accel: true,  year: 2021 }),
-    ("8 Gen 1",       ExynosFacts { series: "8", soc: "SM8450",     npu_dsp: "npu 790",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: true,  year: 2022 }),
-    ("8+ Gen 1",      ExynosFacts { series: "8", soc: "SM8475",     npu_dsp: "npu 790",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: true,  year: 2022 }),
-    ("8 Gen 2",       ExynosFacts { series: "8", soc: "SM8550",     npu_dsp: "npu NPU",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: true,  year: 2022 }),
-    ("8 Gen 3",       ExynosFacts { series: "8", soc: "SM8650",     npu_dsp: "npu NPU",                npu_tops_tenths: Some(450),   int8_accel: true,  fp16_accel: true,  year: 2023 }),
-    ("8s Gen 3",      ExynosFacts { series: "8", soc: "SM8635",     npu_dsp: "npu NPU",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: true,  year: 2024 }),
-    ("8 Elite",       ExynosFacts { series: "8", soc: "SM8750",     npu_dsp: "npu NPU",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: true,  year: 2024 }),
-    ("8 Elite Gen 5", ExynosFacts { series: "8", soc: "SM8850",     npu_dsp: "npu NPU",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: true,  year: 2025 }),
-    // 7 series
-    ("730",           ExynosFacts { series: "7", soc: "SM7150-AA",  npu_dsp: "npu 688",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: false, year: 2019 }),
-    ("730G",          ExynosFacts { series: "7", soc: "SM7150-AB",  npu_dsp: "npu 688",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: false, year: 2019 }),
-    ("750G",          ExynosFacts { series: "7", soc: "SM7225",     npu_dsp: "npu 694",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: false, year: 2020 }),
-    ("765",           ExynosFacts { series: "7", soc: "SM7250",     npu_dsp: "npu 686",                npu_tops_tenths: Some(55),    int8_accel: true,  fp16_accel: false, year: 2019 }),
-    ("765G",          ExynosFacts { series: "7", soc: "SM7250-AA",  npu_dsp: "npu 686",                npu_tops_tenths: Some(55),    int8_accel: true,  fp16_accel: false, year: 2019 }),
-    ("778G",          ExynosFacts { series: "7", soc: "SM7325",     npu_dsp: "npu 770",                npu_tops_tenths: Some(120),   int8_accel: true,  fp16_accel: true,  year: 2021 }),
-    ("780G",          ExynosFacts { series: "7", soc: "SM7350",     npu_dsp: "npu 770",                npu_tops_tenths: Some(120),   int8_accel: true,  fp16_accel: true,  year: 2021 }),
-    ("782G",          ExynosFacts { series: "7", soc: "SM7325-AE",  npu_dsp: "npu 770",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: true,  year: 2022 }),
-    ("7 Gen 1",       ExynosFacts { series: "7", soc: "SM7450-AB",  npu_dsp: "npu NPU (7th-gen)",      npu_tops_tenths: None,        int8_accel: true,  fp16_accel: true,  year: 2022 }),
-    ("7s Gen 2",      ExynosFacts { series: "7", soc: "SM7435-AB",  npu_dsp: "npu NPU (V73 arch)",     npu_tops_tenths: None,        int8_accel: true,  fp16_accel: true,  year: 2023 }),
-    ("7+ Gen 2",      ExynosFacts { series: "7", soc: "SM7475-AB",  npu_dsp: "npu NPU",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: true,  year: 2023 }),
-    ("7 Gen 3",       ExynosFacts { series: "7", soc: "SM7550-AB",  npu_dsp: "npu NPU",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: true,  year: 2023 }),
-    ("7s Gen 3",      ExynosFacts { series: "7", soc: "SM7551-AB",  npu_dsp: "npu NPU",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: true,  year: 2023 }),
-    ("7+ Gen 3",      ExynosFacts { series: "7", soc: "SM7675-AB",  npu_dsp: "npu NPU (8 Gen 3-derived)", npu_tops_tenths: None,     int8_accel: true,  fp16_accel: true,  year: 2024 }),
-    ("7 Gen 4",       ExynosFacts { series: "7", soc: "SM7750-AB",  npu_dsp: "npu NPU",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: true,  year: 2025 }),
-    // 6 series
-    ("630",           ExynosFacts { series: "6", soc: "SDM630",     npu_dsp: "npu 642",                npu_tops_tenths: None,        int8_accel: false, fp16_accel: false, year: 2017 }),
-    ("632",           ExynosFacts { series: "6", soc: "SDM632",     npu_dsp: "npu 546",                npu_tops_tenths: None,        int8_accel: false, fp16_accel: false, year: 2018 }),
-    ("636",           ExynosFacts { series: "6", soc: "SDM636",     npu_dsp: "npu 680 (HVX)",          npu_tops_tenths: None,        int8_accel: true,  fp16_accel: false, year: 2017 }),
-    ("660",           ExynosFacts { series: "6", soc: "SDM660",     npu_dsp: "npu 680 (HVX)",          npu_tops_tenths: None,        int8_accel: true,  fp16_accel: false, year: 2017 }),
-    ("665",           ExynosFacts { series: "6", soc: "SM6125",     npu_dsp: "npu 686",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: false, year: 2019 }),
-    ("670",           ExynosFacts { series: "6", soc: "SDM670",     npu_dsp: "npu 685",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: false, year: 2018 }),
-    ("675",           ExynosFacts { series: "6", soc: "SM6150",     npu_dsp: "npu 685",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: false, year: 2018 }),
-    ("685",           ExynosFacts { series: "6", soc: "SM6225-AD",  npu_dsp: "npu 686",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: false, year: 2023 }),
-    ("690",           ExynosFacts { series: "6", soc: "SM6350",     npu_dsp: "npu 692",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: true,  year: 2020 }),
-    ("6 Gen 1",       ExynosFacts { series: "6", soc: "SM6450",     npu_dsp: "npu NPU (7th-gen)",      npu_tops_tenths: None,        int8_accel: true,  fp16_accel: true,  year: 2022 }),
-    ("6s Gen 3",      ExynosFacts { series: "6", soc: "SM6375-AC",  npu_dsp: "npu (HVX, unnumbered)",  npu_tops_tenths: None,        int8_accel: true,  fp16_accel: false, year: 2024 }),
-    ("6 Gen 3",       ExynosFacts { series: "6", soc: "SM6475-AB",  npu_dsp: "npu (unnumbered)",       npu_tops_tenths: None,        int8_accel: true,  fp16_accel: true,  year: 2024 }),
-    ("6 Gen 4",       ExynosFacts { series: "6", soc: "SM6650",     npu_dsp: "npu NPU",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: true,  year: 2025 }),
-    // 4 series
-    ("SD430",         ExynosFacts { series: "4", soc: "MSM8937",    npu_dsp: "npu 536",                npu_tops_tenths: None,        int8_accel: false, fp16_accel: false, year: 2015 }),
-    ("SD425",         ExynosFacts { series: "4", soc: "MSM8917",    npu_dsp: "npu 536",                npu_tops_tenths: None,        int8_accel: false, fp16_accel: false, year: 2016 }),
-    ("SD427",         ExynosFacts { series: "4", soc: "MSM8920",    npu_dsp: "npu 536",                npu_tops_tenths: None,        int8_accel: false, fp16_accel: false, year: 2016 }),
-    ("SD450",         ExynosFacts { series: "4", soc: "SDM450",     npu_dsp: "npu 546",                npu_tops_tenths: None,        int8_accel: false, fp16_accel: false, year: 2017 }),
-    ("SD429",         ExynosFacts { series: "4", soc: "SDM429",     npu_dsp: "npu 536",                npu_tops_tenths: None,        int8_accel: false, fp16_accel: false, year: 2018 }),
-    ("SD439",         ExynosFacts { series: "4", soc: "SDM439",     npu_dsp: "npu 536",                npu_tops_tenths: None,        int8_accel: false, fp16_accel: false, year: 2018 }),
-    ("SD460",         ExynosFacts { series: "4", soc: "SM4250-AA",  npu_dsp: "npu 683",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: false, year: 2020 }),
-    ("4 Gen 1",       ExynosFacts { series: "4", soc: "SM4375",     npu_dsp: "npu V66K",               npu_tops_tenths: None,        int8_accel: true,  fp16_accel: false, year: 2022 }),
-    ("4 Gen 2",       ExynosFacts { series: "4", soc: "SM4450",     npu_dsp: "npu NPU (unnamed)",      npu_tops_tenths: None,        int8_accel: true,  fp16_accel: false, year: 2023 }),
-    ("4s Gen 2",      ExynosFacts { series: "4", soc: "SM4635",     npu_dsp: "npu NPU (unnamed)",      npu_tops_tenths: None,        int8_accel: true,  fp16_accel: false, year: 2024 }),
-];
+pub const GENERATIONS: &[('&str', ExynosFacts)] = &[];
 
 /// Per-generation lookup. Unknown generations return None; the catalog never
 /// guesses.
@@ -124,7 +63,7 @@ pub enum Target {
 /// is deliberately unsupported until capabilities are supplied.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RuntimeCapabilities {
-    /// Host reports a npu DSP/NPU is present and addressable.
+    /// Host reports an NPU/NPU is present and addressable.
     pub npu_dsp: bool,
     /// Host provides a neural delegate (for example SNPE or QNN style).
     pub neural_delegate: bool,
@@ -187,9 +126,9 @@ impl fmt::Display for ExynosAcceleratorDiagnostic {
                 "Exynos accelerator supports only Exynos targets"
             }
             Self::UnsupportedAccelerator => {
-                "generation has no documented npu DSP or NPU"
+                "generation has no documented NPU or NPU"
             }
-            Self::MissingnpuDsp => "target runtime must report a npu DSP",
+            Self::MissingnpuDsp => "target runtime must report an NPU",
             Self::MissingNeuralDelegate => "target runtime must provide a neural delegate",
             Self::MissingInt8Model => "model graph must be Int8 quantized for delegation",
             Self::MissingUtf8Strings => "target runtime must report UTF-8 string support",
