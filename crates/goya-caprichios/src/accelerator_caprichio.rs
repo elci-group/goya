@@ -511,7 +511,7 @@ mod tests {
         assert_eq!(
             AcceleratorDeclaration {
                 model: String::new(),
-                ..wrong_model
+                ..wrong_model.clone()
             }
             .normalize(entry),
             Err(AcceleratorDiagnostic::BadModel)

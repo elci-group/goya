@@ -4,6 +4,7 @@ members = [
     "crates/goya-caprichios",
     "crates/maja",
     "crates/maja-semantic",
+    "crates/quitasol-semantic",
     "crates/maja-frampton",
     "crates/maja-runtime",
     "crates/neptune",
