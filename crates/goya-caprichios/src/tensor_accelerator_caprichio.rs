@@ -3,7 +3,7 @@
 //! The negotiated artifact is a checked delegate plan and a factory binding
 //! to this crate's plan runtime. It does not compile models, claim DSP
 //! access, guarantee scheduling, or prove that inference ran. Hosts on
-//! Tensor hardware report their real npu facilities through
+//! Tensor hardware report their real TPU facilities through
 //! [`RuntimeCapabilities`].
 
 use std::fmt;
@@ -35,13 +35,18 @@ pub struct TensorFacts {
     pub year: u16,
 }
 
-/// Catalog order is series-major (8, 7, 6, 4); within a series, release
-/// order. Facts come from Qualcomm product briefs and the public npu
-/// documentation; figures Samsung did not publish are `None`, never
-/// guessed. Tensor 2300 is excluded: designed but never shipped
-/// commercially. Each entry is the Samsung flagship contemporary with a
-/// Snapdragon 8-series generation.
-pub const GENERATIONS: &[(&str, TensorFacts)] = &[];
+/// Catalog order is release order. Facts come from Google/Coral
+/// documentation and the public Tensor record; Google has never published
+/// TOPS figures for any Tensor TPU, so all throughput fields are `None`
+/// rather than guessed. Edge TPU acceleration is documented as INT8-only.
+#[rustfmt::skip]
+pub const GENERATIONS: &[(&str, TensorFacts)] = &[
+    ("Tensor G1", TensorFacts { series: "G", soc: "GS101", apu_dsp: "Edge TPU (1st gen, Abrolhos)", npu_tops_tenths: None, int8_accel: true, fp16_accel: false, year: 2021 }),
+    ("Tensor G2", TensorFacts { series: "G", soc: "GS201", apu_dsp: "Edge TPU (2nd gen, Janeiro)", npu_tops_tenths: None, int8_accel: true, fp16_accel: false, year: 2022 }),
+    ("Tensor G3", TensorFacts { series: "G", soc: "GS301", apu_dsp: "Edge TPU (3rd gen, Rio)", npu_tops_tenths: None, int8_accel: true, fp16_accel: false, year: 2023 }),
+    ("Tensor G4", TensorFacts { series: "G", soc: "GS401", apu_dsp: "TPU (4th gen, Zuma Pro)", npu_tops_tenths: None, int8_accel: true, fp16_accel: false, year: 2024 }),
+    ("Tensor G5", TensorFacts { series: "G", soc: "GS501", apu_dsp: "TPU (5th gen, first TSMC-fabbed)", npu_tops_tenths: None, int8_accel: true, fp16_accel: false, year: 2025 }),
+];
 
 /// Per-generation lookup. Unknown generations return None; the catalog never
 /// guesses.

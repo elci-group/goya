@@ -3,7 +3,7 @@
 //! The negotiated artifact is a checked delegate plan and a factory binding
 //! to this crate's plan runtime. It does not compile models, claim DSP
 //! access, guarantee scheduling, or prove that inference ran. Hosts on
-//! MediaTek hardware report their real npu facilities through
+//! MediaTek hardware report their real APU facilities through
 //! [`RuntimeCapabilities`].
 
 use std::fmt;
@@ -35,13 +35,29 @@ pub struct MediaTekFacts {
     pub year: u16,
 }
 
-/// Catalog order is series-major (8, 7, 6, 4); within a series, release
-/// order. Facts come from Qualcomm product briefs and the public npu
-/// documentation; figures Samsung did not publish are `None`, never
-/// guessed. MediaTek 2300 is excluded: designed but never shipped
-/// commercially. Each entry is the Samsung flagship contemporary with a
-/// Snapdragon 8-series generation.
-pub const GENERATIONS: &[(&str, MediaTekFacts)] = &[];
+/// Catalog order is release order. Facts come from MediaTek product
+/// pages, press releases and NeuroPilot/LiteRT documentation; MediaTek
+/// publishes no official AI TOPS figures, so all throughput fields are
+/// `None` rather than guessed. Third-party TOPS figures are excluded.
+#[rustfmt::skip]
+pub const GENERATIONS: &[(&str, MediaTekFacts)] = &[
+    ("Dimensity 9000",  MediaTekFacts { series: "9", soc: "MT6983", apu_dsp: "APU 690 (8-core, 6th-gen APU)", npu_tops_tenths: None, int8_accel: true, fp16_accel: true, year: 2021 }),
+    ("Dimensity 9000+", MediaTekFacts { series: "9", soc: "MT6983", apu_dsp: "APU 690 (8-core, 6th-gen APU)", npu_tops_tenths: None, int8_accel: true, fp16_accel: true, year: 2022 }),
+    ("Dimensity 9200",  MediaTekFacts { series: "9", soc: "MT6985", apu_dsp: "APU 690 (8-core, 6th-gen APU)", npu_tops_tenths: None, int8_accel: true, fp16_accel: true, year: 2022 }),
+    ("Dimensity 9200+", MediaTekFacts { series: "9", soc: "MT6985", apu_dsp: "APU 690 (8-core, 6th-gen APU)", npu_tops_tenths: None, int8_accel: true, fp16_accel: true, year: 2023 }),
+    ("Dimensity 9300",  MediaTekFacts { series: "9", soc: "MT6989", apu_dsp: "APU 790 (7th-gen, Transformer engine, INT4/INT8/FP16)", npu_tops_tenths: None, int8_accel: true, fp16_accel: true, year: 2023 }),
+    ("Dimensity 9300+", MediaTekFacts { series: "9", soc: "MT6989", apu_dsp: "APU 790 (7th-gen, Transformer engine, INT4/INT8/FP16)", npu_tops_tenths: None, int8_accel: true, fp16_accel: true, year: 2024 }),
+    ("Dimensity 9400",  MediaTekFacts { series: "9", soc: "MT6991", apu_dsp: "APU 890 (8th-gen, FP8/INT8/FP16, MoE/MLA)", npu_tops_tenths: None, int8_accel: true, fp16_accel: true, year: 2024 }),
+    ("Dimensity 9400+", MediaTekFacts { series: "9", soc: "MT6991", apu_dsp: "APU 890 (8th-gen, FP8/INT8/FP16, speculative decoding)", npu_tops_tenths: None, int8_accel: true, fp16_accel: true, year: 2025 }),
+    ("Dimensity 8000",  MediaTekFacts { series: "8", soc: "MT6895", apu_dsp: "APU 580", npu_tops_tenths: None, int8_accel: true, fp16_accel: true, year: 2022 }),
+    ("Dimensity 8100",  MediaTekFacts { series: "8", soc: "MT6895", apu_dsp: "APU 580", npu_tops_tenths: None, int8_accel: true, fp16_accel: true, year: 2022 }),
+    ("Dimensity 8200",  MediaTekFacts { series: "8", soc: "MT6896", apu_dsp: "APU 580", npu_tops_tenths: None, int8_accel: true, fp16_accel: true, year: 2022 }),
+    ("Dimensity 8300",  MediaTekFacts { series: "8", soc: "MT6897", apu_dsp: "APU 680", npu_tops_tenths: None, int8_accel: true, fp16_accel: true, year: 2023 }),
+    ("Dimensity 8400",  MediaTekFacts { series: "8", soc: "MT6899", apu_dsp: "NPU 880 (APU-lineage, Gen-AI/agentic)", npu_tops_tenths: None, int8_accel: true, fp16_accel: true, year: 2024 }),
+    ("Dimensity 7200",  MediaTekFacts { series: "7", soc: "MT6886", apu_dsp: "APU 650", npu_tops_tenths: None, int8_accel: true, fp16_accel: true, year: 2023 }),
+    ("Dimensity 7300",  MediaTekFacts { series: "7", soc: "MT6878", apu_dsp: "APU 650-class (name not officially confirmed)", npu_tops_tenths: None, int8_accel: true, fp16_accel: true, year: 2024 }),
+    ("Dimensity 7400",  MediaTekFacts { series: "7", soc: "MT6878", apu_dsp: "APU 655 (third-party; not confirmed by MediaTek)", npu_tops_tenths: None, int8_accel: true, fp16_accel: true, year: 2025 }),
+];
 
 /// Per-generation lookup. Unknown generations return None; the catalog never
 /// guesses.
