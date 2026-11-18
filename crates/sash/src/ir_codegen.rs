@@ -2815,6 +2815,65 @@ mod tests {
     }
 
     #[test]
+    fn legacy_static_fixture_digest_is_pinned() {
+        let window = admit::admit(include_str!("../fixtures/static-window.gscene")).unwrap();
+        let generated = codegen_from_ir(
+            &crate::ir_lower::lower_static_window(&window, crate::api_floor::ApiFloor::Win8),
+            crate::api_floor::ApiFloor::Win8,
+        );
+        assert_eq!(
+            generated.source_map["generated_digest"],
+            "e114089f15ffac75805c5c949d5f864bc41b53fd7f4d1342b44dbe21ef90bd68"
+        );
+        // The legacy adapter carries the system-DPI APIs and none of the
+        // per-monitor set.
+        assert!(generated.main_rs.contains("SetProcessDPIAware"));
+        assert!(generated.main_rs.contains("GetDeviceCaps"));
+        assert!(generated.main_rs.contains("SystemParametersInfoW"));
+        for banned in [
+            "SetProcessDpiAwarenessContext",
+            "GetDpiForWindow",
+            "AdjustWindowRectExForDpi",
+            "SystemParametersInfoForDpi",
+            "WM_DPICHANGED",
+            "clamp_dpi",
+        ] {
+            assert!(
+                !generated.main_rs.contains(banned),
+                "legacy program must not reference {banned}"
+            );
+        }
+        assert!(generated.manifest_xml.contains(".Legacy"));
+        assert!(generated.manifest_xml.contains(">true</dpiAware>"));
+        assert!(!generated.manifest_xml.contains("PerMonitorV2"));
+    }
+
+    #[test]
+    fn legacy_interactive_fixture_digest_is_pinned() {
+        let source = include_str!("../fixtures/interactive-counter.gscene");
+        let app = match admit::open(source).unwrap() {
+            SceneTarget::Interactive(app) => app,
+            SceneTarget::Static(_) => panic!("counter was admitted as a static window"),
+        };
+        let generated = codegen_from_ir(
+            &crate::ir_lower::lower_interactive_window(&app, crate::api_floor::ApiFloor::Win8),
+            crate::api_floor::ApiFloor::Win8,
+        );
+        assert_eq!(
+            generated.source_map["generated_digest"],
+            "439217fbfb0d46ba663d8908342c034af69c2de1a15dbd088e51933e80f5c7d1"
+        );
+        // The interactive legacy adapter keeps the full interactive behavior
+        // minus per-monitor DPI.
+        for required in ["SetProcessDPIAware", "GetDeviceCaps", "edit_proc", "clipboard_blocked"] {
+            assert!(generated.main_rs.contains(required), "{required}");
+        }
+        assert!(!generated.main_rs.contains("WM_DPICHANGED"));
+        assert!(generated.manifest_xml.contains("InteractiveWindow.Legacy"));
+        assert!(generated.manifest_xml.contains("0.0.2.0"));
+    }
+
+    #[test]
     fn interactive_counter_digest_is_pinned() {
         let source = include_str!("../fixtures/interactive-counter.gscene");
         let app = match admit::open(source).unwrap() {

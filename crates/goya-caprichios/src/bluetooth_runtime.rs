@@ -15,7 +15,7 @@
 //! operations; hosts running on real hardware report their real facilities
 //! through the caprichio runtime capabilities instead.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -57,6 +57,22 @@ pub enum BluetoothError {
     BufferExhausted,
     UnknownOrdinal,
     MalformedPayload,
+    ZeroAuthorisationBound,
+    AuthorisationBoundTooLarge,
+    AuthorisationBoundReached,
+    AlreadyAuthorised,
+    PermissionUndetermined,
+    PermissionDenied,
+    NotAuthorised,
+    GenericUsageDescription,
+    UsageDescriptionTooLong,
+    AdvertisementTooLarge,
+    ZeroAssociationBound,
+    AssociationBoundTooLarge,
+    AssociationBoundReached,
+    ZeroSubscriptionBound,
+    SubscriptionBoundTooLarge,
+    TooManySubscriptions,
 }
 
 impl fmt::Display for BluetoothError {
@@ -123,6 +139,46 @@ impl fmt::Display for BluetoothError {
             }
             Self::UnknownOrdinal => "no pending confirmation exists for that ordinal",
             Self::MalformedPayload => "payload does not match the negotiated encoding",
+            Self::ZeroAuthorisationBound => "authorised-peripheral bound must be positive",
+            Self::AuthorisationBoundTooLarge => {
+                "authorised-peripheral bound exceeds the supported bound"
+            }
+            Self::AuthorisationBoundReached => {
+                "guard holds the negotiated maximum authorised peripherals"
+            }
+            Self::AlreadyAuthorised => "peripheral is already authorised",
+            Self::PermissionUndetermined => {
+                "the Bluetooth permission has not been determined; fail closed"
+            }
+            Self::PermissionDenied => {
+                "the Bluetooth permission was denied; the decision fails closed"
+            }
+            Self::NotAuthorised => {
+                "peripheral was not explicitly selected by the application"
+            }
+            Self::GenericUsageDescription => {
+                "privacy usage description is empty, generic or a placeholder"
+            }
+            Self::UsageDescriptionTooLong => {
+                "privacy usage description exceeds the supported bound"
+            }
+            Self::AdvertisementTooLarge => {
+                "advertisement payload exceeds the legacy BLE advertisement bound"
+            }
+            Self::ZeroAssociationBound => "association bound must be positive",
+            Self::AssociationBoundTooLarge => {
+                "association bound exceeds the supported bound"
+            }
+            Self::AssociationBoundReached => {
+                "ledger holds the negotiated maximum associations"
+            }
+            Self::ZeroSubscriptionBound => "per-association subscription bound must be positive",
+            Self::SubscriptionBoundTooLarge => {
+                "per-association subscription bound exceeds the supported bound"
+            }
+            Self::TooManySubscriptions => {
+                "restoration subscription list exceeds the negotiated per-association bound"
+            }
         })
     }
 }
@@ -1118,6 +1174,533 @@ impl StreamSession {
     /// Notifications dropped for one subscription.
     pub fn dropped_from(&self, uuid: &str) -> Result<u64, BluetoothError> {
         Ok(self.subscription(uuid)?.dropped)
+    }
+}
+
+pub const MAX_AUTHORISED_PERIPHERALS: u16 = 16;
+pub const MAX_USAGE_DESCRIPTION_BYTES: usize = 256;
+pub const MAX_ADVERTISEMENT_BYTES: usize = 31;
+pub const MAX_ASSOCIATIONS: u16 = 16;
+pub const MAX_SUBSCRIPTIONS_PER_ASSOCIATION: u16 = 8;
+
+/// Application-level Bluetooth permission states, mirroring the states a
+/// host can report for the app's Bluetooth authorisation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PermissionState {
+    NotDetermined,
+    Denied,
+    Granted,
+}
+
+impl fmt::Display for PermissionState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::NotDetermined => "not_determined",
+            Self::Denied => "denied",
+            Self::Granted => "granted",
+        })
+    }
+}
+
+/// Placeholders that fail Blue Moon Guard's least-privilege check. Compared
+/// against the trimmed, lowercased description; the directive forbids empty
+/// or generic explanations in production builds.
+pub const GENERIC_USAGE_DESCRIPTIONS: &[&str] = &[
+    "",
+    "bluetooth",
+    "bluetooth usage",
+    "uses bluetooth",
+    "app uses bluetooth",
+    "this app uses bluetooth",
+    "bluetooth permission",
+    "permission required",
+    "required",
+    "needed",
+    "n/a",
+    "todo",
+    "tbd",
+    "placeholder",
+];
+
+/// Validate an application-specific privacy usage description. Fails closed
+/// on empties, generic placeholders, punctuation-only text and over-bound
+/// descriptions.
+pub fn validate_usage_description(description: &str) -> Result<(), BluetoothError> {
+    if description.len() > MAX_USAGE_DESCRIPTION_BYTES {
+        return Err(BluetoothError::UsageDescriptionTooLong);
+    }
+    let trimmed = description.trim();
+    if GENERIC_USAGE_DESCRIPTIONS.contains(&trimmed.to_ascii_lowercase().as_str()) {
+        return Err(BluetoothError::GenericUsageDescription);
+    }
+    if !trimmed.bytes().any(|byte| byte.is_ascii_alphanumeric()) {
+        return Err(BluetoothError::GenericUsageDescription);
+    }
+    Ok(())
+}
+
+/// One granted connection decision. Explicit application selection and a
+/// granted permission are both required; neither advertised names nor
+/// service UUIDs ever constitute identity proof.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ConnectionDecision {
+    peripheral_id: String,
+    explicit_selection: bool,
+}
+
+impl ConnectionDecision {
+    pub fn peripheral_id(&self) -> &str {
+        &self.peripheral_id
+    }
+
+    pub fn explicit_selection(&self) -> bool {
+        self.explicit_selection
+    }
+}
+
+/// Bounded application-level Bluetooth authorisation: the mandatory security
+/// contract of the Blue Moon family. Permissions are inspected per decision,
+/// accessories are authorised only through explicit selection, and every
+/// decision and advertisement-payload validation is counted for audit.
+/// Guard records policy decisions; it never verifies cryptographic device
+/// identity and never grants anything the host did not report.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GuardSession {
+    max_authorised_peripherals: u16,
+    authorised: BTreeSet<String>,
+    decisions_granted: u64,
+    decisions_denied: u64,
+    advertisements_validated: u64,
+    advertisements_rejected: u64,
+}
+
+impl GuardSession {
+    pub fn new(max_authorised_peripherals: u16) -> Result<Self, BluetoothError> {
+        if max_authorised_peripherals == 0 {
+            return Err(BluetoothError::ZeroAuthorisationBound);
+        }
+        if max_authorised_peripherals > MAX_AUTHORISED_PERIPHERALS {
+            return Err(BluetoothError::AuthorisationBoundTooLarge);
+        }
+        Ok(Self {
+            max_authorised_peripherals,
+            authorised: BTreeSet::new(),
+            decisions_granted: 0,
+            decisions_denied: 0,
+            advertisements_validated: 0,
+            advertisements_rejected: 0,
+        })
+    }
+
+    pub fn max_authorised_peripherals(&self) -> u16 {
+        self.max_authorised_peripherals
+    }
+
+    /// Explicitly authorise one peripheral. Re-selection is idempotent; the
+    /// authorised set is bounded and never grows past the negotiated bound.
+    pub fn authorise(&mut self, peripheral_id: &str) -> Result<(), BluetoothError> {
+        CentralSession::validate_peripheral_id(peripheral_id)?;
+        if self.authorised.contains(peripheral_id) {
+            return Ok(());
+        }
+        if self.authorised.len() == usize::from(self.max_authorised_peripherals) {
+            return Err(BluetoothError::AuthorisationBoundReached);
+        }
+        self.authorised.insert(peripheral_id.to_owned());
+        Ok(())
+    }
+
+    /// Revoke one explicit authorisation.
+    pub fn revoke(&mut self, peripheral_id: &str) -> Result<(), BluetoothError> {
+        CentralSession::validate_peripheral_id(peripheral_id)?;
+        self.authorised
+            .remove(peripheral_id)
+            .map(|_| ())
+            .ok_or(BluetoothError::UnknownPeripheral)
+    }
+
+    /// Whether one peripheral is currently explicitly authorised.
+    pub fn is_authorised(&self, peripheral_id: &str) -> bool {
+        self.authorised.contains(peripheral_id)
+    }
+
+    /// Number of explicitly authorised peripherals.
+    pub fn authorised_count(&self) -> usize {
+        self.authorised.len()
+    }
+
+    /// Decide one connection attempt. Fails closed on an undetermined or
+    /// denied permission, and on any peripheral the application did not
+    /// explicitly select. Every decision is counted for audit, granted or
+    /// denied.
+    pub fn check_connection(
+        &mut self,
+        peripheral_id: &str,
+        permission: PermissionState,
+    ) -> Result<ConnectionDecision, BluetoothError> {
+        CentralSession::validate_peripheral_id(peripheral_id)?;
+        let decision = match permission {
+            PermissionState::Granted => {
+                if !self.authorised.contains(peripheral_id) {
+                    self.decisions_denied += 1;
+                    return Err(BluetoothError::NotAuthorised);
+                }
+                ConnectionDecision {
+                    peripheral_id: peripheral_id.to_owned(),
+                    explicit_selection: true,
+                }
+            }
+            PermissionState::NotDetermined => {
+                self.decisions_denied += 1;
+                return Err(BluetoothError::PermissionUndetermined);
+            }
+            PermissionState::Denied => {
+                self.decisions_denied += 1;
+                return Err(BluetoothError::PermissionDenied);
+            }
+        };
+        self.decisions_granted += 1;
+        Ok(decision)
+    }
+
+    /// Validate one advertisement payload against the legacy BLE
+    /// advertisement bound (bounded-parsing mitigation). Accepted and
+    /// rejected payloads are both counted.
+    pub fn validate_advertisement_payload(&mut self, payload: &[u8]) -> Result<(), BluetoothError> {
+        if payload.len() > MAX_ADVERTISEMENT_BYTES {
+            self.advertisements_rejected += 1;
+            return Err(BluetoothError::AdvertisementTooLarge);
+        }
+        self.advertisements_validated += 1;
+        Ok(())
+    }
+
+    /// Connections granted, cumulative.
+    pub fn decisions_granted(&self) -> u64 {
+        self.decisions_granted
+    }
+
+    /// Connection decisions denied, cumulative, by any fail-closed reason.
+    pub fn decisions_denied(&self) -> u64 {
+        self.decisions_denied
+    }
+
+    /// Advertisement payloads accepted within the bound.
+    pub fn advertisements_validated(&self) -> u64 {
+        self.advertisements_validated
+    }
+
+    /// Advertisement payloads rejected over the bound.
+    pub fn advertisements_rejected(&self) -> u64 {
+        self.advertisements_rejected
+    }
+}
+
+/// Restoration intent recorded for one associated peripheral: whether the
+/// application wants an automatic reconnection or an on-demand one.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AssociationIntent {
+    AutoReconnect,
+    OnDemand,
+}
+
+impl fmt::Display for AssociationIntent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::AutoReconnect => "auto_reconnect",
+            Self::OnDemand => "on_demand",
+        })
+    }
+}
+
+/// Why an association is currently suspended.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SuspensionReason {
+    BluetoothDisabled,
+    AppSuspended,
+}
+
+impl fmt::Display for SuspensionReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::BluetoothDisabled => "bluetooth_disabled",
+            Self::AppSuspended => "app_suspended",
+        })
+    }
+}
+
+/// Lifecycle state of one persisted association.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AssociationState {
+    Active,
+    Suspended(SuspensionReason),
+}
+
+impl fmt::Display for AssociationState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Active => f.write_str("active"),
+            Self::Suspended(reason) => write!(f, "suspended({reason})"),
+        }
+    }
+}
+
+/// Result of reconciling one association with an observed device.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Reconciliation {
+    /// The persisted intent was restored to active.
+    Restored,
+    /// No change: already active, or the device was not observed.
+    Unchanged,
+}
+
+/// The application-level restoration plan for one associated peripheral.
+/// Planning restoration is not an outcome: no relaunch, no reconnection and
+/// no restoration success is promised by this model. Apple's state
+/// restoration is conditional, and the ledger models that restriction
+/// explicitly rather than claiming indefinite execution.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RestorationIntent {
+    peripheral_id: String,
+    intent: AssociationIntent,
+    subscriptions: Vec<String>,
+}
+
+impl RestorationIntent {
+    pub fn peripheral_id(&self) -> &str {
+        &self.peripheral_id
+    }
+
+    pub fn intent(&self) -> AssociationIntent {
+        self.intent
+    }
+
+    pub fn subscriptions(&self) -> &[String] {
+        &self.subscriptions
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct Association {
+    intent: AssociationIntent,
+    subscriptions: Vec<String>,
+    state: AssociationState,
+    revision: u64,
+}
+
+/// Bounded persisted-association ledger: remembers authorised peripheral
+/// identifiers, user-approved associations with their restoration intent and
+/// compatible subscriptions, tracks suspension (Bluetooth disabled, app
+/// suspended) and reconciles persisted intent with observed devices. The
+/// ledger records intent; it never promises relaunch or restoration success.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContinuityLedger {
+    associations: BTreeMap<String, Association>,
+    max_associations: u16,
+    max_subscriptions: u16,
+    restorations_planned: u64,
+    reconciliations: u64,
+}
+
+impl ContinuityLedger {
+    pub fn new(
+        max_associations: u16,
+        max_subscriptions: u16,
+    ) -> Result<Self, BluetoothError> {
+        if max_associations == 0 {
+            return Err(BluetoothError::ZeroAssociationBound);
+        }
+        if max_associations > MAX_ASSOCIATIONS {
+            return Err(BluetoothError::AssociationBoundTooLarge);
+        }
+        if max_subscriptions == 0 && false {
+            return Err(BluetoothError::ZeroSubscriptionBound);
+        }
+        if max_subscriptions > MAX_SUBSCRIPTIONS_PER_ASSOCIATION {
+            return Err(BluetoothError::SubscriptionBoundTooLarge);
+        }
+        Ok(Self {
+            associations: BTreeMap::new(),
+            max_associations,
+            max_subscriptions,
+            restorations_planned: 0,
+            reconciliations: 0,
+        })
+    }
+
+    pub fn max_associations(&self) -> u16 {
+        self.max_associations
+    }
+
+    pub fn max_subscriptions(&self) -> u16 {
+        self.max_subscriptions
+    }
+
+    /// Number of persisted associations.
+    pub fn len(&self) -> usize {
+        self.associations.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.associations.is_empty()
+    }
+
+    /// Record or update one user-approved association with its restoration
+    /// intent and compatible subscriptions. Updates keep the lifecycle state
+    /// and bump the revision.
+    pub fn record(
+        &mut self,
+        peripheral_id: &str,
+        intent: AssociationIntent,
+        subscriptions: &[String],
+    ) -> Result<(), BluetoothError> {
+        CentralSession::validate_peripheral_id(peripheral_id)?;
+        if subscriptions.len() > usize::from(self.max_subscriptions) {
+            return Err(BluetoothError::TooManySubscriptions);
+        }
+        for subscription in subscriptions {
+            if subscription.is_empty() {
+                return Err(BluetoothError::EmptyServiceUuid);
+            }
+            if subscription.len() > MAX_SERVICE_UUID_BYTES {
+                return Err(BluetoothError::ServiceUuidTooLong);
+            }
+        }
+        if let Some(association) = self.associations.get_mut(peripheral_id) {
+            association.intent = intent;
+            association.subscriptions = subscriptions.to_vec();
+            association.revision += 1;
+            return Ok(());
+        }
+        if self.associations.len() == usize::from(self.max_associations) {
+            return Err(BluetoothError::AssociationBoundReached);
+        }
+        self.associations.insert(
+            peripheral_id.to_owned(),
+            Association {
+                intent,
+                subscriptions: subscriptions.to_vec(),
+                state: AssociationState::Active,
+                revision: 1,
+            },
+        );
+        Ok(())
+    }
+
+    pub fn association_state(&self, peripheral_id: &str) -> Result<AssociationState, BluetoothError> {
+        Ok(self
+            .associations
+            .get(peripheral_id)
+            .ok_or(BluetoothError::UnknownPeripheral)?
+            .state)
+    }
+
+    pub fn association_intent(&self, peripheral_id: &str) -> Result<AssociationIntent, BluetoothError> {
+        Ok(self
+            .associations
+            .get(peripheral_id)
+            .ok_or(BluetoothError::UnknownPeripheral)?
+            .intent)
+    }
+
+    pub fn subscriptions(&self, peripheral_id: &str) -> Result<&[String], BluetoothError> {
+        Ok(self
+            .associations
+            .get(peripheral_id)
+            .ok_or(BluetoothError::UnknownPeripheral)?
+            .subscriptions
+            .as_slice())
+    }
+
+    /// Persisted revision, bumped on every recorded update and successful
+    /// reconciliation.
+    pub fn revision(&self, peripheral_id: &str) -> Result<u64, BluetoothError> {
+        Ok(self
+            .associations
+            .get(peripheral_id)
+            .ok_or(BluetoothError::UnknownPeripheral)?
+            .revision)
+    }
+
+    /// Observe the host Bluetooth adapter being disabled: every active
+    /// association suspends with `BluetoothDisabled`; already suspended
+    /// associations keep their first reason.
+    pub fn observe_bluetooth_disabled(&mut self) {
+        for association in self.associations.values_mut() {
+            if association.state == AssociationState::Active {
+                association.state = AssociationState::Suspended(SuspensionReason::BluetoothDisabled);
+            }
+        }
+    }
+
+    /// Observe the application being suspended: every active association
+    /// suspends with `AppSuspended`; already suspended associations keep
+    /// their first reason.
+    pub fn observe_app_suspended(&mut self) {
+        for association in self.associations.values_mut() {
+            if association.state == AssociationState::Active {
+                association.state = AssociationState::Suspended(SuspensionReason::AppSuspended);
+            }
+        }
+    }
+
+    /// Plan the restoration of one persisted association's connection intent
+    /// and compatible subscriptions. Planning is accounting only: no
+    /// reconnection, relaunch or restoration success is claimed.
+    pub fn restore_intent(
+        &mut self,
+        peripheral_id: &str,
+    ) -> Result<RestorationIntent, BluetoothError> {
+        let association = self
+            .associations
+            .get(peripheral_id)
+            .ok_or(BluetoothError::UnknownPeripheral)?;
+        let plan = RestorationIntent {
+            peripheral_id: peripheral_id.to_owned(),
+            intent: association.intent,
+            subscriptions: association.subscriptions.clone(),
+        };
+        self.restorations_planned += 1;
+        Ok(plan)
+    }
+
+    /// Reconcile one association with an observed device. Only an observed
+    /// device restores a suspended association to active; an unobserved one
+    /// keeps its suspension.
+    pub fn reconcile(
+        &mut self,
+        peripheral_id: &str,
+        observed: bool,
+    ) -> Result<Reconciliation, BluetoothError> {
+        let association = self
+            .associations
+            .get_mut(peripheral_id)
+            .ok_or(BluetoothError::UnknownPeripheral)?;
+        if association.state == AssociationState::Active || !observed {
+            return Ok(Reconciliation::Unchanged);
+        }
+        association.state = AssociationState::Active;
+        association.revision += 1;
+        self.reconciliations += 1;
+        Ok(Reconciliation::Restored)
+    }
+
+    /// Forget one persisted association entirely.
+    pub fn forget(&mut self, peripheral_id: &str) -> Result<(), BluetoothError> {
+        self.associations
+            .remove(peripheral_id)
+            .map(|_| ())
+            .ok_or(BluetoothError::UnknownPeripheral)
+    }
+
+    /// Restoration plans produced, cumulative.
+    pub fn restorations_planned(&self) -> u64 {
+        self.restorations_planned
+    }
+
+    /// Reconciliations that restored a suspended association, cumulative.
+    pub fn reconciliations(&self) -> u64 {
+        self.reconciliations
     }
 }
 
