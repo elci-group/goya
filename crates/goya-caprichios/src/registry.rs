@@ -791,6 +791,11 @@ pub fn negotiate(
         ordered.contains(crate::bluetooth_continuity_caprichio::CONTRACT);
     let needs_bluetooth_access = ordered.contains(crate::bluetooth_access_caprichio::CONTRACT);
     let needs_bluetooth_profile = ordered.contains(crate::bluetooth_profile_caprichio::CONTRACT);
+    let needs_sso_google = ordered.contains(crate::google_sso_caprichio::CONTRACT);
+    let needs_sso_microsoft = ordered.contains(crate::microsoft_sso_caprichio::CONTRACT);
+    let needs_sso_github = ordered.contains(crate::github_sso_caprichio::CONTRACT);
+    let needs_sso_x = ordered.contains(crate::x_sso_caprichio::CONTRACT);
+    let needs_sso_meta = ordered.contains(crate::meta_sso_caprichio::CONTRACT);
     if request.network.is_some() && !needs_network {
         return Err(NegotiationError::UnexpectedDeclaration { kind: "network" });
     }
