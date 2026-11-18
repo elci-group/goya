@@ -30,6 +30,7 @@ pub fn link(
     source: &str,
     output: &Path,
     target: crate::windows_target::WindowsTarget,
+    floor: crate::api_floor::ApiFloor,
 ) -> Result<Linked, Diagnostic> {
     if !free_enough(output) {
         return Err(Diagnostic::new(
@@ -39,7 +40,7 @@ pub fn link(
             "Free space and retry. Sash does not delete unrelated build caches.",
         ));
     }
-    let mut prepared = prepare(source)?;
+    let mut prepared = prepare(source, floor)?;
     prepared.generated.manifest_xml = crate::windows_target::stamp_processor_architecture(
         &prepared.generated.manifest_xml,
         target,
@@ -137,13 +138,55 @@ struct Prepared {
     source_digest: [u8; 32],
 }
 
-fn prepare(source: &str) -> Result<Prepared, Diagnostic> {
+/// Amend the evidence dispositions for the win8 API floor.
+///
+/// The admitted dispositions describe the win10 adapter: the static window's
+/// background disposition claims the message font is recreated when the DPI
+/// changes, which is false for a system-DPI-aware process that never
+/// receives a per-monitor change message. The legacy evidence must describe
+/// the adapter the image actually carries, so the static background
+/// disposition is rewritten and every legacy image gains an explicit `dpi`
+/// disposition. The win10 dispositions pass through untouched.
+fn legacy_dispositions(
+    mut dispositions: Vec<crate::admit::Disposition>,
+    floor: crate::api_floor::ApiFloor,
+) -> Vec<crate::admit::Disposition> {
+    if !floor.is_legacy() {
+        return dispositions;
+    }
+    const WIN10_BACKGROUND_CLAIM: &str =
+        "recreated when that DPI changes";
+    const LEGACY_BACKGROUND_CLAIM: &str =
+        "laid out at the process DPI, which is system DPI aware and read once; Windows scales the rendered window on other monitors and no per-monitor message exists to handle";
+    for disposition in dispositions.iter_mut() {
+        if disposition.subject == "background" {
+            disposition.detail = disposition
+                .detail
+                .replace(WIN10_BACKGROUND_CLAIM, LEGACY_BACKGROUND_CLAIM);
+        }
+    }
+    dispositions.push(crate::admit::Disposition {
+        subject: "dpi".into(),
+        disposition: "equivalently-transformed",
+        detail: "The win8 adapter is system DPI aware. SetProcessDPIAware is requested before window creation and the process DPI is read once from GetDeviceCaps(LOGPIXELSY). The window is laid out at that DPI; moving it to a monitor with a different DPI lets Windows scale the rendered window instead of re-laying it out. PerMonitorV2 is not requested. This has not been executed on Windows.".into(),
+    });
+    dispositions
+}
+
+fn prepare(
+    source: &str,
+    floor: crate::api_floor::ApiFloor,
+) -> Result<Prepared, Diagnostic> {
     match admit::open(source)? {
         SceneTarget::Static(window) => {
             let evidence = SceneEvidence {
-                presentation_profile: admit::PROFILE,
+                presentation_profile: if floor.is_legacy() {
+                    admit::PROFILE_LEGACY
+                } else {
+                    admit::PROFILE
+                },
                 semantic_id: window.semantic_id.clone(),
-                dispositions: window.dispositions.clone(),
+                dispositions: legacy_dispositions(window.dispositions.clone(), floor),
                 unit_name: "static-window",
                 contains: &[
                     "top-level HWND",
@@ -159,17 +202,23 @@ fn prepare(source: &str) -> Result<Prepared, Diagnostic> {
             };
             let source_digest = window.source_digest;
             Ok(Prepared {
-                generated: crate::emit::generate(&window),
+                generated: crate::emit::generate(&window, floor),
                 evidence,
                 source_digest,
             })
         }
         SceneTarget::Interactive(app) => {
             let clipboard = app.profile == interactive::PROFILE_CLIPBOARD;
+            let presentation_profile = match (floor, clipboard) {
+                (crate::api_floor::ApiFloor::Win8, true) => interactive::PROFILE_CLIPBOARD_LEGACY,
+                (crate::api_floor::ApiFloor::Win8, false) => interactive::PROFILE_LEGACY,
+                (_, true) => interactive::PROFILE_CLIPBOARD,
+                (_, false) => interactive::PROFILE,
+            };
             let evidence = SceneEvidence {
-                presentation_profile: app.profile,
+                presentation_profile,
                 semantic_id: app.semantic_id.clone(),
-                dispositions: app.dispositions.clone(),
+                dispositions: legacy_dispositions(app.dispositions.clone(), floor),
                 unit_name: "interactive-window",
                 contains: if clipboard {
                     &[
@@ -210,7 +259,7 @@ fn prepare(source: &str) -> Result<Prepared, Diagnostic> {
             };
             let source_digest = app.source_digest;
             Ok(Prepared {
-                generated: interactive::generate(&app),
+                generated: interactive::generate(&app, floor),
                 evidence,
                 source_digest,
             })
@@ -820,6 +869,35 @@ mod tests {
             classify_link_failure("lld-link: error: undefined symbol main"),
             "SASH-LINK"
         );
+    }
+
+    #[test]
+    fn legacy_floor_amends_the_dpi_dispositions() {
+        use crate::api_floor::ApiFloor;
+        let source = include_str!("../fixtures/static-window.gscene");
+        let window = crate::admit::admit(source).unwrap();
+        let win10 = super::legacy_dispositions(window.dispositions.clone(), ApiFloor::Win10);
+        assert_eq!(win10, window.dispositions);
+        assert!(win10.iter().any(|item| {
+            item.subject == "background"
+                && item.detail.contains("recreated when that DPI changes")
+        }));
+        assert!(!win10.iter().any(|item| item.subject == "dpi"));
+
+        let legacy = super::legacy_dispositions(window.dispositions, ApiFloor::Win8);
+        let background = legacy
+            .iter()
+            .find(|item| item.subject == "background")
+            .expect("background disposition");
+        assert!(!background.detail.contains("recreated when that DPI changes"));
+        assert!(background.detail.contains("system DPI aware"));
+        let dpi = legacy
+            .iter()
+            .find(|item| item.subject == "dpi")
+            .expect("legacy dpi disposition");
+        assert_eq!(dpi.disposition, "equivalently-transformed");
+        assert!(dpi.detail.contains("GetDeviceCaps"));
+        assert!(dpi.detail.contains("not been executed on Windows"));
     }
 
     #[test]
