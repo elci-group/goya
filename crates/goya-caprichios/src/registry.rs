@@ -617,6 +617,11 @@ pub enum NegotiationError {
     BluetoothContinuity(crate::bluetooth_continuity_caprichio::Diagnostic),
     BluetoothAccess(crate::bluetooth_access_caprichio::Diagnostic),
     BluetoothProfile(crate::bluetooth_profile_caprichio::Diagnostic),
+    GoogleSso(crate::google_sso_caprichio::Diagnostic),
+    MicrosoftSso(crate::microsoft_sso_caprichio::Diagnostic),
+    GithubSso(crate::github_sso_caprichio::Diagnostic),
+    XSso(crate::x_sso_caprichio::Diagnostic),
+    MetaSso(crate::meta_sso_caprichio::Diagnostic),
 }
 
 impl fmt::Display for NegotiationError {
@@ -679,6 +684,11 @@ impl fmt::Display for NegotiationError {
             Self::BluetoothProfile(error) => {
                 write!(f, "Bluetooth profile negotiation failed: {error}")
             }
+            Self::GoogleSso(error) => write!(f, "Google SSO negotiation failed: {error}"),
+            Self::MicrosoftSso(error) => write!(f, "Microsoft SSO negotiation failed: {error}"),
+            Self::GithubSso(error) => write!(f, "GitHub SSO negotiation failed: {error}"),
+            Self::XSso(error) => write!(f, "X SSO negotiation failed: {error}"),
+            Self::MetaSso(error) => write!(f, "Meta SSO negotiation failed: {error}"),
         }
     }
 }
