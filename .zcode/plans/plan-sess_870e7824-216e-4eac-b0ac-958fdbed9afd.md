@@ -1,34 +1,39 @@
-# Execute Quitasol intent primitive (Phase 0)
+# Quitasol Q1 — Voice capability resolution over Nevada infrastructure
 
 ## Context
-The revised Quitasol directive ([docs/quitasol/intents.md](docs/quitasol/intents.md), [quitasol-overview.md](docs/quitasol/quitasol-overview.md)) adopts a first-class `intent` primitive (rejected: extending `gesture`). Exploration confirmed: GY-IR/1 freezes `Module`/`Node` (so goya-ir is untouched), repo convention is authoring syntax in `goya-lang` + a semantic-boundary sibling crate on the `maja-semantic` pattern (contract const, fail-closed profile, versioned diagnostics), and strict-profile gating via new GY-E error codes.
+Quitasol Q1 ("shared Nevada television UX infrastructure") needs spatial focus, device capability resolution and remote fallback — but Nevada phase 0 already ships exactly those as deterministic modules in `crates/nevada` (focus graph `nevada.focus/0.0.1`, OEM profiles `nevada.profiles/0.0.1`, capability resolution `dcr.rs`). Nevada's gap ledger (docs/nevada/gap-ledger.md) reserves the shared scene→`FocusElement` lowering as its own phase-1 item (N0-FOCUSGRAPH). This plan therefore keeps `crates/nevada` and `crates/goya-lang` untouched: Quitasol gets a minimal, self-contained resolution layer inside `quitasol-semantic` that consumes Nevada as-is, referenced-not-claimed.
 
-## 1. Authoring surface — `crates/goya-lang`
-- **scene.rs**: add `IntentDecl { name, action: String, utterances: Vec<String>, confirmation: bool, fallback_remote: Option<String>, fallback_keyboard: Option<String> }` plus `SceneIntents` collection surfaced on `ParsedScene`/`Scene`, mirroring how `GesturePolicy` sits on `SceneCell`.
-- **parser.rs**: add an `@intent Name { ... }` arm in `parse_cell_body`'s `AtWord` match (~line 956, following the `@interaction` pattern), with a dedicated `parse_intent` method: body properties `action:`, `voice { utterance: ..., confirmation: ... }`, `fallback { remote:, keyboard: }`. Push `SourceEntry` for the source map. New error codes GY-E1010 (bad intent shape), GY-E1011 (intent validation) in the existing GY-E1000..1009 block; **strict profiles (gssh1/2/3) reject `@intent`** exactly as they reject GSSH/2 constructs (GY-E1006 pattern).
-- **intents.rs** (new module, quarantined docstring like `gestures.rs`: "Experimental, proposed not ratified"): pinned versioned utterance grammar v0 — `{slot}` placeholders, slot names must be idents, unknown/duplicate slots rejected, duplicate utterances rejected; required fallback enforcement (at least one of remote/keyboard); utterance must reference at least the action's declared slots when the action takes parameters (validation limited to what the AST carries).
+## 1. `crates/quitasol-semantic` — new `resolve.rs` module
+- Add path dep on Nevada (package name per `crates/nevada/Cargo.toml` — confirm `goya-nevada` vs `nevada` at implementation time).
+- **`scene_focus_elements(scene: &Scene, width_pt, height_pt) -> Vec<FocusElement>`**: lay out the scene with `goya_lang::layout` (millipoints already match Nevada's i64 geometry), convert every button/input node to a focusable `FocusElement` (id = layout index, rect from `DrawNode.rect`), `essential` false by default. Documented as a Quitasol-minimal variant; N0-FOCUSGRAPH remains the future shared lowering — no scene semantics (viewport policy, scroll containers) claimed beyond what `layout` already resolves.
+- **`device_support(profile_id: &str) -> Result<DeviceSupport, Diagnostic>`**: look up the OEM profile via `nevada::profiles` (fail-closed `lookup`), run `nevada::dcr::resolve` on its census, project `InteractionSupport` into `DeviceSupport { voice_input, dpad, keyboard, spatial_pointer, gamepad }`. Unknown profile → `QS-E2000` diagnostic (new Quitasol code space; Nevada's ledger N0-DIAGNOSTICS notes NV-… codes are theirs, so Quitasol gets QS-…).
+- **`resolve_manifest(scene, profile_id, width_pt, height_pt) -> Result<ResolvedManifest, Diagnostic>`**: run existing `compile` validation first (fail-closed), then per intent:
+  - `fallback_remote`/`fallback_keyboard` targets must name an existing scene element (`Scene::find_node`); unknown target → `QS-E2001`.
+  - Remote-fallback reachability: mark all declared remote-fallback targets as `essential: true` in the focus element list and run Nevada's `unreachable_essential` conformance — an unreachable remote fallback (the deterministic tier, the only tier guaranteed by the Q0 audit) is a `QS-E2002` diagnostic. Keyboard targets only require existence (keyboard navigation model is not claimed).
+  - Record per-intent `fallback_resolution { remote: Option<Resolved>, keyboard: Option<Resolved> }` with `name`, `reachable: bool`; record the manifest-level `device { profile, interaction_support }`.
+- Manifest JSON (`to_json`) gains `"device"` and per-intent `"fallback_resolution"` sections; serialisation stays hand-written and byte-deterministic. Contract/profile identifiers unchanged (`QUITASOL-INTENT-IR/1-draft`, `quitasol.intent.v0` — draft shape may change).
+- Lowering tier stays `"unresolved"`: device support says what the *hardware* can express, never that Alexa integration exists (Q0 audit boundary).
 
-## 2. Semantic Intent Compiler — new crate `crates/quitasol-semantic`
-- New workspace member (Cargo.toml `[workspace.members]`, shared `version = "0.1.8"`, edition 2021, MIT OR Apache-2.0).
-- **lib.rs**: consts `INTENT_IR_CONTRACT = "QUITASOL-INTENT-IR/1-draft"`, `INTENT_PROFILE = "quitasol.intent.v0"`; fail-closed: every diagnostic carries code + SourceRange; unknown inputs rejected, never defaulted.
-- Consumes `SceneIntentDecl`s (via goya-lang types): validates and emits a **versioned intent manifest** — `emit_manifest(&[IntentDecl]) -> Result<IntentManifest, Diagnostic>` with a deterministic JSON serialisation (contract id, profile, sorted intent list, utterances, confirmation, fallback, per-intent lowering tier `Unresolved` — tier resolution is explicitly out of scope, recorded as such in the manifest).
-- Validation passes: required fallback, utterance grammar, duplicate intent names, actions referenced must exist in the scene's action set, conflicting lowerings (an intent is limited to one voice tier + fallback — nothing here can conflict yet, so the check validates the declared tier set).
+## 2. Tests (in `quitasol-semantic`)
+- Reachable fallback: two buttons laid out side by side, fallback target is one of them → resolved, reachable.
+- Unreachable fallback: fallback target names a non-focusable element (a plain cell) → `QS-E2002`.
+- Unknown fallback target → `QS-E2001`; unknown profile → `QS-E2000`.
+- `oem.acme.voice-remote` vs `oem.generic.tv` profiles flip `voice_input` in the device section (Nevada's built-in profiles).
+- Determinism: identical scene+profile → byte-identical JSON including new sections.
+- Zero-intent scene + known profile still compiles with device section present.
+- Nevada consumption smoke test: profile lookup failure is fail-closed.
 
-## 3. Contracts & docs
-- **docs/contracts.md**: add `GY-INTENT/1-draft` entry describing provides/invariants/stability (Candidate, draft; shape may change; nothing ratified).
-- **docs/quitasol/intents.md**: update §6 — IR representation decision taken for phase 0 (side-collection in goya-lang scene + separate draft manifest; GY-IR/1 untouched); mark implemented parts as phase-0 experimental.
-- New **docs/quitasol/phase0.md**: short phase-0 record (what exists, what is BLOCKED: lowerings, runtime, owners/ratification) following `docs/sash/phase0/` convention.
+## 3. Docs
+- New **docs/quitasol/phase1.md**: phase record — what exists (resolution layer, QS-E200x codes), what is consumed from Nevada (focus/profiles/dcr, with contract identifiers), what remains BLOCKED (Vega track, Alexa contract, runtime re-resolution N0-RERESOLVE, shared N0-FOCUSGRAPH lowering). Follow phase0.md tone.
+- Update **docs/quitasol/quitasol-overview.md** §3: OEM Capability Resolver + Remote Fallback Engine move from "contingent" to "draft implemented over nevada::dcr / nevada::focus"; §1 note Nevada phase 0 exists at `crates/nevada`.
+- Update **docs/quitasol/phase0.md** verification block to include Q1 commands.
+- Evidence record **docs/quitasol/programme/quitasol-q1.json** (sash-ent-002 convention): gates for library tests, Nevada-consumption determinism, BLOCKED entries (device census reality, Alexa contract, Vega).
 
-## 4. Tests & fixtures
-- **goya-lang corpus**: `tests/corpus/accept/` fixtures for valid `@intent`; `reject/` fixtures with header comments (`// profile:`, `// expect: GY-E101x`, `// at:`) for: missing fallback, duplicate utterance, bad slot grammar, `@intent` under strict profile, duplicate intent name. Follow existing `strict_corpus.rs` conventions.
-- **quitasol-semantic tests**: unit tests for manifest determinism (identical inputs → byte-identical JSON), each validation failure path, and an end-to-end parse→emit test.
-- Inline parser tests in goya-lang mirroring existing `@interaction` tests.
+## 4. Explicit non-goals
+No changes to `crates/nevada` (Nevada programme owns N0-FOCUSGRAPH/N0-TRANSLATECTX), no `goya-lang` changes, no scene admission consuming `@intent`, no Alexa/VSK lowering, no runtime.
 
 ## 5. Verification
-- `cargo test -p goya-lang --offline --tests`
-- `cargo test -p quitasol-semantic --offline --lib --tests`
-- `cargo clippy -p goya-lang -p quitasol-semantic --all-targets --offline -- -D warnings && cargo fmt -p goya-lang -p quitasol-semantic -- --check`
-- Confirm existing strict corpus still passes (no regression to GSSH profiles): `cargo test -p goya-lang --offline` full.
-
-## Not in scope
-goya-ir changes, lowering to Alexa/VSK, runtime, quality gate 14, OEM capability resolver, app/store conformance.
+- `cargo test -p quitasol-semantic --offline` (all new + existing tests)
+- `cargo test -p nevada --offline` (unchanged, proves no collision)
+- `cargo clippy -p quitasol-semantic --all-targets --offline -- -D warnings`
+- `cargo test -p goya-lang --offline` (regression, untouched but confirm)
