@@ -1,7 +1,8 @@
 # Nevada roadmap — Android TV compiler target
 
-Status: proposed, 18 November 2026 (phase 0 complete; phases 1–3 not
-started). This is a plan, not evidence. Nothing on this page claims an
+Status: proposed, 18 November 2026 (phase 0 complete; phase 2 complete
+as NEVADA-2, absorbing the conformance-validator item from phase 1;
+phase 3 not started). This is a plan, not evidence. Nothing on this page claims an
 Android TV build, a leanback APK/AAB, an admitted scene, a D1 leanback
 runtime, or a conformance gate that does not yet exist.
 
@@ -86,10 +87,12 @@ gates. The subsystems are pure Rust with tests; nothing consumes them yet.
 
 ### Phase 1 — Conformance validation and language hooks
 
-- [ ] Conformance validator module (`conformance.rs`): combine
+- [x] Conformance validator module (`conformance.rs`): combine
       `conformance_report` + `unreachable_essential` + DCR resolution into
       one fail-closed validator with machine-readable
-      PASS/FAIL/REFUSED results, ready to become a gate.
+      PASS/FAIL/REFUSED results, ready to become a gate. *Delivered in
+      phase 2 (NEVADA-2) because `orchestrate.rs`'s static-verification
+      stage consumes it.*
 - [ ] Wire the translation and focus checks against real parsed scene
       data — requires a scene ingestion path (see gap ledger row on
       goya-lang strict admission); the gesture/intent grammar
@@ -97,17 +100,21 @@ gates. The subsystems are pure Rust with tests; nothing consumes them yet.
 - [ ] Runtime capability re-resolution contract: define how a compile-time
       census is re-checked on device and what happens when they disagree
       (currently TBD, gap ledger).
-- [ ] Deterministic `DeviceCapabilities` derivation from
-      `InteractionSupport` (today the translator mirrors capability
-      concepts locally rather than consuming `dcr.rs` output — an
-      intentional phase-0 self-containment that phase 1 must close).
+- [x] Deterministic `DeviceCapabilities` derivation from
+      `InteractionSupport` — delivered in `conformance.rs::derive_device_capabilities`
+      (NEVADA-2).
 
 **What it does NOT do**: no pipeline stage, no codegen, no gates wired
 into a compiler binary.
 
 ### Phase 2 — Pipeline integration
 
-- [ ] `orchestrate.rs`: Nevada as a pipeline over Emperor's 13 stages
+- [x] `conformance.rs` (absorbed from phase 1): the fail-closed validator
+      with machine-readable PASS/FAIL/REFUSED results, stable
+      `GY-NV-50x` diagnostic codes, and deterministic
+      `DeviceCapabilities` derivation from `InteractionSupport`
+      (NEVADA-2).
+- [x] `orchestrate.rs`: Nevada as a pipeline over Emperor's 13 stages
       (`crates/emperor/src/stage.rs::NAMES`), implementing the subset
       Nevada needs: lexical-syntactic-admission, type-semantic-validation,
       effects-capabilities (DCR + profiles), target-negotiation,
@@ -115,10 +122,11 @@ into a compiler binary.
       NOT_APPLICABLE / BLOCKED statuses for the stages Nevada cannot yet
       perform (native-linux-lowering, machine-code-generation,
       elf-assembly-linking, packaging-signing-release).
-- [ ] Target-negotiation profile `androidtv` with fail-closed refusal of
-      unsupported feature requests.
-- [ ] Explicit incompatibility compile reports: refusals surfaced as
-      diagnostics with stable codes, never silent loss.
+- [x] Target-negotiation profile `androidtv/0.0.2` with fail-closed
+      refusal of unsupported feature requests (NEVADA-2).
+- [x] Explicit incompatibility compile reports: refusals surfaced as
+      diagnostics with stable codes (GY-NV-501…507), never silent loss
+      (NEVADA-2).
 - [ ] Gate numbering: define Nevada's gate identifiers and their position
       relative to the existing gates; no gate exists today (gap ledger).
 
