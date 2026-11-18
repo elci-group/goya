@@ -141,7 +141,7 @@ fn parse(args: &[OsString]) -> Result<Invocation, Fault> {
     let positional = positionals.remove(0);
     let directory_command = matches!(
         kind,
-        CommandKind::Verify | CommandKind::Package | CommandKind::Qualify
+        CommandKind::Verify | CommandKind::Benchmark | CommandKind::Package | CommandKind::Qualify
     );
     Ok(Invocation {
         kind,

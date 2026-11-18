@@ -52,11 +52,7 @@ pub fn execute(invocation: Invocation) -> Run {
         CommandKind::Build => build(invocation),
         CommandKind::Verify => verify(invocation),
         CommandKind::Test => test_scene(invocation),
-        CommandKind::Benchmark => blocked_scene(
-            invocation,
-            "EMP-BENCH",
-            "benchmark suites are not measured in compiler 0.0.1",
-        ),
+        CommandKind::Benchmark => benchmark(invocation),
         CommandKind::Package => package(invocation),
         CommandKind::Qualify => qualify(invocation),
     }
@@ -662,6 +658,366 @@ fn qualify(invocation: Invocation) -> Run {
             "release": release,
         }),
     )
+}
+
+/// Local latency benchmark of one build directory.
+///
+/// What this measures, honestly, on the current host only:
+///
+/// - Oracle latency: the wall time of `App --oracle`, a subprocess spawn plus
+///   the headless oracle pass, timed with `std::time::Instant` around
+///   `run_captured`. One warmup run precedes 5 timed runs; min, median, and
+///   mean are reported. This is NOT the in-process oracle latency recorded in
+///   `evidence/emperor/performance/`; it includes process startup and is a
+///   different number. Both are honest; they are not interchangeable.
+/// - ELF verification latency: the in-process cost of `hash_and_elf_prefix`
+///   plus `elf::parse` plus `elf::check` on `App`, one warmup then 5 timed
+///   runs. This is a static structural check, not a security review.
+///
+/// What this refuses to claim:
+///
+/// - Windowed frame rate. Frame-rate benchmarking needs a display and a
+///   frame-presented counter; the smoke marker records a presented count but
+///   there is no frame-timing channel in compiler 0.0.1, so no frame rate is
+///   invented. When a display is reachable, the windowed smoke WALL TIME is
+///   measured as a third benchmark (1 warmup + 5 runs) — that is a launch
+///   latency, not a frame rate, and it is labeled as such.
+/// - The multi-machine matrix. `benchmark_scope` is `local-host`; these
+///   numbers describe this CPU, these cores, this rustc. Nothing here
+///   generalises to other machines and no relative comparison is claimed.
+///
+/// Exit codes: 0 when every attempted measurement succeeded, 5 when `App`
+/// fails to run (warmup or timed run), 2 on usage problems, 4 on the same
+/// static failures as `verify` (missing report, hash mismatch, bad ELF).
+fn benchmark(invocation: Invocation) -> Run {
+    let directory = match invocation.directory.clone() {
+        Some(path) => path,
+        None => {
+            return fault_run(
+                &invocation,
+                Fault::new(2, "EMP-USAGE", "benchmark requires a build directory"),
+            )
+        }
+    };
+    if let Err(fault) = reject_traversal(&directory) {
+        return fault_run(&invocation, fault);
+    }
+    let app = directory.join("App");
+    let report_path = directory.join("build-report.json");
+    let report_bytes = match fs::read(&report_path) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            return fault_run(
+                &invocation,
+                Fault::new(
+                    4,
+                    "EMP-ELF",
+                    format!("could not read {}: {error}", report_path.display()),
+                ),
+            )
+        }
+    };
+    let report: Value = match serde_json::from_slice(&report_bytes) {
+        Ok(value) => value,
+        Err(error) => {
+            return fault_run(
+                &invocation,
+                Fault::new(4, "EMP-ELF", format!("build report is not JSON: {error}")),
+            )
+        }
+    };
+    let recorded = report
+        .get("artifact_sha256")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_owned();
+    let machine = match report
+        .get("target")
+        .and_then(Value::as_str)
+        .and_then(target::elf_machine)
+    {
+        Some(machine) => machine,
+        None => {
+            return fault_run(
+                &invocation,
+                Fault::new(4, "EMP-ELF", "build report has no admitted ELF machine"),
+            )
+        }
+    };
+    let release = report
+        .get("release")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let window = report
+        .get("window")
+        .and_then(Value::as_str)
+        .unwrap_or("wayland")
+        .to_owned();
+    let (bytes, _length, digest) = match hash_and_elf_prefix(&app) {
+        Ok(read) => read,
+        Err(fault) => return fault_run(&invocation, fault),
+    };
+    if digest != recorded {
+        return fault_run(
+            &invocation,
+            Fault::new(
+                4,
+                "EMP-ELF",
+                format!("artifact sha256 {digest} does not match the build report"),
+            ),
+        );
+    }
+    if let Err(message) =
+        elf::parse(&bytes).and_then(|summary| elf::check(&summary, machine, release))
+    {
+        return fault_run(&invocation, Fault::new(4, "EMP-ELF", message));
+    }
+    // Oracle latency: one warmup, then 5 timed runs. A non-zero exit at any
+    // point is a runtime failure (5), not a slow benchmark.
+    if let Err(fault) = run_captured(&app, &["--oracle"], Duration::from_secs(20)) {
+        return fault_run(&invocation, fault);
+    }
+    let mut oracle_runs = Vec::new();
+    for _ in 0..BENCH_RUNS {
+        let started = Instant::now();
+        let captured = match run_captured(&app, &["--oracle"], Duration::from_secs(20)) {
+            Ok(captured) => captured,
+            Err(fault) => return fault_run(&invocation, fault),
+        };
+        if captured.code != 0 {
+            return fault_run(
+                &invocation,
+                Fault::new(
+                    5,
+                    "EMP-RUNTIME",
+                    format!("oracle exited {}\n{}", captured.code, captured.stderr),
+                ),
+            );
+        }
+        oracle_runs.push(started.elapsed().as_secs_f64());
+    }
+    // ELF verification latency: in-process, warm cache after the first pass.
+    let verify_once = || -> Result<f64, Fault> {
+        let started = Instant::now();
+        let (bytes, _length, _digest) = hash_and_elf_prefix(&app)?;
+        elf::parse(&bytes)
+            .and_then(|summary| elf::check(&summary, machine, release))
+            .map_err(|message| Fault::new(4, "EMP-ELF", message))
+            .map(|_| started.elapsed().as_secs_f64())
+    };
+    if verify_once().is_err() {
+        return fault_run(
+            &invocation,
+            Fault::new(4, "EMP-ELF", "artifact changed under the benchmark"),
+        );
+    }
+    let mut elf_runs = Vec::new();
+    for _ in 0..BENCH_RUNS {
+        match verify_once() {
+            Ok(seconds) => elf_runs.push(seconds),
+            Err(fault) => return fault_run(&invocation, fault),
+        }
+    }
+    // Windowed smoke wall time: measured only when a display is reachable.
+    // This is launch latency; frame rate is not measured anywhere below.
+    let (smoke_runs, smoke_status, smoke_detail) = if display_ready(&window) {
+        match run_captured(&app, &["--smoke"], Duration::from_secs(25)) {
+            Ok(captured) if captured.code == 0 && smoke_matches(&window, &captured.stdout) => {}
+            Ok(captured) => {
+                return fault_run(
+                    &invocation,
+                    Fault::new(
+                        5,
+                        "EMP-RUNTIME",
+                        format!("smoke exited {}\n{}", captured.code, captured.stderr),
+                    ),
+                )
+            }
+            Err(fault) => return fault_run(&invocation, fault),
+        }
+        let mut runs = Vec::new();
+        for _ in 0..BENCH_RUNS {
+            let started = Instant::now();
+            match run_captured(&app, &["--smoke"], Duration::from_secs(25)) {
+                Ok(captured) if captured.code == 0 && smoke_matches(&window, &captured.stdout) => {}
+                Ok(captured) => {
+                    return fault_run(
+                        &invocation,
+                        Fault::new(
+                            5,
+                            "EMP-RUNTIME",
+                            format!("smoke exited {}\n{}", captured.code, captured.stderr),
+                        ),
+                    )
+                }
+                Err(fault) => return fault_run(&invocation, fault),
+            }
+            runs.push(started.elapsed().as_secs_f64());
+        }
+        (
+            Some(runs),
+            Status::Pass,
+            "windowed smoke latency measured".to_owned(),
+        )
+    } else {
+        (
+            None,
+            Status::Blocked,
+            format!(
+                "no {} display; smoke wall time was not attempted; frame rate is not measurable without a display and a frame-presented counter",
+                display_name(&window)
+            ),
+        )
+    };
+    let oracle_stats = run_stats(&oracle_runs);
+    let elf_stats = run_stats(&elf_runs);
+    let mut conformance_detail = format!(
+        "oracle subprocess wall time over {} runs: min {:.6}s median {:.6}s mean {:.6}s",
+        oracle_runs.len(),
+        oracle_stats.min,
+        oracle_stats.median,
+        oracle_stats.mean,
+    );
+    if let Some(runs) = &smoke_runs {
+        let smoke_stats = run_stats(runs);
+        conformance_detail.push_str(&format!(
+            "; smoke launch wall time over {} runs: min {:.6}s median {:.6}s mean {:.6}s (launch latency, not frame rate)",
+            runs.len(),
+            smoke_stats.min,
+            smoke_stats.median,
+            smoke_stats.mean,
+        ));
+    }
+    let mut stages = Stages::new();
+    for (index, name) in crate::stage::NAMES.iter().enumerate() {
+        if *name == "runtime-conformance" {
+            stages.push(Status::Pass, conformance_detail.clone());
+        } else if name == &"static-verification" {
+            stages.push(
+                Status::Pass,
+                format!(
+                    "sha256 {digest} matches the build report; ELF verification over {} runs: min {:.6}s median {:.6}s mean {:.6}s",
+                    elf_runs.len(),
+                    elf_stats.min,
+                    elf_stats.median,
+                    elf_stats.mean,
+                ),
+            );
+        } else if index < 10 {
+            stages.push(Status::NotApplicable, "benchmark does not repeat admission");
+        } else {
+            stages.push(
+                Status::Blocked,
+                "windowed frame rate needs a display and a frame-presented counter; the multi-machine matrix was not executed on this host",
+            );
+        }
+    }
+    let _ = smoke_status;
+    let smoke_json = match &smoke_runs {
+        Some(runs) => {
+            let stats = run_stats(runs);
+            json!({
+                "runs_seconds": runs,
+                "min_seconds": stats.min,
+                "median_seconds": stats.median,
+                "mean_seconds": stats.mean,
+                "note": "smoke launch wall time, not frame rate",
+            })
+        }
+        None => json!({
+            "status": "BLOCKED",
+            "reason": smoke_detail,
+        }),
+    };
+    finish(
+        &invocation,
+        0,
+        stages,
+        format!(
+            "benchmarked {digest}\noracle median {:.6}s elf median {:.6}s\n",
+            oracle_stats.median, elf_stats.median,
+        ),
+        json!({
+            "artifact_sha256": digest,
+            "benchmark_scope": "local-host",
+            "runs_per_measurement": BENCH_RUNS,
+            "oracle_latency": {
+                "command": "App --oracle",
+                "runs_seconds": oracle_runs,
+                "min_seconds": oracle_stats.min,
+                "median_seconds": oracle_stats.median,
+                "mean_seconds": oracle_stats.mean,
+            },
+            "elf_verification_latency": {
+                "in_process": true,
+                "runs_seconds": elf_runs,
+                "min_seconds": elf_stats.min,
+                "median_seconds": elf_stats.median,
+                "mean_seconds": elf_stats.mean,
+            },
+            "smoke_latency": smoke_json,
+            "frame_rate": {
+                "status": "BLOCKED",
+                "reason": "frame-rate benchmarking needs a display and a frame-presented counter; neither is implemented in compiler 0.0.1",
+            },
+            "context": machine_context(),
+            "window": window,
+            "target": report.get("target").cloned().unwrap_or(json!("")),
+            "release": release,
+        }),
+    )
+}
+
+/// Fixed run count, matching the `scripts/perf-baseline.sh` convention:
+/// 1 warmup (not recorded) followed by 5 timed runs.
+const BENCH_RUNS: usize = 5;
+
+struct RunSummary {
+    min: f64,
+    median: f64,
+    mean: f64,
+}
+
+fn run_stats(runs: &[f64]) -> RunSummary {
+    let mut sorted = runs.to_vec();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let mid = sorted.len() / 2;
+    let median = if sorted.len() % 2 == 1 {
+        sorted[mid]
+    } else {
+        (sorted[mid - 1] + sorted[mid]) / 2.0
+    };
+    let mean = sorted.iter().sum::<f64>() / sorted.len() as f64;
+    RunSummary {
+        min: sorted[0],
+        median,
+        mean,
+    }
+}
+
+/// Machine context for the benchmark report. The CPU model comes from the
+/// first `model name` line of `/proc/cpuinfo`; a missing line (non-x86 or a
+/// kernel that does not expose it) is recorded as "unknown" rather than
+/// guessed. Cores use `available_parallelism`, the same concurrency the
+/// measured work could actually use.
+fn machine_context() -> Value {
+    let cpu_model = fs::read_to_string("/proc/cpuinfo")
+        .ok()
+        .and_then(|text| {
+            text.lines()
+                .find(|line| line.starts_with("model name"))
+                .and_then(|line| line.split_once(':'))
+                .map(|(_, model)| model.trim().to_owned())
+        })
+        .unwrap_or_else(|| "unknown".to_owned());
+    let cores = std::thread::available_parallelism()
+        .map(|count| count.get())
+        .unwrap_or(0);
+    json!({
+        "cpu_model": cpu_model,
+        "cores": cores,
+        "rustc": rustc_version(),
+    })
 }
 
 fn test_scene(invocation: Invocation) -> Run {
