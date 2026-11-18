@@ -202,6 +202,9 @@ fn translate(event: Event) -> Option<PlatformEvent> {
         }
         Event::CloseRequested => Some(PlatformEvent::CloseRequested),
         Event::ClipboardText(text) => Some(PlatformEvent::ClipboardText(text)),
+        // PRIMARY answers do not enter the paste gate. Paste is a CLIPBOARD
+        // conversion; middle-click primary paste is not part of this profile.
+        Event::PrimaryText(_) => None,
         Event::Mapped
         | Event::Exposed
         | Event::PointerMove { .. }
