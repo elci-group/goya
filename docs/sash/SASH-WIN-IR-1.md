@@ -67,14 +67,22 @@ pipeline. There is no second emission path.
    `crates/sash/src/ir_codegen.rs` tests; any emission drift fails the suite.
    Pinned digests: `b0bf2d20…` (static window), `b1ca4cbb…` (nested static),
    `83a96632…` (interactive counter).
-   **End-to-end confirmation, 2026-11-18, this host:** fresh x64 cross-links
-   of both fixtures through the IR-refactored compiler reproduced the
-   recorded pre-refactor `static_x64_repro_pair` and
-   `interactive_x64_repro_pair` hashes byte-for-byte — `App.exe`
-   `b60cd84a…` / `97dc90d8…` and `App.pdb` `db437db4…` / `efc82903…`
-   (`docs/sash/programme/sash-ent-002.json`). `sash verify` exited 3 on both
-   images: `pe-structure` PASS, runtime and release BLOCKED. The refactor is
-   therefore invisible from the linked artifact through the evidence map.
+   **End-to-end confirmation, 2026-11-18, this host:** fresh cross-links of
+   both fixtures through the IR-refactored compiler reproduced the recorded
+   pre-refactor `*_x64_repro_pair` and `*_architecture_stamp` hashes in
+   `docs/sash/programme/sash-ent-002.json` byte-for-byte, for every admitted
+   triple: `b60cd84a…` / `ab0078ca…` / `743d2443…` (static exe, x64 / i686 /
+   ARM64) and `97dc90d8…` / `68e927a1…` / `92960685…` (interactive exe,
+   x64 / i686 / ARM64), with matching PDBs. `sash verify` exited 3 on all six
+   images with the correct machine and presentation profile. The refactor is
+   therefore invisible from the linked artifact through the evidence map on
+   every admitted target. The reproduction is a permanent gate:
+   `cargo test -p sash --offline --test link_reproduction -- --ignored`
+   links every recorded pair — the six above plus the four win8-floor pairs
+   first linked on 2026-11-18 — and asserts the hashes, skipping visibly on a
+   host without the pinned cross toolchain. The floor refactor that added
+   `--api-floor win8` changed zero win10 emitted bytes: the six win10 pins
+   still pass unchanged.
 2. **Determinism.** Two lowerings of one admitted scene are equal `IrDocument`
    values; two code generations of one document produce equal output and equal
    digests. Lowering and codegen are pure functions of their input.
@@ -100,6 +108,10 @@ pipeline. There is no second emission path.
   and source digests are all admission output and are untouched.
 - It carries no Windows runtime claim. Runtime qualification stays BLOCKED
   until a Windows worker launches the images.
+- The API floor (`--api-floor win10|win8`) is not an IR field: it selects the
+  Win32 adapter at codegen and the emitted resources at lowering. Window
+  meaning is floor-independent, so no IR shape change was needed and the
+  version stays 1.
 
 ## Versioning rules
 
