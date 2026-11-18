@@ -42,8 +42,6 @@ pub struct OemProfile {
     pub family: &'static str,
     /// Semantic version string, e.g. `1.0.0`.
     pub version: &'static str,
-    /// Full profile id, `family/version`.
-    pub id: &'static str,
     /// The immutable device census this profile declares.
     pub census: DeviceProfile,
 }
@@ -57,7 +55,7 @@ const fn profile(
     OemProfile {
         family,
         version,
-        id: FAMILY_VERSIONS[0],
+        id: "",
         census: DeviceProfile {
             present: present.to_vec(),
             motion_output,
