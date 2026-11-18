@@ -148,7 +148,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/sysroot
-          key: sash-windows-msvc-sysroot-v1
+          key: sash-windows-msvc-sysroot-v2
 
       - name: Bootstrap the pinned Windows sysroot (first run only)
         if: steps.sysroot.outputs.cache-hit != 'true'
@@ -161,21 +161,25 @@ jobs:
           xwin --accept-license --cache-dir "$CACHE/download" \
             --arch x86_64 --arch x86 --arch aarch64 \
             splat --output "$CACHE/splat"
-          INNER="$CACHE/splat"
-          mkdir -p ~/sysroot/windows-msvc-sysroot/lib
+          SPLAT="$CACHE/splat"
+          # Sash requires the nested layout: the cache entry dir holds the
+          # DONE marker and the inner dir holds the merged include/lib tree.
+          ENTRY=~/sysroot/windows-msvc-sysroot
+          INNER="$ENTRY/windows-msvc-sysroot"
+          mkdir -p "$INNER/lib"
           for pair in "x86_64-unknown-windows-msvc x86_64" "i686-unknown-windows-msvc x86" "aarch64-unknown-windows-msvc aarch64"; do
             set -- $pair
-            mkdir -p ~/sysroot/windows-msvc-sysroot/lib/$1
-            cp -a "$INNER"/crt/lib/$2/* ~/sysroot/windows-msvc-sysroot/lib/$1/
-            cp -a "$INNER"/sdk/lib/ucrt/$2/* ~/sysroot/windows-msvc-sysroot/lib/$1/
-            cp -a "$INNER"/sdk/lib/um/$2/* ~/sysroot/windows-msvc-sysroot/lib/$1/
+            mkdir -p "$INNER/lib/$1"
+            cp -a "$SPLAT"/crt/lib/$2/* "$INNER/lib/$1/"
+            cp -a "$SPLAT"/sdk/lib/ucrt/$2/* "$INNER/lib/$1/"
+            cp -a "$SPLAT"/sdk/lib/um/$2/* "$INNER/lib/$1/"
           done
-          mkdir -p ~/sysroot/windows-msvc-sysroot/include
-          cp -a "$INNER"/crt/include/* ~/sysroot/windows-msvc-sysroot/include/
-          cp -a "$INNER"/sdk/include/ucrt/* ~/sysroot/windows-msvc-sysroot/include/
-          cp -a "$INNER"/sdk/include/shared/* ~/sysroot/windows-msvc-sysroot/include/
-          cp -a "$INNER"/sdk/include/um/* ~/sysroot/windows-msvc-sysroot/include/
-          touch ~/sysroot/windows-msvc-sysroot/DONE
+          mkdir -p "$INNER/include"
+          cp -a "$SPLAT"/crt/include/* "$INNER/include/"
+          cp -a "$SPLAT"/sdk/include/ucrt/* "$INNER/include/"
+          cp -a "$SPLAT"/sdk/include/shared/* "$INNER/include/"
+          cp -a "$SPLAT"/sdk/include/um/* "$INNER/include/"
+          touch "$ENTRY/DONE"
           # The pinned linker: a symlink to this toolchain's rust-lld.
           ln -s "$(rustc --print sysroot)/lib/rustlib/x86_64-unknown-linux-gnu/bin/rust-lld" \
             ~/sysroot/lld-link
