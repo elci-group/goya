@@ -17,8 +17,8 @@ use goya_lang::IntentDecl;
 pub mod fireos;
 pub mod resolve;
 pub use fireos::{
-    emit_fire_os_plan, transport_actions, FireOsIntent, FireOsPlan, IntentLowering,
-    LaunchSupport, TransportAction, FIRE_OS_PLAN_CONTRACT, MEDIA_SESSION_PERMISSION,
+    emit_fire_os_plan, transport_actions, FireOsIntent, FireOsPlan, IntentLowering, LaunchSupport,
+    TransportAction, FIRE_OS_PLAN_CONTRACT, MEDIA_SESSION_PERMISSION,
 };
 pub use resolve::{
     device_support, resolve_manifest, scene_focus_elements, DeviceSupport, FallbackResolution,
