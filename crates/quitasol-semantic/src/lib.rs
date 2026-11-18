@@ -16,6 +16,7 @@ use goya_lang::IntentDecl;
 
 pub mod fireos;
 pub mod resolve;
+pub mod runtime;
 pub use fireos::{
     emit_fire_os_plan, transport_actions, FireOsIntent, FireOsPlan, IntentLowering, LaunchSupport,
     TransportAction, FIRE_OS_PLAN_CONTRACT, MEDIA_SESSION_PERMISSION,
@@ -23,6 +24,9 @@ pub use fireos::{
 pub use resolve::{
     device_support, resolve_manifest, scene_focus_elements, DeviceSupport, FallbackResolution,
     ResolvedFallback, ResolvedManifest, QS_E2000, QS_E2001, QS_E2002, QS_E2003,
+};
+pub use runtime::{
+    emit_media_session_glue, CallbackBinding, MediaSessionGlue, MEDIA_SESSION_RT_CONTRACT,
 };
 
 /// Contract identifier implemented by this crate. Draft revision: the intent

@@ -814,3 +814,22 @@ self-test gate, fixed in the same commit.
 - Stability: Frozen at G1 (ADR-IE-001). Field-level canonical wire encoding
   of messages is not yet frozen; changes require a new ADR and downstream
   notification per IE-E01.
+
+## IE-X01/2 — Canonical wire codec (`ie-contract::codec`, frozen)
+
+- Provides: `encode/decode_request`, `encode/decode_response`,
+  `encode/decode_capability`, `encode/decode_tensor`; all little-endian,
+  u32-length-prefixed, count-plausibility-checked before allocation.
+  Known-answer vector test pins canonical bytes.
+- Invariants: `VersionMismatch` on capability protocol-version mismatch;
+  error detail round-trips through `TypedError::from_code` (including
+  VersionMismatch `local:remote`); truncated buffers always error, never
+  panic.
+
+## IE-CPU/1 — CPU reference oracle (`crates/ie-cpu`, WP-003 seed)
+
+- Provides: `execute(op, inputs) -> Result<TensorData, TypedError>` over the
+  golden-op subset (`add`, `matmul`); `SUPPORTED_OPS` allowlist.
+- Invariants: deterministic FP32 in fixed iteration order; validation before
+  compute; typed errors only. G2 conformance seed reproduces frozen golden
+  fixture T01 exactly and deterministically.

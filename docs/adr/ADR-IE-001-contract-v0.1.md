@@ -43,3 +43,13 @@ single source of the shared contract:
   before wire freeze of transports (IE-X01).
 - The G0 record (isolated extraction at `/home/sal/zipwork_iberia/g0/`)
   stands as the pre-approval inventory evidence.
+
+## Amendment 1 (same ADR, G1 scope completion)
+Field-level canonical wire encoding is now frozen in `codec.rs`:
+little-endian integers, u32-length-prefixed UTF-8 strings, count-prefixed
+sequences with plausibility checks against the remaining buffer (no
+allocation on implausible lengths), and known-answer vectors pinning the
+exact canonical bytes of a reference Request. `ie-cpu` (WP-003 seed)
+provides the FP32 numerical oracle over the golden-op subset ("add",
+"matmul"), passing frozen fixture T01 deterministically; op support is
+allowlisted and anything else is rejected with UNSUPPORTED_OP pre-execution.
