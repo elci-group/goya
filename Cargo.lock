@@ -922,6 +922,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "goya-nevada"
+version = "0.0.1"
+
+[[package]]
 name = "goya-parity"
 version = "0.1.8"
 dependencies = [
