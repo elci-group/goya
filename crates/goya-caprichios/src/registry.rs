@@ -627,6 +627,8 @@ pub fn negotiate(
             && *id != crate::bluetooth_caprichio::CONTRACT
             && *id != crate::bluetooth_control_caprichio::CONTRACT
             && *id != crate::bluetooth_stream_caprichio::CONTRACT
+            && *id != crate::bluetooth_guard_caprichio::CONTRACT
+            && *id != crate::bluetooth_continuity_caprichio::CONTRACT
         {
             if catalog::find(id).is_some() {
                 return Err(NegotiationError::UnsupportedCapability((*id).to_owned()));
@@ -664,6 +666,9 @@ pub fn negotiate(
     let needs_bluetooth_central = ordered.contains(crate::bluetooth_caprichio::CONTRACT);
     let needs_bluetooth_gatt = ordered.contains(crate::bluetooth_control_caprichio::CONTRACT);
     let needs_bluetooth_stream = ordered.contains(crate::bluetooth_stream_caprichio::CONTRACT);
+    let needs_bluetooth_guard = ordered.contains(crate::bluetooth_guard_caprichio::CONTRACT);
+    let needs_bluetooth_continuity =
+        ordered.contains(crate::bluetooth_continuity_caprichio::CONTRACT);
     if request.network.is_some() && !needs_network {
         return Err(NegotiationError::UnexpectedDeclaration { kind: "network" });
     }
@@ -771,6 +776,16 @@ pub fn negotiate(
     if request.bluetooth_stream.is_some() && !needs_bluetooth_stream {
         return Err(NegotiationError::UnexpectedDeclaration {
             kind: "bluetooth_stream",
+        });
+    }
+    if request.bluetooth_guard.is_some() && !needs_bluetooth_guard {
+        return Err(NegotiationError::UnexpectedDeclaration {
+            kind: "bluetooth_guard",
+        });
+    }
+    if request.bluetooth_continuity.is_some() && !needs_bluetooth_continuity {
+        return Err(NegotiationError::UnexpectedDeclaration {
+            kind: "bluetooth_continuity",
         });
     }
 
@@ -1153,6 +1168,37 @@ pub fn negotiate(
                         .map_err(NegotiationError::BluetoothStream)?,
                 )
             }
+            crate::bluetooth_guard_caprichio::CONTRACT => {
+                let declaration = request.bluetooth_guard.clone().ok_or(
+                    NegotiationError::MissingDeclaration {
+                        capability: crate::bluetooth_guard_caprichio::CONTRACT,
+                    },
+                )?;
+                let ir = declaration
+                    .normalize()
+                    .map_err(NegotiationError::BluetoothGuard)?;
+                Artifact::BluetoothGuard(
+                    ir.lower_checked(host.bluetooth_guard_target, host.bluetooth_guard_host)
+                        .map_err(NegotiationError::BluetoothGuard)?,
+                )
+            }
+            crate::bluetooth_continuity_caprichio::CONTRACT => {
+                let declaration = request.bluetooth_continuity.clone().ok_or(
+                    NegotiationError::MissingDeclaration {
+                        capability: crate::bluetooth_continuity_caprichio::CONTRACT,
+                    },
+                )?;
+                let ir = declaration
+                    .normalize()
+                    .map_err(NegotiationError::BluetoothContinuity)?;
+                Artifact::BluetoothContinuity(
+                    ir.lower_checked(
+                        host.bluetooth_continuity_target,
+                        host.bluetooth_continuity_host,
+                    )
+                    .map_err(NegotiationError::BluetoothContinuity)?,
+                )
+            }
             _ => unreachable!("request IDs validated before lowering"),
         };
         let id = match artifact {
@@ -1185,6 +1231,8 @@ pub fn negotiate(
             Artifact::Bluetooth(_) => crate::bluetooth_caprichio::CONTRACT,
             Artifact::BluetoothGatt(_) => crate::bluetooth_control_caprichio::CONTRACT,
             Artifact::BluetoothStream(_) => crate::bluetooth_stream_caprichio::CONTRACT,
+            Artifact::BluetoothGuard(_) => crate::bluetooth_guard_caprichio::CONTRACT,
+            Artifact::BluetoothContinuity(_) => crate::bluetooth_continuity_caprichio::CONTRACT,
         };
         result.push(NegotiatedCapability { id, artifact });
     }
@@ -1378,6 +1426,19 @@ mod tests {
                 characteristic_indications: true,
                 bluetooth_powered: true,
                 bluetooth_permission: true,
+                utf8_strings: true,
+            },
+            bluetooth_guard_target: BluetoothGuardTarget::Ios,
+            bluetooth_guard_host: BluetoothGuardHost {
+                bluetooth_permission_query: true,
+                bluetooth_authorisation_store: true,
+                utf8_strings: true,
+            },
+            bluetooth_continuity_target: BluetoothContinuityTarget::Ios,
+            bluetooth_continuity_host: BluetoothContinuityHost {
+                bluetooth_state_restoration: true,
+                persistent_storage: true,
+                bluetooth_power_monitoring: true,
                 utf8_strings: true,
             },
         }
@@ -1622,6 +1683,23 @@ mod tests {
             ],
             max_notification_bytes: 256,
             max_buffered_notifications: 2,
+        }
+    }
+
+    fn bluetooth_guard() -> BluetoothGuardDeclaration {
+        BluetoothGuardDeclaration {
+            usage_description: "Connects to your temperature sensor to show readings."
+                .to_owned(),
+            max_authorised_peripherals: 4,
+            enforce_explicit_selection: true,
+        }
+    }
+
+    fn bluetooth_continuity() -> BluetoothContinuityDeclaration {
+        BluetoothContinuityDeclaration {
+            max_associations: 4,
+            max_subscriptions_per_association: 2,
+            persist_across_launches: true,
         }
     }
 
@@ -2171,6 +2249,185 @@ mod tests {
     }
 
     #[test]
+    fn bluetooth_guard_contract_registers_exactly_and_fails_closed() {
+        let contract = crate::bluetooth_guard_caprichio::CONTRACT;
+        assert_eq!(contract, "goya.hardware.bluetooth.guard.v1");
+        assert!(supported_contracts().contains(&contract));
+        assert!(!supported_contracts().contains(&"goya.hardware.bluetooth.guard"));
+
+        let request = Request {
+            capabilities: vec![contract.into()],
+            bluetooth_guard: Some(bluetooth_guard()),
+            ..Request::default()
+        };
+        let negotiated = negotiate(&request, host()).unwrap();
+        assert_eq!(negotiated.len(), 1);
+        assert_eq!(negotiated[0].id, contract);
+        assert_eq!(negotiated[0].artifact.contract(), contract);
+        assert_eq!(
+            negotiated[0].artifact.recipe(),
+            "apple-ble-guard-bounded-authorisation"
+        );
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("session=ble_guard_bounded_authorisation\n"));
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("explicit_selection=required\n"));
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("usage_keys_generated=none\n"));
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("authorisations_granted=none\n"));
+        assert_eq!(negotiated, negotiate(&request, host()).unwrap());
+
+        let missing = Request {
+            capabilities: vec![contract.into()],
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&missing, host()),
+            Err(NegotiationError::MissingDeclaration {
+                capability: contract
+            })
+        );
+        let unexpected = Request {
+            bluetooth_guard: Some(bluetooth_guard()),
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&unexpected, host()),
+            Err(NegotiationError::UnexpectedDeclaration {
+                kind: "bluetooth_guard"
+            })
+        );
+
+        let mut unsupported_target = host();
+        unsupported_target.bluetooth_guard_target = BluetoothGuardTarget::Node;
+        assert_eq!(
+            negotiate(&request, unsupported_target),
+            Err(NegotiationError::BluetoothGuard(
+                crate::bluetooth_guard_caprichio::Diagnostic::UnsupportedTarget
+            ))
+        );
+        let mut without_query = host();
+        without_query.bluetooth_guard_host.bluetooth_permission_query = false;
+        assert_eq!(
+            negotiate(&request, without_query),
+            Err(NegotiationError::BluetoothGuard(
+                crate::bluetooth_guard_caprichio::Diagnostic::MissingBluetoothPermissionQuery
+            ))
+        );
+        let mut without_store = host();
+        without_store.bluetooth_guard_host.bluetooth_authorisation_store = false;
+        assert_eq!(
+            negotiate(&request, without_store),
+            Err(NegotiationError::BluetoothGuard(
+                crate::bluetooth_guard_caprichio::Diagnostic::MissingBluetoothAuthorisationStore
+            ))
+        );
+    }
+
+    #[test]
+    fn bluetooth_continuity_contract_registers_exactly_and_fails_closed() {
+        let contract = crate::bluetooth_continuity_caprichio::CONTRACT;
+        assert_eq!(contract, "goya.hardware.bluetooth.continuity.v1");
+        assert!(supported_contracts().contains(&contract));
+        assert!(!supported_contracts().contains(&"goya.hardware.bluetooth.continuity"));
+
+        let request = Request {
+            capabilities: vec![contract.into()],
+            bluetooth_continuity: Some(bluetooth_continuity()),
+            ..Request::default()
+        };
+        let negotiated = negotiate(&request, host()).unwrap();
+        assert_eq!(negotiated.len(), 1);
+        assert_eq!(negotiated[0].id, contract);
+        assert_eq!(negotiated[0].artifact.contract(), contract);
+        assert_eq!(
+            negotiated[0].artifact.recipe(),
+            "apple-ble-continuity-bounded-restoration"
+        );
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("session=ble_continuity_bounded_restoration\n"));
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("relaunch_promised=none\n"));
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("restoration_planned=none\n"));
+        assert_eq!(negotiated, negotiate(&request, host()).unwrap());
+
+        let missing = Request {
+            capabilities: vec![contract.into()],
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&missing, host()),
+            Err(NegotiationError::MissingDeclaration {
+                capability: contract
+            })
+        );
+        let unexpected = Request {
+            bluetooth_continuity: Some(bluetooth_continuity()),
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&unexpected, host()),
+            Err(NegotiationError::UnexpectedDeclaration {
+                kind: "bluetooth_continuity"
+            })
+        );
+
+        let mut unsupported_target = host();
+        unsupported_target.bluetooth_continuity_target = BluetoothContinuityTarget::Node;
+        assert_eq!(
+            negotiate(&request, unsupported_target),
+            Err(NegotiationError::BluetoothContinuity(
+                crate::bluetooth_continuity_caprichio::Diagnostic::UnsupportedTarget
+            ))
+        );
+        // Cross-launch persistence requires restoration and storage.
+        let mut without_restoration = host();
+        without_restoration
+            .bluetooth_continuity_host
+            .bluetooth_state_restoration = false;
+        assert_eq!(
+            negotiate(&request, without_restoration),
+            Err(NegotiationError::BluetoothContinuity(
+                crate::bluetooth_continuity_caprichio::Diagnostic::MissingBluetoothStateRestoration
+            ))
+        );
+        let mut without_storage = host();
+        without_storage.bluetooth_continuity_host.persistent_storage = false;
+        assert_eq!(
+            negotiate(&request, without_storage),
+            Err(NegotiationError::BluetoothContinuity(
+                crate::bluetooth_continuity_caprichio::Diagnostic::MissingPersistentStorage
+            ))
+        );
+        // A session-scoped declaration requires neither.
+        let session_scoped = Request {
+            bluetooth_continuity: Some(BluetoothContinuityDeclaration {
+                persist_across_launches: false,
+                ..bluetooth_continuity()
+            }),
+            ..Request::default()
+        };
+        assert!(negotiate(&session_scoped, without_restoration).is_ok());
+        assert!(negotiate(&session_scoped, without_storage).is_ok());
+    }
+
+    #[test]
     fn ios_keychain_contract_registers_exactly_and_fails_closed() {
         let contract = crate::keychain_caprichio::CONTRACT;
         assert_eq!(contract, "goya.hardware.secure_storage.keychain.v1");
@@ -2384,6 +2641,8 @@ mod tests {
             bluetooth_central: None,
             bluetooth_gatt: None,
             bluetooth_stream: None,
+            bluetooth_guard: None,
+            bluetooth_continuity: None,
         };
         let result = negotiate(&request, host()).unwrap();
         assert_eq!(
@@ -2503,7 +2762,9 @@ mod tests {
                 "goya.hardware.biometry.touch_id.v1",
                 "goya.hardware.biometry.windows_hello.v1",
                 "goya.hardware.bluetooth.central.v1",
+                "goya.hardware.bluetooth.continuity.v1",
                 "goya.hardware.bluetooth.gatt.v1",
+                "goya.hardware.bluetooth.guard.v1",
                 "goya.hardware.bluetooth.stream.v1",
                 "goya.hardware.gpu_compute.apple_silicon_metal.v1",
                 "goya.hardware.payments.apple_pay.v1",
@@ -3514,6 +3775,8 @@ mod tests {
             bluetooth_central: None,
             bluetooth_gatt: None,
             bluetooth_stream: None,
+            bluetooth_guard: None,
+            bluetooth_continuity: None,
         };
         let start = Instant::now();
         let iterations = 10_000;
