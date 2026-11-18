@@ -359,6 +359,16 @@ mod tests {
         GENERATIONS[0].0
     }
 
+    /// First catalog entry whose silicon actually accelerates int8 models;
+    /// int8-only model declarations are unsupported on earlier silicon.
+    fn first_int8_capable_generation() -> &'static str {
+        GENERATIONS
+            .iter()
+            .find(|(_, facts)| facts.int8_accel)
+            .map(|(name, _)| *name)
+            .expect("catalog must contain int8-capable silicon")
+    }
+
     #[test]
     fn catalog_entries_have_consistent_facts() {
         assert!(!GENERATIONS.is_empty(), "catalog must not be empty");
@@ -392,7 +402,7 @@ mod tests {
 
     #[test]
     fn declaration_normalizes_and_lowers_deterministically() {
-        let soc = first_generation();
+        let soc = first_int8_capable_generation();
         let ir = declaration(soc, 32, 8).normalize().unwrap();
         assert_eq!(ir.layers(), 32);
         assert_eq!(ir.batch(), 8);
@@ -504,7 +514,9 @@ mod tests {
         let mut lowered = 0;
         for (name, facts) in GENERATIONS {
             let ir = declaration(name, 4, 2).normalize().unwrap();
-            if facts.hexagon_dsp == "none" {
+            // Int8-only model declarations are unsupported on silicon without
+            // int8 acceleration, whatever DSP the SoC carries.
+            if !facts.int8_accel {
                 assert_eq!(
                     ir.lower_checked(Target::Snapdragon, CAPABILITIES),
                     Err(SnapdragonAcceleratorDiagnostic::UnsupportedAccelerator)
@@ -523,7 +535,7 @@ mod tests {
         use std::process::{Command, Stdio};
         use std::time::{SystemTime, UNIX_EPOCH};
 
-        let soc = first_generation();
+        let soc = first_int8_capable_generation();
         let artifact = declaration(soc, 128, 3)
             .normalize()
             .unwrap()
