@@ -12,7 +12,7 @@
 //! Fail-closed and deterministic; consumes `nevada` nothing — this module
 //! depends only on the Q2 plan and the parsed scene.
 
-use crate::fireos::{transport_actions, FireOsPlan, IntentLowering};
+use crate::fireos::{FireOsPlan, IntentLowering};
 use goya_lang::intents::IntentDiagnostic;
 use goya_lang::{Scene, SourceRange};
 
@@ -263,7 +263,7 @@ mod tests {
         assert!(
             error
                 .name
-                .contains("bound by intents playback and catalogue"),
+                .contains("bound by intents catalogue and playback"),
             "{error}"
         );
     }
