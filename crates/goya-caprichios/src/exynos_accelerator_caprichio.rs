@@ -37,9 +37,24 @@ pub struct ExynosFacts {
 
 /// Catalog order is series-major (8, 7, 6, 4); within a series, release
 /// order. Facts come from Qualcomm product briefs and the public npu
-/// documentation; figures Qualcomm did not publish are `None`, never
-/// guessed. Conflicting sources are recorded as such in the DSP label.
-pub const GENERATIONS: &[(&str, ExynosFacts)] = &[];
+/// documentation; figures Samsung did not publish are `None`, never
+/// guessed. Exynos 2300 is excluded: designed but never shipped
+/// commercially. Each entry is the Samsung flagship contemporary with a
+/// Snapdragon 8-series generation.
+#[rustfmt::skip]
+pub const GENERATIONS: &[(&str, ExynosFacts)] = &[
+    ("Exynos 7420",  ExynosFacts { series: "8", soc: "S5E7420",  npu_dsp: "none",                               npu_tops_tenths: None,      int8_accel: false, fp16_accel: false, year: 2015 }),
+    ("Exynos 8890",  ExynosFacts { series: "8", soc: "S5E8890",  npu_dsp: "none",                               npu_tops_tenths: None,      int8_accel: false, fp16_accel: false, year: 2016 }),
+    ("Exynos 8895",  ExynosFacts { series: "8", soc: "S5E8895",  npu_dsp: "none", npu_tops_tenths: None, int8_accel: false, fp16_accel: false, year: 2017 }), // camera VPU only, no public SDK
+    ("Exynos 9810",  ExynosFacts { series: "8", soc: "S5E9810",  npu_dsp: "none",                               npu_tops_tenths: None,      int8_accel: false, fp16_accel: false, year: 2018 }),
+    ("Exynos 9820",  ExynosFacts { series: "8", soc: "S5E9820",  npu_dsp: "NPU (first Exynos NPU)",             npu_tops_tenths: None,      int8_accel: false, fp16_accel: false, year: 2019 }),
+    ("Exynos 9825",  ExynosFacts { series: "8", soc: "S5E9825",  npu_dsp: "NPU (9820-generation)",              npu_tops_tenths: None,      int8_accel: false, fp16_accel: false, year: 2019 }),
+    ("Exynos 990",   ExynosFacts { series: "8", soc: "S5E9830",  npu_dsp: "NPU (dual-core) + DSP",              npu_tops_tenths: None,      int8_accel: false, fp16_accel: false, year: 2020 }),
+    ("Exynos 2100",  ExynosFacts { series: "8", soc: "S5E9840",  npu_dsp: "NPU (tri-core) + DSP",               npu_tops_tenths: Some(260), int8_accel: false, fp16_accel: false, year: 2021 }),
+    ("Exynos 2200",  ExynosFacts { series: "8", soc: "S5E9925",  npu_dsp: "NPU + DSP (INT8/INT16/FP16)",        npu_tops_tenths: None,      int8_accel: true,  fp16_accel: true,  year: 2022 }),
+    ("Exynos 2400",  ExynosFacts { series: "8", soc: "S5E9240",  npu_dsp: "GNPU + SNPU (17K MAC)",              npu_tops_tenths: None,      int8_accel: true,  fp16_accel: true,  year: 2024 }),
+    ("Exynos 2500",  ExynosFacts { series: "8", soc: "S5E9955",  npu_dsp: "NPU (dual 12K-MAC clusters)",        npu_tops_tenths: Some(590), int8_accel: true,  fp16_accel: true,  year: 2025 }),
+];
 
 /// Per-generation lookup. Unknown generations return None; the catalog never
 /// guesses.
@@ -306,7 +321,7 @@ mod tests {
             assert!(seen.insert(*name), "duplicate generation {name}");
             assert!(matches!(facts.series, "8" | "7" | "6" | "4"));
             assert!(
-                facts.npu_dsp == "none" || facts.npu_dsp.starts_with("npu"),
+                facts.npu_dsp == "none" || facts.npu_dsp.starts_with("NPU"),
                 "unexpected DSP label {}",
                 facts.npu_dsp
             );
