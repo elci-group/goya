@@ -743,9 +743,15 @@ mod proportional_tests {
         let frame = layout(&scene, 400.0, 200.0);
         let plain = frame.find("plain").unwrap().rect;
         // Clamped: x at the right edge, width 0; y at half, height 0.
-        assert_eq!((plain.x, plain.y, plain.width, plain.height), (400_000, 100_000, 0, 0));
+        assert_eq!(
+            (plain.x, plain.y, plain.width, plain.height),
+            (400_000, 100_000, 0, 0)
+        );
         let content = frame.find("content").unwrap().rect;
-        assert_eq!((content.x, content.y, content.width, content.height), (0, 125_000, 200_000, 350_000));
+        assert_eq!(
+            (content.x, content.y, content.width, content.height),
+            (0, 125_000, 200_000, 350_000)
+        );
         assert_eq!(frame.scroll_limits("view"), (0, 375_000));
     }
 

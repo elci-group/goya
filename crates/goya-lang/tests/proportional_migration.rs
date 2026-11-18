@@ -8,7 +8,9 @@ fn scenes(dir: &Path, out: &mut Vec<PathBuf>) {
         let path = entry.unwrap().path();
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
         if path.is_dir() {
-            if !matches!(name.as_str(), "target" | ".git" | "node_modules") && !name.starts_with('.') {
+            if !matches!(name.as_str(), "target" | ".git" | "node_modules")
+                && !name.starts_with('.')
+            {
                 scenes(&path, out);
             }
         } else if name.ends_with(".gscene") {
@@ -43,9 +45,14 @@ fn repository_scenes_convert_exactly_at_the_reference_viewport() {
         for (width, height) in [(800.0, 600.0), (392.0, 753.0)] {
             let conversion = to_proportional(&source, width, height)
                 .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-            let scene = parse(&conversion.source)
-                .unwrap_or_else(|e| panic!("{}: converted scene does not parse: {e}", path.display()));
-            assert!(!absolute(&scene.root), "{}: absolute length left", path.display());
+            let scene = parse(&conversion.source).unwrap_or_else(|e| {
+                panic!("{}: converted scene does not parse: {e}", path.display())
+            });
+            assert!(
+                !absolute(&scene.root),
+                "{}: absolute length left",
+                path.display()
+            );
             if conversion.inexact.is_empty() {
                 let before = layout(&parse(&source).unwrap(), width, height);
                 let after = layout(&scene, width, height);
@@ -58,7 +65,11 @@ fn repository_scenes_convert_exactly_at_the_reference_viewport() {
                 .iter()
                 .any(|item| item.reason != goya_lang::proportional::ZERO_BASE)
             {
-                inexact.push(format!("{} @ {width}x{height}: {:?}", path.display(), conversion.inexact));
+                inexact.push(format!(
+                    "{} @ {width}x{height}: {:?}",
+                    path.display(),
+                    conversion.inexact
+                ));
             } else {
                 // Lengths on zero-sized elements have no proportional form;
                 // they are reported, and the rest of the scene is exact.

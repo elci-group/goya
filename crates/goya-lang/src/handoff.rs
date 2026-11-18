@@ -13,8 +13,8 @@
 //! awaiting architecture approval; it is not evidence of target support.
 
 use crate::{
-    parse_strict, parse_strict_gssh2, parse_strict_gssh3, InputBinding, InteractionType, InteractionValue, ParsedScene,
-    SourceRange, StateDecl, StateLifetime, StrictParseError,
+    parse_strict, parse_strict_gssh2, parse_strict_gssh3, InputBinding, InteractionType,
+    InteractionValue, ParsedScene, SourceRange, StateDecl, StateLifetime, StrictParseError,
 };
 use std::collections::BTreeMap;
 use std::ops::Deref;

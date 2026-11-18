@@ -4,8 +4,8 @@
 use crate::lexer::{lex, Token, TokenKind};
 use crate::scene::{
     Anchor, CellKind, EffectRequestDecl, EffectValueType, GestureDecision, GesturePolicy,
-    InteractionClass, InteractionDecl, InteractionExpr, InteractionType, InteractionValue, IntentDecl,
-    Scene, SceneCell, StateAssignment, TransportClass, TypedKey, Vec3,
+    IntentDecl, InteractionClass, InteractionDecl, InteractionExpr, InteractionType,
+    InteractionValue, Scene, SceneCell, StateAssignment, TransportClass, TypedKey, Vec3,
 };
 use goya_determinism::EffectKind;
 use std::collections::BTreeMap;
@@ -1583,9 +1583,7 @@ impl P {
             },
             "text-size" | "text_size" => cell.text_size = Some(self.parse_number()?),
             "text-size-p" | "text_size_p" => cell.text_size_p = Some(self.parse_number()?),
-            "stroke-width-p" | "stroke_width_p" => {
-                cell.stroke_width_p = Some(self.parse_number()?)
-            }
+            "stroke-width-p" | "stroke_width_p" => cell.stroke_width_p = Some(self.parse_number()?),
             // `wrap` is a positive integer column count. 0, negatives,
             // non-integers and out-of-range values are parse errors — a
             // malformed wrap must not silently disable the feature.

@@ -95,11 +95,7 @@ fn rejections_carry_code_cause_and_declaration_span() {
     let valid = ACCEPT;
     // (cause, from, to) — mutations that parse and then fail validation.
     let cases: [(&str, &str, &str); 2] = [
-        (
-            "no fallback",
-            "remote: searchPanel;",
-            "",
-        ),
+        ("no fallback", "remote: searchPanel;", ""),
         (
             "bad slot",
             "utterance: \"Find {query}\";",
@@ -126,8 +122,11 @@ fn rejections_carry_code_cause_and_declaration_span() {
     }
 
     // Duplicate utterances are rejected at parse time, not validation.
-    let duplicate_utterance =
-        valid.replacen("utterance: \"Show me {query}\";", "utterance: \"Find {query}\";", 1);
+    let duplicate_utterance = valid.replacen(
+        "utterance: \"Show me {query}\";",
+        "utterance: \"Find {query}\";",
+        1,
+    );
     assert!(parse_with_source_map(&duplicate_utterance).is_err());
 
     // Missing utterances and duplicate intent names are semantic-only.
@@ -146,8 +145,10 @@ fn rejections_carry_code_cause_and_declaration_span() {
     let diagnostics = validate_intents(&parsed);
     assert_eq!(diagnostics.len(), 1);
     assert!(diagnostics[0].name.contains("duplicate intent name"));
-    assert!(duplicated[diagnostics[0].range.start..diagnostics[0].range.end]
-        .starts_with("@intent search"));
+    assert!(
+        duplicated[diagnostics[0].range.start..diagnostics[0].range.end]
+            .starts_with("@intent search")
+    );
 }
 
 #[test]
@@ -249,7 +250,11 @@ fn transport_key_parses_or_fails_closed() {
         ("restart", TransportClass::Restart),
     ] {
         let scene = parse_with_source_map(&base(keyword)).unwrap();
-        assert_eq!(scene.scene.intents[0].transport, Some(expected), "{keyword}");
+        assert_eq!(
+            scene.scene.intents[0].transport,
+            Some(expected),
+            "{keyword}"
+        );
     }
 
     // Unknown keyword: parse error, never a silent default.

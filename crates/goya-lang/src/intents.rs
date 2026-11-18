@@ -70,7 +70,10 @@ pub fn validate_intents(parsed: &ParsedScene) -> Vec<IntentDiagnostic> {
             if let Some(cause) = utterance_error(utterance) {
                 out.push(diagnostic(
                     "GY-E1011",
-                    format!("intent {}: utterance {:?}: {}", intent.name, utterance, cause),
+                    format!(
+                        "intent {}: utterance {:?}: {}",
+                        intent.name, utterance, cause
+                    ),
                     intent.range,
                 ));
             }
@@ -124,10 +127,7 @@ pub fn utterance_error(utterance: &str) -> Option<&'static str> {
                 if slot.is_empty() {
                     return Some("empty slot");
                 }
-                if !slot
-                    .chars()
-                    .all(|c| c.is_ascii_alphanumeric() || c == '_')
-                {
+                if !slot.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
                     return Some("slot name is not an identifier");
                 }
                 if slots.contains(&slot) {
@@ -173,7 +173,10 @@ pub fn validate_intent_decl(intent: &IntentDecl) -> Vec<IntentDiagnostic> {
         if let Some(cause) = utterance_error(utterance) {
             out.push(diagnostic(
                 "GY-E1011",
-                format!("intent {}: utterance {:?}: {}", intent.name, utterance, cause),
+                format!(
+                    "intent {}: utterance {:?}: {}",
+                    intent.name, utterance, cause
+                ),
                 intent.range,
             ));
         }
@@ -236,8 +239,10 @@ mod tests {
         let ok = "@ontology app { @button go { } @interaction searchCatalogue { trigger: button.go.activate; class: D1; state { } input { } } @intent search { action: searchCatalogue; voice { utterance: \"Find {query}\"; confirmation: false; } fallback { remote: searchPanel; keyboard: searchField; } } }";
         assert_eq!(validate(ok), Vec::new());
 
-        let no_fallback =
-            ok.replace("fallback { remote: searchPanel; keyboard: searchField; }", "fallback { }");
+        let no_fallback = ok.replace(
+            "fallback { remote: searchPanel; keyboard: searchField; }",
+            "fallback { }",
+        );
         let diagnostics = validate(&no_fallback);
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].code, "GY-E1011");

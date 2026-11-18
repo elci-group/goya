@@ -126,10 +126,7 @@ pub fn to_proportional(
     let frame = layout(scene, width_pt, height_pt);
     let mut plans = Vec::new();
     collect(&scene.root, Vec::new(), None, false, &mut plans);
-    let viewport = (
-        (width_pt * MP) as i64,
-        (height_pt * MP) as i64,
-    );
+    let viewport = ((width_pt * MP) as i64, (height_pt * MP) as i64);
     let parent_size = |plan: &Plan<'_>| match plan.parent {
         Some(p) => (frame.nodes[p].rect.width, frame.nodes[p].rect.height),
         None => viewport,
@@ -158,7 +155,11 @@ pub fn to_proportional(
         let plan = &plans[index];
         let cell = plan.cell;
         let original = &source[entry.range.start..entry.range.end];
-        let terminator = if original.trim_end().ends_with(';') { ";" } else { "" };
+        let terminator = if original.trim_end().ends_with(';') {
+            ";"
+        } else {
+            ""
+        };
         let mut failure: Option<&'static str> = None;
         let replacement = match canonical.as_str() {
             // A proportional form already present wins in the reference
@@ -276,7 +277,10 @@ mod tests {
         let before = layout(&crate::parse(source).unwrap(), 400.0, 300.0);
         assert!(same_layout(&before, &layout(&admitted.scene, 400.0, 300.0)));
         // Inside the scroll viewport the content keeps overflowing (> 1).
-        assert!(out.contains("extent_p: (1.0000025, 9.000005, 0.0)"), "{out}");
+        assert!(
+            out.contains("extent_p: (1.0000025, 9.000005, 0.0)"),
+            "{out}"
+        );
     }
 
     #[test]

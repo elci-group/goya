@@ -16,8 +16,8 @@
 
 use goya_lang::handoff::{self, Origin};
 use goya_lang::{
-    lex, parse_strict, parse_strict_gssh2, parse_strict_gssh3, parse_with_source_map, ParsedScene, SourceRange,
-    StrictParseError,
+    lex, parse_strict, parse_strict_gssh2, parse_strict_gssh3, parse_with_source_map, ParsedScene,
+    SourceRange, StrictParseError,
 };
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -309,7 +309,10 @@ fn check_profile(profile: Profile, source: &str, parsed: &ParsedScene, context: 
         .iter()
         .any(|c| c.text_size_p.is_some() || c.stroke_width_p.is_some());
     let absolute_lengths = all.iter().any(|c| {
-        c.position.is_some() || c.extent.is_some() || c.text_size.is_some() || c.stroke_width.is_some()
+        c.position.is_some()
+            || c.extent.is_some()
+            || c.text_size.is_some()
+            || c.stroke_width.is_some()
     });
     match profile {
         Profile::Gssh1 => {
@@ -317,14 +320,23 @@ fn check_profile(profile: Profile, source: &str, parsed: &ParsedScene, context: 
                 parsed.declarations.state.is_none() && parsed.declarations.bindings.is_empty(),
                 "{context}: GSSH/1 admitted GSSH/2 declarations"
             );
-            assert!(!proportional_lengths, "{context}: GSSH/1 admitted a GSSH/3 length");
+            assert!(
+                !proportional_lengths,
+                "{context}: GSSH/1 admitted a GSSH/3 length"
+            );
         }
         Profile::Gssh2 => {
             check_gssh2(source, context);
-            assert!(!proportional_lengths, "{context}: GSSH/2 admitted a GSSH/3 length");
+            assert!(
+                !proportional_lengths,
+                "{context}: GSSH/2 admitted a GSSH/3 length"
+            );
         }
         Profile::Gssh3 => {
-            assert!(!absolute_lengths, "{context}: GSSH/3 admitted an absolute length");
+            assert!(
+                !absolute_lengths,
+                "{context}: GSSH/3 admitted an absolute length"
+            );
             let handoff = handoff::admit_v3(source).unwrap_or_else(|e| panic!("{context}: {e}"));
             assert_eq!(handoff.contract(), "GSSH/3");
             for (origin, range) in handoff.origins() {
