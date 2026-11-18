@@ -326,11 +326,39 @@ mod tests {
 
     #[test]
     fn plan_json_is_deterministic_across_declaration_order() {
-        let swapped = SCENE.replace("@intent playback {", "@intent playbackTMP {")
-            .replace("@intent catalogue {", "@intent playback {")
-            .replace("@intent playbackTMP {", "@intent catalogue {");
+        // Same intents in swapped declaration order — transport stays with
+        // `playback`, authored explicitly rather than renamed.
+        let swapped = "\
+@ontology app {
+    @button play { position: (100, 100, 0) extent: (200, 60, 0) }
+    @button search { position: (400, 100, 0) extent: (200, 60, 0) }
+    @interaction toggle {
+        trigger: button.play.activate;
+        class: D1;
+        state { }
+        input { }
+    }
+    @interaction find {
+        trigger: button.search.activate;
+        class: D1;
+        state { }
+        input { }
+    }
+    @intent catalogue {
+        action: find;
+        voice { utterance: \"Find {query}\"; }
+        fallback { remote: search; }
+    }
+    @intent playback {
+        action: toggle;
+        transport: play_pause;
+        voice { utterance: \"Pause playback\"; confirmation: true; }
+        fallback { remote: play; }
+    }
+}
+";
         let a = emit_fire_os_plan(&parse(SCENE).unwrap(), &resolve(SCENE)).unwrap();
-        let b = emit_fire_os_plan(&parse(&swapped).unwrap(), &resolve(&swapped)).unwrap();
+        let b = emit_fire_os_plan(&parse(swapped).unwrap(), &resolve(swapped)).unwrap();
         assert_eq!(a, b);
         assert_eq!(a.to_json(), b.to_json());
     }
