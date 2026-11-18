@@ -47,7 +47,9 @@ param(
 
     [int]$TimeoutSec = 30,
 
-    [string]$ResultsDir = 'C:\sash-test\results'
+    [string]$ResultsDir = 'C:\sash-test\results',
+
+    [string]$ExpectationsFile = ''
 )
 
 Set-StrictMode -Version Latest
@@ -86,6 +88,9 @@ Add-Type @"
 
         [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
         public static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern int GetDlgCtrlID(IntPtr hWnd);
 
         [DllImport("user32.dll", SetLastError = true)]
         public static extern IntPtr GetAncestor(IntPtr hWnd, uint gaFlags);
@@ -129,30 +134,40 @@ $BinaryPath = Join-Path $ArtifactDir $Binary
 $LogPath = Join-Path $ResultsDir "$Arch-$Profile-launch.log"
 $EvidencePath = Join-Path $ResultsDir "$Arch-$Profile-evidence.json"
 
-# Expected values per profile
-$Expected = @{
-    'static-window' = @{
-        WindowTitle = 'hello'
-        WindowClass = 'SashStaticWindow'
-        ControlCount = 1  # One STATIC label
-        Controls = @(
-            @{ SemanticId = 'window.root'; Text = 'Hello'; X = 0; Y = 0; W = 320; H = 160 }
-        )
-    }
-    'interactive-cut' = @{
-        WindowTitle = 'counter'
-        WindowClass = 'SashInteractiveWindow'
-        ControlCount = 4  # Heading, EDIT, BUTTON, Result
-        Controls = @(
-            @{ SemanticId = 'window.root'; Text = 'Count'; Role = 'STATIC' },
-            @{ SemanticId = 'window.amount'; Text = '1'; Role = 'EDIT' },
-            @{ SemanticId = 'window.add'; Text = 'Add'; Role = 'BUTTON' },
-            @{ SemanticId = 'state.count'; Text = '0'; Role = 'STATIC' }
-        )
-    }
+# Expected values come from the compiler, not from this script. Generate
+# them beside the binary before transfer:
+#   sash expectations <scene> --format json > expectations.json
+# A hand-maintained table here could silently drift from the emitted program.
+$ExpectationsPath = if ($ExpectationsFile) {
+    $ExpectationsFile
+} else {
+    Join-Path $ArtifactDir 'expectations.json'
 }
-
-$Exp = $Expected[$Profile]
+if (-not (Test-Path $ExpectationsPath)) {
+    Write-Host "MISSING: $ExpectationsPath" -ForegroundColor Red
+    Write-Host "Generate it with: sash expectations <scene.gscene> --format json > expectations.json" -ForegroundColor Yellow
+    Write-Host "and transfer it beside App.exe. The harness does not guess window titles or control tables."
+    exit 3
+}
+$Expectations = Get-Content $ExpectationsPath -Raw | ConvertFrom-Json
+if ($Expectations.status -ne 'ADMITTED') {
+    Write-Host "REFUSED: expectations file is not ADMITTED (status: $($Expectations.status))" -ForegroundColor Red
+    exit 3
+}
+$Exp = @{
+    WindowTitle  = $Expectations.window.title
+    WindowClass  = $Expectations.window.class
+    ControlCount = @($Expectations.controls).Count
+    Controls     = @($Expectations.controls | ForEach-Object {
+        @{
+            SemanticId = $_.semantic_id
+            Text       = $_.text
+            Role       = $_.role
+            Dip        = $_.dip
+        }
+    })
+}
+$ExpectationProfile = $Expectations.presentation_profile
 
 # Initialize results
 $Results = @{
@@ -330,20 +345,25 @@ try {
     $controlResults = @()
     foreach ($expCtrl in $Exp.Controls) {
         $found = $false
+        $idOk = $false
         $bestMatch = $null
         foreach ($child in $children) {
             $childText = Get-WindowText $child
             $childClass = Get-WindowClass $child
             $childRect = Get-WindowRect $child
+            $childId = [Win32]::GetDlgCtrlID($child)
 
-            # Match by text content (primary) and class (secondary)
+            # Match by text content (primary); the native control id must
+            # match the compiler-declared one when the child carries an id.
             if ($childText -eq $expCtrl.Text) {
                 $found = $true
+                if ($childId -eq $expCtrl.control_id) { $idOk = $true }
                 $bestMatch = @{
                     Hwnd = $child
                     Text = $childText
                     Class = $childClass
                     Rect = $childRect
+                    ControlId = $childId
                 }
                 break
             }
@@ -351,12 +371,16 @@ try {
         $ctrlResult = @{
             Expected = $expCtrl
             Found = $found
+            ControlIdMatches = $idOk
             Match = $bestMatch
         }
         $controlResults += $ctrlResult
 
-        $msg = if ($found) { "FOUND: '$($expCtrl.Text)' ($($expCtrl.SemanticId))" } else { "MISSING: '$($expCtrl.Text)' ($($expCtrl.SemanticId))" }
+        $msg = if ($found) { "FOUND: '$($expCtrl.Text)' ($($expCtrl.SemanticId)), control_id match: $idOk" } else { "MISSING: '$($expCtrl.Text)' ($($expCtrl.SemanticId))" }
         Check-Condition "Control_$($expCtrl.SemanticId.Replace('.','_'))" $found $msg
+        if ($found) {
+            Check-Condition "ControlId_$($expCtrl.SemanticId.Replace('.','_'))" $idOk "GetDlgCtrlID = $($bestMatch.ControlId), expected = $($expCtrl.control_id)"
+        }
     }
 
     # Verify font (WM_GETFONT on first STATIC child)
