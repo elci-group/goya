@@ -47,19 +47,35 @@ pub struct TransportAction {
 /// absolute-time seek is not supported by the Fire OS voice path (Q0).
 pub fn transport_actions(class: TransportClass) -> &'static [TransportAction] {
     const PLAY_PAUSE: &[TransportAction] = &[
-        TransportAction { callback: "onPlay", keyword: "play_pause" },
-        TransportAction { callback: "onPause", keyword: "play_pause" },
+        TransportAction {
+            callback: "onPlay",
+            keyword: "play_pause",
+        },
+        TransportAction {
+            callback: "onPause",
+            keyword: "play_pause",
+        },
     ];
-    const SKIP_NEXT: &[TransportAction] =
-        &[TransportAction { callback: "onSkipToNext", keyword: "skip_next" }];
-    const SKIP_PREVIOUS: &[TransportAction] =
-        &[TransportAction { callback: "onSkipToPrevious", keyword: "skip_previous" }];
-    const SEEK_FORWARD: &[TransportAction] =
-        &[TransportAction { callback: "onSeekTo+offset", keyword: "seek_forward" }];
-    const SEEK_BACKWARD: &[TransportAction] =
-        &[TransportAction { callback: "onSeekTo-offset", keyword: "seek_backward" }];
-    const RESTART: &[TransportAction] =
-        &[TransportAction { callback: "onSeekTo:0", keyword: "restart" }];
+    const SKIP_NEXT: &[TransportAction] = &[TransportAction {
+        callback: "onSkipToNext",
+        keyword: "skip_next",
+    }];
+    const SKIP_PREVIOUS: &[TransportAction] = &[TransportAction {
+        callback: "onSkipToPrevious",
+        keyword: "skip_previous",
+    }];
+    const SEEK_FORWARD: &[TransportAction] = &[TransportAction {
+        callback: "onSeekTo+offset",
+        keyword: "seek_forward",
+    }];
+    const SEEK_BACKWARD: &[TransportAction] = &[TransportAction {
+        callback: "onSeekTo-offset",
+        keyword: "seek_backward",
+    }];
+    const RESTART: &[TransportAction] = &[TransportAction {
+        callback: "onSeekTo:0",
+        keyword: "restart",
+    }];
     match class {
         TransportClass::PlayPause => PLAY_PAUSE,
         TransportClass::SkipNext => SKIP_NEXT,
@@ -195,7 +211,11 @@ pub fn emit_fire_os_plan(
     let mut intents = Vec::new();
     for intent in &scene.intents {
         // Manifest agreement: the Q1 resolution covers exactly this intent.
-        if resolved.fallbacks().iter().all(|fallback| fallback.intent != intent.name) {
+        if resolved
+            .fallbacks()
+            .iter()
+            .all(|fallback| fallback.intent != intent.name)
+        {
             return Err(IntentDiagnostic {
                 code: "QS-E2004",
                 name: format!(
@@ -206,9 +226,7 @@ pub fn emit_fire_os_plan(
             });
         }
         let lowering = match intent.transport {
-            Some(class) => {
-                IntentLowering::MediaSessionTransport(transport_actions(class).to_vec())
-            }
+            Some(class) => IntentLowering::MediaSessionTransport(transport_actions(class).to_vec()),
             None => IntentLowering::Unresolved,
         };
         intents.push(FireOsIntent {
@@ -298,8 +316,7 @@ mod tests {
 
     #[test]
     fn no_transport_means_no_permission_entry() {
-        let stripped = SCENE
-            .replacen("transport: play_pause;\n        ", "", 1);
+        let stripped = SCENE.replacen("transport: play_pause;\n        ", "", 1);
         let scene = parse(&stripped).unwrap();
         let plan = emit_fire_os_plan(&scene, &resolve(&stripped)).unwrap();
         assert!(plan.permission_entries().is_empty());
@@ -318,8 +335,10 @@ mod tests {
             (TransportClass::SeekBackward, vec!["onSeekTo-offset"]),
             (TransportClass::Restart, vec!["onSeekTo:0"]),
         ] {
-            let actions: Vec<&str> =
-                transport_actions(class).iter().map(|action| action.callback).collect();
+            let actions: Vec<&str> = transport_actions(class)
+                .iter()
+                .map(|action| action.callback)
+                .collect();
             assert_eq!(actions, callbacks, "{class:?}");
         }
     }
