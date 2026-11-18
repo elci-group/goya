@@ -16,8 +16,15 @@ fn to_ir_range(range: AdmittedRange) -> SourceRange {
     }
 }
 
-/// Lower an AdmittedWindow to IR
-pub fn lower_static_window(admitted: &AdmittedWindow) -> IrDocument {
+/// Lower an AdmittedWindow to IR for one API floor.
+///
+/// The floor changes the emitted resources (manifest identity and DPI
+/// declaration) but nothing about the window meaning: controls, geometry,
+/// origins, and provenance are floor-independent.
+pub fn lower_static_window(
+    admitted: &AdmittedWindow,
+    floor: crate::api_floor::ApiFloor,
+) -> IrDocument {
     let controls: Vec<Control> = admitted
         .labels
         .iter()
@@ -72,8 +79,8 @@ pub fn lower_static_window(admitted: &AdmittedWindow) -> IrDocument {
     let resources = Resources {
         cargo_toml: emit::CARGO_TOML.to_string(),
         build_rs: emit::BUILD_RS.to_string(),
-        manifest_xml: emit::MANIFEST.to_string(),
-        resource_script: emit::RESOURCE_SCRIPT.to_string(),
+        manifest_xml: emit::static_manifest(floor.is_legacy()),
+        resource_script: emit::static_resource_script(floor.is_legacy()),
     };
 
     let provenance = Provenance {
@@ -97,8 +104,11 @@ pub fn lower_static_window(admitted: &AdmittedWindow) -> IrDocument {
     }
 }
 
-/// Lower an AdmittedInteractive to IR
-pub fn lower_interactive_window(admitted: &AdmittedInteractive) -> IrDocument {
+/// Lower an AdmittedInteractive to IR for one API floor.
+pub fn lower_interactive_window(
+    admitted: &AdmittedInteractive,
+    floor: crate::api_floor::ApiFloor,
+) -> IrDocument {
     let controls: Vec<Control> = admitted
         .controls
         .iter()
@@ -189,57 +199,8 @@ pub fn lower_interactive_window(admitted: &AdmittedInteractive) -> IrDocument {
     let resources = Resources {
         cargo_toml: emit::CARGO_TOML.to_string(),
         build_rs: emit::BUILD_RS.to_string(),
-        manifest_xml: format!(
-            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
-  <assemblyIdentity type="win32" name="ELCI.Goya.Sash.InteractiveWindow" version="{profile_version}.0" processorArchitecture="amd64"/>
-  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
-    <security>
-      <requestedPrivileges>
-        <requestedExecutionLevel level="asInvoker" uiAccess="false"/>
-      </requestedPrivileges>
-    </security>
-  </trustInfo>
-  <application xmlns="urn:schemas-microsoft-com:asm.v3">
-    <windowsSettings>
-      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
-      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2</dpiAwareness>
-    </windowsSettings>
-  </application>
-</assembly>
-"#
-        ),
-        resource_script: format!(
-            r#"1 24 "app.manifest"
-
-1 VERSIONINFO
-FILEVERSION {commas},0
-PRODUCTVERSION {commas},0
-FILEFLAGSMASK 0x3f
-FILEFLAGS 0
-FILEOS 0x00040004
-FILETYPE 0x1
-BEGIN
-  BLOCK "StringFileInfo"
-  BEGIN
-    BLOCK "040904B0"
-    BEGIN
-      VALUE "FileDescription", "Goya Sash interactive window"
-      VALUE "ProductName", "Goya Sash"
-      VALUE "FileVersion", "{version}"
-      VALUE "ProductVersion", "{version}"
-      VALUE "OriginalFilename", "App.exe"
-    END
-  END
-  BLOCK "VarFileInfo"
-  BEGIN
-    VALUE "Translation", 0x409, 1200
-  END
-END
-"#,
-            commas = profile_version.replace('.', ","),
-            version = profile_version
-        ),
+        manifest_xml: emit::interactive_manifest(profile_version, floor.is_legacy()),
+        resource_script: emit::interactive_resource_script(profile_version, floor.is_legacy()),
     };
 
     let provenance = Provenance {
