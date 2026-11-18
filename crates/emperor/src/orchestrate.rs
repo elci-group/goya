@@ -52,11 +52,7 @@ pub fn execute(invocation: Invocation) -> Run {
         CommandKind::Build => build(invocation),
         CommandKind::Verify => verify(invocation),
         CommandKind::Test => test_scene(invocation),
-        CommandKind::Benchmark => blocked_scene(
-            invocation,
-            "EMP-BENCH",
-            "benchmark suites are not measured in compiler 0.0.1",
-        ),
+        CommandKind::Benchmark => benchmark(invocation),
         CommandKind::Package => package(invocation),
         CommandKind::Qualify => qualify(invocation),
     }
