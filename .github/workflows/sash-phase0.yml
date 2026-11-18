@@ -211,10 +211,7 @@ jobs:
             --format json | tee verify.json
           # Structural gates only: PE PASS, runtime and release BLOCKED, and
           # the image must report the requested machine, profile, and floor.
-          jq -e '.pe_structure == "PASS" and .runtime_qualification == "BLOCKED" \
-            and .release_admission == "BLOCKED" \
-            and .target == "${{ matrix.triple }}" \
-            and .api_floor == "${{ matrix.floor }}"' verify.json > /dev/null
+          jq -e '.pe_structure == "PASS" and .runtime_qualification == "BLOCKED" and .release_admission == "BLOCKED" and .target == "${{ matrix.triple }}" and .api_floor == "${{ matrix.floor }}"' verify.json > /dev/null
 
       - name: Generate expectations.json from the compiler
         run: |
