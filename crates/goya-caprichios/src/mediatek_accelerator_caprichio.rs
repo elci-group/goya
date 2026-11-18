@@ -328,7 +328,7 @@ mod tests {
         let mut seen = std::collections::BTreeSet::new();
         for (name, facts) in GENERATIONS {
             assert!(seen.insert(*name), "duplicate generation {name}");
-            assert!(matches!(facts.series, "8" | "7" | "6" | "4"));
+            assert!(matches!(facts.series, "9" | "8" | "7"));
             assert!(
                 facts.apu_dsp == "none" || facts.apu_dsp.starts_with("APU"),
                 "unexpected DSP label {}",

@@ -3,7 +3,7 @@
 //! The negotiated artifact is a checked delegate plan and a factory binding
 //! to this crate's plan runtime. It does not compile models, claim DSP
 //! access, guarantee scheduling, or prove that inference ran. Hosts on
-//! Kirin hardware report their real npu facilities through
+//! Kirin hardware report their real NPU facilities through
 //! [`RuntimeCapabilities`].
 
 use std::fmt;
@@ -35,13 +35,23 @@ pub struct KirinFacts {
     pub year: u16,
 }
 
-/// Catalog order is series-major (8, 7, 6, 4); within a series, release
-/// order. Facts come from Qualcomm product briefs and the public npu
-/// documentation; figures Samsung did not publish are `None`, never
-/// guessed. Kirin 2300 is excluded: designed but never shipped
-/// commercially. Each entry is the Samsung flagship contemporary with a
-/// Snapdragon 8-series generation.
-pub const GENERATIONS: &[(&str, KirinFacts)] = &[];
+/// Catalog order is release order. Facts come from HiSilicon product
+/// pages, Huawei press materials and teardown reports; Huawei stopped
+/// publishing NPU detail after the 9000 series, so later entries carry
+/// lineage labels and conservative `false` precision flags rather than
+/// guesses. The Kirin 970 "1.92 TeraFLOPS FP16" figure is throughput in
+/// FLOPS, not TOPS, and is therefore recorded as `None` here.
+#[rustfmt::skip]
+pub const GENERATIONS: &[(&str, KirinFacts)] = &[
+    ("Kirin 970",     KirinFacts { series: "9", soc: "Hi3670", apu_dsp: "NPU (first NPU-in-SoC, HiAI; pre-Da Vinci)", npu_tops_tenths: None, int8_accel: false, fp16_accel: true,  year: 2017 }),
+    ("Kirin 980",     KirinFacts { series: "9", soc: "Hi3680", apu_dsp: "NPU (second generation, dual NPU; 2.36 TOPS INT8 per Huawei IFA 2018 slides)", npu_tops_tenths: Some(23), int8_accel: true, fp16_accel: true, year: 2018 }),
+    ("Kirin 990",     KirinFacts { series: "9", soc: "Hi3690", apu_dsp: "NPU (Da Vinci, 1 big + 1 tiny core)", npu_tops_tenths: None, int8_accel: true, fp16_accel: true, year: 2019 }),
+    ("Kirin 990 5G",  KirinFacts { series: "9", soc: "Hi3690", apu_dsp: "NPU (Da Vinci, 2 big + 1 tiny core; per-core TOPS from IFA 2019 slides, no official sum)", npu_tops_tenths: None, int8_accel: true, fp16_accel: true, year: 2019 }),
+    ("Kirin 9000",    KirinFacts { series: "9", soc: "Hi36A0", apu_dsp: "NPU (Da Vinci 2.0, 2 big + 1 tiny core)", npu_tops_tenths: None, int8_accel: true, fp16_accel: true, year: 2020 }),
+    ("Kirin 9000E",   KirinFacts { series: "9", soc: "unpublished", apu_dsp: "NPU (Da Vinci 2.0, 1 big + 1 tiny core)", npu_tops_tenths: None, int8_accel: true, fp16_accel: true, year: 2020 }),
+    ("Kirin 9010",    KirinFacts { series: "9", soc: "Hi36B0", apu_dsp: "NPU (Da Vinci lineage per teardown; precisions undocumented)", npu_tops_tenths: None, int8_accel: false, fp16_accel: false, year: 2024 }),
+    ("Kirin 9020",    KirinFacts { series: "9", soc: "Hi36C0", apu_dsp: "NPU (carried over from 9010 per teardown; precisions undocumented)", npu_tops_tenths: None, int8_accel: false, fp16_accel: false, year: 2024 }),
+];
 
 /// Per-generation lookup. Unknown generations return None; the catalog never
 /// guesses.
@@ -312,7 +322,7 @@ mod tests {
         let mut seen = std::collections::BTreeSet::new();
         for (name, facts) in GENERATIONS {
             assert!(seen.insert(*name), "duplicate generation {name}");
-            assert!(matches!(facts.series, "8" | "7" | "6" | "4"));
+            assert!(matches!(facts.series, "9"));
             assert!(
                 facts.apu_dsp == "none" || facts.apu_dsp.starts_with("NPU"),
                 "unexpected DSP label {}",
