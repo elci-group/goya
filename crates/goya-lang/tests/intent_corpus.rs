@@ -227,3 +227,45 @@ fn strict_corpus_reject_fixture_exists() {
         assert_eq!(error.code, "GY-E1010", "{error}");
     }
 }
+
+/// Q2 draft surface: the optional `transport:` key parses into
+/// `TransportClass`, rejects unknown keywords and duplicates, and defaults
+/// to `None`.
+#[test]
+fn transport_key_parses_or_fails_closed() {
+    use goya_lang::{parse_with_source_map, TransportClass};
+
+    let base = |transport: &str| {
+        format!(
+            "@ontology app {{ @button go {{ }} @interaction a {{ trigger: button.go.activate; class: D1; state {{ }} input {{ }} }} @intent main {{ action: a; transport: {transport}; voice {{ utterance: \"Pause\"; }} fallback {{ remote: go; }} }} }}"
+        )
+    };
+    for (keyword, expected) in [
+        ("play_pause", TransportClass::PlayPause),
+        ("skip_next", TransportClass::SkipNext),
+        ("skip_previous", TransportClass::SkipPrevious),
+        ("seek_forward", TransportClass::SeekForward),
+        ("seek_backward", TransportClass::SeekBackward),
+        ("restart", TransportClass::Restart),
+    ] {
+        let scene = parse_with_source_map(&base(keyword)).unwrap();
+        assert_eq!(scene.scene.intents[0].transport, Some(expected), "{keyword}");
+    }
+
+    // Unknown keyword: parse error, never a silent default.
+    assert!(parse_with_source_map(&base("rewind")).is_err());
+    assert!(parse_with_source_map(&base("PlayPause")).is_err());
+
+    // Duplicate key: parse error.
+    let duplicated = base("play_pause").replacen(
+        "transport: play_pause;",
+        "transport: play_pause; transport: restart;",
+        1,
+    );
+    assert!(parse_with_source_map(&duplicated).is_err());
+
+    // Absent key: None.
+    let absent = "@ontology app { @button go { } @interaction a { trigger: button.go.activate; class: D1; state { } input { } } @intent main { action: a; voice { utterance: \"Go\"; } fallback { remote: go; } } }";
+    let scene = parse_with_source_map(absent).unwrap();
+    assert_eq!(scene.scene.intents[0].transport, None);
+}
