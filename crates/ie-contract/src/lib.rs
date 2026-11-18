@@ -6,6 +6,7 @@
 //! messages, the canonical bounded length-prefixed wire framing, and the
 //! FP32 golden-tolerance oracle used by the conformance harness.
 
+pub mod codec;
 pub mod errors;
 pub mod fixture;
 pub mod framing;
