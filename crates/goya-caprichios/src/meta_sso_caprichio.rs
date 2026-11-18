@@ -292,7 +292,7 @@ mod tests {
             client_id: "goya-client.example".into(),
             redirect_uri: "https://app.example/oauth/callback".into(),
             state: "state-1234567890ab".into(),
-            scopes: vec!["public_profile".into(), "email".into()],
+            scopes: vec!["public_profile".to_owned(), "email".to_owned()],
             pkce_verifier: Some("v".repeat(64)),
         }
     }
@@ -301,7 +301,7 @@ mod tests {
     fn declaration_normalizes_and_lowers_to_deterministic_factory() {
         let ir = declaration().normalize().unwrap();
         assert_eq!(ir.client_id(), "goya-client.example");
-        assert_eq!(ir.scopes(), ["public_profile".into(), "email".into()]);
+        assert_eq!(ir.scopes().to_vec(), ["public_profile".to_owned(), "email".to_owned()]);
         assert!(ir.uses_pkce());
         let first = ir.lower_checked(Target::Browser, BROWSER).unwrap();
         let second = ir.lower_checked(Target::Browser, BROWSER).unwrap();
