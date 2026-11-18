@@ -1631,6 +1631,7 @@ name = "quitasol-semantic"
 version = "0.1.8"
 dependencies = [
  "goya-lang",
+ "goya-nevada",
 ]
 
 [[package]]

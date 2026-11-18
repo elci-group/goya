@@ -300,14 +300,16 @@ impl AcceleratorIr {
         if target != AcceleratorTarget::Device {
             return Err(AcceleratorDiagnostic::UnsupportedTarget);
         }
+        let entry = self.entry;
+        // Dispatch-capable models require a GPU driver; inventory-only
+        // models do not, so the driver check comes first for those.
+        if self.dispatch_capable() && !capabilities.gpu_driver {
+            return Err(AcceleratorDiagnostic::MissingGpuDriver);
+        }
         if !capabilities.utf8_strings {
             return Err(AcceleratorDiagnostic::MissingUtf8Strings);
         }
-        let entry = self.entry;
         if self.dispatch_capable() {
-            if !capabilities.gpu_driver {
-                return Err(AcceleratorDiagnostic::MissingGpuDriver);
-            }
             let profile_facts = format!(
                 "AcceleratorProfile::new({:?}, {}, {})",
                 entry.accelerator.chip,
