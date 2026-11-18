@@ -255,6 +255,16 @@ pub struct HostProfile {
     pub bluetooth_access_host: BluetoothAccessHost,
     pub bluetooth_profile_target: BluetoothProfileTarget,
     pub bluetooth_profile_host: BluetoothProfileHost,
+    pub sso_google_target: GoogleSsoTarget,
+    pub sso_google_host: GoogleSsoHost,
+    pub sso_microsoft_target: MicrosoftSsoTarget,
+    pub sso_microsoft_host: MicrosoftSsoHost,
+    pub sso_github_target: GithubSsoTarget,
+    pub sso_github_host: GithubSsoHost,
+    pub sso_x_target: XSsoTarget,
+    pub sso_x_host: XSsoHost,
+    pub sso_meta_target: MetaSsoTarget,
+    pub sso_meta_host: MetaSsoHost,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -292,6 +302,11 @@ pub enum Artifact {
     BluetoothContinuity(BluetoothContinuityArtifact),
     BluetoothAccess(BluetoothAccessArtifact),
     BluetoothProfile(BluetoothProfileArtifact),
+    GoogleSso(GoogleSsoArtifact),
+    MicrosoftSso(MicrosoftSsoArtifact),
+    GithubSso(GithubSsoArtifact),
+    XSso(XSsoArtifact),
+    MetaSso(MetaSsoArtifact),
 }
 
 impl Artifact {
@@ -330,6 +345,11 @@ impl Artifact {
             Self::BluetoothContinuity(a) => a.contract,
             Self::BluetoothAccess(a) => a.contract,
             Self::BluetoothProfile(a) => a.contract,
+            Self::GoogleSso(a) => a.contract,
+            Self::MicrosoftSso(a) => a.contract,
+            Self::GithubSso(a) => a.contract,
+            Self::XSso(a) => a.contract,
+            Self::MetaSso(a) => a.contract,
         }
     }
 
@@ -368,6 +388,11 @@ impl Artifact {
             Self::BluetoothContinuity(_) => "apple-ble-continuity-bounded-restoration",
             Self::BluetoothAccess(_) => "apple-ble-access-bounded-mapping",
             Self::BluetoothProfile(_) => "apple-ble-profile-bounded-classification",
+            Self::GoogleSso(_) => "google-sso-authorization-code-pkce",
+            Self::MicrosoftSso(_) => "microsoft-sso-authorization-code-pkce",
+            Self::GithubSso(_) => "github-sso-authorization-code-pkce",
+            Self::XSso(_) => "x-sso-authorization-code-pkce",
+            Self::MetaSso(_) => "meta-sso-authorization-code-pkce",
         }
     }
 

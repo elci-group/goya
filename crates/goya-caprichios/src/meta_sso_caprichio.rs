@@ -269,7 +269,7 @@ impl MetaSsoIr {
             recipe_version: RECIPE_VERSION,
             canonical_ir: self.canonical_for(target),
             source: format!(
-                "// {CONTRACT}; recipe={RECIPE_VERSION}; meta SSO authorization-code flow, no network connection is opened here.\npub fn make_sso_flow() -> Result<crate::sso_runtime::SsoFlow, crate::sso_runtime::SsoError> {\n{pkce_lines}    crate::sso_runtime::SsoFlow::new(\n        {AUTHORIZE_ENDPOINT:?},\n        {TOKEN_ENDPOINT:?},\n        {:?},\n        {:?},\n        {:?},\n        &[{scope_literals}],\n        {pkce_arg},\n    )\n}\n",
+                "// {CONTRACT}; recipe={RECIPE_VERSION}; meta SSO authorization-code flow, no network connection is opened here.\npub fn make_sso_flow() -> Result<crate::sso_runtime::SsoFlow, crate::sso_runtime::SsoError> {{\n{pkce_lines}    crate::sso_runtime::SsoFlow::new(\n        {AUTHORIZE_ENDPOINT:?},\n        {TOKEN_ENDPOINT:?},\n        {:?},\n        {:?},\n        {:?},\n        &[{scope_literals}],\n        {pkce_arg},\n    )\n}\n",
                 self.client_id, self.redirect_uri, self.state
             ),
         })
