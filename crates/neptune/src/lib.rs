@@ -89,10 +89,45 @@ pub fn validate_module(module: &str) -> Result<(), Diagnostic> {
 }
 
 pub fn preview_bundle(source: &str, module: &str) -> Result<String, Diagnostic> {
+    preview_bundle_with_bluetooth(source, module, None)
+}
+
+/// Source-preview bundle with optional Blue Moon Bluetooth capability
+/// metadata. With `None` the output is byte-identical to [`preview_bundle`];
+/// with input, the Guard-validated privacy plan's entries are appended to
+/// the `capabilities.json` inventory and covered by the bundle hashes.
+/// Unknown contracts and generic usage descriptions fail closed.
+pub fn preview_bundle_with_bluetooth(
+    source: &str,
+    module: &str,
+    bluetooth: Option<&crate::bluetooth::BluetoothBundleInput>,
+) -> Result<String, Diagnostic> {
     validate_module(module)?;
     let preview = preview_static_text(source)?;
     let map = serde_json::json!({"schema_version":"2", "mappings":[{"semantic_id":{"module":module,"declared_id":preview.declared_id},"source":{"start_byte":preview.source_range.start,"end_byte":preview.source_range.end},"swift":{"start_byte":preview.swift_range.start,"end_byte":preview.swift_range.end}}]}).to_string() + "\n";
-    let capabilities = serde_json::json!({"schema_version":"2", "profile":"source_preview", "capabilities":[{"semantic_id":"goya.text.static", "adapter":"swiftui.Text", "status":"experimental", "minimum_os":null, "frameworks":["SwiftUI"], "entitlements":[], "usage_description_keys":[], "privacy_declarations":"owner_review_required", "test_status":"apple_validation_not_run", "fallback":"reject"}]}).to_string() + "\n";
+    let capabilities = match bluetooth {
+        None => serde_json::json!({"schema_version":"2", "profile":"source_preview", "capabilities":[{"semantic_id":"goya.text.static", "adapter":"swiftui.Text", "status":"experimental", "minimum_os":null, "frameworks":["SwiftUI"], "entitlements":[], "usage_description_keys":[], "privacy_declarations":"owner_review_required", "test_status":"apple_validation_not_run", "fallback":"reject"}]}).to_string() + "\n",
+        Some(input) => {
+            let plan = crate::bluetooth::plan_bluetooth_privacy(&input.usage_description)?;
+            let mut contracts = input.contracts.clone();
+            if contracts.is_empty() {
+                contracts = crate::bluetooth::contract_table()
+                    .iter()
+                    .map(|(contract, _)| (*contract).to_owned())
+                    .collect();
+            }
+            contracts.sort();
+            contracts.dedup();
+            let entries = crate::bluetooth::bluetooth_capability_entries(
+                &contracts.iter().map(String::as_str).collect::<Vec<_>>(),
+            )?;
+            let mut capabilities_value = serde_json::json!({"schema_version":"2", "profile":"source_preview", "capabilities":[{"semantic_id":"goya.text.static", "adapter":"swiftui.Text", "status":"experimental", "minimum_os":null, "frameworks":["SwiftUI"], "entitlements":[], "usage_description_keys":[], "privacy_declarations":"owner_review_required", "test_status":"apple_validation_not_run", "fallback":"reject"}]});
+            if let Some(array) = capabilities_value["capabilities"].as_array_mut() {
+                array.extend(entries);
+            }
+            capabilities_value.to_string() + "\n"
+        }
+    };
     fn hash(bytes: &[u8]) -> String {
         format!("{:x}", Sha256::digest(bytes))
     }

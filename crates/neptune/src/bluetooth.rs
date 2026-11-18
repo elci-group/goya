@@ -63,6 +63,16 @@ pub fn contract_table() -> &'static [(&'static str, &'static str)] {
     BLUETOOTH_CONTRACTS
 }
 
+/// Bundle-level Bluetooth input for [`crate::preview_bundle_with_bluetooth`]:
+/// one Guard-validated usage description and the implemented contracts to
+/// admit into the capability inventory. An empty contract list defaults to
+/// all seven in lexical order.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BluetoothBundleInput {
+    pub usage_description: String,
+    pub contracts: Vec<String>,
+}
+
 /// Planned Apple Bluetooth privacy declarations. Background modes are always
 /// empty: no background execution is claimed (the directive's illustrative
 /// IR carries `background_execution: false`).
