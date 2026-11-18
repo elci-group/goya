@@ -1,7 +1,7 @@
 # Blue Moon roadmap
 
-Status: proposed, 18 November 2026 (phases 1–4 complete same day). This is a
-plan, not evidence. Nothing on this page claims Bluetooth hardware
+Status: proposed, 18 November 2026 (phases 1–4 complete; phase 5 started).
+This is a plan, not evidence. Nothing on this page claims Bluetooth hardware
 conformance, native Core Bluetooth execution, or compiler integration that
 does not yet exist.
 
@@ -141,14 +141,30 @@ Implemented as BLUE-MOON-1 (`docs/blue-moon/BLUE-MOON-1.md`):
 - [x] Both extend `bluetooth_runtime` and follow the BLUE-MOON-1 pattern;
       each has a rustc-piped generated-factory conformance test.
 
-### Phase 5 — Goya language and Neptune integration (next)
+### Phase 5 — Goya language and Neptune integration (in progress)
 
-- [ ] Bluetooth declarations in `goya-lang` (grammar, semantic validation).
-- [ ] Neptune consumes registry-negotiated artifacts; entitlement and
-      privacy-key generation (`NSBluetoothAlwaysUsageDescription` and
-      platform variants); capability resolution in the compiler pipeline.
-- [ ] This phase requires the Neptune build pipeline to exist for real
-      (`docs/neptune-roadmap.md` N-phases); no date is claimed.
+- [x] BLUE-MOON-8 (`docs/blue-moon/BLUE-MOON-8.md`): Neptune consumes
+      goya-caprichios for the first time. `crates/neptune/src/bluetooth.rs`
+      generates capability-inventory entries for all seven implemented Blue
+      Moon contracts (existing `capabilities.json` shape, `CoreBluetooth`
+      frameworks, fail-closed on unknown IDs with `NPT-BM-E001`) and plans
+      Apple privacy declarations (§9.2) from Guard-validated usage
+      descriptions (`NSBluetoothAlwaysUsageDescription` +
+      `NSBluetoothPeripheralUsageDescription`, empty background modes,
+      generic/placeholder descriptions rejected with `NPT-BM-E002`), plus a
+      deterministic Info.plist privacy *fragment*. Exposed through the
+      service protocol as `plan-bluetooth-privacy`.
+- [ ] Bluetooth declarations in `goya-lang` (grammar, semantic validation):
+      **contract-gated**. `EffectKind` is part of the frozen
+      `GY-DETERMINISM/1` contract with stable canonical serialisation
+      (`goya-determinism`), consumed by `goya-lang`, `goya-executable`
+      (D1/D2 VMs, D2 journal, bytecode) and `goya-vee`. Adding a `bluetooth`
+      variant is a contract revision requiring `docs/contracts.md` approval,
+      not an incremental patch.
+- [ ] Capability resolution inside the compile pipeline and entitlement /
+      plist *generation into builds*: requires the Neptune build pipeline to
+      exist for real (`docs/neptune-roadmap.md` N-phases); no date is
+      claimed.
 
 ### Phase 6 — Native Core Bluetooth adapters and physical conformance
 
