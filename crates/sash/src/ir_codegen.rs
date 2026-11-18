@@ -1567,6 +1567,1198 @@ unsafe fn place_all(parent: *mut c_void) {
     }
 }
 "#;
+/// Win8-floor adapter for the static window: system DPI aware, no
+/// per-monitor imports. The Win32 control behavior is otherwise
+/// identical to the win10 adapter.
+pub(crate) const PROGRAM_STATIC_LEGACY: &str = r#"
+use std::ffi::c_void;
+use std::sync::atomic::{AtomicPtr, Ordering};
+
+const MAX_PLACED: usize = 32;
+static HWNDS: [AtomicPtr<c_void>; MAX_PLACED] = [const { AtomicPtr::new(std::ptr::null_mut()) }; MAX_PLACED];
+static ID_PTRS: [AtomicPtr<u16>; MAX_PLACED] = [const { AtomicPtr::new(std::ptr::null_mut()) }; MAX_PLACED];
+static ID_LENS: [AtomicPtr<usize>; MAX_PLACED] = [const { AtomicPtr::new(std::ptr::null_mut()) }; MAX_PLACED];
+static MESSAGE_FONT: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
+
+const WS_OVERLAPPEDWINDOW: u32 = 0x00CF_0000;
+const WS_CHILD: u32 = 0x4000_0000;
+const WS_VISIBLE: u32 = 0x1000_0000;
+const WS_CLIPCHILDREN: u32 = 0x0200_0000;
+const SS_NOPREFIX: u32 = 0x0000_0080;
+const CW_USEDEFAULT: i32 = 0x8000_0000_u32 as i32;
+const SW_SHOWNORMAL: i32 = 1;
+const WM_CREATE: u32 = 0x0001;
+const WM_DESTROY: u32 = 0x0002;
+const WM_SIZE: u32 = 0x0005;
+const WM_SETFONT: u32 = 0x0030;
+const SPI_GETNONCLIENTMETRICS: u32 = 0x0029;
+const LOGPIXELSY: i32 = 0x58;
+
+const PROP_SEMANTIC: &[u16] = &[
+    71, 111, 121, 97, 46, 83, 101, 109, 97, 110, 116, 105, 99, 73, 100, 0,
+];
+
+#[repr(C)]
+struct WndClassExW {
+    cb_size: u32,
+    style: u32,
+    lpfn_wnd_proc: Option<unsafe extern "system" fn(*mut c_void, u32, usize, isize) -> isize>,
+    cb_cls_extra: i32,
+    cb_wnd_extra: i32,
+    h_instance: *mut c_void,
+    h_icon: *mut c_void,
+    h_cursor: *mut c_void,
+    hbr_background: *mut c_void,
+    lpsz_menu_name: *const u16,
+    lpsz_class_name: *const u16,
+    h_icon_sm: *mut c_void,
+}
+
+#[repr(C)]
+struct Msg {
+    hwnd: *mut c_void,
+    message: u32,
+    wparam: usize,
+    lparam: isize,
+    time: u32,
+    pt_x: i32,
+    pt_y: i32,
+}
+
+#[repr(C)]
+struct Rect {
+    left: i32,
+    top: i32,
+    right: i32,
+    bottom: i32,
+}
+
+#[repr(C)]
+struct LogFontW {
+    height: i32,
+    width: i32,
+    escapement: i32,
+    orientation: i32,
+    weight: i32,
+    italic: u8,
+    underline: u8,
+    strike_out: u8,
+    char_set: u8,
+    out_precision: u8,
+    clip_precision: u8,
+    quality: u8,
+    pitch_and_family: u8,
+    face_name: [u16; 32],
+}
+
+#[repr(C)]
+struct NonClientMetricsW {
+    cb_size: u32,
+    border_width: i32,
+    scroll_width: i32,
+    scroll_height: i32,
+    caption_width: i32,
+    caption_height: i32,
+    caption_font: LogFontW,
+    sm_caption_width: i32,
+    sm_caption_height: i32,
+    sm_caption_font: LogFontW,
+    menu_width: i32,
+    menu_height: i32,
+    menu_font: LogFontW,
+    status_font: LogFontW,
+    message_font: LogFontW,
+    padded_border_width: i32,
+}
+
+#[cfg(target_pointer_width = "64")]
+const _: () = assert!(std::mem::size_of::<WndClassExW>() == 80);
+#[cfg(target_pointer_width = "32")]
+const _: () = assert!(std::mem::size_of::<WndClassExW>() == 48);
+#[cfg(target_pointer_width = "64")]
+const _: () = assert!(std::mem::size_of::<Msg>() == 48);
+#[cfg(target_pointer_width = "32")]
+const _: () = assert!(std::mem::size_of::<Msg>() == 28);
+const _: () = assert!(std::mem::size_of::<Rect>() == 16);
+const _: () = assert!(std::mem::size_of::<LogFontW>() == 92);
+const _: () = assert!(std::mem::size_of::<NonClientMetricsW>() == 504);
+
+#[link(name = "kernel32")]
+extern "system" {
+    fn GetModuleHandleW(name: *const u16) -> *mut c_void;
+}
+
+#[link(name = "user32")]
+extern "system" {
+    fn RegisterClassExW(class: *const WndClassExW) -> u16;
+    fn CreateWindowExW(
+        ex_style: u32,
+        class_name: *const u16,
+        window_name: *const u16,
+        style: u32,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        parent: *mut c_void,
+        menu: *mut c_void,
+        instance: *mut c_void,
+        param: *mut c_void,
+    ) -> *mut c_void;
+    fn SetPropW(hwnd: *mut c_void, name: *const u16, data: *mut c_void) -> i32;
+    fn RemovePropW(hwnd: *mut c_void, name: *const u16) -> *mut c_void;
+    fn SetProcessDPIAware() -> i32;
+    fn GetDC(hwnd: *mut c_void) -> *mut c_void;
+    fn ReleaseDC(hwnd: *mut c_void, hdc: *mut c_void) -> i32;
+    fn GetDeviceCaps(hdc: *mut c_void, index: i32) -> i32;
+    fn AdjustWindowRectEx(rect: *mut Rect, style: u32, menu: i32, ex_style: u32) -> i32;
+    fn SystemParametersInfoW(action: u32, param: u32, out: *mut c_void, win_ini: u32) -> i32;
+    fn DefWindowProcW(hwnd: *mut c_void, msg: u32, wparam: usize, lparam: isize) -> isize;
+    fn GetMessageW(msg: *mut Msg, hwnd: *mut c_void, min: u32, max: u32) -> i32;
+    fn TranslateMessage(msg: *const Msg) -> i32;
+    fn DispatchMessageW(msg: *const Msg) -> isize;
+    fn PostQuitMessage(code: i32);
+    fn ShowWindow(hwnd: *mut c_void, cmd: i32) -> i32;
+    fn UpdateWindow(hwnd: *mut c_void) -> i32;
+    fn LoadCursorW(instance: *mut c_void, name: *const u16) -> *mut c_void;
+    fn MoveWindow(hwnd: *mut c_void, x: i32, y: i32, width: i32, height: i32, repaint: i32) -> i32;
+    fn GetClientRect(hwnd: *mut c_void, rect: *mut Rect) -> i32;
+    fn SendMessageW(hwnd: *mut c_void, msg: u32, wparam: usize, lparam: isize) -> isize;
+    fn MessageBoxW(hwnd: *mut c_void, text: *const u16, caption: *const u16, kind: u32) -> i32;
+}
+
+#[link(name = "gdi32")]
+extern "system" {
+    fn CreateFontIndirectW(font: *const LogFontW) -> *mut c_void;
+    fn DeleteObject(object: *mut c_void) -> i32;
+}
+
+fn main() {
+    std::process::exit(run());
+}
+
+fn run() -> i32 {
+    if TITLE_UTF8.len() != TITLE_LEN || ROOT_ID_UTF8.len() != ROOT_ID_LEN || PLACED.is_empty() || PLACED.len() > MAX_PLACED {
+        return fail("generated lengths do not match");
+    }
+    for cell in PLACED {
+        if cell.text.len() != cell.text_len || cell.id.len() != cell.id_len {
+            return fail("generated lengths do not match");
+        }
+    }
+    let title = match wide_utf8(TITLE_UTF8) {
+        Some(value) => value,
+        None => return fail("window title is not valid UTF-8"),
+    };
+    unsafe { create_and_run(title.as_ptr()) }
+}
+
+fn wide_utf8(bytes: &[u8]) -> Option<Vec<u16>> {
+    let text = std::str::from_utf8(bytes).ok()?;
+    if text.chars().any(|unit| unit == '\0') {
+        return None;
+    }
+    let mut encoded: Vec<u16> = text.encode_utf16().collect();
+    encoded.push(0);
+    Some(encoded)
+}
+
+fn wide_ascii(text: &str) -> Vec<u16> {
+    let mut encoded: Vec<u16> = text.encode_utf16().collect();
+    encoded.push(0);
+    encoded
+}
+
+fn fail(text: &str) -> i32 {
+    let body = wide_ascii(text);
+    let caption = wide_ascii("Sash");
+    unsafe {
+        MessageBoxW(std::ptr::null_mut(), body.as_ptr(), caption.as_ptr(), 0x10);
+    }
+    1
+}
+
+unsafe fn create_and_run(title: *const u16) -> i32 {
+    if SetProcessDPIAware() == 0 {
+        return fail("system DPI awareness is not active");
+    }
+    let class_name = wide_ascii("SashStaticWindow");
+    let instance = GetModuleHandleW(std::ptr::null());
+    if instance.is_null() {
+        return fail("the process module handle is missing");
+    }
+    let cursor = LoadCursorW(std::ptr::null_mut(), 32512usize as *const u16);
+    let class = WndClassExW {
+        cb_size: std::mem::size_of::<WndClassExW>() as u32,
+        style: 0x0001 | 0x0002,
+        lpfn_wnd_proc: Some(wnd_proc),
+        cb_cls_extra: 0,
+        cb_wnd_extra: 0,
+        h_instance: instance,
+        h_icon: std::ptr::null_mut(),
+        h_cursor: cursor,
+        hbr_background: (5usize + 1) as *mut c_void,
+        lpsz_menu_name: std::ptr::null(),
+        lpsz_class_name: class_name.as_ptr(),
+        h_icon_sm: std::ptr::null_mut(),
+    };
+    if RegisterClassExW(&class) == 0 {
+        return fail("the window class was not registered");
+    }
+    let dpi = process_dpi();
+    let mut rect = Rect {
+        left: 0,
+        top: 0,
+        right: scale(CLIENT_DIP_W, dpi),
+        bottom: scale(CLIENT_DIP_H, dpi),
+    };
+    if AdjustWindowRectEx(&mut rect, WS_OVERLAPPEDWINDOW, 0, 0) == 0 {
+        return fail("the window frame size was not calculated");
+    }
+    let width = rect.right.saturating_sub(rect.left);
+    let height = rect.bottom.saturating_sub(rect.top);
+    if width <= 0 || height <= 0 {
+        return fail("the window frame size is empty");
+    }
+    let hwnd = CreateWindowExW(
+        0,
+        class_name.as_ptr(),
+        title,
+        WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
+        CW_USEDEFAULT,
+        CW_USEDEFAULT,
+        width,
+        height,
+        std::ptr::null_mut(),
+        std::ptr::null_mut(),
+        instance,
+        std::ptr::null_mut(),
+    );
+    if hwnd.is_null() {
+        return fail("the window was not created");
+    }
+    ShowWindow(hwnd, SW_SHOWNORMAL);
+    UpdateWindow(hwnd);
+    let mut message = std::mem::zeroed::<Msg>();
+    loop {
+        let status = GetMessageW(&mut message, std::ptr::null_mut(), 0, 0);
+        if status == 0 {
+            break;
+        }
+        if status < 0 {
+            return 1;
+        }
+        TranslateMessage(&message);
+        DispatchMessageW(&message);
+    }
+    message.wparam as i32
+}
+
+fn scale(dip: i32, dpi: u32) -> i32 {
+    ((dip as u32).saturating_mul(dpi) / 96) as i32
+}
+
+unsafe extern "system" fn wnd_proc(hwnd: *mut c_void, message: u32, wparam: usize, lparam: isize) -> isize {
+    match message {
+        WM_CREATE => {
+            if setup(hwnd) != 0 {
+                return -1;
+            }
+            0
+        }
+        WM_SIZE => {
+            place_all(hwnd);
+            0
+        }
+        WM_DESTROY => {
+            RemovePropW(hwnd, PROP_SEMANTIC.as_ptr());
+            for index in 0..PLACED.len() {
+                let child = HWNDS[index].swap(std::ptr::null_mut(), Ordering::Relaxed);
+                if !child.is_null() {
+                    RemovePropW(child, PROP_SEMANTIC.as_ptr());
+                }
+                let id_ptr = ID_PTRS[index].swap(std::ptr::null_mut(), Ordering::Relaxed);
+                let len_ptr = ID_LENS[index].swap(std::ptr::null_mut(), Ordering::Relaxed);
+                if !id_ptr.is_null() && !len_ptr.is_null() {
+                    let len = *len_ptr;
+                    drop(Box::from_raw(len_ptr));
+                    drop(Box::from_raw(std::ptr::slice_from_raw_parts_mut(id_ptr, len)));
+                }
+            }
+            let font = MESSAGE_FONT.swap(std::ptr::null_mut(), Ordering::Relaxed);
+            if !font.is_null() {
+                DeleteObject(font);
+            }
+            PostQuitMessage(0);
+            0
+        }
+        _ => DefWindowProcW(hwnd, message, wparam, lparam),
+    }
+}
+
+unsafe fn setup(hwnd: *mut c_void) -> i32 {
+    let root_id = match wide_utf8(ROOT_ID_UTF8) {
+        Some(value) => value,
+        None => return 1,
+    };
+    if SetPropW(hwnd, PROP_SEMANTIC.as_ptr(), root_id.as_ptr() as *mut c_void) == 0 {
+        return 1;
+    }
+    std::mem::forget(root_id);
+    let static_class = wide_ascii("STATIC");
+    let instance = GetModuleHandleW(std::ptr::null());
+    for (index, cell) in PLACED.iter().enumerate() {
+        let text = match wide_utf8(cell.text) {
+            Some(value) => value,
+            None => return 1,
+        };
+        let identity = match wide_utf8(cell.id) {
+            Some(value) => value,
+            None => return 1,
+        };
+        let child = CreateWindowExW(
+            0,
+            static_class.as_ptr(),
+            text.as_ptr(),
+            WS_CHILD | WS_VISIBLE | SS_NOPREFIX,
+            0,
+            0,
+            0,
+            0,
+            hwnd,
+            (index + 1) as *mut c_void,
+            instance,
+            std::ptr::null_mut(),
+        );
+        if child.is_null() {
+            return 1;
+        }
+        let boxed = identity.into_boxed_slice();
+        let id_len = boxed.len();
+        let id_ptr = Box::into_raw(boxed) as *mut u16;
+        if SetPropW(child, PROP_SEMANTIC.as_ptr(), id_ptr as *mut c_void) == 0 {
+            drop(Box::from_raw(std::ptr::slice_from_raw_parts_mut(id_ptr, id_len)));
+            return 1;
+        }
+        ID_PTRS[index].store(id_ptr, Ordering::Relaxed);
+        ID_LENS[index].store(Box::into_raw(Box::new(id_len)), Ordering::Relaxed);
+        HWNDS[index].store(child, Ordering::Relaxed);
+    }
+    if apply_font() != 0 {
+        return 1;
+    }
+    place_all(hwnd);
+    0
+}
+
+static PROCESS_DPI: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// The process DPI, read once from the primary device context. A
+/// system-DPI-aware process never scales after startup, so one read is the
+/// whole story; no per-monitor change message exists to handle.
+fn process_dpi() -> u32 {
+    let cached = PROCESS_DPI.load(std::sync::atomic::Ordering::Relaxed);
+    if cached != 0 {
+        return cached;
+    }
+    let dpi = unsafe {
+        let hdc = GetDC(std::ptr::null_mut());
+        if hdc.is_null() {
+            96
+        } else {
+            let raw = GetDeviceCaps(hdc, LOGPIXELSY);
+            ReleaseDC(std::ptr::null_mut(), hdc);
+            if raw == 0 || raw > 960 {
+                96
+            } else {
+                raw as u32
+            }
+        }
+    };
+    PROCESS_DPI.store(dpi, std::sync::atomic::Ordering::Relaxed);
+    dpi
+}
+
+unsafe fn message_font() -> *mut c_void {
+    let mut metrics = std::mem::zeroed::<NonClientMetricsW>();
+    metrics.cb_size = std::mem::size_of::<NonClientMetricsW>() as u32;
+    if SystemParametersInfoW(
+        SPI_GETNONCLIENTMETRICS,
+        metrics.cb_size,
+        &mut metrics as *mut NonClientMetricsW as *mut c_void,
+        0,
+    ) == 0
+    {
+        return std::ptr::null_mut();
+    }
+    CreateFontIndirectW(&metrics.message_font)
+}
+
+unsafe fn apply_font() -> i32 {
+    let font = message_font();
+    if font.is_null() {
+        return 1;
+    }
+    let previous = MESSAGE_FONT.swap(font, Ordering::Relaxed);
+    for index in 0..PLACED.len() {
+        let child = HWNDS[index].load(Ordering::Relaxed);
+        if !child.is_null() {
+            SendMessageW(child, WM_SETFONT, font as usize, 1);
+        }
+    }
+    if !previous.is_null() {
+        DeleteObject(previous);
+    }
+    0
+}
+
+unsafe fn place_all(parent: *mut c_void) {
+    let dpi = process_dpi();
+    let mut rect = Rect { left: 0, top: 0, right: 0, bottom: 0 };
+    if GetClientRect(parent, &mut rect) == 0 {
+        return;
+    }
+    let client_w = rect.right.saturating_sub(rect.left).max(0);
+    let client_h = rect.bottom.saturating_sub(rect.top).max(0);
+    for (index, cell) in PLACED.iter().enumerate() {
+        let child = HWNDS[index].load(Ordering::Relaxed);
+        if child.is_null() {
+            continue;
+        }
+        let x = scale(cell.x, dpi);
+        let y = scale(cell.y, dpi);
+        let mut width = scale(cell.w, dpi);
+        let mut height = scale(cell.h, dpi);
+        if x >= client_w || y >= client_h {
+            width = 0;
+            height = 0;
+        } else {
+            width = width.min(client_w - x);
+            height = height.min(client_h - y);
+        }
+        MoveWindow(child, x.max(0), y.max(0), width.max(0), height.max(0), 1);
+    }
+}
+"#;
+
+/// Win8-floor adapter for the interactive window. Keyboard handling,
+/// the edit subclass, the clipboard gate, and the D1 commit protocol
+/// are identical to the win10 adapter; only the DPI strategy differs.
+pub(crate) const PROGRAM_INTERACTIVE_LEGACY: &str = r#"
+use std::ffi::c_void;
+use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicPtr, Ordering};
+
+const MAX_PLACED: usize = 8;
+static HWNDS: [AtomicPtr<c_void>; MAX_PLACED] = [const { AtomicPtr::new(std::ptr::null_mut()) }; MAX_PLACED];
+static ID_PTRS: [AtomicPtr<u16>; MAX_PLACED] = [const { AtomicPtr::new(std::ptr::null_mut()) }; MAX_PLACED];
+static ID_LENS: [AtomicPtr<usize>; MAX_PLACED] = [const { AtomicPtr::new(std::ptr::null_mut()) }; MAX_PLACED];
+static MESSAGE_FONT: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
+static ROOT_ID_PTR: AtomicPtr<u16> = AtomicPtr::new(std::ptr::null_mut());
+static ROOT_ID_UNITS: AtomicPtr<usize> = AtomicPtr::new(std::ptr::null_mut());
+static EDIT_PROC: AtomicIsize = AtomicIsize::new(0);
+static ACTIVATING: AtomicBool = AtomicBool::new(false);
+static RELEASED: AtomicBool = AtomicBool::new(false);
+
+const WS_OVERLAPPEDWINDOW: u32 = 0x00CF_0000;
+const WS_CHILD: u32 = 0x4000_0000;
+const WS_VISIBLE: u32 = 0x1000_0000;
+const WS_CLIPCHILDREN: u32 = 0x0200_0000;
+const WS_TABSTOP: u32 = 0x0001_0000;
+const WS_CLIPSIBLINGS: u32 = 0x0400_0000;
+const SS_NOPREFIX: u32 = 0x0000_0080;
+const ES_AUTOHSCROLL: u32 = 0x0000_0080;
+const BS_DEFPUSHBUTTON: u32 = 0x0000_0001;
+const CW_USEDEFAULT: i32 = 0x8000_0000_u32 as i32;
+const SW_SHOWNORMAL: i32 = 1;
+const WM_CREATE: u32 = 0x0001;
+const WM_DESTROY: u32 = 0x0002;
+const WM_SIZE: u32 = 0x0005;
+const WM_SETFONT: u32 = 0x0030;
+const WM_COMMAND: u32 = 0x0111;
+const BM_CLICK: u32 = 0x00F5;
+const SPI_GETNONCLIENTMETRICS: u32 = 0x0029;
+const LOGPIXELSY: i32 = 0x58;
+const GWLP_WNDPROC: i32 = -4;
+
+const PROP_SEMANTIC: &[u16] = &[
+    71, 111, 121, 97, 46, 83, 101, 109, 97, 110, 116, 105, 99, 73, 100, 0,
+];
+
+#[repr(C)]
+struct WndClassExW {
+    cb_size: u32,
+    style: u32,
+    lpfn_wnd_proc: Option<unsafe extern "system" fn(*mut c_void, u32, usize, isize) -> isize>,
+    cb_cls_extra: i32,
+    cb_wnd_extra: i32,
+    h_instance: *mut c_void,
+    h_icon: *mut c_void,
+    h_cursor: *mut c_void,
+    hbr_background: *mut c_void,
+    lpsz_menu_name: *const u16,
+    lpsz_class_name: *const u16,
+    h_icon_sm: *mut c_void,
+}
+
+#[repr(C)]
+struct Msg {
+    hwnd: *mut c_void,
+    message: u32,
+    wparam: usize,
+    lparam: isize,
+    time: u32,
+    pt_x: i32,
+    pt_y: i32,
+}
+
+#[repr(C)]
+struct Rect {
+    left: i32,
+    top: i32,
+    right: i32,
+    bottom: i32,
+}
+
+#[repr(C)]
+struct LogFontW {
+    height: i32,
+    width: i32,
+    escapement: i32,
+    orientation: i32,
+    weight: i32,
+    italic: u8,
+    underline: u8,
+    strike_out: u8,
+    char_set: u8,
+    out_precision: u8,
+    clip_precision: u8,
+    quality: u8,
+    pitch_and_family: u8,
+    face_name: [u16; 32],
+}
+
+#[repr(C)]
+struct NonClientMetricsW {
+    cb_size: u32,
+    border_width: i32,
+    scroll_width: i32,
+    scroll_height: i32,
+    caption_width: i32,
+    caption_height: i32,
+    caption_font: LogFontW,
+    sm_caption_width: i32,
+    sm_caption_height: i32,
+    sm_caption_font: LogFontW,
+    menu_width: i32,
+    menu_height: i32,
+    menu_font: LogFontW,
+    status_font: LogFontW,
+    message_font: LogFontW,
+    padded_border_width: i32,
+}
+
+#[cfg(target_pointer_width = "64")]
+const _: () = assert!(std::mem::size_of::<WndClassExW>() == 80);
+#[cfg(target_pointer_width = "32")]
+const _: () = assert!(std::mem::size_of::<WndClassExW>() == 48);
+#[cfg(target_pointer_width = "64")]
+const _: () = assert!(std::mem::size_of::<Msg>() == 48);
+#[cfg(target_pointer_width = "32")]
+const _: () = assert!(std::mem::size_of::<Msg>() == 28);
+const _: () = assert!(std::mem::size_of::<Rect>() == 16);
+const _: () = assert!(std::mem::size_of::<LogFontW>() == 92);
+const _: () = assert!(std::mem::size_of::<NonClientMetricsW>() == 504);
+
+#[link(name = "kernel32")]
+extern "system" {
+    fn GetModuleHandleW(name: *const u16) -> *mut c_void;
+}
+
+#[link(name = "user32")]
+extern "system" {
+    fn RegisterClassExW(class: *const WndClassExW) -> u16;
+    fn CreateWindowExW(
+        ex_style: u32,
+        class_name: *const u16,
+        window_name: *const u16,
+        style: u32,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        parent: *mut c_void,
+        menu: *mut c_void,
+        instance: *mut c_void,
+        param: *mut c_void,
+    ) -> *mut c_void;
+    fn SetPropW(hwnd: *mut c_void, name: *const u16, data: *mut c_void) -> i32;
+    fn RemovePropW(hwnd: *mut c_void, name: *const u16) -> *mut c_void;
+    fn SetProcessDPIAware() -> i32;
+    fn GetDC(hwnd: *mut c_void) -> *mut c_void;
+    fn ReleaseDC(hwnd: *mut c_void, hdc: *mut c_void) -> i32;
+    fn GetDeviceCaps(hdc: *mut c_void, index: i32) -> i32;
+    fn AdjustWindowRectEx(rect: *mut Rect, style: u32, menu: i32, ex_style: u32) -> i32;
+    fn SystemParametersInfoW(action: u32, param: u32, out: *mut c_void, win_ini: u32) -> i32;
+    fn DefWindowProcW(hwnd: *mut c_void, msg: u32, wparam: usize, lparam: isize) -> isize;
+    fn GetMessageW(msg: *mut Msg, hwnd: *mut c_void, min: u32, max: u32) -> i32;
+    fn TranslateMessage(msg: *const Msg) -> i32;
+    fn DispatchMessageW(msg: *const Msg) -> isize;
+    fn PostQuitMessage(code: i32);
+    fn DestroyWindow(hwnd: *mut c_void) -> i32;
+    fn UnregisterClassW(class_name: *const u16, instance: *mut c_void) -> i32;
+    fn ShowWindow(hwnd: *mut c_void, cmd: i32) -> i32;
+    fn UpdateWindow(hwnd: *mut c_void) -> i32;
+    fn LoadCursorW(instance: *mut c_void, name: *const u16) -> *mut c_void;
+    fn MoveWindow(hwnd: *mut c_void, x: i32, y: i32, width: i32, height: i32, repaint: i32) -> i32;
+    fn GetClientRect(hwnd: *mut c_void, rect: *mut Rect) -> i32;
+    fn SendMessageW(hwnd: *mut c_void, msg: u32, wparam: usize, lparam: isize) -> isize;
+    fn MessageBoxW(hwnd: *mut c_void, text: *const u16, caption: *const u16, kind: u32) -> i32;
+    fn GetWindowTextW(hwnd: *mut c_void, buffer: *mut u16, max: i32) -> i32;
+    fn SetWindowTextW(hwnd: *mut c_void, text: *const u16) -> i32;
+    fn SetFocus(hwnd: *mut c_void) -> *mut c_void;
+    fn GetKeyState(key: i32) -> i16;
+    fn CallWindowProcW(prev: isize, hwnd: *mut c_void, msg: u32, wparam: usize, lparam: isize) -> isize;
+}
+
+#[cfg(all(windows, target_pointer_width = "32"))]
+#[link(name = "user32")]
+extern "system" {
+    fn SetWindowLongW(hwnd: *mut c_void, index: i32, new_long: i32) -> i32;
+}
+
+#[cfg(not(all(windows, target_pointer_width = "32")))]
+#[link(name = "user32")]
+extern "system" {
+    fn SetWindowLongPtrW(hwnd: *mut c_void, index: i32, new_long: isize) -> isize;
+}
+
+unsafe fn set_window_long_ptr(hwnd: *mut c_void, index: i32, new_long: isize) -> isize {
+    #[cfg(all(windows, target_pointer_width = "32"))]
+    return SetWindowLongW(hwnd, index, new_long as i32) as isize;
+    #[cfg(not(all(windows, target_pointer_width = "32")))]
+    return SetWindowLongPtrW(hwnd, index, new_long);
+}
+
+#[link(name = "gdi32")]
+extern "system" {
+    fn CreateFontIndirectW(font: *const LogFontW) -> *mut c_void;
+    fn DeleteObject(object: *mut c_void) -> i32;
+}
+
+fn main() {
+    std::process::exit(run());
+}
+
+fn run() -> i32 {
+    if TITLE_UTF8.len() != TITLE_LEN || ROOT_ID_UTF8.len() != ROOT_ID_LEN || PLACED.len() != 4 || PLACED.len() > MAX_PLACED {
+        return fail("generated lengths do not match");
+    }
+    if PLACED[STATE_INDEX].role != ROLE_STATIC || PLACED[INPUT_INDEX].role != ROLE_EDIT || PLACED[BUTTON_INDEX].role != ROLE_BUTTON || PLACED[BUTTON_INDEX].control_id != BUTTON_ID {
+        return fail("generated control roles do not match");
+    }
+    for cell in PLACED {
+        if cell.text.len() != cell.text_len || cell.id.len() != cell.id_len {
+            return fail("generated lengths do not match");
+        }
+    }
+    let title = match wide_utf8(TITLE_UTF8) {
+        Some(value) => value,
+        None => return fail("window title is not valid UTF-8"),
+    };
+    unsafe { create_and_run(title.as_ptr()) }
+}
+
+fn wide_utf8(bytes: &[u8]) -> Option<Vec<u16>> {
+    let text = std::str::from_utf8(bytes).ok()?;
+    if text.chars().any(|unit| unit == '\0') {
+        return None;
+    }
+    let mut encoded: Vec<u16> = text.encode_utf16().collect();
+    encoded.push(0);
+    Some(encoded)
+}
+
+fn wide_ascii(text: &str) -> Vec<u16> {
+    let mut encoded: Vec<u16> = text.encode_utf16().collect();
+    encoded.push(0);
+    encoded
+}
+
+fn fail(text: &str) -> i32 {
+    let body = wide_ascii(text);
+    let caption = wide_ascii("Sash");
+    unsafe {
+        MessageBoxW(std::ptr::null_mut(), body.as_ptr(), caption.as_ptr(), 0x10);
+    }
+    1
+}
+
+fn parse_edit(units: &[u16]) -> Option<i64> {
+    if units.is_empty() || units.len() > 20 {
+        return None;
+    }
+    let mut bytes = Vec::with_capacity(units.len());
+    for unit in units {
+        if *unit > 0x7f {
+            return None;
+        }
+        bytes.push(*unit as u8);
+    }
+    parse_canonical_i64(std::str::from_utf8(&bytes).ok()?)
+}
+
+unsafe fn create_and_run(title: *const u16) -> i32 {
+    if SetProcessDPIAware() == 0 {
+        return fail("system DPI awareness is not active");
+    }
+    let class_name = wide_ascii("SashInteractiveWindow");
+    let instance = GetModuleHandleW(std::ptr::null());
+    if instance.is_null() {
+        return fail("the process module handle is missing");
+    }
+    let cursor = LoadCursorW(std::ptr::null_mut(), 32512usize as *const u16);
+    let class = WndClassExW {
+        cb_size: std::mem::size_of::<WndClassExW>() as u32,
+        style: 0x0001 | 0x0002,
+        lpfn_wnd_proc: Some(wnd_proc),
+        cb_cls_extra: 0,
+        cb_wnd_extra: 0,
+        h_instance: instance,
+        h_icon: std::ptr::null_mut(),
+        h_cursor: cursor,
+        hbr_background: (5usize + 1) as *mut c_void,
+        lpsz_menu_name: std::ptr::null(),
+        lpsz_class_name: class_name.as_ptr(),
+        h_icon_sm: std::ptr::null_mut(),
+    };
+    if RegisterClassExW(&class) == 0 {
+        return fail("the window class was not registered");
+    }
+    let code = run_registered(class_name.as_ptr(), instance, title);
+    UnregisterClassW(class_name.as_ptr(), instance);
+    code
+}
+
+unsafe fn run_registered(class_name: *const u16, instance: *mut c_void, title: *const u16) -> i32 {
+    let dpi = process_dpi();
+    let mut rect = Rect {
+        left: 0,
+        top: 0,
+        right: scale(CLIENT_DIP_W, dpi),
+        bottom: scale(CLIENT_DIP_H, dpi),
+    };
+    if AdjustWindowRectEx(&mut rect, WS_OVERLAPPEDWINDOW, 0, 0) == 0 {
+        return fail("the window frame size was not calculated");
+    }
+    let width = rect.right.saturating_sub(rect.left);
+    let height = rect.bottom.saturating_sub(rect.top);
+    if width <= 0 || height <= 0 {
+        return fail("the window frame size is empty");
+    }
+    let hwnd = CreateWindowExW(
+        0,
+        class_name,
+        title,
+        WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
+        CW_USEDEFAULT,
+        CW_USEDEFAULT,
+        width,
+        height,
+        std::ptr::null_mut(),
+        std::ptr::null_mut(),
+        instance,
+        std::ptr::null_mut(),
+    );
+    if hwnd.is_null() {
+        return fail("the window was not created");
+    }
+    ShowWindow(hwnd, SW_SHOWNORMAL);
+    UpdateWindow(hwnd);
+    let mut message = std::mem::zeroed::<Msg>();
+    let mut end = PumpEnd::NotEntered;
+    let mut window_live = true;
+    loop {
+        let status = GetMessageW(&mut message, std::ptr::null_mut(), 0, 0);
+        if status == 0 {
+            end = PumpEnd::Quit(message.wparam as i32);
+            window_live = false;
+            break;
+        }
+        if status < 0 {
+            end = PumpEnd::Failed;
+            break;
+        }
+        match key_action(message.message, message.wparam, GetKeyState(0x10) < 0) {
+            KeyAction::Activate => {
+                let button = HWNDS[BUTTON_INDEX].load(Ordering::Relaxed);
+                if !button.is_null() {
+                    SendMessageW(button, BM_CLICK, 0, 0);
+                }
+            }
+            KeyAction::FocusNext => focus_cycle(message.hwnd, false),
+            KeyAction::FocusPrev => focus_cycle(message.hwnd, true),
+            KeyAction::Dispatch => {
+                TranslateMessage(&message);
+                DispatchMessageW(&message);
+            }
+        }
+    }
+    let plan = shutdown_plan(true, window_live, end);
+    if plan.destroy_window {
+        DestroyWindow(hwnd);
+    }
+    plan.exit_code
+}
+
+fn scale(dip: i32, dpi: u32) -> i32 {
+    ((dip as u32).saturating_mul(dpi) / 96) as i32
+}
+
+unsafe extern "system" fn wnd_proc(hwnd: *mut c_void, message: u32, wparam: usize, lparam: isize) -> isize {
+    match message {
+        WM_CREATE => {
+            if setup(hwnd) != 0 {
+                release(hwnd);
+                return -1;
+            }
+            0
+        }
+        WM_SIZE => {
+            place_all(hwnd);
+            0
+        }
+        WM_COMMAND => {
+            let id = (wparam & 0xffff) as u16;
+            let note = ((wparam >> 16) & 0xffff) as u16;
+            if command_activates(id, note, BUTTON_ID) {
+                activate();
+            }
+            0
+        }
+        WM_DESTROY => {
+            release(hwnd);
+            PostQuitMessage(0);
+            0
+        }
+        _ => DefWindowProcW(hwnd, message, wparam, lparam),
+    }
+}
+
+unsafe extern "system" fn edit_proc(hwnd: *mut c_void, message: u32, wparam: usize, lparam: isize) -> isize {
+    let previous = EDIT_PROC.load(Ordering::Relaxed);
+    if previous == 0 {
+        return 0;
+    }
+    let ctrl = GetKeyState(0x11) < 0;
+    let shift = GetKeyState(0x10) < 0;
+    if clipboard_blocked(ClipboardGate {
+        copy_allowed: COPY_ALLOWED,
+        paste_allowed: PASTE_ALLOWED,
+        cut_mode: CUT_MODE,
+        message,
+        wparam,
+        ctrl_down: ctrl,
+        shift_down: shift,
+    }) {
+        return 0;
+    }
+    CallWindowProcW(previous, hwnd, message, wparam, lparam)
+}
+
+unsafe fn release(hwnd: *mut c_void) {
+    RELEASED.store(true, Ordering::Relaxed);
+    let previous = EDIT_PROC.swap(0, Ordering::Relaxed);
+    if previous != 0 {
+        let edit = HWNDS[INPUT_INDEX].load(Ordering::Relaxed);
+        if !edit.is_null() {
+            set_window_long_ptr(edit, GWLP_WNDPROC, previous);
+        }
+    }
+    RemovePropW(hwnd, PROP_SEMANTIC.as_ptr());
+    let root_ptr = ROOT_ID_PTR.swap(std::ptr::null_mut(), Ordering::Relaxed);
+    let root_len = ROOT_ID_UNITS.swap(std::ptr::null_mut(), Ordering::Relaxed);
+    if !root_ptr.is_null() && !root_len.is_null() {
+        let len = *root_len;
+        drop(Box::from_raw(root_len));
+        drop(Box::from_raw(std::ptr::slice_from_raw_parts_mut(root_ptr, len)));
+    }
+    for index in 0..PLACED.len() {
+        let child = HWNDS[index].swap(std::ptr::null_mut(), Ordering::Relaxed);
+        if !child.is_null() {
+            RemovePropW(child, PROP_SEMANTIC.as_ptr());
+        }
+        let id_ptr = ID_PTRS[index].swap(std::ptr::null_mut(), Ordering::Relaxed);
+        let len_ptr = ID_LENS[index].swap(std::ptr::null_mut(), Ordering::Relaxed);
+        if !id_ptr.is_null() && !len_ptr.is_null() {
+            let len = *len_ptr;
+            drop(Box::from_raw(len_ptr));
+            drop(Box::from_raw(std::ptr::slice_from_raw_parts_mut(id_ptr, len)));
+        }
+    }
+    let font = MESSAGE_FONT.swap(std::ptr::null_mut(), Ordering::Relaxed);
+    if !font.is_null() {
+        DeleteObject(font);
+    }
+}
+
+unsafe fn setup(hwnd: *mut c_void) -> i32 {
+    let root_id = match wide_utf8(ROOT_ID_UTF8) {
+        Some(value) => value,
+        None => return 1,
+    };
+    let root_box = root_id.into_boxed_slice();
+    let root_len = root_box.len();
+    let root_ptr = Box::into_raw(root_box) as *mut u16;
+    if SetPropW(hwnd, PROP_SEMANTIC.as_ptr(), root_ptr as *mut c_void) == 0 {
+        drop(Box::from_raw(std::ptr::slice_from_raw_parts_mut(root_ptr, root_len)));
+        return 1;
+    }
+    ROOT_ID_PTR.store(root_ptr, Ordering::Relaxed);
+    ROOT_ID_UNITS.store(Box::into_raw(Box::new(root_len)), Ordering::Relaxed);
+    let instance = GetModuleHandleW(std::ptr::null());
+    for (index, cell) in PLACED.iter().enumerate() {
+        let text = match wide_utf8(cell.text) {
+            Some(value) => value,
+            None => return 1,
+        };
+        let identity = match wide_utf8(cell.id) {
+            Some(value) => value,
+            None => return 1,
+        };
+        let class_name = match cell.role {
+            ROLE_EDIT => wide_ascii("EDIT"),
+            ROLE_BUTTON => wide_ascii("BUTTON"),
+            _ => wide_ascii("STATIC"),
+        };
+        let style = match cell.role {
+            ROLE_EDIT => WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_CLIPSIBLINGS | ES_AUTOHSCROLL,
+            ROLE_BUTTON => WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_CLIPSIBLINGS | BS_DEFPUSHBUTTON,
+            _ => WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | SS_NOPREFIX,
+        };
+        let child = CreateWindowExW(
+            0,
+            class_name.as_ptr(),
+            text.as_ptr(),
+            style,
+            0,
+            0,
+            0,
+            0,
+            hwnd,
+            cell.control_id as usize as *mut c_void,
+            instance,
+            std::ptr::null_mut(),
+        );
+        if child.is_null() {
+            return 1;
+        }
+        let boxed = identity.into_boxed_slice();
+        let id_len = boxed.len();
+        let id_ptr = Box::into_raw(boxed) as *mut u16;
+        if SetPropW(child, PROP_SEMANTIC.as_ptr(), id_ptr as *mut c_void) == 0 {
+            drop(Box::from_raw(std::ptr::slice_from_raw_parts_mut(id_ptr, id_len)));
+            return 1;
+        }
+        ID_PTRS[index].store(id_ptr, Ordering::Relaxed);
+        ID_LENS[index].store(Box::into_raw(Box::new(id_len)), Ordering::Relaxed);
+        HWNDS[index].store(child, Ordering::Relaxed);
+        if cell.role == ROLE_EDIT {
+            let previous = set_window_long_ptr(child, GWLP_WNDPROC, edit_proc as usize as isize);
+            if previous == 0 {
+                return 1;
+            }
+            EDIT_PROC.store(previous, Ordering::Relaxed);
+        }
+    }
+    if apply_font() != 0 {
+        return 1;
+    }
+    place_all(hwnd);
+    let edit = HWNDS[INPUT_INDEX].load(Ordering::Relaxed);
+    if !edit.is_null() {
+        SetFocus(edit);
+    }
+    0
+}
+
+unsafe fn activate() {
+    if ACTIVATING.swap(true, Ordering::Relaxed) {
+        return;
+    }
+    finish_activation();
+    ACTIVATING.store(false, Ordering::Relaxed);
+}
+
+unsafe fn finish_activation() {
+    let edit = HWNDS[INPUT_INDEX].load(Ordering::Relaxed);
+    let result = HWNDS[STATE_INDEX].load(Ordering::Relaxed);
+    let mut buffer = [0u16; 32];
+    let length = if edit.is_null() || result.is_null() {
+        -1
+    } else {
+        GetWindowTextW(edit, buffer.as_mut_ptr(), buffer.len() as i32)
+    };
+    let parsed = if (1..31).contains(&length) {
+        parse_edit(&buffer[..length as usize])
+    } else {
+        None
+    };
+    let state_value = COUNT.load(Ordering::Relaxed);
+    let revision_now = REVISION.load(Ordering::Relaxed);
+    let committed = match parsed {
+        Some(input_value) => commit_transition(state_value, revision_now, input_value),
+        None => None,
+    };
+    let step = activation(false, length, parsed, committed);
+    let written = match step {
+        Activation::Publish { next, .. } if !RELEASED.load(Ordering::Relaxed) => {
+            let rendered = format_i64(next);
+            match wide_utf8(rendered.as_bytes()) {
+                Some(wide) => !result.is_null() && SetWindowTextW(result, wide.as_ptr()) != 0,
+                None => false,
+            }
+        }
+        Activation::Publish { .. } | Activation::Busy | Activation::Rejected => false,
+    };
+    let visible = if written && !RELEASED.load(Ordering::Relaxed) {
+        let current = HWNDS[STATE_INDEX].load(Ordering::Relaxed);
+        if current == result && !result.is_null() {
+            let mut seen = [0u16; 32];
+            let seen_len = GetWindowTextW(result, seen.as_mut_ptr(), seen.len() as i32);
+            if (1..31).contains(&seen_len) {
+                parse_edit(&seen[..seen_len as usize])
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    let decision = publish_after_text(step, written);
+    match visible_commit(decision, RELEASED.load(Ordering::Relaxed), visible) {
+        VisibleCommit::Store { next, revision } => {
+            COUNT.store(next, Ordering::Relaxed);
+            REVISION.store(revision, Ordering::Relaxed);
+        }
+        VisibleCommit::Revert => {
+            let current = HWNDS[STATE_INDEX].load(Ordering::Relaxed);
+            if current == result && !result.is_null() && !RELEASED.load(Ordering::Relaxed) {
+                let rendered = format_i64(state_value);
+                if let Some(wide) = wide_utf8(rendered.as_bytes()) {
+                    let _ = SetWindowTextW(result, wide.as_ptr());
+                }
+            }
+        }
+        VisibleCommit::Leave => {}
+    }
+}
+
+unsafe fn focus_cycle(current: *mut c_void, reverse: bool) {
+    let order = [INPUT_INDEX, BUTTON_INDEX];
+    let position = order.iter().position(|index| HWNDS[*index].load(Ordering::Relaxed) == current);
+    let next = match position {
+        Some(index) if reverse => order[(index + order.len() - 1) % order.len()],
+        Some(index) => order[(index + 1) % order.len()],
+        None => order[0],
+    };
+    let hwnd = HWNDS[next].load(Ordering::Relaxed);
+    if !hwnd.is_null() {
+        SetFocus(hwnd);
+    }
+}
+
+static PROCESS_DPI: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// The process DPI, read once from the primary device context. A
+/// system-DPI-aware process never scales after startup, so one read is the
+/// whole story; no per-monitor change message exists to handle.
+fn process_dpi() -> u32 {
+    let cached = PROCESS_DPI.load(std::sync::atomic::Ordering::Relaxed);
+    if cached != 0 {
+        return cached;
+    }
+    let dpi = unsafe {
+        let hdc = GetDC(std::ptr::null_mut());
+        if hdc.is_null() {
+            96
+        } else {
+            let raw = GetDeviceCaps(hdc, LOGPIXELSY);
+            ReleaseDC(std::ptr::null_mut(), hdc);
+            if raw == 0 || raw > 960 {
+                96
+            } else {
+                raw as u32
+            }
+        }
+    };
+    PROCESS_DPI.store(dpi, std::sync::atomic::Ordering::Relaxed);
+    dpi
+}
+
+unsafe fn message_font() -> *mut c_void {
+    let mut metrics = std::mem::zeroed::<NonClientMetricsW>();
+    metrics.cb_size = std::mem::size_of::<NonClientMetricsW>() as u32;
+    if SystemParametersInfoW(
+        SPI_GETNONCLIENTMETRICS,
+        metrics.cb_size,
+        &mut metrics as *mut NonClientMetricsW as *mut c_void,
+        0,
+    ) == 0
+    {
+        return std::ptr::null_mut();
+    }
+    CreateFontIndirectW(&metrics.message_font)
+}
+
+unsafe fn apply_font() -> i32 {
+    let font = message_font();
+    if font.is_null() {
+        return 1;
+    }
+    let previous = MESSAGE_FONT.swap(font, Ordering::Relaxed);
+    for index in 0..PLACED.len() {
+        let child = HWNDS[index].load(Ordering::Relaxed);
+        if !child.is_null() {
+            SendMessageW(child, WM_SETFONT, font as usize, 1);
+        }
+    }
+    if !previous.is_null() {
+        DeleteObject(previous);
+    }
+    0
+}
+
+unsafe fn place_all(parent: *mut c_void) {
+    let dpi = process_dpi();
+    let mut rect = Rect { left: 0, top: 0, right: 0, bottom: 0 };
+    if GetClientRect(parent, &mut rect) == 0 {
+        return;
+    }
+    let client_w = rect.right.saturating_sub(rect.left).max(0);
+    let client_h = rect.bottom.saturating_sub(rect.top).max(0);
+    for (index, cell) in PLACED.iter().enumerate() {
+        let child = HWNDS[index].load(Ordering::Relaxed);
+        if child.is_null() {
+            continue;
+        }
+        let x = scale(cell.x, dpi);
+        let y = scale(cell.y, dpi);
+        let mut width = scale(cell.w, dpi);
+        let mut height = scale(cell.h, dpi);
+        if x >= client_w || y >= client_h {
+            width = 0;
+            height = 0;
+        } else {
+            width = width.min(client_w - x);
+            height = height.min(client_h - y);
+        }
+        MoveWindow(child, x.max(0), y.max(0), width.max(0), height.max(0), 1);
+    }
+}
+"#;
+
 #[cfg(test)]
 mod tests {
     use super::*;
