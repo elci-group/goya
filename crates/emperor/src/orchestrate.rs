@@ -1051,6 +1051,23 @@ fn benchmark(invocation: Invocation) -> Run {
 /// 1 warmup (not recorded) followed by 5 timed runs.
 const BENCH_RUNS: usize = 5;
 
+/// Frame-rate pumps: 1 warmup pump of 30 frames, then 3 measured pumps of
+/// 120 frames. Fewer runs than BENCH_RUNS because each pump presents 120
+/// real frames and takes seconds of compositor time.
+const FRAME_RATE_RUNS: usize = 3;
+
+/// Extract the presented frame count from an emperor-app report line.
+///
+/// The report format is `count=… presented=N wayland=…`; parsing the first
+/// `presented=` token keeps this independent of field order changes.
+fn presented_frames(stdout: &str) -> u32 {
+    stdout
+        .split_whitespace()
+        .find_map(|token| token.strip_prefix("presented="))
+        .and_then(|value| value.parse::<u32>().ok())
+        .unwrap_or(0)
+}
+
 struct RunSummary {
     min: f64,
     median: f64,
