@@ -801,6 +801,161 @@ mod tests {
     }
 
     #[test]
+    fn expectations_project_the_static_control_table() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/static-window.gscene");
+        let run = execute(&[
+            "sash".into(),
+            "expectations".into(),
+            path.into(),
+            "--format".into(),
+            "json".into(),
+        ]);
+        assert_eq!(run.code, ExitCode::SUCCESS);
+        assert_eq!(run.json["status"], "ADMITTED");
+        assert_eq!(run.json["runtime_qualification"], "BLOCKED");
+        assert_eq!(run.json["api_floor"], "win10");
+        assert_eq!(run.json["presentation_profile"], crate::admit::PROFILE);
+        assert_eq!(run.json["window"]["title"], "hello");
+        assert_eq!(run.json["window"]["class"], "SashStaticWindow");
+        assert_eq!(run.json["window"]["client_dip"], serde_json::json!([320, 160]));
+        let controls = run.json["controls"].as_array().unwrap();
+        assert_eq!(controls.len(), 1);
+        assert_eq!(controls[0]["role"], "static");
+        assert_eq!(controls[0]["control_id"], 1);
+        assert_eq!(controls[0]["semantic_id"], "window.root");
+        assert_eq!(controls[0]["text"], "Hello");
+        assert_eq!(controls[0]["dip"], serde_json::json!([0, 0, 320, 160]));
+        assert_eq!(
+            run.json["imports"]["expected"],
+            serde_json::json!(EXPECTED_IMPORTS)
+        );
+    }
+
+    #[test]
+    fn expectations_project_the_interactive_control_table() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/fixtures/interactive-counter.gscene"
+        );
+        let run = execute(&[
+            "sash".into(),
+            "expectations".into(),
+            path.into(),
+            "--format".into(),
+            "json".into(),
+        ]);
+        assert_eq!(run.code, ExitCode::SUCCESS);
+        assert_eq!(
+            run.json["presentation_profile"],
+            crate::interactive::PROFILE_CLIPBOARD
+        );
+        assert_eq!(run.json["window"]["title"], "counter");
+        assert_eq!(run.json["window"]["class"], "SashInteractiveWindow");
+        let controls = run.json["controls"].as_array().unwrap();
+        assert_eq!(controls.len(), 4);
+        assert_eq!(controls[0]["role"], "static");
+        assert_eq!(controls[0]["text"], "Count");
+        assert_eq!(controls[1]["role"], "edit");
+        assert_eq!(controls[1]["control_id"], 201);
+        assert_eq!(controls[1]["semantic_id"], "window.amount");
+        assert_eq!(controls[2]["role"], "button");
+        assert_eq!(controls[2]["control_id"], 301);
+        assert_eq!(controls[2]["semantic_id"], "window.add");
+        assert_eq!(controls[3]["role"], "static");
+        assert_eq!(controls[3]["semantic_id"], "state.count");
+        assert_eq!(controls[3]["text"], "0");
+    }
+
+    #[test]
+    fn expectations_reject_an_unadmitted_scene() {
+        let path = std::env::temp_dir().join(format!(
+            "sash-expectations-unknown-{}.gscene",
+            std::process::id()
+        ));
+        std::fs::write(
+            &path,
+            "@ontology hello { @cell root { id: \"window.root\"; text: \"Hi\"; colur: #fff; extent: (80, 40, 0); } }\n",
+        )
+        .unwrap();
+        let run = execute(&[
+            "sash".into(),
+            "expectations".into(),
+            path.as_os_str().to_os_string(),
+            "--format".into(),
+            "json".into(),
+        ]);
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(run.code, ExitCode::from(1));
+        assert_eq!(run.json["diagnostics"][0]["code"], "GY-E1001");
+    }
+
+    #[test]
+    fn expectations_project_the_legacy_floor() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/static-window.gscene");
+        let run = execute(&[
+            "sash".into(),
+            "expectations".into(),
+            path.into(),
+            "--api-floor".into(),
+            "win8".into(),
+            "--format".into(),
+            "json".into(),
+        ]);
+        assert_eq!(run.code, ExitCode::SUCCESS);
+        assert_eq!(run.json["api_floor"], "win8");
+        assert_eq!(run.json["presentation_profile"], crate::admit::PROFILE_LEGACY);
+        // The control table is floor-independent: same meaning, other adapter.
+        let controls = run.json["controls"].as_array().unwrap();
+        assert_eq!(controls.len(), 1);
+        assert_eq!(controls[0]["text"], "Hello");
+    }
+
+    #[test]
+    fn unknown_api_floor_is_refused() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/static-window.gscene");
+        let run = execute(&[
+            "sash".into(),
+            "check".into(),
+            path.into(),
+            "--api-floor".into(),
+            "win7".into(),
+        ]);
+        assert_eq!(run.code, ExitCode::from(2));
+        let message = run.json["diagnostics"][0]["message"].as_str().unwrap();
+        assert!(message.contains("tier-3"), "{message}");
+        assert!(message.contains("does not download a compiler"));
+    }
+
+    #[test]
+    fn legacy_floor_refuses_arm64() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/static-window.gscene");
+        let run = execute(&[
+            "sash".into(),
+            "check".into(),
+            path.into(),
+            "--target".into(),
+            "aarch64-pc-windows-msvc".into(),
+            "--api-floor".into(),
+            "win8".into(),
+        ]);
+        assert_eq!(run.code, ExitCode::from(1));
+        let message = run.json["diagnostics"][0]["message"].as_str().unwrap();
+        assert!(message.contains("i686 and x64 only"), "{message}");
+        // The same floor on x64 admits.
+        let run = execute(&[
+            "sash".into(),
+            "check".into(),
+            path.into(),
+            "--target".into(),
+            "x86_64-pc-windows-msvc".into(),
+            "--api-floor".into(),
+            "win8".into(),
+        ]);
+        assert_eq!(run.code, ExitCode::SUCCESS);
+        assert_eq!(run.json["api_floor"], "win8");
+    }
+
+    #[test]
     fn verify_reports_the_image_machine_and_profile() {
         let dir = std::env::temp_dir();
         let i686 = dir.join(format!("sash-verify-i686-{}.exe", std::process::id()));
