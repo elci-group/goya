@@ -2869,4 +2869,3 @@ mod tests {
         injected.expect("sent key and button");
     }
 }
-
