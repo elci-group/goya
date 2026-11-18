@@ -2086,7 +2086,7 @@ impl InputMappingSession {
             InputEventKind::LongPress
         } else if state
             .last_single
-            .map_or(false, |previous| {
+            .is_some_and(|previous| {
                 timestamp_ms.saturating_sub(previous)
                     <= u64::from(self.double_press_window_ms)
             }) {

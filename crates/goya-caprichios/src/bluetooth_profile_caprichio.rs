@@ -320,13 +320,13 @@ impl BluetoothProfileIr {
         let required_arguments = record
             .required()
             .iter()
-            .map(|characteristic| characteristic_argument(characteristic))
+            .map(characteristic_argument)
             .collect::<Vec<_>>()
             .join("\n    ");
         let optional_arguments = record
             .optional()
             .iter()
-            .map(|characteristic| characteristic_argument(characteristic))
+            .map(characteristic_argument)
             .collect::<Vec<_>>()
             .join("\n    ");
         Ok(BluetoothProfileArtifact {
