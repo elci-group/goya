@@ -1313,10 +1313,11 @@ impl GuardSession {
     /// Revoke one explicit authorisation.
     pub fn revoke(&mut self, peripheral_id: &str) -> Result<(), BluetoothError> {
         CentralSession::validate_peripheral_id(peripheral_id)?;
-        self.authorised
-            .remove(peripheral_id)
-            .map(|_| ())
-            .ok_or(BluetoothError::UnknownPeripheral)
+        if self.authorised.remove(peripheral_id) {
+            Ok(())
+        } else {
+            Err(BluetoothError::UnknownPeripheral)
+        }
     }
 
     /// Whether one peripheral is currently explicitly authorised.
@@ -1512,9 +1513,6 @@ impl ContinuityLedger {
         }
         if max_associations > MAX_ASSOCIATIONS {
             return Err(BluetoothError::AssociationBoundTooLarge);
-        }
-        if max_subscriptions == 0 && false {
-            return Err(BluetoothError::ZeroSubscriptionBound);
         }
         if max_subscriptions > MAX_SUBSCRIPTIONS_PER_ASSOCIATION {
             return Err(BluetoothError::SubscriptionBoundTooLarge);
@@ -2296,5 +2294,221 @@ mod tests {
         // An inactive subscription can be re-subscribed.
         session.subscribe("2A37").unwrap();
         assert!(session.receive("2A37", &[4]).is_ok());
+    }
+
+    #[test]
+    fn usage_descriptions_reject_empty_generic_and_overbound_text() {
+        assert!(validate_usage_description(
+            "Connects to your temperature sensor to show readings."
+        )
+        .is_ok());
+        for generic in [
+            "",
+            "   ",
+            "Bluetooth",
+            "USES BLUETOOTH",
+            "This app uses bluetooth",
+            "required",
+            "TODO",
+            "!!!",
+            "---",
+        ] {
+            assert_eq!(
+                validate_usage_description(generic),
+                Err(BluetoothError::GenericUsageDescription)
+            );
+        }
+        assert_eq!(
+            validate_usage_description(&"d".repeat(MAX_USAGE_DESCRIPTION_BYTES + 1)),
+            Err(BluetoothError::UsageDescriptionTooLong)
+        );
+        assert!(validate_usage_description(&"d".repeat(MAX_USAGE_DESCRIPTION_BYTES)).is_ok());
+    }
+
+    #[test]
+    fn guard_validates_its_bound_and_ledger() {
+        assert_eq!(
+            GuardSession::new(0),
+            Err(BluetoothError::ZeroAuthorisationBound)
+        );
+        assert_eq!(
+            GuardSession::new(MAX_AUTHORISED_PERIPHERALS + 1),
+            Err(BluetoothError::AuthorisationBoundTooLarge)
+        );
+        let mut guard = GuardSession::new(2).unwrap();
+        assert_eq!(guard.max_authorised_peripherals(), 2);
+        assert_eq!(
+            guard.authorise(""),
+            Err(BluetoothError::EmptyPeripheralId)
+        );
+        assert_eq!(
+            guard.authorise(&"p".repeat(MAX_PERIPHERAL_ID_BYTES + 1)),
+            Err(BluetoothError::PeripheralIdTooLong)
+        );
+        guard.authorise("AA:BB").unwrap();
+        assert!(guard.is_authorised("AA:BB"));
+        assert_eq!(guard.authorised_count(), 1);
+        // Re-selection is idempotent and does not consume the bound.
+        guard.authorise("AA:BB").unwrap();
+        assert_eq!(guard.authorised_count(), 1);
+        guard.authorise("CC:DD").unwrap();
+        assert_eq!(
+            guard.authorise("EE:FF"),
+            Err(BluetoothError::AuthorisationBoundReached)
+        );
+        guard.revoke("CC:DD").unwrap();
+        assert!(!guard.is_authorised("CC:DD"));
+        assert_eq!(guard.revoke("CC:DD"), Err(BluetoothError::UnknownPeripheral));
+    }
+
+    #[test]
+    fn connection_decisions_fail_closed_and_are_audited() {
+        let mut guard = GuardSession::new(2).unwrap();
+        guard.authorise("AA:BB").unwrap();
+        let decision = guard
+            .check_connection("AA:BB", PermissionState::Granted)
+            .unwrap();
+        assert_eq!(decision.peripheral_id(), "AA:BB");
+        assert!(decision.explicit_selection());
+        assert_eq!(guard.decisions_granted(), 1);
+        // Undetermined, denied and unselected all fail closed, each audited.
+        assert_eq!(
+            guard.check_connection("AA:BB", PermissionState::NotDetermined),
+            Err(BluetoothError::PermissionUndetermined)
+        );
+        assert_eq!(
+            guard.check_connection("AA:BB", PermissionState::Denied),
+            Err(BluetoothError::PermissionDenied)
+        );
+        assert_eq!(
+            guard.check_connection("CC:DD", PermissionState::Granted),
+            Err(BluetoothError::NotAuthorised)
+        );
+        assert_eq!(
+            guard.check_connection("", PermissionState::Granted),
+            Err(BluetoothError::EmptyPeripheralId)
+        );
+        assert_eq!(guard.decisions_granted(), 1);
+        assert_eq!(guard.decisions_denied(), 3);
+    }
+
+    #[test]
+    fn advertisement_payloads_are_bounded_and_counted() {
+        let mut guard = GuardSession::new(1).unwrap();
+        guard.validate_advertisement_payload(&[0u8; MAX_ADVERTISEMENT_BYTES]).unwrap();
+        assert_eq!(
+            guard.validate_advertisement_payload(&[0u8; MAX_ADVERTISEMENT_BYTES + 1]),
+            Err(BluetoothError::AdvertisementTooLarge)
+        );
+        assert_eq!(guard.advertisements_validated(), 1);
+        assert_eq!(guard.advertisements_rejected(), 1);
+    }
+
+    #[test]
+    fn continuity_validates_its_bounds() {
+        assert_eq!(
+            ContinuityLedger::new(0, 2),
+            Err(BluetoothError::ZeroAssociationBound)
+        );
+        assert_eq!(
+            ContinuityLedger::new(MAX_ASSOCIATIONS + 1, 2),
+            Err(BluetoothError::AssociationBoundTooLarge)
+        );
+        assert_eq!(
+            ContinuityLedger::new(2, MAX_SUBSCRIPTIONS_PER_ASSOCIATION + 1),
+            Err(BluetoothError::SubscriptionBoundTooLarge)
+        );
+        let mut ledger = ContinuityLedger::new(2, 2).unwrap();
+        assert_eq!(
+            ledger.record("AA:BB", AssociationIntent::AutoReconnect, &[String::new()]),
+            Err(BluetoothError::EmptyServiceUuid)
+        );
+        assert_eq!(
+            ledger.record(
+                "AA:BB",
+                AssociationIntent::AutoReconnect,
+                &["u".repeat(MAX_SERVICE_UUID_BYTES + 1)]
+            ),
+            Err(BluetoothError::ServiceUuidTooLong)
+        );
+        assert_eq!(
+            ledger.record(
+                "AA:BB",
+                AssociationIntent::AutoReconnect,
+                &["181A".to_owned(), "180F".to_owned(), "180D".to_owned()]
+            ),
+            Err(BluetoothError::TooManySubscriptions)
+        );
+    }
+
+    #[test]
+    fn associations_record_suspend_and_reconcile() {
+        let mut ledger = ContinuityLedger::new(2, 2).unwrap();
+        ledger
+            .record("AA:BB", AssociationIntent::AutoReconnect, &["181A".to_owned()])
+            .unwrap();
+        assert_eq!(
+            ledger.association_state("AA:BB"),
+            Ok(AssociationState::Active)
+        );
+        assert_eq!(ledger.association_intent("AA:BB"), Ok(AssociationIntent::AutoReconnect));
+        assert_eq!(ledger.subscriptions("AA:BB"), Ok(&["181A".to_owned()][..]));
+        assert_eq!(ledger.revision("AA:BB"), Ok(1));
+        // Updates keep state and bump the revision.
+        ledger
+            .record("AA:BB", AssociationIntent::OnDemand, &[])
+            .unwrap();
+        assert_eq!(ledger.association_intent("AA:BB"), Ok(AssociationIntent::OnDemand));
+        assert_eq!(ledger.subscriptions("AA:BB"), Ok(&[][..]));
+        assert_eq!(ledger.revision("AA:BB"), Ok(2));
+
+        // Bluetooth disabled suspends active associations only.
+        ledger.observe_bluetooth_disabled();
+        assert_eq!(
+            ledger.association_state("AA:BB"),
+            Ok(AssociationState::Suspended(SuspensionReason::BluetoothDisabled))
+        );
+        ledger.observe_app_suspended();
+        assert_eq!(
+            ledger.association_state("AA:BB"),
+            Ok(AssociationState::Suspended(SuspensionReason::BluetoothDisabled))
+        );
+
+        // Planning restoration reads the persisted intent; it is a plan,
+        // not an outcome.
+        let plan = ledger.restore_intent("AA:BB").unwrap();
+        assert_eq!(plan.peripheral_id(), "AA:BB");
+        assert_eq!(plan.intent(), AssociationIntent::OnDemand);
+        assert_eq!(ledger.restorations_planned(), 1);
+        assert_eq!(ledger.restore_intent("CC:DD"), Err(BluetoothError::UnknownPeripheral));
+
+        // Reconciliation restores only observed devices.
+        assert_eq!(
+            ledger.reconcile("AA:BB", false),
+            Ok(Reconciliation::Unchanged)
+        );
+        assert_eq!(
+            ledger.association_state("AA:BB"),
+            Ok(AssociationState::Suspended(SuspensionReason::BluetoothDisabled))
+        );
+        assert_eq!(ledger.reconcile("AA:BB", true), Ok(Reconciliation::Restored));
+        assert_eq!(ledger.association_state("AA:BB"), Ok(AssociationState::Active));
+        assert_eq!(ledger.revision("AA:BB"), Ok(3));
+        assert_eq!(ledger.reconcile("AA:BB", true), Ok(Reconciliation::Unchanged));
+        assert_eq!(ledger.reconciliations(), 1);
+        assert_eq!(ledger.reconcile("ZZ:ZZ", true), Err(BluetoothError::UnknownPeripheral));
+
+        // The association set is bounded and forget is destructive.
+        ledger
+            .record("CC:DD", AssociationIntent::AutoReconnect, &[])
+            .unwrap();
+        assert_eq!(
+            ledger.record("EE:FF", AssociationIntent::AutoReconnect, &[]),
+            Err(BluetoothError::AssociationBoundReached)
+        );
+        assert_eq!(ledger.len(), 2);
+        ledger.forget("CC:DD").unwrap();
+        assert_eq!(ledger.forget("CC:DD"), Err(BluetoothError::UnknownPeripheral));
+        assert_eq!(ledger.len(), 1);
     }
 }

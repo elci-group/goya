@@ -1,0 +1,218 @@
+{
+  "directive": "SASH-ENT-003",
+  "directive_version": "0.0.1",
+  "recorded_on": "2026-11-18",
+  "source_revision": "recorded on an uncommitted worktree during the win8 API-floor expansion; kaptaind auto-commits interleaved with the session, so pin the working-tree state by the hashes below rather than by a revision",
+  "compiler_constant": "SASH-ENT-001",
+  "target_profile": "sash.win32.static-window-legacy/0.0.1 and sash.win32.interactive-legacy/0.0.1|0.0.2",
+  "deployment_profile": "portable-native",
+  "target": "i686-pc-windows-msvc and x86_64-pc-windows-msvc",
+  "integration_decision": "HOLD",
+  "first_gate": "Real Windows execution of the win8-floor images on Windows 8 or later",
+  "summary": "Sash admits an API floor at build time. --api-floor win10 (default) emits the per-monitor-v2 adapter of the first proof and is byte-identical to the SASH-ENT-002 record: all six recorded win10 pairs reproduce. --api-floor win8 emits the system-DPI-aware legacy adapter: SetProcessDPIAware before window creation, one GetDeviceCaps(LOGPIXELSY) process-DPI read, SystemParametersInfoW for the message font, AdjustWindowRectEx for the frame, no Windows 10 1703+ per-monitor import, no WM_DPICHANGED handling, and a .Legacy assembly identity the verifier reads back as the floor. The scene admits identically on both floors; only the Win32 adapter and the manifest differ. The win8 floor is the lowest the pinned stable toolchain can produce because the pc-windows-msvc standard library imports api-ms-win-core-synch-l1-2-0.dll (WaitOnAddress, Windows 8+). Windows 7, Vista, and XP are refused with that reason; win8 and ARM64 are refused together because ARM64 Windows did not exist before Windows 10. The legacy evidence carries honest dispositions: the static background claim is rewritten (no per-monitor font recreation) and every legacy image declares the system-DPI strategy under a dpi disposition. Nothing has been launched on any Windows version; every runtime claim stays BLOCKED.",
+  "gates": {
+    "library_tests": {
+      "status": "PASS",
+      "command": "cargo test -p sash --offline --lib",
+      "result": "71 passed, 0 failed, 0 ignored"
+    },
+    "win10_reproduction_unchanged": {
+      "status": "PASS",
+      "measured_on": "2026-11-18",
+      "note": "The floor refactor changed zero win10 emitted bytes. All six SASH-ENT-002 pairs (static x64/i686/ARM64, interactive x64/i686/ARM64) reproduce byte-for-byte, exe and PDB, through the permanent gate crates/sash/tests/link_reproduction.rs. The six win10 golden main-rs digests in ir_codegen still pin b0bf2d20, b1ca4cbb, and 83a96632."
+    },
+    "legacy_static_x64_link": {
+      "status": "PASS",
+      "claim": "unqualified-cross-link",
+      "api_floor": "win8",
+      "target": "x86_64-pc-windows-msvc",
+      "presentation_profile": "sash.win32.static-window-legacy/0.0.1",
+      "sha256": "dae65289a837d9417bf90198dc1265a2fd68d92c1ee6c01255d7507a5ffa5d81",
+      "pdb_sha256": "8662c3e3c7eceb6aa2580239394eab6bc9f49a776501a5cbf0c94db414e43ab4",
+      "scene_sha256": "617250a533dd349d6a6186d18dbb320cc1fe6a50f6d245381b9f80d004822962",
+      "generated_digest": "e114089f15ffac75805c5c949d5f864bc41b53fd7f4d1342b44dbe21ef90bd68",
+      "verify_exit": 3,
+      "runtime_qualification": "BLOCKED",
+      "release_admission": "BLOCKED",
+      "note": "verify reports target x86_64-pc-windows-msvc, presentation profile sash.win32.static-window-legacy/0.0.1, api floor win8. The import table keeps the same five DLL names as the win10 image; the per-monitor functions are absent from the adapter text and are pinned out of the generated source. Not launched."
+    },
+    "legacy_static_i686_link": {
+      "status": "PASS",
+      "claim": "unqualified-cross-link",
+      "api_floor": "win8",
+      "target": "i686-pc-windows-msvc",
+      "presentation_profile": "sash.win32.static-window-legacy/0.0.1",
+      "sha256": "409f815c232ecb0d33a6cc36bf87db38033d844067d4e768e59e4471353d4960",
+      "pdb_sha256": "e297010bf5733eb18ba1f869383b0fe63e858d94f726a20dc6e9c82a463cf18d",
+      "scene_sha256": "617250a533dd349d6a6186d18dbb320cc1fe6a50f6d245381b9f80d004822962",
+      "verify_exit": 3,
+      "runtime_qualification": "BLOCKED",
+      "release_admission": "BLOCKED",
+      "note": "PE32. Not launched."
+    },
+    "legacy_interactive_x64_link": {
+      "status": "PASS",
+      "claim": "unqualified-cross-link",
+      "api_floor": "win8",
+      "target": "x86_64-pc-windows-msvc",
+      "presentation_profile": "sash.win32.interactive-legacy/0.0.2",
+      "sha256": "0773897d556c1e5625a44874f51aad18e30cb25ecdd166ba7c0e93e970011740",
+      "pdb_sha256": "cbda448db561f6acd1a6f37b8a50b355df371b06ee46cae4af08f85025b13eed",
+      "scene_sha256": "c550e4608d8217b84c946732fd2ecd9944c800d8979dc332dbea7d87fa9d61fd",
+      "generated_digest": "439217fbfb0d46ba663d8908342c034af69c2de1a15dbd088e51933e80f5c7d1",
+      "verify_exit": 3,
+      "runtime_qualification": "BLOCKED",
+      "release_admission": "BLOCKED",
+      "note": "The interactive legacy adapter keeps the edit subclass, clipboard gate, keyboard plan, and D1 commit protocol; only the DPI strategy differs from the win10 adapter. Not launched."
+    },
+    "legacy_interactive_i686_link": {
+      "status": "PASS",
+      "claim": "unqualified-cross-link",
+      "api_floor": "win8",
+      "target": "i686-pc-windows-msvc",
+      "presentation_profile": "sash.win32.interactive-legacy/0.0.2",
+      "sha256": "79fa5384c2f8afa21f2de4e5e6072f943655df785e91ee84775ee54d0b1f3aeb",
+      "pdb_sha256": "194b8637365c96c63e4384ae5c247c07e6ff82bbec5ad69543768eef54771f1c",
+      "scene_sha256": "c550e4608d8217b84c946732fd2ecd9944c800d8979dc332dbea7d87fa9d61fd",
+      "verify_exit": 3,
+      "runtime_qualification": "BLOCKED",
+      "release_admission": "BLOCKED",
+      "note": "PE32. Not launched."
+    },
+    "legacy_floor_refusals": {
+      "status": "PASS",
+      "note": "admit_floor refuses win7, vista, and xp with the toolchain reason (tier-3 *-win7-windows-msvc needs nightly -Z build-std; Sash does not download a compiler). The CLI refuses win8 with aarch64-pc-windows-msvc. CLI tests pin both refusals."
+    },
+    "reproduction_gate": {
+      "status": "PASS",
+      "command": "cargo test -p sash --offline --test link_reproduction -- --ignored --nocapture",
+      "result": "10 of 10 recorded pairs reproduced byte-for-byte (six win10 from SASH-ENT-002, four win8 from this record); verify exit 3 with the correct machine, presentation profile, and api floor on every image"
+    },
+    "windows_execution": {
+      "status": "BLOCKED",
+      "reason": "No Windows session of any version is attached to this host. The win8-floor images have never been loaded by any Windows loader, and the system-DPI-aware scaling claim has never been observed. A smoke tier on windows-latest exists for first-launch evidence only and is not qualification."
+    }
+  },
+  "swarms": [
+    {
+      "id": "G",
+      "package": "SASH-G01",
+      "objective": "Preserve the existing cross-links",
+      "build_status": "PASS",
+      "unit_test_status": "PASS",
+      "runtime_status": "BLOCKED",
+      "qualification_status": "BLOCKED",
+      "integration_decision": "HOLD"
+    },
+    {
+      "id": "J",
+      "package": "SASH-J02",
+      "objective": "Execute the win10 static-window binary on Windows x64",
+      "build_status": "PASS",
+      "unit_test_status": "NOT_RUN",
+      "runtime_status": "BLOCKED",
+      "qualification_status": "BLOCKED",
+      "integration_decision": "HOLD"
+    },
+    {
+      "id": "J8",
+      "package": "SASH-J03",
+      "objective": "Execute the win8-floor static-window binary on Windows 8 or later (x64 or i686)",
+      "build_status": "PASS",
+      "unit_test_status": "NOT_RUN",
+      "runtime_status": "BLOCKED",
+      "qualification_status": "BLOCKED",
+      "integration_decision": "HOLD"
+    },
+    {
+      "id": "B",
+      "package": "SASH-B01",
+      "objective": "Qualify the existing static-window runtime",
+      "build_status": "PASS",
+      "unit_test_status": "PASS",
+      "runtime_status": "BLOCKED",
+      "qualification_status": "BLOCKED",
+      "integration_decision": "HOLD"
+    },
+    {
+      "id": "C",
+      "package": "SASH-C01",
+      "objective": "Native buttons and one numeric edit in sash.win32.interactive/0.0.2",
+      "build_status": "PASS",
+      "unit_test_status": "PASS",
+      "runtime_status": "BLOCKED",
+      "qualification_status": "BLOCKED",
+      "integration_decision": "HOLD"
+    },
+    {
+      "id": "D",
+      "package": "SASH-D02",
+      "objective": "One checked D1 integer transition with rollback",
+      "build_status": "PASS",
+      "unit_test_status": "PASS",
+      "runtime_status": "BLOCKED",
+      "qualification_status": "BLOCKED",
+      "integration_decision": "HOLD"
+    },
+    {
+      "id": "A",
+      "package": "SASH-A02",
+      "objective": "Versioned SASH-WIN-IR/1",
+      "build_status": "PASS",
+      "unit_test_status": "PASS",
+      "runtime_status": "BLOCKED",
+      "qualification_status": "BLOCKED",
+      "integration_decision": "HOLD",
+      "hold_reason": "The IR is published as a Candidate contract and carries both floors; A.5 profile bumping stays gated on Phase 3."
+    },
+    {
+      "id": "I",
+      "package": "SASH-I02",
+      "objective": "Security and accessibility qualification of a launched image",
+      "build_status": "NOT_RUN",
+      "unit_test_status": "NOT_RUN",
+      "runtime_status": "BLOCKED",
+      "qualification_status": "BLOCKED",
+      "integration_decision": "HOLD"
+    },
+    {
+      "id": "E",
+      "package": "SASH-E02",
+      "objective": "Lock a native notification API",
+      "build_status": "NOT_STARTED",
+      "unit_test_status": "NOT_RUN",
+      "runtime_status": "BLOCKED",
+      "qualification_status": "BLOCKED",
+      "integration_decision": "HOLD"
+    },
+    {
+      "id": "F",
+      "package": "SASH-F01",
+      "objective": "Canonical Windows application identity",
+      "build_status": "NOT_STARTED",
+      "unit_test_status": "NOT_RUN",
+      "runtime_status": "BLOCKED",
+      "qualification_status": "BLOCKED",
+      "integration_decision": "HOLD"
+    },
+    {
+      "id": "H",
+      "package": "SASH-H01",
+      "objective": "Portable-native packaging qualification",
+      "build_status": "NOT_STARTED",
+      "unit_test_status": "NOT_RUN",
+      "runtime_status": "BLOCKED",
+      "qualification_status": "BLOCKED",
+      "integration_decision": "HOLD"
+    }
+  ],
+  "unchanged": [
+    "DIRECTIVE_ID remains SASH-ENT-001.",
+    "The win10 presentation profiles and all six SASH-ENT-002 hashes are unchanged by the floor work.",
+    "Admission is floor-independent: the same scenes admit identically on both floors, and rejection reasons are untouched.",
+    "The IR contract stays SASH-WIN-IR/1: the floor is a codegen and resources choice, not an IR shape change.",
+    "verify still exits 3 when the PE checks pass and the image has not been launched, on every floor.",
+    "No image of any floor has been launched. The floor declares an import-table and manifest contract, not Windows version support."
+  ],
+  "next_unblock": "A Windows 8-or-later i686 or x64 session must load the win8-floor images and record process exit, window creation, font metrics, and behavior when moved between monitors with different DPI (the system-DPI scaling claim). Separately, the win10 images still need their SASH-ENT-002 launch campaign on matching hardware. Both floors require the clean-machine protocol from docs/sash/phase0/PROVISIONING_RUNBOOK.md; a windows-latest smoke run is first-launch evidence only."
+}
