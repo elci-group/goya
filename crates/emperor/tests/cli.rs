@@ -247,6 +247,81 @@ fn format_json_does_not_swallow_the_package_format() {
     );
 }
 
+/// The .deb path is exercised for real: a genuine build supplies the ELF and
+/// desktop entry, dpkg-deb turns them into an archive, and dpkg-deb -I is run
+/// back over the result so the control fields are read by dpkg itself rather
+/// than trusted from our own JSON.
+#[test]
+fn package_deb_builds_a_real_debian_archive() {
+    let scene = fixture("interactive-counter.gscene");
+    let out = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("deb-counter");
+    let out_str = out.display().to_string();
+    let build = run(&[
+        "build",
+        &scene,
+        "--out",
+        &out_str,
+        "--target",
+        "x86_64-unknown-linux-gnu",
+    ]);
+    assert_eq!(build.code, 0, "{}", build.text);
+
+    let packaged = run(&["package", "--format", "deb", &out_str]);
+    assert_eq!(packaged.code, 0, "{}", packaged.text);
+    let deb = packaged.json["deb"].as_str().expect("deb path");
+    assert!(deb.ends_with("deb-counter.deb"), "{}", deb);
+    let size = packaged.json["size_bytes"].as_u64().expect("size_bytes");
+    assert!(size > 0, "size_bytes: {size}");
+    let metadata = std::fs::metadata(deb).expect("deb metadata");
+    assert_eq!(metadata.len(), size);
+    assert!(metadata.len() > 0);
+
+    let inspect = std::process::Command::new("dpkg-deb")
+        .arg("-I")
+        .arg(deb)
+        .output()
+        .expect("dpkg-deb -I");
+    assert!(inspect.status.success(), "{}", String::from_utf8_lossy(&inspect.stderr));
+    let control = String::from_utf8_lossy(&inspect.stdout);
+    assert!(control.contains("Package: emperor-counter"), "{}", control);
+    assert!(
+        control.contains(&format!("Version: {}", emperor::COMPILER_VERSION)),
+        "{}",
+        control
+    );
+    assert!(control.contains("Architecture: amd64"), "{}", control);
+    assert!(
+        control.contains("Maintainer: Emperor Compiler"),
+        "{}",
+        control
+    );
+    assert!(control.contains("Section: utils"), "{}", control);
+    assert!(control.contains("Description:"), "{}", control);
+}
+
+#[test]
+fn appimage_flatpak_and_rpm_stay_blocked() {
+    for format in ["appimage", "flatpak", "rpm"] {
+        let blocked = run(&["package", "--format", format, "missing-demo-a-package-dir"]);
+        assert_eq!(blocked.code, 3, "{}: {}", format, blocked.text);
+        assert_eq!(blocked.json["diagnostic"], "EMP-PACKAGE", "{}", format);
+    }
+    let appimage = run(&["package", "--format", "appimage", "missing-demo-a-package-dir"]);
+    assert!(
+        appimage.text.contains("no appimagetool on this host"),
+        "{}",
+        appimage.text
+    );
+    let flatpak = run(&["package", "--format", "flatpak", "missing-demo-a-package-dir"]);
+    assert!(
+        flatpak.text.contains("no flatpak-builder on this host"),
+        "{}",
+        flatpak.text
+    );
+    let rpm = run(&["package", "--format", "rpm", "missing-demo-a-package-dir"]);
+    assert!(rpm.text.contains("no rpmbuild on this host"), "{}", rpm.text);
+}
+
 #[test]
 fn window_backend_accepts_wayland_and_kumimanu_and_rejects_electron() {
     let scene = fixture("interactive-counter.gscene");
