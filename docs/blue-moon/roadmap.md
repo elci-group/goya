@@ -1,6 +1,6 @@
 # Blue Moon roadmap
 
-Status: proposed, 18 November 2026 (phase 2 complete same day). This is a
+Status: proposed, 18 November 2026 (phases 1–3 complete same day). This is a
 plan, not evidence. Nothing on this page claims Bluetooth hardware
 conformance, native Core Bluetooth execution, or compiler integration that
 does not yet exist.
@@ -97,17 +97,28 @@ Implemented as BLUE-MOON-1 (`docs/blue-moon/BLUE-MOON-1.md`):
 - [ ] Profile-defined device constraint schema beyond characteristic bounds
       (moved to phase 4 with the Profile caprichio).
 
-### Phase 3 — Guard and Continuity contracts (next)
+### Phase 3 — Guard and Continuity contracts (complete 18 November 2026)
 
-- [ ] `goya.hardware.bluetooth.guard.v1` — permission-state modelling,
-      accessory authorisation accounting, least-privilege declaration
-      validation (rejecting empty/generic usage descriptions), bounded
-      advertisement payload validation.
-- [ ] `goya.hardware.bluetooth.continuity.v1` — persisted association and
-      restoration-intent modelling with explicit handling of Apple's
-      conditional restoration guarantees (no indefinite execution claimed).
+- [x] BLUE-MOON-4 (`docs/blue-moon/BLUE-MOON-4.md`,
+      `goya.hardware.bluetooth.guard.v1`): `bluetooth_guard_caprichio` with
+      permission-state decisions that fail closed (undetermined, denied,
+      unselected), explicit-only peripheral authorisation with a bounded
+      ledger, generic-placeholder privacy-description rejection (directive
+      §9.2), mandatory explicit selection that cannot be disabled, bounded
+      advertisement-payload validation, and audited decision counters.
+- [x] BLUE-MOON-5 (`docs/blue-moon/BLUE-MOON-5.md`,
+      `goya.hardware.bluetooth.continuity.v1`): `bluetooth_continuity_caprichio`
+      with a bounded persisted-association ledger (intent + compatible
+      subscriptions + revisions), suspension handling for Bluetooth power
+      and app lifecycle, restoration *planning* separated from outcomes, and
+      observed-device reconciliation; cross-launch persistence requires
+      restoration and storage facilities only when declared, and the
+      canonical IR states `relaunch_promised=none` per the directive's
+      conditional-restoration rule.
+- [x] Both extend `bluetooth_runtime` and follow the BLUE-MOON-1 pattern;
+      each has a rustc-piped generated-factory conformance test.
 
-### Phase 4 — Access (Gestures integration) and Profile schema
+### Phase 4 — Access (Gestures integration) and Profile schema (next)
 
 - [ ] `goya.hardware.bluetooth.access.v1` — semantic input mapping from
       supported hardware events, debouncing, long-press detection where raw
@@ -148,9 +159,11 @@ blocked mandatory gates prevent production qualification (directive §16).
 
 ## Current supported surface
 
-Exactly three implemented Bluetooth contracts:
+Exactly five implemented Bluetooth contracts:
 `goya.hardware.bluetooth.central.v1` (BLUE-MOON-1),
-`goya.hardware.bluetooth.gatt.v1` (BLUE-MOON-2) and
+`goya.hardware.bluetooth.continuity.v1` (BLUE-MOON-5),
+`goya.hardware.bluetooth.gatt.v1` (BLUE-MOON-2),
+`goya.hardware.bluetooth.guard.v1` (BLUE-MOON-4) and
 `goya.hardware.bluetooth.stream.v1` (BLUE-MOON-3). The 80 draft catalog
 entries remain unimplemented design intent. No other Bluetooth capability —
 advertising, pairing, profiles, audio routing, watchOS/tvOS/visionOS targets

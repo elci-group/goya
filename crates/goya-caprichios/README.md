@@ -93,13 +93,38 @@ never carry one; ordinals make intake order observable. Delivery is never
 guaranteed: notifications are unacknowledged at the attribute layer, and the
 canonical IR states `delivery_guarantee=none`.
 
-All three do not drive a radio, subscribe to a real peripheral, perform real
-GATT operations, advertise, restore state, or generate entitlements or usage
-descriptions. A constructed session is an accounting model, not evidence
-about any Bluetooth adapter. See
+`bluetooth_guard_caprichio` (`goya.hardware.bluetooth.guard.v1`, recipe
+`apple-ble-guard-bounded-authorisation`) covers the application-level
+security contract. Connection decisions fail closed on undetermined or
+denied permissions and on any peripheral the application did not explicitly
+select; authorisation is idempotent explicit selection with a bounded
+ledger; privacy usage descriptions that are empty, generic or placeholder
+text are rejected at normalization and explicit selection cannot be
+disabled; legacy advertisement payloads are bounded at 31 bytes; granted
+and denied decisions are both counted for audit. No identity is verified
+and no usage-description string is generated.
+
+`bluetooth_continuity_caprichio` (`goya.hardware.bluetooth.continuity.v1`,
+recipe `apple-ble-continuity-bounded-restoration`) covers lifecycle
+restoration accounting. A bounded ledger records user-approved associations
+with restoration intent and compatible subscriptions; Bluetooth-disabled and
+app-suspended transitions suspend active associations; restoration is
+*planned* from the persisted record and is never an outcome; reconciliation
+restores a suspended association only for an observed device; the
+association set is bounded. Cross-launch persistence requires state-
+restoration and persistent-storage facilities only when the declaration
+asks for it, and the canonical IR states `relaunch_promised=none`: Apple's
+Bluetooth state restoration is conditional and no relaunch is promised.
+
+All five do not drive a radio, subscribe to a real peripheral, perform real
+GATT operations, advertise, persist anything, restore state, or generate
+entitlements or usage descriptions. A constructed session is an accounting
+model, not evidence about any Bluetooth adapter. See
 [docs/blue-moon/BLUE-MOON-1.md](../../docs/blue-moon/BLUE-MOON-1.md),
 [docs/blue-moon/BLUE-MOON-2.md](../../docs/blue-moon/BLUE-MOON-2.md),
-[docs/blue-moon/BLUE-MOON-3.md](../../docs/blue-moon/BLUE-MOON-3.md) and
+[docs/blue-moon/BLUE-MOON-3.md](../../docs/blue-moon/BLUE-MOON-3.md),
+[docs/blue-moon/BLUE-MOON-4.md](../../docs/blue-moon/BLUE-MOON-4.md),
+[docs/blue-moon/BLUE-MOON-5.md](../../docs/blue-moon/BLUE-MOON-5.md) and
 [docs/blue-moon/roadmap.md](../../docs/blue-moon/roadmap.md).
 
 This crate defines a typed construction boundary for one HTTPS GET.
