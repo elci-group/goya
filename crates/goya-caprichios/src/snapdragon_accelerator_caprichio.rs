@@ -35,9 +35,72 @@ pub struct SoCFacts {
     pub year: u16,
 }
 
-/// Catalog order is release order. Facts are published figures only;
-/// `npu_tops` is `None` wherever Qualcomm published no figure.
-pub const GENERATIONS: &[(&str, SoCFacts)] = &[];
+/// Catalog order is series-major (8, 7, 6, 4); within a series, release
+/// order. Facts come from Qualcomm product briefs and the public Hexagon
+/// documentation; figures Qualcomm did not publish are `None`, never
+/// guessed. Conflicting sources are recorded as such in the DSP label.
+#[rustfmt::skip]
+pub const GENERATIONS: &[(&str, SoCFacts)] = &[
+    // 8 series
+    ("SD810",         SoCFacts { soc: "MSM8994",    hexagon_dsp: "Hexagon V56",                npu_tops_tenths: None,        int8_accel: false, fp16_accel: false, year: 2014 }),
+    ("SD820",         SoCFacts { soc: "MSM8996",    hexagon_dsp: "Hexagon 680",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: false, year: 2016 }),
+    ("SD835",         SoCFacts { soc: "MSM8998",    hexagon_dsp: "Hexagon 682",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: false, year: 2017 }),
+    ("SD845",         SoCFacts { soc: "SDM845",     hexagon_dsp: "Hexagon 685",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: false, year: 2018 }),
+    ("SD855",         SoCFacts { soc: "SM8150",     hexagon_dsp: "Hexagon 690",                npu_tops_tenths: Some(70),    int8_accel: true,  fp16_accel: true,  year: 2019 }),
+    ("SD855+",        SoCFacts { soc: "SM8150-AC",  hexagon_dsp: "Hexagon 690",                npu_tops_tenths: Some(70),    int8_accel: true,  fp16_accel: true,  year: 2019 }),
+    ("SD865",         SoCFacts { soc: "SM8250",     hexagon_dsp: "Hexagon 698",                npu_tops_tenths: Some(150),   int8_accel: true,  fp16_accel: true,  year: 2020 }),
+    ("SD865+",        SoCFacts { soc: "SM8250-AC",  hexagon_dsp: "Hexagon 698",                npu_tops_tenths: Some(150),   int8_accel: true,  fp16_accel: true,  year: 2020 }),
+    ("SD888",         SoCFacts { soc: "SM8350",     hexagon_dsp: "Hexagon 780",                npu_tops_tenths: Some(260),   int8_accel: true,  fp16_accel: true,  year: 2021 }),
+    ("SD888+",        SoCFacts { soc: "SM8350-AC",  hexagon_dsp: "Hexagon 780",                npu_tops_tenths: Some(320),   int8_accel: true,  fp16_accel: true,  year: 2021 }),
+    ("8 Gen 1",       SoCFacts { soc: "SM8450",     hexagon_dsp: "Hexagon 790",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: true,  year: 2022 }),
+    ("8+ Gen 1",      SoCFacts { soc: "SM8475",     hexagon_dsp: "Hexagon 790",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: true,  year: 2022 }),
+    ("8 Gen 2",       SoCFacts { soc: "SM8550",     hexagon_dsp: "Hexagon NPU",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: true,  year: 2022 }),
+    ("8 Gen 3",       SoCFacts { soc: "SM8650",     hexagon_dsp: "Hexagon NPU",                npu_tops_tenths: Some(450),   int8_accel: true,  fp16_accel: true,  year: 2023 }),
+    ("8s Gen 3",      SoCFacts { soc: "SM8635",     hexagon_dsp: "Hexagon NPU",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: true,  year: 2024 }),
+    ("8 Elite",       SoCFacts { soc: "SM8750",     hexagon_dsp: "Hexagon NPU",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: true,  year: 2024 }),
+    ("8 Elite Gen 5", SoCFacts { soc: "SM8850",     hexagon_dsp: "Hexagon NPU",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: true,  year: 2025 }),
+    // 7 series
+    ("730",           SoCFacts { soc: "SM7150-AA",  hexagon_dsp: "Hexagon 688",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: false, year: 2019 }),
+    ("730G",          SoCFacts { soc: "SM7150-AB",  hexagon_dsp: "Hexagon 688",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: false, year: 2019 }),
+    ("750G",          SoCFacts { soc: "SM7225",     hexagon_dsp: "Hexagon 694",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: false, year: 2020 }),
+    ("765",           SoCFacts { soc: "SM7250",     hexagon_dsp: "Hexagon 686",                npu_tops_tenths: Some(55),    int8_accel: true,  fp16_accel: false, year: 2019 }),
+    ("765G",          SoCFacts { soc: "SM7250-AA",  hexagon_dsp: "Hexagon 686",                npu_tops_tenths: Some(55),    int8_accel: true,  fp16_accel: false, year: 2019 }),
+    ("778G",          SoCFacts { soc: "SM7325",     hexagon_dsp: "Hexagon 770",                npu_tops_tenths: Some(120),   int8_accel: true,  fp16_accel: true,  year: 2021 }),
+    ("780G",          SoCFacts { soc: "SM7350",     hexagon_dsp: "Hexagon 770",                npu_tops_tenths: Some(120),   int8_accel: true,  fp16_accel: true,  year: 2021 }),
+    ("782G",          SoCFacts { soc: "SM7325-AE",  hexagon_dsp: "Hexagon 770",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: true,  year: 2022 }),
+    ("7 Gen 1",       SoCFacts { soc: "SM7450-AB",  hexagon_dsp: "Hexagon NPU (7th-gen)",      npu_tops_tenths: None,        int8_accel: true,  fp16_accel: true,  year: 2022 }),
+    ("7s Gen 2",      SoCFacts { soc: "SM7435-AB",  hexagon_dsp: "Hexagon NPU (V73 arch)",     npu_tops_tenths: None,        int8_accel: true,  fp16_accel: true,  year: 2023 }),
+    ("7+ Gen 2",      SoCFacts { soc: "SM7475-AB",  hexagon_dsp: "Hexagon NPU",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: true,  year: 2023 }),
+    ("7 Gen 3",       SoCFacts { soc: "SM7550-AB",  hexagon_dsp: "Hexagon NPU",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: true,  year: 2023 }),
+    ("7s Gen 3",      SoCFacts { soc: "SM7551-AB",  hexagon_dsp: "Hexagon NPU",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: true,  year: 2023 }),
+    ("7+ Gen 3",      SoCFacts { soc: "SM7675-AB",  hexagon_dsp: "Hexagon NPU (8 Gen 3-derived)", npu_tops_tenths: None,     int8_accel: true,  fp16_accel: true,  year: 2024 }),
+    ("7 Gen 4",       SoCFacts { soc: "SM7750-AB",  hexagon_dsp: "Hexagon NPU",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: true,  year: 2025 }),
+    // 6 series
+    ("630",           SoCFacts { soc: "SDM630",     hexagon_dsp: "Hexagon 642",                npu_tops_tenths: None,        int8_accel: false, fp16_accel: false, year: 2017 }),
+    ("632",           SoCFacts { soc: "SDM632",     hexagon_dsp: "Hexagon 546",                npu_tops_tenths: None,        int8_accel: false, fp16_accel: false, year: 2018 }),
+    ("636",           SoCFacts { soc: "SDM636",     hexagon_dsp: "Hexagon 680 (HVX)",          npu_tops_tenths: None,        int8_accel: true,  fp16_accel: false, year: 2017 }),
+    ("660",           SoCFacts { soc: "SDM660",     hexagon_dsp: "Hexagon 680 (HVX)",          npu_tops_tenths: None,        int8_accel: true,  fp16_accel: false, year: 2017 }),
+    ("665",           SoCFacts { soc: "SM6125",     hexagon_dsp: "Hexagon 686",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: false, year: 2019 }),
+    ("670",           SoCFacts { soc: "SDM670",     hexagon_dsp: "Hexagon 685",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: false, year: 2018 }),
+    ("675",           SoCFacts { soc: "SM6150",     hexagon_dsp: "Hexagon 685",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: false, year: 2018 }),
+    ("685",           SoCFacts { soc: "SM6225-AD",  hexagon_dsp: "Hexagon 686",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: false, year: 2023 }),
+    ("690",           SoCFacts { soc: "SM6350",     hexagon_dsp: "Hexagon 692",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: true,  year: 2020 }),
+    ("6 Gen 1",       SoCFacts { soc: "SM6450",     hexagon_dsp: "Hexagon NPU (7th-gen)",      npu_tops_tenths: None,        int8_accel: true,  fp16_accel: true,  year: 2022 }),
+    ("6s Gen 3",      SoCFacts { soc: "SM6375-AC",  hexagon_dsp: "Hexagon (HVX, unnumbered)",  npu_tops_tenths: None,        int8_accel: true,  fp16_accel: false, year: 2024 }),
+    ("6 Gen 3",       SoCFacts { soc: "SM6475-AB",  hexagon_dsp: "Hexagon (unnumbered)",       npu_tops_tenths: None,        int8_accel: true,  fp16_accel: true,  year: 2024 }),
+    ("6 Gen 4",       SoCFacts { soc: "SM6650",     hexagon_dsp: "Hexagon NPU",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: true,  year: 2025 }),
+    // 4 series
+    ("SD430",         SoCFacts { soc: "MSM8937",    hexagon_dsp: "Hexagon 536",                npu_tops_tenths: None,        int8_accel: false, fp16_accel: false, year: 2015 }),
+    ("SD425",         SoCFacts { soc: "MSM8917",    hexagon_dsp: "Hexagon 536",                npu_tops_tenths: None,        int8_accel: false, fp16_accel: false, year: 2016 }),
+    ("SD427",         SoCFacts { soc: "MSM8920",    hexagon_dsp: "Hexagon 536",                npu_tops_tenths: None,        int8_accel: false, fp16_accel: false, year: 2016 }),
+    ("SD450",         SoCFacts { soc: "SDM450",     hexagon_dsp: "Hexagon 546",                npu_tops_tenths: None,        int8_accel: false, fp16_accel: false, year: 2017 }),
+    ("SD429",         SoCFacts { soc: "SDM429",     hexagon_dsp: "Hexagon 536",                npu_tops_tenths: None,        int8_accel: false, fp16_accel: false, year: 2018 }),
+    ("SD439",         SoCFacts { soc: "SDM439",     hexagon_dsp: "Hexagon 536",                npu_tops_tenths: None,        int8_accel: false, fp16_accel: false, year: 2018 }),
+    ("SD460",         SoCFacts { soc: "SM4250-AA",  hexagon_dsp: "Hexagon 683",                npu_tops_tenths: None,        int8_accel: true,  fp16_accel: false, year: 2020 }),
+    ("4 Gen 1",       SoCFacts { soc: "SM4375",     hexagon_dsp: "Hexagon V66K",               npu_tops_tenths: None,        int8_accel: true,  fp16_accel: false, year: 2022 }),
+    ("4 Gen 2",       SoCFacts { soc: "SM4450",     hexagon_dsp: "Hexagon NPU (unnamed)",      npu_tops_tenths: None,        int8_accel: true,  fp16_accel: false, year: 2023 }),
+    ("4s Gen 2",      SoCFacts { soc: "SM4635",     hexagon_dsp: "Hexagon NPU (unnamed)",      npu_tops_tenths: None,        int8_accel: true,  fp16_accel: false, year: 2024 }),
+];
 
 /// Per-generation lookup. Unknown generations return None; the catalog never
 /// guesses.
@@ -219,8 +282,8 @@ impl SnapdragonAcceleratorIr {
     fn canonical(&self) -> String {
         let tops = self
             .facts
-            .npu_tops
-            .map(|tops| tops.to_string())
+            .npu_tops_tenths
+            .map(|tenths| format!("{}.{}", tenths / 10, tenths % 10))
             .unwrap_or_else(|| "unpublished".to_string());
         format!(
             "contract={CONTRACT}\nrecipe_version={RECIPE_VERSION}\ntarget=snapdragon\nsoc={}\nmodel={}\nhexagon_dsp={}\nnpu_tops={tops}\nint8_accel={}\nfp16_accel={}\nyear={}\nlayers={}\nbatch={}\ntotal_executions={}\nmax_weight_bytes={}\nexecution=none_attempted\n",
