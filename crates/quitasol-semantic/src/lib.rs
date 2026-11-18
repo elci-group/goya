@@ -476,9 +476,10 @@ mod tests {
             "{json}"
         );
 
-        // Control characters are escaped as \u00XX.
+        // Control characters below U+0020 are escaped as \u00XX; DEL (U+007F)
+        // is not a JSON control character and stays literal.
         let mut out = String::new();
-        push_json_string(&mut out, "a\u{1}b\u{7f}");
-        assert_eq!(out, "\"a\\u0001b\\u007f\"");
+        push_json_string(&mut out, "a\u{1}b\u{1b}\u{7f}");
+        assert_eq!(out, "\"a\\u0001b\\u001b\u{7f}\"");
     }
 }
