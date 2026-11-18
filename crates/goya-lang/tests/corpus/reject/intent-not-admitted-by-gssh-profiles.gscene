@@ -1,0 +1,4 @@
+// profile: all
+// expect: GY-E1010
+// at: @intent search { action: searchCatalogue; voice { utterance: "Find {query}"; confirmation: false; } fallback { remote: searchPanel; keyboard: searchField; } }
+@ontology app { @button go { id: "button.go"; } @interaction searchCatalogue { id: "action.search.v1"; trigger: button.go.activate; class: D1; state { } input { } } @intent search { action: searchCatalogue; voice { utterance: "Find {query}"; confirmation: false; } fallback { remote: searchPanel; keyboard: searchField; } } }

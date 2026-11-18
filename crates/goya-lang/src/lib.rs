@@ -12,6 +12,7 @@
 
 pub mod gestures;
 pub mod handoff;
+pub mod intents;
 pub mod proportional;
 mod hotswap;
 mod lexer;
@@ -25,6 +26,10 @@ pub use handoff::{SemanticHandoff, CONTRACT as SEMANTIC_HANDOFF_CONTRACT};
 pub use hotswap::SceneStore;
 pub use lexer::{lex, LexError, Token, TokenKind};
 pub use lowering::{lower, LowerError, Lowered, NodeKey, NodeRecord, NodeTable, Role};
+pub use intents::{
+    utterance_error, utterance_slots, validate_intent_decl, validate_intents, IntentDiagnostic,
+    UTTERANCE_GRAMMAR_V0,
+};
 pub use parser::{
     parse, parse_strict, parse_strict_gssh2, parse_strict_gssh3, parse_with_source_map, Declarations, InputBinding,
     KeyUse, ParseError, ParsedScene, SourceEntry, SourceRange, StateDecl, StateLifetime,
@@ -32,7 +37,7 @@ pub use parser::{
 };
 pub use scene::{
     hit_test, hit_test_scrolled, layout, Anchor, CellKind, DrawNode, Frame, GestureDecision,
-    GesturePolicy, RectMp, Scene, SceneCell, ScrollOffsets, Vec3,
+    GesturePolicy, IntentDecl, RectMp, Scene, SceneCell, ScrollOffsets, Vec3,
 };
 pub use scene::{
     EffectRequestDecl, EffectValueType, InteractionClass, InteractionDecl, InteractionExpr,

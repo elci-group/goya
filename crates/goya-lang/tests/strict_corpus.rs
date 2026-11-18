@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 
 const CODES: &[&str] = &[
     "GY-E1000", "GY-E1001", "GY-E1002", "GY-E1003", "GY-E1004", "GY-E1005", "GY-E1006", "GY-E1007",
-    "GY-E1008", "GY-E1009",
+    "GY-E1008", "GY-E1009", "GY-E1010", "GY-E1011",
 ];
 
 #[derive(Clone, Copy, Debug)]
