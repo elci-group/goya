@@ -73,6 +73,27 @@ pub enum BluetoothError {
     ZeroSubscriptionBound,
     SubscriptionBoundTooLarge,
     TooManySubscriptions,
+    NoBindings,
+    TooManyBindings,
+    DuplicateBinding,
+    DebounceBoundTooLarge,
+    ZeroLongPressBound,
+    LongPressBoundTooLarge,
+    ZeroDoublePressBound,
+    DoublePressBoundTooLarge,
+    InvalidTimestamp,
+    UnmappedEvent,
+    EmptyLabel,
+    LabelTooLong,
+    ZeroProfileBound,
+    ProfileBoundTooLarge,
+    ProfileBoundReached,
+    DuplicateProfile,
+    UnknownProfile,
+    BadProfileId,
+    ProfileIdTooLong,
+    BadProfileVersion,
+    ProfileInvariantViolated,
 }
 
 impl fmt::Display for BluetoothError {
@@ -178,6 +199,49 @@ impl fmt::Display for BluetoothError {
             }
             Self::TooManySubscriptions => {
                 "restoration subscription list exceeds the negotiated per-association bound"
+            }
+            Self::NoBindings => {
+                "at least one input binding is required; mappings are restricted \
+                 to declared application requirements"
+            }
+            Self::TooManyBindings => "input binding count exceeds the supported bound",
+            Self::DuplicateBinding => {
+                "an input source and event kind was bound more than once"
+            }
+            Self::DebounceBoundTooLarge => "debounce bound exceeds the supported bound",
+            Self::ZeroLongPressBound => "long-press threshold must be positive",
+            Self::LongPressBoundTooLarge => {
+                "long-press threshold exceeds the supported bound"
+            }
+            Self::ZeroDoublePressBound => "double-press window must be positive",
+            Self::DoublePressBoundTooLarge => {
+                "double-press window exceeds the supported bound"
+            }
+            Self::InvalidTimestamp => {
+                "release timestamp precedes the press timestamp; timestamps must be monotonic"
+            }
+            Self::UnmappedEvent => {
+                "no binding maps that input source and event kind; unsupported \
+                 capabilities are reported, never silently ignored"
+            }
+            Self::EmptyLabel => {
+                "accessible label must not be empty and must contain readable text"
+            }
+            Self::LabelTooLong => "accessible label exceeds the supported bound",
+            Self::ZeroProfileBound => "profile bound must be positive",
+            Self::ProfileBoundTooLarge => "profile bound exceeds the supported bound",
+            Self::ProfileBoundReached => "registry holds the negotiated maximum profiles",
+            Self::DuplicateProfile => "a profile identifier was registered more than once",
+            Self::UnknownProfile => "no profile exists under that identifier",
+            Self::BadProfileId => {
+                "profile identifier must be a non-empty dotted ASCII name within the bound"
+            }
+            Self::ProfileIdTooLong => "profile identifier exceeds the supported bound",
+            Self::BadProfileVersion => {
+                "profile version must be three dot-separated numeric segments"
+            }
+            Self::ProfileInvariantViolated => {
+                "profile does not satisfy its category's documented invariants"
             }
         })
     }
@@ -1699,6 +1763,684 @@ impl ContinuityLedger {
     /// Reconciliations that restored a suspended association, cumulative.
     pub fn reconciliations(&self) -> u64 {
         self.reconciliations
+    }
+}
+
+pub const MAX_BINDINGS: usize = 16;
+pub const MAX_LABEL_BYTES: usize = 128;
+pub const MAX_ACTION_NAME_BYTES: usize = 64;
+pub const MAX_DEBOUNCE_MS: u32 = 1_000;
+pub const MAX_LONG_PRESS_MS: u32 = 5_000;
+pub const MAX_DOUBLE_PRESS_WINDOW_MS: u32 = 2_000;
+
+/// Alternative-input device kinds the Blue Moon Access model maps to
+/// semantic application actions. Bluetooth keyboards, wearables and hearing
+/// devices follow system input and audio paths and are deliberately not
+/// modelled here: system-managed accessibility devices remain system-managed
+/// and protected input streams are never intercepted.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub enum InputSource {
+    AccessibilitySwitch,
+    AdaptiveController,
+    GameController,
+    CustomButton,
+}
+
+impl fmt::Display for InputSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::AccessibilitySwitch => "accessibility_switch",
+            Self::AdaptiveController => "adaptive_controller",
+            Self::GameController => "game_controller",
+            Self::CustomButton => "custom_button",
+        })
+    }
+}
+
+/// Recognised press-event kinds derived from raw press/release pairs where
+/// raw events are available.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub enum InputEventKind {
+    SinglePress,
+    DoublePress,
+    LongPress,
+}
+
+impl fmt::Display for InputEventKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::SinglePress => "single_press",
+            Self::DoublePress => "double_press",
+            Self::LongPress => "long_press",
+        })
+    }
+}
+
+/// Semantic application action a hardware event maps to, the Gestures
+/// primitive integration point. Custom actions are bounded ASCII names.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SemanticAction {
+    Select,
+    Confirm,
+    NavigateNext,
+    NavigatePrevious,
+    Back,
+    Custom(String),
+}
+
+impl SemanticAction {
+    pub fn label(&self) -> &str {
+        match self {
+            Self::Select => "select",
+            Self::Confirm => "confirm",
+            Self::NavigateNext => "navigate_next",
+            Self::NavigatePrevious => "navigate_previous",
+            Self::Back => "back",
+            Self::Custom(name) => name,
+        }
+    }
+
+    fn validate(action: &SemanticAction) -> Result<(), BluetoothError> {
+        if let Self::Custom(name) = action {
+            if name.is_empty()
+                || name.len() > MAX_ACTION_NAME_BYTES
+                || !name
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+            {
+                return Err(BluetoothError::BadMerchantId);
+            }
+        }
+        Ok(())
+    }
+}
+
+fn validate_accessible_label(label: &str) -> Result<(), BluetoothError> {
+    if label.len() > MAX_LABEL_BYTES {
+        return Err(BluetoothError::LabelTooLong);
+    }
+    let trimmed = label.trim();
+    if trimmed.is_empty() || !trimmed.bytes().any(|byte| byte.is_ascii_alphanumeric()) {
+        return Err(BluetoothError::EmptyLabel);
+    }
+    Ok(())
+}
+
+/// One declared mapping: an input source's event kind maps to one semantic
+/// action, labelled for assistive technologies.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InputBinding {
+    source: InputSource,
+    event: InputEventKind,
+    action: SemanticAction,
+    label: String,
+}
+
+impl InputBinding {
+    pub fn new(
+        source: InputSource,
+        event: InputEventKind,
+        action: SemanticAction,
+        label: &str,
+    ) -> Result<Self, BluetoothError> {
+        SemanticAction::validate(&action)?;
+        validate_accessible_label(label)?;
+        Ok(Self {
+            source,
+            event,
+            action,
+            label: label.to_owned(),
+        })
+    }
+
+    pub fn source(&self) -> InputSource {
+        self.source
+    }
+
+    pub fn event(&self) -> InputEventKind {
+        self.event
+    }
+
+    pub fn action(&self) -> &SemanticAction {
+        &self.action
+    }
+
+    pub fn label(&self) -> &str {
+        &self.label
+    }
+}
+
+/// One dispatched hardware event with its semantic action and accessible
+/// label.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InputDispatch {
+    source: InputSource,
+    event: InputEventKind,
+    action: SemanticAction,
+    label: String,
+}
+
+impl InputDispatch {
+    pub fn source(&self) -> InputSource {
+        self.source
+    }
+
+    pub fn event(&self) -> InputEventKind {
+        self.event
+    }
+
+    pub fn action(&self) -> &SemanticAction {
+        &self.action
+    }
+
+    pub fn label(&self) -> &str {
+        &self.label
+    }
+}
+
+/// Result of one release: a dispatched semantic action or a
+/// debounce-suppressed duplicate.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum EventOutcome {
+    Dispatched(InputDispatch),
+    Suppressed,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Default)]
+struct SourceState {
+    pressed_at: Option<u64>,
+    last_single: Option<u64>,
+}
+
+/// Bounded semantic input mapping for alternative Bluetooth input devices:
+/// raw press/release events (where available) are recognised into single,
+/// double and long presses, mapped through declared bindings to semantic
+/// application actions with accessible labels, debounced, and audited. The
+/// session derives event kinds from host-reported monotonic timestamps; it
+/// never intercepts system-managed input streams and produces no hardware
+/// events itself.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InputMappingSession {
+    bindings: BTreeMap<(InputSource, InputEventKind), InputBinding>,
+    debounce_ms: u32,
+    long_press_ms: u32,
+    double_press_window_ms: u32,
+    sources: BTreeMap<InputSource, SourceState>,
+    last_dispatch: Option<(InputSource, InputEventKind, u64)>,
+    dispatched: u64,
+    suppressed: u64,
+    unmapped: u64,
+}
+
+impl InputMappingSession {
+    pub fn new(
+        bindings: Vec<InputBinding>,
+        debounce_ms: u32,
+        long_press_ms: u32,
+        double_press_window_ms: u32,
+    ) -> Result<Self, BluetoothError> {
+        if bindings.is_empty() {
+            return Err(BluetoothError::NoBindings);
+        }
+        if bindings.len() > MAX_BINDINGS {
+            return Err(BluetoothError::TooManyBindings);
+        }
+        if debounce_ms > MAX_DEBOUNCE_MS {
+            return Err(BluetoothError::DebounceBoundTooLarge);
+        }
+        if long_press_ms == 0 {
+            return Err(BluetoothError::ZeroLongPressBound);
+        }
+        if long_press_ms > MAX_LONG_PRESS_MS {
+            return Err(BluetoothError::LongPressBoundTooLarge);
+        }
+        if double_press_window_ms == 0 {
+            return Err(BluetoothError::ZeroDoublePressBound);
+        }
+        if double_press_window_ms > MAX_DOUBLE_PRESS_WINDOW_MS {
+            return Err(BluetoothError::DoublePressBoundTooLarge);
+        }
+        let mut table = BTreeMap::new();
+        for binding in bindings {
+            if table
+                .insert((binding.source, binding.event), binding)
+                .is_some()
+            {
+                return Err(BluetoothError::DuplicateBinding);
+            }
+        }
+        Ok(Self {
+            bindings: table,
+            debounce_ms,
+            long_press_ms,
+            double_press_window_ms,
+            sources: BTreeMap::new(),
+            last_dispatch: None,
+            dispatched: 0,
+            suppressed: 0,
+            unmapped: 0,
+        })
+    }
+
+    pub fn debounce_ms(&self) -> u32 {
+        self.debounce_ms
+    }
+
+    pub fn long_press_threshold_ms(&self) -> u32 {
+        self.long_press_ms
+    }
+
+    pub fn double_press_window_ms(&self) -> u32 {
+        self.double_press_window_ms
+    }
+
+    pub fn bindings(&self) -> usize {
+        self.bindings.len()
+    }
+
+    /// The mapped action and accessible label for one source and event kind.
+    pub fn binding(
+        &self,
+        source: InputSource,
+        event: InputEventKind,
+    ) -> Option<&InputBinding> {
+        self.bindings.get(&(source, event))
+    }
+
+    /// Report a raw press for one source at a host-supplied monotonic
+    /// timestamp.
+    pub fn press(&mut self, source: InputSource, timestamp_ms: u64) -> Result<(), BluetoothError> {
+        let state = self.sources.entry(source).or_default();
+        if state.pressed_at.is_some() {
+            return Err(BluetoothError::WrongState);
+        }
+        state.pressed_at = Some(timestamp_ms);
+        Ok(())
+    }
+
+    /// Report the matching release and dispatch the recognised event. Press
+    /// durations at or beyond the long-press threshold are recognised as
+    /// long presses; a release within the double-press window of a previous
+    /// single press is recognised as a double press. Recognition dispatches
+    /// independently: the model never defers or retracts an earlier dispatch.
+    pub fn release(
+        &mut self,
+        source: InputSource,
+        timestamp_ms: u64,
+    ) -> Result<EventOutcome, BluetoothError> {
+        let state = self.sources.get_mut(&source);
+        let state = state.ok_or(BluetoothError::WrongState)?;
+        let pressed_at = state.pressed_at.ok_or(BluetoothError::WrongState)?;
+        if timestamp_ms < pressed_at {
+            return Err(BluetoothError::InvalidTimestamp);
+        }
+        state.pressed_at = None;
+        let duration = timestamp_ms - pressed_at;
+        let event = if duration >= u64::from(self.long_press_ms) {
+            state.last_single = None;
+            InputEventKind::LongPress
+        } else if state
+            .last_single
+            .map_or(false, |previous| {
+                timestamp_ms.saturating_sub(previous)
+                    <= u64::from(self.double_press_window_ms)
+            }) {
+            state.last_single = None;
+            InputEventKind::DoublePress
+        } else {
+            state.last_single = Some(timestamp_ms);
+            InputEventKind::SinglePress
+        };
+        // Debounce repeated identical events within the configured window.
+        if self.debounce_ms > 0 {
+            if let Some((last_source, last_event, last_timestamp)) = self.last_dispatch {
+                if last_source == source
+                    && last_event == event
+                    && timestamp_ms.saturating_sub(last_timestamp)
+                        <= u64::from(self.debounce_ms)
+                {
+                    self.suppressed += 1;
+                    return Ok(EventOutcome::Suppressed);
+                }
+            }
+        }
+        let binding = self.bindings.get(&(source, event));
+        let binding = match binding {
+            Some(binding) => binding,
+            None => {
+                self.unmapped += 1;
+                return Err(BluetoothError::UnmappedEvent);
+            }
+        };
+        self.dispatched += 1;
+        self.last_dispatch = Some((source, event, timestamp_ms));
+        Ok(EventOutcome::Dispatched(InputDispatch {
+            source,
+            event,
+            action: binding.action.clone(),
+            label: binding.label.clone(),
+        }))
+    }
+
+    /// Semantic actions dispatched, cumulative.
+    pub fn dispatched(&self) -> u64 {
+        self.dispatched
+    }
+
+    /// Debounce-suppressed duplicates, cumulative.
+    pub fn suppressed(&self) -> u64 {
+        self.suppressed
+    }
+
+    /// Events with no declared binding, cumulative. Unmapped events are
+    /// reported, never silently ignored.
+    pub fn unmapped(&self) -> u64 {
+        self.unmapped
+    }
+}
+
+pub const MAX_PROFILES: usize = 16;
+pub const MAX_PROFILE_ID_BYTES: usize = 64;
+pub const MAX_PROFILE_VERSION_BYTES: usize = 32;
+pub const MAX_PROFILE_CHARACTERISTICS: usize = 16;
+
+/// Versioned device-profile categories from the Blue Moon directive's
+/// initial profile table.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub enum ProfileCategory {
+    GenericGatt,
+    Battery,
+    Environmental,
+    HeartRate,
+    Hid,
+    Controller,
+    AccessibilitySwitch,
+    Serial,
+    Audio,
+    Custom,
+}
+
+impl fmt::Display for ProfileCategory {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::GenericGatt => "generic_gatt",
+            Self::Battery => "battery",
+            Self::Environmental => "environmental",
+            Self::HeartRate => "heart_rate",
+            Self::Hid => "hid",
+            Self::Controller => "controller",
+            Self::AccessibilitySwitch => "accessibility_switch",
+            Self::Serial => "serial",
+            Self::Audio => "audio",
+            Self::Custom => "custom",
+        })
+    }
+}
+
+/// Externally observable properties of one profiled characteristic, modelled
+/// on GATT characteristic properties. Reading, writing, notification and
+/// indication are independent flags.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ProfileProperties {
+    pub read: bool,
+    pub write: bool,
+    pub notify: bool,
+    pub indicate: bool,
+}
+
+impl ProfileProperties {
+    pub fn new(read: bool, write: bool, notify: bool, indicate: bool) -> Self {
+        Self {
+            read,
+            write,
+            notify,
+            indicate,
+        }
+    }
+}
+
+/// One profiled characteristic: its UUID, observable properties, and a value
+/// bound. Profile characteristics are descriptions, not GATT policies; GATT
+/// command enforcement remains BLUE-MOON-2's `CharacteristicPolicy`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProfileCharacteristic {
+    uuid: String,
+    properties: ProfileProperties,
+    max_value_bytes: usize,
+}
+
+impl ProfileCharacteristic {
+    pub fn new(
+        uuid: String,
+        properties: ProfileProperties,
+        max_value_bytes: usize,
+    ) -> Result<Self, BluetoothError> {
+        if uuid.is_empty() {
+            return Err(BluetoothError::EmptyServiceUuid);
+        }
+        if uuid.len() > MAX_SERVICE_UUID_BYTES {
+            return Err(BluetoothError::ServiceUuidTooLong);
+        }
+        if max_value_bytes == 0 {
+            return Err(BluetoothError::ZeroValueBound);
+        }
+        if max_value_bytes > MAX_VALUE_BYTES {
+            return Err(BluetoothError::ValueTooLarge);
+        }
+        Ok(Self {
+            uuid,
+            properties,
+            max_value_bytes,
+        })
+    }
+
+    pub fn uuid(&self) -> &str {
+        &self.uuid
+    }
+
+    pub fn properties(&self) -> &ProfileProperties {
+        &self.properties
+    }
+
+    pub fn max_value_bytes(&self) -> usize {
+        self.max_value_bytes
+    }
+}
+
+/// A versioned device profile: the externally observable capabilities of a
+/// class of peripherals, independent of any consuming application.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DeviceProfileRecord {
+    id: String,
+    category: ProfileCategory,
+    version: String,
+    required: Vec<ProfileCharacteristic>,
+    optional: Vec<ProfileCharacteristic>,
+}
+
+impl DeviceProfileRecord {
+    pub fn new(
+        id: String,
+        category: ProfileCategory,
+        version: String,
+        required: Vec<ProfileCharacteristic>,
+        optional: Vec<ProfileCharacteristic>,
+    ) -> Result<Self, BluetoothError> {
+        if id.is_empty() {
+            return Err(BluetoothError::BadProfileId);
+        }
+        if id.len() > MAX_PROFILE_ID_BYTES {
+            return Err(BluetoothError::ProfileIdTooLong);
+        }
+        if !id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'.' || byte == b'-')
+        {
+            return Err(BluetoothError::BadProfileId);
+        }
+        if version.len() > MAX_PROFILE_VERSION_BYTES {
+            return Err(BluetoothError::BadProfileVersion);
+        }
+        let segments: Vec<&str> = version.split('.').collect();
+        if segments.len() != 3
+            || segments
+                .iter()
+                .any(|segment| segment.is_empty() || !segment.bytes().all(|b| b.is_ascii_digit()))
+        {
+            return Err(BluetoothError::BadProfileVersion);
+        }
+        if required.len() > MAX_PROFILE_CHARACTERISTICS
+            || optional.len() > MAX_PROFILE_CHARACTERISTICS
+        {
+            return Err(BluetoothError::TooManyCharacteristics);
+        }
+        let mut seen = BTreeSet::new();
+        for characteristic in required.iter().chain(optional.iter()) {
+            if !seen.insert(characteristic.uuid().to_owned()) {
+                return Err(BluetoothError::DuplicateCharacteristic);
+            }
+        }
+        Ok(Self {
+            id,
+            category,
+            version,
+            required,
+            optional,
+        })
+    }
+
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn category(&self) -> ProfileCategory {
+        self.category
+    }
+
+    pub fn version(&self) -> &str {
+        &self.version
+    }
+
+    pub fn required(&self) -> &[ProfileCharacteristic] {
+        &self.required
+    }
+
+    pub fn optional(&self) -> &[ProfileCharacteristic] {
+        &self.optional
+    }
+
+    /// Whether a required characteristic with the given UUID and read
+    /// property exists.
+    fn requires_read(&self, uuid: &str) -> bool {
+        self.required.iter().any(|characteristic| {
+            characteristic.uuid() == uuid && characteristic.properties().read
+        })
+    }
+
+    /// Whether a required characteristic with the given UUID and notify
+    /// property exists.
+    fn requires_notify(&self, uuid: &str) -> bool {
+        self.required.iter().any(|characteristic| {
+            characteristic.uuid() == uuid && characteristic.properties().notify
+        })
+    }
+
+    /// Whether any required characteristic notifies.
+    fn requires_any_notify(&self) -> bool {
+        self.required
+            .iter()
+            .any(|characteristic| characteristic.properties().notify)
+    }
+
+    /// Validate the profile against its category's documented invariants —
+    /// the standard characteristics the applicable Bluetooth specification
+    /// assigns to that category. Audio profiles expose no GATT requirement:
+    /// audio capability is system-exposed rather than peripheral-defined.
+    pub fn validate_category_invariants(&self) -> Result<(), BluetoothError> {
+        let satisfied = match self.category {
+            ProfileCategory::GenericGatt | ProfileCategory::Custom => !self.required.is_empty(),
+            ProfileCategory::Battery => self.requires_read("2A19"),
+            ProfileCategory::Environmental => self.requires_read("2A6E"),
+            ProfileCategory::HeartRate => self.requires_notify("2A37"),
+            ProfileCategory::Hid | ProfileCategory::Controller => self.requires_notify("2A4D"),
+            ProfileCategory::AccessibilitySwitch => self.requires_any_notify(),
+            ProfileCategory::Serial => {
+                self.required.iter().any(|characteristic| {
+                    characteristic.uuid() == "6E400002" && characteristic.properties().write
+                }) && self.requires_notify("6E400003")
+            }
+            ProfileCategory::Audio => true,
+        };
+        if satisfied {
+            Ok(())
+        } else {
+            Err(BluetoothError::ProfileInvariantViolated)
+        }
+    }
+}
+
+/// Bounded registry of versioned device profiles. Registration validates the
+/// record, its category invariants, and identifier uniqueness; lookups are
+/// by exact identifier.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProfileRegistry {
+    profiles: BTreeMap<String, DeviceProfileRecord>,
+    max_profiles: usize,
+}
+
+impl ProfileRegistry {
+    pub fn new(max_profiles: usize) -> Result<Self, BluetoothError> {
+        if max_profiles == 0 {
+            return Err(BluetoothError::ZeroProfileBound);
+        }
+        if max_profiles > MAX_PROFILES {
+            return Err(BluetoothError::ProfileBoundTooLarge);
+        }
+        Ok(Self {
+            profiles: BTreeMap::new(),
+            max_profiles,
+        })
+    }
+
+    pub fn max_profiles(&self) -> usize {
+        self.max_profiles
+    }
+
+    /// Number of registered profiles.
+    pub fn len(&self) -> usize {
+        self.profiles.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.profiles.is_empty()
+    }
+
+    /// Register one validated profile. Registration re-validates the record
+    /// and its category invariants; duplicate identifiers are rejected.
+    pub fn register(&mut self, record: DeviceProfileRecord) -> Result<(), BluetoothError> {
+        DeviceProfileRecord::new(
+            record.id.clone(),
+            record.category,
+            record.version.clone(),
+            record.required.clone(),
+            record.optional.clone(),
+        )?;
+        record.validate_category_invariants()?;
+        if self.profiles.contains_key(record.id()) {
+            return Err(BluetoothError::DuplicateProfile);
+        }
+        if self.profiles.len() == self.max_profiles {
+            return Err(BluetoothError::ProfileBoundReached);
+        }
+        self.profiles.insert(record.id().to_owned(), record);
+        Ok(())
+    }
+
+    /// Look up one registered profile by exact identifier.
+    pub fn profile(&self, id: &str) -> Result<&DeviceProfileRecord, BluetoothError> {
+        self.profiles
+            .get(id)
+            .ok_or(BluetoothError::UnknownProfile)
     }
 }
 
