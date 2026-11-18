@@ -46,7 +46,7 @@ pub struct OemProfile {
     pub census: DeviceProfile,
 }
 
-const fn profile(
+fn profile(
     family: &'static str,
     version: &'static str,
     present: &'static [HardwareCapability],
@@ -63,36 +63,38 @@ const fn profile(
 }
 
 /// Built-in profiles. Immutable static data; never mutated at runtime.
-static PROFILES: [OemProfile; 4] = [
-    profile(
-        "oem.generic.tv",
-        "1.0.0",
-        &[HardwareCapability::Dpad],
-        MotionOutput::None,
-    ),
-    profile(
-        "oem.acme.pointer-remote",
-        "1.0.0",
-        &[HardwareCapability::Dpad, HardwareCapability::Touchpad],
-        MotionOutput::NativePointerEvents,
-    ),
-    profile(
-        "oem.acme.voice-remote",
-        "1.0.0",
-        &[HardwareCapability::Dpad, HardwareCapability::Microphone],
-        MotionOutput::None,
-    ),
-    profile(
-        "oem.generic.gamepad",
-        "1.0.0",
-        &[
-            HardwareCapability::Dpad,
-            HardwareCapability::GameController,
-            HardwareCapability::Bluetooth,
-        ],
-        MotionOutput::None,
-    ),
-];
+static PROFILES: std::sync::LazyLock<Vec<OemProfile>> = std::sync::LazyLock::new(|| {
+    vec![
+        profile(
+            "oem.generic.tv",
+            "1.0.0",
+            &[HardwareCapability::Dpad],
+            MotionOutput::None,
+        ),
+        profile(
+            "oem.acme.pointer-remote",
+            "1.0.0",
+            &[HardwareCapability::Dpad, HardwareCapability::Touchpad],
+            MotionOutput::NativePointerEvents,
+        ),
+        profile(
+            "oem.acme.voice-remote",
+            "1.0.0",
+            &[HardwareCapability::Dpad, HardwareCapability::Microphone],
+            MotionOutput::None,
+        ),
+        profile(
+            "oem.generic.gamepad",
+            "1.0.0",
+            &[
+                HardwareCapability::Dpad,
+                HardwareCapability::GameController,
+                HardwareCapability::Bluetooth,
+            ],
+            MotionOutput::None,
+        ),
+    ]
+});
 
 impl OemProfile {
     /// The full profile id: `family/version`.
@@ -120,7 +122,7 @@ pub fn lookup(id: &str) -> Result<&'static OemProfile, LookupError> {
     if family.is_empty() || version.is_empty() {
         return Err(LookupError::MalformedProfileId(id.to_owned()));
     }
-    for profile in &PROFILES {
+    for profile in PROFILES.iter() {
         if profile.family == family && profile.version == version {
             return Ok(profile);
         }
@@ -213,10 +215,10 @@ mod tests {
 
     #[test]
     fn profiles_are_immutable_static_data() {
-        for profile in &PROFILES {
+        for profile in PROFILES.iter() {
             // The census is owned data cloned from static slices; verify the
             // registered set matches expected ids exactly (no mutation path).
-            assert!(profile.id.contains('/'));
+            assert!(profile.id().contains('/'));
         }
         assert_eq!(
             registered_ids(),
