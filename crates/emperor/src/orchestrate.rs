@@ -964,10 +964,17 @@ fn benchmark(invocation: Invocation) -> Run {
         } else if index < 10 {
             stages.push(Status::NotApplicable, "benchmark does not repeat admission");
         } else {
-            stages.push(
-                Status::Blocked,
-                "windowed frame rate needs a display and a frame-presented counter; the multi-machine matrix was not executed on this host",
-            );
+            let mut detail = "the multi-machine matrix was not executed on this host".to_owned();
+            if frame_rate_runs.is_some() {
+                let stats = run_stats(frame_rate_runs.as_ref().expect("measured"));
+                detail = format!(
+                    "frame rate over {}-frame --live pumps: min {:.1} fps median {:.1} fps; {}",
+                    120, stats.min, stats.median, detail
+                );
+            } else {
+                detail = format!("{}; {}", frame_rate_detail, detail);
+            }
+            stages.push(Status::Blocked, detail);
         }
     }
     let _ = smoke_status;
