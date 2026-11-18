@@ -14,6 +14,12 @@
 use goya_lang::intents::{validate_intent_decl, IntentDiagnostic, UTTERANCE_GRAMMAR_V0};
 use goya_lang::IntentDecl;
 
+pub mod resolve;
+pub use resolve::{
+    device_support, resolve_manifest, scene_focus_elements, DeviceSupport, FallbackResolution,
+    ResolvedFallback, ResolvedManifest, QS_E2000, QS_E2001, QS_E2002, QS_E2003,
+};
+
 /// Contract identifier implemented by this crate. Draft revision: the intent
 /// IR contract is proposed, not ratified.
 pub const INTENT_IR_CONTRACT: &str = "QUITASOL-INTENT-IR/1-draft";
@@ -99,40 +105,78 @@ impl IntentManifest {
             if i > 0 {
                 out.push(',');
             }
-            out.push_str("{\"name\":");
-            push_json_string(&mut out, &entry.name);
-            out.push_str(",\"action\":");
-            push_json_string(&mut out, &entry.action);
-            out.push_str(",\"authored_id\":");
-            match &entry.authored_id {
-                Some(id) => push_json_string(&mut out, id),
-                None => out.push_str("null"),
-            }
-            out.push_str(",\"utterances\":[");
-            for (j, utterance) in entry.utterances.iter().enumerate() {
-                if j > 0 {
-                    out.push(',');
-                }
-                push_json_string(&mut out, utterance);
-            }
-            out.push(']');
-            out.push_str(",\"confirmation\":");
-            out.push_str(if entry.confirmation { "true" } else { "false" });
-            out.push_str(",\"fallback\":{\"remote\":");
-            match &entry.fallback_remote {
-                Some(remote) => push_json_string(&mut out, remote),
-                None => out.push_str("null"),
-            }
-            out.push_str(",\"keyboard\":");
-            match &entry.fallback_keyboard {
-                Some(keyboard) => push_json_string(&mut out, keyboard),
-                None => out.push_str("null"),
-            }
-            out.push_str("}}");
+            push_entry_json(&mut out, entry, None);
         }
         out.push_str("]}");
         out
     }
+}
+
+/// Serialise one manifest entry; `fallback` appends the Q1
+/// `"fallback_resolution"` section before the entry's closing brace.
+/// Shared by [`IntentManifest::to_json`] (always `None`) and
+/// [`resolve::ResolvedManifest::to_json`].
+pub(crate) fn push_entry_json(
+    out: &mut String,
+    entry: &IntentManifestEntry,
+    fallback: Option<&resolve::FallbackResolution>,
+) {
+    out.push_str("{\"name\":");
+    push_json_string(out, &entry.name);
+    out.push_str(",\"action\":");
+    push_json_string(out, &entry.action);
+    out.push_str(",\"authored_id\":");
+    match &entry.authored_id {
+        Some(id) => push_json_string(out, id),
+        None => out.push_str("null"),
+    }
+    out.push_str(",\"utterances\":[");
+    for (j, utterance) in entry.utterances.iter().enumerate() {
+        if j > 0 {
+            out.push(',');
+        }
+        push_json_string(out, utterance);
+    }
+    out.push(']');
+    out.push_str(",\"confirmation\":");
+    out.push_str(if entry.confirmation { "true" } else { "false" });
+    out.push_str(",\"fallback\":{\"remote\":");
+    match &entry.fallback_remote {
+        Some(remote) => push_json_string(out, remote),
+        None => out.push_str("null"),
+    }
+    out.push_str(",\"keyboard\":");
+    match &entry.fallback_keyboard {
+        Some(keyboard) => push_json_string(out, keyboard),
+        None => out.push_str("null"),
+    }
+    out.push('}');
+    if let Some(fallback) = fallback {
+        out.push_str(",\"fallback_resolution\":{\"remote\":");
+        match &fallback.remote {
+            Some(remote) => {
+                out.push_str("{\"name\":");
+                push_json_string(out, &remote.name);
+                out.push_str(",\"reachable\":");
+                out.push_str(if remote.reachable { "true" } else { "false" });
+                out.push('}');
+            }
+            None => out.push_str("null"),
+        }
+        out.push_str(",\"keyboard\":");
+        match &fallback.keyboard {
+            Some(keyboard) => {
+                out.push_str("{\"name\":");
+                push_json_string(out, &keyboard.name);
+                out.push_str(",\"reachable\":");
+                out.push_str(if keyboard.reachable { "true" } else { "false" });
+                out.push('}');
+            }
+            None => out.push_str("null"),
+        }
+        out.push('}');
+    }
+    out.push('}');
 }
 
 /// Compile the scene's `@intent` declarations into an intent manifest.
@@ -205,7 +249,7 @@ fn diagnostic(name: String, range: goya_lang::SourceRange) -> IntentDiagnostic {
 }
 
 /// Minimal JSON string escaper: quotes, backslashes, control characters.
-fn push_json_string(out: &mut String, value: &str) {
+pub(crate) fn push_json_string(out: &mut String, value: &str) {
     out.push('"');
     for c in value.chars() {
         match c {
