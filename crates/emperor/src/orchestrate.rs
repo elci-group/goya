@@ -9,6 +9,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Read;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -1158,12 +1159,27 @@ fn package(invocation: Invocation) -> Run {
             )
         }
     };
-    if matches!(format.as_str(), "appimage" | "flatpak" | "deb" | "rpm") {
-        return blocked_dir(
-            invocation,
-            "EMP-PACKAGE",
-            &format!("{format} is not produced in compiler 0.0.1"),
-        );
+    match format.as_str() {
+        // The .deb format is produced for real on hosts that ship dpkg-deb;
+        // the remaining bundle formats stay honest blocks with the precise
+        // reason observed on this host rather than a blanket version note.
+        "deb" => return package_deb(invocation, &format),
+        "appimage" => {
+            return blocked_dir(
+                invocation,
+                "EMP-PACKAGE",
+                "appimage is blocked: no appimagetool on this host and downloads are outside the offline workspace policy",
+            )
+        }
+        "flatpak" => return package_flatpak_blocked(invocation),
+        "rpm" => {
+            return blocked_dir(
+                invocation,
+                "EMP-PACKAGE",
+                "rpm is blocked: no rpmbuild on this host",
+            )
+        }
+        _ => {}
     }
     if format != "linux-archive" {
         return fault_run(
@@ -1240,6 +1256,226 @@ fn package(invocation: Invocation) -> Run {
             Fault::new(2, "EMP-TOOLCHAIN", format!("could not start tar: {error}")),
         ),
     }
+}
+
+/// The Debian package name used for every emperor counter build. The build
+/// directory name varies with the output flag, but the installed package
+/// identity must be stable so that upgrades replace, not duplicate.
+const DEB_PACKAGE_NAME: &str = "emperor-counter";
+
+/// The Maintainer field Debian policy requires on every control file. It
+/// points at the compiler project, not at any individual author.
+const DEB_MAINTAINER: &str = "Emperor Compiler <emperor@goya.invalid>";
+
+/// Map the recorded target triple to Debian's architecture vocabulary. Only
+/// the two ELF machines the compiler admits have a Debian mapping; anything
+/// else is refused rather than guessed at.
+fn deb_architecture(target: &str) -> Option<&'static str> {
+    match target::elf_machine(target) {
+        Some(machine) if machine == 0x3E => Some("amd64"),
+        Some(machine) if machine == 0xB7 => Some("arm64"),
+        _ => None,
+    }
+}
+
+/// Package the build directory as a real Debian archive using dpkg-deb.
+///
+/// The payload mirrors what the linux-archive ships, laid out per Debian
+/// policy: the linked ELF at /usr/local/bin/App (mode 755), the desktop
+/// entry under /usr/local/share/applications, and a minimal copyright note
+/// pointing at the workspace licenses. Failure of dpkg-deb — missing binary
+/// or non-zero exit — is reported as an honest EMP-TOOLCHAIN fault, never
+/// as a fabricated success.
+fn package_deb(invocation: Invocation, format: &str) -> Run {
+    let directory = match invocation.directory.clone() {
+        Some(path) => path,
+        None => {
+            return fault_run(
+                &invocation,
+                Fault::new(2, "EMP-USAGE", "package requires a build directory"),
+            )
+        }
+    };
+    if let Err(fault) = reject_traversal(&directory) {
+        return fault_run(&invocation, fault);
+    }
+    let app = directory.join("App");
+    if !app.is_file() {
+        return fault_run(
+            &invocation,
+            Fault::new(4, "EMP-ELF", "package directory has no App"),
+        );
+    }
+    let desktop_source = directory.join("counter.desktop");
+    if !desktop_source.is_file() {
+        return fault_run(
+            &invocation,
+            Fault::new(2, "EMP-DESKTOP", "package directory has no counter.desktop"),
+        );
+    }
+    let architecture = match deb_architecture(&invocation.target) {
+        Some(architecture) => architecture,
+        None => {
+            return fault_run(
+                &invocation,
+                Fault::new(
+                    2,
+                    "EMP-TOOLCHAIN",
+                    format!("target {} has no Debian architecture mapping", invocation.target),
+                ),
+            )
+        }
+    };
+    let Some(name) = directory.file_name().map(|name| name.to_owned()) else {
+        return fault_run(
+            &invocation,
+            Fault::new(2, "EMP-USAGE", "package directory has no name"),
+        );
+    };
+    let parent = match directory.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent.to_owned(),
+        _ => PathBuf::from("."),
+    };
+    let output = parent.join(format!("{}.deb", name.to_string_lossy()));
+    if let Err(fault) = reject_traversal(&output) {
+        return fault_run(&invocation, fault);
+    }
+    // Staging lives inside the build directory so every write stays inside
+    // the traversal-checked tree; it is removed again once the archive is
+    // built (or failed), leaving no residue in the deliverable directory.
+    let staging = directory.join(".deb-staging");
+    let _ = fs::remove_dir_all(&staging);
+    if let Err(fault) = stage_deb(&staging, &app, &desktop_source, architecture) {
+        let _ = fs::remove_dir_all(&staging);
+        return fault_run(&invocation, fault);
+    }
+    let built = Command::new("dpkg-deb")
+        .arg("--build")
+        .arg("--root-owner-group")
+        .arg(&staging)
+        .arg(&output)
+        .output();
+    let _ = fs::remove_dir_all(&staging);
+    match built {
+        Ok(built) if built.status.success() => {
+            let size = match fs::metadata(&output) {
+                Ok(metadata) if metadata.len() > 0 => metadata.len(),
+                _ => {
+                    return fault_run(
+                        &invocation,
+                        Fault::new(
+                            2,
+                            "EMP-TOOLCHAIN",
+                            format!("dpkg-deb produced no file at {}", output.display()),
+                        ),
+                    )
+                }
+            };
+            let stages = stages_with_last(Status::Pass, format!("wrote {}", output.display()));
+            finish(
+                &invocation,
+                0,
+                stages,
+                format!("wrote {}\n", output.display()),
+                json!({
+                    "deb": output.display().to_string(),
+                    "format": format,
+                    "size_bytes": size,
+                }),
+            )
+        }
+        Ok(built) => fault_run(
+            &invocation,
+            Fault::new(
+                2,
+                "EMP-TOOLCHAIN",
+                format!(
+                    "dpkg-deb failed: {}",
+                    String::from_utf8_lossy(&built.stderr)
+                ),
+            ),
+        ),
+        Err(error) => fault_run(
+            &invocation,
+            Fault::new(2, "EMP-TOOLCHAIN", format!("could not start dpkg-deb: {error}")),
+        ),
+    }
+}
+
+/// Populate the Debian control tree: metadata in DEBIAN/control, the ELF
+/// payload, the desktop entry, and the copyright note. Any write or copy
+/// failure is surfaced as an EMP-TOOLCHAIN fault so a half-built tree can
+/// never reach dpkg-deb.
+fn stage_deb(
+    staging: &Path,
+    app: &Path,
+    desktop_source: &Path,
+    architecture: &str,
+) -> Result<(), Fault> {
+    fs::create_dir_all(staging.join("DEBIAN")).map_err(io_fault)?;
+    fs::create_dir_all(staging.join("usr/local/bin")).map_err(io_fault)?;
+    fs::create_dir_all(staging.join("usr/local/share/applications")).map_err(io_fault)?;
+    fs::create_dir_all(staging.join("usr/local/share/doc/emperor-counter")).map_err(io_fault)?;
+    let control = format!(
+        "Package: {DEB_PACKAGE_NAME}\n\
+         Version: {COMPILER_VERSION}\n\
+         Architecture: {architecture}\n\
+         Maintainer: {DEB_MAINTAINER}\n\
+         Section: utils\n\
+         Description: Counter application produced by the Emperor compiler\n\
+          Delivered as a real .deb by dpkg-deb from the workspace build tree.\n"
+    );
+    fs::write(staging.join("DEBIAN/control"), control).map_err(io_fault)?;
+    fs::copy(app, staging.join("usr/local/bin/App")).map_err(io_fault)?;
+    fs::set_permissions(
+        staging.join("usr/local/bin/App"),
+        std::fs::Permissions::from_mode(0o755),
+    )
+    .map_err(io_fault)?;
+    fs::copy(desktop_source, staging.join("usr/local/share/applications/counter.desktop"))
+        .map_err(io_fault)?;
+    let copyright = format!(
+        "emperor-counter is built by the Emperor compiler (version {COMPILER_VERSION}).\n\
+         The workspace licenses live at LICENSE.txt, LICENSE-MIT, and LICENSE-APACHE\n\
+         in the goya workspace root; this package carries no vendored third-party\n\
+         code beyond the runtime crates already recorded in sbom.json.\n"
+    );
+    fs::write(
+        staging.join("usr/local/share/doc/emperor-counter/copyright"),
+        copyright,
+    )
+    .map_err(io_fault)?;
+    Ok(())
+}
+
+/// The flatpak block states what was actually observed on this host rather
+/// than a generic version note. The host has runtimes installed (freedesktop,
+/// GNOME, and KDE platforms appear in `flatpak list --runtime`), so the honest
+/// blocker is the missing build tool: no flatpak-builder, and downloading it
+/// would violate the offline workspace policy.
+fn package_flatpak_blocked(invocation: Invocation) -> Run {
+    let runtimes = Command::new("flatpak")
+        .arg("list")
+        .arg("--runtime")
+        .arg("--columns=application")
+        .output();
+    let detail = match runtimes {
+        Ok(output) if output.status.success() => {
+            let list = String::from_utf8_lossy(&output.stdout);
+            let count = list.lines().filter(|line| !line.trim().is_empty()).count();
+            format!(
+                "flatpak is blocked: no flatpak-builder on this host; `flatpak list --runtime` shows {count} runtimes installed, but downloading the builder is outside the offline workspace policy"
+            )
+        }
+        Ok(output) => format!(
+            "flatpak is blocked: `flatpak list --runtime` exited {} and no flatpak-builder is on this host",
+            output.status
+        ),
+        Err(error) => format!(
+            "flatpak is blocked: flatpak could not be run ({error}) and no flatpak-builder is on this host"
+        ),
+    };
+    blocked_dir(invocation, "EMP-PACKAGE", &detail)
 }
 
 fn blocked_scene(invocation: Invocation, code: &'static str, detail: &str) -> Run {

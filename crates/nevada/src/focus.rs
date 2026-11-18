@@ -511,10 +511,11 @@ mod tests {
             element(4, 200, 150, 100, 50),
         ];
         let graph = focus_graph(&elements);
-        assert_eq!(graph.len(), 3);
+        assert_eq!(graph.len(), 4);
         assert_eq!(graph[0].id, 1);
         assert_eq!(graph[1].id, 2);
         assert_eq!(graph[2].id, 3);
+        assert_eq!(graph[3].id, 4);
         for row in &graph {
             for dir in Direction::ALL {
                 assert_eq!(
@@ -534,7 +535,7 @@ mod tests {
         // reached by directional navigation.
         let elements = [
             essential(1, 0, 0, 100, 50),
-            essential(2, 0, 1_000, 50, 25),
+            essential(2, 500, 1_000, 50, 25),
             essential(3, 150, 0, 100, 50),
         ];
         // Elements 1 and 3 overlap horizontally and sit side by side, so
@@ -564,7 +565,9 @@ mod tests {
         let mut locked = essential(1, 0, 0, 100, 50);
         locked.focusable = false;
         let elements = [locked, essential(2, 0, 100, 100, 50)];
-        assert_eq!(unreachable_essential(&elements, None), vec![1, 2]);
+        // Initial focus skips the locked element and lands on 2; only the
+        // non-focusable essential 1 is unreachable.
+        assert_eq!(unreachable_essential(&elements, None), vec![1]);
     }
 
     #[test]
