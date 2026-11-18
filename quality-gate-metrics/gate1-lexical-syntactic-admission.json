@@ -1,1 +1,1 @@
-{"gate": 1, "stage": "lexical-syntactic-admission", "status": "PASS", "failed": 0, "commands": [{"command": "cargo test -p emperor -p sash -p sash-ir --offline --lib", "exit_code": 0}], "timestamp": "2026-11-18T19:53:18Z"}
+{"gate": 1, "stage": "lexical-syntactic-admission", "status": "PASS", "failed": 0, "commands": [{"command": "cargo test -p emperor -p sash -p sash-ir --offline --lib", "exit_code": 0}], "timestamp": "2026-11-18T19:56:12Z"}
