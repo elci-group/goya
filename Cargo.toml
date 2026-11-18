@@ -119,6 +119,7 @@ goya-sdk = { path = "crates/goya-sdk" }
 goya-webview = { path = "crates/goya-webview" }
 goya-studio = { path = "crates/goya-studio" }
 emperor-runtime = { path = "crates/emperor-runtime" }
+ie-contract = { path = "crates/ie-contract" }
 unicode-segmentation = "1.12"
 cosmic-text = "0.17"
 
