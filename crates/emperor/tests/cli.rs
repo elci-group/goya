@@ -210,3 +210,63 @@ fn desktop_sota_stays_blocked_and_unknown_suites_exit_2() {
     assert_eq!(conformance.json["count"].as_i64(), Some(1));
     assert_eq!(conformance.json["revision"].as_u64(), Some(1));
 }
+
+/// A real release build takes roughly thirty seconds on this host; that cost
+/// is accepted so the qualification below runs against a genuine artifact
+/// with a genuine build report, not a fixture.
+#[test]
+fn qualify_runs_static_checks_and_oracle_and_blocks_the_rest() {
+    let scene = fixture("interactive-counter.gscene");
+    let out = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("qualify-counter");
+    let out_str = out.display().to_string();
+    let build = run(&[
+        "build",
+        &scene,
+        "--out",
+        &out_str,
+        "--release",
+        "--target",
+        "x86_64-unknown-linux-gnu",
+    ]);
+    assert_eq!(build.code, 0, "{}", build.text);
+
+    let qualify = run(&[
+        "qualify",
+        &out_str,
+        "--target",
+        "x86_64-unknown-linux-gnu",
+        "--format",
+        "json",
+    ]);
+    assert_eq!(qualify.code, 0, "{}", qualify.text);
+    assert_eq!(qualify.json["qualification_scope"], "local-release");
+    let digest = qualify.json["artifact_sha256"].as_str().expect("sha256");
+    assert_eq!(digest.len(), 64);
+    assert_eq!(digest, build.json["artifact_sha256"]);
+    assert!(qualify.json["oracle_stdout"]
+        .as_str()
+        .unwrap_or("")
+        .contains("count=1"));
+    let smoke = qualify.json["smoke"].as_str().unwrap_or("");
+    assert!(smoke == "pass" || smoke == "blocked", "smoke: {smoke}");
+
+    let stages = qualify.json["stages"].as_array().expect("stages");
+    assert_eq!(stages.len(), 13);
+    assert_eq!(stages[10]["name"], "static-verification");
+    assert_eq!(stages[10]["status"], "PASS");
+    assert_eq!(stages[12]["name"], "packaging-signing-release");
+    // The multi-machine matrix, Windows parity, and signing never run here.
+    assert_eq!(stages[12]["status"], "BLOCKED");
+    for stage in stages.iter().take(10) {
+        assert_eq!(stage["status"], "NOT_APPLICABLE", "{}", stage["name"]);
+    }
+    // runtime-conformance is PASS only when a display was actually reachable;
+    // headless environments leave it BLOCKED, which still exits 0.
+    let conformance = stages[11]["status"].as_str().unwrap_or("");
+    assert!(conformance == "PASS" || conformance == "BLOCKED", "{}", conformance);
+    if smoke == "blocked" {
+        assert_eq!(conformance, "BLOCKED");
+    } else {
+        assert_eq!(conformance, "PASS");
+    }
+}
