@@ -101,6 +101,14 @@ use crate::metal_caprichio::{
     DispatchArtifact as MetalArtifact, DispatchDeclaration as MetalDeclaration,
     RuntimeCapabilities as MetalRuntime, Target as MetalTarget,
 };
+use crate::snapdragon_accelerator_caprichio::{
+    SnapdragonAcceleratorArtifact, SnapdragonAcceleratorDeclaration,
+    RuntimeCapabilities as SnapdragonAcceleratorHost, Target as SnapdragonAcceleratorTarget,
+};
+use crate::exynos_accelerator_caprichio::{
+    ExynosAcceleratorArtifact, ExynosAcceleratorDeclaration,
+    RuntimeCapabilities as ExynosAcceleratorHost, Target as ExynosAcceleratorTarget,
+};
 use crate::parallelism_caprichio::{
     ParallelismArtifact, ParallelismDeclaration, RuntimeCapabilities as ParallelismRuntime,
     Target as ParallelismTarget,
@@ -165,6 +173,8 @@ pub struct Request {
     pub bluetooth_continuity: Option<BluetoothContinuityDeclaration>,
     pub bluetooth_access: Option<BluetoothAccessDeclaration>,
     pub bluetooth_profile: Option<BluetoothProfileDeclaration>,
+    pub snapdragon_neural_accel: Option<SnapdragonAcceleratorDeclaration>,
+    pub exynos_neural_accel: Option<ExynosAcceleratorDeclaration>,
     pub accelerator_model: Option<AcceleratorDeclaration>,
 }
 
@@ -236,6 +246,10 @@ pub struct HostProfile {
     pub bluetooth_access_host: BluetoothAccessHost,
     pub bluetooth_profile_target: BluetoothProfileTarget,
     pub bluetooth_profile_host: BluetoothProfileHost,
+    pub snapdragon_accelerator_target: SnapdragonAcceleratorTarget,
+    pub snapdragon_accelerator_host: SnapdragonAcceleratorHost,
+    pub exynos_accelerator_target: ExynosAcceleratorTarget,
+    pub exynos_accelerator_host: ExynosAcceleratorHost,
     pub accelerator_model_target: AcceleratorModelTarget,
     pub accelerator_model_host: AcceleratorModelHost,
 }
@@ -276,6 +290,9 @@ pub enum Artifact {
     BluetoothAccess(BluetoothAccessArtifact),
     BluetoothProfile(BluetoothProfileArtifact),
     AcceleratorModel(AcceleratorArtifact),
+    SnapdragonAccelerator(SnapdragonAcceleratorArtifact),
+    ExynosAccelerator(ExynosAcceleratorArtifact),
+}    AcceleratorModel(AcceleratorArtifact),
 }
 
 impl Artifact {
@@ -314,6 +331,8 @@ impl Artifact {
             Self::BluetoothContinuity(a) => a.contract,
             Self::BluetoothAccess(a) => a.contract,
             Self::BluetoothProfile(a) => a.contract,
+            Self::SnapdragonAccelerator(_) => crate::snapdragon_accelerator_caprichio::CONTRACT,
+            Self::ExynosAccelerator(_) => crate::exynos_accelerator_caprichio::CONTRACT,
             Self::AcceleratorModel(a) => a.contract,
         }
     }
@@ -353,6 +372,8 @@ impl Artifact {
             Self::BluetoothContinuity(_) => "apple-ble-continuity-bounded-restoration",
             Self::BluetoothAccess(_) => "apple-ble-access-bounded-mapping",
             Self::BluetoothProfile(_) => "apple-ble-profile-bounded-classification",
+            Self::SnapdragonAccelerator(_) => "snapdragon-hexagon-bounded-delegate-plan",
+            Self::ExynosAccelerator(_) => "exynos-npu-bounded-delegate-plan",
             Self::AcceleratorModel(_) => "per-model-device-accelerator",
         }
     }
@@ -392,6 +413,8 @@ impl Artifact {
             Self::BluetoothContinuity(a) => a.recipe_version,
             Self::BluetoothAccess(a) => a.recipe_version,
             Self::BluetoothProfile(a) => a.recipe_version,
+            Self::SnapdragonAccelerator(a) => a.recipe_version,
+            Self::ExynosAccelerator(a) => a.recipe_version,
             Self::AcceleratorModel(a) => a.recipe_version,
         }
     }
@@ -431,6 +454,8 @@ impl Artifact {
             Self::BluetoothContinuity(a) => &a.canonical_ir,
             Self::BluetoothAccess(a) => &a.canonical_ir,
             Self::BluetoothProfile(a) => &a.canonical_ir,
+            Self::SnapdragonAccelerator(a) => &a.canonical_ir,
+            Self::ExynosAccelerator(a) => &a.canonical_ir,
             Self::AcceleratorModel(a) => &a.canonical_ir,
         }
     }
@@ -470,6 +495,8 @@ impl Artifact {
             Self::BluetoothContinuity(a) => &a.source,
             Self::BluetoothAccess(a) => &a.source,
             Self::BluetoothProfile(a) => &a.source,
+            Self::SnapdragonAccelerator(a) => &a.source,
+            Self::ExynosAccelerator(a) => &a.source,
             Self::AcceleratorModel(a) => &a.source,
         }
     }
@@ -508,6 +535,8 @@ pub const fn supported_contracts() -> &'static [&'static str] {
         crate::bluetooth_guard_caprichio::CONTRACT,
         crate::bluetooth_profile_caprichio::CONTRACT,
         crate::bluetooth_stream_caprichio::CONTRACT,
+        crate::snapdragon_accelerator_caprichio::CONTRACT,
+        crate::exynos_accelerator_caprichio::CONTRACT,
         crate::metal_caprichio::CONTRACT,
         crate::apple_pay_caprichio::CONTRACT,
         crate::google_pay_caprichio::CONTRACT,
@@ -547,6 +576,8 @@ pub enum NegotiationError {
     Parallelism(crate::parallelism_caprichio::Diagnostic),
     InputValidation(crate::input_validation_caprichio::Diagnostic),
     Keychain(crate::keychain_caprichio::Diagnostic),
+    SnapdragonAccelerator(crate::snapdragon_accelerator_caprichio::SnapdragonAcceleratorDiagnostic),
+    ExynosAccelerator(crate::exynos_accelerator_caprichio::ExynosAcceleratorDiagnostic),
     Metal(crate::metal_caprichio::Diagnostic),
     TouchId(crate::touch_id_caprichio::Diagnostic),
     FaceId(crate::face_id_caprichio::Diagnostic),
@@ -601,6 +632,20 @@ impl fmt::Display for NegotiationError {
                 write!(f, "input validation negotiation failed: {error}")
             }
             Self::Keychain(error) => write!(f, "keychain negotiation failed: {error}"),
+            Self::SnapdragonAccelerator(error) => {
+                write!(
+                    f,
+                    "Snapdragon neural-acceleration negotiation failed: {err}",
+                    err = error
+                )
+            }
+            Self::ExynosAccelerator(error) => {
+                write!(
+                    f,
+                    "Exynos neural-acceleration negotiation failed: {err}",
+                    err = error
+                )
+            }
             Self::Metal(error) => write!(f, "Metal dispatch negotiation failed: {error}"),
             Self::TouchId(error) => write!(f, "Touch ID negotiation failed: {error}"),
             Self::FaceId(error) => write!(f, "Face ID negotiation failed: {error}"),
@@ -664,6 +709,8 @@ pub fn negotiate(
             && *id != crate::parallelism_caprichio::CONTRACT
             && *id != crate::input_validation_caprichio::CONTRACT
             && *id != crate::keychain_caprichio::CONTRACT
+            && *id != crate::snapdragon_accelerator_caprichio::CONTRACT
+            && *id != crate::exynos_accelerator_caprichio::CONTRACT
             && *id != crate::metal_caprichio::CONTRACT
             && *id != crate::touch_id_caprichio::CONTRACT
             && *id != crate::face_id_caprichio::CONTRACT
@@ -705,6 +752,8 @@ pub fn negotiate(
     let needs_parallelism = ordered.contains(crate::parallelism_caprichio::CONTRACT);
     let needs_input_validation = ordered.contains(crate::input_validation_caprichio::CONTRACT);
     let needs_keychain = ordered.contains(crate::keychain_caprichio::CONTRACT);
+    let needs_snapdragon_accelerator = ordered.contains(crate::snapdragon_accelerator_caprichio::CONTRACT);
+    let needs_exynos_accelerator = ordered.contains(crate::exynos_accelerator_caprichio::CONTRACT);
     let needs_metal = ordered.contains(crate::metal_caprichio::CONTRACT);
     let needs_touch_id = ordered.contains(crate::touch_id_caprichio::CONTRACT);
     let needs_face_id = ordered.contains(crate::face_id_caprichio::CONTRACT);
@@ -782,6 +831,16 @@ pub fn negotiate(
     }
     if request.keychain.is_some() && !needs_keychain {
         return Err(NegotiationError::UnexpectedDeclaration { kind: "keychain" });
+    }
+    if request.snapdragon_neural_accel.is_some() && !needs_snapdragon_accelerator {
+        return Err(NegotiationError::UnexpectedDeclaration {
+            kind: "snapdragon_neural_accel",
+        });
+    }
+    if request.exynos_neural_accel.is_some() && !needs_exynos_accelerator {
+        return Err(NegotiationError::UnexpectedDeclaration {
+            kind: "exynos_neural_accel",
+        });
     }
     if request.metal_compute.is_some() && !needs_metal {
         return Err(NegotiationError::UnexpectedDeclaration {
@@ -1098,6 +1157,42 @@ pub fn negotiate(
                         .map_err(NegotiationError::Keychain)?,
                 )
             }
+            crate::snapdragon_accelerator_caprichio::CONTRACT => {
+                let declaration = request
+                    .snapdragon_neural_accel
+                    .clone()
+                    .ok_or(NegotiationError::MissingDeclaration {
+                        capability: crate::snapdragon_accelerator_caprichio::CONTRACT,
+                    })?;
+                let ir = declaration
+                    .normalize()
+                    .map_err(NegotiationError::SnapdragonAccelerator)?;
+                Artifact::SnapdragonAccelerator(
+                    ir.lower_checked(
+                        host.snapdragon_accelerator_target,
+                        host.snapdragon_accelerator_host,
+                    )
+                    .map_err(NegotiationError::SnapdragonAccelerator)?,
+                )
+            }
+            crate::exynos_accelerator_caprichio::CONTRACT => {
+                let declaration = request
+                    .exynos_neural_accel
+                    .clone()
+                    .ok_or(NegotiationError::MissingDeclaration {
+                        capability: crate::exynos_accelerator_caprichio::CONTRACT,
+                    })?;
+                let ir = declaration
+                    .normalize()
+                    .map_err(NegotiationError::ExynosAccelerator)?;
+                Artifact::ExynosAccelerator(
+                    ir.lower_checked(
+                        host.exynos_accelerator_target,
+                        host.exynos_accelerator_host,
+                    )
+                    .map_err(NegotiationError::ExynosAccelerator)?,
+                )
+            }
             crate::metal_caprichio::CONTRACT => {
                 let declaration = request
                     .metal_compute
@@ -1324,6 +1419,8 @@ pub fn negotiate(
             Artifact::BluetoothContinuity(_) => crate::bluetooth_continuity_caprichio::CONTRACT,
             Artifact::BluetoothAccess(_) => crate::bluetooth_access_caprichio::CONTRACT,
             Artifact::BluetoothProfile(_) => crate::bluetooth_profile_caprichio::CONTRACT,
+            Artifact::SnapdragonAccelerator(_) => crate::snapdragon_accelerator_caprichio::CONTRACT,
+            Artifact::ExynosAccelerator(_) => crate::exynos_accelerator_caprichio::CONTRACT,
             Artifact::AcceleratorModel(ref a) => a.contract,
         };
         result.push(NegotiatedCapability { id, artifact });
@@ -1473,6 +1570,20 @@ mod tests {
                 pass_kit: true,
                 secure_element_credential: true,
                 network_session: true,
+                utf8_strings: true,
+            },
+            snapdragon_accelerator_target: SnapdragonAcceleratorTarget::Snapdragon,
+            snapdragon_accelerator_host: SnapdragonAcceleratorHost {
+                hexagon_dsp: true,
+                neural_delegate: true,
+                int8_model: true,
+                utf8_strings: true,
+            },
+            exynos_accelerator_target: ExynosAcceleratorTarget::Snapdragon,
+            exynos_accelerator_host: ExynosAcceleratorHost {
+                npu_dsp: true,
+                neural_delegate: true,
+                int8_model: true,
                 utf8_strings: true,
             },
             accelerator_model_target: AcceleratorModelTarget::Device,
