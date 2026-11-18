@@ -23,9 +23,10 @@ pub struct SoCFacts {
     pub series: &'static str,
     /// Documented Hexagon DSP/NPU generation, or `none`.
     pub hexagon_dsp: &'static str,
-    /// Peak AI throughput Qualcomm published for this SoC, in TOPS.
-    /// `None` means Qualcomm did not publish a figure; none is guessed.
-    pub npu_tops: Option<u16>,
+    /// Peak AI throughput Qualcomm published for this SoC, in TOPS times
+    /// ten (5.5 TOPS is stored as `55`). `None` means Qualcomm did not
+    /// publish a figure; none is guessed.
+    pub npu_tops_tenths: Option<u16>,
     /// Documented Int8 neural acceleration.
     pub int8_accel: bool,
     /// Documented FP16 neural acceleration.
