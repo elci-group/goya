@@ -8,7 +8,7 @@ pub const MAX_MESSAGE_BYTES: u32 = 16 * 1024 * 1024;
 /// Encode one frame: length prefix + payload.
 pub fn encode_frame(payload: &[u8]) -> Result<Vec<u8>, FrameError> {
     if payload.len() as u64 > MAX_MESSAGE_BYTES as u64 {
-        return Err(FrameError::TooLarge(payload.len() as u64));
+        return Err(FrameError::DeclaredTooLarge(payload.len() as u32));
     }
     let mut out = Vec::with_capacity(4 + payload.len());
     out.extend_from_slice(&(payload.len() as u32).to_le_bytes());

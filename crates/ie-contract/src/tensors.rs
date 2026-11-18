@@ -38,7 +38,7 @@ impl DType {
 
 /// Static-shape tensor descriptor. Byte order is little-endian, row-major
 /// (C order) layout — frozen for v0.1; quantisation metadata is INT8-only.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct TensorDesc {
     pub dtype: DType,
     pub dims: Vec<u64>,
