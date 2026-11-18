@@ -870,6 +870,63 @@ fn benchmark(invocation: Invocation) -> Run {
             ),
         )
     };
+    // Frame rate: counted from presented frames of a `--live` pump on this
+    // display. This is the software Wayland host's rate on the current
+    // compositor only — it is not a compositor matrix and not a GPU path.
+    let (frame_rate_runs, frame_rate_detail) = if display_ready(&window) {
+        // Warmup: short pump so compositor and font caches are hot.
+        let warmup = match run_captured(&app, &["--live", "--frames", "30"], Duration::from_secs(60))
+        {
+            Ok(captured) if captured.code == 0 && presented_frames(&captured.stdout) > 0 => None,
+            Ok(captured) => Some(format!(
+                "frame-rate warmup exited {} with presented={}",
+                captured.code,
+                presented_frames(&captured.stdout)
+            )),
+            Err(fault) => Some(fault.message),
+        };
+        let mut fps: Vec<f64> = Vec::new();
+        let mut failure = warmup.unwrap_or_default();
+        for _ in 0..FRAME_RATE_RUNS {
+            if !failure.is_empty() {
+                break;
+            }
+            let started = Instant::now();
+            match run_captured(&app, &["--live", "--frames", "120"], Duration::from_secs(60)) {
+                Ok(captured) if captured.code == 0 => {
+                    let presented = presented_frames(&captured.stdout);
+                    let elapsed = started.elapsed().as_secs_f64();
+                    if presented > 0 && elapsed > 0.0 {
+                        fps.push(f64::from(presented) / elapsed);
+                    } else if presented == 0 {
+                        failure = "presented=0: no frames were presented".to_owned();
+                        break;
+                    }
+                }
+                Ok(captured) => {
+                    failure = format!("--live exited {}", captured.code);
+                    break;
+                }
+                Err(fault) => {
+                    failure = fault.message;
+                    break;
+                }
+            }
+        }
+        if fps.len() == FRAME_RATE_RUNS {
+            (Some(fps), "frame rate measured over --live pumps".to_owned())
+        } else {
+            (None, failure)
+        }
+    } else {
+        (
+            None,
+            format!(
+                "no {} display; frame rate was not attempted",
+                display_name(&window)
+            ),
+        )
+    };
     let oracle_stats = run_stats(&oracle_runs);
     let elf_stats = run_stats(&elf_runs);
     let mut conformance_detail = format!(
@@ -957,9 +1014,23 @@ fn benchmark(invocation: Invocation) -> Run {
                 "mean_seconds": elf_stats.mean,
             },
             "smoke_latency": smoke_json,
-            "frame_rate": {
-                "status": "BLOCKED",
-                "reason": "frame-rate benchmarking needs a display and a frame-presented counter; neither is implemented in compiler 0.0.1",
+            "frame_rate": match &frame_rate_runs {
+                Some(runs) => {
+                    let stats = run_stats(runs);
+                    json!({
+                        "status": "MEASURED",
+                        "command": "App --live --frames 120",
+                        "runs_fps": runs,
+                        "fps_min": stats.min,
+                        "fps_median": stats.median,
+                        "frames_per_run": 120,
+                        "runs": frame_rate_runs.as_ref().map_or(0, Vec::len),
+                    })
+                }
+                None => json!({
+                    "status": "BLOCKED",
+                    "reason": frame_rate_detail,
+                }),
             },
             "context": machine_context(),
             "window": window,

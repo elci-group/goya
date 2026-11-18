@@ -317,7 +317,7 @@ mod tests {
         let mut seen = std::collections::BTreeSet::new();
         for (name, facts) in GENERATIONS {
             assert!(seen.insert(*name), "duplicate generation {name}");
-            assert!(matches!(facts.series, "8" | "7" | "6" | "4"));
+            assert!(matches!(facts.series, "G"));
             assert!(
                 facts.apu_dsp == "none"
                     || facts.apu_dsp.starts_with("TPU")
