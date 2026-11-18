@@ -292,7 +292,7 @@ pub enum Artifact {
     AcceleratorModel(AcceleratorArtifact),
     SnapdragonAccelerator(SnapdragonAcceleratorArtifact),
     ExynosAccelerator(ExynosAcceleratorArtifact),
-}    AcceleratorModel(AcceleratorArtifact),
+    ExynosAccelerator(ExynosAcceleratorArtifact),
 }
 
 impl Artifact {
