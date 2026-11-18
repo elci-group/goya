@@ -656,6 +656,11 @@ fn package(invocation: Invocation) -> Run {
     let output = Command::new("tar")
         .arg("-C")
         .arg(&parent)
+        // The build directory holds the cargo target cache used to link App.
+        // The cache is a build artifact, not a deliverable: it is rebuildable
+        // from embed.rs with the workspace toolchain, and including it made
+        // archives exceed 150 MiB while the deliverables stay under 20 MiB.
+        .arg(format!("--exclude=/{}/target", name.to_string_lossy()))
         .arg("-czf")
         .arg(&archive)
         .arg(&name)
