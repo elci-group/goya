@@ -46,6 +46,7 @@ pub fn execute(args: &[std::ffi::OsString]) -> Run {
     let mut target_explicit = false;
     let mut json = false;
     let mut api_floor = crate::api_floor::ApiFloor::Win10;
+    let mut floor_explicit = false;
     let mut profile = PROFILE_PORTABLE.to_string();
     let mut release = false;
     let mut out = None;
@@ -95,7 +96,10 @@ pub fn execute(args: &[std::ffi::OsString]) -> Run {
                 return cli_error(2, "--api-floor needs a value");
             };
             match crate::api_floor::admit_floor(value) {
-                Ok(floor) => api_floor = floor,
+                Ok(floor) => {
+                    floor_explicit = true;
+                    api_floor = floor;
+                }
                 Err(reason) => {
                     return cli_error(2, &format!("api floor {value} is not admitted: {reason}"))
                 }
@@ -176,6 +180,7 @@ pub fn execute(args: &[std::ffi::OsString]) -> Run {
                 path,
                 evidence.as_deref(),
                 target_explicit.then_some(admitted),
+                floor_explicit.then_some(api_floor),
             )
         }
         _ => usage(),
@@ -395,6 +400,7 @@ fn verify_command(
     exe: &Path,
     evidence: Option<&Path>,
     requested: Option<crate::windows_target::WindowsTarget>,
+    requested_floor: Option<crate::api_floor::ApiFloor>,
 ) -> Run {
     // The command default is x64. Verify must not report that until the image
     // itself names a machine and a presentation profile.
@@ -440,6 +446,22 @@ fn verify_command(
             crate::api_floor::ApiFloor::Win10
         };
         base["api_floor"] = serde_json::json!(floor.label());
+        // An explicit --api-floor that is not the image floor fails, the
+        // same way an explicit --target that is not the PE machine fails.
+        if let Some(requested_floor) = requested_floor {
+            if requested_floor != floor {
+                problems.push(format!(
+                    "image api floor is {}, not the requested {}",
+                    floor.label(),
+                    requested_floor.label()
+                ));
+            }
+        }
+    } else if let Some(requested_floor) = requested_floor {
+        problems.push(format!(
+            "the manifest names no Sash presentation profile, so the requested {} floor cannot be confirmed",
+            requested_floor.label()
+        ));
     }
     if let Some(dir) = evidence {
         match evidence_problems(dir, &bytes) {
@@ -1027,6 +1049,80 @@ mod tests {
         assert_eq!(run.json["presentation_profile"], PROFILE);
         assert_eq!(run.json["pe_structure"], "PASS");
         assert_eq!(run.json["runtime_qualification"], "BLOCKED");
+    }
+
+    #[test]
+    fn verify_asserts_a_requested_api_floor() {
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!("sash-verify-floor-{}.exe", std::process::id()));
+        // A win10 image verified against the win8 floor fails on the floor,
+        // not on the PE structure.
+        let bytes = pe::synthetic_gui_image(0x8664, 0x020B, 0x0020 | 0x0040 | 0x0100 | 0x4000);
+        std::fs::write(&path, &bytes).unwrap();
+        let run = execute(&[
+            "sash".into(),
+            "verify".into(),
+            path.as_os_str().to_os_string(),
+            "--api-floor".into(),
+            "win8".into(),
+            "--format".into(),
+            "json".into(),
+        ]);
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(run.code, ExitCode::from(1));
+        assert_eq!(run.json["api_floor"], "win10");
+        let message = run.json["diagnostics"][0]["message"].as_str().unwrap();
+        assert!(
+            message.contains("image api floor is win10, not the requested win8"),
+            "{message}"
+        );
+
+        // The same image with no floor flag stays BLOCKED-PASS.
+        std::fs::write(&path, &bytes).unwrap();
+        let run = execute(&[
+            "sash".into(),
+            "verify".into(),
+            path.as_os_str().to_os_string(),
+            "--format".into(),
+            "json".into(),
+        ]);
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(run.code, ExitCode::from(3));
+    }
+
+    #[test]
+    fn verify_accepts_the_matching_legacy_floor() {
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!("sash-verify-legacy-floor-{}.exe", std::process::id()));
+        let manifest = "level=\"asInvoker\" uiAccess=\"false\" \
+            <dpiAware>true</dpiAware> \
+            processorArchitecture=\"amd64\" \
+            name=\"ELCI.Goya.Sash.StaticWindow.Legacy\" version=\"0.0.1.0\"";
+        let manifest = manifest.replace(" \\\n            ", " ");
+        let bytes = pe::synthetic_gui_image_with_manifest(
+            0x8664,
+            0x020B,
+            0x0020 | 0x0040 | 0x0100 | 0x4000,
+            &manifest,
+        );
+        std::fs::write(&path, &bytes).unwrap();
+        let run = execute(&[
+            "sash".into(),
+            "verify".into(),
+            path.as_os_str().to_os_string(),
+            "--api-floor".into(),
+            "win8".into(),
+            "--format".into(),
+            "json".into(),
+        ]);
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(run.code, ExitCode::from(3));
+        assert_eq!(run.json["api_floor"], "win8");
+        assert_eq!(
+            run.json["presentation_profile"],
+            crate::admit::PROFILE_LEGACY
+        );
+        assert_eq!(run.json["pe_structure"], "PASS");
     }
 
     #[test]
