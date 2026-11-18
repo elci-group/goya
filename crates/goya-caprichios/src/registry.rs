@@ -165,10 +165,7 @@ pub struct Request {
     pub bluetooth_continuity: Option<BluetoothContinuityDeclaration>,
     pub bluetooth_access: Option<BluetoothAccessDeclaration>,
     pub bluetooth_profile: Option<BluetoothProfileDeclaration>,
-    pub accelerator_iphone: Option<IphoneAcceleratorDeclaration>,
-    pub accelerator_ipad: Option<IpadAcceleratorDeclaration>,
-    pub accelerator_ipod_touch: Option<IpodTouchAcceleratorDeclaration>,
-    pub accelerator_apple_watch: Option<AppleWatchAcceleratorDeclaration>,
+    pub accelerator_model: Option<AcceleratorDeclaration>,
 }
 
 /// Host facts are supplied by the caller; the registry does not infer support
