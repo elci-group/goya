@@ -2588,12 +2588,34 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "opens one Wayland window and presents the scripted counter"]
+    #[ignore = "opens one window and presents the scripted counter"]
+    #[cfg(not(feature = "kumimanu"))]
     fn exercise_presents_the_scripted_counter() {
+        // Without the kumimanu feature this run opens the Wayland host.
+        // With the feature, routing selects Kumimanu and this assertion
+        // would test the wrong backend.
         let display = std::env::var("WAYLAND_DISPLAY").unwrap_or_default();
         assert!(!display.is_empty(), "WAYLAND_DISPLAY is unset");
         let report = run(&counter_json(), RunMode::Exercise).expect("window");
         assert_eq!(report.wayland, "opened");
+        assert!(report.presented >= 1, "{report:?}");
+        assert_eq!(report.count, 3);
+        assert_eq!(report.revision, 2);
+        assert!(report.copy_allowed);
+        assert!(!report.paste_allowed);
+    }
+
+    #[cfg(feature = "kumimanu")]
+    #[test]
+    #[ignore = "opens one X11 window; run with --ignored when DISPLAY is set"]
+    fn exercise_presents_the_scripted_counter_on_kumimanu() {
+        // With the kumimanu feature compiled in, routing selects Kumimanu
+        // unless EMPEROR_WINDOW_BACKEND forces Wayland at build time.
+        let display = std::env::var("DISPLAY").unwrap_or_default();
+        assert!(!display.is_empty(), "DISPLAY is unset");
+        let report = run(&counter_json(), RunMode::Exercise).expect("window");
+        assert_eq!(report.window, "kumimanu");
+        assert_eq!(report.wayland, "not-used");
         assert!(report.presented >= 1, "{report:?}");
         assert_eq!(report.count, 3);
         assert_eq!(report.revision, 2);
