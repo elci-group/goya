@@ -7,6 +7,18 @@ use crate::apple_pay_caprichio::{
 use crate::batching_caprichio::{
     BatchArtifact, BatchDeclaration, RuntimeCapabilities as BatchRuntime, Target as BatchTarget,
 };
+use crate::google_pay_caprichio::{
+    GooglePayArtifact, GooglePayDeclaration, RuntimeCapabilities as GooglePayHost,
+    Target as GooglePayTarget,
+};
+use crate::samsung_pay_caprichio::{
+    RuntimeCapabilities as SamsungPayHost, SamsungPayArtifact, SamsungPayDeclaration,
+    Target as SamsungPayTarget,
+};
+use crate::windows_hello_caprichio::{
+    RuntimeCapabilities as WindowsHelloHost, Target as WindowsHelloTarget,
+    WindowsHelloArtifact, WindowsHelloDeclaration,
+};
 use crate::catalog;
 use crate::checksum_caprichio::{
     Artifact as ChecksumArtifact, Declaration as ChecksumDeclaration, HostProfile as ChecksumHost,
@@ -111,6 +123,9 @@ pub struct Request {
     pub touch_id: Option<TouchIdDeclaration>,
     pub face_id: Option<FaceIdDeclaration>,
     pub apple_pay: Option<ApplePayDeclaration>,
+    pub windows_hello: Option<WindowsHelloDeclaration>,
+    pub google_pay: Option<GooglePayDeclaration>,
+    pub samsung_pay: Option<SamsungPayDeclaration>,
 }
 
 /// Host facts are supplied by the caller; the registry does not infer support
@@ -161,6 +176,12 @@ pub struct HostProfile {
     pub face_id_host: FaceIdHost,
     pub apple_pay_target: ApplePayTarget,
     pub apple_pay_host: ApplePayHost,
+    pub windows_hello_target: WindowsHelloTarget,
+    pub windows_hello_host: WindowsHelloHost,
+    pub google_pay_target: GooglePayTarget,
+    pub google_pay_host: GooglePayHost,
+    pub samsung_pay_target: SamsungPayTarget,
+    pub samsung_pay_host: SamsungPayHost,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -188,6 +209,9 @@ pub enum Artifact {
     TouchId(TouchIdArtifact),
     FaceId(FaceIdArtifact),
     ApplePay(ApplePayArtifact),
+    WindowsHello(WindowsHelloArtifact),
+    GooglePay(GooglePayArtifact),
+    SamsungPay(SamsungPayArtifact),
 }
 
 impl Artifact {
@@ -216,6 +240,9 @@ impl Artifact {
             Self::TouchId(a) => a.contract,
             Self::FaceId(a) => a.contract,
             Self::ApplePay(a) => a.contract,
+            Self::WindowsHello(a) => a.contract,
+            Self::GooglePay(a) => a.contract,
+            Self::SamsungPay(a) => a.contract,
         }
     }
 
@@ -244,6 +271,9 @@ impl Artifact {
             Self::TouchId(_) => "apple-touch-id-bounded-attempt-gate",
             Self::FaceId(_) => "apple-face-id-bounded-attempt-gate",
             Self::ApplePay(_) => "apple-pay-bounded-payment-request",
+            Self::WindowsHello(_) => "windows-hello-bounded-attempt-gate",
+            Self::GooglePay(_) => "google-pay-bounded-payment-request",
+            Self::SamsungPay(_) => "samsung-pay-bounded-payment-request",
         }
     }
 
@@ -272,6 +302,9 @@ impl Artifact {
             Self::TouchId(a) => a.recipe_version,
             Self::FaceId(a) => a.recipe_version,
             Self::ApplePay(a) => a.recipe_version,
+            Self::WindowsHello(a) => a.recipe_version,
+            Self::GooglePay(a) => a.recipe_version,
+            Self::SamsungPay(a) => a.recipe_version,
         }
     }
 
@@ -300,6 +333,9 @@ impl Artifact {
             Self::TouchId(a) => &a.canonical_ir,
             Self::FaceId(a) => &a.canonical_ir,
             Self::ApplePay(a) => &a.canonical_ir,
+            Self::WindowsHello(a) => &a.canonical_ir,
+            Self::GooglePay(a) => &a.canonical_ir,
+            Self::SamsungPay(a) => &a.canonical_ir,
         }
     }
 
@@ -328,6 +364,9 @@ impl Artifact {
             Self::TouchId(a) => &a.source,
             Self::FaceId(a) => &a.source,
             Self::ApplePay(a) => &a.source,
+            Self::WindowsHello(a) => &a.source,
+            Self::GooglePay(a) => &a.source,
+            Self::SamsungPay(a) => &a.source,
         }
     }
 }
@@ -357,8 +396,11 @@ pub const fn supported_contracts() -> &'static [&'static str] {
         crate::filesystem_caprichio::CONTRACT,
         crate::face_id_caprichio::CONTRACT,
         crate::touch_id_caprichio::CONTRACT,
+        crate::windows_hello_caprichio::CONTRACT,
         crate::metal_caprichio::CONTRACT,
         crate::apple_pay_caprichio::CONTRACT,
+        crate::google_pay_caprichio::CONTRACT,
+        crate::samsung_pay_caprichio::CONTRACT,
         crate::keychain_caprichio::CONTRACT,
         crate::input_validation_caprichio::CONTRACT,
         crate::memory_caprichio::CONTRACT,
@@ -398,6 +440,9 @@ pub enum NegotiationError {
     TouchId(crate::touch_id_caprichio::Diagnostic),
     FaceId(crate::face_id_caprichio::Diagnostic),
     ApplePay(crate::apple_pay_caprichio::Diagnostic),
+    WindowsHello(crate::windows_hello_caprichio::Diagnostic),
+    GooglePay(crate::google_pay_caprichio::Diagnostic),
+    SamsungPay(crate::samsung_pay_caprichio::Diagnostic),
 }
 
 impl fmt::Display for NegotiationError {
@@ -442,6 +487,9 @@ impl fmt::Display for NegotiationError {
             Self::TouchId(error) => write!(f, "Touch ID negotiation failed: {error}"),
             Self::FaceId(error) => write!(f, "Face ID negotiation failed: {error}"),
             Self::ApplePay(error) => write!(f, "Apple Pay negotiation failed: {error}"),
+            Self::WindowsHello(error) => write!(f, "Windows Hello negotiation failed: {error}"),
+            Self::GooglePay(error) => write!(f, "Google Pay negotiation failed: {error}"),
+            Self::SamsungPay(error) => write!(f, "Samsung Pay negotiation failed: {error}"),
         }
     }
 }
@@ -487,6 +535,9 @@ pub fn negotiate(
             && *id != crate::touch_id_caprichio::CONTRACT
             && *id != crate::face_id_caprichio::CONTRACT
             && *id != crate::apple_pay_caprichio::CONTRACT
+            && *id != crate::windows_hello_caprichio::CONTRACT
+            && *id != crate::google_pay_caprichio::CONTRACT
+            && *id != crate::samsung_pay_caprichio::CONTRACT
         {
             if catalog::find(id).is_some() {
                 return Err(NegotiationError::UnsupportedCapability((*id).to_owned()));
