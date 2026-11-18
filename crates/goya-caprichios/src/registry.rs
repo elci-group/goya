@@ -177,6 +177,10 @@ pub struct Request {
     pub bluetooth_continuity: Option<BluetoothContinuityDeclaration>,
     pub bluetooth_access: Option<BluetoothAccessDeclaration>,
     pub bluetooth_profile: Option<BluetoothProfileDeclaration>,
+    pub accelerator_iphone: Option<IphoneAcceleratorDeclaration>,
+    pub accelerator_ipad: Option<IpadAcceleratorDeclaration>,
+    pub accelerator_ipod_touch: Option<IpodTouchAcceleratorDeclaration>,
+    pub accelerator_apple_watch: Option<AppleWatchAcceleratorDeclaration>,
 }
 
 /// Host facts are supplied by the caller; the registry does not infer support
@@ -247,6 +251,14 @@ pub struct HostProfile {
     pub bluetooth_access_host: BluetoothAccessHost,
     pub bluetooth_profile_target: BluetoothProfileTarget,
     pub bluetooth_profile_host: BluetoothProfileHost,
+    pub accelerator_iphone_target: IphoneAcceleratorTarget,
+    pub accelerator_iphone_host: IphoneAcceleratorHost,
+    pub accelerator_ipad_target: IpadAcceleratorTarget,
+    pub accelerator_ipad_host: IpadAcceleratorHost,
+    pub accelerator_ipod_touch_target: IpodTouchAcceleratorTarget,
+    pub accelerator_ipod_touch_host: IpodTouchAcceleratorHost,
+    pub accelerator_apple_watch_target: AppleWatchAcceleratorTarget,
+    pub accelerator_apple_watch_host: AppleWatchAcceleratorHost,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -284,6 +296,10 @@ pub enum Artifact {
     BluetoothContinuity(BluetoothContinuityArtifact),
     BluetoothAccess(BluetoothAccessArtifact),
     BluetoothProfile(BluetoothProfileArtifact),
+    IphoneAccelerator(IphoneAcceleratorArtifact),
+    IpadAccelerator(IpadAcceleratorArtifact),
+    IpodTouchAccelerator(IpodTouchAcceleratorArtifact),
+    AppleWatchAccelerator(AppleWatchAcceleratorArtifact),
 }
 
 impl Artifact {
@@ -322,6 +338,10 @@ impl Artifact {
             Self::BluetoothContinuity(a) => a.contract,
             Self::BluetoothAccess(a) => a.contract,
             Self::BluetoothProfile(a) => a.contract,
+            Self::IphoneAccelerator(a) => a.contract,
+            Self::IpadAccelerator(a) => a.contract,
+            Self::IpodTouchAccelerator(a) => a.contract,
+            Self::AppleWatchAccelerator(a) => a.contract,
         }
     }
 
@@ -360,6 +380,10 @@ impl Artifact {
             Self::BluetoothContinuity(_) => "apple-ble-continuity-bounded-restoration",
             Self::BluetoothAccess(_) => "apple-ble-access-bounded-mapping",
             Self::BluetoothProfile(_) => "apple-ble-profile-bounded-classification",
+            Self::IphoneAccelerator(_) => "iphone-metal-checked-dispatch",
+            Self::IpadAccelerator(_) => "ipad-metal-checked-dispatch",
+            Self::IpodTouchAccelerator(_) => "ipod_touch-metal-checked-dispatch",
+            Self::AppleWatchAccelerator(_) => "apple-watch-accelerator-inventory-only",
         }
     }
 
@@ -398,6 +422,10 @@ impl Artifact {
             Self::BluetoothContinuity(a) => a.recipe_version,
             Self::BluetoothAccess(a) => a.recipe_version,
             Self::BluetoothProfile(a) => a.recipe_version,
+            Self::IphoneAccelerator(a) => a.recipe_version,
+            Self::IpadAccelerator(a) => a.recipe_version,
+            Self::IpodTouchAccelerator(a) => a.recipe_version,
+            Self::AppleWatchAccelerator(a) => a.recipe_version,
         }
     }
 
@@ -436,6 +464,10 @@ impl Artifact {
             Self::BluetoothContinuity(a) => &a.canonical_ir,
             Self::BluetoothAccess(a) => &a.canonical_ir,
             Self::BluetoothProfile(a) => &a.canonical_ir,
+            Self::IphoneAccelerator(a) => &a.canonical_ir,
+            Self::IpadAccelerator(a) => &a.canonical_ir,
+            Self::IpodTouchAccelerator(a) => &a.canonical_ir,
+            Self::AppleWatchAccelerator(a) => &a.canonical_ir,
         }
     }
 
@@ -474,6 +506,10 @@ impl Artifact {
             Self::BluetoothContinuity(a) => &a.source,
             Self::BluetoothAccess(a) => &a.source,
             Self::BluetoothProfile(a) => &a.source,
+            Self::IphoneAccelerator(a) => &a.source,
+            Self::IpadAccelerator(a) => &a.source,
+            Self::IpodTouchAccelerator(a) => &a.source,
+            Self::AppleWatchAccelerator(a) => &a.source,
         }
     }
 }
