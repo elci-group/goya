@@ -53,6 +53,55 @@ guaranteed by target negotiation. A Chrome loopback test exercises real
 IndexedDB operations, namespace isolation and transaction completion; it does
 not qualify other browsers, private browsing, quota failures or eviction.
 
+The hardware caprichios (Touch ID, Face ID, Windows Hello, Apple Pay, Google
+Pay, Samsung Pay) and the Blue Moon Bluetooth contracts follow the same shape:
+a typed declaration normalizes into canonical IR, negotiation fails closed on
+every unreported host facility, and the artifact is a generated Rust factory
+that constructs a process-local runtime (`apple_runtime`, `bluetooth_runtime`).
+They do not call platform frameworks, drive hardware, or prove that any native
+stack performed an operation; hosts on real hardware report their real
+facilities through runtime capabilities, and constructed objects prove nothing
+about sensors, payment networks or peripherals.
+
+`bluetooth_caprichio` (`goya.hardware.bluetooth.central.v1`, recipe
+`apple-ble-central-bounded-scan`) covers BLE central discovery and connection
+lifecycle accounting for iOS and Apple Silicon Mac targets. Scans are
+restricted to one to eight declared service UUID filters; the tracked
+peripheral set is bounded; detected, recognised, connected, operational and
+disconnected are distinct states, and only filter-matched peripherals connect;
+reconnection is bounded with deterministic exponential backoff from 100 ms,
+saturating at 5000 ms; RSSI observations are validated to the Bluetooth
+−127..0 dBm range; duplicates are suppressed.
+
+`bluetooth_control_caprichio` (`goya.hardware.bluetooth.gatt.v1`, recipe
+`apple-ble-gatt-bounded-commands`) covers GATT command accounting against
+profile-defined characteristic policies (permitted operations and value
+bounds). Reads are planned; writes run in acknowledged or unacknowledged
+modes with a bounded pending-acknowledgement ledger resolved only through
+explicit acknowledgements or cancellations; observed values are validated
+against the characteristic bound. A planned or acknowledged write is
+transport accounting only and is never reported as physical execution.
+
+`bluetooth_stream_caprichio` (`goya.hardware.bluetooth.stream.v1`, recipe
+`apple-ble-stream-bounded-notifications`) covers characteristic-notification
+intake with fixed per-characteristic transports. The buffer is bounded and
+applies fail-closed backpressure: over-full intake is rejected with drop
+accounting, never silent eviction; over-limit payloads fail closed;
+subscriptions cancel deterministically, discarding buffered items separately
+from drops; only indications create pending confirmations, and notifications
+never carry one; ordinals make intake order observable. Delivery is never
+guaranteed: notifications are unacknowledged at the attribute layer, and the
+canonical IR states `delivery_guarantee=none`.
+
+All three do not drive a radio, subscribe to a real peripheral, perform real
+GATT operations, advertise, restore state, or generate entitlements or usage
+descriptions. A constructed session is an accounting model, not evidence
+about any Bluetooth adapter. See
+[docs/blue-moon/BLUE-MOON-1.md](../../docs/blue-moon/BLUE-MOON-1.md),
+[docs/blue-moon/BLUE-MOON-2.md](../../docs/blue-moon/BLUE-MOON-2.md),
+[docs/blue-moon/BLUE-MOON-3.md](../../docs/blue-moon/BLUE-MOON-3.md) and
+[docs/blue-moon/roadmap.md](../../docs/blue-moon/roadmap.md).
+
 This crate defines a typed construction boundary for one HTTPS GET.
 A declaration normalizes into canonical network IR, selects a versioned browser
 or Node.js Fetch recipe, and emits an ES module with its contract, recipe and
