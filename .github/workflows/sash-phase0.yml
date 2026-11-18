@@ -190,6 +190,9 @@ jobs:
 
       - name: Link the artifact
         run: |
+          # Sash refuses to create parent paths for --out; make the arch
+          # directory exist first. The final directory itself must not exist.
+          mkdir -p ./artifacts/${{ matrix.arch }}
           cargo run -q -p sash -- \
             build "${{ matrix.scene }}" \
             --profile portable-native --release \
