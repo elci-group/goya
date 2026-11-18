@@ -1,34 +1,41 @@
-# Execute Quitasol intent primitive (Phase 0)
+# Quitasol Q2 — Fire OS integration emission (Media Session track)
 
 ## Context
-The revised Quitasol directive ([docs/quitasol/intents.md](docs/quitasol/intents.md), [quitasol-overview.md](docs/quitasol/quitasol-overview.md)) adopts a first-class `intent` primitive (rejected: extending `gesture`). Exploration confirmed: GY-IR/1 freezes `Module`/`Node` (so goya-ir is untouched), repo convention is authoring syntax in `goya-lang` + a semantic-boundary sibling crate on the `maja-semantic` pattern (contract const, fail-closed profile, versioned diagnostics), and strict-profile gating via new GY-E error codes.
+The Q0 audit established that the **only self-serve, documented Fire OS voice integration** is the Media Session transport path (play/pause, offset seek, skip next/previous, restart — via the `com.amazon.permission.media.session.voicecommandcontrol` manifest permission) plus automatic app launch by name. VSK/search is closed to new partners; in-app voice input does not exist. Q2 therefore emits a deterministic **Fire OS integration plan** from a resolved manifest: which Android manifest fragments an app needs and which intents can lower to MediaSession transport actions — with everything else honestly recorded as `Unresolved`, never silently claimed.
 
-## 1. Authoring surface — `crates/goya-lang`
-- **scene.rs**: add `IntentDecl { name, action: String, utterances: Vec<String>, confirmation: bool, fallback_remote: Option<String>, fallback_keyboard: Option<String> }` plus `SceneIntents` collection surfaced on `ParsedScene`/`Scene`, mirroring how `GesturePolicy` sits on `SceneCell`.
-- **parser.rs**: add an `@intent Name { ... }` arm in `parse_cell_body`'s `AtWord` match (~line 956, following the `@interaction` pattern), with a dedicated `parse_intent` method: body properties `action:`, `voice { utterance: ..., confirmation: ... }`, `fallback { remote:, keyboard: }`. Push `SourceEntry` for the source map. New error codes GY-E1010 (bad intent shape), GY-E1011 (intent validation) in the existing GY-E1000..1009 block; **strict profiles (gssh1/2/3) reject `@intent`** exactly as they reject GSSH/2 constructs (GY-E1006 pattern).
-- **intents.rs** (new module, quarantined docstring like `gestures.rs`: "Experimental, proposed not ratified"): pinned versioned utterance grammar v0 — `{slot}` placeholders, slot names must be idents, unknown/duplicate slots rejected, duplicate utterances rejected; required fallback enforcement (at least one of remote/keyboard); utterance must reference at least the action's declared slots when the action takes parameters (validation limited to what the AST carries).
+Working state check first: concurrent sessions moved branches (`main` is now checked out, clean); step 0 verifies the Q1 artifacts are present on `main` before anything builds on them.
 
-## 2. Semantic Intent Compiler — new crate `crates/quitasol-semantic`
-- New workspace member (Cargo.toml `[workspace.members]`, shared `version = "0.1.8"`, edition 2021, MIT OR Apache-2.0).
-- **lib.rs**: consts `INTENT_IR_CONTRACT = "QUITASOL-INTENT-IR/1-draft"`, `INTENT_PROFILE = "quitasol.intent.v0"`; fail-closed: every diagnostic carries code + SourceRange; unknown inputs rejected, never defaulted.
-- Consumes `SceneIntentDecl`s (via goya-lang types): validates and emits a **versioned intent manifest** — `emit_manifest(&[IntentDecl]) -> Result<IntentManifest, Diagnostic>` with a deterministic JSON serialisation (contract id, profile, sorted intent list, utterances, confirmation, fallback, per-intent lowering tier `Unresolved` — tier resolution is explicitly out of scope, recorded as such in the manifest).
-- Validation passes: required fallback, utterance grammar, duplicate intent names, actions referenced must exist in the scene's action set, conflicting lowerings (an intent is limited to one voice tier + fallback — nothing here can conflict yet, so the check validates the declared tier set).
+## 1. `crates/goya-lang` — optional `transport` key on `@intent` (draft surface)
+Quitasol needs an authoring hook to declare *which* MediaSession transport action an intent represents. Added inside the intent body, compat-parser only (strict GSSH profiles already reject all `@intent` with GY-E1010, so no admission change):
+- **scene.rs**: `pub enum TransportClass { PlayPause, SkipNext, SkipPrevious, SeekForward, SeekBackward, Restart }` (exactly the six documented MediaSession behaviours; no absolute seek — Q0: unsupported), plus `pub transport: Option<TransportClass>` on `IntentDecl`.
+- **parser.rs** (`parse_intent`): optional key `transport: play_pause|skip_next|skip_previous|seek_forward|seek_backward|restart;` after `action:`; unknown value or duplicate key → parse error (fail-closed, matching existing intent-body behaviour). Default remains `None`.
+- Update `IntentDecl` construction sites (`parse_intent`, any tests constructing it literally).
 
-## 3. Contracts & docs
-- **docs/contracts.md**: add `GY-INTENT/1-draft` entry describing provides/invariants/stability (Candidate, draft; shape may change; nothing ratified).
-- **docs/quitasol/intents.md**: update §6 — IR representation decision taken for phase 0 (side-collection in goya-lang scene + separate draft manifest; GY-IR/1 untouched); mark implemented parts as phase-0 experimental.
-- New **docs/quitasol/phase0.md**: short phase-0 record (what exists, what is BLOCKED: lowerings, runtime, owners/ratification) following `docs/sash/phase0/` convention.
+## 2. `crates/quitasol-semantic` — new `fireos.rs` module
+- `pub const FIRE_OS_PLAN_CONTRACT: &str = "QUITASOL-FIREOS-PLAN/1-draft";` — draft, proposed not ratified.
+- `pub struct TransportAction { pub action: &'static str }` — Android MediaSession callback names (`ACTION_PLAY_PAUSE`, `ACTION_SKIP_TO_NEXT`, `ACTION_SKIP_TO_PREVIOUS`, `ACTION_SEEK_TO`+offset, `ACTION_RESTART`-equivalent), mapped 1:1 from `TransportClass`.
+- `pub enum IntentLowering { MediaSessionTransport(Vec<&'static str>), LaunchOnly, Unresolved }` — an intent with a `transport` declaration lowers to its MediaSession actions; an intent without transport **and** whose action's trigger is an app-level button stays `Unresolved` (search/discovery would need VSK = closed per Q0). `LaunchOnly` is recorded only at plan level (automatic for every app).
+- `pub struct FireOsPlan { contract, profile (quitasol.intent.v0), permission_entries: Vec<PermissionEntry>, launch: LaunchSupport, intents: Vec<(name, IntentLowering)> }`:
+  - `permission_entries` contains `com.amazon.permission.media.session.voicecommandcontrol` iff ≥1 intent declares transport (Q0: not required on Fire OS 14+ — recorded as a note field, not a claim).
+  - `to_json()` — hand-written, byte-deterministic, reusing `push_json_string`/`push_entry_json` patterns.
+- `pub fn emit_fire_os_plan(scene: &Scene, resolved: &ResolvedManifest) -> Result<FireOsPlan, IntentDiagnostic>`: fail-closed — requires the resolved manifest's device/fallback resolution (Q1) to have succeeded; deterministic ordering by intent name.
+- Lowering tier honesty: plan-level `lowering_tier` stays `"unresolved"` — a transport mapping is a *candidate* binding, not a runtime; no APK is produced and no conformance is claimed.
 
-## 4. Tests & fixtures
-- **goya-lang corpus**: `tests/corpus/accept/` fixtures for valid `@intent`; `reject/` fixtures with header comments (`// profile:`, `// expect: GY-E101x`, `// at:`) for: missing fallback, duplicate utterance, bad slot grammar, `@intent` under strict profile, duplicate intent name. Follow existing `strict_corpus.rs` conventions.
-- **quitasol-semantic tests**: unit tests for manifest determinism (identical inputs → byte-identical JSON), each validation failure path, and an end-to-end parse→emit test.
-- Inline parser tests in goya-lang mirroring existing `@interaction` tests.
+## 3. Tests
+- goya-lang: `transport` parses into `IntentDecl` (each class), unknown value rejected, duplicate rejected, absence → `None`; intent corpus mutation sweep still total.
+- quitasol-semantic: plan emission with mixed transport/unresolved intents; permission present iff transport declared; deterministic JSON (byte-identical across runs and declaration order); fail-closed ordering (compile errors precede); zero-intent scene → empty plan with launch entry only.
 
-## 5. Verification
-- `cargo test -p goya-lang --offline --tests`
-- `cargo test -p quitasol-semantic --offline --lib --tests`
-- `cargo clippy -p goya-lang -p quitasol-semantic --all-targets --offline -- -D warnings && cargo fmt -p goya-lang -p quitasol-semantic -- --check`
-- Confirm existing strict corpus still passes (no regression to GSSH profiles): `cargo test -p goya-lang --offline` full.
+## 4. Docs
+- **docs/quitasol/phase2.md**: phase record following phase1.md tone — what exists, Q0 anchoring (Media Session = only self-serve tier), BLOCKED table (no APK build, no MediaSession runtime, Fire OS 14 permission note unverified on device, Vega track untouched).
+- **docs/contracts.md**: extend the GY-INTENT/1-draft entry with the `transport` key (draft surface).
+- **docs/quitasol/quitasol-overview.md**: note Fire OS plan emission exists (Q2).
+- **docs/quitasol/programme/quitasol-q2.json**: evidence record (gates: library tests PASS, plan determinism PASS; BLOCKED: device verification, runtime, APK emission).
 
-## Not in scope
-goya-ir changes, lowering to Alexa/VSK, runtime, quality gate 14, OEM capability resolver, app/store conformance.
+## 5. Non-goals
+No APK/AAB build, no Android project generation (Aragon/goya-sdk owns phone-track codegen; Nevada ledger N0-CODEGEN owns TV emission), no changes to `crates/nevada`, no runtime, no claim that transport intents work on-device.
+
+## 6. Verification
+- `cargo test -p goya-lang --offline` (incl. intent corpus)
+- `cargo test -p quitasol-semantic --offline`
+- `cargo clippy -p goya-lang -p quitasol-semantic --all-targets --offline -- -D warnings`
+- Commit + push via kaptaind (daemon running; branch `main` — confirm with user implicit in established workflow).
