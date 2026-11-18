@@ -351,8 +351,8 @@ impl BluetoothProfileIr {
                     ProfileCategory::Custom => "Custom",
                 },
                 version = record.version(),
-                required_arguments,
-                optional_arguments
+                required_arguments = required_arguments,
+                optional_arguments = optional_arguments
             ),
         })
     }
