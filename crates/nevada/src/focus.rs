@@ -226,11 +226,11 @@ fn successor_in_viewport(
 
 /// Look up the first element with `id` that is focusable (and inside the
 /// viewport when one is supplied).
-fn find_focusable(
-    elements: &[FocusElement],
+fn find_focusable<'a>(
+    elements: &'a [FocusElement],
     id: u32,
-    viewport: Option<&Viewport>,
-) -> Option<&FocusElement> {
+    viewport: Option<&'a Viewport>,
+) -> Option<&'a FocusElement> {
     elements.iter().find(|element| {
         element.id == id
             && element.focusable
