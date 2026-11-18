@@ -1416,14 +1416,11 @@ fn stage_deb(
     fs::create_dir_all(staging.join("usr/local/bin")).map_err(io_fault)?;
     fs::create_dir_all(staging.join("usr/local/share/applications")).map_err(io_fault)?;
     fs::create_dir_all(staging.join("usr/local/share/doc/emperor-counter")).map_err(io_fault)?;
+    // Debian requires each Description continuation line to start with a
+    // single space; the whole field is kept on one literal so the required
+    // leading space survives formatting.
     let control = format!(
-        "Package: {DEB_PACKAGE_NAME}\n\
-         Version: {COMPILER_VERSION}\n\
-         Architecture: {architecture}\n\
-         Maintainer: {DEB_MAINTAINER}\n\
-         Section: utils\n\
-         Description: Counter application produced by the Emperor compiler\n\
-          Delivered as a real .deb by dpkg-deb from the workspace build tree.\n"
+        "Package: {DEB_PACKAGE_NAME}\nVersion: {COMPILER_VERSION}\nArchitecture: {architecture}\nMaintainer: {DEB_MAINTAINER}\nSection: utils\nDescription: Counter application produced by the Emperor compiler\n Delivered as a real .deb by dpkg-deb from the workspace build tree.\n"
     );
     fs::write(staging.join("DEBIAN/control"), control).map_err(io_fault)?;
     fs::copy(app, staging.join("usr/local/bin/App")).map_err(io_fault)?;
