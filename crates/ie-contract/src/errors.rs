@@ -66,7 +66,12 @@ impl TypedError {
             7 => Some(TypedError::DeadlineExceeded),
             8 => Some(TypedError::Cancelled),
             9 => Some(TypedError::PeerLost),
-            10 => Some(TypedError::VersionMismatch { local: 0, remote: 0 }),
+            10 => {
+                let Some((l, rr)) = detail.split_once(':') else { return None };
+                let local = l.parse::<u32>().ok()?;
+                let remote = rr.parse::<u32>().ok()?;
+                Some(TypedError::VersionMismatch { local, remote })
+            }
             11 => mk(detail).map(|reason| TypedError::Internal { reason }),
             _ => None,
         }
