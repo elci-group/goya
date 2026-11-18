@@ -1518,6 +1518,79 @@ mod tests {
         }
     }
 
+    fn windows_hello() -> WindowsHelloDeclaration {
+        WindowsHelloDeclaration {
+            max_attempts: 3,
+            timeout_ms: 20_000,
+            allow_pin_fallback: true,
+        }
+    }
+
+    fn google_pay() -> GooglePayDeclaration {
+        GooglePayDeclaration {
+            merchant_id: "com.goya.registry.pay".into(),
+            currency_code: "USD".into(),
+            max_minor_units: 100_000,
+        }
+    }
+
+    fn samsung_pay() -> SamsungPayDeclaration {
+        SamsungPayDeclaration {
+            merchant_id: "com.goya.registry.pay".into(),
+            currency_code: "USD".into(),
+            max_minor_units: 100_000,
+        }
+    }
+
+    fn bluetooth_central() -> BluetoothCentralDeclaration {
+        BluetoothCentralDeclaration {
+            service_uuids: vec!["181A".to_owned()],
+            max_scan_ms: 10_000,
+            max_peripherals: 2,
+            connection_timeout_ms: 10_000,
+            max_reconnect_attempts: 2,
+        }
+    }
+
+    fn bluetooth_gatt() -> BluetoothGattDeclaration {
+        BluetoothGattDeclaration {
+            characteristics: vec![
+                crate::bluetooth_runtime::CharacteristicPolicy::new(
+                    "2A6E".to_owned(),
+                    crate::bluetooth_runtime::GattAccess::ReadWrite,
+                    512,
+                )
+                .unwrap(),
+                crate::bluetooth_runtime::CharacteristicPolicy::new(
+                    "2A37".to_owned(),
+                    crate::bluetooth_runtime::GattAccess::Write,
+                    64,
+                )
+                .unwrap(),
+            ],
+            max_command_timeout_ms: 30_000,
+        }
+    }
+
+    fn bluetooth_stream() -> BluetoothStreamDeclaration {
+        BluetoothStreamDeclaration {
+            characteristics: vec![
+                crate::bluetooth_runtime::StreamCharacteristic::new(
+                    "2A6E".to_owned(),
+                    crate::bluetooth_runtime::NotificationTransport::Notification,
+                )
+                .unwrap(),
+                crate::bluetooth_runtime::StreamCharacteristic::new(
+                    "2A37".to_owned(),
+                    crate::bluetooth_runtime::NotificationTransport::Indication,
+                )
+                .unwrap(),
+            ],
+            max_notification_bytes: 256,
+            max_buffered_notifications: 2,
+        }
+    }
+
     #[test]
     fn touch_id_contract_registers_exactly_and_fails_closed() {
         let contract = crate::touch_id_caprichio::CONTRACT;
