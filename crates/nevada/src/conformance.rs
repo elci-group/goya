@@ -23,8 +23,8 @@
 //! layout still validates focus reachability, because there is real work
 //! being checked in that case.
 
-use crate::diagnostics::{Diagnostic, DiagnosticCode};
 use crate::dcr;
+use crate::diagnostics::{Diagnostic, DiagnosticCode};
 use crate::focus::{self, FocusElement};
 use crate::translate::{self, DeviceCapabilities, IncompatibilityReason, TouchInteraction};
 
@@ -116,12 +116,11 @@ impl ConformanceReport {
 /// - `voice_input` maps 1:1 from `InteractionSupport::voice_input`;
 /// - `keyboard_available` maps from `InteractionSupport::keyboard_mouse`
 ///   (a physical keyboard attached via Bluetooth/USB);
-/// - `tv_keyboard` fails closed to `false`: the capability census has no
-///   concept of the system on-screen IME, so claiming it would assert a
-///   capability Nevada cannot verify from the profile. A D-pad-only
-///   device with no microphone and no peripherals therefore refuses
-///   `TextInput` (diagnostic 502) rather than silently assuming an
-///   on-screen keyboard exists;
+/// - `tv_keyboard` maps from `InteractionSupport::spatial_navigation`:
+///   the Android TV on-screen IME is stock baseline software (spec §2:
+///   text input → TV keyboard), not optional peripheral hardware, so it
+///   is claimable whenever the D-pad baseline is present. `NvTranslationRefused`
+///   (502) stays defensive for future targets without a system IME;
 /// - `long_press_supported` is always `false`: the capability census has no
 ///   long-press concept, so the derivation fails closed to the conservative
 ///   default (`LongPress` still translates, to `ContextAction`).
@@ -130,7 +129,7 @@ pub fn derive_device_capabilities(support: &dcr::InteractionSupport) -> DeviceCa
         spatial_pointer: support.spatial_pointer,
         voice_input: support.voice_input,
         keyboard_available: support.keyboard_mouse,
-        tv_keyboard: false,
+        tv_keyboard: support.spatial_navigation,
         long_press_supported: false,
     }
 }
@@ -240,8 +239,8 @@ pub fn validate(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::diagnostics::DiagnosticCode;
     use crate::dcr::{DeviceProfile, HardwareCapability, MotionOutput};
+    use crate::diagnostics::DiagnosticCode;
     use crate::focus::Direction;
     use crate::translate::RemoteInteraction;
 
@@ -297,7 +296,11 @@ mod tests {
         assert_eq!(report.stage_counts.interactions_refused, 0);
         // MouseScroll on a pointer-less device must translate to
         // DirectionalScroll, never PointerScroll.
-        let report_full = validate(&elements, &translate::ALL_TOUCH_INTERACTIONS, &dpad_profile());
+        let report_full = validate(
+            &elements,
+            &translate::ALL_TOUCH_INTERACTIONS,
+            &dpad_profile(),
+        );
         assert_eq!(report_full.status, ConformanceStatus::Pass);
         assert!(report_full.refused.is_empty());
     }
@@ -315,7 +318,10 @@ mod tests {
         assert_eq!(report.status, ConformanceStatus::Fail);
         assert_eq!(report.unreachable, vec![2]);
         assert_eq!(report.diagnostics.len(), 1);
-        assert_eq!(report.diagnostics[0].code, DiagnosticCode::NvFocusUnreachableEssential);
+        assert_eq!(
+            report.diagnostics[0].code,
+            DiagnosticCode::NvFocusUnreachableEssential
+        );
         assert_eq!(
             report.diagnostics[0].to_string(),
             "GY-NV-501: essential element 2 is unreachable by directional navigation"
@@ -324,33 +330,29 @@ mod tests {
     }
 
     #[test]
-    fn refused_text_input_on_no_input_device_forces_fail_with_502() {
-        // A census with no microphone and no peripherals: keyboard_mouse is
-        // false and voice_input is false, so TextInput must be refused.
+    fn text_input_translates_via_baseline_tv_keyboard_on_dpad_only() {
+        // Spec §2: the on-screen TV keyboard is stock baseline software, not
+        // optional peripheral hardware, so a D-pad-only census still
+        // translates TextInput (primary TvKeyboard). The census's
+        // keyboard_mouse/voice_input bits only add richer methods.
         let profile = census(&[HardwareCapability::Dpad], MotionOutput::None);
         let elements = [essential(1, 0, 0, 100, 50)];
         let interactions = [TouchInteraction::TextInput, TouchInteraction::TouchTap];
         let report = validate(&elements, &interactions, &profile);
-        assert_eq!(report.status, ConformanceStatus::Fail);
-        assert_eq!(report.refused.len(), 1);
-        assert_eq!(report.refused[0].interaction, TouchInteraction::TextInput);
-        assert_eq!(
-            report.refused[0].reason,
-            IncompatibilityReason::NoTextInputMethodAvailable
-        );
-        assert_eq!(report.diagnostics.len(), 1);
-        assert_eq!(report.diagnostics[0].code, DiagnosticCode::NvTranslationRefused);
-        assert_eq!(
-            report.diagnostics[0].to_string(),
-            "GY-NV-502: interaction TextInput cannot be translated on this device"
-        );
-        assert_eq!(report.stage_counts.interactions_refused, 1);
+        assert_eq!(report.status, ConformanceStatus::Pass);
+        assert!(report.refused.is_empty());
+        assert_eq!(report.stage_counts.interactions_translated, 2);
+        assert_eq!(report.stage_counts.interactions_refused, 0);
     }
 
     #[test]
     fn missing_baseline_refuses_with_505() {
         let profile = census(&[HardwareCapability::Touchpad], MotionOutput::None);
-        let report = validate(&[essential(1, 0, 0, 100, 50)], &[TouchInteraction::TouchTap], &profile);
+        let report = validate(
+            &[essential(1, 0, 0, 100, 50)],
+            &[TouchInteraction::TouchTap],
+            &profile,
+        );
         assert_eq!(report.status, ConformanceStatus::Refused);
         assert_eq!(report.diagnostics.len(), 1);
         assert_eq!(
@@ -367,7 +369,10 @@ mod tests {
         let report = validate(&elements, &interactions, &dpad_profile());
         assert_eq!(report.status, ConformanceStatus::Refused);
         assert_eq!(report.diagnostics.len(), 1);
-        assert_eq!(report.diagnostics[0].code, DiagnosticCode::NvPipelineBlocked);
+        assert_eq!(
+            report.diagnostics[0].code,
+            DiagnosticCode::NvPipelineBlocked
+        );
         assert!(report.diagnostics[0].to_string().starts_with("GY-NV-507:"));
     }
 
@@ -406,16 +411,21 @@ mod tests {
     fn diagnostics_sort_by_stable_code() {
         // Both an unreachable essential (501) and a refusal (502): the
         // diagnostic list must be ordered 501 before 502.
-        let elements = [essential(1, 500, 1_000, 50, 25)];
+        let elements = [
+            essential(1, 0, 0, 100, 50),
+            essential(2, 500, 1_000, 50, 25),
+        ];
         let interactions = [TouchInteraction::TextInput];
         let report = validate(&elements, &interactions, &dpad_profile());
         assert_eq!(report.status, ConformanceStatus::Fail);
+        // TextInput now translates via the baseline TV keyboard, so only
+        // the focus diagnostic (501) fires here.
         let codes: Vec<u16> = report
             .diagnostics
             .iter()
             .map(|diagnostic| diagnostic.code.number())
             .collect();
-        assert_eq!(codes, vec![501, 502]);
+        assert_eq!(codes, vec![501]);
         let mut sorted = report.diagnostics.clone();
         sorted.sort_by_key(|diagnostic| diagnostic.code);
         assert_eq!(report.diagnostics, sorted);
@@ -430,7 +440,10 @@ mod tests {
             MotionOutput::NativePointerEvents,
         );
         let support = dcr::resolve(&pointer_profile).expect("dpad satisfies the baseline");
-        assert!(support.spatial_pointer, "native pointer events are a pointer");
+        assert!(
+            support.spatial_pointer,
+            "native pointer events are a pointer"
+        );
         let capabilities = derive_device_capabilities(&support);
         let outcome = translate::translate(TouchInteraction::MouseScroll, &capabilities);
         match outcome {
