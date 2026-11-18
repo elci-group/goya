@@ -346,12 +346,12 @@ mod tests {
         .unwrap();
         assert_eq!(json["controls"][0]["role"], "edit");
         assert_eq!(json["gesture_policy"]["cut_mode"], "default");
-        assert_eq!(json["transition"]["expr"], {
-            // Externally tagged: {"Add": [{"State": {}}, {"Input": {}}]}
-            serde_json::json!({
-                "Add": [ { "State": {} }, { "Input": {} } ]
-            })
-        });
+        // Externally tagged, snake_case: unit variants are bare strings and
+        // tuple variants are one-key objects.
+        assert_eq!(
+            json["transition"]["expr"],
+            serde_json::json!({ "add": ["state", "input"] })
+        );
     }
 
     #[test]

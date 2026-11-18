@@ -185,6 +185,9 @@ pub enum Artifact {
     InputValidation(InputValidationArtifact),
     Keychain(KeychainArtifact),
     Metal(MetalArtifact),
+    TouchId(TouchIdArtifact),
+    FaceId(FaceIdArtifact),
+    ApplePay(ApplePayArtifact),
 }
 
 impl Artifact {
@@ -210,6 +213,9 @@ impl Artifact {
             Self::InputValidation(a) => a.contract,
             Self::Keychain(a) => a.contract,
             Self::Metal(a) => a.contract,
+            Self::TouchId(a) => a.contract,
+            Self::FaceId(a) => a.contract,
+            Self::ApplePay(a) => a.contract,
         }
     }
 
@@ -235,6 +241,9 @@ impl Artifact {
             Self::InputValidation(a) => a.recipe,
             Self::Keychain(_) => "apple-keychain-namespace-bounded-kv",
             Self::Metal(_) => "apple-silicon-metal-checked-dispatch",
+            Self::TouchId(_) => "apple-touch-id-bounded-attempt-gate",
+            Self::FaceId(_) => "apple-face-id-bounded-attempt-gate",
+            Self::ApplePay(_) => "apple-pay-bounded-payment-request",
         }
     }
 
@@ -260,6 +269,9 @@ impl Artifact {
             Self::InputValidation(a) => a.recipe_version,
             Self::Keychain(a) => a.recipe_version,
             Self::Metal(a) => a.recipe_version,
+            Self::TouchId(a) => a.recipe_version,
+            Self::FaceId(a) => a.recipe_version,
+            Self::ApplePay(a) => a.recipe_version,
         }
     }
 
@@ -285,6 +297,9 @@ impl Artifact {
             Self::InputValidation(a) => &a.canonical_ir,
             Self::Keychain(a) => &a.canonical_ir,
             Self::Metal(a) => &a.canonical_ir,
+            Self::TouchId(a) => &a.canonical_ir,
+            Self::FaceId(a) => &a.canonical_ir,
+            Self::ApplePay(a) => &a.canonical_ir,
         }
     }
 
@@ -310,6 +325,9 @@ impl Artifact {
             Self::InputValidation(a) => &a.source,
             Self::Keychain(a) => &a.source,
             Self::Metal(a) => &a.source,
+            Self::TouchId(a) => &a.source,
+            Self::FaceId(a) => &a.source,
+            Self::ApplePay(a) => &a.source,
         }
     }
 }
@@ -337,7 +355,10 @@ pub const fn supported_contracts() -> &'static [&'static str] {
         crate::csv_caprichio::CONTRACT,
         crate::stream_caprichio::CONTRACT,
         crate::filesystem_caprichio::CONTRACT,
+        crate::face_id_caprichio::CONTRACT,
+        crate::touch_id_caprichio::CONTRACT,
         crate::metal_caprichio::CONTRACT,
+        crate::apple_pay_caprichio::CONTRACT,
         crate::keychain_caprichio::CONTRACT,
         crate::input_validation_caprichio::CONTRACT,
         crate::memory_caprichio::CONTRACT,
@@ -374,6 +395,9 @@ pub enum NegotiationError {
     InputValidation(crate::input_validation_caprichio::Diagnostic),
     Keychain(crate::keychain_caprichio::Diagnostic),
     Metal(crate::metal_caprichio::Diagnostic),
+    TouchId(crate::touch_id_caprichio::Diagnostic),
+    FaceId(crate::face_id_caprichio::Diagnostic),
+    ApplePay(crate::apple_pay_caprichio::Diagnostic),
 }
 
 impl fmt::Display for NegotiationError {
@@ -415,6 +439,9 @@ impl fmt::Display for NegotiationError {
             }
             Self::Keychain(error) => write!(f, "keychain negotiation failed: {error}"),
             Self::Metal(error) => write!(f, "Metal dispatch negotiation failed: {error}"),
+            Self::TouchId(error) => write!(f, "Touch ID negotiation failed: {error}"),
+            Self::FaceId(error) => write!(f, "Face ID negotiation failed: {error}"),
+            Self::ApplePay(error) => write!(f, "Apple Pay negotiation failed: {error}"),
         }
     }
 }
@@ -457,6 +484,9 @@ pub fn negotiate(
             && *id != crate::input_validation_caprichio::CONTRACT
             && *id != crate::keychain_caprichio::CONTRACT
             && *id != crate::metal_caprichio::CONTRACT
+            && *id != crate::touch_id_caprichio::CONTRACT
+            && *id != crate::face_id_caprichio::CONTRACT
+            && *id != crate::apple_pay_caprichio::CONTRACT
         {
             if catalog::find(id).is_some() {
                 return Err(NegotiationError::UnsupportedCapability((*id).to_owned()));
@@ -485,6 +515,9 @@ pub fn negotiate(
     let needs_input_validation = ordered.contains(crate::input_validation_caprichio::CONTRACT);
     let needs_keychain = ordered.contains(crate::keychain_caprichio::CONTRACT);
     let needs_metal = ordered.contains(crate::metal_caprichio::CONTRACT);
+    let needs_touch_id = ordered.contains(crate::touch_id_caprichio::CONTRACT);
+    let needs_face_id = ordered.contains(crate::face_id_caprichio::CONTRACT);
+    let needs_apple_pay = ordered.contains(crate::apple_pay_caprichio::CONTRACT);
     if request.network.is_some() && !needs_network {
         return Err(NegotiationError::UnexpectedDeclaration { kind: "network" });
     }
@@ -551,6 +584,17 @@ pub fn negotiate(
     if request.metal_compute.is_some() && !needs_metal {
         return Err(NegotiationError::UnexpectedDeclaration {
             kind: "metal_compute",
+        });
+    }
+    if request.touch_id.is_some() && !needs_touch_id {
+        return Err(NegotiationError::UnexpectedDeclaration { kind: "touch_id" });
+    }
+    if request.face_id.is_some() && !needs_face_id {
+        return Err(NegotiationError::UnexpectedDeclaration { kind: "face_id" });
+    }
+    if request.apple_pay.is_some() && !needs_apple_pay {
+        return Err(NegotiationError::UnexpectedDeclaration {
+            kind: "apple_pay",
         });
     }
 
@@ -814,6 +858,43 @@ pub fn negotiate(
                         .map_err(NegotiationError::Metal)?,
                 )
             }
+            crate::touch_id_caprichio::CONTRACT => {
+                let declaration = request
+                    .touch_id
+                    .ok_or(NegotiationError::MissingDeclaration {
+                        capability: crate::touch_id_caprichio::CONTRACT,
+                    })?;
+                let ir = declaration.normalize().map_err(NegotiationError::TouchId)?;
+                Artifact::TouchId(
+                    ir.lower_checked(host.touch_id_target, host.touch_id_host)
+                        .map_err(NegotiationError::TouchId)?,
+                )
+            }
+            crate::face_id_caprichio::CONTRACT => {
+                let declaration =
+                    request
+                        .face_id
+                        .ok_or(NegotiationError::MissingDeclaration {
+                            capability: crate::face_id_caprichio::CONTRACT,
+                        })?;
+                let ir = declaration.normalize().map_err(NegotiationError::FaceId)?;
+                Artifact::FaceId(
+                    ir.lower_checked(host.face_id_target, host.face_id_host)
+                        .map_err(NegotiationError::FaceId)?,
+                )
+            }
+            crate::apple_pay_caprichio::CONTRACT => {
+                let declaration = request.apple_pay.clone().ok_or(
+                    NegotiationError::MissingDeclaration {
+                        capability: crate::apple_pay_caprichio::CONTRACT,
+                    },
+                )?;
+                let ir = declaration.normalize().map_err(NegotiationError::ApplePay)?;
+                Artifact::ApplePay(
+                    ir.lower_checked(host.apple_pay_target, host.apple_pay_host)
+                        .map_err(NegotiationError::ApplePay)?,
+                )
+            }
             _ => unreachable!("request IDs validated before lowering"),
         };
         let id = match artifact {
@@ -837,6 +918,9 @@ pub fn negotiate(
             Artifact::InputValidation(_) => crate::input_validation_caprichio::CONTRACT,
             Artifact::Keychain(_) => crate::keychain_caprichio::CONTRACT,
             Artifact::Metal(_) => crate::metal_caprichio::CONTRACT,
+            Artifact::TouchId(_) => crate::touch_id_caprichio::CONTRACT,
+            Artifact::FaceId(_) => crate::face_id_caprichio::CONTRACT,
+            Artifact::ApplePay(_) => crate::apple_pay_caprichio::CONTRACT,
         };
         result.push(NegotiatedCapability { id, artifact });
     }
@@ -964,6 +1048,28 @@ mod tests {
                 command_queue: true,
                 unified_memory: true,
                 msl_version_3: true,
+            },
+            touch_id_target: TouchIdTarget::Ios,
+            touch_id_host: TouchIdHost {
+                touch_id_sensor: true,
+                local_authentication: true,
+                secure_enclave_match: true,
+                utf8_strings: true,
+            },
+            face_id_target: FaceIdTarget::Ios,
+            face_id_host: FaceIdHost {
+                face_id_sensor: true,
+                camera_available: true,
+                local_authentication: true,
+                secure_enclave_match: true,
+                utf8_strings: true,
+            },
+            apple_pay_target: ApplePayTarget::Ios,
+            apple_pay_host: ApplePayHost {
+                pass_kit: true,
+                secure_element_credential: true,
+                network_session: true,
+                utf8_strings: true,
             },
         }
     }
@@ -1111,6 +1217,236 @@ mod tests {
             groups: 8,
             max_buffer_bytes: 4096,
         }
+    }
+
+    fn touch_id() -> TouchIdDeclaration {
+        TouchIdDeclaration {
+            max_attempts: 3,
+            timeout_ms: 15_000,
+            allow_passcode_fallback: true,
+        }
+    }
+
+    fn face_id() -> FaceIdDeclaration {
+        FaceIdDeclaration {
+            max_attempts: 2,
+            timeout_ms: 10_000,
+            require_attention: true,
+        }
+    }
+
+    fn apple_pay() -> ApplePayDeclaration {
+        ApplePayDeclaration {
+            merchant_id: "com.goya.registry.pay".into(),
+            currency_code: "USD".into(),
+            max_minor_units: 100_000,
+        }
+    }
+
+    #[test]
+    fn touch_id_contract_registers_exactly_and_fails_closed() {
+        let contract = crate::touch_id_caprichio::CONTRACT;
+        assert_eq!(contract, "goya.hardware.biometry.touch_id.v1");
+        assert!(supported_contracts().contains(&contract));
+        assert!(!supported_contracts().contains(&"hardware.biometry"));
+        assert!(!supported_contracts().contains(&"goya.hardware.biometry.v1"));
+
+        let request = Request {
+            capabilities: vec![contract.into()],
+            touch_id: Some(touch_id()),
+            ..Request::default()
+        };
+        let negotiated = negotiate(&request, host()).unwrap();
+        assert_eq!(negotiated.len(), 1);
+        assert_eq!(negotiated[0].id, contract);
+        assert_eq!(negotiated[0].artifact.contract(), contract);
+        assert_eq!(negotiated[0].artifact.recipe(), "apple-touch-id-bounded-attempt-gate");
+        assert!(negotiated[0].artifact.canonical_ir().contains("sensor=touch_id\n"));
+        assert!(negotiated[0].artifact.canonical_ir().contains("fallback=device_passcode\n"));
+        assert!(negotiated[0].artifact.canonical_ir().contains("data_access=none\n"));
+        assert_eq!(negotiated, negotiate(&request, host()).unwrap());
+
+        let mut mac_host = host();
+        mac_host.touch_id_target = TouchIdTarget::AppleSiliconMac;
+        let mac_negotiated = negotiate(&request, mac_host).unwrap();
+        assert!(mac_negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("target=apple_silicon_mac\n"));
+
+        let missing = Request {
+            capabilities: vec![contract.into()],
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&missing, host()),
+            Err(NegotiationError::MissingDeclaration {
+                capability: contract
+            })
+        );
+        let unexpected = Request {
+            touch_id: Some(touch_id()),
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&unexpected, host()),
+            Err(NegotiationError::UnexpectedDeclaration { kind: "touch_id" })
+        );
+
+        let mut unsupported_target = host();
+        unsupported_target.touch_id_target = TouchIdTarget::Browser;
+        assert_eq!(
+            negotiate(&request, unsupported_target),
+            Err(NegotiationError::TouchId(
+                crate::touch_id_caprichio::Diagnostic::UnsupportedTarget
+            ))
+        );
+        let mut no_sensor = host();
+        no_sensor.touch_id_host.touch_id_sensor = false;
+        assert_eq!(
+            negotiate(&request, no_sensor),
+            Err(NegotiationError::TouchId(
+                crate::touch_id_caprichio::Diagnostic::MissingTouchIdSensor
+            ))
+        );
+
+        let draft = Request {
+            capabilities: vec!["hardware.biometry".into()],
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&draft, host()),
+            Err(NegotiationError::UnknownCapability(
+                "hardware.biometry".into()
+            ))
+        );
+    }
+
+    #[test]
+    fn face_id_contract_registers_exactly_ios_only_and_fails_closed() {
+        let contract = crate::face_id_caprichio::CONTRACT;
+        assert_eq!(contract, "goya.hardware.biometry.face_id.v1");
+        assert!(supported_contracts().contains(&contract));
+        assert!(!supported_contracts().contains(&"hardware.biometry.face"));
+        assert!(!supported_contracts().contains(&"goya.hardware.biometry.face_id.v2"));
+
+        let request = Request {
+            capabilities: vec![contract.into()],
+            face_id: Some(face_id()),
+            ..Request::default()
+        };
+        let negotiated = negotiate(&request, host()).unwrap();
+        assert_eq!(negotiated.len(), 1);
+        assert_eq!(negotiated[0].id, contract);
+        assert_eq!(negotiated[0].artifact.contract(), contract);
+        assert_eq!(negotiated[0].artifact.recipe(), "apple-face-id-bounded-attempt-gate");
+        assert!(negotiated[0].artifact.canonical_ir().contains("sensor=face_id\n"));
+        assert!(negotiated[0].artifact.canonical_ir().contains("attention=required\n"));
+        assert!(negotiated[0].artifact.canonical_ir().contains("data_access=none\n"));
+        assert_eq!(negotiated, negotiate(&request, host()).unwrap());
+
+        // Face ID hardware is not part of any Mac configuration.
+        let mut mac_host = host();
+        mac_host.face_id_target = FaceIdTarget::AppleSiliconMac;
+        assert_eq!(
+            negotiate(&request, mac_host),
+            Err(NegotiationError::FaceId(
+                crate::face_id_caprichio::Diagnostic::UnsupportedTarget
+            ))
+        );
+
+        let missing = Request {
+            capabilities: vec![contract.into()],
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&missing, host()),
+            Err(NegotiationError::MissingDeclaration {
+                capability: contract
+            })
+        );
+        let unexpected = Request {
+            face_id: Some(face_id()),
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&unexpected, host()),
+            Err(NegotiationError::UnexpectedDeclaration { kind: "face_id" })
+        );
+
+        let mut no_camera = host();
+        no_camera.face_id_host.camera_available = false;
+        assert_eq!(
+            negotiate(&request, no_camera),
+            Err(NegotiationError::FaceId(
+                crate::face_id_caprichio::Diagnostic::MissingCamera
+            ))
+        );
+    }
+
+    #[test]
+    fn apple_pay_contract_registers_exactly_and_fails_closed() {
+        let contract = crate::apple_pay_caprichio::CONTRACT;
+        assert_eq!(contract, "goya.hardware.payments.apple_pay.v1");
+        assert!(supported_contracts().contains(&contract));
+        assert!(!supported_contracts().contains(&"hardware.payments"));
+        assert!(!supported_contracts().contains(&"goya.hardware.payments.v1"));
+
+        let request = Request {
+            capabilities: vec![contract.into()],
+            apple_pay: Some(apple_pay()),
+            ..Request::default()
+        };
+        let negotiated = negotiate(&request, host()).unwrap();
+        assert_eq!(negotiated.len(), 1);
+        assert_eq!(negotiated[0].id, contract);
+        assert_eq!(negotiated[0].artifact.contract(), contract);
+        assert_eq!(negotiated[0].artifact.recipe(), "apple-pay-bounded-payment-request");
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("request=apple_pay\n"));
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("funds_moved=none\n"));
+        assert_eq!(negotiated, negotiate(&request, host()).unwrap());
+
+        let missing = Request {
+            capabilities: vec![contract.into()],
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&missing, host()),
+            Err(NegotiationError::MissingDeclaration {
+                capability: contract
+            })
+        );
+        let unexpected = Request {
+            apple_pay: Some(apple_pay()),
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&unexpected, host()),
+            Err(NegotiationError::UnexpectedDeclaration { kind: "apple_pay" })
+        );
+
+        let mut unsupported_target = host();
+        unsupported_target.apple_pay_target = ApplePayTarget::Node;
+        assert_eq!(
+            negotiate(&request, unsupported_target),
+            Err(NegotiationError::ApplePay(
+                crate::apple_pay_caprichio::Diagnostic::UnsupportedTarget
+            ))
+        );
+        let mut no_credential = host();
+        no_credential.apple_pay_host.secure_element_credential = false;
+        assert_eq!(
+            negotiate(&request, no_credential),
+            Err(NegotiationError::ApplePay(
+                crate::apple_pay_caprichio::Diagnostic::MissingSecureElementCredential
+            ))
+        );
     }
 
     #[test]
@@ -1318,6 +1654,9 @@ mod tests {
             input_validation: None,
             keychain: None,
             metal_compute: None,
+            touch_id: None,
+            face_id: None,
+            apple_pay: None,
         };
         let result = negotiate(&request, host()).unwrap();
         assert_eq!(
@@ -1433,7 +1772,10 @@ mod tests {
                 "goya.data.csv.bounded_crlf.v1",
                 "goya.data.stream.process_local_bounded.v1",
                 "goya.filesystem.read_file.v1",
+                "goya.hardware.biometry.face_id.v1",
+                "goya.hardware.biometry.touch_id.v1",
                 "goya.hardware.gpu_compute.apple_silicon_metal.v1",
+                "goya.hardware.payments.apple_pay.v1",
                 "goya.hardware.secure_storage.keychain.v1",
                 "goya.input.ascii_set_validation.process_local.v1",
                 "goya.memory.buffers.process_local.v1",
@@ -2430,6 +2772,9 @@ mod tests {
             input_validation: None,
             keychain: None,
             metal_compute: None,
+            touch_id: None,
+            face_id: None,
+            apple_pay: None,
         };
         let start = Instant::now();
         let iterations = 10_000;

@@ -1,10 +1,13 @@
-//! Deterministic process-local runtimes for the Apple-target caprichios.
+//! Deterministic process-local runtimes for the vendor hardware caprichios.
 //!
 //! [`KeychainVault`] models the contract of a namespace-scoped, value-bounded
 //! Keychain key-value surface. [`MetalDispatchPlan`] performs the checked
-//! arithmetic of an Apple Silicon GPU dispatch without touching a GPU. Neither
-//! type calls Apple frameworks; hosts that run on Apple hardware report their
-//! real facilities through the caprichio runtime capabilities instead.
+//! arithmetic of an Apple Silicon GPU dispatch without touching a GPU.
+//! [`BiometricGate`] and [`PaymentRequest`] are vendor-neutral primitives
+//! shared by the Touch ID, Face ID, Windows Hello, Apple Pay, Google Pay, and
+//! Samsung Pay caprichios. None of these types call platform frameworks;
+//! hosts running on real hardware report their real facilities through the
+//! caprichio runtime capabilities instead.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -497,7 +500,15 @@ mod tests {
         );
 
         assert_eq!(
-            PaymentRequest::new("m".into(), "USD", 100).err(),
+            PaymentRequest::new(String::new(), "USD", 100).err(),
+            Some(PaymentError::BadMerchantId)
+        );
+        assert_eq!(
+            PaymentRequest::new("bad merchant!".into(), "USD", 100).err(),
+            Some(PaymentError::BadMerchantId)
+        );
+        assert_eq!(
+            PaymentRequest::new("m".repeat(MAX_MERCHANT_ID_BYTES + 1), "USD", 100).err(),
             Some(PaymentError::BadMerchantId)
         );
         assert_eq!(
