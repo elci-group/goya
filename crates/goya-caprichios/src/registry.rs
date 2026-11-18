@@ -5,8 +5,7 @@ use crate::apple_pay_caprichio::{
     Target as ApplePayTarget,
 };
 use crate::accelerator_caprichio::{
-    AcceleratorArtifact, AcceleratorDeclaration, AcceleratorDiagnostic,
-    AcceleratorRuntimeCapabilities as AcceleratorModelHost,
+    AcceleratorArtifact, AcceleratorDeclaration, AcceleratorRuntimeCapabilities as AcceleratorModelHost,
     AcceleratorTarget as AcceleratorModelTarget,
 };
 use crate::batching_caprichio::{
@@ -1474,6 +1473,11 @@ mod tests {
                 pass_kit: true,
                 secure_element_credential: true,
                 network_session: true,
+                utf8_strings: true,
+            },
+            accelerator_model_target: AcceleratorModelTarget::Device,
+            accelerator_model_host: AcceleratorModelHost {
+                gpu_driver: true,
                 utf8_strings: true,
             },
             windows_hello_target: WindowsHelloTarget::Windows,
@@ -2978,6 +2982,7 @@ mod tests {
             windows_hello: None,
             google_pay: None,
             samsung_pay: None,
+            accelerator_model: None,
             bluetooth_central: None,
             bluetooth_gatt: None,
             bluetooth_stream: None,
@@ -4116,6 +4121,7 @@ mod tests {
             windows_hello: None,
             google_pay: None,
             samsung_pay: None,
+            accelerator_model: None,
             bluetooth_central: None,
             bluetooth_gatt: None,
             bluetooth_stream: None,
