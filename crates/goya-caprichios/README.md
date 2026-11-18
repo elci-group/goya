@@ -63,6 +63,22 @@ stack performed an operation; hosts on real hardware report their real
 facilities through runtime capabilities, and constructed objects prove nothing
 about sensors, payment networks or peripherals.
 
+The mobile-SoC neural-acceleration caprichios follow the accelerator-catalog
+shape: `snapdragon_accelerator_caprichio`
+(`goya.hardware.neural_accel.snapdragon.v1`) catalogs published Hexagon/NPU
+facts for 55 Snapdragon generations across the 8, 7, 6 and 4 series, and
+`exynos_accelerator_caprichio` (`goya.hardware.neural_accel.exynos.v1`)
+catalogs the contemporary Samsung flagship generations. Each entry records
+only figures the vendor published (TOPS figures are `None` where the vendor
+published none, in tenths of TOPS where it did); conflicting Hexagon version
+sources are recorded in the label rather than guessed. A declaration names a
+generation from the catalog and bounds layers, batch and weight bytes;
+normalization builds a checked `HexagonDelegatePlan` / `NpuDelegatePlan` in
+`snapdragon_runtime` / `exynos_runtime`; lowering fails closed unless the host
+reports a DSP/NPU, a neural delegate and an Int8 model. The artifacts are
+plan factories only: no model is compiled, no DSP is contacted and no
+inference runs.
+
 `bluetooth_caprichio` (`goya.hardware.bluetooth.central.v1`, recipe
 `apple-ble-central-bounded-scan`) covers BLE central discovery and connection
 lifecycle accounting for iOS and Apple Silicon Mac targets. Scans are
