@@ -495,6 +495,202 @@ fn same_bool(field: &str, compiled: bool, ir: bool) -> Result<(), String> {
     }
 }
 
+#[cfg(all(test, feature = "kumimanu"))]
+fn inject_count_window() -> Result<(), String> {
+    use x11rb::connection::Connection;
+    use x11rb::protocol::xproto::ConnectionExt as _;
+    use x11rb::rust_connection::RustConnection;
+
+    let (connection, screen) = RustConnection::connect(None).map_err(|err| err.to_string())?;
+    let (root, min, max) = {
+        let setup = connection.setup();
+        let root = setup
+            .roots
+            .get(screen)
+            .ok_or("screen index is outside the setup")?
+            .root;
+        (root, setup.min_keycode, setup.max_keycode)
+    };
+    let count = max.saturating_sub(min).saturating_add(1);
+    let mapping = connection
+        .get_keyboard_mapping(min, count)
+        .map_err(|err| err.to_string())?
+        .reply()
+        .map_err(|err| err.to_string())?;
+    let per = usize::from(mapping.keysyms_per_keycode.max(1));
+    let index = mapping
+        .keysyms
+        .chunks(per)
+        .position(|syms| syms.contains(&0x32))
+        .ok_or("no keycode for keysym 0x32")?;
+    let keycode =
+        min.saturating_add(u8::try_from(index).map_err(|_| "keycode index does not fit")?);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(6);
+    let window = loop {
+        if let Some(found) = find_count_window(&connection, root, 0)? {
+            break found;
+        }
+        if std::time::Instant::now() >= deadline {
+            return Err("timed out waiting for a Count window with class Kumimanu".into());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(30));
+    };
+    send_key(&connection, root, window, keycode, true)?;
+    send_key(&connection, root, window, keycode, false)?;
+    send_button(&connection, root, window, 176, 80, true)?;
+    send_button(&connection, root, window, 176, 80, false)?;
+    configure_smaller(&connection, window)?;
+    connection.flush().map_err(|err| err.to_string())
+}
+
+#[cfg(all(test, feature = "kumimanu"))]
+fn configure_smaller(
+    connection: &x11rb::rust_connection::RustConnection,
+    window: u32,
+) -> Result<(), String> {
+    use x11rb::protocol::xproto::{ConfigureWindowAux, ConnectionExt as _};
+
+    connection
+        .configure_window(window, &ConfigureWindowAux::new().width(300).height(140))
+        .map_err(|err| err.to_string())?;
+    Ok(())
+}
+
+#[cfg(all(test, feature = "kumimanu"))]
+fn find_count_window(
+    connection: &x11rb::rust_connection::RustConnection,
+    window: u32,
+    depth: u32,
+) -> Result<Option<u32>, String> {
+    use x11rb::protocol::xproto::ConnectionExt as _;
+
+    if depth > 8 {
+        return Ok(None);
+    }
+    if depth > 0 && is_count_window(connection, window)? {
+        return Ok(Some(window));
+    }
+    let reply = match connection.query_tree(window) {
+        Ok(cookie) => match cookie.reply() {
+            Ok(reply) => reply,
+            Err(_) => return Ok(None),
+        },
+        Err(_) => return Ok(None),
+    };
+    for child in reply.children {
+        if let Some(found) = find_count_window(connection, child, depth + 1)? {
+            return Ok(Some(found));
+        }
+    }
+    Ok(None)
+}
+
+#[cfg(all(test, feature = "kumimanu"))]
+fn is_count_window(
+    connection: &x11rb::rust_connection::RustConnection,
+    window: u32,
+) -> Result<bool, String> {
+    use x11rb::protocol::xproto::{AtomEnum, ConnectionExt as _};
+
+    let class =
+        match connection.get_property(false, window, AtomEnum::WM_CLASS, AtomEnum::STRING, 0, 64) {
+            Ok(cookie) => match cookie.reply() {
+                Ok(reply) => reply.value,
+                Err(_) => return Ok(false),
+            },
+            Err(err) => return Err(err.to_string()),
+        };
+    let name =
+        match connection.get_property(false, window, AtomEnum::WM_NAME, AtomEnum::STRING, 0, 64) {
+            Ok(cookie) => match cookie.reply() {
+                Ok(reply) => reply.value,
+                Err(_) => return Ok(false),
+            },
+            Err(err) => return Err(err.to_string()),
+        };
+    let kumimanu = class
+        .split(|byte| *byte == 0)
+        .any(|part| part == b"Kumimanu");
+    Ok(kumimanu && name == b"Count")
+}
+
+#[cfg(all(test, feature = "kumimanu"))]
+fn send_key(
+    connection: &x11rb::rust_connection::RustConnection,
+    root: u32,
+    window: u32,
+    keycode: u8,
+    pressed: bool,
+) -> Result<(), String> {
+    use x11rb::protocol::xproto::{
+        ConnectionExt as _, EventMask, KeyButMask, KeyPressEvent, KEY_PRESS_EVENT,
+        KEY_RELEASE_EVENT,
+    };
+
+    let event = KeyPressEvent {
+        response_type: if pressed {
+            KEY_PRESS_EVENT
+        } else {
+            KEY_RELEASE_EVENT
+        },
+        detail: keycode,
+        sequence: 0,
+        time: 0,
+        root,
+        event: window,
+        child: 0,
+        root_x: 0,
+        root_y: 0,
+        event_x: 1,
+        event_y: 1,
+        state: KeyButMask::from(0u16),
+        same_screen: true,
+    };
+    connection
+        .send_event(false, window, EventMask::NO_EVENT, event)
+        .map_err(|err| err.to_string())?;
+    Ok(())
+}
+
+#[cfg(all(test, feature = "kumimanu"))]
+fn send_button(
+    connection: &x11rb::rust_connection::RustConnection,
+    root: u32,
+    window: u32,
+    x: i16,
+    y: i16,
+    pressed: bool,
+) -> Result<(), String> {
+    use x11rb::protocol::xproto::{
+        ButtonPressEvent, ConnectionExt as _, EventMask, KeyButMask, BUTTON_PRESS_EVENT,
+        BUTTON_RELEASE_EVENT,
+    };
+
+    let event = ButtonPressEvent {
+        response_type: if pressed {
+            BUTTON_PRESS_EVENT
+        } else {
+            BUTTON_RELEASE_EVENT
+        },
+        detail: 1,
+        sequence: 0,
+        time: 0,
+        root,
+        event: window,
+        child: 0,
+        root_x: x,
+        root_y: y,
+        event_x: x,
+        event_y: y,
+        state: KeyButMask::from(0u16),
+        same_screen: true,
+    };
+    connection
+        .send_event(false, window, EventMask::NO_EVENT, event)
+        .map_err(|err| err.to_string())?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2674,198 +2870,3 @@ mod tests {
     }
 }
 
-#[cfg(all(test, feature = "kumimanu"))]
-fn inject_count_window() -> Result<(), String> {
-    use x11rb::connection::Connection;
-    use x11rb::protocol::xproto::ConnectionExt as _;
-    use x11rb::rust_connection::RustConnection;
-
-    let (connection, screen) = RustConnection::connect(None).map_err(|err| err.to_string())?;
-    let (root, min, max) = {
-        let setup = connection.setup();
-        let root = setup
-            .roots
-            .get(screen)
-            .ok_or("screen index is outside the setup")?
-            .root;
-        (root, setup.min_keycode, setup.max_keycode)
-    };
-    let count = max.saturating_sub(min).saturating_add(1);
-    let mapping = connection
-        .get_keyboard_mapping(min, count)
-        .map_err(|err| err.to_string())?
-        .reply()
-        .map_err(|err| err.to_string())?;
-    let per = usize::from(mapping.keysyms_per_keycode.max(1));
-    let index = mapping
-        .keysyms
-        .chunks(per)
-        .position(|syms| syms.contains(&0x32))
-        .ok_or("no keycode for keysym 0x32")?;
-    let keycode =
-        min.saturating_add(u8::try_from(index).map_err(|_| "keycode index does not fit")?);
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(6);
-    let window = loop {
-        if let Some(found) = find_count_window(&connection, root, 0)? {
-            break found;
-        }
-        if std::time::Instant::now() >= deadline {
-            return Err("timed out waiting for a Count window with class Kumimanu".into());
-        }
-        std::thread::sleep(std::time::Duration::from_millis(30));
-    };
-    send_key(&connection, root, window, keycode, true)?;
-    send_key(&connection, root, window, keycode, false)?;
-    send_button(&connection, root, window, 176, 80, true)?;
-    send_button(&connection, root, window, 176, 80, false)?;
-    configure_smaller(&connection, window)?;
-    connection.flush().map_err(|err| err.to_string())
-}
-
-#[cfg(all(test, feature = "kumimanu"))]
-fn configure_smaller(
-    connection: &x11rb::rust_connection::RustConnection,
-    window: u32,
-) -> Result<(), String> {
-    use x11rb::protocol::xproto::{ConfigureWindowAux, ConnectionExt as _};
-
-    connection
-        .configure_window(window, &ConfigureWindowAux::new().width(300).height(140))
-        .map_err(|err| err.to_string())?;
-    Ok(())
-}
-
-#[cfg(all(test, feature = "kumimanu"))]
-fn find_count_window(
-    connection: &x11rb::rust_connection::RustConnection,
-    window: u32,
-    depth: u32,
-) -> Result<Option<u32>, String> {
-    use x11rb::protocol::xproto::ConnectionExt as _;
-
-    if depth > 8 {
-        return Ok(None);
-    }
-    if depth > 0 && is_count_window(connection, window)? {
-        return Ok(Some(window));
-    }
-    let reply = match connection.query_tree(window) {
-        Ok(cookie) => match cookie.reply() {
-            Ok(reply) => reply,
-            Err(_) => return Ok(None),
-        },
-        Err(_) => return Ok(None),
-    };
-    for child in reply.children {
-        if let Some(found) = find_count_window(connection, child, depth + 1)? {
-            return Ok(Some(found));
-        }
-    }
-    Ok(None)
-}
-
-#[cfg(all(test, feature = "kumimanu"))]
-fn is_count_window(
-    connection: &x11rb::rust_connection::RustConnection,
-    window: u32,
-) -> Result<bool, String> {
-    use x11rb::protocol::xproto::{AtomEnum, ConnectionExt as _};
-
-    let class =
-        match connection.get_property(false, window, AtomEnum::WM_CLASS, AtomEnum::STRING, 0, 64) {
-            Ok(cookie) => match cookie.reply() {
-                Ok(reply) => reply.value,
-                Err(_) => return Ok(false),
-            },
-            Err(err) => return Err(err.to_string()),
-        };
-    let name =
-        match connection.get_property(false, window, AtomEnum::WM_NAME, AtomEnum::STRING, 0, 64) {
-            Ok(cookie) => match cookie.reply() {
-                Ok(reply) => reply.value,
-                Err(_) => return Ok(false),
-            },
-            Err(err) => return Err(err.to_string()),
-        };
-    let kumimanu = class
-        .split(|byte| *byte == 0)
-        .any(|part| part == b"Kumimanu");
-    Ok(kumimanu && name == b"Count")
-}
-
-#[cfg(all(test, feature = "kumimanu"))]
-fn send_key(
-    connection: &x11rb::rust_connection::RustConnection,
-    root: u32,
-    window: u32,
-    keycode: u8,
-    pressed: bool,
-) -> Result<(), String> {
-    use x11rb::protocol::xproto::{
-        ConnectionExt as _, EventMask, KeyButMask, KeyPressEvent, KEY_PRESS_EVENT,
-        KEY_RELEASE_EVENT,
-    };
-
-    let event = KeyPressEvent {
-        response_type: if pressed {
-            KEY_PRESS_EVENT
-        } else {
-            KEY_RELEASE_EVENT
-        },
-        detail: keycode,
-        sequence: 0,
-        time: 0,
-        root,
-        event: window,
-        child: 0,
-        root_x: 0,
-        root_y: 0,
-        event_x: 1,
-        event_y: 1,
-        state: KeyButMask::from(0u16),
-        same_screen: true,
-    };
-    connection
-        .send_event(false, window, EventMask::NO_EVENT, event)
-        .map_err(|err| err.to_string())?;
-    Ok(())
-}
-
-#[cfg(all(test, feature = "kumimanu"))]
-fn send_button(
-    connection: &x11rb::rust_connection::RustConnection,
-    root: u32,
-    window: u32,
-    x: i16,
-    y: i16,
-    pressed: bool,
-) -> Result<(), String> {
-    use x11rb::protocol::xproto::{
-        ButtonPressEvent, ConnectionExt as _, EventMask, KeyButMask, BUTTON_PRESS_EVENT,
-        BUTTON_RELEASE_EVENT,
-    };
-
-    let event = ButtonPressEvent {
-        response_type: if pressed {
-            BUTTON_PRESS_EVENT
-        } else {
-            BUTTON_RELEASE_EVENT
-        },
-        detail: 1,
-        sequence: 0,
-        time: 0,
-        root,
-        event: window,
-        child: 0,
-        root_x: x,
-        root_y: y,
-        event_x: x,
-        event_y: y,
-        state: KeyButMask::from(0u16),
-        same_screen: true,
-    };
-    connection
-        .send_event(false, window, EventMask::NO_EVENT, event)
-        .map_err(|err| err.to_string())?;
-    Ok(())
-}
