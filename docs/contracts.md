@@ -415,18 +415,27 @@ nothing is admitted. Design record:
 [`docs/quitasol/intents.md`](quitasol/intents.md); phase-0 scope:
 [`docs/quitasol/phase0.md`](quitasol/phase0.md).
 
-- Provides: `@intent Name { action: <interaction>; voice { utterance: "...";
-  confirmation: bool; } fallback { remote: <target>; keyboard: <target>; } }`
-  authoring syntax, parsed by the compatibility parser only — all strict
-  GSSH/1/2/3 profiles reject `@intent` with `GY-E1010` ("intent declaration
-  requires intent admission"). `IntentDecl` (name, authored_id, action,
-  utterances, confirmation, fallback_remote/keyboard, range) is carried on
-  `Scene`. `goya_lang::intents` validates intents with the pinned utterance
-  grammar `quitasol.utterance.v0`, emitting `GY-E1011` ("invalid intent
-  declaration") diagnostics. `quitasol-semantic::compile` emits a
-  deterministic versioned intent manifest (contract
-  `QUITASOL-INTENT-IR/1-draft`, profile `quitasol.intent.v0`, per-intent
-  lowering tier `unresolved`).
+- Provides: `@intent Name { action: <interaction>; [transport: <class>;]
+  voice { utterance: "..."; confirmation: bool; } fallback { remote:
+  <target>; keyboard: <target>; } }` authoring syntax, parsed by the
+  compatibility parser only — all strict GSSH/1/2/3 profiles reject
+  `@intent` with `GY-E1010` ("intent declaration requires intent
+  admission"). `IntentDecl` (name, authored_id, action, optional
+  `TransportClass` transport, utterances, confirmation,
+  fallback_remote/keyboard, range) is carried on `Scene`. The optional
+  `transport` key (Q2 draft) declares one of six documented Fire OS Media
+  Session transport behaviours (`play_pause`, `skip_next`, `skip_previous`,
+  `seek_forward`, `seek_backward`, `restart`); unknown keywords and
+  duplicate keys are parse errors. `goya_lang::intents` validates intents
+  with the pinned utterance grammar `quitasol.utterance.v0`, emitting
+  `GY-E1011` ("invalid intent declaration") diagnostics.
+  `quitasol-semantic::compile` emits a deterministic versioned intent
+  manifest (contract `QUITASOL-INTENT-IR/1-draft`, profile
+  `quitasol.intent.v0`, per-intent lowering tier `unresolved`);
+  `quitasol-semantic::resolve` resolves device support and fallback
+  reachability over Nevada (`QS-E2000`..`QS-E2003`), and
+  `quitasol-semantic::fireos` emits the Fire OS integration plan
+  (`QUITASOL-FIREOS-PLAN/1-draft`, `QS-E2004` on manifest/scene mismatch).
 - Invariants: parsing and validation are total and deterministic; validation
   never mutates the scene; every intent requires at least one utterance and a
   required non-voice fallback (remote or keyboard); duplicate utterances and
