@@ -37,7 +37,9 @@ param(
 
     [string]$ResultsDir = 'C:\sash-test\results',
 
-    [string]$Binary = 'App.exe'
+    [string]$Binary = 'App.exe',
+
+    [string]$ExpectationsFile = ''
 )
 
 Set-StrictMode -Version Latest
@@ -129,7 +131,8 @@ try {
         Write-Log "depends.exe not found, skipping dynamic analysis" 'WARN'
     }
 
-    # 4. Expected baseline imports
+    # 4. Expected baseline imports come from the compiler's expectations
+    # file when present; the fixed list below is the same closure.
     $ExpectedImports = @(
         'KERNEL32.DLL',
         'USER32.DLL',
@@ -137,6 +140,14 @@ try {
         'NTDLL.DLL',
         'API-MS-WIN-CORE-SYNCH-L1-2-0.DLL'
     )
+    if (-not $ExpectationsFile) {
+        $ExpectationsFile = Join-Path $ArtifactDir 'expectations.json'
+    }
+    if (Test-Path $ExpectationsFile) {
+        $Expectations = Get-Content $ExpectationsFile -Raw | ConvertFrom-Json
+        $ExpectedImports = @($Expectations.imports.expected)
+        Write-Log "Expected imports read from $ExpectationsFile"
+    }
 
     $missing = @()
     foreach ($exp in $ExpectedImports) {

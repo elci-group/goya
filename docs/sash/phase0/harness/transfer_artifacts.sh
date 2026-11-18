@@ -16,6 +16,38 @@ WINRM_USER="${WINRM_USER:-sash-test}"
 WINRM_HOST="${WINRM_HOST:-win-test-x64}"
 SMB_SHARE="${SMB_SHARE:-//win-test-x64/sash-test/artifacts}"
 
+# Scenes and triples per artifact key, used to generate expectations.json
+# beside each App.exe with: sash expectations <scene> --format json
+declare -A SCENES=(
+    ["x64/static-window"]="crates/sash/fixtures/static-window.gscene"
+    ["x64/interactive-cut"]="crates/sash/fixtures/interactive-counter.gscene"
+    ["i686/static-window"]="crates/sash/fixtures/static-window.gscene"
+    ["i686/interactive-cut"]="crates/sash/fixtures/interactive-counter.gscene"
+    ["arm64/static-window"]="crates/sash/fixtures/static-window.gscene"
+    ["arm64/interactive-cut"]="crates/sash/fixtures/interactive-counter.gscene"
+)
+declare -A TRIPLES=(
+    ["x64/static-window"]="x86_64-pc-windows-msvc"
+    ["x64/interactive-cut"]="x86_64-pc-windows-msvc"
+    ["i686/static-window"]="i686-pc-windows-msvc"
+    ["i686/interactive-cut"]="i686-pc-windows-msvc"
+    ["arm64/static-window"]="aarch64-pc-windows-msvc"
+    ["arm64/interactive-cut"]="aarch64-pc-windows-msvc"
+)
+
+# Locate a sash binary for expectations generation.
+find_sash() {
+    if command -v sash >/dev/null 2>&1; then
+        echo "sash"
+        return 0
+    fi
+    if [[ -x "target/debug/sash" ]]; then
+        echo "target/debug/sash"
+        return 0
+    fi
+    return 1
+}
+
 # Artifacts to transfer (from SASH-ENT-002)
 declare -A ARTIFACTS=(
     ["x64/static-window"]="/tmp/sash-ent002/static-window/App.exe"
@@ -75,6 +107,7 @@ transfer_ssh() {
 
     if [[ "$remote_sha256" == "$local_sha256" ]]; then
         echo "  ✓ Transfer verified (SHA256 match)"
+        generate_expectations "$arch_profile" "$dst_dir" || return 1
         return 0
     else
         echo "  ✗ SHA256 mismatch! Local: $local_sha256, Remote: $remote_sha256"
@@ -129,6 +162,7 @@ transfer_winrm() {
 
     if [[ "$remote_sha256" == "$local_sha256" ]]; then
         echo "  ✓ Transfer verified (SHA256 match)"
+        generate_expectations "$arch_profile" "$dst_dir" || return 1
         return 0
     else
         echo "  ✗ SHA256 mismatch! Local: $local_sha256, Remote: $remote_sha256"
@@ -157,11 +191,34 @@ transfer_smb() {
 
     if [[ "$remote_sha256" == "$local_sha256" ]]; then
         echo "  ✓ Transfer verified (SHA256 match)"
+        generate_expectations "$arch_profile" "$dst_dir" || return 1
         return 0
     else
         echo "  ✗ SHA256 mismatch!"
         return 1
     fi
+}
+
+
+# Generate expectations.json for one artifact key into the destination
+# directory. The file carries the window class/title, the control table,
+# and the import closure, all projected from the lowered IR by the same
+# compiler revision that produced the binary.
+generate_expectations() {
+    local arch_profile="$1"
+    local dst_dir="$2"
+    local scene="${SCENES[$arch_profile]}"
+    local triple="${TRIPLES[$arch_profile]}"
+    local sash_bin
+    if ! sash_bin=$(find_sash); then
+        echo "  X no sash binary found; build one (cargo build -p sash) or install sash to generate expectations.json"
+        return 1
+    fi
+    if ! "$sash_bin" expectations "$scene" --format json > "${dst_dir}/expectations.json" 2>/dev/null; then
+        echo "  X sash expectations failed for $scene"
+        return 1
+    fi
+    echo "  OK expectations.json generated for $arch_profile ($triple)"
 }
 
 # Main transfer function
