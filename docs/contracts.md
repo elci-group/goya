@@ -788,3 +788,31 @@ Latin — uppercase/other characters render as boxes (Wave 4 typography).
 Calendar label off-by-one (1-based month indexing a 0-based name array)
 and a day-31-in-November test premise error — both caught by the
 self-test gate, fixed in the same commit.
+
+---
+
+# GY-FAIR/1 — Foreign Application Intermediate Representation (`crates/goya-fair`)
+
+Status: Candidate (Disparates programme, extraction-only authority). Full contract:
+[docs/disparates/contracts/fair-1.md](disparates/contracts/fair-1.md); programme
+roadmap: [docs/disparates/roadmap.md](disparates/roadmap.md).
+
+- **Provides**: `FairDocument`, `FairElement` (kind, provenance, representability,
+  open semantics payload), `Representability` (frozen seven-state evidence
+  progression: extracted / representable / translated / verified /
+  remediation_required / unrepresentable / undetermined), `validate`,
+  `canonical_json`, `coverage_summary`.
+- **Consumes**: none. Serde-only; no `goya-ir` types. The FAIR→Goya boundary is a
+  future contract; reconstruction authorisation is withheld.
+- **Invariants**: FAIR preserves ignorance — unresolved constructs are recorded,
+  never dropped; every non-`extracted` element carries a register-bound reason code;
+  canonical serialisation is byte-stable (elements sorted by ID, sorted map keys);
+  extraction is deterministic, offline and static; `verified` is unreachable under
+  this revision and compilation alone never implies equivalence.
+- **Stability**: element-kind vocabulary and reason-code register grow by contract
+  revision only, never renamed.
+
+## Ownership
+| Path | Owner |
+|---|---|
+| crates/goya-fair, docs/disparates | Disparates programme |
