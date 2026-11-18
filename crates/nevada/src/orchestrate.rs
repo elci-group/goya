@@ -184,8 +184,7 @@ const ELF_BLOCKED: &str =
     "no ELF is assembled or linked in nevada/0.0.2; no artefact is produced or claimed";
 const RUNTIME_CONFORMANCE_BLOCKED: &str =
     "no device runs the artefact; no runtime conformance may be reported";
-const PACKAGING_BLOCKED: &str =
-    "no package is built, signed, or released in nevada/0.0.2";
+const PACKAGING_BLOCKED: &str = "no package is built, signed, or released in nevada/0.0.2";
 
 /// Execute one orchestration run. Deterministic and panic-free: every stage
 /// receives an explicit status and detail; nothing is inferred silently.
@@ -198,12 +197,8 @@ pub fn execute(input: &PlanInput) -> Run {
     stages.push(Status::NotApplicable, FRONT_UNRESOLVED);
 
     // Stage 4: effects-capabilities — resolve the profile census.
-    let resolved = profiles::lookup(&input.profile_id).map(|profile| {
-        (
-            profile.census.clone(),
-            dcr::resolve(&profile.census),
-        )
-    });
+    let resolved = profiles::lookup(&input.profile_id)
+        .map(|profile| (profile.census.clone(), dcr::resolve(&profile.census)));
     match &resolved {
         Ok((census, Ok(_support))) => stages.push(
             Status::Pass,
@@ -218,7 +213,7 @@ pub fn execute(input: &PlanInput) -> Run {
                 TARGET_PROFILE,
             ),
         ),
-        Ok((census, Err(error))) => stages.push(
+        Ok((_census, Err(error))) => stages.push(
             Status::Fail,
             format!(
                 "profile `{}` resolved via {} but the census violates the {} baseline: {error}",
@@ -401,7 +396,22 @@ mod tests {
     }
 
     fn dpad_input() -> PlanInput {
-        PlanInput::new("oem.generic.tv/1.0.0", Vec::new(), Vec::new())
+        // A minimal but non-empty plan: an empty layout and interaction
+        // list are refused by static verification (GY-NV-507 — nothing to
+        // validate is never a pass).
+        PlanInput::new(
+            "oem.generic.tv/1.0.0",
+            vec![focus::FocusElement {
+                id: 1,
+                x: 0,
+                y: 0,
+                w: 100,
+                h: 50,
+                focusable: true,
+                essential: true,
+            }],
+            vec![translate::TouchInteraction::TouchTap],
+        )
     }
 
     #[test]
@@ -426,10 +436,14 @@ mod tests {
             .collect();
         assert_eq!(
             passing,
-            vec!["effects-capabilities", "target-negotiation", "static-verification"]
+            vec![
+                "effects-capabilities",
+                "target-negotiation",
+                "static-verification"
+            ]
         );
-        assert_eq!(run.stages.has(Status::Fail), false);
-        assert_eq!(run.ok, true);
+        assert!(!run.stages.has(Status::Fail));
+        assert!(run.ok);
         let blocked: Vec<&str> = items
             .iter()
             .filter(|stage| stage.status == Status::Blocked)
@@ -464,14 +478,18 @@ mod tests {
 
     #[test]
     fn unknown_profile_fails_effects_and_negotiation() {
-        let run = execute(&PlanInput::new("oem.unheard-of.tv/9.9.9", Vec::new(), Vec::new()));
+        let run = execute(&PlanInput::new(
+            "oem.unheard-of.tv/9.9.9",
+            Vec::new(),
+            Vec::new(),
+        ));
         let items = run.stages.items();
         assert_eq!(items[3].name, "effects-capabilities");
         assert_eq!(items[3].status, Status::Fail);
         assert!(items[3].detail.contains("not registered"));
         assert_eq!(items[4].name, "target-negotiation");
         assert_eq!(items[4].status, Status::Fail);
-        assert_eq!(run.ok, false);
+        assert!(!run.ok);
         // Static verification still runs against an empty, fail-closed census.
         assert_eq!(items[10].name, "static-verification");
         assert!(matches!(items[10].status, Status::Pass | Status::Fail));
@@ -508,7 +526,7 @@ mod tests {
         let items = run.stages.items();
         assert_eq!(items[10].name, "static-verification");
         assert_eq!(items[10].status, Status::Fail);
-        assert!(run.ok == false);
+        assert!(!run.ok);
         assert!(items[10].detail.contains("diagnostics"));
         let summary = run.conformance.as_ref().expect("summary present");
         assert_eq!(summary.status, ConformanceStatus::Fail);
@@ -536,15 +554,23 @@ mod tests {
     fn pointer_profile_passes_baseline_stages() {
         let run = execute(&PlanInput::new(
             "oem.acme.pointer-remote/1.0.0",
-            Vec::new(),
-            Vec::new(),
+            vec![focus::FocusElement {
+                id: 1,
+                x: 0,
+                y: 0,
+                w: 100,
+                h: 50,
+                focusable: true,
+                essential: true,
+            }],
+            vec![translate::TouchInteraction::TouchTap],
         ));
         let items = run.stages.items();
         assert_eq!(items[3].status, Status::Pass);
         assert_eq!(items[4].status, Status::Pass);
         assert!(items[4].detail.contains("motion-pointer"));
         assert!(items[4].detail.contains("touch-scrolling"));
-        assert_eq!(run.ok, true);
+        assert!(run.ok);
     }
 
     #[test]
@@ -575,6 +601,6 @@ mod tests {
             present: vec![HardwareCapability::Dpad],
             motion_output: MotionOutput::None,
         };
-        assert_eq!(dcr::resolve(&census).is_ok(), true);
+        assert!(dcr::resolve(&census).is_ok());
     }
 }

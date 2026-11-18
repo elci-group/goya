@@ -1,1 +1,1 @@
-{"gate": 2, "stage": "type-semantic-validation", "status": "FAILED", "failed": 1, "commands": [{"command": "cargo test -p sash -p sash-ir --offline --tests", "exit_code": 101}], "timestamp": "2026-11-18T23:05:48Z"}
+{"gate": 2, "stage": "type-semantic-validation", "status": "FAILED", "failed": 1, "commands": [{"command": "cargo test -p sash -p sash-ir --offline --tests", "exit_code": 101}], "timestamp": "2026-11-18T23:08:28Z"}

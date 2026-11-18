@@ -8,11 +8,11 @@
 //! scenes; see `docs/nevada/roadmap.md`.
 
 pub mod conformance;
-pub mod diagnostics;
 pub mod dcr;
+pub mod diagnostics;
 pub mod focus;
-pub mod profiles;
 pub mod orchestrate;
+pub mod profiles;
 pub mod target;
 pub mod translate;
 

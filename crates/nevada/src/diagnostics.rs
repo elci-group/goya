@@ -117,15 +117,21 @@ mod tests {
 
     #[test]
     fn display_format_is_stable() {
-        let diagnostic =
-            Diagnostic::new(DiagnosticCode::NvFocusUnreachableEssential, "element 7 unreachable");
+        let diagnostic = Diagnostic::new(
+            DiagnosticCode::NvFocusUnreachableEssential,
+            "element 7 unreachable",
+        );
         assert_eq!(diagnostic.to_string(), "GY-NV-501: element 7 unreachable");
     }
 
     #[test]
     fn display_prefix_tracks_discriminant() {
         let expected: [(DiagnosticCode, u16, &str); 7] = [
-            (DiagnosticCode::NvFocusUnreachableEssential, 501, "GY-NV-501"),
+            (
+                DiagnosticCode::NvFocusUnreachableEssential,
+                501,
+                "GY-NV-501",
+            ),
             (DiagnosticCode::NvTranslationRefused, 502, "GY-NV-502"),
             (DiagnosticCode::NvCapabilityUnsupported, 503, "GY-NV-503"),
             (DiagnosticCode::NvUnknownProfile, 504, "GY-NV-504"),

@@ -223,14 +223,15 @@ mod tests {
         );
         assert_eq!(
             negotiation.granted,
-            vec![AndroidTvFeature::DpadNavigation, AndroidTvFeature::SpatialFocus]
+            vec![
+                AndroidTvFeature::DpadNavigation,
+                AndroidTvFeature::SpatialFocus
+            ]
         );
         assert_eq!(negotiation.refusals.len(), 6);
-        assert!(negotiation
-            .refusals
-            .iter()
-            .all(|refusal| refusal.reason == RefusalReason::NotSupportedByProfile
-                || refusal.reason == RefusalReason::PhaseNotReached));
+        assert!(negotiation.refusals.iter().all(|refusal| refusal.reason
+            == RefusalReason::NotSupportedByProfile
+            || refusal.reason == RefusalReason::PhaseNotReached));
     }
 
     #[test]
@@ -279,7 +280,10 @@ mod tests {
             AndroidTvFeature::MotionPointer,
         ];
         let negotiation = negotiate(&requested, "oem.unheard-of.tv/9.9.9");
-        assert!(negotiation.granted.is_empty(), "fail closed: nothing granted");
+        assert!(
+            negotiation.granted.is_empty(),
+            "fail closed: nothing granted"
+        );
         assert_eq!(negotiation.refusals.len(), requested.len());
         assert!(negotiation
             .refusals
@@ -347,6 +351,9 @@ mod tests {
         // synthetic census without one must not exist in the registry, so
         // assert the pointer profile resolves to NativePointerEvents.
         let profile = profiles::lookup(POINTER).expect("registered");
-        assert_eq!(profile.census.motion_output, MotionOutput::NativePointerEvents);
+        assert_eq!(
+            profile.census.motion_output,
+            MotionOutput::NativePointerEvents
+        );
     }
 }
