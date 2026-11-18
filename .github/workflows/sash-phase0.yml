@@ -7,6 +7,11 @@ name: Sash Phase 0 Validation
 on:
   workflow_dispatch:
     inputs:
+      smoke_only:
+        description: 'Run the smoke tier only (no self-hosted qualification needed)'
+        required: false
+        default: false
+        type: boolean
       arch:
         description: 'Architecture to validate (x64, i686, arm64, all)'
         required: true
@@ -27,6 +32,10 @@ on:
 
   workflow_call:
     inputs:
+      smoke_only:
+        required: false
+        type: boolean
+        default: false
       arch:
         required: true
         type: string
@@ -71,64 +80,51 @@ jobs:
   # (crates/sash/tests/link_reproduction.rs). CI asserts the structural gates
   # only: PE policy PASS, verify exit 3, the correct machine, presentation
   # profile, and api floor.
+  # The artifact matrix: smoke-only runs link just the x64 pair the smoke
+  # tier launches; full runs link every admitted floor/triple combination,
+  # filtered by the dispatch inputs.
+  matrix:
+    name: Select artifact matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+    steps:
+      - name: Select matrix
+        id: select
+        run: |
+          SMOKE="${{ inputs.smoke_only }}"
+          ARCH="${{ inputs.arch }}"
+          PROFILE="${{ inputs.profile }}"
+          ALL='[
+            {"arch":"x64","profile":"static-window","scene":"crates/sash/fixtures/static-window.gscene","triple":"x86_64-pc-windows-msvc","floor":"win10"},
+            {"arch":"x64","profile":"interactive-cut","scene":"crates/sash/fixtures/interactive-counter.gscene","triple":"x86_64-pc-windows-msvc","floor":"win10"},
+            {"arch":"i686","profile":"static-window","scene":"crates/sash/fixtures/static-window.gscene","triple":"i686-pc-windows-msvc","floor":"win10"},
+            {"arch":"i686","profile":"interactive-cut","scene":"crates/sash/fixtures/interactive-counter.gscene","triple":"i686-pc-windows-msvc","floor":"win10"},
+            {"arch":"arm64","profile":"static-window","scene":"crates/sash/fixtures/static-window.gscene","triple":"aarch64-pc-windows-msvc","floor":"win10"},
+            {"arch":"arm64","profile":"interactive-cut","scene":"crates/sash/fixtures/interactive-counter.gscene","triple":"aarch64-pc-windows-msvc","floor":"win10"},
+            {"arch":"x64","profile":"legacy-static","scene":"crates/sash/fixtures/static-window.gscene","triple":"x86_64-pc-windows-msvc","floor":"win8"},
+            {"arch":"i686","profile":"legacy-static","scene":"crates/sash/fixtures/static-window.gscene","triple":"i686-pc-windows-msvc","floor":"win8"},
+            {"arch":"x64","profile":"legacy-interactive","scene":"crates/sash/fixtures/interactive-counter.gscene","triple":"x86_64-pc-windows-msvc","floor":"win8"},
+            {"arch":"i686","profile":"legacy-interactive","scene":"crates/sash/fixtures/interactive-counter.gscene","triple":"i686-pc-windows-msvc","floor":"win8"}
+          ]'
+          if [ "$SMOKE" = "true" ]; then
+            SELECTED=$(echo "$ALL" | jq -c '[.[] | select(.arch == "x64" and (.profile == "static-window" or .profile == "interactive-cut"))]')
+          else
+            SELECTED=$(echo "$ALL" | jq -c --arg arch "$ARCH" --arg profile "$PROFILE" '
+              [.[] | ($arch == "all" or .arch == $arch) and ($profile == "all" or .profile == $profile)]')
+          fi
+          echo "matrix=$SELECTED" >> "$GITHUB_OUTPUT"
+          echo "selected: $SELECTED"
+
   link-artifacts:
     name: Link ${{ matrix.profile }} (${{ matrix.arch }})
+    needs: matrix
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - arch: x64
-            profile: static-window
-            scene: crates/sash/fixtures/static-window.gscene
-            triple: x86_64-pc-windows-msvc
-            floor: win10
-          - arch: x64
-            profile: interactive-cut
-            scene: crates/sash/fixtures/interactive-counter.gscene
-            triple: x86_64-pc-windows-msvc
-            floor: win10
-          - arch: i686
-            profile: static-window
-            scene: crates/sash/fixtures/static-window.gscene
-            triple: i686-pc-windows-msvc
-            floor: win10
-          - arch: i686
-            profile: interactive-cut
-            scene: crates/sash/fixtures/interactive-counter.gscene
-            triple: i686-pc-windows-msvc
-            floor: win10
-          - arch: arm64
-            profile: static-window
-            scene: crates/sash/fixtures/static-window.gscene
-            triple: aarch64-pc-windows-msvc
-            floor: win10
-          - arch: arm64
-            profile: interactive-cut
-            scene: crates/sash/fixtures/interactive-counter.gscene
-            triple: aarch64-pc-windows-msvc
-            floor: win10
-          - arch: x64
-            profile: legacy-static
-            scene: crates/sash/fixtures/static-window.gscene
-            triple: x86_64-pc-windows-msvc
-            floor: win8
-          - arch: i686
-            profile: legacy-static
-            scene: crates/sash/fixtures/static-window.gscene
-            triple: i686-pc-windows-msvc
-            floor: win8
-          - arch: x64
-            profile: legacy-interactive
-            scene: crates/sash/fixtures/interactive-counter.gscene
-            triple: x86_64-pc-windows-msvc
-            floor: win8
-          - arch: i686
-            profile: legacy-interactive
-            scene: crates/sash/fixtures/interactive-counter.gscene
-            triple: i686-pc-windows-msvc
-            floor: win8
+        include: ${{ fromJSON(needs.matrix.outputs.matrix) }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -152,7 +148,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/sysroot
-          key: sash-windows-msvc-sysroot-v1
+          key: sash-windows-msvc-sysroot-v2
 
       - name: Bootstrap the pinned Windows sysroot (first run only)
         if: steps.sysroot.outputs.cache-hit != 'true'
@@ -165,21 +161,25 @@ jobs:
           xwin --accept-license --cache-dir "$CACHE/download" \
             --arch x86_64 --arch x86 --arch aarch64 \
             splat --output "$CACHE/splat"
-          INNER="$CACHE/splat"
-          mkdir -p ~/sysroot/windows-msvc-sysroot/lib
+          SPLAT="$CACHE/splat"
+          # Sash requires the nested layout: the cache entry dir holds the
+          # DONE marker and the inner dir holds the merged include/lib tree.
+          ENTRY=~/sysroot/windows-msvc-sysroot
+          INNER="$ENTRY/windows-msvc-sysroot"
+          mkdir -p "$INNER/lib"
           for pair in "x86_64-unknown-windows-msvc x86_64" "i686-unknown-windows-msvc x86" "aarch64-unknown-windows-msvc aarch64"; do
             set -- $pair
-            mkdir -p ~/sysroot/windows-msvc-sysroot/lib/$1
-            cp -a "$INNER"/crt/lib/$2/* ~/sysroot/windows-msvc-sysroot/lib/$1/
-            cp -a "$INNER"/sdk/lib/ucrt/$2/* ~/sysroot/windows-msvc-sysroot/lib/$1/
-            cp -a "$INNER"/sdk/lib/um/$2/* ~/sysroot/windows-msvc-sysroot/lib/$1/
+            mkdir -p "$INNER/lib/$1"
+            cp -a "$SPLAT"/crt/lib/$2/* "$INNER/lib/$1/"
+            cp -a "$SPLAT"/sdk/lib/ucrt/$2/* "$INNER/lib/$1/"
+            cp -a "$SPLAT"/sdk/lib/um/$2/* "$INNER/lib/$1/"
           done
-          mkdir -p ~/sysroot/windows-msvc-sysroot/include
-          cp -a "$INNER"/crt/include/* ~/sysroot/windows-msvc-sysroot/include/
-          cp -a "$INNER"/sdk/include/ucrt/* ~/sysroot/windows-msvc-sysroot/include/
-          cp -a "$INNER"/sdk/include/shared/* ~/sysroot/windows-msvc-sysroot/include/
-          cp -a "$INNER"/sdk/include/um/* ~/sysroot/windows-msvc-sysroot/include/
-          touch ~/sysroot/windows-msvc-sysroot/DONE
+          mkdir -p "$INNER/include"
+          cp -a "$SPLAT"/crt/include/* "$INNER/include/"
+          cp -a "$SPLAT"/sdk/include/ucrt/* "$INNER/include/"
+          cp -a "$SPLAT"/sdk/include/shared/* "$INNER/include/"
+          cp -a "$SPLAT"/sdk/include/um/* "$INNER/include/"
+          touch "$ENTRY/DONE"
           # The pinned linker: a symlink to this toolchain's rust-lld.
           ln -s "$(rustc --print sysroot)/lib/rustlib/x86_64-unknown-linux-gnu/bin/rust-lld" \
             ~/sysroot/lld-link
@@ -194,6 +194,9 @@ jobs:
 
       - name: Link the artifact
         run: |
+          # Sash refuses to create parent paths for --out; make the arch
+          # directory exist first. The final directory itself must not exist.
+          mkdir -p ./artifacts/${{ matrix.arch }}
           cargo run -q -p sash -- \
             build "${{ matrix.scene }}" \
             --profile portable-native --release \
@@ -230,6 +233,7 @@ jobs:
   windows-test:
     name: Windows Test (${{ matrix.arch }}/${{ matrix.profile }})
     needs: link-artifacts
+    if: inputs.smoke_only != true
     runs-on: [self-hosted, windows, "${{ matrix.arch }}"]
     timeout-minutes: 30
     strategy:
@@ -390,6 +394,7 @@ jobs:
   consolidate:
     name: Consolidate Evidence & Gate
     needs: [link-artifacts, windows-test]
+    if: inputs.smoke_only != true
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
@@ -447,7 +452,7 @@ jobs:
     steps:
       - name: Report Phase 0 Status
         run: |
-          STATUS="${{ needs.consolidate.outputs.phase0_status }}"
+          STATUS="${{ needs.consolidate.outputs.phase0_status || 'SKIPPED (smoke-only run: no qualification evidence to consolidate)' }}"
           echo "## Phase 0 Validation Result" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Status:** $STATUS" >> $GITHUB_STEP_SUMMARY
@@ -464,6 +469,8 @@ jobs:
             echo "- interactive-cut x64, i686, arm64" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "**Next:** Proceed to Phase 1 (Swarm J/B/I - Static-Window Runtime Qualification)" >> $GITHUB_STEP_SUMMARY
+          elif [[ "$STATUS" == SKIPPED* ]]; then
+            echo "ℹ️ **Smoke-only run** - qualification gates were not exercised. Smoke evidence is uploaded below." >> $GITHUB_STEP_SUMMARY
           else
             echo "❌ **Phase 0 FAILED** - One or more architecture/profile combinations failed." >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
