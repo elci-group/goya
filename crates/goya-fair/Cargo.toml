@@ -1,0 +1,13 @@
+[package]
+name = "goya-fair"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "GY-FAIR/1 — Foreign Application Intermediate Representation for the Disparates programme."
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = "1"
