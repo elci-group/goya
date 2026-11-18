@@ -432,6 +432,7 @@ impl Artifact {
             Self::BluetoothContinuity(a) => &a.canonical_ir,
             Self::BluetoothAccess(a) => &a.canonical_ir,
             Self::BluetoothProfile(a) => &a.canonical_ir,
+            Self::AcceleratorModel(a) => &a.canonical_ir,
         }
     }
 
@@ -470,6 +471,7 @@ impl Artifact {
             Self::BluetoothContinuity(a) => &a.source,
             Self::BluetoothAccess(a) => &a.source,
             Self::BluetoothProfile(a) => &a.source,
+            Self::AcceleratorModel(a) => &a.source,
         }
     }
 }
