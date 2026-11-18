@@ -3178,6 +3178,11 @@ mod tests {
             bluetooth_continuity: None,
             bluetooth_access: None,
             bluetooth_profile: None,
+            sso_google: None,
+            sso_microsoft: None,
+            sso_github: None,
+            sso_x: None,
+            sso_meta: None,
         };
         let result = negotiate(&request, host()).unwrap();
         assert_eq!(
@@ -3308,6 +3313,11 @@ mod tests {
                 "goya.hardware.payments.google_pay.v1",
                 "goya.hardware.payments.samsung_pay.v1",
                 "goya.hardware.secure_storage.keychain.v1",
+                "goya.identity.sso.github.v1",
+                "goya.identity.sso.google.v1",
+                "goya.identity.sso.meta.v1",
+                "goya.identity.sso.microsoft.v1",
+                "goya.identity.sso.x.v1",
                 "goya.input.ascii_set_validation.process_local.v1",
                 "goya.memory.buffers.process_local.v1",
                 "goya.network.fetch.v1",
@@ -4316,6 +4326,11 @@ mod tests {
             bluetooth_continuity: None,
             bluetooth_access: None,
             bluetooth_profile: None,
+            sso_google: None,
+            sso_microsoft: None,
+            sso_github: None,
+            sso_x: None,
+            sso_meta: None,
         };
         let start = Instant::now();
         let iterations = 10_000;
