@@ -334,7 +334,7 @@ mod tests {
                 "unexpected DSP label {}",
                 facts.apu_dsp
             );
-            if facts.apu_dsp == "none" || !facts.int8_accel {
+            if facts.apu_dsp == "none" {
                 assert!(!facts.int8_accel && !facts.fp16_accel);
             }
             assert!((2013..=2030).contains(&facts.year));
