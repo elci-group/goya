@@ -2878,7 +2878,7 @@ mod tests {
         ] {
             let window = admit::admit(source).unwrap();
             let ir = crate::ir_lower::lower_static_window(&window, crate::api_floor::ApiFloor::Win10);
-            let generated = codegen_static_window(&ir);
+            let generated = codegen_static_window(&ir, PROGRAM_STATIC);
             let origins = generated.source_map["files"][0]["origins"]
                 .as_array()
                 .unwrap();
