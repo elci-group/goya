@@ -1,0 +1,56 @@
+{
+  "directive": "QUITASOL-Q3",
+  "directive_version": "0.0.1",
+  "recorded_on": "2026-11-18",
+  "phase_doc": "docs/quitasol/phase3.md",
+  "summary": "Q3 MediaSession runtime glue. crates/quitasol-semantic gains src/runtime.rs: emit_media_session_glue lowers the Q2 Fire OS plan to deterministic Kotlin (contract QUITASOL-MEDIASESSION-RT/1-draft) — a QuitasolIntentBridge interface the app implements, and a QuitasolMediaSessionCallback with documented MediaSessionCompat.Callback overrides (onPlay/onPause, onSkipToNext, onSkipToPrevious, onFastForward, onRewind, pos==0L-guarded onSeekTo for restart) dispatching to intents by name. A callback bound by two intents is QS-E2005 (compile-time refusal); plan/scene mismatch remains QS-E2004. Intents without a documented self-serve lowering are listed as not-voice-reachable in the emitted file. The Q2 plan callback names were corrected to these API-faithful forms (onFastForward, onRewind, onSeekTo(0)). Navigation integration is recorded BLOCKED by evidence: voice scrolling and selection is back-end activated per app (Q0), not self-serve, so no navigation glue exists. The emitted Kotlin has never been compiled and no on-device behaviour is claimed.",
+  "gates": {
+    "library_tests": {
+      "status": "PASS",
+      "command": "cargo test -p quitasol-semantic --offline",
+      "result": "30 passed, 0 failed (6 runtime tests: binding table, guarded onSeekTo, QS-E2005 conflict refusal, QS-E2004 mismatch, pinned Kotlin output, empty-callback-class scene; plus prior suites)"
+    },
+    "goya_lang_tests": {
+      "status": "PASS",
+      "command": "cargo test -p goya-lang --offline",
+      "result": "all suites passed, 0 failed"
+    },
+    "plan_callback_names_now_api_faithful": {
+      "status": "PASS",
+      "note": "Q2 transport_actions corrected: seek_forward maps to onFastForward, seek_backward to onRewind, restart to onSeekTo(0) — the documented MediaSessionCompat.Callback methods — replacing the abstract onSeekTo+offset/-offset/:0 names. Q2 pinned tests updated accordingly; the QUITASOL-FIREOS-PLAN/1-draft contract permits draft-shape change."
+    },
+    "kotlin_compilation": {
+      "status": "BLOCKED",
+      "reason": "The glue is emitted text with pinned-shape tests; no Android toolchain is invoked. Compilation requires an Android project build (Aragon/goya-sdk infrastructure targets phones today; TV/APK emission ownership is Nevada ledger N0-CODEGEN)."
+    },
+    "on_device_behaviour": {
+      "status": "BLOCKED",
+      "reason": "No Fire OS device or emulator has executed any binding. Voice transport on hardware remains unverified."
+    },
+    "bridge_runtime": {
+      "status": "BLOCKED",
+      "reason": "QuitasolIntentBridge implementations route intents into the app's interaction runtime (D1/D2 semantics); no Quitasol runtime exists to supply one. The bridge is an interface contract only."
+    },
+    "navigation_integration": {
+      "status": "BLOCKED",
+      "reason": "Amazon's Fire TV voice scrolling & selection is documented as back-end activated per app after Amazon verifies command support (Q0 audit). There is no self-serve navigation API to integrate; no navigation glue is emitted."
+    },
+    "vega_track": {
+      "status": "BLOCKED",
+      "reason": "Untouched by Q3. Vega voice is platform-mediated per Q0 with the third-party API contract undocumented."
+    }
+  },
+  "toolchain": {
+    "rustc": "1.95.0 (workspace toolchain)",
+    "crate": "quitasol-semantic 0.1.8 (+ runtime.rs)",
+    "branch": "nevada/phase0"
+  },
+  "unchanged": [
+    "DIRECTIVE_ID series QUITASOL-*; the Quitasol proposal remains proposed, not ratified.",
+    "crates/nevada and crates/goya-lang are not modified by Q3 (goya-lang unchanged since the Q2 transport key).",
+    "Strict GSSH admission is unchanged: all @intent remain rejected with GY-E1010.",
+    "The lowering tier remains unresolved across manifest, plan and glue; no voice platform integration is claimed.",
+    "Intents without transport declarations remain Unresolved and are recorded in every emitted artefact."
+  ],
+  "next_unblock": "External: a Fire OS device with the Media Session permission and an Android build environment to compile and run the glue. Internal: settle the codegen ownership boundary (Aragon/goya-sdk phone track vs Nevada N0-CODEGEN TV track) before any phase wires the glue into a real Android project; then the bridge implementation needs the app interaction runtime (D1/D2) contract."
+}

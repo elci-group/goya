@@ -9,6 +9,8 @@
 //! - all validation (shapes, payloads, op support) happens before compute;
 //! - typed errors only; no panics on peer input.
 
+pub mod ledger;
+
 use ie_contract::errors::TypedError;
 use ie_contract::fixture::GoldenOp;
 use ie_contract::tensors::{DType, TensorData};
