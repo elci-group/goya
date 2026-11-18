@@ -94,6 +94,7 @@ pub enum BluetoothError {
     ProfileIdTooLong,
     BadProfileVersion,
     ProfileInvariantViolated,
+    BadActionName,
 }
 
 impl fmt::Display for BluetoothError {
@@ -242,6 +243,10 @@ impl fmt::Display for BluetoothError {
             }
             Self::ProfileInvariantViolated => {
                 "profile does not satisfy its category's documented invariants"
+            }
+            Self::BadActionName => {
+                "custom action name must be a non-empty ASCII name of letters, \
+                 digits or underscores within the bound"
             }
         })
     }
@@ -1848,7 +1853,7 @@ impl SemanticAction {
                     .bytes()
                     .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
             {
-                return Err(BluetoothError::BadMerchantId);
+                return Err(BluetoothError::BadActionName);
             }
         }
         Ok(())
@@ -3252,5 +3257,496 @@ mod tests {
         ledger.forget("CC:DD").unwrap();
         assert_eq!(ledger.forget("CC:DD"), Err(BluetoothError::UnknownPeripheral));
         assert_eq!(ledger.len(), 1);
+    }
+
+    fn access_session() -> InputMappingSession {
+        InputMappingSession::new(
+            vec![
+                InputBinding::new(
+                    InputSource::AccessibilitySwitch,
+                    InputEventKind::SinglePress,
+                    SemanticAction::Select,
+                    "Primary select",
+                )
+                .unwrap(),
+                InputBinding::new(
+                    InputSource::AccessibilitySwitch,
+                    InputEventKind::DoublePress,
+                    SemanticAction::NavigateNext,
+                    "Move to the next element",
+                )
+                .unwrap(),
+                InputBinding::new(
+                    InputSource::AccessibilitySwitch,
+                    InputEventKind::LongPress,
+                    SemanticAction::Back,
+                    "Return to the previous screen",
+                )
+                .unwrap(),
+                InputBinding::new(
+                    InputSource::GameController,
+                    InputEventKind::SinglePress,
+                    SemanticAction::Confirm,
+                    "Confirm the focused action",
+                )
+                .unwrap(),
+            ],
+            500,
+            400,
+            300,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn access_session_validates_every_declaration_bound() {
+        assert_eq!(
+            InputMappingSession::new(Vec::new(), 500, 400, 300),
+            Err(BluetoothError::NoBindings)
+        );
+        assert_eq!(
+            InputMappingSession::new(
+                (0..=MAX_BINDINGS)
+                    .map(|index| InputBinding::new(
+                        InputSource::CustomButton,
+                        InputEventKind::SinglePress,
+                        SemanticAction::Custom(format!("action_{index}")),
+                        "label",
+                    )
+                    .unwrap())
+                    .collect(),
+                500,
+                400,
+                300
+            ),
+            Err(BluetoothError::TooManyBindings)
+        );
+        assert_eq!(
+            InputBinding::new(
+                InputSource::AccessibilitySwitch,
+                InputEventKind::SinglePress,
+                SemanticAction::Select,
+                "   "
+            ),
+            Err(BluetoothError::EmptyLabel)
+        );
+        assert_eq!(
+            InputBinding::new(
+                InputSource::AccessibilitySwitch,
+                InputEventKind::SinglePress,
+                SemanticAction::Select,
+                &"l".repeat(MAX_LABEL_BYTES + 1)
+            ),
+            Err(BluetoothError::LabelTooLong)
+        );
+        assert_eq!(
+            InputBinding::new(
+                InputSource::AccessibilitySwitch,
+                InputEventKind::SinglePress,
+                SemanticAction::Custom("bad name!".to_owned()),
+                "label"
+            ),
+            Err(BluetoothError::BadActionName)
+        );
+        assert_eq!(
+            InputBinding::new(
+                InputSource::AccessibilitySwitch,
+                InputEventKind::SinglePress,
+                SemanticAction::Custom(String::new()),
+                "label"
+            ),
+            Err(BluetoothError::BadActionName)
+        );
+        assert_eq!(
+            InputMappingSession::new(
+                vec![
+                    InputBinding::new(
+                        InputSource::AccessibilitySwitch,
+                        InputEventKind::SinglePress,
+                        SemanticAction::Select,
+                        "one"
+                    )
+                    .unwrap(),
+                    InputBinding::new(
+                        InputSource::AccessibilitySwitch,
+                        InputEventKind::SinglePress,
+                        SemanticAction::Confirm,
+                        "two"
+                    )
+                    .unwrap(),
+                ],
+                500,
+                400,
+                300
+            ),
+            Err(BluetoothError::DuplicateBinding)
+        );
+        assert_eq!(
+            InputMappingSession::new(
+                vec![InputBinding::new(
+                    InputSource::AccessibilitySwitch,
+                    InputEventKind::SinglePress,
+                    SemanticAction::Select,
+                    "one"
+                )
+                .unwrap()],
+                MAX_DEBOUNCE_MS + 1,
+                400,
+                300
+            ),
+            Err(BluetoothError::DebounceBoundTooLarge)
+        );
+        assert_eq!(
+            InputMappingSession::new(
+                vec![InputBinding::new(
+                    InputSource::AccessibilitySwitch,
+                    InputEventKind::SinglePress,
+                    SemanticAction::Select,
+                    "one"
+                )
+                .unwrap()],
+                500,
+                0,
+                300
+            ),
+            Err(BluetoothError::ZeroLongPressBound)
+        );
+        assert_eq!(
+            InputMappingSession::new(
+                vec![InputBinding::new(
+                    InputSource::AccessibilitySwitch,
+                    InputEventKind::SinglePress,
+                    SemanticAction::Select,
+                    "one"
+                )
+                .unwrap()],
+                500,
+                MAX_LONG_PRESS_MS + 1,
+                300
+            ),
+            Err(BluetoothError::LongPressBoundTooLarge)
+        );
+        assert_eq!(
+            InputMappingSession::new(
+                vec![InputBinding::new(
+                    InputSource::AccessibilitySwitch,
+                    InputEventKind::SinglePress,
+                    SemanticAction::Select,
+                    "one"
+                )
+                .unwrap()],
+                500,
+                400,
+                0
+            ),
+            Err(BluetoothError::ZeroDoublePressBound)
+        );
+        assert_eq!(
+            InputMappingSession::new(
+                vec![InputBinding::new(
+                    InputSource::AccessibilitySwitch,
+                    InputEventKind::SinglePress,
+                    SemanticAction::Select,
+                    "one"
+                )
+                .unwrap()],
+                500,
+                400,
+                MAX_DOUBLE_PRESS_WINDOW_MS + 1
+            ),
+            Err(BluetoothError::DoublePressBoundTooLarge)
+        );
+    }
+
+    #[test]
+    fn press_events_recognize_single_double_and_long_presses() {
+        let mut session = access_session();
+        assert_eq!(session.bindings(), 4);
+        assert_eq!(session.binding(InputSource::AccessibilitySwitch, InputEventKind::SinglePress).unwrap().action(), &SemanticAction::Select);
+        // Release without a press, press without a release, non-monotonic.
+        assert_eq!(
+            session.release(InputSource::AccessibilitySwitch, 10),
+            Err(BluetoothError::WrongState)
+        );
+        session.press(InputSource::AccessibilitySwitch, 10).unwrap();
+        assert_eq!(
+            session.press(InputSource::AccessibilitySwitch, 20),
+            Err(BluetoothError::WrongState)
+        );
+        assert_eq!(
+            session.release(InputSource::AccessibilitySwitch, 5),
+            Err(BluetoothError::InvalidTimestamp)
+        );
+
+        // Short hold → single press → Select, labelled.
+        let outcome = session.release(InputSource::AccessibilitySwitch, 50).unwrap();
+        let dispatch = match outcome {
+            EventOutcome::Dispatched(dispatch) => dispatch,
+            EventOutcome::Suppressed => panic!("first event must dispatch"),
+        };
+        assert_eq!(dispatch.source(), InputSource::AccessibilitySwitch);
+        assert_eq!(dispatch.event(), InputEventKind::SinglePress);
+        assert_eq!(dispatch.action(), &SemanticAction::Select);
+        assert_eq!(dispatch.label(), "Primary select");
+
+        // Second release within the double-press window → double press.
+        session.press(InputSource::AccessibilitySwitch, 100).unwrap();
+        let outcome = session.release(InputSource::AccessibilitySwitch, 150).unwrap();
+        let dispatch = match outcome {
+            EventOutcome::Dispatched(dispatch) => dispatch,
+            EventOutcome::Suppressed => panic!("double press must dispatch"),
+        };
+        assert_eq!(dispatch.event(), InputEventKind::DoublePress);
+        assert_eq!(dispatch.action(), &SemanticAction::NavigateNext);
+
+        // A hold beyond the long-press threshold → long press.
+        session.press(InputSource::AccessibilitySwitch, 1_000).unwrap();
+        let outcome = session.release(InputSource::AccessibilitySwitch, 1_600).unwrap();
+        let dispatch = match outcome {
+            EventOutcome::Dispatched(dispatch) => dispatch,
+            EventOutcome::Suppressed => panic!("long press must dispatch"),
+        };
+        assert_eq!(dispatch.event(), InputEventKind::LongPress);
+        assert_eq!(dispatch.action(), &SemanticAction::Back);
+        assert_eq!(session.dispatched(), 3);
+        assert_eq!(session.suppressed(), 0);
+        assert_eq!(session.unmapped(), 0);
+    }
+
+    #[test]
+    fn unmapped_events_are_reported_and_duplicates_suppressed() {
+        let mut session = access_session();
+        // The game controller's double press has no binding: reported, not ignored.
+        session.press(InputSource::GameController, 100).unwrap();
+        session.release(InputSource::GameController, 150).unwrap();
+        session.press(InputSource::GameController, 200).unwrap();
+        assert_eq!(
+            session.release(InputSource::GameController, 250),
+            Err(BluetoothError::UnmappedEvent)
+        );
+        assert_eq!(session.unmapped(), 1);
+        assert_eq!(session.dispatched(), 1);
+
+        // Debounce: a same-source same-kind dispatch 400 ms later is outside
+        // the double-press window (300) but inside the debounce window (500),
+        // so it is suppressed and counted.
+        session.press(InputSource::GameController, 1_000).unwrap();
+        session.release(InputSource::GameController, 1_050).unwrap();
+        session.press(InputSource::GameController, 1_500).unwrap();
+        assert_eq!(
+            session.release(InputSource::GameController, 1_550),
+            Ok(EventOutcome::Suppressed)
+        );
+        assert_eq!(session.suppressed(), 1);
+        assert_eq!(session.dispatched(), 2);
+    }
+
+    fn profile_char(uuid: &str, read: bool, write: bool, notify: bool, bound: usize) -> ProfileCharacteristic {
+        ProfileCharacteristic::new(uuid.to_owned(), ProfileProperties::new(read, write, notify, false), bound)
+            .unwrap()
+    }
+
+    #[test]
+    fn profile_records_validate_ids_versions_and_duplicates() {
+        assert_eq!(
+            DeviceProfileRecord::new(String::new(), ProfileCategory::Battery, "1.0.0".to_owned(), vec![], vec![]),
+            Err(BluetoothError::BadProfileId)
+        );
+        assert_eq!(
+            DeviceProfileRecord::new("bad id!".to_owned(), ProfileCategory::Battery, "1.0.0".to_owned(), vec![], vec![]),
+            Err(BluetoothError::BadProfileId)
+        );
+        assert_eq!(
+            DeviceProfileRecord::new("p".repeat(MAX_PROFILE_ID_BYTES + 1), ProfileCategory::Battery, "1.0.0".to_owned(), vec![], vec![]),
+            Err(BluetoothError::ProfileIdTooLong)
+        );
+        for version in ["", "1", "1.0", "1.0.0.0", "01.a.0", "1.0.x"] {
+            assert_eq!(
+                DeviceProfileRecord::new("com.goya.profile.test".to_owned(), ProfileCategory::Battery, version.to_owned(), vec![], vec![]),
+                Err(BluetoothError::BadProfileVersion),
+                "version {version} must be rejected"
+            );
+        }
+        assert_eq!(
+            DeviceProfileRecord::new(
+                "com.goya.profile.test".to_owned(),
+                ProfileCategory::Battery,
+                "1.0.0".to_owned(),
+                vec![profile_char("2A19", true, false, false, 1)],
+                vec![profile_char("2A19", true, false, false, 1)]
+            ),
+            Err(BluetoothError::DuplicateCharacteristic)
+        );
+        assert_eq!(
+            DeviceProfileRecord::new(
+                "com.goya.profile.test".to_owned(),
+                ProfileCategory::Battery,
+                "1.0.0".to_owned(),
+                (0..=MAX_PROFILE_CHARACTERISTICS)
+                    .map(|index| profile_char(&format!("{index:04}"), true, false, false, 16))
+                    .collect(),
+                vec![]
+            ),
+            Err(BluetoothError::TooManyCharacteristics)
+        );
+        assert_eq!(
+            ProfileCharacteristic::new(String::new(), ProfileProperties::default(), 16),
+            Err(BluetoothError::EmptyServiceUuid)
+        );
+        assert_eq!(
+            ProfileCharacteristic::new("2A19".to_owned(), ProfileProperties::default(), 0),
+            Err(BluetoothError::ZeroValueBound)
+        );
+    }
+
+    #[test]
+    fn category_invariants_follow_the_documented_specifications() {
+        // Battery requires 2A19 with read.
+        let battery = DeviceProfileRecord::new(
+            "com.goya.battery.test".to_owned(),
+            ProfileCategory::Battery,
+            "1.0.0".to_owned(),
+            vec![profile_char("2A19", true, false, false, 1)],
+            vec![],
+        )
+        .unwrap();
+        assert_eq!(battery.validate_category_invariants(), Ok(()));
+        let wrong_property = DeviceProfileRecord::new(
+            "com.goya.battery.test".to_owned(),
+            ProfileCategory::Battery,
+            "1.0.0".to_owned(),
+            vec![profile_char("2A19", false, true, false, 1)],
+            vec![],
+        )
+        .unwrap();
+        assert_eq!(
+            wrong_property.validate_category_invariants(),
+            Err(BluetoothError::ProfileInvariantViolated)
+        );
+        // Heart rate requires 2A37 with notify; serial requires NUS RX write and TX notify.
+        let heart_rate = DeviceProfileRecord::new(
+            "com.goya.hr.test".to_owned(),
+            ProfileCategory::HeartRate,
+            "1.0.0".to_owned(),
+            vec![profile_char("2A37", false, false, true, 512)],
+            vec![],
+        )
+        .unwrap();
+        assert_eq!(heart_rate.validate_category_invariants(), Ok(()));
+        let serial = DeviceProfileRecord::new(
+            "com.goya.serial.test".to_owned(),
+            ProfileCategory::Serial,
+            "1.0.0".to_owned(),
+            vec![
+                profile_char("6E400002", false, true, false, 512),
+                profile_char("6E400003", false, false, true, 512),
+            ],
+            vec![],
+        )
+        .unwrap();
+        assert_eq!(serial.validate_category_invariants(), Ok(()));
+        let serial_missing_tx = DeviceProfileRecord::new(
+            "com.goya.serial.test".to_owned(),
+            ProfileCategory::Serial,
+            "1.0.0".to_owned(),
+            vec![profile_char("6E400002", false, true, false, 512)],
+            vec![],
+        )
+        .unwrap();
+        assert_eq!(
+            serial_missing_tx.validate_category_invariants(),
+            Err(BluetoothError::ProfileInvariantViolated)
+        );
+        // Audio exposes no GATT requirement; generic GATT and custom need
+        // at least one required characteristic.
+        let audio = DeviceProfileRecord::new(
+            "com.goya.audio.test".to_owned(),
+            ProfileCategory::Audio,
+            "1.0.0".to_owned(),
+            vec![],
+            vec![],
+        )
+        .unwrap();
+        assert_eq!(audio.validate_category_invariants(), Ok(()));
+        let generic_empty = DeviceProfileRecord::new(
+            "com.goya.generic.test".to_owned(),
+            ProfileCategory::GenericGatt,
+            "1.0.0".to_owned(),
+            vec![],
+            vec![],
+        )
+        .unwrap();
+        assert_eq!(
+            generic_empty.validate_category_invariants(),
+            Err(BluetoothError::ProfileInvariantViolated)
+        );
+    }
+
+    #[test]
+    fn profile_registry_is_bounded_and_unique() {
+        assert_eq!(
+            ProfileRegistry::new(0),
+            Err(BluetoothError::ZeroProfileBound)
+        );
+        assert_eq!(
+            ProfileRegistry::new(MAX_PROFILES + 1),
+            Err(BluetoothError::ProfileBoundTooLarge)
+        );
+        let mut registry = ProfileRegistry::new(1).unwrap();
+        let battery = DeviceProfileRecord::new(
+            "com.goya.battery.test".to_owned(),
+            ProfileCategory::Battery,
+            "1.0.0".to_owned(),
+            vec![profile_char("2A19", true, false, false, 1)],
+            vec![],
+        )
+        .unwrap();
+        registry.register(battery).unwrap();
+        assert_eq!(registry.len(), 1);
+        assert_eq!(
+            registry.profile("com.goya.battery.test").unwrap().category(),
+            ProfileCategory::Battery
+        );
+        assert_eq!(
+            registry.profile("com.goya.missing.test"),
+            Err(BluetoothError::UnknownProfile)
+        );
+        // Duplicate identifiers are rejected; the violation check runs again.
+        let battery_again = DeviceProfileRecord::new(
+            "com.goya.battery.test".to_owned(),
+            ProfileCategory::Battery,
+            "1.0.0".to_owned(),
+            vec![profile_char("2A19", true, false, false, 1)],
+            vec![],
+        )
+        .unwrap();
+        assert_eq!(
+            registry.register(battery_again),
+            Err(BluetoothError::DuplicateProfile)
+        );
+        let invalid = DeviceProfileRecord::new(
+            "com.goya.other.test".to_owned(),
+            ProfileCategory::Battery,
+            "1.0.0".to_owned(),
+            vec![],
+            vec![],
+        )
+        .unwrap();
+        assert_eq!(
+            registry.register(invalid),
+            Err(BluetoothError::ProfileInvariantViolated)
+        );
+        let other = DeviceProfileRecord::new(
+            "com.goya.other.test".to_owned(),
+            ProfileCategory::Audio,
+            "1.0.0".to_owned(),
+            vec![],
+            vec![],
+        )
+        .unwrap();
+        assert_eq!(
+            registry.register(other),
+            Err(BluetoothError::ProfileBoundReached)
+        );
     }
 }
