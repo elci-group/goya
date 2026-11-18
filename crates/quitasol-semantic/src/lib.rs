@@ -295,13 +295,57 @@ mod tests {
         assert_eq!(search.utterances.len(), 3);
     }
 
+    /// Same scene with the two intents swapped in declaration order.
+    const REORDERED: &str = "\
+@ontology app {
+    @button go { id: \"button.go\"; }
+    @input searchField { id: \"element.searchField\"; }
+    @cell searchPanel { id: \"element.searchPanel\"; }
+    @interaction searchCatalogue {
+        id: \"action.search.v1\";
+        trigger: button.go.activate;
+        class: D1;
+        state { }
+        input { }
+    }
+    @interaction playPause {
+        id: \"action.playPause.v1\";
+        trigger: button.go.activate;
+        class: D1;
+        state { }
+        input { }
+    }
+    @intent playback {
+        action: playPause;
+        voice {
+            utterance: \"Pause playback\";
+            confirmation: true;
+        }
+        fallback {
+            remote: searchPanel;
+        }
+    }
+    @intent search {
+        id: \"intent.search.v1\";
+        action: searchCatalogue;
+        voice {
+            utterance: \"Find {query}\";
+            utterance: \"Search for {query}\";
+            utterance: \"Show me {query}\";
+            confirmation: false;
+        }
+        fallback {
+            remote: searchPanel;
+            keyboard: searchField;
+        }
+    }
+}
+";
+
     #[test]
     fn compilation_and_json_are_deterministic_across_declaration_order() {
-        let reordered = ACCEPT.replacen("@intent search {", "@intent zz {", 1)
-            .replacen("@intent playback", "@intent search", 1)
-            .replacen("@intent zz {", "@intent playback {", 1);
         let first = compile(&parse(ACCEPT).unwrap()).unwrap();
-        let second = compile(&parse(&reordered).unwrap()).unwrap();
+        let second = compile(&parse(REORDERED).unwrap()).unwrap();
         assert_eq!(first, second, "entries sorted by name regardless of order");
         assert_eq!(first.to_json(), second.to_json(), "byte-identical JSON");
 
@@ -381,15 +425,19 @@ mod tests {
 
     #[test]
     fn json_escapes_quotes_and_control_characters() {
-        let quoted = ACCEPT.replacen(
-            "utterance: \"Pause playback\";",
-            "utterance: \"Pause \\\"it\\\" playback\";",
-            1,
-        );
-        let scene = parse(&quoted).unwrap();
+        // The surface lexer has no escape sequences, so a quote inside an
+        // utterance cannot be authored in source; inject it on the parsed
+        // scene to exercise end-to-end escaping.
+        let mut scene = parse(ACCEPT).unwrap();
+        let playback = scene
+            .intents
+            .iter_mut()
+            .find(|intent| intent.name == "playback")
+            .unwrap();
+        playback.utterances.insert(0, "Pause \"it\" playback".to_owned());
         let json = compile(&scene).unwrap().to_json();
         assert!(
-            json.contains("\"utterances\":[\"Pause \\\"it\\\" playback\"]"),
+            json.contains("\"utterances\":[\"Pause \\\"it\\\" playback\""),
             "{json}"
         );
 
