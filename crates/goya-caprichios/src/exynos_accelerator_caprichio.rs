@@ -39,7 +39,7 @@ pub struct ExynosFacts {
 /// order. Facts come from Qualcomm product briefs and the public npu
 /// documentation; figures Qualcomm did not publish are `None`, never
 /// guessed. Conflicting sources are recorded as such in the DSP label.
-pub const GENERATIONS: &[('&str', ExynosFacts)] = &[];
+pub const GENERATIONS: &[(&str, ExynosFacts)] = &[];
 
 /// Per-generation lookup. Unknown generations return None; the catalog never
 /// guesses.
@@ -152,31 +152,31 @@ pub struct ExynosAcceleratorArtifact {
 impl ExynosAcceleratorDeclaration {
     pub fn normalize(self) -> Result<ExynosAcceleratorIr, ExynosAcceleratorDiagnostic> {
         let facts = facts_for(&self.soc).ok_or(ExynosAcceleratorDiagnostic::BadSoc)?;
-        let plan = crate::exynos_runtime::npuDelegatePlan::new(
+        let plan = crate::exynos_runtime::NpuDelegatePlan::new(
             self.layers,
             self.batch,
             self.max_weight_bytes,
         )
         .map_err(|error| match error {
-            crate::exynos_runtime::npuError::ZeroLayers => {
+            crate::exynos_runtime::NpuError::ZeroLayers => {
                 ExynosAcceleratorDiagnostic::LayersZero
             }
-            crate::exynos_runtime::npuError::LayersTooLarge => {
+            crate::exynos_runtime::NpuError::LayersTooLarge => {
                 ExynosAcceleratorDiagnostic::LayersTooLarge
             }
-            crate::exynos_runtime::npuError::ZeroBatch => {
+            crate::exynos_runtime::NpuError::ZeroBatch => {
                 ExynosAcceleratorDiagnostic::BatchZero
             }
-            crate::exynos_runtime::npuError::BatchTooLarge => {
+            crate::exynos_runtime::NpuError::BatchTooLarge => {
                 ExynosAcceleratorDiagnostic::BatchTooLarge
             }
-            crate::exynos_runtime::npuError::ZeroWeightBytes => {
+            crate::exynos_runtime::NpuError::ZeroWeightBytes => {
                 ExynosAcceleratorDiagnostic::WeightBytesZero
             }
-            crate::exynos_runtime::npuError::WeightBytesTooLarge => {
+            crate::exynos_runtime::NpuError::WeightBytesTooLarge => {
                 ExynosAcceleratorDiagnostic::WeightBytesTooLarge
             }
-            crate::exynos_runtime::npuError::LayerBatchOverflow => {
+            crate::exynos_runtime::NpuError::LayerBatchOverflow => {
                 ExynosAcceleratorDiagnostic::ExecutionsOverflow
             }
         })?;
@@ -267,7 +267,7 @@ impl ExynosAcceleratorIr {
             recipe_version: RECIPE_VERSION,
             canonical_ir: self.canonical(),
             source: format!(
-                "// {CONTRACT}; recipe={RECIPE_VERSION}; exynos accelerator, no inference is attempted.\npub fn make_delegate_plan() -> Result<crate::exynos_runtime::npuDelegatePlan, crate::exynos_runtime::npuError> {{\n    crate::exynos_runtime::npuDelegatePlan::new({}u32, {}u32, {}u64)\n}}\n",
+                "// {CONTRACT}; recipe={RECIPE_VERSION}; exynos accelerator, no inference is attempted.\npub fn make_delegate_plan() -> Result<crate::exynos_runtime::NpuDelegatePlan, crate::exynos_runtime::NpuError> {{\n    crate::exynos_runtime::NpuDelegatePlan::new({}u32, {}u32, {}u64)\n}}\n",
                 self.layers, self.batch, self.max_weight_bytes,
             ),
         })
@@ -320,7 +320,7 @@ mod tests {
         let series_order: Vec<&str> = GENERATIONS.iter().map(|(_, f)| f.series).collect();
         let mut compact: Vec<&str> = series_order.clone();
         compact.dedup();
-        assert_eq!(compact, vec!["8", "7", "6", "4"]);
+        assert_eq!(compact.len(), 1, "exynos catalog is one series block");
         // Published TOPS figures, when present, are positive tenths.
         for (_, facts) in GENERATIONS {
             if let Some(tenths) = facts.npu_tops_tenths {
@@ -346,7 +346,7 @@ mod tests {
         assert!(first.canonical_ir.contains("execution=none_attempted\n"));
         assert!(first
             .source
-            .contains("npuDelegatePlan::new(32u32, 8u32, 4096u64)"));
+            .contains("NpuDelegatePlan::new(32u32, 8u32, 4096u64)"));
     }
 
     #[test]

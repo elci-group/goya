@@ -35,6 +35,8 @@ pub mod memory_runtime;
 pub mod metal_caprichio;
 pub mod face_id_caprichio;
 pub mod samsung_pay_caprichio;
+pub mod exynos_accelerator_caprichio;
+pub mod exynos_runtime;
 pub mod snapdragon_accelerator_caprichio;
 pub mod snapdragon_runtime;
 pub mod touch_id_caprichio;
