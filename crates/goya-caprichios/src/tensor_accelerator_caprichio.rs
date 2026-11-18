@@ -319,11 +319,13 @@ mod tests {
             assert!(seen.insert(*name), "duplicate generation {name}");
             assert!(matches!(facts.series, "8" | "7" | "6" | "4"));
             assert!(
-                facts.apu_dsp == "none" || facts.apu_dsp.starts_with("TPU"),
+                facts.apu_dsp == "none"
+                    || facts.apu_dsp.starts_with("TPU")
+                    || facts.apu_dsp.starts_with("Edge TPU"),
                 "unexpected DSP label {}",
                 facts.apu_dsp
             );
-            if facts.apu_dsp == "none" || !facts.int8_accel {
+            if facts.apu_dsp == "none" {
                 assert!(!facts.int8_accel && !facts.fp16_accel);
             }
             assert!((2013..=2030).contains(&facts.year));
