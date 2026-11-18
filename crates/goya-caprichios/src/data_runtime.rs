@@ -99,7 +99,7 @@ fn checked_encoded_len(payload_length: usize) -> Result<usize, CodecError> {
 }
 
 /// Validate and borrow the payload from an encoded envelope without copying.
-pub fn decode<'a>(encoded: &'a [u8], maximum: usize) -> Result<&'a [u8], CodecError> {
+pub fn decode(encoded: &[u8], maximum: usize) -> Result<&[u8], CodecError> {
     if encoded.len() < HEADER_LEN {
         return Err(CodecError::TruncatedHeader);
     }

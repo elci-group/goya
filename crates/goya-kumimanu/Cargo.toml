@@ -1,0 +1,14 @@
+[package]
+name = "goya-kumimanu"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Kumimanu, Goya's native X11 window backend."
+
+[dependencies]
+# Pure Rust X11 client. Default features stay off so this crate does not
+# link libxcb. The protocol crate speaks X11 on a Unix socket and honours
+# the Xauthority file that the server already requires.
+x11rb = { version = "0.13.1", default-features = false }
+rustix = { version = "0.38", default-features = false, features = ["std", "event"] }

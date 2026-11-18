@@ -1,0 +1,21 @@
+// profile: gssh3
+@ontology counter {
+  @state { count: int = 0 session; }
+  @cell root {
+    id: "window.root";
+    @cell title { id: "window.title"; position_p: (0.05, 0.02, 0); extent_p: (0.9, 0.08, 0); text: "Count"; text-size-p: 0.6; }
+    @input amount { id: "window.amount"; position_p: (0.05, 0.12, 0); extent_p: (0.55, 0.08, 0); stroke: #333; stroke-width-p: 0.05; }
+    @button add { id: "window.add"; position_p: (0.65, 0.12, 0); extent_p: (0.3, 0.08, 0); text: "Add"; text_size_p: 0.5; }
+    @cell list { id: "window.list"; position_p: (0.05, 0.25, 0); extent_p: (0.9, 0.7, 0); scroll: true;
+      @cell long { id: "window.long"; extent_p: (1, 3.5, 0); text: "Taller than its viewport"; }
+    }
+  }
+  @interaction add {
+    id: "action.add";
+    trigger: button.add.activate;
+    class: D1;
+    state { read count: int; write count: int; }
+    input { amount: int from "window.amount"; }
+    set count = state.count + input.amount;
+  }
+}

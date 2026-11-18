@@ -1,0 +1,31 @@
+{
+  "status": "MEASURED",
+  "date": "2026-11-18T17:18:52Z",
+  "fixture": "crates/sash/fixtures/interactive-counter.gscene",
+  "runs_per_measurement": 5,
+  "binary": "cargo run -p emperor --offline",
+  "check": {
+    "command": "emperor check crates/sash/fixtures/interactive-counter.gscene --format json",
+    "runs_seconds": [0.106242,0.138345,0.086354,0.104917,0.088431],
+    "min_seconds": 0.086354,
+    "median_seconds": 0.104917,
+    "mean_seconds": 0.104858
+  },
+  "test_conformance": {
+    "command": "emperor test crates/sash/fixtures/interactive-counter.gscene --suite conformance --format json",
+    "runs_seconds": [0.089257,0.151305,0.106741,0.092346,0.114017],
+    "min_seconds": 0.089257,
+    "median_seconds": 0.106741,
+    "mean_seconds": 0.110733
+  },
+  "context": {
+    "hostname": "pop-os",
+    "cpu_model": "Intel(R) Core(TM) 5 120U",
+    "cores": "12",
+    "mem_total_kb": "7724588",
+    "kernel": "6.18.7-76061807-generic",
+    "cargo": "cargo 1.95.0 (f2d3ce0bd 2026-03-21)",
+    "rustc": "rustc 1.95.0 (59807616e 2026-04-14)",
+    "profile": "debug (emperor binary), offline"
+  }
+}

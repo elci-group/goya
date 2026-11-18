@@ -1,0 +1,128 @@
+   Compiling goya-lang v0.1.8 (/home/sal/goya/crates/goya-lang)
+warning: unused import: `Node`
+  --> crates/goya-lang/src/transition.rs:11:25
+   |
+11 | use goya_ir::{ActionId, Node};
+   |                         ^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `goya_ir::Node`
+  --> crates/goya-lang/src/lib.rs:22:5
+   |
+22 | use goya_ir::Node;
+   |     ^^^^^^^^^^^^^
+
+warning: `goya-lang` (lib) generated 2 warnings (run `cargo fix --lib -p goya-lang` to apply 2 suggestions)
+   Compiling goya-wayland v0.1.8 (/home/sal/goya/crates/goya-wayland)
+   Compiling goya-ddh v0.1.8 (/home/sal/goya/crates/goya-ddh)
+   Compiling goya-bridge v0.1.8 (/home/sal/goya/crates/goya-bridge)
+   Compiling goya-spatial-audio v0.1.8 (/home/sal/goya/crates/goya-spatial-audio)
+   Compiling goya-audio-linux v0.1.8 (/home/sal/goya/crates/goya-audio-linux)
+   Compiling goya-rars v0.1.8 (/home/sal/goya/crates/goya-rars)
+   Compiling goya-sonic v0.1.8 (/home/sal/goya/crates/goya-sonic)
+   Compiling goya-sdk v0.1.8 (/home/sal/goya/crates/goya-sdk)
+warning: unused import: `CellKind`
+ --> crates/goya-sdk/src/android_d1_runtime.rs:8:5
+  |
+8 |     CellKind, InteractionClass, InteractionExpr, InteractionType, InteractionValue, SourceRange,
+  |     ^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused imports: `SceneCell` and `SourceRange`
+  --> crates/goya-sdk/src/runtime/form_engine.rs:12:38
+   |
+12 |     RtlConfig, UnicodeSupportConfig, SceneCell, SourceRange,
+   |                                      ^^^^^^^^^  ^^^^^^^^^^^
+
+warning: unused import: `Sha256`
+  --> crates/goya-sdk/src/runtime/form_engine.rs:17:20
+   |
+17 | use sha2::{Digest, Sha256};
+   |                    ^^^^^^
+
+warning: unused import: `Digest`
+  --> crates/goya-sdk/src/runtime/form_engine.rs:17:12
+   |
+17 | use sha2::{Digest, Sha256};
+   |            ^^^^^^
+
+warning: variable does not need to be mutable
+   --> crates/goya-sdk/src/runtime/form_engine.rs:394:13
+    |
+394 |         let mut generated_ranges: Vec<goya_lang::SourceRange> = Vec::new();
+    |             ----^^^^^^^^^^^^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `generated_ranges`
+   --> crates/goya-sdk/src/runtime/form_engine.rs:394:13
+    |
+394 |         let mut generated_ranges: Vec<goya_lang::SourceRange> = Vec::new();
+    |             ^^^^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_generated_ranges`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `base_kotlin`
+    --> crates/goya-sdk/src/runtime/form_engine.rs:1058:13
+     |
+1058 |         let base_kotlin = self.generate()?.kotlin_code;
+     |             ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_base_kotlin`
+
+warning: variable does not need to be mutable
+    --> crates/goya-sdk/src/runtime/form_engine.rs:1286:18
+     |
+1286 |     pub fn field(mut self, name: impl Into<String>) -> FieldBuilder {
+     |                  ----^^^^
+     |                  |
+     |                  help: remove this `mut`
+
+warning: method `generate_d1_runtime` is never used
+    --> crates/goya-sdk/src/runtime/form_engine.rs:1077:8
+     |
+ 173 | impl FormEngine {
+     | --------------- method in this implementation
+...
+1077 |     fn generate_d1_runtime(&self, submit_action: &str) -> Result<String, FormEngineError> {
+     |        ^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `goya-sdk` (lib) generated 9 warnings (run `cargo fix --lib -p goya-sdk` to apply 7 suggestions)
+   Compiling sash v0.1.8 (/home/sal/goya/crates/sash)
+   Compiling goya-parity v0.1.8 (/home/sal/goya/crates/goya-parity)
+   Compiling goya-a11y v0.1.8 (/home/sal/goya/crates/goya-a11y)
+   Compiling emperor-runtime v0.1.8 (/home/sal/goya/crates/emperor-runtime)
+   Compiling goya-webview v0.1.8 (/home/sal/goya/crates/goya-webview)
+   Compiling maja-semantic v0.0.1 (/home/sal/goya/crates/maja-semantic)
+   Compiling goya-caprichios v0.0.1 (/home/sal/goya/crates/goya-caprichios)
+   Compiling goya-bench v0.1.8 (/home/sal/goya/crates/goya-bench)
+   Compiling maja v0.0.1 (/home/sal/goya/crates/maja)
+   Compiling emperor v0.1.8 (/home/sal/goya/crates/emperor)
+   Compiling goya-zcode v0.1.8 (/home/sal/goya/crates/goya-zcode)
+   Compiling goya-zcode-native v0.1.8 (/home/sal/goya/crates/goya-zcode-native)
+   Compiling neptune v0.1.8 (/home/sal/goya/crates/neptune)
+warning: unused variable: `kotlin_source`
+   --> crates/neptune/src/source_map.rs:208:9
+    |
+208 |     let kotlin_source = ""; // Would be loaded from artifacts in Phase 2 implementation
+    |         ^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_kotlin_source`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `neptune` (lib) generated 1 warning (run `cargo fix --lib -p neptune` to apply 1 suggestion)
+   Compiling goya-document v0.1.8 (/home/sal/goya/crates/goya-document)
+   Compiling dockyard v0.0.1 (/home/sal/goya/crates/dockyard)
+   Compiling goya-settlement v0.1.8 (/home/sal/goya/crates/goya-settlement)
+error: linking with `cc` failed: exit status: 1
+  |
+  = note:  "cc" "-m64" "/home/sal/goya/target/debug/deps/rustcrZSSFr/symbols.o" "<84 object files omitted>" "-Wl,--as-needed" "-Wl,-Bstatic" "/home/sal/goya/target/debug/deps/{libgoya_wayland-60314067e75998b2,libxkbcommon-8ef80e11a80fff26,libxkeysym-adaaeb111389f4c6,libgoya_runtime-ebf8b3404d96f275,libgoya_state-dda55493f83ce70f,libgoya_speculation-9b104cd398579ec5,libgoya_rpi-48224b826c6b7993,libgoya_rpi2-cd2a4cc4918265b0,libwayland_protocols-63e556f846449be1,libwayland_client-6e46d853dac62967,libwayland_backend-7d02e0b656c7ef92,libdowncast_rs-e6ca41441d1a6e8b,libwayland_sys-e7026bf1d97f2a69,librustix-9b5785f54c755a09,liblinux_raw_sys-03613364dc1a1f4f,libgoya_window_management-39cdb45ed6b769aa,librustix-0e67afc14f172aca,liblinux_raw_sys-dce849a3285409fb,libgoya_layout-a1c94f6131c6b0f7,libgoya_ir-7ce35dc8e072f018,libgoya_hcar-16b495e031bcf0f1,libgoya_csr-a8ef1c600c92e320,libgoya_change-d9bf12e457b6b5b5,libcosmic_text-af3b0400617d5350,librustc_hash-44c4042f3f076e78,libunicode_linebreak-5cbf9d092580213f,libsys_locale-c309d8b64b1a7f8e,libswash-3d090de8ca640c48,libyazi-7bd710ce53581177,libskrifa-5d3c5c862cdad5e2,libread_fonts-115a38b8b8f7da0d,libfont_types-c29e3f307d0b1d8a,libzeno-9628d05c2599445a,libunicode_script-88e5e9e08876f4c3,libself_cell-c607d2bfcaef8557,libskrifa-8e98b02d1c017cbe,liblinebender_resource_handle-81152c243c2850d9,libharfrust-94a5dc9b017f8200,libbitflags-476ff885740a1ce4,libsmallvec-c9a2a7f63c215ec9,libread_fonts-788353b74c33021c,libcore_maths-d5aa64ebe36db3d6,liblibm-2d03d1408fccf454,libfont_types-90afe123d0fbee4a,libbytemuck-a655280ca7c70984,libunicode_segmentation-34d3c42df27079b2,libunicode_bidi-5a13b52abf9b2d67,libfontdb-e6ff6e569c2d3cf2,libfontconfig_parser-3e20cb86d2f2c7c8,libroxmltree-f760c85f5d91c74c,libmemmap2-a0b1a7d2042dfc31,liblibc-b437f8992049e083,liblog-740c9629cd0951ea,libtinyvec-4b6394e05bcf3334,libslotmap-87df94ff0c822a10,libttf_parser-b2e30cf9b1cd0b57,libsmol_str-ac78912713a3cc3f,librangemap-87505292fd20b18f,libgoya_document-58b4c93084266cd0}.rlib" "<sysroot>/lib/rustlib/x86_64-unknown-linux-gnu/lib/{libstd-*,libpanic_unwind-*,libobject-*,libmemchr-*,libaddr2line-*,libgimli-*,libcfg_if-*,librustc_demangle-*,libstd_detect-*,libhashbrown-*,librustc_std_workspace_alloc-*,libminiz_oxide-*,libadler2-*,libunwind-*,liblibc-*,librustc_std_workspace_core-*,liballoc-*,libcore-*,libcompiler_builtins-*}.rlib" "-Wl,-Bdynamic" "-lxkbcommon" "-lgcc_s" "-lutil" "-lrt" "-lpthread" "-lm" "-ldl" "-lc" "-L" "/home/sal/goya/target/debug/deps/rustcrZSSFr/raw-dylibs" "-B<sysroot>/lib/rustlib/x86_64-unknown-linux-gnu/bin/gcc-ld" "-fuse-ld=lld" "-Wl,--eh-frame-hdr" "-Wl,-z,noexecstack" "-L" "<sysroot>/lib/rustlib/x86_64-unknown-linux-gnu/lib" "-o" "/home/sal/goya/target/debug/deps/goya_document-76a3aae63cac2dd8" "-Wl,--gc-sections" "-pie" "-Wl,-z,relro,-z,now" "-nodefaultlibs"
+  = note: some arguments are omitted. use `--verbose` to show all linker arguments
+  = note: rust-lld: error: unable to find library -lxkbcommon
+          collect2: error: ld returned 1 exit status
+          
+
+error: could not compile `goya-document` (bin "goya-document") due to 1 previous error

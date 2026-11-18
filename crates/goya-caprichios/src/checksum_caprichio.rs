@@ -223,7 +223,7 @@ mod tests {
             std::process::id()
         ));
         fs::create_dir(&dir).unwrap();
-        let result = (|| {
+        {
             let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
             let library = dir.join("libgoya_caprichios.rlib");
             let build_library = Command::new("rustc")
@@ -280,9 +280,8 @@ mod tests {
                 "emitted binding execution failed:\n{}",
                 String::from_utf8_lossy(&run.stderr)
             );
-        })();
+        }
         fs::remove_dir_all(dir).unwrap();
-        result
     }
 
     /// Run explicitly with `cargo test -p goya-caprichios checksum_caprichio::tests::benchmark_construction -- --ignored --nocapture`.

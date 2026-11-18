@@ -1,0 +1,1 @@
+{"gate": 13, "stage": "packaging-signing-release", "status": "BLOCKED", "exit_code": 0, "commands": [], "reason": "packaging and code signing require a release identity and artifact pipeline not available in CI", "timestamp": "2026-11-18T17:43:17Z"}

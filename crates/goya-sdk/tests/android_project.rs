@@ -278,8 +278,8 @@ fn scene_mode_emits_the_compiled_gssh2_scene_and_its_source_map() {
     let scene = r#"@ontology demo {
   @state { taps: int = 0 session; }
   @cell root { id: "root";
-    @cell label { id: "label"; position: (8, 8, 0); extent: (200, 32, 0); text: "Taps" }
-    @button tap { id: "button.tap"; position: (8, 48, 0); extent: (120, 48, 0); text: "Tap" }
+    @cell label { id: "label"; position_p: (0.02, 0.01, 0); extent_p: (0.5, 0.05, 0); text: "Taps"; text-size-p: 0.6; }
+    @button tap { id: "button.tap"; position_p: (0.02, 0.07, 0); extent_p: (0.3, 0.07, 0); text: "Tap" }
   }
   @interaction tap { id: "action.tap"; trigger: button.tap.activate; class: D1;
     state { read taps: int; write taps: int; } input { } set taps = state.taps + 1; }

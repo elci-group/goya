@@ -1,5 +1,9 @@
 //! Deterministic negotiation for implemented recipe contracts.
 
+use crate::apple_pay_caprichio::{
+    ApplePayArtifact, ApplePayDeclaration, RuntimeCapabilities as ApplePayHost,
+    Target as ApplePayTarget,
+};
 use crate::batching_caprichio::{
     BatchArtifact, BatchDeclaration, RuntimeCapabilities as BatchRuntime, Target as BatchTarget,
 };
@@ -28,6 +32,13 @@ use crate::deadline_caprichio::{
 use crate::filesystem_caprichio::{
     FileReadArtifact, HostProfile as FileHost, ReadDeclaration, Target as FileTarget,
 };
+use crate::face_id_caprichio::{
+    FaceIdArtifact, FaceIdDeclaration, RuntimeCapabilities as FaceIdHost, Target as FaceIdTarget,
+};
+use crate::touch_id_caprichio::{
+    RuntimeCapabilities as TouchIdHost, Target as TouchIdTarget, TouchIdArtifact,
+    TouchIdDeclaration,
+};
 use crate::http_caprichio::{
     HttpArtifact, HttpDeclaration, RuntimeCapabilities as HttpRuntime, Target as HttpTarget,
 };
@@ -35,8 +46,16 @@ use crate::input_validation_caprichio::{
     Artifact as InputValidationArtifact, Declaration as InputValidationDeclaration,
     HostProfile as InputValidationHost, Target as InputValidationTarget,
 };
+use crate::keychain_caprichio::{
+    KeychainArtifact, KeychainDeclaration, RuntimeCapabilities as KeychainHost,
+    Target as KeychainTarget,
+};
 use crate::memory_caprichio::{
     MemoryArtifact, MemoryDeclaration, RuntimeCapabilities as MemoryRuntime, Target as MemoryTarget,
+};
+use crate::metal_caprichio::{
+    DispatchArtifact as MetalArtifact, DispatchDeclaration as MetalDeclaration,
+    RuntimeCapabilities as MetalRuntime, Target as MetalTarget,
 };
 use crate::parallelism_caprichio::{
     ParallelismArtifact, ParallelismDeclaration, RuntimeCapabilities as ParallelismRuntime,
@@ -87,6 +106,11 @@ pub struct Request {
     pub priority: Option<PriorityDeclaration>,
     pub parallelism: Option<ParallelismDeclaration>,
     pub input_validation: Option<InputValidationDeclaration>,
+    pub keychain: Option<KeychainDeclaration>,
+    pub metal_compute: Option<MetalDeclaration>,
+    pub touch_id: Option<TouchIdDeclaration>,
+    pub face_id: Option<FaceIdDeclaration>,
+    pub apple_pay: Option<ApplePayDeclaration>,
 }
 
 /// Host facts are supplied by the caller; the registry does not infer support
@@ -127,6 +151,16 @@ pub struct HostProfile {
     pub parallelism_runtime: ParallelismRuntime,
     pub input_validation_target: InputValidationTarget,
     pub input_validation_host: InputValidationHost,
+    pub keychain_target: KeychainTarget,
+    pub keychain_host: KeychainHost,
+    pub metal_target: MetalTarget,
+    pub metal_runtime: MetalRuntime,
+    pub touch_id_target: TouchIdTarget,
+    pub touch_id_host: TouchIdHost,
+    pub face_id_target: FaceIdTarget,
+    pub face_id_host: FaceIdHost,
+    pub apple_pay_target: ApplePayTarget,
+    pub apple_pay_host: ApplePayHost,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -149,6 +183,8 @@ pub enum Artifact {
     Priority(PriorityArtifact),
     Parallelism(ParallelismArtifact),
     InputValidation(InputValidationArtifact),
+    Keychain(KeychainArtifact),
+    Metal(MetalArtifact),
 }
 
 impl Artifact {
@@ -172,6 +208,8 @@ impl Artifact {
             Self::Priority(a) => a.contract,
             Self::Parallelism(a) => a.contract,
             Self::InputValidation(a) => a.contract,
+            Self::Keychain(a) => a.contract,
+            Self::Metal(a) => a.contract,
         }
     }
 
@@ -195,6 +233,8 @@ impl Artifact {
             Self::Priority(a) => a.recipe,
             Self::Parallelism(_) => "bounded-process-local-parallel-executor",
             Self::InputValidation(a) => a.recipe,
+            Self::Keychain(_) => "apple-keychain-namespace-bounded-kv",
+            Self::Metal(_) => "apple-silicon-metal-checked-dispatch",
         }
     }
 
@@ -218,6 +258,8 @@ impl Artifact {
             Self::Priority(a) => a.recipe_version,
             Self::Parallelism(a) => a.recipe_version,
             Self::InputValidation(a) => a.recipe_version,
+            Self::Keychain(a) => a.recipe_version,
+            Self::Metal(a) => a.recipe_version,
         }
     }
 
@@ -241,6 +283,8 @@ impl Artifact {
             Self::Priority(a) => &a.canonical_ir,
             Self::Parallelism(a) => &a.canonical_ir,
             Self::InputValidation(a) => &a.canonical_ir,
+            Self::Keychain(a) => &a.canonical_ir,
+            Self::Metal(a) => &a.canonical_ir,
         }
     }
 
@@ -264,6 +308,8 @@ impl Artifact {
             Self::Priority(a) => &a.source,
             Self::Parallelism(a) => &a.source,
             Self::InputValidation(a) => &a.source,
+            Self::Keychain(a) => &a.source,
+            Self::Metal(a) => &a.source,
         }
     }
 }
@@ -291,6 +337,8 @@ pub const fn supported_contracts() -> &'static [&'static str] {
         crate::csv_caprichio::CONTRACT,
         crate::stream_caprichio::CONTRACT,
         crate::filesystem_caprichio::CONTRACT,
+        crate::metal_caprichio::CONTRACT,
+        crate::keychain_caprichio::CONTRACT,
         crate::input_validation_caprichio::CONTRACT,
         crate::memory_caprichio::CONTRACT,
         crate::CONTRACT,
@@ -324,6 +372,8 @@ pub enum NegotiationError {
     Priority(crate::priority_caprichio::Diagnostic),
     Parallelism(crate::parallelism_caprichio::Diagnostic),
     InputValidation(crate::input_validation_caprichio::Diagnostic),
+    Keychain(crate::keychain_caprichio::Diagnostic),
+    Metal(crate::metal_caprichio::Diagnostic),
 }
 
 impl fmt::Display for NegotiationError {
@@ -363,6 +413,8 @@ impl fmt::Display for NegotiationError {
             Self::InputValidation(error) => {
                 write!(f, "input validation negotiation failed: {error}")
             }
+            Self::Keychain(error) => write!(f, "keychain negotiation failed: {error}"),
+            Self::Metal(error) => write!(f, "Metal dispatch negotiation failed: {error}"),
         }
     }
 }
@@ -403,6 +455,8 @@ pub fn negotiate(
             && *id != crate::priority_caprichio::CONTRACT
             && *id != crate::parallelism_caprichio::CONTRACT
             && *id != crate::input_validation_caprichio::CONTRACT
+            && *id != crate::keychain_caprichio::CONTRACT
+            && *id != crate::metal_caprichio::CONTRACT
         {
             if catalog::find(id).is_some() {
                 return Err(NegotiationError::UnsupportedCapability((*id).to_owned()));
@@ -429,6 +483,8 @@ pub fn negotiate(
     let needs_priority = ordered.contains(crate::priority_caprichio::CONTRACT);
     let needs_parallelism = ordered.contains(crate::parallelism_caprichio::CONTRACT);
     let needs_input_validation = ordered.contains(crate::input_validation_caprichio::CONTRACT);
+    let needs_keychain = ordered.contains(crate::keychain_caprichio::CONTRACT);
+    let needs_metal = ordered.contains(crate::metal_caprichio::CONTRACT);
     if request.network.is_some() && !needs_network {
         return Err(NegotiationError::UnexpectedDeclaration { kind: "network" });
     }
@@ -489,18 +545,24 @@ pub fn negotiate(
             kind: "input_validation",
         });
     }
+    if request.keychain.is_some() && !needs_keychain {
+        return Err(NegotiationError::UnexpectedDeclaration { kind: "keychain" });
+    }
+    if request.metal_compute.is_some() && !needs_metal {
+        return Err(NegotiationError::UnexpectedDeclaration {
+            kind: "metal_compute",
+        });
+    }
 
     let mut result = Vec::with_capacity(ordered.len());
     for id in ordered {
         let artifact = match id {
             crate::CONTRACT => {
-                let declaration =
-                    request
-                        .network
-                        .clone()
-                        .ok_or(NegotiationError::MissingDeclaration {
-                            capability: crate::CONTRACT,
-                        })?;
+                let declaration = request
+                    .network
+                    .ok_or(NegotiationError::MissingDeclaration {
+                        capability: crate::CONTRACT,
+                    })?;
                 let ir = declaration.normalize().map_err(NegotiationError::Network)?;
                 Artifact::Network(
                     ir.lower_checked(host.network_target, host.network_runtime)
@@ -726,6 +788,32 @@ pub fn negotiate(
                         .map_err(NegotiationError::InputValidation)?,
                 )
             }
+            crate::keychain_caprichio::CONTRACT => {
+                let declaration = request.keychain.clone().ok_or(
+                    NegotiationError::MissingDeclaration {
+                        capability: crate::keychain_caprichio::CONTRACT,
+                    },
+                )?;
+                let ir = declaration
+                    .normalize()
+                    .map_err(NegotiationError::Keychain)?;
+                Artifact::Keychain(
+                    ir.lower_checked(host.keychain_target, host.keychain_host)
+                        .map_err(NegotiationError::Keychain)?,
+                )
+            }
+            crate::metal_caprichio::CONTRACT => {
+                let declaration = request
+                    .metal_compute
+                    .ok_or(NegotiationError::MissingDeclaration {
+                        capability: crate::metal_caprichio::CONTRACT,
+                    })?;
+                let ir = declaration.normalize().map_err(NegotiationError::Metal)?;
+                Artifact::Metal(
+                    ir.lower_checked(host.metal_target, host.metal_runtime)
+                        .map_err(NegotiationError::Metal)?,
+                )
+            }
             _ => unreachable!("request IDs validated before lowering"),
         };
         let id = match artifact {
@@ -747,6 +835,8 @@ pub fn negotiate(
             Artifact::Priority(_) => crate::priority_caprichio::CONTRACT,
             Artifact::Parallelism(_) => crate::parallelism_caprichio::CONTRACT,
             Artifact::InputValidation(_) => crate::input_validation_caprichio::CONTRACT,
+            Artifact::Keychain(_) => crate::keychain_caprichio::CONTRACT,
+            Artifact::Metal(_) => crate::metal_caprichio::CONTRACT,
         };
         result.push(NegotiatedCapability { id, artifact });
     }
@@ -861,6 +951,19 @@ mod tests {
                 pointer_width_bits: usize::BITS as u8,
                 standard_library: true,
                 utf8_strings: true,
+            },
+            keychain_target: KeychainTarget::Ios,
+            keychain_host: KeychainHost {
+                keychain_services: true,
+                hardware_backed_keys: true,
+                utf8_strings: true,
+            },
+            metal_target: MetalTarget::AppleSilicon,
+            metal_runtime: MetalRuntime {
+                metal_device: true,
+                command_queue: true,
+                unified_memory: true,
+                msl_version_3: true,
             },
         }
     }
@@ -994,6 +1097,190 @@ mod tests {
         }
     }
 
+    fn keychain() -> KeychainDeclaration {
+        KeychainDeclaration {
+            namespace: "com.goya.registry.test".into(),
+            max_value_bytes: 4096,
+            accessibility: crate::keychain_caprichio::Accessibility::WhenUnlocked,
+        }
+    }
+
+    fn metal_dispatch() -> MetalDeclaration {
+        MetalDeclaration {
+            threads_per_group: 64,
+            groups: 8,
+            max_buffer_bytes: 4096,
+        }
+    }
+
+    #[test]
+    fn ios_keychain_contract_registers_exactly_and_fails_closed() {
+        let contract = crate::keychain_caprichio::CONTRACT;
+        assert_eq!(contract, "goya.hardware.secure_storage.keychain.v1");
+        assert!(supported_contracts().contains(&contract));
+        assert!(!supported_contracts().contains(&"hardware.keychain"));
+        assert!(!supported_contracts().contains(&"goya.hardware.keychain.v1"));
+
+        let request = Request {
+            capabilities: vec![contract.into()],
+            keychain: Some(keychain()),
+            ..Request::default()
+        };
+        let negotiated = negotiate(&request, host()).unwrap();
+        assert_eq!(negotiated.len(), 1);
+        assert_eq!(negotiated[0].id, contract);
+        assert_eq!(negotiated[0].artifact.contract(), contract);
+        assert_eq!(
+            negotiated[0].artifact.recipe(),
+            "apple-keychain-namespace-bounded-kv"
+        );
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("target=ios\n"));
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("store=apple_keychain\n"));
+        assert_eq!(negotiated, negotiate(&request, host()).unwrap());
+
+        let mut mac_host = host();
+        mac_host.keychain_target = KeychainTarget::AppleSiliconMac;
+        let mac_negotiated = negotiate(&request, mac_host).unwrap();
+        assert!(mac_negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("target=apple_silicon_mac\n"));
+
+        let missing = Request {
+            capabilities: vec![contract.into()],
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&missing, host()),
+            Err(NegotiationError::MissingDeclaration {
+                capability: contract
+            })
+        );
+        let unexpected = Request {
+            keychain: Some(keychain()),
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&unexpected, host()),
+            Err(NegotiationError::UnexpectedDeclaration { kind: "keychain" })
+        );
+
+        let mut unsupported_target = host();
+        unsupported_target.keychain_target = KeychainTarget::Browser;
+        assert_eq!(
+            negotiate(&request, unsupported_target),
+            Err(NegotiationError::Keychain(
+                crate::keychain_caprichio::Diagnostic::UnsupportedTarget
+            ))
+        );
+        let mut no_enclave = host();
+        no_enclave.keychain_host.hardware_backed_keys = false;
+        assert_eq!(
+            negotiate(&request, no_enclave),
+            Err(NegotiationError::Keychain(
+                crate::keychain_caprichio::Diagnostic::MissingHardwareBackedKeys
+            ))
+        );
+
+        let draft = Request {
+            capabilities: vec!["hardware.keychain".into()],
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&draft, host()),
+            Err(NegotiationError::UnknownCapability(
+                "hardware.keychain".into()
+            ))
+        );
+    }
+
+    #[test]
+    fn apple_silicon_metal_contract_registers_exactly_and_fails_closed() {
+        let contract = crate::metal_caprichio::CONTRACT;
+        assert_eq!(contract, "goya.hardware.gpu_compute.apple_silicon_metal.v1");
+        assert!(supported_contracts().contains(&contract));
+        assert!(!supported_contracts().contains(&"hardware.gpu_compute"));
+        assert!(!supported_contracts().contains(&"goya.hardware.gpu_compute.v1"));
+
+        let request = Request {
+            capabilities: vec![contract.into()],
+            metal_compute: Some(metal_dispatch()),
+            ..Request::default()
+        };
+        let negotiated = negotiate(&request, host()).unwrap();
+        assert_eq!(negotiated.len(), 1);
+        assert_eq!(negotiated[0].id, contract);
+        assert_eq!(negotiated[0].artifact.contract(), contract);
+        assert_eq!(
+            negotiated[0].artifact.recipe(),
+            "apple-silicon-metal-checked-dispatch"
+        );
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("target=apple_silicon_metal\n"));
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("scheduling=none_guaranteed\n"));
+        assert_eq!(negotiated, negotiate(&request, host()).unwrap());
+
+        let missing = Request {
+            capabilities: vec![contract.into()],
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&missing, host()),
+            Err(NegotiationError::MissingDeclaration {
+                capability: contract
+            })
+        );
+        let unexpected = Request {
+            metal_compute: Some(metal_dispatch()),
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&unexpected, host()),
+            Err(NegotiationError::UnexpectedDeclaration {
+                kind: "metal_compute"
+            })
+        );
+
+        let mut unsupported_target = host();
+        unsupported_target.metal_target = MetalTarget::CrossPlatform;
+        assert_eq!(
+            negotiate(&request, unsupported_target),
+            Err(NegotiationError::Metal(
+                crate::metal_caprichio::Diagnostic::UnsupportedTarget
+            ))
+        );
+        let mut no_queue = host();
+        no_queue.metal_runtime.command_queue = false;
+        assert_eq!(
+            negotiate(&request, no_queue),
+            Err(NegotiationError::Metal(
+                crate::metal_caprichio::Diagnostic::MissingCommandQueue
+            ))
+        );
+
+        let draft = Request {
+            capabilities: vec!["hardware.gpu_compute".into()],
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&draft, host()),
+            Err(NegotiationError::UnknownCapability(
+                "hardware.gpu_compute".into()
+            ))
+        );
+    }
+
     #[test]
     fn mixed_request_is_sorted_and_artifacts_keep_contract_identity() {
         let request = Request {
@@ -1029,6 +1316,8 @@ mod tests {
             priority: None,
             parallelism: None,
             input_validation: None,
+            keychain: None,
+            metal_compute: None,
         };
         let result = negotiate(&request, host()).unwrap();
         assert_eq!(
@@ -1144,6 +1433,8 @@ mod tests {
                 "goya.data.csv.bounded_crlf.v1",
                 "goya.data.stream.process_local_bounded.v1",
                 "goya.filesystem.read_file.v1",
+                "goya.hardware.gpu_compute.apple_silicon_metal.v1",
+                "goya.hardware.secure_storage.keychain.v1",
                 "goya.input.ascii_set_validation.process_local.v1",
                 "goya.memory.buffers.process_local.v1",
                 "goya.network.fetch.v1",
@@ -2137,6 +2428,8 @@ mod tests {
             priority: Some(priority()),
             parallelism: None,
             input_validation: None,
+            keychain: None,
+            metal_compute: None,
         };
         let start = Instant::now();
         let iterations = 10_000;

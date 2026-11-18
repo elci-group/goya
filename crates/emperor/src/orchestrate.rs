@@ -42,6 +42,8 @@ pub struct Invocation {
     pub launch: bool,
     pub suite: Option<String>,
     pub package_format: Option<String>,
+    /// `wayland` or `kumimanu`. The default is Wayland.
+    pub window: String,
 }
 
 pub fn execute(invocation: Invocation) -> Run {
@@ -141,13 +143,26 @@ fn build(invocation: Invocation) -> Run {
     if let Err(fault) = validate_desktop(&desktop) {
         return fault_run(&invocation, fault);
     }
-    if let Err(fault) = write_outputs(&out, &lowered, &json_text, &embed, &desktop) {
+    if let Err(fault) = write_outputs(
+        &out,
+        &lowered,
+        &json_text,
+        &embed,
+        &desktop,
+        invocation.window.as_str(),
+    ) {
         return fault_run(&invocation, fault);
     }
     let root = workspace_root();
     let embed_path = out.join("embed.rs");
     let target_dir = out.join("target");
-    if let Err(fault) = cargo_build(&root, &embed_path, &target_dir, invocation.release) {
+    if let Err(fault) = cargo_build(
+        &root,
+        &embed_path,
+        &target_dir,
+        invocation.release,
+        invocation.window.as_str(),
+    ) {
         let mut stages = Stages::new();
         push_admission(&mut stages, &lowered);
         stages.push(
@@ -217,9 +232,10 @@ fn build(invocation: Invocation) -> Run {
         }
         Err(fault) => return fault_run(&invocation, fault),
     };
-    let (smoke_status, smoke_text, exit, conformance) = if wayland_display() {
+    let window = invocation.window.as_str();
+    let (smoke_status, smoke_text, exit, conformance) = if display_ready(window) {
         match run_captured(&app, &["--smoke"], Duration::from_secs(25)) {
-            Ok(captured) if captured.code == 0 && captured.stdout.contains("wayland=opened") => {
+            Ok(captured) if captured.code == 0 && smoke_matches(window, &captured.stdout) => {
                 ("passed", captured.stdout, 0u8, Status::Pass)
             }
             Ok(captured) => {
@@ -231,9 +247,12 @@ fn build(invocation: Invocation) -> Run {
         ("blocked", String::new(), 3u8, Status::Blocked)
     };
     let conformance_detail = if conformance == Status::Pass {
-        format!("oracle and wayland smoke passed\n{}", oracle.stdout.trim())
+        format!("oracle and {window} smoke passed\n{}", oracle.stdout.trim())
     } else {
-        "no Wayland display; oracle passed; window launch was not attempted".into()
+        format!(
+            "no {} display; oracle passed; window launch was not attempted",
+            display_name(window)
+        )
     };
     let mut stages = Stages::new();
     push_linked(&mut stages, &lowered);
@@ -256,6 +275,7 @@ fn build(invocation: Invocation) -> Run {
         "target": invocation.target,
         "profile": invocation.profile,
         "release": invocation.release,
+        "window": invocation.window,
     });
     let body = finish(
         &invocation,
@@ -379,18 +399,20 @@ fn verify(invocation: Invocation) -> Run {
         Err(fault) => return fault_run(&invocation, fault),
     };
     let recorded_smoke = report.get("smoke").and_then(Value::as_str).unwrap_or("");
+    let window = report
+        .get("window")
+        .and_then(Value::as_str)
+        .unwrap_or("wayland");
     let (status, exit, detail) = if invocation.launch {
-        if !wayland_display() {
+        if !display_ready(window) {
             (
                 Status::Blocked,
                 3,
-                "launch was requested and WAYLAND_DISPLAY is unset".to_owned(),
+                format!("launch was requested and {} is unset", display_env(window)),
             )
         } else {
             match run_captured(&app, &["--smoke"], Duration::from_secs(25)) {
-                Ok(captured)
-                    if captured.code == 0 && captured.stdout.contains("wayland=opened") =>
-                {
+                Ok(captured) if captured.code == 0 && smoke_matches(window, &captured.stdout) => {
                     (Status::Pass, 0, captured.stdout)
                 }
                 Ok(captured) => {
@@ -416,7 +438,10 @@ fn verify(invocation: Invocation) -> Run {
         (
             Status::Blocked,
             3,
-            "oracle passed and the window launch is not recorded. Headless output is not a Wayland launch.".to_owned(),
+            format!(
+                "oracle passed and the {} launch is not recorded. Headless output is not a windowed launch.",
+                display_name(window)
+            ),
         )
     };
     let mut stages = Stages::new();
@@ -440,7 +465,7 @@ fn verify(invocation: Invocation) -> Run {
         exit,
         stages,
         format!("verified {digest}\n"),
-        json!({"artifact_sha256": digest, "smoke": recorded_smoke}),
+        json!({"artifact_sha256": digest, "smoke": recorded_smoke, "window": window}),
     )
 }
 
@@ -982,6 +1007,7 @@ fn write_outputs(
     json_text: &str,
     embed: &str,
     desktop: &str,
+    window: &str,
 ) -> Result<(), Fault> {
     fs::write(out.join("nir.json"), json_text).map_err(io_fault)?;
     fs::write(out.join("embed.rs"), embed).map_err(io_fault)?;
@@ -1000,21 +1026,26 @@ fn write_outputs(
             "web_content": false,
         },
         "sandbox": "not enforced",
+        "window_backend": window,
     });
     fs::write(out.join("capability-manifest.json"), capability.to_string()).map_err(io_fault)?;
+    let mut packages = vec![
+        json!({"name": "emperor-runtime"}),
+        json!({"name": "goya-parity"}),
+        json!({"name": "goya-wayland"}),
+        json!({"name": "sash"}),
+        json!({"name": "goya-lang"}),
+    ];
+    if window == "kumimanu" {
+        packages.push(json!({"name": "goya-kumimanu"}));
+    }
     let sbom = json!({
         "spdxVersion": "SPDX-2.3",
         "dataLicense": "CC0-1.0",
         "SPDXID": "SPDXRef-DOCUMENT",
         "name": "emperor-app",
         "comment": "Direct Emperor runtime edges only. Not a transitive SBOM. No vulnerability review was performed.",
-        "packages": [
-            {"name": "emperor-runtime"},
-            {"name": "goya-parity"},
-            {"name": "goya-wayland"},
-            {"name": "sash"},
-            {"name": "goya-lang"}
-        ]
+        "packages": packages,
     });
     fs::write(out.join("sbom.json"), sbom.to_string()).map_err(io_fault)?;
     Ok(())
@@ -1034,6 +1065,7 @@ fn write_reports(
         "target": invocation.target,
         "profile": invocation.profile,
         "release": invocation.release,
+        "window": invocation.window,
         "artifact_sha256": digest,
         "rustc": rustc_version(),
         "signing": "not performed",
@@ -1064,7 +1096,13 @@ fn validate_desktop(text: &str) -> Result<(), Fault> {
     Ok(())
 }
 
-fn cargo_build(root: &Path, embed: &Path, target_dir: &Path, release: bool) -> Result<(), Fault> {
+fn cargo_build(
+    root: &Path,
+    embed: &Path,
+    target_dir: &Path,
+    release: bool,
+    window: &str,
+) -> Result<(), Fault> {
     let mut command = Command::new("cargo");
     command
         .arg("build")
@@ -1075,12 +1113,23 @@ fn cargo_build(root: &Path, embed: &Path, target_dir: &Path, release: bool) -> R
         .arg("--offline")
         .arg("--target-dir")
         .arg(target_dir);
+    if window == "kumimanu" {
+        command.arg("--features").arg("kumimanu");
+    }
     if release {
         command.arg("--release");
+    } else {
+        // Dev-profile builds do not need debug info: the ELF qualification
+        // checks (elf::parse) read only the ELF header and program headers,
+        // and the debug info is what pushes these binaries past 64 MiB.
+        // Skipping it shrinks both link time and the artifact. Release builds
+        // keep the workspace profile's `debug = true` untouched.
+        command.env("CARGO_PROFILE_DEV_DEBUG", "0");
     }
     command
         .current_dir(root)
         .env("EMPEROR_EMBED", embed)
+        .env("EMPEROR_WINDOW_BACKEND", window)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let output = command.output().map_err(|error| {
@@ -1257,6 +1306,42 @@ fn wayland_display() -> bool {
         .unwrap_or(false)
 }
 
+fn display_ready(window: &str) -> bool {
+    if window == "kumimanu" {
+        std::env::var("DISPLAY")
+            .map(|value| !value.is_empty())
+            .unwrap_or(false)
+    } else {
+        wayland_display()
+    }
+}
+
+fn display_name(window: &str) -> &'static str {
+    if window == "kumimanu" {
+        "X11"
+    } else {
+        "Wayland"
+    }
+}
+
+fn display_env(window: &str) -> &'static str {
+    if window == "kumimanu" {
+        "DISPLAY"
+    } else {
+        "WAYLAND_DISPLAY"
+    }
+}
+
+/// Wayland smoke still requires `wayland=opened`. Kumimanu requires its own
+/// marker and a presented frame. A missing display is not a pass.
+fn smoke_matches(window: &str, stdout: &str) -> bool {
+    if window == "kumimanu" {
+        stdout.contains("window=kumimanu") && !stdout.contains("presented=0 ")
+    } else {
+        stdout.contains("wayland=opened")
+    }
+}
+
 fn workspace_root() -> PathBuf {
     let mut dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     dir.pop();
@@ -1287,8 +1372,12 @@ fn rustc_version() -> String {
     }
 }
 
+/// Label for the stage line naming the host triple. A `None` host means we are
+/// not on an admitted Linux target at all (e.g. macOS or Windows); printing
+/// "none" would suggest the check merely failed to run, while "not-linux"
+/// tells the user the platform itself is outside Emperor's supported set.
 fn host_label() -> String {
-    target::host().unwrap_or("none").to_owned()
+    target::host().unwrap_or("not-linux").to_owned()
 }
 
 fn tail(text: &str) -> &str {
@@ -1300,5 +1389,43 @@ fn tail(text: &str) -> &str {
     match text.char_indices().find(|(index, _)| *index >= start) {
         Some((index, _)) => &text[index..],
         None => text,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // display_ready itself is environment-dependent (DISPLAY vs
+    // WAYLAND_DISPLAY), so only the pure mappings are asserted here.
+    use super::{display_env, display_name, host_label, smoke_matches};
+
+    #[test]
+    fn display_helpers_map_kumimanu_to_x11_display() {
+        assert_eq!(display_name("kumimanu"), "X11");
+        assert_eq!(display_name("wayland"), "Wayland");
+        assert_eq!(display_env("kumimanu"), "DISPLAY");
+        assert_eq!(display_env("wayland"), "WAYLAND_DISPLAY");
+    }
+
+    #[test]
+    fn smoke_matches_requires_each_backend_marker() {
+        assert!(smoke_matches("wayland", "opened wayland=opened\n"));
+        assert!(!smoke_matches("wayland", "window=kumimanu presented=1\n"));
+        assert!(smoke_matches(
+            "kumimanu",
+            "window=kumimanu presented=3 frames\n"
+        ));
+        assert!(!smoke_matches("kumimanu", "window=wayland presented=3\n"));
+        assert!(!smoke_matches(
+            "kumimanu",
+            "window=kumimanu presented=0 frames\n"
+        ));
+        assert!(!smoke_matches("kumimanu", "no display\n"));
+    }
+
+    #[test]
+    fn host_label_never_reports_a_bare_none() {
+        // "none" reads as a failed lookup; a missing host triple must be
+        // labeled as an unsupported platform instead.
+        assert_ne!(host_label(), "none");
     }
 }

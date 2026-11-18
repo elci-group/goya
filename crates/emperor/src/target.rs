@@ -78,14 +78,76 @@ pub fn profile_class(profile: &str) -> Class {
     }
 }
 
+/// Human-readable reason a triple is not linked this cycle.
+///
+/// The reason distinguishes the three non-`Host` classes so the fault text
+/// never claims a triple is "named by GY-EMP-001" when it is not. There is
+/// no third-party triple parser; matching stays exact-string on the same
+/// literals as [`is_p0`] and [`is_named_blocked`], so a misspelled triple
+/// is reported as unknown, never as blocked.
 pub fn blocked_reason(triple: &str) -> String {
     if is_p0(triple) {
         format!(
-            "{triple} is not this host. Cross-compilation is not a launch and is not attempted."
+            "{triple} is not this host (host is {}). Cross-compilation is not a launch and is not attempted.",
+            host().unwrap_or("unknown")
         )
-    } else {
+    } else if is_named_blocked(triple) {
         format!(
             "{triple} is named by GY-EMP-001 and is not linked in compiler 0.0.1. No ELF is produced."
         )
+    } else {
+        format!(
+            "{triple} is neither an admitted P0 triple nor named by the directive. No ELF is produced."
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn classify_matches_host_only_on_this_triple() {
+        let host = host();
+        if let Some(host) = host {
+            assert_eq!(classify(host), Class::Host);
+        }
+        let other = if host == Some("x86_64-unknown-linux-gnu") || host.is_none() {
+            "aarch64-unknown-linux-gnu"
+        } else {
+            "x86_64-unknown-linux-gnu"
+        };
+        assert_eq!(classify(other), Class::Cross);
+    }
+
+    #[test]
+    fn classify_named_blocked_and_unknown() {
+        assert_eq!(classify("x86_64-unknown-linux-musl"), Class::Blocked);
+        assert_eq!(classify("i686-unknown-linux-gnu"), Class::Blocked);
+        assert_eq!(classify("x86_64-pc-windows-msvc"), Class::Unknown);
+        assert_eq!(classify("x86_64-unknown-linux_gnu"), Class::Unknown);
+    }
+
+    #[test]
+    fn blocked_reason_names_the_host_for_cross() {
+        let reason = blocked_reason("aarch64-unknown-linux-gnu");
+        assert!(reason.contains("host is"));
+        assert!(reason.contains("Cross-compilation"));
+    }
+
+    #[test]
+    fn blocked_reason_cites_directive_only_for_named_triples() {
+        assert!(blocked_reason("x86_64-unknown-linux-musl").contains("GY-EMP-001"));
+        // An unknown triple must not be described as named by the directive.
+        let reason = blocked_reason("x86_64-pc-windows-msvc");
+        assert!(!reason.contains("GY-EMP-001"));
+        assert!(reason.contains("nor named by the directive"));
+    }
+
+    #[test]
+    fn elf_machine_only_for_p0() {
+        assert_eq!(elf_machine("x86_64-unknown-linux-gnu"), Some(0x3E));
+        assert_eq!(elf_machine("aarch64-unknown-linux-gnu"), Some(0xB7));
+        assert_eq!(elf_machine("x86_64-unknown-linux-musl"), None);
     }
 }

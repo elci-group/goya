@@ -204,8 +204,7 @@ pub fn map_verified_location(
         return Err("unsupported source map schema or mapping count".into());
     }
 
-    // Phase 1: Support both Swift and Kotlin mappings in schema v2
-    let kotlin_source = ""; // Would be loaded from artifacts in Phase 2 implementation
+    // Phase 1: Support both Swift and Kotlin mappings in schema v2.
     let offset = byte_offset(swift, line, column)?;
     let mut matches = Vec::new();
 
@@ -232,7 +231,7 @@ pub fn map_verified_location(
             crate::validate_module(&item.semantic_id.module).map_err(|e| e.message)?;
             if item.semantic_id.declared_id.is_empty()
                 || !valid_kotlin_span(source, &item.source)
-                || !valid_kotlin_span(&kotlin, &item.kotlin)
+                || !valid_kotlin_span(kotlin, &item.kotlin)
             {
                 return Err("invalid Android Kotlin source map identity or range".into());
             }

@@ -164,7 +164,7 @@ mod composited_layer_tests {
         };
         validate_rgba_layer(layer, 4, 3).unwrap();
         composite_layer(&mut dst, 4, 3, layer);
-        assert_eq!(dst[4 + 0], 0xff00_8000); // half-alpha green over black
+        assert_eq!(dst[4], 0xff00_8000); // half-alpha green over black
         assert_eq!(dst[4 + 1], 0xff00_0000); // clip excludes blue
         assert_eq!(dst[0], 0xff00_0000); // negative source red stays clipped
     }
@@ -6632,10 +6632,7 @@ mod pointer_tests {
         let mut inner = GoyaWindowInner::new(320, 240);
         inner.last_pointer = Some((176.0, 80.0));
         inner.push_left_button(true);
-        assert_eq!(
-            inner.events,
-            vec![PlatformEvent::PointerPress(176.0, 80.0)]
-        );
+        assert_eq!(inner.events, vec![PlatformEvent::PointerPress(176.0, 80.0)]);
 
         inner.events.clear();
         // Leave drops the surface point. The release must not reuse it.

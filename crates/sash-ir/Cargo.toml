@@ -1,0 +1,10 @@
+[package]
+name = "sash-ir"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Sash Intermediate Representation (IR) for Windows window emission."
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }

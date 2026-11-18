@@ -1,0 +1,212 @@
+error: prefix `successfully` is unknown
+   --> /home/sal/goya/crates/goya-sdk/tests/phase1_integration_demo.rs:124:64
+    |
+124 |             println!("   ✅ Named class input preview generated successfully");
+    |                                                                 ^^^^^^^^^^^^ unknown prefix
+    |
+    = note: prefixed identifiers and literals are reserved since Rust 2021
+help: consider inserting whitespace here
+    |
+124 |             println!("   ✅ Named class input preview generated successfully ");
+    |                                                                             +
+
+error: prefix `MyCustomInputPreview` is unknown
+   --> /home/sal/goya/crates/goya-sdk/tests/phase1_integration_demo.rs:125:42
+    |
+125 |             println!("   📝 Kotlin class: MyCustomInputPreview");
+    |                                           ^^^^^^^^^^^^^^^^^^^^ unknown prefix
+    |
+    = note: prefixed identifiers and literals are reserved since Rust 2021
+help: consider inserting whitespace here
+    |
+125 |             println!("   📝 Kotlin class: MyCustomInputPreview ");
+    |                                                               +
+
+error: prefix `compatibility` is unknown
+   --> /home/sal/goya/crates/goya-sdk/tests/phase1_integration_demo.rs:126:74
+    |
+126 |             println!("   🔧 Features: Custom class name support, backward compatibility");
+    |                                                                           ^^^^^^^^^^^^^ unknown prefix
+    |
+    = note: prefixed identifiers and literals are reserved since Rust 2021
+help: consider inserting whitespace here
+    |
+126 |             println!("   🔧 Features: Custom class name support, backward compatibility ");
+    |                                                                                        +
+
+error: unknown start of token: \
+   --> /home/sal/goya/crates/goya-sdk/tests/phase1_integration_demo.rs:134:15
+    |
+134 |     println!("\n5. Backward Compatibility:");
+    |               ^
+
+error: prefix `preserved` is unknown
+   --> /home/sal/goya/crates/goya-sdk/tests/phase1_integration_demo.rs:146:51
+    |
+146 |             println!("   ✅ Original functionality preserved");
+    |                                                    ^^^^^^^^^ unknown prefix
+    |
+    = note: prefixed identifiers and literals are reserved since Rust 2021
+help: consider inserting whitespace here
+    |
+146 |             println!("   ✅ Original functionality preserved ");
+    |                                                             +
+
+error: prefix `GoyaRootInputPreview` is unknown
+   --> /home/sal/goya/crates/goya-sdk/tests/phase1_integration_demo.rs:147:42
+    |
+147 |             println!("   📝 Kotlin class: GoyaRootInputPreview");
+    |                                           ^^^^^^^^^^^^^^^^^^^^ unknown prefix
+    |
+    = note: prefixed identifiers and literals are reserved since Rust 2021
+help: consider inserting whitespace here
+    |
+147 |             println!("   📝 Kotlin class: GoyaRootInputPreview ");
+    |                                                               +
+
+error: prefix `sizing` is unknown
+   --> /home/sal/goya/crates/goya-sdk/tests/phase1_integration_demo.rs:148:82
+    |
+148 |             println!("   🔧 Features: Static text preview, color formatting, text sizing");
+    |                                                                                   ^^^^^^ unknown prefix
+    |
+    = note: prefixed identifiers and literals are reserved since Rust 2021
+help: consider inserting whitespace here
+    |
+148 |             println!("   🔧 Features: Static text preview, color formatting, text sizing ");
+    |                                                                                         +
+
+error: unknown start of token: \
+   --> /home/sal/goya/crates/goya-sdk/tests/phase1_integration_demo.rs:155:15
+    |
+155 |     println!("\n");
+    |               ^
+
+error: prefix `n` is unknown
+   --> /home/sal/goya/crates/goya-sdk/tests/phase1_integration_demo.rs:155:16
+    |
+155 |     println!("\n");
+    |                ^ unknown prefix
+    |
+    = note: prefixed identifiers and literals are reserved since Rust 2021
+help: consider inserting whitespace here
+    |
+155 |     println!("\n ");
+    |                 +
+
+error: unknown start of token: \
+   --> /home/sal/goya/crates/goya-sdk/tests/phase1_integration_demo.rs:158:15
+    |
+158 |     println!("\nKey Achievements:");
+    |               ^
+
+error: prefix `integration` is unknown
+   --> /home/sal/goya/crates/goya-sdk/tests/phase1_integration_demo.rs:159:57
+    |
+159 |     println!("✅ Enhanced Android Input Preview with IME integration");
+    |                                                          ^^^^^^^^^^^ unknown prefix
+    |
+    = note: prefixed identifiers and literals are reserved since Rust 2021
+help: consider inserting whitespace here
+    |
+159 |     println!("✅ Enhanced Android Input Preview with IME integration ");
+    |                                                                     +
+
+error: prefix `management` is unknown
+   --> /home/sal/goya/crates/goya-sdk/tests/phase1_integration_demo.rs:160:67
+    |
+160 |     println!("✅ Enhanced Android Scrollable Preview with viewport management");
+    |                                                                    ^^^^^^^^^^ unknown prefix
+    |
+    = note: prefixed identifiers and literals are reserved since Rust 2021
+help: consider inserting whitespace here
+    |
+160 |     println!("✅ Enhanced Android Scrollable Preview with viewport management ");
+    |                                                                              +
+
+error: prefix `management` is unknown
+   --> /home/sal/goya/crates/goya-sdk/tests/phase1_integration_demo.rs:161:61
+    |
+161 |     println!("✅ Enhanced Android D1 Runtime with form state management");
+    |                                                              ^^^^^^^^^^ unknown prefix
+    |
+    = note: prefixed identifiers and literals are reserved since Rust 2021
+help: consider inserting whitespace here
+    |
+161 |     println!("✅ Enhanced Android D1 Runtime with form state management ");
+    |                                                                        +
+
+error: prefix `handling` is unknown
+   --> /home/sal/goya/crates/goya-sdk/tests/phase1_integration_demo.rs:162:52
+    |
+162 |     println!("✅ Comprehensive validation and error handling");
+    |                                                     ^^^^^^^^ unknown prefix
+    |
+    = note: prefixed identifiers and literals are reserved since Rust 2021
+help: consider inserting whitespace here
+    |
+162 |     println!("✅ Comprehensive validation and error handling ");
+    |                                                             +
+
+error: prefix `classes` is unknown
+   --> /home/sal/goya/crates/goya-sdk/tests/phase1_integration_demo.rs:163:55
+    |
+163 |     println!("✅ Named class support for custom Kotlin classes");
+    |                                                        ^^^^^^^ unknown prefix
+    |
+    = note: prefixed identifiers and literals are reserved since Rust 2021
+help: consider inserting whitespace here
+    |
+163 |     println!("✅ Named class support for custom Kotlin classes ");
+    |                                                               +
+
+error: prefix `functionality` is unknown
+   --> /home/sal/goya/crates/goya-sdk/tests/phase1_integration_demo.rs:164:59
+    |
+164 |     println!("✅ 100% backward compatibility with existing functionality");
+    |                                                            ^^^^^^^^^^^^^ unknown prefix
+    |
+    = note: prefixed identifiers and literals are reserved since Rust 2021
+help: consider inserting whitespace here
+    |
+164 |     println!("✅ 100% backward compatibility with existing functionality ");
+    |                                                                         +
+
+error: prefix `integration` is unknown
+   --> /home/sal/goya/crates/goya-sdk/tests/phase1_integration_demo.rs:165:56
+    |
+165 |     println!("✅ Real-time input validation and gesture integration");
+    |                                                         ^^^^^^^^^^^ unknown prefix
+    |
+    = note: prefixed identifiers and literals are reserved since Rust 2021
+help: consider inserting whitespace here
+    |
+165 |     println!("✅ Real-time input validation and gesture integration ");
+    |                                                                    +
+
+error: prefix `implementation` is unknown
+   --> /home/sal/goya/crates/goya-sdk/tests/phase1_integration_demo.rs:166:48
+    |
+166 |     println!("✅ Professional, production-ready implementation");
+    |                                                 ^^^^^^^^^^^^^^ unknown prefix
+    |
+    = note: prefixed identifiers and literals are reserved since Rust 2021
+help: consider inserting whitespace here
+    |
+166 |     println!("✅ Professional, production-ready implementation ");
+    |                                                               +
+
+error: unknown start of token: \
+   --> /home/sal/goya/crates/goya-sdk/tests/phase1_integration_demo.rs:168:15
+    |
+168 |     println!("\n🚀 Phase 1 Android Emitter Implementation is READY FOR PRODUCTION!");
+    |               ^
+
+error[E0765]: unterminated double quote string
+   --> /home/sal/goya/crates/goya-sdk/tests/phase1_integration_demo.rs:168:82
+    |
+168 |       println!("\n🚀 Phase 1 Android Emitter Implementation is READY FOR PRODUCTION!");
+    |  ___________________________________________________________________________________^
+169 | | }
+    | |_^
+

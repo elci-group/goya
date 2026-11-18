@@ -3,7 +3,7 @@
 //! [`KotlinWriter`] only accepts fixed code fragments as `&'static str`;
 //! every value that comes from a scene (strings, numbers, colors) goes
 //! through a typed method that renders a valid Kotlin literal. Values written
-//! inside [`KotlinWriter::mapped`] are recorded against a GSSH/2 [`Origin`],
+//! inside [`KotlinWriter::mapped`] are recorded against a GSSH/3 [`Origin`],
 //! which becomes an entry of the [`AndroidSourceMap`].
 
 use goya_lang::handoff::{Origin, SemanticHandoffV2};
@@ -31,7 +31,7 @@ pub struct SourceMapEntry {
     pub source: SourceRange,
 }
 
-/// Generated Kotlin → GSSH/2 origin map for one source revision.
+/// Generated Kotlin → GSSH/3 origin map for one source revision.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AndroidSourceMap {
     pub source_digest: [u8; 32],
@@ -42,7 +42,7 @@ pub struct AndroidSourceMap {
 /// Why a source map does not describe a source and its generated files.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SourceMapError {
-    /// The source is not admitted by GSSH/2.
+    /// The source is not admitted by GSSH/3.
     Admission(goya_lang::StrictParseError),
     /// The source digest differs from the one the map was generated for.
     DigestMismatch,
@@ -90,7 +90,7 @@ impl AndroidSourceMap {
     /// generated range in bounds and on character boundaries, and every
     /// origin still resolving to its recorded source range.
     pub fn verify(&self, source: &str, files: &[KotlinFile]) -> Result<(), SourceMapError> {
-        let handoff = goya_lang::handoff::admit_v2(source).map_err(SourceMapError::Admission)?;
+        let handoff = goya_lang::handoff::admit_v3(source).map_err(SourceMapError::Admission)?;
         if handoff.parsed().source_digest != self.source_digest {
             return Err(SourceMapError::DigestMismatch);
         }

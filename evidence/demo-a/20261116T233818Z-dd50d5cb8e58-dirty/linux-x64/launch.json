@@ -1,0 +1,27 @@
+{
+  "status": "PROCESS_ALIVE",
+  "fault": null,
+  "detail": "Started ./App --live from a directory that contains neither the compiler nor the scene.",
+  "pid": 383733,
+  "argv": [
+    "./App",
+    "--live"
+  ],
+  "cwd": "/home/sal/goya/evidence/demo-a/20261116T233818Z-dd50d5cb8e58-dirty/linux-x64/execution",
+  "artifact_sha256": "f4edf5bcae5eab1a60d51aa0ccde035d2f75e489130a8c4580b91f575e2322f8",
+  "compiler_invoked": false,
+  "scene_in_cwd": false,
+  "independent_execution": true,
+  "window": "UNVERIFIED",
+  "window_evidence": "",
+  "wayland_peer": "cosmic-comp pid 1940 socket /run/user/1000/wayland-1",
+  "presented_shm_frame": "linux-x64/screenshots/shm-slot-1.png",
+  "presented_shm_bytes": 614400,
+  "presented_shm_geometry": "320x160 ARGB8888, three slots, slot 1 painted",
+  "display_capture": "BLOCKED: cosmic-screenshot portal failed and the desktop bridge could not start",
+  "post_inspection_stop": "SIGTERM after the shm frame was copied. The process printed no report. This is not DA-T09.",
+  "wayland_display": "wayland-1",
+  "recorded_at": "2026-11-16T23:43:08Z",
+  "stdout_log": "/home/sal/goya/evidence/demo-a/20261116T233818Z-dd50d5cb8e58-dirty/linux-x64/logs/live.stdout",
+  "stderr_log": "/home/sal/goya/evidence/demo-a/20261116T233818Z-dd50d5cb8e58-dirty/linux-x64/logs/live.stderr"
+}

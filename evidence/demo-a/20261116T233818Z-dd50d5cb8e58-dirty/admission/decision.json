@@ -1,0 +1,73 @@
+{
+  "directive": "GY-DEMO-A-001",
+  "directive_version": "1.0.0",
+  "qualification_status": "FAIL",
+  "programme_summary": "PARTIAL",
+  "completion_statement_issued": false,
+  "gates": [
+    {
+      "id": "DA-G01",
+      "status": "FAIL",
+      "detail": "cargo build --workspace -> 101, cargo test --workspace --lib --tests -> 101, cargo clippy --workspace --all-targets -- -D warnings -> 101, cargo fmt --all -- --check -> 101",
+      "fault": "DA-E014"
+    },
+    {
+      "id": "DA-G02",
+      "status": "PASS",
+      "detail": "c550e4608d8217b84c946732fd2ecd9944c800d8979dc332dbea7d87fa9d61fd",
+      "fault": null
+    },
+    {
+      "id": "DA-G03",
+      "status": "PASS",
+      "detail": "PE_STRUCTURE_PASS / WINDOWS_RUNTIME_BLOCKED. The static verifier did not launch Windows.",
+      "fault": null
+    },
+    {
+      "id": "DA-G04",
+      "status": "PASS",
+      "detail": "ELF x64 type 3 entry 1101344 relro True",
+      "fault": null
+    },
+    {
+      "id": "DA-G05",
+      "status": "BLOCKED",
+      "detail": "This process is not running in an interactive Windows x64 session. Wine, QEMU, and a Linux cross-link are not a Windows launch.",
+      "fault": "DA-E005"
+    },
+    {
+      "id": "DA-G06",
+      "status": "BLOCKED",
+      "detail": "Process evidence does not establish a visible native window.",
+      "fault": "DA-E007"
+    },
+    {
+      "id": "DA-G07",
+      "status": "BLOCKED",
+      "detail": "not passed: DA-T01, DA-T02, DA-T03, DA-T04, DA-T05, DA-T06, DA-T07, DA-T08, DA-T09, DA-T10",
+      "fault": "DA-E008"
+    },
+    {
+      "id": "DA-G08",
+      "status": "BLOCKED",
+      "detail": "not passed: DA-T01, DA-T02, DA-T03, DA-T04, DA-T05, DA-T06, DA-T07, DA-T08, DA-T09, DA-T10",
+      "fault": "DA-E008"
+    },
+    {
+      "id": "DA-G09",
+      "status": "BLOCKED",
+      "detail": "Independent launch was not shown on both operating systems.",
+      "fault": "DA-E005"
+    },
+    {
+      "id": "DA-G10",
+      "status": "PASS",
+      "detail": "Independent review matches the computed gate decision.",
+      "fault": null
+    }
+  ],
+  "qualification_status_before_review": "FAIL",
+  "recorded_at": "2026-11-16T23:49:33Z",
+  "run_id": "20261116T233818Z-dd50d5cb8e58-dirty",
+  "source_revision": "dd50d5cb8e58f3fe2a7ecc75dc0ec5319e9eb116"
+}

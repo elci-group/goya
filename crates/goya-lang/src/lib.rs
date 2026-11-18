@@ -12,6 +12,7 @@
 
 pub mod gestures;
 pub mod handoff;
+pub mod proportional;
 mod hotswap;
 mod lexer;
 mod lowering;
@@ -25,7 +26,7 @@ pub use hotswap::SceneStore;
 pub use lexer::{lex, LexError, Token, TokenKind};
 pub use lowering::{lower, LowerError, Lowered, NodeKey, NodeRecord, NodeTable, Role};
 pub use parser::{
-    parse, parse_strict, parse_strict_gssh2, parse_with_source_map, Declarations, InputBinding,
+    parse, parse_strict, parse_strict_gssh2, parse_strict_gssh3, parse_with_source_map, Declarations, InputBinding,
     KeyUse, ParseError, ParsedScene, SourceEntry, SourceRange, StateDecl, StateLifetime,
     StrictParseError,
 };

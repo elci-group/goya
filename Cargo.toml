@@ -9,6 +9,7 @@ members = [
     "crates/neptune",
     "crates/dockyard",
     "crates/sash",
+    "crates/sash-ir",
     "crates/goya-parity",
     "crates/goya-ir",
     "crates/goya-state",
@@ -34,6 +35,7 @@ members = [
     "crates/goya-artifact",
     "crates/goya-watermark",
     "crates/goya-wayland",
+    "crates/goya-kumimanu",
     "crates/goya-window-management",
     "crates/goya-lang",
     "crates/goya-change",
@@ -91,6 +93,7 @@ goya-settlement = { path = "crates/goya-settlement" }
 goya-artifact = { path = "crates/goya-artifact" }
 goya-watermark = { path = "crates/goya-watermark" }
 goya-wayland = { path = "crates/goya-wayland" }
+goya-kumimanu = { path = "crates/goya-kumimanu" }
 goya-window-management = { path = "crates/goya-window-management" }
 goya-lang = { path = "crates/goya-lang" }
 goya-change = { path = "crates/goya-change" }

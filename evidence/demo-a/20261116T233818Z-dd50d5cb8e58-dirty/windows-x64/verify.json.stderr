@@ -1,0 +1,17 @@
+warning: unused import: `Node`
+  --> crates/goya-lang/src/transition.rs:11:25
+   |
+11 | use goya_ir::{ActionId, Node};
+   |                         ^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `goya_ir::Node`
+  --> crates/goya-lang/src/lib.rs:22:5
+   |
+22 | use goya_ir::Node;
+   |     ^^^^^^^^^^^^^
+
+warning: `goya-lang` (lib) generated 2 warnings (run `cargo fix --lib -p goya-lang` to apply 2 suggestions)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running `target/debug/sash verify /home/sal/goya/evidence/demo-a/20261116T233818Z-dd50d5cb8e58-dirty/builds/windows-x64/App.exe --target x86_64-pc-windows-msvc --format json --evidence /home/sal/goya/evidence/demo-a/20261116T233818Z-dd50d5cb8e58-dirty/builds/windows-x64/evidence`

@@ -2,7 +2,7 @@
 //! rejections, source maps, and (with a Kotlin toolchain) JVM differential
 //! tests of the generated Kotlin against the Rust reference evaluators.
 
-use goya_lang::handoff::{admit_v2, convert_field, Origin};
+use goya_lang::handoff::{admit_v3, convert_field, Origin};
 use goya_lang::{InteractionType, InteractionValue};
 use goya_sdk::{
     compile_android_scene, compile_android_scene_with, emit_android_d1_runtime_mapped,
@@ -13,12 +13,12 @@ use std::collections::BTreeMap;
 const COUNTER: &str = r#"@ontology counter {
   @state { total: int = 0 session; note: text = "none" session; }
   @cell root { id: "root"; fill: #f4f1ea;
-    @cell title { id: "title"; position: (16, 16, 0); extent: (300, 40, 0); text: "Goya counter" }
-    @input amount { id: "field.amount"; position: (16, 64, 0); extent: (200, 48, 0); }
+    @cell title { id: "title"; position_p: (0.04, 0.02, 0); extent_p: (0.76, 0.05, 0); text: "Goya counter"; text-size-p: 0.6; }
+    @input amount { id: "field.amount"; position_p: (0.04, 0.085, 0); extent_p: (0.5, 0.065, 0); stroke: #555555; stroke-width-p: 0.04; }
     @input memo { id: "field.memo"; position_p: (0.05, 0.3, 0); extent_p: (0.9, 0.08, 0); }
-    @button add { id: "button.add"; position: (232, 64, 0); extent: (120, 48, 0); text: "Add" }
+    @button add { id: "button.add"; position_p: (0.59, 0.085, 0); extent_p: (0.31, 0.065, 0); text: "Add"; text-size-p: 0.4; }
     @cell list { id: "list"; position_p: (0.05, 0.45, 0); extent_p: (0.9, 0.5, 0); scroll: true;
-      @cell para { id: "para"; extent: (280, 900, 0); wrap: 12; text: "A paragraph wrapped by the reference wrapper." }
+      @cell para { id: "para"; extent_p: (0.8, 2.4, 0); wrap: 12; text: "A paragraph wrapped by the reference wrapper." }
     }
   }
   @interaction add { id: "action.add"; trigger: button.add.activate; class: D1;
@@ -59,7 +59,7 @@ fn compiles_every_admitted_construct_deterministically_with_a_verified_source_ma
     );
     scene.source_map.verify(COUNTER, &scene.files).unwrap();
 
-    let handoff = admit_v2(COUNTER).unwrap();
+    let handoff = admit_v3(COUNTER).unwrap();
     let origins: Vec<_> = scene
         .source_map
         .entries
@@ -73,8 +73,11 @@ fn compiles_every_admitted_construct_deterministically_with_a_verified_source_ma
     for expected in [
         Origin::Element("para".into()),
         property("root", "fill"),
-        property("title", "position"),
-        property("title", "extent"),
+        property("title", "position_p"),
+        property("title", "extent_p"),
+        property("title", "text_size_p"),
+        property("field.amount", "stroke"),
+        property("field.amount", "stroke_width_p"),
         property("field.memo", "position_p"),
         property("field.memo", "extent_p"),
         property("para", "text"),
@@ -143,8 +146,7 @@ fn every_unsupported_construct_is_rejected_at_its_exact_source_range() {
     let button = "@button go { id: \"go\"; text: \"Go\" }";
     let cases: Vec<(String, &str)> = vec![
         (wrap("stroke: #000;", ""), "stroke: #000;"),
-        (wrap("stroke-width: 2;", ""), "stroke-width: 2;"),
-        (wrap("text-size: 12;", ""), "text-size: 12;"),
+        (wrap("stroke-width-p: 0.1;", ""), "stroke-width-p: 0.1;"),
         (wrap("text-anchor: middle;", ""), "text-anchor: middle;"),
         (
             wrap("@input f { id: \"f\"; text: \"Amount\"; }", ""),
@@ -182,7 +184,7 @@ fn every_unsupported_construct_is_rejected_at_its_exact_source_range() {
         let AndroidSceneReason::Unsupported(_) = error.reason else {
             panic!("{source}: unexpected {error}");
         };
-        let handoff = admit_v2(&source).unwrap();
+        let handoff = admit_v3(&source).unwrap();
         let origin = error.origin.clone().expect("refusals name their construct");
         assert_eq!(handoff.origin(&origin), Some(error.range), "{source}");
         let start = source.find(construct).unwrap();
@@ -208,6 +210,17 @@ fn admission_failures_keep_the_strict_parser_range() {
     };
     assert_eq!(strict.code, "GY-E1001");
     assert_eq!(error.range, strict.range);
+    // Absolute lengths are refused by GSSH/3 admission, at the property.
+    let source = "@ontology t { @cell root { id: \"root\"; extent: (10, 10, 0); } }";
+    let error = compile_android_scene(source).unwrap_err();
+    let AndroidSceneReason::Admission(strict) = &error.reason else {
+        panic!("{error}");
+    };
+    assert_eq!(strict.code, "GY-E1009");
+    assert_eq!(
+        &source[error.range.start..error.range.end],
+        "extent: (10, 10, 0);"
+    );
     assert_eq!(
         compile_android_scene_with(
             COUNTER,
@@ -259,25 +272,6 @@ impl Rng {
     }
 }
 
-fn random_number(rng: &mut Rng) -> String {
-    rng.pick(&[
-        "0",
-        "1",
-        "16",
-        "-12",
-        "300",
-        "0.5",
-        "123.456",
-        "-0.25",
-        "2000000",
-        "33.3333333",
-        "9000000000000000",
-        "-9000000000000000",
-        "1000.0005",
-    ])
-    .to_string()
-}
-
 fn random_fraction(rng: &mut Rng) -> String {
     rng.pick(&[
         "0",
@@ -290,6 +284,9 @@ fn random_fraction(rng: &mut Rng) -> String {
         "-0.2",
         "0.0001",
         "0.7071067811865476",
+        "3.25",
+        "12",
+        "1000000000000",
     ])
     .to_string()
 }
@@ -298,31 +295,31 @@ fn random_cell(rng: &mut Rng, depth: u32, next: &mut usize, out: &mut String) {
     let index = *next;
     *next += 1;
     out.push_str(&format!("@cell n{index} {{ id: \"c{index}\"; "));
-    match rng.below(3) {
-        0 => out.push_str(&format!(
-            "extent: ({}, {}, 0); ",
-            random_number(rng),
-            random_number(rng)
-        )),
-        1 => out.push_str(&format!(
+    if rng.below(4) > 0 {
+        out.push_str(&format!(
             "extent_p: ({}, {}, 0); ",
             random_fraction(rng),
             random_fraction(rng)
-        )),
-        _ => {}
+        ));
     }
-    match rng.below(3) {
-        0 => out.push_str(&format!(
-            "position: ({}, {}, 0); ",
-            random_number(rng),
-            random_number(rng)
-        )),
-        1 => out.push_str(&format!(
+    if rng.below(4) > 0 {
+        out.push_str(&format!(
             "position_p: ({}, {}, 0); ",
             random_fraction(rng),
             random_fraction(rng)
-        )),
-        _ => {}
+        ));
+    }
+    if rng.below(2) == 0 {
+        out.push_str(&format!(
+            "text: \"t\"; text-size-p: {}; ",
+            random_fraction(rng)
+        ));
+    }
+    if rng.below(3) == 0 {
+        out.push_str(&format!(
+            "stroke: #123456; stroke-width-p: {}; ",
+            random_fraction(rng)
+        ));
     }
     if rng.below(4) == 0 {
         out.push_str("scroll: true; ");
@@ -365,7 +362,23 @@ fn layout_expectation(source: &str) -> String {
                 format!("{x},{y}")
             })
             .collect();
-        out.push_str(&format!("{} | {}\n", rects.join(" "), limits.join(" ")));
+        let lengths: Vec<String> = frame
+            .nodes
+            .iter()
+            .map(|node| {
+                format!(
+                    "{},{}",
+                    node.text_size_mp.unwrap_or(-1),
+                    node.stroke_width_mp.unwrap_or(-1)
+                )
+            })
+            .collect();
+        out.push_str(&format!(
+            "{} | {} | {}\n",
+            rects.join(" "),
+            limits.join(" "),
+            lengths.join(" ")
+        ));
     }
     out
 }
@@ -750,7 +763,7 @@ fn generated_kotlin_matches_the_rust_references_on_the_jvm_when_toolchain_exists
         fs::write(&path, &scene.files[0].text).unwrap();
         sources.push(path);
         parts.push(format!(
-            "    for (s in sizes) {{ val r = {spec}.resolve(s[0], s[1]); println(r.joinToString(\" \") + \" | \" + (0 until {spec}.CELL_COUNT).joinToString(\" \") {{ {spec}.scrollLimits(r, it).joinToString(\",\") }}) }}\n"
+            "    for (s in sizes) {{ val r = {spec}.resolve(s[0], s[1]); println(r.joinToString(\" \") + \" | \" + (0 until {spec}.CELL_COUNT).joinToString(\" \") {{ {spec}.scrollLimits(r, it).joinToString(\",\") }} + \" | \" + (0 until {spec}.CELL_COUNT).joinToString(\" \") {{ \"${{{spec}.textSizeMp(r, it)}},${{{spec}.strokeWidthMp(r, it)}}\" }}) }}\n"
         ));
         expected.push_str(&layout_expectation(source));
     }

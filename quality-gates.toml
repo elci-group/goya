@@ -1,0 +1,102 @@
+# Emperor Quality Gates configuration.
+# One gate per stage in crates/emperor/src/stage.rs::NAMES. The gate scripts in
+# scripts/ run these commands for real; each emits honest JSON to
+# quality-gate-metrics/. Gate 13 is BLOCKED evidence by convention (see
+# scripts/quality-gates-gate13-packaging-signing-release.sh).
+
+[[gate]]
+number = 1
+stage = "lexical-syntactic-admission"
+description = "Code structure, syntax, and lexical analysis validation"
+script = "scripts/quality-gates-gate1-lexical-syntactic-admission.sh"
+command = "cargo test -p emperor -p sash -p sash-ir --offline --lib"
+
+[[gate]]
+number = 2
+stage = "type-semantic-validation"
+description = "Type checking and semantic analysis validation"
+script = "scripts/quality-gates-gate2-type-semantic-validation.sh"
+command = "cargo test -p sash -p sash-ir --offline --tests"
+
+[[gate]]
+number = 3
+stage = "canonical-goya-ir"
+description = "Intermediate representation generation and validation"
+script = "scripts/quality-gates-gate3-canonical-goya-ir.sh"
+command = "cargo run -p emperor --offline -- check crates/sash/fixtures/interactive-counter.gscene --format json"
+
+[[gate]]
+number = 4
+stage = "effects-capabilities"
+description = "Effect system and capability validation"
+script = "scripts/quality-gates-gate4-effects-capabilities.sh"
+command = "cargo test -p emperor -p sash -p sash-ir --offline --lib --tests"
+
+[[gate]]
+number = 5
+stage = "target-negotiation"
+description = "Target architecture and platform selection validation"
+script = "scripts/quality-gates-gate5-target-negotiation.sh"
+command = "cargo build -p emperor -p emperor-runtime --offline"
+
+[[gate]]
+number = 6
+stage = "native-linux-lowering"
+description = "Linux-specific code generation and lowering"
+script = "scripts/quality-gates-gate6-native-linux-lowering.sh"
+command = "cargo build -p emperor -p emperor-runtime --offline"
+
+[[gate]]
+number = 7
+stage = "optimisation"
+description = "Code optimization and performance validation"
+script = "scripts/quality-gates-gate7-optimisation.sh"
+command = "cargo build -p emperor -p emperor-runtime --offline --release"
+
+[[gate]]
+number = 8
+stage = "runtime-platform-linking"
+description = "Runtime library and platform linking validation"
+script = "scripts/quality-gates-gate8-runtime-platform-linking.sh"
+command = "cargo build -p emperor -p emperor-runtime --offline"
+
+[[gate]]
+number = 9
+stage = "machine-code-generation"
+description = "Native machine code generation and validation"
+script = "scripts/quality-gates-gate9-machine-code-generation.sh"
+command = "cargo run -p emperor --offline -- check crates/sash/fixtures/interactive-counter.gscene --target x86_64-unknown-linux-gnu --format json"
+
+[[gate]]
+number = 10
+stage = "elf-assembly-linking"
+description = "ELF linking and binary format validation"
+script = "scripts/quality-gates-gate10-elf-assembly-linking.sh"
+command = "cargo build -p emperor-runtime --offline --release"
+
+[[gate]]
+number = 11
+stage = "static-verification"
+description = "Static analysis and formal verification"
+script = "scripts/quality-gates-gate11-static-verification.sh"
+command = "cargo clippy -p emperor -p emperor-runtime --all-targets --offline -- -D warnings && cargo fmt -p emperor -p emperor-runtime -- --check"
+
+[[gate]]
+number = 12
+stage = "runtime-conformance"
+description = "Runtime behavior and conformance validation"
+script = "scripts/quality-gates-gate12-runtime-conformance.sh"
+command = "cargo run -p emperor --offline -- test crates/sash/fixtures/interactive-counter.gscene --suite conformance --format json"
+
+[[gate]]
+number = 13
+stage = "packaging-signing-release"
+description = "Packaging, code signing, and release validation"
+script = "scripts/quality-gates-gate13-packaging-signing-release.sh"
+status = "BLOCKED"
+blocked_reason = "packaging and code signing require a release identity and artifact pipeline not available in CI"
+
+[metrics-collection]
+format = "json"
+output_dir = "quality-gate-metrics"
+summary_file = "quality-gate-metrics/summary.json"

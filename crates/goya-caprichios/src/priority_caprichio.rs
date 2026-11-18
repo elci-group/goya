@@ -355,6 +355,10 @@ impl PriorityQueue {
             .map_err(|_| QueueError::MutexPoisoned)
     }
 
+    pub fn is_empty(&self) -> Result<bool, QueueError> {
+        Ok(self.len()? == 0)
+    }
+
     pub fn total_bytes(&self) -> Result<usize, QueueError> {
         self.state
             .lock()

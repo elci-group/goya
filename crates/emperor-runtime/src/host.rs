@@ -100,7 +100,24 @@ pub(crate) fn run_window(
             break;
         }
         for event in window.poll() {
-            match on_event(ir, &mut controller, &hits, &mut arm, &mut window, event) {
+            let mut published: Option<String> = None;
+            let mut paste_requested = false;
+            let step = on_event(
+                ir,
+                &mut controller,
+                &hits,
+                &mut arm,
+                &mut |text| published = Some(text.to_owned()),
+                &mut || paste_requested = true,
+                event,
+            );
+            if let Some(text) = published {
+                window.set_clipboard_text(&text);
+            }
+            if paste_requested {
+                window.request_clipboard_text();
+            }
+            match step {
                 Step::Changed => dirty = true,
                 Step::Quit => quit = true,
                 Step::Unchanged => {}
@@ -143,15 +160,18 @@ pub(crate) fn run_window(
         paste_allowed: controller.session.paste_allowed,
         presented,
         wayland: "opened",
+        window: "wayland",
+        edit: controller.session.edit,
     })
 }
 
-fn on_event(
+pub(crate) fn on_event(
     ir: &NativeIr,
     controller: &mut KeyController,
     hits: &HitMap,
     arm: &mut PointerArm,
-    window: &mut GoyaWindow,
+    publish: &mut dyn FnMut(&str),
+    request_paste: &mut dyn FnMut(),
     event: PlatformEvent,
 ) -> Step {
     match event {
@@ -162,26 +182,26 @@ fn on_event(
         PlatformEvent::KeySpecialWithModifiers { key, modifiers } => {
             let effect = on_modified_special(ir, controller, key, modifiers);
             if let Some(text) = effect.clipboard.as_deref() {
-                window.set_clipboard_text(text);
+                publish(text);
             }
             effect.step
         }
         PlatformEvent::Shortcut(Shortcut::Copy) => {
             if let Some(text) = copy_text(ir, controller) {
-                window.set_clipboard_text(text);
+                publish(text);
             }
             Step::Unchanged
         }
         PlatformEvent::Shortcut(Shortcut::Cut) => {
             let effect = on_cut(ir, controller);
             if let Some(text) = effect.clipboard.as_deref() {
-                window.set_clipboard_text(text);
+                publish(text);
             }
             effect.step
         }
         PlatformEvent::Shortcut(Shortcut::Paste) => {
             if paste_shortcut_requests_clipboard(ir, controller) {
-                window.request_clipboard_text();
+                request_paste();
             }
             Step::Unchanged
         }
@@ -455,7 +475,7 @@ pub(crate) fn scene_frame(ir: &NativeIr, controller: &KeyController) -> Result<S
     })
 }
 
-fn find_role<'a>(ir: &'a NativeIr, role: &str) -> Result<&'a Element, String> {
+pub(crate) fn find_role<'a>(ir: &'a NativeIr, role: &str) -> Result<&'a Element, String> {
     ir.elements
         .iter()
         .find(|element| element.role == role)

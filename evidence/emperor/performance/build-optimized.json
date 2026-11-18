@@ -1,0 +1,29 @@
+{
+  "status": "MEASURED",
+  "date": "2026-11-18T17:42:42Z",
+  "fixture": "crates/sash/fixtures/interactive-counter.gscene",
+  "command": "cargo run -p emperor --offline -- build crates/sash/fixtures/interactive-counter.gscene --out <fresh /tmp dir>",
+  "runs_per_measurement": 5,
+  "out_isolation": "fresh out dir per run (cold target dir, matching per-build isolation)",
+  "build": {
+    "runs_seconds": [39.540326,35.720681,28.087493,39.889125,29.397591],
+    "min_seconds": 28.087493,
+    "median_seconds": 35.720681,
+    "mean_seconds": 34.527043
+  },
+  "artifact": {
+    "path": "App",
+    "size_bytes": 16387400,
+    "size_mib": 15.63
+  },
+  "context": {
+    "hostname": "pop-os",
+    "cpu_model": "Intel(R) Core(TM) 5 120U",
+    "cores": "12",
+    "mem_total_kb": "7724588",
+    "kernel": "6.18.7-76061807-generic",
+    "cargo": "cargo 1.95.0 (f2d3ce0bd 2026-03-21)",
+    "rustc": "rustc 1.95.0 (59807616e 2026-04-14)",
+    "profile": "debug (emperor binary), offline, debug cargo build for emperor-app"
+  }
+}

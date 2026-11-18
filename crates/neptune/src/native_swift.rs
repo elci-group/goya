@@ -193,19 +193,18 @@ fn render(
         .map_err(|e| reject(&e.to_string(), Some(button.range)))?;
     let reference = goya_lang::compile_d1_interactions(&parsed.scene)
         .map_err(|e| reject(&e.to_string(), action_range))?;
-    match ir.module.root.and_then(|r| ir.module.node(r)) {
+    let bound = matches!(
+        ir.module.root.and_then(|r| ir.module.node(r)),
         Some(goya_ir::Node::Button {
             label: actual,
             on_activate,
-        }) if actual == label && reference.len() == 1 && *on_activate == reference[0].trigger() => {
-            ()
-        }
-        _ => {
-            return Err(reject(
-                "shared IR button or action binding differs from source",
-                Some(button.range),
-            ))
-        }
+        }) if actual == label && reference.len() == 1 && *on_activate == reference[0].trigger()
+    );
+    if !bound {
+        return Err(reject(
+            "shared IR button or action binding differs from source",
+            Some(button.range),
+        ));
     }
     let owner = crate::application_swift::preview_observable(source, module, initial)?;
     if owner.actions().len() != 1

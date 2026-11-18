@@ -1,0 +1,73 @@
+# Emperor Consensus Framework — merged configuration.
+# Merged on 2026-11-18 from six scaffolding files whose original bodies were
+# not parseable TOML and had no readers (scripts, code, or CI). Only the
+# declared structure (top-level domains and their subsection names) is
+# preserved here; the decorative prose of the originals was not parseable and
+# is not reproduced. Originals:
+#   technical-consensus-protocols.toml
+#   security-consensus-framework.toml
+#   ux-consensus-mechanisms.toml
+#   stakeholder-alignment-processes.toml
+#   decision-documentation-system.toml
+#   consensus-integration-with-quality-gates.toml
+
+version = "1.0.0"
+revision_date = "2026-11-18"
+
+[technical-consensus]
+origin = "technical-consensus-protocols.toml"
+sections = [
+    "architecture-review",
+    "design-decision",
+    "technical-standards",
+    "expert-review",
+    "decision-protocol",
+]
+
+[security-consensus]
+origin = "security-consensus-framework.toml"
+sections = [
+    "threat-model-validation",
+    "security-requirements-alignment",
+    "risk-assessment-consensus",
+    "security-hardening-prioritization",
+    "decision-protocol",
+]
+
+[ux-consensus]
+origin = "ux-consensus-mechanisms.toml"
+sections = [
+    "user-requirement-validation",
+    "ux-design-approval",
+    "documentation-standards",
+    "accessibility-compliance",
+    "decision-protocol",
+]
+
+[stakeholder-alignment]
+origin = "stakeholder-alignment-processes.toml"
+sections = [
+    "stakeholder-identification",
+    "stakeholder-engagement",
+    "stakeholder-consensus-building",
+    "stakeholder-communication",
+    "stakeholder-conflict-resolution",
+    "stakeholder-performance",
+    "stakeholder-success-recognition",
+]
+
+[decision-documentation]
+origin = "decision-documentation-system.toml"
+sections = [
+    "document-structure",
+    "system-components",
+    "decision-lifecycle",
+    "decision-quality-assurance",
+    "decision-search-retrieval",
+    "decision-analytics-reporting",
+]
+
+[consensus-integration]
+origin = "consensus-integration-with-quality-gates.toml"
+quality_gates_config = "quality-gates.toml"
+note = "No code, script, or workflow parses this file today; it records the declared consensus structure only."

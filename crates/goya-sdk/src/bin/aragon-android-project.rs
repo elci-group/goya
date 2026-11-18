@@ -133,7 +133,7 @@ fn main() {
     let args: Vec<_> = env::args_os().skip(1).collect();
     if args.len() == 1 && (args[0] == "--help" || args[0] == "-h") {
         println!("usage: aragon-android-project <input.gscene> <output-directory> [--scene | --root-button [--initial key=int:value|text:value|bool:value ...]]");
-        println!("Generate a deterministic Android app: --scene compiles a GSSH/2 scene; without it, a static-text or root-button D1 preview.");
+        println!("Generate a deterministic Android app: --scene compiles a GSSH/3 scene; without it, a static-text or root-button D1 preview.");
         process::exit(0);
     }
     if args.len() < 2 {
@@ -310,7 +310,7 @@ fn base_files_themed(project_name: &str, theme: &str) -> Vec<(String, Vec<u8>)> 
     ]
 }
 
-/// `--scene`: compile a GSSH/2 scene with the Aragon scene compiler.
+/// `--scene`: compile a GSSH/3 scene with the Aragon scene compiler.
 fn generate_scene(input: &std::ffi::OsStr, root: &Path) {
     let source = fs::read_to_string(input).unwrap_or_else(|error| {
         eprintln!("could not read scene {}: {error}", input.to_string_lossy());

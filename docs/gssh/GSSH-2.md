@@ -19,6 +19,7 @@ declarations from one parse of one source revision.
 | --- | --- | --- |
 | `GSSH/1` | `handoff::admit`, `parse_strict` | The GY-LANG/1 strict profile. Any GSSH/2 declaration is rejected with `GY-E1006`. |
 | `GSSH/2` | `handoff::admit_v2`, `parse_strict_gssh2` | Everything GSSH/1 admits and checks, plus `@state` declarations and `from` input bindings, with the coverage rules below. |
+| `GSSH/3` | `handoff::admit_v3`, `parse_strict_gssh3` | GSSH/2 with proportional lengths only: absolute `position`, `extent`, `text-size` and `stroke-width` are rejected (`GY-E1009`); `text-size-p` and `stroke-width-p` are admitted. See [GSSH/3](#gssh3--proportional-lengths) and decision D7. |
 
 GSSH/1 exists so that consumers written before GSSH/2 never receive state or
 bindings that they would silently ignore. A consumer moves to GSSH/2 by
@@ -149,6 +150,29 @@ evaluators are the canonical D1 compiler/executor and
    Storage namespace is (ontology name, state key). Commit ordering between
    the visible revision and the durable write is a target lifecycle obligation
    (Aragon gate ARG-G07); GSSH/2 does not define migrations (see decision D4).
+
+## GSSH/3 — proportional lengths
+
+Candidate, 18 November 2026 ([decision D7](decisions.md#d7--proportional-lengths-gssh3)).
+Everything in this document applies, plus:
+
+```text
+text-size-p: <number>;     // em size, fraction of the element's height, >= 0
+stroke-width-p: <number>;  // fraction of the element's shorter side, [0, 0.5]
+```
+
+* After the GSSH/2 rules, the first absolute length in source order
+  (`position`, `extent`, `text-size`, `stroke-width`, in any spelling) is
+  rejected with `GY-E1009`, with the range of that property.
+* GSSH/1 and GSSH/2 reject `text-size-p` and `stroke-width-p` with
+  `GY-E1006`.
+* `position_p` and `extent_p` fractions are clamped to [0, 1] of the parent,
+  except directly inside a `scroll` element, where only negative values are
+  clamped (to 0). This rule is part of `goya_lang::layout` for every profile.
+* `goya_lang::layout` resolves `DrawNode::text_size_mp` and
+  `DrawNode::stroke_width_mp`.
+* `SemanticHandoffV2::contract()` returns `"GSSH/3"` for a handoff admitted
+  by `admit_v3`.
 
 ## Not in GSSH/2
 

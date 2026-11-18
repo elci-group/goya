@@ -1,0 +1,179 @@
+{
+  "timestamp_utc": "2026-11-18T17:38:47Z",
+  "total_gates": 13,
+  "status_counts": {
+    "PASS": 12,
+    "BLOCKED": 1
+  },
+  "gates": [
+    {
+      "gate": 1,
+      "stage": "lexical-syntactic-admission",
+      "status": "PASS",
+      "failed": 0,
+      "commands": [
+        {
+          "command": "cargo test -p emperor -p sash -p sash-ir --offline --lib",
+          "exit_code": 0
+        }
+      ],
+      "timestamp": "2026-11-18T17:35:59Z"
+    },
+    {
+      "gate": 2,
+      "stage": "type-semantic-validation",
+      "status": "PASS",
+      "failed": 0,
+      "commands": [
+        {
+          "command": "cargo test -p sash -p sash-ir --offline --tests",
+          "exit_code": 0
+        }
+      ],
+      "timestamp": "2026-11-18T17:36:01Z"
+    },
+    {
+      "gate": 3,
+      "stage": "canonical-goya-ir",
+      "status": "PASS",
+      "failed": 0,
+      "commands": [
+        {
+          "command": "cargo run -p emperor --offline -- check crates/sash/fixtures/interactive-counter.gscene --format json",
+          "exit_code": 0
+        }
+      ],
+      "timestamp": "2026-11-18T17:36:02Z"
+    },
+    {
+      "gate": 4,
+      "stage": "effects-capabilities",
+      "status": "PASS",
+      "failed": 0,
+      "commands": [
+        {
+          "command": "cargo test -p emperor -p sash -p sash-ir --offline --lib --tests",
+          "exit_code": 0
+        }
+      ],
+      "timestamp": "2026-11-18T17:36:02Z"
+    },
+    {
+      "gate": 5,
+      "stage": "target-negotiation",
+      "status": "PASS",
+      "failed": 0,
+      "commands": [
+        {
+          "command": "cargo build -p emperor -p emperor-runtime --offline",
+          "exit_code": 0
+        }
+      ],
+      "timestamp": "2026-11-18T17:36:03Z"
+    },
+    {
+      "gate": 6,
+      "stage": "native-linux-lowering",
+      "status": "PASS",
+      "failed": 0,
+      "commands": [
+        {
+          "command": "cargo build -p emperor -p emperor-runtime --offline",
+          "exit_code": 0
+        }
+      ],
+      "timestamp": "2026-11-18T17:36:03Z"
+    },
+    {
+      "gate": 7,
+      "stage": "optimisation",
+      "status": "PASS",
+      "failed": 0,
+      "commands": [
+        {
+          "command": "cargo build -p emperor -p emperor-runtime --offline --release",
+          "exit_code": 0
+        }
+      ],
+      "timestamp": "2026-11-18T17:36:03Z"
+    },
+    {
+      "gate": 8,
+      "stage": "runtime-platform-linking",
+      "status": "PASS",
+      "failed": 0,
+      "commands": [
+        {
+          "command": "cargo build -p emperor -p emperor-runtime --offline",
+          "exit_code": 0
+        }
+      ],
+      "timestamp": "2026-11-18T17:38:04Z"
+    },
+    {
+      "gate": 9,
+      "stage": "machine-code-generation",
+      "status": "PASS",
+      "failed": 0,
+      "commands": [
+        {
+          "command": "cargo run -p emperor --offline -- check crates/sash/fixtures/interactive-counter.gscene --target x86_64-unknown-linux-gnu --format json",
+          "exit_code": 0
+        }
+      ],
+      "timestamp": "2026-11-18T17:38:04Z"
+    },
+    {
+      "gate": 10,
+      "stage": "elf-assembly-linking",
+      "status": "PASS",
+      "failed": 0,
+      "commands": [
+        {
+          "command": "cargo build -p emperor-runtime --offline --release",
+          "exit_code": 0
+        }
+      ],
+      "timestamp": "2026-11-18T17:38:04Z"
+    },
+    {
+      "gate": 11,
+      "stage": "static-verification",
+      "status": "PASS",
+      "failed": 0,
+      "commands": [
+        {
+          "command": "cargo clippy -p emperor -p emperor-runtime --all-targets --offline -- -D warnings",
+          "exit_code": 0
+        },
+        {
+          "command": "cargo fmt -p emperor -p emperor-runtime -- --check",
+          "exit_code": 0
+        }
+      ],
+      "timestamp": "2026-11-18T17:38:04Z"
+    },
+    {
+      "gate": 12,
+      "stage": "runtime-conformance",
+      "status": "PASS",
+      "failed": 0,
+      "commands": [
+        {
+          "command": "cargo run -p emperor --offline -- test crates/sash/fixtures/interactive-counter.gscene --suite conformance --format json",
+          "exit_code": 0
+        }
+      ],
+      "timestamp": "2026-11-18T17:38:17Z"
+    },
+    {
+      "gate": 13,
+      "stage": "packaging-signing-release",
+      "status": "BLOCKED",
+      "exit_code": 0,
+      "commands": [],
+      "reason": "packaging and code signing require a release identity and artifact pipeline not available in CI",
+      "timestamp": "2026-11-18T17:38:18Z"
+    }
+  ]
+}

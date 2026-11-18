@@ -218,17 +218,30 @@ fn column_action(
     Ok((table, actions))
 }
 
-fn finish(
-    operation: &str,
-    scope: &str,
-    module: &str,
-    source: &str,
+struct TraceRequest<'a> {
+    operation: &'a str,
+    scope: &'a str,
+    module: &'a str,
+    source: &'a str,
     initial: BTreeMap<String, D1Value>,
-    activations: &[String],
-    preview: &serde_json::Value,
-    table: &BTreeMap<String, ActionBinding>,
+    activations: &'a [String],
+    preview: &'a serde_json::Value,
+    table: &'a BTreeMap<String, ActionBinding>,
     actions: serde_json::Value,
-) -> Result<Trace, crate::Diagnostic> {
+}
+
+fn finish(request: TraceRequest<'_>) -> Result<Trace, crate::Diagnostic> {
+    let TraceRequest {
+        operation,
+        scope,
+        module,
+        source,
+        initial,
+        activations,
+        preview,
+        table,
+        actions,
+    } = request;
     let swift = preview["swift"]
         .as_str()
         .ok_or_else(|| reject("button preview did not preserve its Swift source"))?;
@@ -330,17 +343,17 @@ pub fn trace(
     let preview = preview.to_json();
     let table = action_table(&preview)?;
     let actions = preview["actions"].clone();
-    finish(
-        "trace-observable-buttons",
-        "button_activation_trace",
+    finish(TraceRequest {
+        operation: "trace-observable-buttons",
+        scope: "button_activation_trace",
         module,
         source,
         initial,
         activations,
-        &preview,
-        &table,
+        preview: &preview,
+        table: &table,
         actions,
-    )
+    })
 }
 
 /// Run the host activation trace for exactly one button. Swift execution,
@@ -354,17 +367,17 @@ pub fn trace_column(
     let preview = crate::observable_column::preview(source, module, initial.clone())?;
     let preview = preview.to_json();
     let (table, actions) = column_action(source, &preview)?;
-    finish(
-        "trace-observable-column",
-        "single_button_activation_trace",
+    finish(TraceRequest {
+        operation: "trace-observable-column",
+        scope: "single_button_activation_trace",
         module,
         source,
         initial,
         activations,
-        &preview,
-        &table,
+        preview: &preview,
+        table: &table,
         actions,
-    )
+    })
 }
 
 #[cfg(test)]

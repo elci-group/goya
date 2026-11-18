@@ -71,6 +71,7 @@ fn parse(args: &[OsString]) -> Result<Invocation, Fault> {
     let mut evidence = None;
     let mut suite = None;
     let mut package_format = None;
+    let mut window = None;
     let mut positionals = Vec::new();
     let mut index = 2;
     while index < args.len() {
@@ -97,12 +98,24 @@ fn parse(args: &[OsString]) -> Result<Invocation, Fault> {
                 return Err(Fault::new(2, "EMP-USAGE", "duplicate --suite"));
             }
         } else if text == "--format" {
+            // `required_value` moves `index` past the flag and its value.
+            // `json` selects CLI output. Any other value is a package format.
+            // Both arms must consume the pair; `continue` is not an advance.
             let value = required_value(args, &mut index, "--format")?;
-            if value == "json" {
-                continue;
-            }
-            if package_format.replace(value).is_some() {
+            if value != "json" && package_format.replace(value).is_some() {
                 return Err(Fault::new(2, "EMP-USAGE", "duplicate package format"));
+            }
+        } else if text == "--window" {
+            let value = required_value(args, &mut index, "--window")?;
+            if value != "wayland" && value != "kumimanu" {
+                return Err(Fault::new(
+                    2,
+                    "EMP-USAGE",
+                    format!("unknown window backend {value}"),
+                ));
+            }
+            if window.replace(value).is_some() {
+                return Err(Fault::new(2, "EMP-USAGE", "duplicate --window"));
             }
         } else if text.starts_with('-') {
             return Err(Fault::new(2, "EMP-USAGE", format!("unknown option {text}")));
@@ -150,6 +163,7 @@ fn parse(args: &[OsString]) -> Result<Invocation, Fault> {
         launch,
         suite,
         package_format,
+        window: window.unwrap_or_else(|| "wayland".to_owned()),
     })
 }
 

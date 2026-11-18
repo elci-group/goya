@@ -1,0 +1,21 @@
+{
+  "magic": "ELF",
+  "elf_class": 64,
+  "elf_type": 3,
+  "machine": 62,
+  "entry": 1101344,
+  "needed": [
+    "libxkbcommon.so.0",
+    "libgcc_s.so.1",
+    "libm.so.6",
+    "libc.so.6",
+    "ld-linux-x86-64.so.2"
+  ],
+  "relro": true,
+  "executable_stack": false,
+  "ldd_exit_code": 0,
+  "ldd": "\tlinux-vdso.so.1 (0x000072a87eb12000)\n\tlibxkbcommon.so.0 => /lib/x86_64-linux-gnu/libxkbcommon.so.0 (0x000072a87eab0000)\n\tlibgcc_s.so.1 => /lib/x86_64-linux-gnu/libgcc_s.so.1 (0x000072a87ea82000)\n\tlibm.so.6 => /lib/x86_64-linux-gnu/libm.so.6 (0x000072a87e517000)\n\tlibc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x000072a87e200000)\n\t/lib64/ld-linux-x86-64.so.2 (0x000072a87eb14000)\n",
+  "missing_libraries": [],
+  "bytes": 115436560,
+  "sha256": "f4edf5bcae5eab1a60d51aa0ccde035d2f75e489130a8c4580b91f575e2322f8"
+}

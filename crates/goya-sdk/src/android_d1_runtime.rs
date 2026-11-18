@@ -60,7 +60,7 @@ pub fn emit_android_d1_runtime_mapped(
 }
 
 /// Emit the runtime for a scene that has already passed strict admission
-/// (GSSH/1 or GSSH/2). The caller owns admission; this function still
+/// (GSSH/1, GSSH/2 or GSSH/3). The caller owns admission; this function still
 /// re-checks the D1-only surface through the canonical compiler.
 pub(crate) fn emit_for_parsed(
     parsed: &goya_lang::ParsedScene,

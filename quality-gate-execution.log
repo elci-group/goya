@@ -1,0 +1,16 @@
+=== Emperor Quality Gates Framework Execution ===
+Timestamp: 2026-11-18T17:25:37Z
+Executing Gates 1-4 (Continue Mode - Pre-build Validation)
+Executing Gate 1: lexical-syntactic-admission
+⚠ Gate 1 (lexical-syntactic-admission) script not found: /home/sal/goya/scripts/quality-gates-gate1-lexical_syntactic_admission.sh
+Executing Gate 2: type-semantic-validation
+⚠ Gate 2 (type-semantic-validation) script not found: /home/sal/goya/scripts/quality-gates-gate2-type_semantic_validation.sh
+Executing Gate 3: canonical-goya-ir
+⚠ Gate 3 (canonical-goya-ir) script not found: /home/sal/goya/scripts/quality-gates-gate3-canonical_goya_ir.sh
+Executing Gate 4: effects-capabilities
+⚠ Gate 4 (effects-capabilities) script not found: /home/sal/goya/scripts/quality-gates-gate4-effects_capabilities.sh
+Executing Gates 5-8 (Halt Mode - Build Validation)
+Executing Gate 5: target-negotiation
+⚠ Gate 5 (target-negotiation) script not found: /home/sal/goya/scripts/quality-gates-gate5-target_negotiation.sh
+Build gate 5 failed - halting pipeline execution
+=== Quality Gates Execution: FAILURE ===

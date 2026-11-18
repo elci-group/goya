@@ -161,20 +161,18 @@ fn admit_scene(parsed: &ParsedScene) -> Result<AdmittedWindow, Diagnostic> {
     let frame = layout(scene, width_pt, height_pt);
     let mut labels = Vec::new();
     let mut dispositions = Vec::new();
-    let mut index = 0usize;
-    let mut seen = 0usize;
-    walk(
-        root,
-        &[],
-        None,
-        &frame,
-        &mut index,
-        &mut seen,
-        parsed,
-        &mut labels,
-        &mut dispositions,
-        true,
-    )?;
+    let index = {
+        let mut state = AdmissionWalk {
+            frame: &frame,
+            parsed,
+            index: 0,
+            seen: 0,
+            labels: &mut labels,
+            dispositions: &mut dispositions,
+        };
+        walk(&mut state, root, &[], None, true)?;
+        state.index
+    };
     if index != frame.nodes.len() {
         return Err(layout_error(
             "layout node count does not match the scene tree",
@@ -283,49 +281,54 @@ fn admit_scene(parsed: &ParsedScene) -> Result<AdmittedWindow, Diagnostic> {
     })
 }
 
+struct AdmissionWalk<'a> {
+    frame: &'a goya_lang::Frame,
+    parsed: &'a ParsedScene,
+    index: usize,
+    seen: usize,
+    labels: &'a mut Vec<PlacedLabel>,
+    dispositions: &'a mut Vec<Disposition>,
+}
+
 fn walk(
+    state: &mut AdmissionWalk<'_>,
     cell: &SceneCell,
     path: &[usize],
     parent: Option<RectMp>,
-    frame: &goya_lang::Frame,
-    index: &mut usize,
-    seen: &mut usize,
-    parsed: &ParsedScene,
-    labels: &mut Vec<PlacedLabel>,
-    dispositions: &mut Vec<Disposition>,
     is_root: bool,
 ) -> Result<(), Diagnostic> {
-    if *seen >= MAX_CELLS {
+    if state.seen >= MAX_CELLS {
         return Err(cap(
             format!("the scene has more than {MAX_CELLS} cells"),
             "Split the window or wait for a profile with a higher bound.",
-            cell_range(parsed, path),
+            cell_range(state.parsed, path),
         ));
     }
-    *seen += 1;
+    state.seen += 1;
     if cell.gestures.is_some() {
         return Err(cap(
             "this profile does not compile gesture policy",
             "Remove the gestures block, or author it on an interactive edit that states copy and paste.",
-            cell_range(parsed, path),
+            cell_range(state.parsed, path),
         ));
     }
     if cell.kind != CellKind::Cell || cell.is_input {
-        return Err(reject_control(cell, parsed, path));
+        return Err(reject_control(cell, state.parsed, path));
     }
-    reject_visuals(cell, parsed, path)?;
-    let node_index = *index;
-    *index += 1;
-    let Some(node) = frame.nodes.get(node_index) else {
+    reject_visuals(cell, state.parsed, path)?;
+    let node_index = state.index;
+    state.index += 1;
+    let Some(node) = state.frame.nodes.get(node_index) else {
         return Err(layout_error(
             "layout produced fewer nodes than the scene tree",
-            cell_range(parsed, path),
+            cell_range(state.parsed, path),
         ));
     };
     if node.name != cell.name || node.text.as_deref() != cell.text.as_deref() {
         return Err(layout_error(
             "layout changed the authored cell text",
-            property_range_at(parsed, path, "text").or_else(|| cell_range(parsed, path)),
+            property_range_at(state.parsed, path, "text")
+                .or_else(|| cell_range(state.parsed, path)),
         ));
     }
     if !is_root {
@@ -333,25 +336,25 @@ fn walk(
             cell,
             parent.expect("child has a parent"),
             node.rect,
-            parsed,
+            state.parsed,
             path,
         )?;
     }
-    let extent_range = property_range_at(parsed, path, "extent")
-        .or_else(|| cell_range(parsed, path))
+    let extent_range = property_range_at(state.parsed, path, "extent")
+        .or_else(|| cell_range(state.parsed, path))
         .unwrap_or(SourceRange { start: 0, end: 0 });
     let (x_dip, y_dip) = dips_pair(node.rect.x, node.rect.y, extent_range, "position")?;
     let (width_dip, height_dip) = dips(node.rect.width, node.rect.height, extent_range)?;
-    match validate_text(cell, parsed, path)? {
+    match validate_text(cell, state.parsed, path)? {
         Some(text) => {
             let semantic_id = cell.authored_id.clone().ok_or_else(|| {
                 cap(
                     "strict admission returned a cell without an id",
                     "Report this as a frontend defect. Do not emit a window.",
-                    cell_range(parsed, path),
+                    cell_range(state.parsed, path),
                 )
             })?;
-            let id_range = id_range_at(parsed, path).ok_or_else(|| {
+            let id_range = id_range_at(state.parsed, path).ok_or_else(|| {
                 Diagnostic::new(
                     "SASH-PARSE",
                     "parse",
@@ -360,7 +363,7 @@ fn walk(
                 )
             })?;
             check_label("semantic id", &semantic_id, MAX_ID_BYTES, Some(id_range))?;
-            let text_range = property_range_at(parsed, path, "text").ok_or_else(|| {
+            let text_range = property_range_at(state.parsed, path, "text").ok_or_else(|| {
                 Diagnostic::new(
                     "SASH-PARSE",
                     "parse",
@@ -368,14 +371,14 @@ fn walk(
                     "Report this as a frontend defect.",
                 )
             })?;
-            dispositions.push(Disposition {
+            state.dispositions.push(Disposition {
                 subject: format!("{semantic_id} text"),
                 disposition: "preserved",
                 detail: format!(
                     "UTF-8 label is a STATIC control at {x_dip},{y_dip} size {width_dip} by {height_dip} dip."
                 ),
             });
-            labels.push(PlacedLabel {
+            state.labels.push(PlacedLabel {
                 semantic_id,
                 text,
                 x_dip,
@@ -391,12 +394,12 @@ fn walk(
             return Err(cap(
                 format!("cell '{}' has no text and no children", cell.name),
                 "Add text or remove the cell.",
-                cell_range(parsed, path),
+                cell_range(state.parsed, path),
             ));
         }
         None => {
             let id = cell.authored_id.as_deref().unwrap_or(cell.name.as_str());
-            dispositions.push(Disposition {
+            state.dispositions.push(Disposition {
                 subject: format!("{id} container"),
                 disposition: "equivalently-transformed",
                 detail:
@@ -408,18 +411,7 @@ fn walk(
     for (child_index, child) in cell.children.iter().enumerate() {
         let mut child_path = path.to_vec();
         child_path.push(child_index);
-        walk(
-            child,
-            &child_path,
-            Some(node.rect),
-            frame,
-            index,
-            seen,
-            parsed,
-            labels,
-            dispositions,
-            false,
-        )?;
+        walk(state, child, &child_path, Some(node.rect), false)?;
     }
     Ok(())
 }

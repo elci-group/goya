@@ -8,7 +8,11 @@
 #![forbid(unsafe_code)]
 
 mod exercise;
+#[cfg(feature = "kumimanu")]
+mod glyph;
 mod host;
+#[cfg(feature = "kumimanu")]
+mod host_kumimanu;
 
 pub use exercise::{exercise_interaction, InteractionReport};
 
@@ -18,6 +22,17 @@ use goya_parity::keys::KeyController;
 const SCHEMA: &str = "GY-EMP-NIR/1";
 /// Profile of the single admitted Linux counter.
 const PROFILE: &str = "emperor.linux.interactive/0.0.1";
+/// Element count bound. Sash admits at most 32 source cells, so a native IR
+/// with more elements cannot come from an admitted scene. The runtime
+/// re-checks the bound because the JSON parsed here is a separate artifact
+/// from the source Sash admitted; the compiler embed is not trusted to have
+/// gone through admission unchanged.
+const MAX_ELEMENTS: usize = 32;
+/// Geometry bound in DIP, mirroring `sash::admit::MAX_DIP`. Positions are
+/// accepted in `0..=MAX_DIP` and extents in `1..=MAX_DIP`, exactly as Sash's
+/// admission accepts them. Values inside these bounds cannot combine into an
+/// `i32` overflow in downstream rectangle arithmetic.
+const MAX_DIP: i32 = 4096;
 
 pub(crate) const WM_KEYDOWN: u32 = 0x0100;
 pub(crate) const VK_TAB: usize = 9;
@@ -119,6 +134,9 @@ pub struct OracleReport {
     pub paste_allowed: bool,
     pub presented: u32,
     pub wayland: &'static str,
+    /// `wayland`, `kumimanu`, or `not-requested` when no window was opened.
+    pub window: &'static str,
+    pub edit: String,
 }
 
 /// How [`run`] drives the admitted counter.
@@ -139,7 +157,8 @@ pub fn oracle(nir_json: &str) -> Result<OracleReport, String> {
     run(nir_json, RunMode::Oracle)
 }
 
-/// Admit `nir_json` and run it in `mode`.
+/// Admit `nir_json` and run it in `mode`. Windowed modes present through the
+/// host picked by [`open_window`]; `Oracle` never opens a window.
 pub fn run(nir_json: &str, mode: RunMode) -> Result<OracleReport, String> {
     let (ir, mut controller) = open_admitted(nir_json)?;
     match mode {
@@ -148,10 +167,10 @@ pub fn run(nir_json: &str, mode: RunMode) -> Result<OracleReport, String> {
             prove_paste_denied(&ir, &mut controller)?;
             Ok(report(&controller, 0, "not-requested"))
         }
-        RunMode::Smoke => host::run_window(&ir, controller, host::WindowMode::Smoke),
-        RunMode::Exercise => host::run_window(&ir, controller, host::WindowMode::Exercise),
+        RunMode::Smoke => open_window(&ir, controller, host::WindowMode::Smoke),
+        RunMode::Exercise => open_window(&ir, controller, host::WindowMode::Exercise),
         RunMode::Live { max_frames } => {
-            host::run_window(&ir, controller, host::WindowMode::Live { max_frames })
+            open_window(&ir, controller, host::WindowMode::Live { max_frames })
         }
     }
 }
@@ -267,6 +286,48 @@ pub(crate) fn open_admitted(nir_json: &str) -> Result<(NativeIr, KeyController),
         ) {
             return Err(format!("role {} is not admitted", element.role));
         }
+        // Sash admission bounds geometry before it can produce a scene, so
+        // mirror those bounds here: a native IR outside them is not something
+        // an admitted scene lowers to. Sash accepts positions in
+        // `0..=MAX_DIP` and sizes in `1..=MAX_DIP`; anything else, including
+        // negative extents or coordinates that would overflow `i32` when
+        // combined, is rejected before any rectangle arithmetic sees it.
+        if element.x_dip < 0
+            || element.y_dip < 0
+            || element.x_dip > MAX_DIP
+            || element.y_dip > MAX_DIP
+        {
+            return Err(format!(
+                "element {} is at {} by {} dip; this profile accepts positions in 0..={MAX_DIP}",
+                element.id, element.x_dip, element.y_dip
+            ));
+        }
+        if element.width_dip <= 0
+            || element.height_dip <= 0
+            || element.width_dip > MAX_DIP
+            || element.height_dip > MAX_DIP
+        {
+            return Err(format!(
+                "element {} is {} by {} dip; this profile accepts extents in 1..={MAX_DIP}",
+                element.id, element.width_dip, element.height_dip
+            ));
+        }
+    }
+    if ir.elements.len() > MAX_ELEMENTS {
+        return Err(format!(
+            "element count {} exceeds the {MAX_ELEMENTS} cells this profile admits",
+            ir.elements.len()
+        ));
+    }
+    // The window rectangle gets the same bound as the elements. Sash admits
+    // the client size in `1..=MAX_DIP` on each edge, and the host converts
+    // this value directly into the frame size.
+    if ir.width_dip <= 0 || ir.height_dip <= 0 || ir.width_dip > MAX_DIP || ir.height_dip > MAX_DIP
+    {
+        return Err(format!(
+            "window size {} by {} dip is not admitted; this profile accepts extents in 1..={MAX_DIP}",
+            ir.width_dip, ir.height_dip
+        ));
     }
     let controller = KeyController::open(&ir.scene).map_err(|err| err.to_string())?;
     if controller.session.count != ir.initial_state {
@@ -316,7 +377,72 @@ fn prove_paste_denied(ir: &NativeIr, controller: &mut KeyController) -> Result<(
     Ok(())
 }
 
+/// Window backend for [`open_window`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Backend {
+    Wayland,
+    Kumimanu,
+}
+
+/// Route `EMPEROR_WINDOW_BACKEND` to a backend. An explicit value wins; the
+/// `kumimanu` feature decides only when the variable is unset or names
+/// something else. Each variant is compiled under its own `cfg`, so tests run
+/// against whichever variant the feature set selects.
+#[cfg(feature = "kumimanu")]
+fn backend_for(env: Option<&str>) -> Backend {
+    match env {
+        Some("wayland") => Backend::Wayland,
+        _ => Backend::Kumimanu,
+    }
+}
+
+#[cfg(not(feature = "kumimanu"))]
+fn backend_for(env: Option<&str>) -> Backend {
+    match env {
+        Some("kumimanu") => Backend::Kumimanu,
+        _ => Backend::Wayland,
+    }
+}
+
+/// Present through the kumimanu host when `EMPEROR_WINDOW_BACKEND=kumimanu` or
+/// when the `kumimanu` feature is enabled without an override; otherwise use
+/// the Wayland host. `--features kumimanu` alone is sufficient, matching the
+/// env var the emperor build sets.
+fn open_window(
+    ir: &NativeIr,
+    controller: KeyController,
+    mode: host::WindowMode,
+) -> Result<OracleReport, String> {
+    match backend_for(option_env!("EMPEROR_WINDOW_BACKEND")) {
+        Backend::Kumimanu => open_kumimanu(ir, controller, mode),
+        Backend::Wayland => host::run_window(ir, controller, mode),
+    }
+}
+
+#[cfg(feature = "kumimanu")]
+fn open_kumimanu(
+    ir: &NativeIr,
+    controller: KeyController,
+    mode: host::WindowMode,
+) -> Result<OracleReport, String> {
+    host_kumimanu::run_window(ir, controller, mode)
+}
+
+#[cfg(not(feature = "kumimanu"))]
+fn open_kumimanu(
+    _ir: &NativeIr,
+    _controller: KeyController,
+    _mode: host::WindowMode,
+) -> Result<OracleReport, String> {
+    Err("kumimanu backend was requested but this runtime was linked without it".into())
+}
+
 fn report(controller: &KeyController, presented: u32, wayland: &'static str) -> OracleReport {
+    let window = if wayland == "not-requested" {
+        "not-requested"
+    } else {
+        "wayland"
+    };
     OracleReport {
         count: controller.session.count,
         revision: controller.session.revision,
@@ -324,6 +450,8 @@ fn report(controller: &KeyController, presented: u32, wayland: &'static str) -> 
         paste_allowed: controller.session.paste_allowed,
         presented,
         wayland,
+        window,
+        edit: controller.session.edit.clone(),
     }
 }
 
@@ -449,6 +577,30 @@ mod tests {
     }
 
     #[test]
+    fn backend_routing_prefers_an_explicit_env_var() {
+        assert_eq!(backend_for(Some("wayland")), Backend::Wayland);
+        assert_eq!(backend_for(Some("kumimanu")), Backend::Kumimanu);
+    }
+
+    // The feature decides only when `EMPEROR_WINDOW_BACKEND` does not name a
+    // known backend. Each `cfg` variant of `backend_for` compiles with one
+    // default; running the suite with and without `--features kumimanu` covers
+    // both.
+    #[test]
+    #[cfg(not(feature = "kumimanu"))]
+    fn backend_default_is_wayland_without_the_feature() {
+        assert_eq!(backend_for(None), Backend::Wayland);
+        assert_eq!(backend_for(Some("other")), Backend::Wayland);
+    }
+
+    #[test]
+    #[cfg(feature = "kumimanu")]
+    fn backend_default_is_kumimanu_with_the_feature() {
+        assert_eq!(backend_for(None), Backend::Kumimanu);
+        assert_eq!(backend_for(Some("other")), Backend::Kumimanu);
+    }
+
+    #[test]
     fn oracle_stores_zero_plus_one() {
         let report = oracle(&counter_json()).expect("oracle");
         assert_eq!(report.count, 1);
@@ -500,6 +652,42 @@ mod tests {
         ir.capabilities.filesystem = "deny".to_owned();
         let err = oracle(&serde_json::to_string(&ir).expect("json")).expect_err("filesystem");
         assert!(err.contains("filesystem"), "{err}");
+    }
+
+    #[test]
+    fn negative_extent_is_rejected() {
+        let mut ir = counter_ir();
+        ir.elements[1].width_dip = -120;
+        let err = oracle(&serde_json::to_string(&ir).expect("json")).expect_err("width");
+        assert!(err.contains("window.amount"), "{err}");
+    }
+
+    #[test]
+    fn oversized_geometry_is_rejected() {
+        let mut ir = counter_ir();
+        ir.elements[2].x_dip = MAX_DIP + 1;
+        let err = oracle(&serde_json::to_string(&ir).expect("json")).expect_err("position");
+        assert!(err.contains("window.add"), "{err}");
+        let mut ir = counter_ir();
+        ir.elements[2].height_dip = MAX_DIP + 1;
+        let err = oracle(&serde_json::to_string(&ir).expect("json")).expect_err("extent");
+        assert!(err.contains("window.add"), "{err}");
+    }
+
+    #[test]
+    fn oversized_window_is_rejected() {
+        let mut ir = counter_ir();
+        ir.width_dip = MAX_DIP + 1;
+        let err = oracle(&serde_json::to_string(&ir).expect("json")).expect_err("window");
+        assert!(err.contains("window size"), "{err}");
+    }
+
+    #[test]
+    fn more_elements_than_sash_cells_is_rejected() {
+        let mut ir = counter_ir();
+        ir.elements.resize(MAX_ELEMENTS + 1, ir.elements[0].clone());
+        let err = oracle(&serde_json::to_string(&ir).expect("json")).expect_err("count");
+        assert!(err.contains("33"), "{err}");
     }
 
     #[test]
@@ -1516,6 +1704,30 @@ mod tests {
     }
 
     #[test]
+    fn space_on_the_button_activates() {
+        let (_ir, mut controller) = open_admitted(&counter_json()).expect("admit");
+        assert_eq!(controller.focus, goya_parity::keys::Focus::Edit);
+        assert_eq!(controller.session.edit, "1");
+        assert_eq!(controller.session.count, 0);
+        assert_eq!(controller.session.revision, 0);
+        assert_eq!(controller.session.result, "0");
+
+        assert_eq!(host::on_tab(&mut controller, false), host::Step::Changed);
+        assert_eq!(controller.focus, goya_parity::keys::Focus::Button);
+        assert_eq!(controller.session.edit, "1");
+        assert_eq!(controller.session.count, 0);
+        assert_eq!(controller.session.revision, 0);
+        assert_eq!(controller.session.result, "0");
+
+        assert_eq!(host::on_char(&mut controller, ' '), host::Step::Changed);
+        assert_eq!(controller.session.count, 1);
+        assert_eq!(controller.session.revision, 1);
+        assert_eq!(controller.session.result, "1");
+        assert_eq!(controller.session.edit, "1");
+        assert_eq!(controller.focus, goya_parity::keys::Focus::Button);
+    }
+
+    #[test]
     fn admitted_cut_publishes_the_edit_and_clears_it() {
         let (ir, mut controller) = open_admitted(&counter_json()).expect("admit");
         assert_eq!(ir.capabilities.cut, "default");
@@ -2388,4 +2600,250 @@ mod tests {
         assert!(report.copy_allowed);
         assert!(!report.paste_allowed);
     }
+
+    #[cfg(feature = "kumimanu")]
+    #[test]
+    #[ignore = "opens one X11 window; run with --ignored when DISPLAY is set"]
+    fn kumimanu_counter_stores_twelve_from_sent_input() {
+        let display = std::env::var("DISPLAY").unwrap_or_default();
+        assert!(!display.is_empty(), "DISPLAY is unset");
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(super::inject_count_window());
+        });
+        if let Ok(elf) = std::env::var("KUMIMANU_ELF") {
+            let output = std::process::Command::new(&elf)
+                .args(["--live", "--frames", "700"])
+                .output()
+                .unwrap_or_else(|err| panic!("could not start {elf}: {err}"));
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(
+                output.status.success(),
+                "elf exited {:?}\n{stdout}\n{stderr}",
+                output.status.code()
+            );
+            assert!(stdout.contains("window=kumimanu"), "{stdout}");
+            assert!(stdout.contains("count=12 "), "{stdout}");
+            assert!(stdout.contains("revision=1 "), "{stdout}");
+            assert!(stdout.contains("edit=12"), "{stdout}");
+            assert!(!stdout.contains("presented=0 "), "{stdout}");
+        } else {
+            let (ir, controller) = open_admitted(&counter_json()).expect("admit");
+            let report = host_kumimanu::run_window(
+                &ir,
+                controller,
+                host::WindowMode::Live {
+                    max_frames: Some(500),
+                },
+            )
+            .expect("window");
+            assert_eq!(report.window, "kumimanu");
+            assert_eq!(report.wayland, "not-used");
+            assert_eq!(report.edit, "12");
+            assert_eq!(report.count, 12);
+            assert_eq!(report.revision, 1);
+            assert!(report.presented >= 1, "{report:?}");
+        }
+        let injected = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("injector finished");
+        injected.expect("sent key and button");
+    }
+}
+
+#[cfg(all(test, feature = "kumimanu"))]
+fn inject_count_window() -> Result<(), String> {
+    use x11rb::connection::Connection;
+    use x11rb::protocol::xproto::ConnectionExt as _;
+    use x11rb::rust_connection::RustConnection;
+
+    let (connection, screen) = RustConnection::connect(None).map_err(|err| err.to_string())?;
+    let (root, min, max) = {
+        let setup = connection.setup();
+        let root = setup
+            .roots
+            .get(screen)
+            .ok_or("screen index is outside the setup")?
+            .root;
+        (root, setup.min_keycode, setup.max_keycode)
+    };
+    let count = max.saturating_sub(min).saturating_add(1);
+    let mapping = connection
+        .get_keyboard_mapping(min, count)
+        .map_err(|err| err.to_string())?
+        .reply()
+        .map_err(|err| err.to_string())?;
+    let per = usize::from(mapping.keysyms_per_keycode.max(1));
+    let index = mapping
+        .keysyms
+        .chunks(per)
+        .position(|syms| syms.contains(&0x32))
+        .ok_or("no keycode for keysym 0x32")?;
+    let keycode =
+        min.saturating_add(u8::try_from(index).map_err(|_| "keycode index does not fit")?);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(6);
+    let window = loop {
+        if let Some(found) = find_count_window(&connection, root, 0)? {
+            break found;
+        }
+        if std::time::Instant::now() >= deadline {
+            return Err("timed out waiting for a Count window with class Kumimanu".into());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(30));
+    };
+    send_key(&connection, root, window, keycode, true)?;
+    send_key(&connection, root, window, keycode, false)?;
+    send_button(&connection, root, window, 176, 80, true)?;
+    send_button(&connection, root, window, 176, 80, false)?;
+    configure_smaller(&connection, window)?;
+    connection.flush().map_err(|err| err.to_string())
+}
+
+#[cfg(all(test, feature = "kumimanu"))]
+fn configure_smaller(
+    connection: &x11rb::rust_connection::RustConnection,
+    window: u32,
+) -> Result<(), String> {
+    use x11rb::protocol::xproto::{ConfigureWindowAux, ConnectionExt as _};
+
+    connection
+        .configure_window(window, &ConfigureWindowAux::new().width(300).height(140))
+        .map_err(|err| err.to_string())?;
+    Ok(())
+}
+
+#[cfg(all(test, feature = "kumimanu"))]
+fn find_count_window(
+    connection: &x11rb::rust_connection::RustConnection,
+    window: u32,
+    depth: u32,
+) -> Result<Option<u32>, String> {
+    use x11rb::protocol::xproto::ConnectionExt as _;
+
+    if depth > 8 {
+        return Ok(None);
+    }
+    if depth > 0 && is_count_window(connection, window)? {
+        return Ok(Some(window));
+    }
+    let reply = match connection.query_tree(window) {
+        Ok(cookie) => match cookie.reply() {
+            Ok(reply) => reply,
+            Err(_) => return Ok(None),
+        },
+        Err(_) => return Ok(None),
+    };
+    for child in reply.children {
+        if let Some(found) = find_count_window(connection, child, depth + 1)? {
+            return Ok(Some(found));
+        }
+    }
+    Ok(None)
+}
+
+#[cfg(all(test, feature = "kumimanu"))]
+fn is_count_window(
+    connection: &x11rb::rust_connection::RustConnection,
+    window: u32,
+) -> Result<bool, String> {
+    use x11rb::protocol::xproto::{AtomEnum, ConnectionExt as _};
+
+    let class =
+        match connection.get_property(false, window, AtomEnum::WM_CLASS, AtomEnum::STRING, 0, 64) {
+            Ok(cookie) => match cookie.reply() {
+                Ok(reply) => reply.value,
+                Err(_) => return Ok(false),
+            },
+            Err(err) => return Err(err.to_string()),
+        };
+    let name =
+        match connection.get_property(false, window, AtomEnum::WM_NAME, AtomEnum::STRING, 0, 64) {
+            Ok(cookie) => match cookie.reply() {
+                Ok(reply) => reply.value,
+                Err(_) => return Ok(false),
+            },
+            Err(err) => return Err(err.to_string()),
+        };
+    let kumimanu = class
+        .split(|byte| *byte == 0)
+        .any(|part| part == b"Kumimanu");
+    Ok(kumimanu && name == b"Count")
+}
+
+#[cfg(all(test, feature = "kumimanu"))]
+fn send_key(
+    connection: &x11rb::rust_connection::RustConnection,
+    root: u32,
+    window: u32,
+    keycode: u8,
+    pressed: bool,
+) -> Result<(), String> {
+    use x11rb::protocol::xproto::{
+        ConnectionExt as _, EventMask, KeyButMask, KeyPressEvent, KEY_PRESS_EVENT,
+        KEY_RELEASE_EVENT,
+    };
+
+    let event = KeyPressEvent {
+        response_type: if pressed {
+            KEY_PRESS_EVENT
+        } else {
+            KEY_RELEASE_EVENT
+        },
+        detail: keycode,
+        sequence: 0,
+        time: 0,
+        root,
+        event: window,
+        child: 0,
+        root_x: 0,
+        root_y: 0,
+        event_x: 1,
+        event_y: 1,
+        state: KeyButMask::from(0u16),
+        same_screen: true,
+    };
+    connection
+        .send_event(false, window, EventMask::NO_EVENT, event)
+        .map_err(|err| err.to_string())?;
+    Ok(())
+}
+
+#[cfg(all(test, feature = "kumimanu"))]
+fn send_button(
+    connection: &x11rb::rust_connection::RustConnection,
+    root: u32,
+    window: u32,
+    x: i16,
+    y: i16,
+    pressed: bool,
+) -> Result<(), String> {
+    use x11rb::protocol::xproto::{
+        ButtonPressEvent, ConnectionExt as _, EventMask, KeyButMask, BUTTON_PRESS_EVENT,
+        BUTTON_RELEASE_EVENT,
+    };
+
+    let event = ButtonPressEvent {
+        response_type: if pressed {
+            BUTTON_PRESS_EVENT
+        } else {
+            BUTTON_RELEASE_EVENT
+        },
+        detail: 1,
+        sequence: 0,
+        time: 0,
+        root,
+        event: window,
+        child: 0,
+        root_x: x,
+        root_y: y,
+        event_x: x,
+        event_y: y,
+        state: KeyButMask::from(0u16),
+        same_screen: true,
+    };
+    connection
+        .send_event(false, window, EventMask::NO_EVENT, event)
+        .map_err(|err| err.to_string())?;
+    Ok(())
 }

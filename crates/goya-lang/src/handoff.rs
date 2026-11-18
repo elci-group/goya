@@ -13,7 +13,7 @@
 //! awaiting architecture approval; it is not evidence of target support.
 
 use crate::{
-    parse_strict, parse_strict_gssh2, InputBinding, InteractionType, InteractionValue, ParsedScene,
+    parse_strict, parse_strict_gssh2, parse_strict_gssh3, InputBinding, InteractionType, InteractionValue, ParsedScene,
     SourceRange, StateDecl, StateLifetime, StrictParseError,
 };
 use std::collections::BTreeMap;
@@ -24,6 +24,10 @@ pub const CONTRACT: &str = "GSSH/1";
 
 /// Identifier for the handoff with declared state and input bindings.
 pub const CONTRACT_V2: &str = "GSSH/2";
+
+/// Identifier for GSSH/2 with every length proportional (no absolute
+/// `position`, `extent`, `text-size` or `stroke-width`).
+pub const CONTRACT_V3: &str = "GSSH/3";
 
 /// Largest UTF-8 text value a bound field may supply (the D1 text limit).
 pub const MAX_FIELD_TEXT_BYTES: usize = 64 * 1024;
@@ -156,18 +160,20 @@ pub fn convert_field(
     }
 }
 
-/// A strictly admitted GSSH/2 snapshot: the scene, its source entries,
-/// declared state and input bindings, all from one parse of one source.
+/// A strictly admitted GSSH/2 or GSSH/3 snapshot: the scene, its source
+/// entries, declared state and input bindings, all from one parse of one
+/// source. [`SemanticHandoffV2::contract`] says which profile admitted it.
 #[derive(Debug, Clone)]
 pub struct SemanticHandoffV2 {
+    contract: &'static str,
     parsed: ParsedScene,
     origins: BTreeMap<Origin, SourceRange>,
 }
 
 impl SemanticHandoffV2 {
-    /// Always [`CONTRACT_V2`].
+    /// [`CONTRACT_V2`] from [`admit_v2`], [`CONTRACT_V3`] from [`admit_v3`].
     pub fn contract(&self) -> &'static str {
-        CONTRACT_V2
+        self.contract
     }
 
     pub fn parsed(&self) -> &ParsedScene {
@@ -229,7 +235,15 @@ impl SemanticHandoffV2 {
 
 /// Parse and admit source under GSSH/2.
 pub fn admit_v2(source: &str) -> Result<SemanticHandoffV2, StrictParseError> {
-    let parsed = parse_strict_gssh2(source)?;
+    Ok(with_origins(CONTRACT_V2, parse_strict_gssh2(source)?))
+}
+
+/// Parse and admit source under GSSH/3: GSSH/2 with proportional lengths only.
+pub fn admit_v3(source: &str) -> Result<SemanticHandoffV2, StrictParseError> {
+    Ok(with_origins(CONTRACT_V3, parse_strict_gssh3(source)?))
+}
+
+fn with_origins(contract: &'static str, parsed: ParsedScene) -> SemanticHandoffV2 {
     let mut origins = BTreeMap::new();
     for entry in &parsed.entries {
         let origin = match entry.kind.as_str() {
@@ -253,7 +267,11 @@ pub fn admit_v2(source: &str) -> Result<SemanticHandoffV2, StrictParseError> {
             origins.insert(origin, entry.range);
         }
     }
-    Ok(SemanticHandoffV2 { parsed, origins })
+    SemanticHandoffV2 {
+        contract,
+        parsed,
+        origins,
+    }
 }
 
 #[cfg(test)]

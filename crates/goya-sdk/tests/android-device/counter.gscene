@@ -1,12 +1,12 @@
 @ontology counter {
   @state { total: int = 0 session; note: text = "none" session; }
   @cell root { id: "root"; fill: #f4f1ea;
-    @cell title { id: "title"; position: (16, 16, 0); extent: (300, 40, 0); text: "Goya counter" }
-    @input amount { id: "field.amount"; position: (16, 64, 0); extent: (200, 48, 0); }
-    @input memo { id: "field.memo"; position_p: (0.05, 0.3, 0); extent_p: (0.9, 0.08, 0); }
-    @button add { id: "button.add"; position: (232, 64, 0); extent: (120, 48, 0); text: "Add" }
-    @cell list { id: "list"; position_p: (0.05, 0.45, 0); extent_p: (0.9, 0.5, 0); scroll: true; fill: #ffffff;
-      @cell para { id: "para"; extent: (280, 900, 0); wrap: 28; text: "Scroll cells clip their children and let them overflow; this paragraph is wrapped by the reference wrapper." }
+    @cell title { id: "title"; position_p: (0.04, 0.02, 0); extent_p: (0.76, 0.05, 0); text: "Goya counter"; text-size-p: 0.6; }
+    @input amount { id: "field.amount"; position_p: (0.04, 0.085, 0); extent_p: (0.5, 0.065, 0); text-size-p: 0.4; stroke: #555555; stroke-width-p: 0.04; }
+    @input memo { id: "field.memo"; position_p: (0.05, 0.3, 0); extent_p: (0.9, 0.08, 0); text-size-p: 0.35; }
+    @button add { id: "button.add"; position_p: (0.59, 0.085, 0); extent_p: (0.31, 0.065, 0); text: "Add"; text-size-p: 0.4; }
+    @cell list { id: "list"; position_p: (0.05, 0.45, 0); extent_p: (0.9, 0.5, 0); scroll: true; fill: #ffffff; stroke: #999999; stroke-width-p: 0.01;
+      @cell para { id: "para"; extent_p: (0.8, 2.4, 0); wrap: 28; text: "Scroll cells clip their children and let them overflow; this paragraph is wrapped by the reference wrapper."; text-size-p: 0.02; }
     }
   }
   @interaction add { id: "action.add"; trigger: button.add.activate; class: D1;

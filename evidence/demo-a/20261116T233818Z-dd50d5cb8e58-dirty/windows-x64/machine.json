@@ -1,0 +1,9 @@
+{
+  "recorded_at": "2026-11-16T23:43:05Z",
+  "uname": "Linux pop-os 6.18.7-76061807-generic #202601231045~1769703228~24.04~cb87b5b SMP PREEMPT_DYNAMIC Thu J x86_64 x86_64 x86_64 GNU/Linux",
+  "session_type": "wayland",
+  "desktop": "COSMIC",
+  "wayland_display": "wayland-1",
+  "kind": "manually supervised interactive test machine",
+  "preflight_present": true
+}

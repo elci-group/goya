@@ -332,6 +332,14 @@ impl BatchIr {
 mod tests {
     use super::*;
 
+    struct BinaryCleanup(std::path::PathBuf);
+
+    impl Drop for BinaryCleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
+
     const LOCAL: RuntimeCapabilities = RuntimeCapabilities {
         process_local_memory: true,
         standard_mutex: true,
@@ -616,15 +624,5 @@ mod tests {
             std::hint::black_box(batch.flush().unwrap());
         }
         println!("10,000 128-item batches in {:?}", start.elapsed());
-    }
-}
-
-#[cfg(test)]
-struct BinaryCleanup(std::path::PathBuf);
-
-#[cfg(test)]
-impl Drop for BinaryCleanup {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
     }
 }

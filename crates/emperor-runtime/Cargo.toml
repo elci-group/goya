@@ -14,3 +14,10 @@ goya-layout.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 unicode-segmentation.workspace = true
+goya-kumimanu = { path = "../goya-kumimanu", optional = true }
+
+[features]
+kumimanu = ["dep:goya-kumimanu"]
+
+[dev-dependencies]
+x11rb = { version = "0.13.1", default-features = false }

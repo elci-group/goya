@@ -113,6 +113,14 @@ impl ProgressIr {
 mod tests {
     use super::*;
 
+    struct BinaryCleanup(std::path::PathBuf);
+
+    impl Drop for BinaryCleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
+
     const LOCAL: RuntimeCapabilities = RuntimeCapabilities {
         process_local_memory: true,
     };
@@ -226,15 +234,5 @@ mod tests {
             "100,000 progress factory constructions in {:?}",
             start.elapsed()
         );
-    }
-}
-
-#[cfg(test)]
-struct BinaryCleanup(std::path::PathBuf);
-
-#[cfg(test)]
-impl Drop for BinaryCleanup {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
     }
 }

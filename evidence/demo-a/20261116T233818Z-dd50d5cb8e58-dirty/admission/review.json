@@ -1,0 +1,6 @@
+{
+  "independent": true,
+  "reviewer": "sw-7",
+  "decision": "FAIL",
+  "notes": "Independent check of run 20261116T233818Z-dd50d5cb8e58-dirty. SHA-256 of crates/sash/fixtures/interactive-counter.gscene is c550e4608d8217b84c946732fd2ecd9944c800d8979dc332dbea7d87fa9d61fd and matches builds/windows-x64/evidence/build-report.json source_digest and builds/linux-x64/capability-manifest.json source_digest_sha256. windows-x64/verify.json is exit_code 3, pe_structure PASS, runtime_qualification BLOCKED, target x86_64-pc-windows-msvc: static PE verification only, not a Windows launch. linux-x64/elf.json is ELF class 64, machine 62, missing_libraries empty. windows-x64/launch.json is BLOCKED with no Windows session. linux-x64/launch.json shows a live ./App --live process and shm-slot-1.png on a cosmic-comp socket; that is not a photographed visible window or seat input, so DA-G06 stays BLOCKED. Both interactions.json files are BLOCKED and contain no PASS. conformance/baseline.json records four cargo commands exiting 101, which fails DA-G01. builds/emperor.json interaction_is_native_input is false; the scripted suite stdout is not DA-G08. DA-G02, DA-G03, and DA-G04 match those files and were not over-claimed. DA-G01 through DA-G09 are not all PASS (FAIL plus BLOCKED). Qualification FAIL and programme PARTIAL are fail-closed. The completion statement is not issued."
+}

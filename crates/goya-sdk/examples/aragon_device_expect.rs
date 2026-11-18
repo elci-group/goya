@@ -90,7 +90,7 @@ fn main() {
         scroll_max.push((id, axes.contains('x'), axes.contains('y')));
     }
 
-    let handoff = goya_lang::handoff::admit_v2(&source).expect("GSSH/2 scene");
+    let handoff = goya_lang::handoff::admit_v3(&source).expect("GSSH/3 scene");
     let scene = &handoff.parsed().scene;
     let mut cells = Vec::new();
     collect(&scene.root, None, &mut cells);

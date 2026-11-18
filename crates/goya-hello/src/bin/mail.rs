@@ -556,7 +556,7 @@ fn self_test(store: &mut SceneStore) {
     audit_glyphs(&delivered, "deliver", &mut failures);
     if node_text(&delivered, "read_text") != NOTE_DELIVERED
         || node_text(&delivered, "in_2") != format!("= {NOTE_DELIVERED}")
-        || node_text(&delivered, "note_text") != ""
+        || !node_text(&delivered, "note_text").is_empty()
         || node_text(&delivered, "in_0") != format!("- {LINE_YOU}")
     {
         failures.push(format!(

@@ -1546,12 +1546,20 @@ process.stdout.write([applied, dragged, multi, lead, leadDrag].join('\n---GOYA-E
 "#,
         )
         .unwrap();
-        let output = std::process::Command::new("node")
+        let host = ["node", "bun"].into_iter().find(|name| {
+            std::process::Command::new(name)
+                .arg("--version")
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .is_ok_and(|status| status.success())
+        });
+        let output = std::process::Command::new(host.unwrap_or("node"))
             .arg(directory.join("run.js"))
             .arg(directory.join("fns.js"))
             .arg(source)
             .output()
-            .expect("node runs the served geometry editor");
+            .expect("node or bun runs the served geometry editor");
         assert!(
             output.status.success(),
             "geometry script failed: {}",

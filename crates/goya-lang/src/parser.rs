@@ -141,6 +141,7 @@ impl fmt::Display for StrictParseError {
             "GY-E1006" => "declaration requires GSSH/2 admission",
             "GY-E1007" => "invalid input binding",
             "GY-E1008" => "invalid state declaration",
+            "GY-E1009" => "absolute length in a proportional profile",
             _ => "strict parsing failed",
         };
         write!(f, "{}: {} '{}'", self.code, description, self.name)
@@ -220,6 +221,8 @@ pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
         && root.stroke_width.is_none()
         && root.text.is_none()
         && root.text_size.is_none()
+        && root.text_size_p.is_none()
+        && root.stroke_width_p.is_none()
         && root.anchor.is_none()
         && root.authored_id.is_none()
         && root.wrap.is_none()
@@ -332,7 +335,46 @@ fn cell_at_path<'a>(root: &'a SceneCell, path: &[usize]) -> Option<&'a SceneCell
 /// This is the GSSH/1 profile: `@state` blocks and `from` input bindings are
 /// rejected with `GY-E1006`, because GSSH/1 consumers do not implement them.
 pub fn parse_strict(source: &str) -> Result<ParsedScene, StrictParseError> {
-    strict(source, false)
+    strict(source, Profile::Gssh1)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Profile {
+    Gssh1,
+    Gssh2,
+    Gssh3,
+}
+
+/// Length properties GSSH/3 requires to be proportional, by canonical name,
+/// with their proportional replacement.
+const ABSOLUTE_LENGTHS: &[(&str, &str)] = &[
+    ("position", "position_p"),
+    ("extent", "extent_p"),
+    ("text_size", "text-size-p"),
+    ("stroke_width", "stroke-width-p"),
+];
+
+/// Strict GSSH/3 admission: everything [`parse_strict_gssh2`] admits and
+/// checks, plus the proportional `text-size-p` and `stroke-width-p`, and
+/// with every absolute length rejected (`GY-E1009`, range: the property).
+/// All lengths in a GSSH/3 scene are fractions of a resolved rect.
+pub fn parse_strict_gssh3(source: &str) -> Result<ParsedScene, StrictParseError> {
+    let parsed = strict(source, Profile::Gssh3)?;
+    validate_declarations(&parsed)?;
+    if let Some((entry, replacement)) = parsed.entries.iter().find_map(|entry| {
+        let canonical = entry.name.replace('-', "_");
+        (entry.kind == "property")
+            .then(|| ABSOLUTE_LENGTHS.iter().find(|(name, _)| *name == canonical))
+            .flatten()
+            .map(|(_, replacement)| (entry, *replacement))
+    }) {
+        return Err(StrictParseError {
+            code: "GY-E1009",
+            name: format!("{}; use {replacement}", entry.name),
+            range: entry.range,
+        });
+    }
+    Ok(parsed)
 }
 
 /// Strict GSSH/2 admission: everything [`parse_strict`] admits and checks,
@@ -342,12 +384,12 @@ pub fn parse_strict(source: &str) -> Result<ParsedScene, StrictParseError> {
 /// input must be bound to one authored `@input` element. Bool inputs cannot
 /// be bound to a text field.
 pub fn parse_strict_gssh2(source: &str) -> Result<ParsedScene, StrictParseError> {
-    let parsed = strict(source, true)?;
+    let parsed = strict(source, Profile::Gssh2)?;
     validate_declarations(&parsed)?;
     Ok(parsed)
 }
 
-fn strict(source: &str, gssh2: bool) -> Result<ParsedScene, StrictParseError> {
+fn strict(source: &str, profile: Profile) -> Result<ParsedScene, StrictParseError> {
     let parsed = parse_with_source_map(source).map_err(|error| StrictParseError {
         code: "GY-E1000",
         name: format!("syntax at line {}", error.line),
@@ -358,7 +400,18 @@ fn strict(source: &str, gssh2: bool) -> Result<ParsedScene, StrictParseError> {
         let unsupported = match entry.kind.as_str() {
             "property" if !is_known_property(&entry.name) => Some("GY-E1001"),
             "template" => Some("GY-E1002"),
-            "state" | "binding" if !gssh2 => Some("GY-E1006"),
+            "state" | "binding" if profile == Profile::Gssh1 => Some("GY-E1006"),
+            // Proportional text and stroke lengths are GSSH/3 only, so older
+            // consumers never receive a length they would ignore.
+            "property"
+                if profile < Profile::Gssh3
+                    && matches!(
+                        entry.name.replace('-', "_").as_str(),
+                        "text_size_p" | "stroke_width_p"
+                    ) =>
+            {
+                Some("GY-E1006")
+            }
             _ => None,
         };
         if let Some(code) = unsupported {
@@ -393,6 +446,8 @@ fn strict(source: &str, gssh2: bool) -> Result<ParsedScene, StrictParseError> {
         && root.stroke_width.is_none()
         && root.text.is_none()
         && root.text_size.is_none()
+        && root.text_size_p.is_none()
+        && root.stroke_width_p.is_none()
         && root.anchor.is_none()
         && root.wrap.is_none()
         && root.gestures.is_none()
@@ -663,6 +718,10 @@ fn is_known_property(name: &str) -> bool {
             | "text"
             | "text-size"
             | "text_size"
+            | "text-size-p"
+            | "text_size_p"
+            | "stroke-width-p"
+            | "stroke_width_p"
             | "wrap"
             | "scroll"
             | "text-anchor"
@@ -836,6 +895,8 @@ impl P {
             extent: None,
             position_p: None,
             extent_p: None,
+            text_size_p: None,
+            stroke_width_p: None,
             fill: None,
             stroke: None,
             stroke_width: None,
@@ -1385,6 +1446,10 @@ impl P {
                 Err(e) => return Err(e),
             },
             "text-size" | "text_size" => cell.text_size = Some(self.parse_number()?),
+            "text-size-p" | "text_size_p" => cell.text_size_p = Some(self.parse_number()?),
+            "stroke-width-p" | "stroke_width_p" => {
+                cell.stroke_width_p = Some(self.parse_number()?)
+            }
             // `wrap` is a positive integer column count. 0, negatives,
             // non-integers and out-of-range values are parse errors — a
             // malformed wrap must not silently disable the feature.

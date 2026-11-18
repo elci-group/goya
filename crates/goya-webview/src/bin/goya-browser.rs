@@ -622,7 +622,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             y: TOOLBAR_HEIGHT as i32,
                             width: frame.width,
                             height: frame.height,
-                            stride: frame.stride as usize,
+                            stride: frame.stride,
                             rgba: &frame.rgba,
                             clip: Some(PixelRect {
                                 x: 0,
@@ -872,18 +872,18 @@ fn toolbar_primitives(
         ),
     ];
     let mut fills = vec![
-        Some(0x202a_3b),
-        Some(0x3441_59),
-        Some(0x3441_59),
-        Some(0x3441_59),
-        Some(if focused { 0x354d_68 } else { 0x2833_47 }),
+        Some(0x0020_2a3b),
+        Some(0x0034_4159),
+        Some(0x0034_4159),
+        Some(0x0034_4159),
+        Some(if focused { 0x0035_4d68 } else { 0x0028_3347 }),
     ];
     if !status.is_empty() && width >= 160 {
         primitives.push(Primitive::Text(
             rect(140, 28, width.saturating_sub(152), 20),
             status.chars().take(columns).collect(),
         ));
-        fills.push(Some(0xc45c_6a));
+        fills.push(Some(0x00c4_5c6a));
     }
     if width < 160 {
         primitives.truncate(4);

@@ -1,0 +1,10 @@
+{
+  "status": "BLOCKED",
+  "fault": "DA-E005",
+  "detail": "This process is not running in an interactive Windows x64 session. Wine, QEMU, and a Linux cross-link are not a Windows launch.",
+  "operating_system": "Linux",
+  "wine_accepted": false,
+  "independent_execution": false,
+  "window": "ABSENT",
+  "recorded_at": "2026-11-16T23:43:05Z"
+}

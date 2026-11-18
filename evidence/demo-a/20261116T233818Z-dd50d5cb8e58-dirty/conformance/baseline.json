@@ -1,0 +1,49 @@
+{
+  "recorded_at": "2026-11-16T23:47:24Z",
+  "commands": [
+    {
+      "argv": [
+        "cargo",
+        "build",
+        "--workspace"
+      ],
+      "exit_code": 101,
+      "seconds": 20.748
+    },
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "--workspace",
+        "--lib",
+        "--tests"
+      ],
+      "exit_code": 101,
+      "seconds": 2.242
+    },
+    {
+      "argv": [
+        "cargo",
+        "clippy",
+        "--workspace",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 101,
+      "seconds": 2.087
+    },
+    {
+      "argv": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit_code": 101,
+      "seconds": 0.508
+    }
+  ]
+}

@@ -145,3 +145,55 @@ exact expected span. The mutation tests drop, duplicate and swap every token
 and delete every character of each accepted fixture, under both profiles,
 asserting determinism, in-bounds char-aligned ranges, known codes, and (for
 admitted mutants) the GSSH/2 coverage invariants.
+
+## D7 — Proportional lengths (GSSH/3)
+
+**Decision** (project owner, 18 November 2026). Every length in the Goya
+ecosystem is proportional, never absolute. This is introduced as the
+Candidate profile **GSSH/3** (`handoff::admit_v3`, `parse_strict_gssh3`) and
+the ecosystem migrates to it one target at a time.
+
+* GSSH/3 is GSSH/2 with every absolute length rejected with `GY-E1009` at the
+  property's exact range: `position`, `extent`, `text-size` and
+  `stroke-width`. The error names the replacement.
+* Positions and sizes are `position_p` and `extent_p`: fractions of the
+  parent's resolved rect (the root's parent is the viewport).
+* `text-size-p` is the text's em size as a fraction of the element's own
+  resolved height. It must be at least 0 and may exceed 1, in which case the
+  text is taller than its element and is clipped like any overflowing text.
+* `stroke-width-p` is a fraction of the shorter side of the element's
+  resolved rect, clamped to [0, 0.5]. The stroke is drawn inside the
+  element's bounds.
+* **Overflow rule.** Fractions are clamped to [0, 1] of the parent, except
+  directly inside a `scroll` element, where they are only clamped to be at
+  least 0. Without this, content could never be larger than its scroll
+  viewport once absolute lengths are gone. The rule lives in
+  `goya_lang::layout`, which is shared by every profile; no scene in the
+  repository used a fraction outside [0, 1] when it was introduced.
+* The reference layout resolves both lengths into `DrawNode::text_size_mp`
+  and `DrawNode::stroke_width_mp`, in millipoints. They come from the
+  proportional form when present, otherwise from absolute points.
+* GSSH/1 and GSSH/2 reject `text-size-p` and `stroke-width-p` (`GY-E1006`),
+  so a consumer on an older profile never receives a length it would ignore.
+* `wrap` is a count of characters, not a length, and is unchanged.
+
+**Alternatives.** (a) Remove absolute lengths from GY-LANG/1 at once: this
+breaks 33 of the 64 scene files and Sash, which supports only absolute
+geometry today. (b) Apply the rule to Aragon only: the rule is for the whole
+ecosystem. (c) Proportional text size relative to the viewport or the
+parent: element height was chosen because it keeps text and its box
+scaling together.
+
+**Migration.** `goya_lang::proportional::to_proportional` (command:
+`goya-proportional <scene> <width-pt> <height-pt>`) rewrites absolute
+lengths as fractions that reproduce the reference layout exactly at one
+reference viewport, editing only the rewritten property spans. Every scene
+file in the repository converts with an identical reference layout at
+800×600 and 392×753 points (`crates/goya-lang/tests/proportional_migration.rs`).
+The only exceptions, reported rather than guessed, are text sizes on elements
+with zero size, which no fraction can reproduce. The per-target status is in
+[`proportional-migration.md`](proportional-migration.md).
+
+**Open.** Renderers other than Aragon do not yet read the resolved lengths
+(the Wayland renderer still uses its own scale for absolute `text-size`).
+Sash must gain proportional geometry before it can move to GSSH/3.

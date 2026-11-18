@@ -8,6 +8,7 @@ description = "Sash compiles an admitted Goya scene to a native Windows executab
 
 [dependencies]
 goya-lang.workspace = true
+sash-ir = { path = "../sash-ir" }
 serde_json = "1"
 sha2 = "0.10"
 

@@ -312,6 +312,14 @@ impl StreamIr {
 mod tests {
     use super::*;
 
+    struct BinaryCleanup(std::path::PathBuf);
+
+    impl Drop for BinaryCleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
+
     const LOCAL: RuntimeCapabilities = RuntimeCapabilities {
         process_local_memory: true,
         standard_mutex: true,
@@ -556,15 +564,5 @@ mod tests {
             std::hint::black_box(stream.try_read().unwrap());
         }
         println!("100,000 1KiB stream round trips in {:?}", start.elapsed());
-    }
-}
-
-#[cfg(test)]
-struct BinaryCleanup(std::path::PathBuf);
-
-#[cfg(test)]
-impl Drop for BinaryCleanup {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
     }
 }

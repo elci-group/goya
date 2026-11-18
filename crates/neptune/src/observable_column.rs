@@ -280,7 +280,7 @@ fn ir_matches(
         return Err(reject("shared IR order differs from the scene", None));
     }
     let action = action.ok_or_else(|| reject("shared IR did not preserve the button", None))?;
-    let reference = goya_lang::compile_d1_interactions(&scene)
+    let reference = goya_lang::compile_d1_interactions(scene)
         .map_err(|error| reject(&error.to_string(), None))?;
     if reference.len() != 1 || action != reference[0].trigger() {
         return Err(reject(
@@ -699,26 +699,20 @@ mod tests {
         for mapping in json["source_map"]["mappings"].as_array().unwrap() {
             let source = &mapping["source_range"];
             let generated = &mapping["swift_range"];
-            assert!(
-                SOURCE
-                    .get(
-                        source["start_byte"].as_u64().unwrap() as usize
-                            ..source["end_byte"].as_u64().unwrap() as usize
-                    )
-                    .unwrap()
-                    .len()
-                    > 0
-            );
-            assert!(
-                swift
-                    .get(
-                        generated["start_byte"].as_u64().unwrap() as usize
-                            ..generated["end_byte"].as_u64().unwrap() as usize
-                    )
-                    .unwrap()
-                    .len()
-                    > 0
-            );
+            assert!(!SOURCE
+                .get(
+                    source["start_byte"].as_u64().unwrap() as usize
+                        ..source["end_byte"].as_u64().unwrap() as usize
+                )
+                .unwrap()
+                .is_empty());
+            assert!(!swift
+                .get(
+                    generated["start_byte"].as_u64().unwrap() as usize
+                        ..generated["end_byte"].as_u64().unwrap() as usize
+                )
+                .unwrap()
+                .is_empty());
         }
         assert!(crate::static_column::preview(SOURCE, "app/main.gscene").is_err());
         assert!(crate::native_swift::preview(SOURCE, "app/main.gscene", initial()).is_err());

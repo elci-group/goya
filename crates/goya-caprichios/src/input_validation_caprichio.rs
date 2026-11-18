@@ -509,15 +509,13 @@ mod tests {
         let input = "safeInput123";
         let start = Instant::now();
         for _ in 0..1_000_000 {
-            std::hint::black_box(
-                validate(
-                    input,
-                    limits.min_bytes,
-                    limits.max_bytes,
-                    &limits.allowed_bytes,
-                )
-                .unwrap(),
-            );
+            validate(
+                std::hint::black_box(input),
+                limits.min_bytes,
+                limits.max_bytes,
+                &limits.allowed_bytes,
+            )
+            .unwrap();
         }
         eprintln!("1,000,000 bounded ASCII checks in {:?}", start.elapsed());
     }

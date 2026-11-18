@@ -1,0 +1,104 @@
+{
+  "tests": [
+    {
+      "id": "DA-T01",
+      "platform": "linux-x64",
+      "procedure": "Launch application",
+      "expected": "Window visible, input 1, result 0",
+      "observed": "",
+      "input_method": "",
+      "evidence": "real Wayland seat input has not been recorded",
+      "status": "BLOCKED"
+    },
+    {
+      "id": "DA-T02",
+      "platform": "linux-x64",
+      "procedure": "Click Add once",
+      "expected": "Result 1",
+      "observed": "",
+      "input_method": "",
+      "evidence": "real Wayland seat input has not been recorded",
+      "status": "BLOCKED"
+    },
+    {
+      "id": "DA-T03",
+      "platform": "linux-x64",
+      "procedure": "Click Add again",
+      "expected": "Result 2",
+      "observed": "",
+      "input_method": "",
+      "evidence": "real Wayland seat input has not been recorded",
+      "status": "BLOCKED"
+    },
+    {
+      "id": "DA-T04",
+      "platform": "linux-x64",
+      "procedure": "Focus button; activate by Space",
+      "expected": "Result 3",
+      "observed": "",
+      "input_method": "",
+      "evidence": "real Wayland seat input has not been recorded",
+      "status": "BLOCKED"
+    },
+    {
+      "id": "DA-T05",
+      "platform": "linux-x64",
+      "procedure": "Replace input 1 with 2; activate by Enter",
+      "expected": "Result 5",
+      "observed": "",
+      "input_method": "",
+      "evidence": "real Wayland seat input has not been recorded",
+      "status": "BLOCKED"
+    },
+    {
+      "id": "DA-T06",
+      "platform": "linux-x64",
+      "procedure": "Replace input with 00; activate",
+      "expected": "Result remains 5",
+      "observed": "",
+      "input_method": "",
+      "evidence": "real Wayland seat input has not been recorded",
+      "status": "BLOCKED"
+    },
+    {
+      "id": "DA-T07",
+      "platform": "linux-x64",
+      "procedure": "Paste a known sentinel into the numeric input",
+      "expected": "Paste denied; input unchanged",
+      "observed": "",
+      "input_method": "",
+      "evidence": "real Wayland seat input has not been recorded",
+      "status": "BLOCKED"
+    },
+    {
+      "id": "DA-T08",
+      "platform": "linux-x64",
+      "procedure": "Copy the focused input",
+      "expected": "Clipboard matches the input text",
+      "observed": "",
+      "input_method": "",
+      "evidence": "real Wayland seat input has not been recorded",
+      "status": "BLOCKED"
+    },
+    {
+      "id": "DA-T09",
+      "platform": "linux-x64",
+      "procedure": "Close the window",
+      "expected": "Clean process termination",
+      "observed": "",
+      "input_method": "",
+      "evidence": "real Wayland seat input has not been recorded",
+      "status": "BLOCKED"
+    },
+    {
+      "id": "DA-T10",
+      "platform": "linux-x64",
+      "procedure": "Launch again",
+      "expected": "Initial state restored to 0",
+      "observed": "",
+      "input_method": "",
+      "evidence": "real Wayland seat input has not been recorded",
+      "status": "BLOCKED"
+    }
+  ]
+}

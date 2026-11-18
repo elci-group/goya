@@ -1,8 +1,9 @@
 //! Process entry for one admitted counter.
 //!
-//! `--oracle` is the default. `--smoke`, `--exercise`, and `--live` open the Wayland host.
+//! `--oracle` is the default. `--smoke`, `--exercise`, and `--live` open the
+//! window backend selected when this binary was linked.
 //! Exit 0 prints the report. Exit 1 is usage or a bad native IR. Exit 5 is a
-//! Wayland or runtime failure.
+//! window-backend or runtime failure.
 
 #![forbid(unsafe_code)]
 
@@ -35,13 +36,15 @@ fn main() -> ExitCode {
     match app() {
         Ok(report) => {
             println!(
-                "count={} revision={} presented={} wayland={} copy={} paste={}",
+                "count={} revision={} presented={} wayland={} window={} copy={} paste={} edit={}",
                 report.count,
                 report.revision,
                 report.presented,
                 report.wayland,
+                report.window,
                 report.copy_allowed,
-                report.paste_allowed
+                report.paste_allowed,
+                report.edit
             );
             ExitCode::SUCCESS
         }
@@ -135,7 +138,7 @@ fn read_nir(path: &Path) -> Result<String, AppError> {
 }
 
 fn classify(err: String) -> AppError {
-    if err.starts_with("wayland:") {
+    if err.starts_with("wayland:") || err.starts_with("kumimanu:") {
         AppError::Runtime(err)
     } else {
         AppError::Usage(err)

@@ -1,25 +1,25 @@
 @ontology stress {
   @cell root { id: "root"; fill: #eeeeee;
-    @cell header { id: "header"; extent_p: (1, 0.1, 0); fill: #336699; text: "Layout stress" }
-    @cell grid { id: "grid"; position_p: (0.0333, 0.12, 0); extent_p: (0.9333, 0.3, 0); fill: #dddddd;
+    @cell header { id: "header"; extent_p: (1, 0.1, 0); fill: #336699; text: "Layout stress"; text-size-p: 0.4; }
+    @cell grid { id: "grid"; position_p: (0.0333, 0.12, 0); extent_p: (0.9333, 0.3, 0); fill: #dddddd; stroke: #000000; stroke-width-p: 0.02;
       @cell a { id: "grid.a"; extent_p: (0.333, 0.5, 0); fill: #ff0000; }
       @cell b { id: "grid.b"; position_p: (0.333, 0, 0); extent_p: (0.333, 0.5, 0); fill: #00ff00; }
       @cell c { id: "grid.c"; position_p: (0.666, 0, 0); extent_p: (0.334, 0.5, 0); fill: #0000ff; }
-      @cell clamped { id: "grid.clamped"; position_p: (0, 0.5, 0); extent: (5000, 5000, 0); text: "clamped into its parent" }
-      @cell negative { id: "grid.negative"; position: (-40, 10.5, 0); extent: (33.3, 17.7, 0); fill: #000000; }
-      @button small { id: "grid.button"; position_p: (0.7, 0.7, 0); extent_p: (0.25, 0.25, 0); text: "Tap" }
+      @cell clamped { id: "grid.clamped"; position_p: (0, 0.5, 0); extent_p: (5, 5, 0); text: "clamped into its parent"; text-size-p: 0.15; }
+      @cell negative { id: "grid.negative"; position_p: (-0.2, 0.05, 0); extent_p: (0.1, 0.1, 0); fill: #000000; }
+      @button small { id: "grid.button"; position_p: (0.7, 0.7, 0); extent_p: (0.25, 0.25, 0); text: "Tap"; text-size-p: 0.3; }
     }
     @cell hscroll { id: "hscroll"; position_p: (0.05, 0.44, 0); extent_p: (0.9, 0.1, 0); scroll: true; fill: #ffffcc;
-      @cell wide { id: "wide"; extent: (900, 40, 0); text: "A row wider than its viewport, scrolled horizontally to the end" }
-      @cell far { id: "far"; position: (700, 30, 0); extent: (180, 30, 0); fill: #993399; text: "far" }
+      @cell wide { id: "wide"; extent_p: (2.6, 0.5, 0); text: "A row wider than its viewport, scrolled horizontally to the end"; text-size-p: 0.5; }
+      @cell far { id: "far"; position_p: (2.0, 0.55, 0); extent_p: (0.5, 0.4, 0); fill: #993399; text: "far"; text-size-p: 0.6; }
     }
     @cell vscroll { id: "vscroll"; position_p: (0.05, 0.57, 0); extent_p: (0.9, 0.38, 0); scroll: true; fill: #ccffff;
-      @cell item1 { id: "item1"; position: (8, 8, 0); extent: (250, 60, 0); fill: #ffffff; text: "first" }
-      @cell group { id: "group"; position: (8, 120, 0); extent: (300, 400, 0); fill: #ffeeee;
-        @cell inner { id: "inner"; position_p: (0.1, 0.1, 0); extent_p: (0.8, 0.5, 0); wrap: 12; text: "nested content inside a scrolled group" }
+      @cell item1 { id: "item1"; position_p: (0.02, 0.03, 0); extent_p: (0.7, 0.2, 0); fill: #ffffff; text: "first"; text-size-p: 0.4; }
+      @cell group { id: "group"; position_p: (0.02, 0.4, 0); extent_p: (0.85, 1.4, 0); fill: #ffeeee; stroke: #aa0000; stroke-width-p: 0.01;
+        @cell inner { id: "inner"; position_p: (0.1, 0.1, 0); extent_p: (0.8, 0.5, 0); wrap: 12; text: "nested content inside a scrolled group"; text-size-p: 0.08; }
         @input field { id: "group.field"; position_p: (0.1, 0.7, 0); extent_p: (0.8, 0.2, 0); }
       }
-      @cell last { id: "last"; position: (8, 900, 0); extent: (200, 50, 0); fill: #ffffff; text: "last" }
+      @cell last { id: "last"; position_p: (0.02, 3.0, 0); extent_p: (0.6, 0.18, 0); fill: #ffffff; text: "last"; }
     }
   }
 }

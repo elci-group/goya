@@ -1,0 +1,1175 @@
+Diff in /home/sal/goya/crates/goya-lang/src/lib.rs:31:
+     StrictParseError,
+ };
+ pub use scene::{
+-    hit_test, hit_test_scrolled, layout, Anchor, CellKind, DrawNode, Frame, GestureDecision,
+-    GesturePolicy, RectMp, Scene, SceneCell, ScrollOffsets, Vec3,
++    hit_test,
++    hit_test_scrolled,
++    layout,
++    AccessibilityConfig,
++    Anchor,
++    AnnouncementRate,
++    AutocompleteConfig,
++    AutocompleteSource,
++    CellKind,
++    ContextAwareRule,
++    CopyPasteConfig,
++    CrossFieldRule,
++    DateFormat,
++    DragDropConfig,
++    DrawNode,
++    ErrorSeverity,
++    FocusIndicator,
++    FormatType,
++    Frame,
++    GestureDecision,
++    GesturePolicy,
++    HighContrastColorScheme,
++    HighContrastConfig,
++    InputFormatting,
++    InputHistoryConfig,
++    InputMasking,
+     // Phase 2 enhanced types
+-    InputType, RichTextFormatting, TextAlign, ValidationRule, CrossFieldRule, ContextAwareRule,
+-    InputMasking, MaskType, AccessibilityConfig, LiveRegion, LocalizationConfig,
+-    NumberFormat, DateFormat, TimeFormat, ErrorSeverity, InputFormatting, FormatType,
+-    AutocompleteConfig, AutocompleteSource, DragDropConfig, CopyPasteConfig,
+-    InputHistoryConfig, WCAGCompliance, FocusIndicator, ScreenReaderConfig,
+-    AnnouncementRate, HighContrastConfig, HighContrastColorScheme, RtlConfig,
+-    TextDirection, LayoutDirection, UnicodeSupportConfig, TextNormalization,
++    InputType,
++    LayoutDirection,
++    LiveRegion,
++    LocalizationConfig,
++    MaskType,
++    NumberFormat,
++    RectMp,
++    RichTextFormatting,
++    RtlConfig,
++    Scene,
++    SceneCell,
++    ScreenReaderConfig,
++    ScrollOffsets,
++    TextAlign,
++    TextDirection,
++    TextNormalization,
++    TimeFormat,
++    UnicodeSupportConfig,
++    ValidationRule,
++    Vec3,
++    WCAGCompliance,
+ };
+ pub use scene::{
+     EffectRequestDecl, EffectValueType, InteractionClass, InteractionDecl, InteractionExpr,
+Diff in /home/sal/goya/crates/goya-lang/src/lib.rs:792:
+             if let Ok(scene) = parse(&input) {
+                 let frame = layout(&scene, 800.0, 600.0);
+                 let _ = hit_test(&frame, 0, 0);
+-        let _ = lower(&scene, 800.0, 600.0);
+-    }
+-}
++                let _ = lower(&scene, 800.0, 600.0);
++            }
++        }
+ 
+-// Test cases for enhanced parser features
++        // Test cases for enhanced parser features
+ 
+-#[test]
+-fn enhanced_property_admission_parses_input() {
+-    let src = "@ontology app { @input field { id: \"field\" input: true; } }";
+-    let scene = parse(src).unwrap();
+-    let input_cell = scene.root.children.first().unwrap();
+-    assert_eq!(input_cell.kind, CellKind::Input);
+-    assert!(input_cell.is_input);
+-}
++        #[test]
++        fn enhanced_property_admission_parses_input() {
++            let src = "@ontology app { @input field { id: \"field\" input: true; } }";
++            let scene = parse(src).unwrap();
++            let input_cell = scene.root.children.first().unwrap();
++            assert_eq!(input_cell.kind, CellKind::Input);
++            assert!(input_cell.is_input);
++        }
+ 
+-#[test]
+-fn enhanced_property_admission_parses_placeholder() {
+-    let src = "@ontology app { @input field { placeholder: \"Enter text\" } }";
+-    let scene = parse(src).unwrap();
+-    let input_cell = scene.root.children.first().unwrap();
+-    assert_eq!(input_cell.placeholder.as_deref(), Some("Enter text"));
+-}
++        #[test]
++        fn enhanced_property_admission_parses_placeholder() {
++            let src = "@ontology app { @input field { placeholder: \"Enter text\" } }";
++            let scene = parse(src).unwrap();
++            let input_cell = scene.root.children.first().unwrap();
++            assert_eq!(input_cell.placeholder.as_deref(), Some("Enter text"));
++        }
+ 
+-#[test]
+-fn enhanced_property_admission_parses_max_length() {
+-    let src = "@ontology app { @input field { max-length: 10; } }";
+-    let scene = parse(src).unwrap();
+-    let input_cell = scene.root.children.first().unwrap();
+-    assert_eq!(input_cell.max_length, Some(10));
+-}
++        #[test]
++        fn enhanced_property_admission_parses_max_length() {
++            let src = "@ontology app { @input field { max-length: 10; } }";
++            let scene = parse(src).unwrap();
++            let input_cell = scene.root.children.first().unwrap();
++            assert_eq!(input_cell.max_length, Some(10));
++        }
+ 
+-#[test]
+-fn enhanced_property_admission_parses_max_length_alternative() {
+-    let src = "@ontology app { @input field { max_length: 20; } }";
+-    let scene = parse(src).unwrap();
+-    let input_cell = scene.root.children.first().unwrap();
+-    assert_eq!(input_cell.max_length, Some(20));
+-}
++        #[test]
++        fn enhanced_property_admission_parses_max_length_alternative() {
++            let src = "@ontology app { @input field { max_length: 20; } }";
++            let scene = parse(src).unwrap();
++            let input_cell = scene.root.children.first().unwrap();
++            assert_eq!(input_cell.max_length, Some(20));
++        }
+ 
+-#[test]
+-fn enhanced_property_parsing_handles_all_new_properties() {
+-    let src = "@ontology app { @input field { input: true; placeholder: \"Username\"; max-length: 50; } }";
+-    let scene = parse(src).unwrap();
+-    let input_cell = scene.root.children.first().unwrap();
+-    assert!(input_cell.is_input);
+-    assert_eq!(input_cell.placeholder.as_deref(), Some("Username"));
+-    assert_eq!(input_cell.max_length, Some(50));
+-}
++        #[test]
++        fn enhanced_property_parsing_handles_all_new_properties() {
++            let src = "@ontology app { @input field { input: true; placeholder: \"Username\"; max-length: 50; } }";
++            let scene = parse(src).unwrap();
++            let input_cell = scene.root.children.first().unwrap();
++            assert!(input_cell.is_input);
++            assert_eq!(input_cell.placeholder.as_deref(), Some("Username"));
++            assert_eq!(input_cell.max_length, Some(50));
++        }
+ 
+-#[test]
+-fn multi_cell_support_with_scrolling() {
+-    let src = "@ontology app { @cell container { scroll: true @input field1 { position: (0, 0, 0) } @input field2 { position: (0, 50, 0) } } }";
+-    let scene = parse(src).unwrap();
+-    let container = scene.root.children.first().unwrap();
+-    assert!(container.scroll);
+-    assert_eq!(container.children.len(), 2);
+-    assert!(container.children[0].is_input);
+-    assert!(container.children[1].is_input);
+-}
++        #[test]
++        fn multi_cell_support_with_scrolling() {
++            let src = "@ontology app { @cell container { scroll: true @input field1 { position: (0, 0, 0) } @input field2 { position: (0, 50, 0) } } }";
++            let scene = parse(src).unwrap();
++            let container = scene.root.children.first().unwrap();
++            assert!(container.scroll);
++            assert_eq!(container.children.len(), 2);
++            assert!(container.children[0].is_input);
++            assert!(container.children[1].is_input);
++        }
+ 
+-#[test]
+-fn enhanced_gesture_parsing_supports_focus_blur() {
+-    let src = "@ontology app { @input field { gestures { focus: allow; blur: deny; } } }";
+-    let scene = parse(src).unwrap();
+-    let input_cell = scene.root.children.first().unwrap();
+-    let gestures = input_cell.gestures.unwrap();
+-    assert_eq!(gestures.focus, Some(GestureDecision::Allow));
+-    assert_eq!(gestures.blur, Some(GestureDecision::Deny));
+-    assert_eq!(gestures.copy, None);
+-    assert_eq!(gestures.cut, None);
+-    assert_eq!(gestures.paste, None);
+-    assert_eq!(gestures.select, None);
+-    assert_eq!(gestures.submit, None);
+-}
++        #[test]
++        fn enhanced_gesture_parsing_supports_focus_blur() {
++            let src = "@ontology app { @input field { gestures { focus: allow; blur: deny; } } }";
++            let scene = parse(src).unwrap();
++            let input_cell = scene.root.children.first().unwrap();
++            let gestures = input_cell.gestures.unwrap();
++            assert_eq!(gestures.focus, Some(GestureDecision::Allow));
++            assert_eq!(gestures.blur, Some(GestureDecision::Deny));
++            assert_eq!(gestures.copy, None);
++            assert_eq!(gestures.cut, None);
++            assert_eq!(gestures.paste, None);
++            assert_eq!(gestures.select, None);
++            assert_eq!(gestures.submit, None);
++        }
+ 
+-#[test]
+-fn enhanced_gesture_parsing_supports_select_submit() {
+-    let src = "@ontology app { @input field { gestures { select: allow; submit: deny; } } }";
+-    let scene = parse(src).unwrap();
+-    let input_cell = scene.root.children.first().unwrap();
+-    let gestures = input_cell.gestures.unwrap();
+-    assert_eq!(gestures.select, Some(GestureDecision::Allow));
+-    assert_eq!(gestures.submit, Some(GestureDecision::Deny));
+-}
++        #[test]
++        fn enhanced_gesture_parsing_supports_select_submit() {
++            let src =
++                "@ontology app { @input field { gestures { select: allow; submit: deny; } } }";
++            let scene = parse(src).unwrap();
++            let input_cell = scene.root.children.first().unwrap();
++            let gestures = input_cell.gestures.unwrap();
++            assert_eq!(gestures.select, Some(GestureDecision::Allow));
++            assert_eq!(gestures.submit, Some(GestureDecision::Deny));
++        }
+ 
+-#[test]
+-fn input_state_initialization_supports_input_binding() {
+-    let src = "@ontology app { @button trigger { } @interaction process { trigger: button.trigger.activate; class: D1; state { write value: int; } input { field: int; } set value = input.field; } }";
+-    let scene = parse(src).unwrap();
+-    assert_eq!(scene.root.children.len(), 2);
+-    let interaction = &scene.interactions[0];
+-    assert_eq!(interaction.name, "process");
+-    assert_eq!(interaction.inputs.len(), 1);
+-    assert_eq!(interaction.inputs[0].name, "field");
+-    assert_eq!(interaction.inputs[0].value_type, InteractionType::Int);
+-}
++        #[test]
++        fn input_state_initialization_supports_input_binding() {
++            let src = "@ontology app { @button trigger { } @interaction process { trigger: button.trigger.activate; class: D1; state { write value: int; } input { field: int; } set value = input.field; } }";
++            let scene = parse(src).unwrap();
++            assert_eq!(scene.root.children.len(), 2);
++            let interaction = &scene.interactions[0];
++            assert_eq!(interaction.name, "process");
++            assert_eq!(interaction.inputs.len(), 1);
++            assert_eq!(interaction.inputs[0].name, "field");
++            assert_eq!(interaction.inputs[0].value_type, InteractionType::Int);
++        }
+ 
+-#[test]
+-fn enhanced_properties_backward_compatibility() {
+-    // Ensure existing properties still work
+-    let src = "@ontology app { @cell root { position: (0, 0, 0); extent: (100, 100, 0); text: \"test\"; wrap: 20; scroll: true; fill: #ff0000; } }";
+-    let scene = parse(src).unwrap();
+-    let root = scene.root;
+-    assert!(root.position.is_some());
+-    assert!(root.extent.is_some());
+-    assert_eq!(root.text.as_deref(), Some("test"));
+-    assert_eq!(root.wrap, Some(20));
+-    assert!(root.scroll);
+-    assert_eq!(root.fill, Some(0xFF0000));
+-}
++        #[test]
++        fn enhanced_properties_backward_compatibility() {
++            // Ensure existing properties still work
++            let src = "@ontology app { @cell root { position: (0, 0, 0); extent: (100, 100, 0); text: \"test\"; wrap: 20; scroll: true; fill: #ff0000; } }";
++            let scene = parse(src).unwrap();
++            let root = scene.root;
++            assert!(root.position.is_some());
++            assert!(root.extent.is_some());
++            assert_eq!(root.text.as_deref(), Some("test"));
++            assert_eq!(root.wrap, Some(20));
++            assert!(root.scroll);
++            assert_eq!(root.fill, Some(0xFF0000));
++        }
+ 
+-#[test]
+-fn lower_preserves_new_input_properties() {
+-    let src = "@ontology app { @input field { placeholder: \"Email address\"; max-length: 255; } }";
+-    let scene = parse(src).unwrap();
+-    let lowered = lower(&scene, 800.0, 600.0).unwrap();
+-    let field_record = lowered.table.get("field").unwrap();
+-    let Node::Input { placeholder } = lowered.module.node(field_record.ir_node).unwrap() else {
+-        panic!("Expected Input node");
+-    };
+-    assert_eq!(placeholder, "Email address");
+-}
+-
++        #[test]
++        fn lower_preserves_new_input_properties() {
++            let src = "@ontology app { @input field { placeholder: \"Email address\"; max-length: 255; } }";
++            let scene = parse(src).unwrap();
++            let lowered = lower(&scene, 800.0, 600.0).unwrap();
++            let field_record = lowered.table.get("field").unwrap();
++            let Node::Input { placeholder } = lowered.module.node(field_record.ir_node).unwrap()
++            else {
++                panic!("Expected Input node");
++            };
++            assert_eq!(placeholder, "Email address");
++        }
+     }
+ }
+ 
+Diff in /home/sal/goya/crates/goya-lang/src/lowering.rs:231:
+                 // are host-side state (Wave 2).
+                 // Children are lowered so buttons inside an input keep the
+                 // same depth-first ActionIds as interaction compilation.
+-                let placeholder = cell.placeholder
++                let placeholder = cell
++                    .placeholder
+                     .clone()
+                     .unwrap_or_else(|| cell.text.clone().unwrap_or_default());
+-                let input_id = self.push(Node::Input {
+-                    placeholder,
+-                });
++                let input_id = self.push(Node::Input { placeholder });
+                 let mut kid_keys = Vec::new();
+                 let mut kid_ids = Vec::new();
+                 for child in &cell.children {
+Diff in /home/sal/goya/crates/goya-lang/src/scene.rs:1:
+ //! Scene AST and deterministic absolute/proportional layout.
+ 
+ use goya_determinism::EffectKind;
+-use std::collections::BTreeMap;
+ use serde::{Deserialize, Serialize};
++use std::collections::BTreeMap;
+ 
+ /// Contract millipoint scale: 1 point = 1000 mp (matches GY-LAYOUT/1).
+ pub const MP: f64 = 1000.0;
+Diff in /home/sal/goya/crates/goya-lang/src/scene.rs:118:
+ pub enum MaskType {
+     #[default]
+     Password,
+-    SSN, // Social Security Number (XXX-XX-XXXX)
+-    CreditCard, // #### #### #### ####
+-    Phone, // (###) ###-####
+-    Currency, // $#,##0.00
++    SSN,            // Social Security Number (XXX-XX-XXXX)
++    CreditCard,     // #### #### #### ####
++    Phone,          // (###) ###-####
++    Currency,       // $#,##0.00
+     Custom(String), // Custom mask pattern
+ }
+ 
+Diff in /home/sal/goya/crates/goya-lang/src/scene.rs:147:
+ /// Internationalization and localization support
+ #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+ pub struct LocalizationConfig {
+-    pub language: String, // BCP 47 language tag
++    pub language: String,       // BCP 47 language tag
+     pub locale: Option<String>, // Specific locale
+     pub right_to_left: bool,
+     pub number_format: Option<NumberFormat>,
+Diff in /home/sal/goya/crates/goya-sdk/build.rs:3:
+     // This file is intentionally empty to allow the Cargo build system to function
+     // All build configuration is done in Cargo.toml
+ }
++
+Diff in /home/sal/goya/crates/goya-sdk/src/android_d1_runtime_enhanced.rs:28:
+ impl Error for AndroidD1RuntimeError {}
+ 
+ /// Generate enhanced Android D1 runtime with form state management.
+-pub fn emit_android_d1_runtime_with_form(
+-    _source: &str,
+-) -> Result<String, AndroidD1RuntimeError> {
+-    let mut kotlin = String::from("/** Enhanced Goya Android D1 runtime with form state management. */\n");
++pub fn emit_android_d1_runtime_with_form(_source: &str) -> Result<String, AndroidD1RuntimeError> {
++    let mut kotlin =
++        String::from("/** Enhanced Goya Android D1 runtime with form state management. */\n");
+     kotlin.push_str("class GoyaD1RuntimeForm(initialState: Map<String, GoyaD1RuntimeForm.Value>, initialRevision: ULong = 0uL) {\n");
+     kotlin.push_str("    sealed class Value { data class IntValue(val value: Long) : Value(); data class TextValue(val value: String) : Value(); data class BoolValue(val value: Boolean) : Value() }\n");
+     kotlin.push_str("    enum class ErrorCode { UNKNOWN_ACTION, INPUT_SCHEMA, INPUT_TYPE, STATE_SCHEMA, STATE_TYPE, INVALID_TEXT, TEXT_LIMIT, SNAPSHOT_LIMIT, REGISTER_LIMIT, ARITHMETIC_OVERFLOW, REVISION_OVERFLOW, VALIDATION, FOCUS, BLUR, SELECT, SUBMIT }\n");
+Diff in /home/sal/goya/crates/goya-sdk/src/android_d1_runtime_enhanced.rs:38:
+-    kotlin.push_str("    data class Snapshot(val revision: ULong, val state: Map<String, Value>)\n");
++    kotlin
++        .push_str("    data class Snapshot(val revision: ULong, val state: Map<String, Value>)\n");
+     kotlin.push_str("    sealed class DispatchResult { data class Success(val revision: ULong) : DispatchResult(); data class Failure(val code: ErrorCode) : DispatchResult() }\n");
+     kotlin.push_str("\n");
+     kotlin.push_str("    // Form state management\n");
+Diff in /home/sal/goya/crates/goya-sdk/src/android_d1_runtime_enhanced.rs:42:
+     kotlin.push_str("    private val formInputs: Map<String, Value> = mutableMapOf()\n");
+-    kotlin.push_str("    private val gestureListeners: MutableMap<String, () -> Unit> = mutableMapOf()\n");
+-    kotlin.push_str("    private val validationErrors: MutableMap<String, String?> = mutableMapOf()\n");
++    kotlin.push_str(
++        "    private val gestureListeners: MutableMap<String, () -> Unit> = mutableMapOf()\n",
++    );
++    kotlin.push_str(
++        "    private val validationErrors: MutableMap<String, String?> = mutableMapOf()\n",
++    );
+     kotlin.push_str("\n");
+     kotlin.push_str("    init {\n");
+     kotlin.push_str("        values = initialState.toMap();\n");
+Diff in /home/sal/goya/crates/goya-sdk/src/android_d1_runtime_enhanced.rs:84:
+     let result = kotlin.replace("GoyaD1RuntimeForm", class_name);
+     Ok(result)
+ }
++
+Diff in /home/sal/goya/crates/goya-sdk/src/android_input_preview.rs:37:
+     kotlin.push_str("\n");
+     kotlin.push_str("class GoyaRootInputPreview(context: Context) : EditText(context) {\n");
+     kotlin.push_str("    init {\n");
+-    kotlin.push_str("        inputType = InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_NORMAL;\n");
++    kotlin.push_str(
++        "        inputType = InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_NORMAL;\n",
++    );
+     kotlin.push_str("        setTextColor(android.graphics.Color.BLACK);\n");
+     kotlin.push_str("        setTextSize(android.util.TypedValue.COMPLEX_UNIT_PT, 16.0f);\n");
+     kotlin.push_str("    }\n");
+Diff in /home/sal/goya/crates/goya-sdk/src/android_input_preview.rs:83:
+     output.push('"');
+     output
+ }
++
+Diff in /home/sal/goya/crates/goya-sdk/src/android_scrollable_preview.rs:100:
+     output.push('"');
+     output
+ }
++
+Diff in /home/sal/goya/crates/goya-sdk/src/lib.rs:21:
+ mod android_button_preview;
+ pub use android_button_preview::{
+     emit_android_root_button_preview, emit_android_root_button_preview_mapped,
+-    AndroidRootButtonPreview, AndroidRootButtonPreviewError,
+-    kotlin_string_literal,
++    kotlin_string_literal, AndroidRootButtonPreview, AndroidRootButtonPreviewError,
+ };
+ mod android_input_preview;
+ pub use android_input_preview::{
+Diff in /home/sal/goya/crates/goya-sdk/src/lib.rs:29:
+     emit_android_root_input_preview, emit_android_root_input_preview_named,
+-    AndroidRootInputPreview, AndroidRootInputPreviewError,
+-    kotlin_string_literal as input_kotlin_string_literal,
++    kotlin_string_literal as input_kotlin_string_literal, AndroidRootInputPreview,
++    AndroidRootInputPreviewError,
+ };
+ 
+ mod android_scrollable_preview;
+Diff in /home/sal/goya/crates/goya-sdk/src/lib.rs:35:
+ pub use android_scrollable_preview::{
+     emit_android_scrollable_preview, emit_android_scrollable_preview_named,
+-    AndroidScrollablePreview, AndroidScrollablePreviewError,
+-    kotlin_string_literal as scrollable_kotlin_string_literal,
++    kotlin_string_literal as scrollable_kotlin_string_literal, AndroidScrollablePreview,
++    AndroidScrollablePreviewError,
+ };
+ 
+ mod android_d1_runtime;
+Diff in /home/sal/goya/crates/goya-sdk/src/lib.rs:269:
+         && !KEYWORDS.contains(&name)
+ }
+ 
+-
+ pub use goya_executable::{
+     CapabilityLabel, D1Outcome, D1Snapshot, D1Value, D2Outcome, EffectJournal, EffectResult,
+     InputSnapshot, JournalEntry, JournalLimits,
+Diff in /home/sal/goya/crates/goya-sdk/src/lib.rs:808:
+ // Phase 3: Advanced Runtime Components
+ mod runtime;
+ pub use runtime::form_engine::{
+-    FormEngine, FormBuilder, FormConfig, FormFieldConfig, FormFieldMapping,
+-    FormGenerationResult, FormSourceMap, FormMetadata, FormAccessibilityConfig,
+-    FormLocalizationConfig, FormValidationResult, FieldValidationResult,
+-    CrossFieldValidationError, ValidationError, ValidationWarning,
+-    FormEngineError, FieldBuilder, ValidationMode,
++    CrossFieldValidationError, FieldBuilder, FieldValidationResult, FormAccessibilityConfig,
++    FormBuilder, FormConfig, FormEngine, FormEngineError, FormFieldConfig, FormFieldMapping,
++    FormGenerationResult, FormLocalizationConfig, FormMetadata, FormSourceMap,
++    FormValidationResult, ValidationError, ValidationMode, ValidationWarning,
+ };
+ 
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:4:
+ //! that leverages the enhanced parser capabilities from Phase 2, including
+ //! rich input types, advanced validation, accessibility, and internationalization.
+ 
+-use crate::{AndroidRootInputPreview, AndroidRootInputPreviewError, AndroidScrollablePreview, AndroidScrollablePreviewError, kotlin_string_literal as crate_kotlin_string_literal};
++use crate::{
++    kotlin_string_literal as crate_kotlin_string_literal, AndroidRootInputPreview,
++    AndroidRootInputPreviewError, AndroidScrollablePreview, AndroidScrollablePreviewError,
++};
+ use goya_lang::{
+-    InputType, RichTextFormatting, ValidationRule, InputMasking, AccessibilityConfig,
+-    LocalizationConfig, ErrorSeverity, InputFormatting, AutocompleteConfig, DragDropConfig,
+-    CopyPasteConfig, InputHistoryConfig, WCAGCompliance, ScreenReaderConfig, HighContrastConfig,
+-    RtlConfig, UnicodeSupportConfig, SceneCell, SourceRange,
++    AccessibilityConfig, AutocompleteConfig, CopyPasteConfig, DragDropConfig, ErrorSeverity,
++    HighContrastConfig, InputFormatting, InputHistoryConfig, InputMasking, InputType,
++    LocalizationConfig, RichTextFormatting, RtlConfig, SceneCell, ScreenReaderConfig, SourceRange,
++    UnicodeSupportConfig, ValidationRule, WCAGCompliance,
+ };
+-use std::collections::HashMap;
+ use regex;
+ use serde::{Deserialize, Serialize};
+ use sha2::{Digest, Sha256};
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:18:
++use std::collections::HashMap;
+ 
+ /// Advanced form field configuration with all Phase 2 enhanced properties
+ #[derive(Debug, Clone, Serialize, Deserialize)]
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:229:
+ 
+         // Generate D1 runtime if submit action exists
+         let d1_runtime = if let Some(submit_action) = &self.config.submit_action {
+-            Some(crate::emit_android_d1_runtime_with_form(submit_action).map_err(|e| {
+-                FormEngineError::GenerationFailed(e.to_string())
+-            })?)
++            Some(
++                crate::emit_android_d1_runtime_with_form(submit_action)
++                    .map_err(|e| FormEngineError::GenerationFailed(e.to_string()))?,
++            )
+         } else {
+             None
+         };
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:263:
+         &self,
+         field_name: &str,
+     ) -> Result<AndroidRootInputPreview, AndroidRootInputPreviewError> {
+-        let field_config = self.field_configs.get(field_name)
++        let field_config = self
++            .field_configs
++            .get(field_name)
+             .ok_or(AndroidRootInputPreviewError::Unsupported("Field not found"))?;
+ 
+         let source = self.field_to_gscene(field_config);
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:270:
+         let kotlin = crate::emit_android_root_input_preview(&source)
+             .map_err(|_| AndroidRootInputPreviewError::Unsupported("Failed to generate preview"))?;
+-        
++
+         // Use a hash of the source as the source digest (simplified)
+         use sha2::{Digest, Sha256};
+         let source_digest: [u8; 32] = Sha256::digest(source.as_bytes()).into();
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:276:
+-        
++
+         Ok(AndroidRootInputPreview {
+             kotlin,
+             source_digest,
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:283:
+     }
+ 
+     /// Generate scrollable preview for entire form
+-    pub fn generate_scrollable_preview(&self) -> Result<AndroidScrollablePreview, AndroidScrollablePreviewError> {
++    pub fn generate_scrollable_preview(
++        &self,
++    ) -> Result<AndroidScrollablePreview, AndroidScrollablePreviewError> {
+         let source = self.form_to_gscene();
+         let kotlin = crate::emit_android_scrollable_preview(&source).map_err(|_| {
+             AndroidScrollablePreviewError::Unsupported("Failed to generate scrollable preview")
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:337:
+             import android.text.method.*\n\
+             import android.text.style.*\n\
+             import androidx.core.view.*\n\
+-            import androidx.core.widget.*\n"
++            import androidx.core.widget.*\n",
+         );
+ 
+         // Add accessibility imports if needed
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:344:
+         if self.config.accessibility.is_some() {
+             imports.push_str(
+                 "import android.accessibilityservice.*\n\
+-                import android.view.accessibility.*\n"
++                import android.view.accessibility.*\n",
+             );
+         }
+ 
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:353:
+             imports.push_str(
+                 "import java.util.Locale\n\
+                 import android.icu.text.*\n\
+-                import android.icu.util.*\n"
++                import android.icu.util.*\n",
+             );
+         }
+ 
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:378:
+                 }}\n",
+             self.config.name,
+             self.config.name,
+-            self.config.fields.iter()
++            self.config
++                .fields
++                .iter()
+                 .map(|f| format!("\"{}\" to FormFieldConfig(...)", f.name))
+                 .collect::<Vec<_>>()
+                 .join(",\n"),
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:385:
+-            self.config.fields.iter()
++            self.config
++                .fields
++                .iter()
+                 .map(|f| format!("createField(\"{}\")", f.name))
+                 .collect::<Vec<_>>()
+                 .join("\n")
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:389:
+         )
+     }
+ 
+-    fn generate_field(&self, config: &FormFieldConfig) -> Result<FieldGenerationResult, FormEngineError> {
++    fn generate_field(
++        &self,
++        config: &FormFieldConfig,
++    ) -> Result<FieldGenerationResult, FormEngineError> {
+         let mut kotlin = String::new();
+         let mut generated_ranges: Vec<goya_lang::SourceRange> = Vec::new();
+         let start_offset = 0; // Would be computed from actual generated code
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:431:
+                 start: start_offset,
+                 end: start_offset + kotlin.len(),
+             }],
+-            validation_rules: config.validation_rules.iter().map(|r| format!("{:?}", r)).collect(),
+-            accessibility_features: config.accessibility.as_ref()
++            validation_rules: config
++                .validation_rules
++                .iter()
++                .map(|r| format!("{:?}", r))
++                .collect(),
++            accessibility_features: config
++                .accessibility
++                .as_ref()
+                 .map(|a| vec![format!("{:?}", a)])
+                 .unwrap_or_default(),
+         };
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:441:
+         Ok(FieldGenerationResult {
+             kotlin_code: kotlin,
+             mapping,
+-            source_range: goya_lang::SourceRange { start: 0, end: kotlin_len },
++            source_range: goya_lang::SourceRange {
++                start: 0,
++                end: kotlin_len,
++            },
+         })
+     }
+ 
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:448:
+-    fn generate_edit_text_field(&self, config: &FormFieldConfig) -> Result<String, FormEngineError> {
++    fn generate_edit_text_field(
++        &self,
++        config: &FormFieldConfig,
++    ) -> Result<String, FormEngineError> {
+         let mut code = String::new();
+ 
+         code.push_str(&format!(
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:454:
+ 
+         // Set input type
+         let input_type = match config.field_type {
+-            InputType::Password => "InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD",
+-            InputType::Email => "InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS",
++            InputType::Password => {
++                "InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD"
++            }
++            InputType::Email => {
++                "InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS"
++            }
+             InputType::Number => "InputType.TYPE_CLASS_NUMBER",
+             _ => "InputType.TYPE_CLASS_TEXT",
+         };
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:463:
+ 
+         // Set placeholder
+         if let Some(placeholder) = &config.placeholder {
+-            code.push_str(&format!("            hint = \"{}\"\n", crate_kotlin_string_literal(placeholder)));
++            code.push_str(&format!(
++                "            hint = \"{}\"\n",
++                crate_kotlin_string_literal(placeholder)
++            ));
+         }
+ 
+         // Set max length
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:470:
+-        if let Some(ValidationRule::MaxLength(len)) = config.validation_rules.iter()
++        if let Some(ValidationRule::MaxLength(len)) = config
++            .validation_rules
++            .iter()
+             .find(|r| matches!(r, ValidationRule::MaxLength(_)))
+         {
+-            code.push_str(&format!("            setFilters(arrayOf(InputFilter.LengthFilter({})))\n", len));
++            code.push_str(&format!(
++                "            setFilters(arrayOf(InputFilter.LengthFilter({})))\n",
++                len
++            ));
+         }
+ 
+         // Apply rich text formatting
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:528:
+ 
+         code.push_str(
+             "        val editText = EditText(context).apply {\n\
+-                inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL\n"
++                inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL\n",
+         );
+ 
+         if let Some(placeholder) = &config.placeholder {
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:535:
+-            code.push_str(&format!("            hint = \"{}\"\n", crate_kotlin_string_literal(placeholder)));
++            code.push_str(&format!(
++                "            hint = \"{}\"\n",
++                crate_kotlin_string_literal(placeholder)
++            ));
+         }
+ 
+-        if let Some(ValidationRule::MaxLength(len)) = config.validation_rules.iter()
++        if let Some(ValidationRule::MaxLength(len)) = config
++            .validation_rules
++            .iter()
+             .find(|r| matches!(r, ValidationRule::MaxLength(_)))
+         {
+-            code.push_str(&format!("            setFilters(arrayOf(InputFilter.LengthFilter({})))\n", len));
++            code.push_str(&format!(
++                "            setFilters(arrayOf(InputFilter.LengthFilter({})))\n",
++                len
++            ));
+         }
+ 
+         // Add min/max validation if present
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:545:
+-        if let Some(ValidationRule::MinLength(min)) = config.validation_rules.iter()
++        if let Some(ValidationRule::MinLength(min)) = config
++            .validation_rules
++            .iter()
+             .find(|r| matches!(r, ValidationRule::MinLength(_)))
+         {
+             code.push_str(&format!("            // Min value: {}\n", min));
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:553:
+         Ok(code)
+     }
+ 
+-    fn generate_date_time_field(&self, config: &FormFieldConfig) -> Result<String, FormEngineError> {
++    fn generate_date_time_field(
++        &self,
++        config: &FormFieldConfig,
++    ) -> Result<String, FormEngineError> {
+         let mut code = String::new();
+ 
+         let input_type = match config.field_type {
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:560:
+-            InputType::Date => "InputType.TYPE_CLASS_DATETIME or InputType.TYPE_DATETIME_VARIATION_DATE",
+-            InputType::Time => "InputType.TYPE_CLASS_DATETIME or InputType.TYPE_DATETIME_VARIATION_TIME",
++            InputType::Date => {
++                "InputType.TYPE_CLASS_DATETIME or InputType.TYPE_DATETIME_VARIATION_DATE"
++            }
++            InputType::Time => {
++                "InputType.TYPE_CLASS_DATETIME or InputType.TYPE_DATETIME_VARIATION_TIME"
++            }
+             InputType::DateTime => "InputType.TYPE_CLASS_DATETIME",
+             _ => "InputType.TYPE_CLASS_DATETIME or InputType.TYPE_DATETIME_VARIATION_NORMAL",
+         };
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:570:
+         ));
+ 
+         if let Some(placeholder) = &config.placeholder {
+-            code.push_str(&format!("            hint = \"{}\"\n", crate_kotlin_string_literal(placeholder)));
++            code.push_str(&format!(
++                "            hint = \"{}\"\n",
++                crate_kotlin_string_literal(placeholder)
++            ));
+         }
+ 
+         // Add date/time formatting
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:577:
+         if let Some(formatting) = &config.formatting {
+-            code.push_str(&format!("            // Date format: {:?}\n", formatting.format_type));
++            code.push_str(&format!(
++                "            // Date format: {:?}\n",
++                formatting.format_type
++            ));
+         }
+ 
+         code.push_str("        }\n        return editText\n");
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:589:
+         code.push_str(
+             "        val searchView = SearchView(context).apply {\n\
+                 setIconified(false)\n\
+-                setQueryHint(\"Search...\")\n"
++                setQueryHint(\"Search...\")\n",
+         );
+ 
+         if let Some(placeholder) = &config.placeholder {
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:596:
+-            code.push_str(&format!("            queryHint = \"{}\"\n", crate_kotlin_string_literal(placeholder)));
++            code.push_str(&format!(
++                "            queryHint = \"{}\"\n",
++                crate_kotlin_string_literal(placeholder)
++            ));
+         }
+ 
+         // Add autocomplete for search
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:611:
+ 
+         code.push_str(
+             "        val fileInput = LinearLayout(context).apply {\n\
+-                orientation = VERTICAL\n"
++                orientation = VERTICAL\n",
+         );
+ 
+         if let Some(drag_drop) = &config.drag_drop {
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:643:
+             code.push_str("            setPaintFlags(paintFlags | Paint.STRIKE_THRU_TEXT_FLAG)\n");
+         }
+         if let Some(font_size) = formatting.font_size {
+-            code.push_str(&format!("            setTextSize(TypedValue.COMPLEX_UNIT_PT, {:.1}f)\n", font_size));
++            code.push_str(&format!(
++                "            setTextSize(TypedValue.COMPLEX_UNIT_PT, {:.1}f)\n",
++                font_size
++            ));
+         }
+         if let Some(font_family) = &formatting.font_family {
+             code.push_str(&format!("            // Font family: {}\n", font_family));
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:661:
+             code.push_str(&format!("            // Line height: {:.1}\n", line_height));
+         }
+         if let Some(letter_spacing) = formatting.letter_spacing {
+-            code.push_str(&format!("            letterSpacing = {:.2}f\n", letter_spacing));
++            code.push_str(&format!(
++                "            letterSpacing = {:.2}f\n",
++                letter_spacing
++            ));
+         }
+         if let Some(text_color) = formatting.text_color {
+             let red = (text_color >> 16) & 0xff;
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:699:
+ 
+         let placeholder_char = masking.placeholder_char.unwrap_or('•');
+ 
++        code.push_str(&format!("            // Input masking: {}\n", mask_pattern));
+         code.push_str(&format!(
+-            "            // Input masking: {}\n",
+-            mask_pattern
+-        ));
+-        code.push_str(&format!(
+             "            // Placeholder char: {}\n",
+             placeholder_char
+         ));
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:735:
+         code.push_str(&format!("            // Format: {}\n", format_type));
+ 
+         if let Some(placeholder) = &formatting.placeholder {
+-            code.push_str(&format!("            // Format placeholder: {}\n", crate_kotlin_string_literal(placeholder)));
++            code.push_str(&format!(
++                "            // Format placeholder: {}\n",
++                crate_kotlin_string_literal(placeholder)
++            ));
+         }
+         if let Some(custom_format) = &formatting.custom_format {
+-            code.push_str(&format!("            // Custom format: {}\n", crate_kotlin_string_literal(custom_format)));
++            code.push_str(&format!(
++                "            // Custom format: {}\n",
++                crate_kotlin_string_literal(custom_format)
++            ));
+         }
+ 
+         code
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:752:
+             if !autocomplete.suggestions.is_empty() {
+                 code.push_str("            // Suggestions: [");
+                 for (i, suggestion) in autocomplete.suggestions.iter().enumerate() {
+-                    if i > 0 { code.push_str(", "); }
++                    if i > 0 {
++                        code.push_str(", ");
++                    }
+                     code.push_str(&format!("\"{}\"", crate_kotlin_string_literal(suggestion)));
+                 }
+                 code.push_str("]\n");
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:764:
+                 goya_lang::AutocompleteSource::Custom(s) => s.as_str(),
+             };
+             code.push_str(&format!("            // Autocomplete source: {}\n", source));
+-            code.push_str(&format!("            // Min query length: {}\n", autocomplete.min_length));
+-            code.push_str(&format!("            // Max suggestions: {}\n", autocomplete.max_suggestions));
++            code.push_str(&format!(
++                "            // Min query length: {}\n",
++                autocomplete.min_length
++            ));
++            code.push_str(&format!(
++                "            // Max suggestions: {}\n",
++                autocomplete.max_suggestions
++            ));
+         }
+ 
+         code
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:814:
+ 
+         if history.enabled {
+             code.push_str("            // Input history enabled\n");
+-            code.push_str(&format!("            // Max history: {}\n", history.max_history));
++            code.push_str(&format!(
++                "            // Max history: {}\n",
++                history.max_history
++            ));
+             if history.auto_save {
+                 code.push_str("            // Auto-save enabled\n");
+             }
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:833:
+         let mut code = String::new();
+ 
+         if let Some(aria_label) = &accessibility.aria_label {
+-            code.push_str(&format!("            contentDescription = \"{}\"\n", crate_kotlin_string_literal(aria_label)));
++            code.push_str(&format!(
++                "            contentDescription = \"{}\"\n",
++                crate_kotlin_string_literal(aria_label)
++            ));
+         }
+         if let Some(aria_describedby) = &accessibility.aria_describedby {
+-            code.push_str(&format!("            // aria-describedby: {}\n", crate_kotlin_string_literal(aria_describedby)));
++            code.push_str(&format!(
++                "            // aria-describedby: {}\n",
++                crate_kotlin_string_literal(aria_describedby)
++            ));
+         }
+         if let Some(role) = &accessibility.role {
+             code.push_str(&format!("            // ARIA role: {}\n", role));
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:843:
+         }
+         if let Some(live_region) = &accessibility.live_region {
+             let mode = match live_region {
+-                goya_lang::LiveRegion::PolitenessAssertive => "ViewCompat.ACCESSIBILITY_LIVE_REGION_ASSERTIVE",
+-                goya_lang::LiveRegion::PolitenessGentle => "ViewCompat.ACCESSIBILITY_LIVE_REGION_POLITE",
++                goya_lang::LiveRegion::PolitenessAssertive => {
++                    "ViewCompat.ACCESSIBILITY_LIVE_REGION_ASSERTIVE"
++                }
++                goya_lang::LiveRegion::PolitenessGentle => {
++                    "ViewCompat.ACCESSIBILITY_LIVE_REGION_POLITE"
++                }
+                 goya_lang::LiveRegion::PolitenessOff => "ViewCompat.ACCESSIBILITY_LIVE_REGION_NONE",
+             };
+-            code.push_str(&format!("            ViewCompat.setAccessibilityLiveRegion(this, {})\n", mode));
++            code.push_str(&format!(
++                "            ViewCompat.setAccessibilityLiveRegion(this, {})\n",
++                mode
++            ));
+         }
+         if accessibility.announce_value_changes {
+             code.push_str("            // Announce value changes\n");
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:856:
+             code.push_str("            // Announce validation errors\n");
+         }
+         for announcement in &accessibility.screen_reader_announcements {
+-            code.push_str(&format!("            // Screen reader: {}\n", crate_kotlin_string_literal(announcement)));
++            code.push_str(&format!(
++                "            // Screen reader: {}\n",
++                crate_kotlin_string_literal(announcement)
++            ));
+         }
+ 
+         code
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:867:
+ 
+         code.push_str(
+             "            addTextChangedListener(object : TextWatcher {\n\
+-                override fun afterTextChanged(s: Editable?) {\n"
++                override fun afterTextChanged(s: Editable?) {\n",
+         );
+ 
+         for rule in &config.validation_rules {
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:921:
+ 
+         code.push_str(
+             "    fun validateForm(): Boolean {\n\
+-                var isValid = true\n"
++                var isValid = true\n",
+         );
+ 
+         for field_config in &self.config.fields {
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:968:
+ 
+         code.push_str(
+             "        return isValid\n\
+-    }\n"
++    }\n",
+         );
+ 
+         // Cross-field validation
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:977:
+             "    fun validateCrossField(): Boolean {\n\
+                 // Cross-field validation logic\n\
+                 return true\n\
+-    }\n"
++    }\n",
+         );
+ 
+         code
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:986:
+     fn generate_accessibility_features(&self, config: &FormAccessibilityConfig) -> String {
+         let mut code = String::new();
+ 
+-        code.push_str(
+-            "    private fun setupAccessibility() {\n"
+-        );
++        code.push_str("    private fun setupAccessibility() {\n");
+ 
+         if config.focus_management {
+             code.push_str("        // Focus management\n");
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:1023:
+     fn generate_localization_features(&self, config: &FormLocalizationConfig) -> String {
+         let mut code = String::new();
+ 
+-        code.push_str(
+-            "    private fun setupLocalization() {\n"
+-        );
++        code.push_str("    private fun setupLocalization() {\n");
+ 
+         code.push_str(&format!(
+             "        val locale = Locale(\"{}\")\n",
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:1066:
+                     addView(formContainer)\n\
+                 }}\n\
+             }}",
+-            self.config.name,
+-            self.config.name,
+-            self.config.name
++            self.config.name, self.config.name, self.config.name
+         );
+ 
+         Ok(scrollable_kotlin)
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:1178:
+         }
+     }
+ 
+-    fn validate_cross_field(&self, _form_data: &HashMap<String, String>) -> Vec<CrossFieldValidationError> {
++    fn validate_cross_field(
++        &self,
++        _form_data: &HashMap<String, String>,
++    ) -> Vec<CrossFieldValidationError> {
+         // Cross-field validation would be implemented based on CrossFieldRule configurations
+         Vec::new()
+     }
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:1374:
+     }
+ 
+     pub fn min_length(mut self, len: usize) -> Self {
+-        self.config.validation_rules.push(ValidationRule::MinLength(len));
++        self.config
++            .validation_rules
++            .push(ValidationRule::MinLength(len));
+         self
+     }
+ 
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:1381:
+     pub fn max_length(mut self, len: usize) -> Self {
+-        self.config.validation_rules.push(ValidationRule::MaxLength(len));
++        self.config
++            .validation_rules
++            .push(ValidationRule::MaxLength(len));
+         self
+     }
+ 
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:1386:
+     pub fn pattern(mut self, pattern: impl Into<String>) -> Self {
+-        self.config.validation_rules.push(ValidationRule::Pattern(pattern.into()));
++        self.config
++            .validation_rules
++            .push(ValidationRule::Pattern(pattern.into()));
+         self
+     }
+ 
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:1472:
+     fn test_form_builder_basic() {
+         let engine = FormBuilder::new("LoginForm")
+             .field("username")
+-                .field_type(InputType::Text)
+-                .label("Username")
+-                .placeholder("Enter username")
+-                .min_length(3)
+-                .max_length(20)
+-                .done()
++            .field_type(InputType::Text)
++            .label("Username")
++            .placeholder("Enter username")
++            .min_length(3)
++            .max_length(20)
++            .done()
+             .field("password")
+-                .field_type(InputType::Password)
+-                .label("Password")
+-                .placeholder("Enter password")
+-                .min_length(8)
+-                .done()
++            .field_type(InputType::Password)
++            .label("Password")
++            .placeholder("Enter password")
++            .min_length(8)
++            .done()
+             .scrollable(true)
+             .submit_action("login")
+             .build();
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:1499:
+     fn test_form_generation() {
+         let engine = FormBuilder::new("TestForm")
+             .field("email")
+-                .field_type(InputType::Email)
+-                .label("Email")
+-                .placeholder("Enter email")
+-                .pattern(r"^[^@]+@[^@]+\.[^@]+$")
+-                .done()
++            .field_type(InputType::Email)
++            .label("Email")
++            .placeholder("Enter email")
++            .pattern(r"^[^@]+@[^@]+\.[^@]+$")
++            .done()
+             .build()
+             .unwrap();
+ 
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:1519:
+     fn test_form_validation() {
+         let engine = FormBuilder::new("ValidationForm")
+             .field("name")
+-                .field_type(InputType::Text)
+-                .min_length(2)
+-                .max_length(50)
+-                .done()
++            .field_type(InputType::Text)
++            .min_length(2)
++            .max_length(50)
++            .done()
+             .field("age")
+-                .field_type(InputType::Number)
+-                .min_length(1)
+-                .max_length(3)
+-                .done()
++            .field_type(InputType::Number)
++            .min_length(1)
++            .max_length(3)
++            .done()
+             .build()
+             .unwrap();
+ 
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:1558:
+             text_align: Some(goya_lang::TextAlign::Center),
+             line_height: Some(1.5),
+             letter_spacing: Some(0.5),
+-            text_color: Some(0xFF0000FF), // Blue
++            text_color: Some(0xFF0000FF),       // Blue
+             background_color: Some(0xFFFFFFFF), // White
+         };
+ 
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:1565:
+         let engine = FormBuilder::new("FormattedForm")
+             .field("formatted_text")
+-                .field_type(InputType::Text)
+-                .rich_text_formatting(formatting)
+-                .done()
++            .field_type(InputType::Text)
++            .rich_text_formatting(formatting)
++            .done()
+             .build()
+             .unwrap();
+ 
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:1590:
+ 
+         let engine = FormBuilder::new("AccessibleForm")
+             .field("accessible_field")
+-                .field_type(InputType::Text)
+-                .accessibility(accessibility)
+-                .done()
++            .field_type(InputType::Text)
++            .accessibility(accessibility)
++            .done()
+             .accessibility(FormAccessibilityConfig {
+                 screen_reader_announcements: vec!["Form loaded".to_string()],
+                 focus_management: true,
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/form_engine.rs:1608:
+         assert!(result.kotlin_code.contains("accessible_field"));
+     }
+ }
++
+Diff in /home/sal/goya/crates/goya-sdk/src/runtime/mod.rs:4:
+ //! including the form engine, component library, and integration utilities.
+ 
+ pub mod form_engine;
++

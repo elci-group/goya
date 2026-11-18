@@ -1,7 +1,7 @@
 # Aragon scene compiler (Phase 3)
 
 Status: **experimental**, 17 November 2026. `goya_sdk::compile_android_scene`
-compiles a GSSH/2 scene ([`docs/gssh/GSSH-2.md`](../gssh/GSSH-2.md)) to Kotlin
+compiles a GSSH/3 scene ([`docs/gssh/GSSH-2.md`](../gssh/GSSH-2.md#gssh3--proportional-lengths)) to Kotlin
 for Android. It replaces the single-construct static-text and root-button
 previews as Aragon's main path; those previews remain only because their
 APK hashes are recorded qualification fixtures.
@@ -11,7 +11,13 @@ cargo run --offline -p goya-sdk --bin aragon-android-project -- \
     scene.gscene generated-scene --scene
 ```
 
-The rule is that every construct GSSH/2 admits is either emitted or refused
+Since 18 November 2026 Aragon accepts only GSSH/3 (decision D7): every
+length is proportional, and an absolute `position`, `extent`, `text-size` or
+`stroke-width` is refused by admission with `GY-E1009` at its range. Use
+`goya-proportional` ([migration ledger](../gssh/proportional-migration.md))
+to convert older scenes.
+
+The rule is that every construct GSSH/3 admits is either emitted or refused
 with the exact source range of that construct, through
 `AndroidSceneError { reason, origin, range }`. Nothing is ignored.
 
@@ -20,8 +26,9 @@ with the exact source range of that construct, through
 | Construct | Android output | Reference it must match |
 | --- | --- | --- |
 | `@cell`, nesting | One `ViewGroup` per element, nested as authored | `goya_lang::layout` draw order |
-| `position`, `extent` (points) | Millipoint rects computed by the generated spec | `goya_lang::layout` |
-| `position_p`, `extent_p` | As above, fractions clamped to [0, 1] | `goya_lang::layout` |
+| `position_p`, `extent_p` | Millipoint rects computed by the generated spec; fractions clamped to [0, 1] of the parent, or only to >= 0 inside a scroll viewport | `goya_lang::layout` |
+| `text-size-p` | Em size in pixels on the element's `TextView`, `Button` or `EditText` | `DrawNode::text_size_mp` |
+| `stroke` with `stroke-width-p` | A border drawn inside the cell, above its content | `DrawNode::stroke_width_mp` |
 | `text` on `@cell` | `TextView`, no automatic wrapping, clipped to the cell | Text of the reference frame |
 | `wrap` | The reference wrapper's output, embedded as literal text | `goya_lang::layout` (wrap transform) |
 | `scroll` | Children may overflow; drag scrolls, clamped to the limits; exposed to accessibility as a `ScrollView` with page scroll actions | `Frame::scroll_limits` |
@@ -36,7 +43,8 @@ Refused, at the construct's own range:
 
 | Construct | Why |
 | --- | --- |
-| `stroke`, `stroke-width`, `text-size`, `text-anchor` | The reference renderer defines no semantics (it ignores `text-anchor`; text size and stroke are renderer-specific). Sash refuses them for the same reason. |
+| `text-anchor` | The reference renderer ignores it. |
+| `stroke` without `stroke-width-p`, or the reverse | A border needs both a colour and a width. |
 | `gestures` | Clipboard policy is not implemented on Android. |
 | `text:` on `@input` | Placeholder or initial content is still undecided (decision D3). |
 | Elements nested in `@button` or `@input` | The reference does not treat nested buttons as triggers. |
@@ -65,8 +73,9 @@ divided by `displayMetrics.density`. Each rect edge is converted on
 its own as `round(mp × density / 1000)`, half up, and a cell's size is the
 difference of its edges. Adjacent cells therefore never gap or overlap. This
 is Aragon's resolution of the dp rounding rule left open in decision D1. Font
-scaling is not applied: text uses the platform default size, so the user's
-font-size setting does not change it. That is an accessibility gap tracked
+scaling is not applied: text without `text-size-p` uses the platform default
+size, and `text-size-p` text follows its element, so the user's font-size
+setting changes neither. That is an accessibility gap tracked
 under ARG-G08.
 
 ## Activation

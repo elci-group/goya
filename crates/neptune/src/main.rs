@@ -16,13 +16,7 @@ fn write_preview_bundle(path: &std::path::Path, bundle: &str) -> io::Result<()> 
     // Prepare all bytes before creating the output directory. create_dir and
     // create_new reject existing paths rather than replacing user files.
     let mut files = Vec::new();
-    for name in [
-        "App.swift",
-        "source-map.json",
-        "capabilities.json",
-        "AndroidInputPreview.kt",
-        "AndroidD1Runtime.kt",
-    ] {
+    for name in ["App.swift", "source-map.json", "capabilities.json"] {
         let content = artifacts
             .get(name)
             .and_then(serde_json::Value::as_str)

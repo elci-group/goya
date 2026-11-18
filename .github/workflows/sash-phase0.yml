@@ -1,0 +1,362 @@
+# Sash Phase 0 CI/CD Gate
+# This workflow validates Phase 0 completion before allowing Phase 1 to proceed.
+# It runs on Linux (for artifact verification) and can trigger Windows self-hosted runners.
+
+name: Sash Phase 0 Validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      arch:
+        description: 'Architecture to validate (x64, i686, arm64, all)'
+        required: true
+        default: 'all'
+        type: choice
+        options: [all, x64, i686, arm64]
+      profile:
+        description: 'Profile to validate (static-window, interactive-cut, all)'
+        required: true
+        default: 'all'
+        type: choice
+        options: [all, static-window, interactive-cut]
+      skip_dpi:
+        description: 'Skip DPI test (for i686)'
+        required: false
+        default: false
+        type: boolean
+
+  workflow_call:
+    inputs:
+      arch:
+        required: true
+        type: string
+      profile:
+        required: true
+        type: string
+      skip_dpi:
+        required: false
+        type: boolean
+        default: false
+    outputs:
+      phase0_status:
+        description: 'Overall Phase 0 status'
+        value: ${{ jobs.validate.outputs.phase0_status }}
+      evidence_path:
+        description: 'Path to consolidated evidence'
+        value: ${{ jobs.validate.outputs.evidence_path }}
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  # Artifact paths from SASH-ENT-002
+  SASH_ENT002_STATIC_X64: /tmp/sash-ent002/static-window/App.exe
+  SASH_ENT002_INTERACTIVE_X64: /tmp/sash-ent002/interactive-cut/App.exe
+  SASH_STAMP_STATIC_I686: /tmp/sash-stamp-i686/App.exe
+  SASH_STAMP_INTERACTIVE_I686: /tmp/sash-stamp-ix86/App.exe
+  SASH_STAMP_STATIC_ARM64: /tmp/sash-stamp-arm64/App.exe
+  SASH_STAMP_INTERACTIVE_ARM64: /tmp/sash-stamp-iarm64/App.exe
+
+jobs:
+  # Linux-side: verify artifacts exist and are valid before transferring
+  verify-artifacts:
+    name: Verify Linux Artifacts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      artifacts_verified: ${{ steps.verify.outputs.verified }}
+      artifact_list: ${{ steps.verify.outputs.artifact_list }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify Sash binary
+        run: |
+          if ! command -v sash &> /dev/null; then
+            echo "Installing sash from workspace..."
+            cargo install --path crates/sash --locked --offline 2>/dev/null || cargo install --path crates/sash --locked
+          fi
+          sash --help
+
+      - name: Verify source artifacts exist
+        id: verify
+        run: |
+          declare -A ARTIFACTS=(
+            ["x64/static-window"]="${SASH_ENT002_STATIC_X64}"
+            ["x64/interactive-cut"]="${SASH_ENT002_INTERACTIVE_X64}"
+            ["i686/static-window"]="${SASH_STAMP_STATIC_I686}"
+            ["i686/interactive-cut"]="${SASH_STAMP_INTERACTIVE_I686}"
+            ["arm64/static-window"]="${SASH_STAMP_STATIC_ARM64}"
+            ["arm64/interactive-cut"]="${SASH_STAMP_INTERACTIVE_ARM64}"
+          )
+
+          # Filter by inputs
+          SELECTED_ARCH="${{ inputs.arch }}"
+          SELECTED_PROFILE="${{ inputs.profile }}"
+
+          verified=()
+          for key in "${!ARTIFACTS[@]}"; do
+            arch="${key%/*}"
+            profile="${key#*/}"
+
+            if [[ "$SELECTED_ARCH" != "all" && "$arch" != "$SELECTED_ARCH" ]]; then
+              continue
+            fi
+            if [[ "$SELECTED_PROFILE" != "all" && "$profile" != "$SELECTED_PROFILE" ]]; then
+              continue
+            fi
+
+            src="${ARTIFACTS[$key]}"
+            if [[ -f "$src" ]]; then
+              sha256=$(sha256sum "$src" | cut -d' ' -f1)
+              size=$(stat -c%s "$src")
+              echo "  ✓ $key: $src (${size} bytes, ${sha256:0:16}...)"
+              verified+=("$key:$src:$sha256:$size")
+            else
+              echo "  ✗ $key: $src NOT FOUND"
+              echo "verified=false" >> $GITHUB_OUTPUT
+              echo "artifact_list=" >> $GITHUB_OUTPUT
+              exit 1
+            fi
+          done
+
+          echo "verified=true" >> $GITHUB_OUTPUT
+          echo "artifact_list=$(IFS=,; echo "${verified[*]}")" >> $GITHUB_OUTPUT
+
+      - name: Verify artifacts with sash verify
+        if: steps.verify.outputs.verified == 'true'
+        run: |
+          IFS=',' read -ra ARTIFACTS <<< "${{ steps.verify.outputs.artifact_list }}"
+          for entry in "${ARTIFACTS[@]}"; do
+            IFS=':' read -r key src sha256 size <<< "$entry"
+            echo "Verifying $key ($src)..."
+            sash verify "$src" --format json | jq -e '.pe_structure == "PASS" and .runtime_qualification == "BLOCKED"' > /dev/null
+            echo "  ✓ PE structure PASS, runtime_qualification BLOCKED (expected)"
+          done
+
+  # Windows-side: run test harness on self-hosted Windows runners
+  windows-test:
+    name: Windows Test (${{ matrix.arch }}/${{ matrix.profile }})
+    needs: verify-artifacts
+    if: needs.verify-artifacts.outputs.artifacts_verified == 'true'
+    runs-on: [self-hosted, windows, ${{ matrix.arch }}]
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            profile: static-window
+            runner_label: x64
+          - arch: x64
+            profile: interactive-cut
+            runner_label: x64
+          - arch: i686
+            profile: static-window
+            runner_label: i686
+          - arch: i686
+            profile: interactive-cut
+            runner_label: i686
+          - arch: arm64
+            profile: static-window
+            runner_label: arm64
+          - arch: arm64
+            profile: interactive-cut
+            runner_label: arm64
+    steps:
+      - name: Checkout repository (for harness scripts)
+        uses: actions/checkout@v4
+
+      - name: Setup test directories
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path C:\sash-test\artifacts\${{ matrix.arch }}\${{ matrix.profile }} | Out-Null
+          New-Item -ItemType Directory -Force -Path C:\sash-test\results | Out-Null
+          New-Item -ItemType Directory -Force -Path C:\sash-test\logs | Out-Null
+          New-Item -ItemType Directory -Force -Path C:\sash-test\harness | Out-Null
+
+      - name: Copy harness scripts
+        shell: pwsh
+        run: |
+          Copy-Item -Path ${{ github.workspace }}\docs\sash\phase0\harness\* -Destination C:\sash-test\harness\ -Recurse -Force
+
+      - name: Download artifact from Linux (via workflow artifact)
+        uses: actions/download-artifact@v4
+        with:
+          name: sash-${{ matrix.arch }}-${{ matrix.profile }}
+          path: C:\sash-test\artifacts\${{ matrix.arch }}\${{ matrix.profile }}
+
+      - name: Verify downloaded artifact
+        shell: pwsh
+        run: |
+          $binary = "C:\sash-test\artifacts\${{ matrix.arch }}\${{ matrix.profile }}\App.exe"
+          if (-not (Test-Path $binary)) {
+            throw "Artifact not found at $binary"
+          }
+          $hash = (Get-FileHash -Algorithm SHA256 $binary).Hash
+          Write-Host "Artifact SHA256: $hash"
+
+      - name: Run master test suite
+        id: test
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $skipDpi = '${{ inputs.skip_dpi }}' -eq 'true' -or '${{ matrix.arch }}' -eq 'i686'
+          $params = @{
+            Arch = '${{ matrix.arch }}'
+            Profile = '${{ matrix.profile }}'
+            ResultsDir = 'C:\sash-test\results'
+          }
+          if ($skipDpi) { $params.SkipDpi = $true }
+
+          & "C:\sash-test\harness\run_all_tests.ps1" @params
+          $exitCode = $LASTEXITCODE
+          echo "exit_code=$exitCode" >> $env:GITHUB_OUTPUT
+          exit $exitCode
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: phase0-results-${{ matrix.arch }}-${{ matrix.profile }}
+          path: |
+            C:\sash-test\results\${{ matrix.arch }}-${{ matrix.profile }}*
+            C:\sash-test\logs\${{ matrix.arch }}-${{ matrix.profile }}*
+          retention-days: 30
+
+      - name: Upload evidence JSON
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: phase0-evidence-${{ matrix.arch }}-${{ matrix.profile }}
+          path: C:\sash-test\results\${{ matrix.arch }}-${{ matrix.profile }}*evidence.json
+          retention-days: 90
+
+  # Consolidate evidence and determine Phase 0 gate
+  consolidate:
+    name: Consolidate Evidence & Gate
+    needs: [verify-artifacts, windows-test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      phase0_status: ${{ steps.gate.outputs.phase0_status }}
+      evidence_path: ${{ steps.gate.outputs.evidence_path }}
+    steps:
+      - name: Download all evidence artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: phase0-evidence-*
+          path: ./phase0_evidence
+          merge-multiple: true
+
+      - name: Run evidence collector
+        id: collect
+        run: |
+          python3 ${{ github.workspace }}/docs/sash/phase0/harness/collect_evidence.py \
+            --results-dir ./phase0_evidence \
+            --output-dir ./phase0_consolidated \
+            --arches x64 i686 arm64 \
+            --profiles static-window interactive-cut
+
+      - name: Determine Phase 0 gate
+        id: gate
+        run: |
+          REPORT=$(cat ./phase0_consolidated/phase0_consolidated_report.json)
+          OVERALL=$(echo "$REPORT" | jq -r '.overall_status')
+          echo "phase0_status=$OVERALL" >> $GITHUB_OUTPUT
+          echo "evidence_path=./phase0_consolidated/phase0_consolidated_report.json" >> $GITHUB_OUTPUT
+
+          echo "=== Phase 0 Gate Decision ==="
+          echo "Overall: $OVERALL"
+          echo "$REPORT" | jq '.gates'
+
+          if [[ "$OVERALL" == "PASS" ]]; then
+            echo "✅ Phase 0 PASSED - Ready for Phase 1"
+          else
+            echo "❌ Phase 0 FAILED - Do not proceed to Phase 1"
+            exit 1
+          fi
+
+      - name: Upload consolidated report
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase0-consolidated-report
+          path: ./phase0_consolidated/phase0_consolidated_report.json
+          retention-days: 90
+
+  # Artifact preparation for Windows runners (separate job to run on Linux)
+  prepare-artifacts:
+    name: Prepare Artifacts for Windows Runners
+    needs: verify-artifacts
+    if: needs.verify-artifacts.outputs.artifacts_verified == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            profile: static-window
+            source: ${{ env.SASH_ENT002_STATIC_X64 }}
+          - arch: x64
+            profile: interactive-cut
+            source: ${{ env.SASH_ENT002_INTERACTIVE_X64 }}
+          - arch: i686
+            profile: static-window
+            source: ${{ env.SASH_STAMP_STATIC_I686 }}
+          - arch: i686
+            profile: interactive-cut
+            source: ${{ env.SASH_STAMP_INTERACTIVE_I686 }}
+          - arch: arm64
+            profile: static-window
+            source: ${{ env.SASH_STAMP_STATIC_ARM64 }}
+          - arch: arm64
+            profile: interactive-cut
+            source: ${{ env.SASH_STAMP_INTERACTIVE_ARM64 }}
+    steps:
+      - name: Prepare artifact directory
+        run: |
+          mkdir -p ./artifacts/${{ matrix.arch }}/${{ matrix.profile }}
+          cp "${{ matrix.source }}" ./artifacts/${{ matrix.arch }}/${{ matrix.profile }}/App.exe
+
+      - name: Verify artifact
+        run: |
+          sha256sum ./artifacts/${{ matrix.arch }}/${{ matrix.profile }}/App.exe
+
+      - name: Upload artifact for Windows runner
+        uses: actions/upload-artifact@v4
+        with:
+          name: sash-${{ matrix.arch }}-${{ matrix.profile }}
+          path: ./artifacts/${{ matrix.arch }}/${{ matrix.profile }}/App.exe
+          retention-days: 7
+
+# Phase 0 Gate Summary (can be used as required check)
+  phase0-gate:
+    name: Phase 0 Gate Summary
+    needs: [consolidate]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report Phase 0 Status
+        run: |
+          STATUS="${{ needs.consolidate.outputs.phase0_status }}"
+          echo "## Phase 0 Validation Result" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** $STATUS" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [[ "$STATUS" == "PASS" ]]; then
+            echo "✅ **Phase 0 PASSED** - All architectures and profiles validated on clean Windows machines." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Gates Cleared:" >> $GITHUB_STEP_SUMMARY
+            echo "- static-window x64, i686, arm64" >> $GITHUB_STEP_SUMMARY
+            echo "- interactive-cut x64, i686, arm64" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Next:** Proceed to Phase 1 (Swarm J/B/I - Static-Window Runtime Qualification)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Phase 0 FAILED** - One or more architecture/profile combinations failed." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Action Required:** Review evidence, fix issues, re-run Phase 0." >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi

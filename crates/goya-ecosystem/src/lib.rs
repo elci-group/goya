@@ -689,6 +689,8 @@ mod tests {
             }),
             position_p: None,
             extent_p: None,
+            text_size_p: None,
+            stroke_width_p: None,
             fill: None,
             stroke: None,
             stroke_width: None,

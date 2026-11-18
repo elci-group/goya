@@ -50,6 +50,13 @@ pub struct SceneCell {
     pub position_p: Option<Vec3>,
     /// Proportional extent (fraction of parent extent).
     pub extent_p: Option<Vec3>,
+    /// `text-size-p`: text size as a fraction of the element's own resolved
+    /// height, at least 0; above 1 the text is taller than its element and
+    /// is clipped like any overflowing text (GSSH/3).
+    pub text_size_p: Option<f64>,
+    /// `stroke-width-p`: stroke width as a fraction of the shorter side of
+    /// the element's resolved rect, clamped to [0, 0.5] (GSSH/3).
+    pub stroke_width_p: Option<f64>,
     /// Fill colour as 0xRRGGBB (or 0x00RRGGBB for #rgb expansion).
     pub fill: Option<u32>,
     pub stroke: Option<u32>,
@@ -221,6 +228,11 @@ pub struct DrawNode {
     pub stroke_width: Option<f64>,
     pub text: Option<String>,
     pub text_size: Option<f64>,
+    /// Resolved text size in millipoints: from `text-size-p` and the
+    /// resolved height, else from absolute `text-size` points.
+    pub text_size_mp: Option<i64>,
+    /// Resolved stroke width in millipoints, by the same rule.
+    pub stroke_width_mp: Option<i64>,
     pub anchor: Anchor,
     /// Whether the node's text viewport accepts scrolling.
     pub scroll: bool,
@@ -402,6 +414,14 @@ fn resolve_cell(
     allow_overflow: bool,
 ) {
     let rect = resolve_rect(cell, parent_rect, allow_overflow);
+    let text_size_mp = cell
+        .text_size_p
+        .map(|f| scale_mp(f.max(0.0) * rect.height as f64))
+        .or(cell.text_size.map(|points| scale_mp(points * MP)));
+    let stroke_width_mp = cell
+        .stroke_width_p
+        .map(|f| scale_mp(f.clamp(0.0, 0.5) * rect.width.min(rect.height) as f64))
+        .or(cell.stroke_width.map(|points| scale_mp(points * MP)));
     // Wrap is a pure textual transform: greedy word wrap at the declared
     // column count, emitted as '\n'-joined text. The wave-2 goya-wayland
     // raster already splits '\n' text at glyph_px*1.4 line height (rect
@@ -426,6 +446,8 @@ fn resolve_cell(
             stroke_width: cell.stroke_width,
             text,
             text_size: cell.text_size,
+            text_size_mp,
+            stroke_width_mp,
             anchor: cell.anchor.unwrap_or(Anchor::Start),
             scroll: cell.scroll,
         },
@@ -521,12 +543,21 @@ fn wrap_text(text: &str, width: usize) -> Vec<String> {
 }
 
 fn resolve_rect(cell: &SceneCell, parent: RectMp, allow_overflow: bool) -> RectMp {
+    // Fractions are clamped to [0, 1] of the parent, except inside a scroll
+    // viewport, where content may be larger than the viewport (>= 0 only).
+    let fraction = |value: f64| {
+        if allow_overflow {
+            value.max(0.0)
+        } else {
+            value.clamp(0.0, 1.0)
+        }
+    };
     // Extent first: proportional fraction of parent, else absolute points,
     // else a sensible default (half the parent, never negative).
     let (w, h) = if let Some(e) = cell.extent_p {
         (
-            scale_mp(e.x.clamp(0.0, 1.0) * parent.width as f64),
-            scale_mp(e.y.clamp(0.0, 1.0) * parent.height as f64),
+            scale_mp(fraction(e.x) * parent.width as f64),
+            scale_mp(fraction(e.y) * parent.height as f64),
         )
     } else if let Some(e) = cell.extent {
         (scale_mp(e.x * MP), scale_mp(e.y * MP))
@@ -541,10 +572,10 @@ fn resolve_rect(cell: &SceneCell, parent: RectMp, allow_overflow: bool) -> RectM
         (
             parent
                 .x
-                .saturating_add(scale_mp(p.x.clamp(0.0, 1.0) * parent.width as f64)),
+                .saturating_add(scale_mp(fraction(p.x) * parent.width as f64)),
             parent
                 .y
-                .saturating_add(scale_mp(p.y.clamp(0.0, 1.0) * parent.height as f64)),
+                .saturating_add(scale_mp(fraction(p.y) * parent.height as f64)),
         )
     } else if let Some(p) = cell.position {
         (
@@ -614,6 +645,35 @@ pub fn hit_test_scrolled(frame: &Frame, offsets: &ScrollOffsets, x: i64, y: i64)
         }
     }
     None
+}
+
+#[cfg(test)]
+mod proportional_tests {
+    use super::layout;
+    use crate::parse;
+
+    #[test]
+    fn fractions_clamp_to_the_parent_except_inside_scroll_viewports() {
+        let scene = parse("@ontology a { @cell root { @cell plain { id: \"p\"; extent_p: (2, -1, 0); position_p: (1.5, 0.5, 0); } @cell view { extent_p: (0.5, 0.5, 0); scroll: true; @cell content { extent_p: (1, 3.5, 0); position_p: (0, 1.25, 0); } } } }").unwrap();
+        let frame = layout(&scene, 400.0, 200.0);
+        let plain = frame.find("plain").unwrap().rect;
+        // Clamped: x at the right edge, width 0; y at half, height 0.
+        assert_eq!((plain.x, plain.y, plain.width, plain.height), (400_000, 100_000, 0, 0));
+        let content = frame.find("content").unwrap().rect;
+        assert_eq!((content.x, content.y, content.width, content.height), (0, 125_000, 200_000, 350_000));
+        assert_eq!(frame.scroll_limits("view"), (0, 375_000));
+    }
+
+    #[test]
+    fn text_size_and_stroke_width_resolve_against_the_element_rect() {
+        let scene = parse("@ontology a { @cell root { @cell t { extent_p: (0.5, 0.25, 0); text: \"x\"; text-size-p: 0.6; stroke: #000; stroke-width-p: 0.75; } @cell abs { text: \"y\"; text-size: 12; } } }").unwrap();
+        let frame = layout(&scene, 400.0, 200.0);
+        let t = frame.find("t").unwrap();
+        // 0.6 of a 50 pt height; stroke clamped to 0.5 of the 50 pt short side.
+        assert_eq!(t.text_size_mp, Some(30_000));
+        assert_eq!(t.stroke_width_mp, Some(25_000));
+        assert_eq!(frame.find("abs").unwrap().text_size_mp, Some(12_000));
+    }
 }
 
 #[cfg(test)]

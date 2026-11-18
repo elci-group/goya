@@ -1,0 +1,32 @@
+# Demo A records whether this runner can execute the native demonstration.
+# A green job only means the admission stayed fail-closed. It is not a PASS.
+name: demo-a
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  admission-record:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record blocked execution without weakening other workflows
+        run: |
+          set -euo pipefail
+          python3 scripts/demo-a/qualify.py preflight
+          python3 scripts/demo-a/qualify.py run-windows || test $? -eq 3
+          python3 scripts/demo-a/qualify.py run-linux || test $? -eq 3
+          set +e
+          python3 scripts/demo-a/qualify.py admit
+          admit_code=$?
+          set -e
+          if [ "$admit_code" -ne 0 ] && [ "$admit_code" -ne 2 ]; then
+            exit "$admit_code"
+          fi
+          python3 scripts/demo-a/qualify.py ci-guard
+          echo "Demo A was not admitted. BLOCKED or FAIL from a headless runner is not a native execution pass."

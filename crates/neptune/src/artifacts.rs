@@ -7,13 +7,7 @@ use std::{
 };
 
 const MAX_FILE_BYTES: u64 = 1024 * 1024;
-const FILES: [&str; 5] = [
-    "App.swift",
-    "source-map.json",
-    "capabilities.json",
-    "AndroidInputPreview.kt",
-    "AndroidD1Runtime.kt",
-];
+const FILES: [&str; 3] = ["App.swift", "source-map.json", "capabilities.json"];
 
 /// Artifact bytes and source identity checked together against one report.
 pub struct VerifiedPreview {
@@ -156,9 +150,7 @@ mod tests {
         let artifacts = json!({
             "App.swift": "import SwiftUI\n",
             "source-map.json": "{}",
-            "capabilities.json": "{}",
-            "AndroidInputPreview.kt": "// Enhanced Android input preview\nclass GoyaAndroidInputPreview { }",
-            "AndroidD1Runtime.kt": "// Enhanced Android D1 runtime\nclass GoyaAndroidD1Runtime { }"
+            "capabilities.json": "{}"
         });
         let hashes: serde_json::Map<String, Value> = artifacts
             .as_object()

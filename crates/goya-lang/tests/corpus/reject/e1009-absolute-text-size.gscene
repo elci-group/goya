@@ -1,0 +1,4 @@
+// profile: gssh3
+// expect: GY-E1009
+// at: text-size: 12;
+@ontology hello { @cell root { id: "window.root"; text: "Hi"; extent_p: (1, 0.5, 0); text-size: 12; } }

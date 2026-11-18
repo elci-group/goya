@@ -1,6 +1,6 @@
-//! Aragon scene compiler: a GSSH/2 scene to Kotlin for Android.
+//! Aragon scene compiler: a GSSH/3 scene to Kotlin for Android.
 //!
-//! Every construct GSSH/2 admits is either emitted or rejected with the
+//! Every construct GSSH/3 admits is either emitted or rejected with the
 //! exact source range of that construct (see `docs/aragon/android-scene.md`).
 //!
 //! Output, all in one package:
@@ -17,10 +17,10 @@
 //!   canonical D1 runtime emitter's output.
 
 use crate::kotlin::{is_identifier, AndroidSourceMap, KotlinFile, KotlinWriter, SourceMapEntry};
-use goya_lang::handoff::{admit_v2, Origin, SemanticHandoffV2};
+use goya_lang::handoff::{admit_v3, Origin, SemanticHandoffV2};
 use goya_lang::{
     CellKind, InteractionClass, InteractionType, InteractionValue, SceneCell, SourceRange,
-    StateLifetime, StrictParseError, Vec3,
+    StateLifetime, StrictParseError,
 };
 use std::{collections::BTreeMap, fmt};
 
@@ -33,7 +33,6 @@ pub const ANDROID_SCENE_PACKAGE: &str = "dev.goya.preview";
 /// Default name of the generated layout specification object.
 pub const ANDROID_SCENE_SPEC: &str = "GoyaSceneSpec";
 
-const MP: f64 = 1000.0;
 const CHUNK: usize = 32;
 // D1 limits the generated runtime enforces at construction.
 const D1_MAX_TEXT_BYTES: usize = 64 * 1024;
@@ -72,9 +71,9 @@ pub struct AndroidScene {
 /// Why a construct was not emitted.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AndroidSceneReason {
-    /// GSSH/2 admission failed.
+    /// GSSH/3 admission failed (absolute lengths are GY-E1009).
     Admission(Box<StrictParseError>),
-    /// The construct is admitted by GSSH/2 but Aragon does not implement it.
+    /// The construct is admitted by GSSH/3 but Aragon does not implement it.
     Unsupported(&'static str),
     /// The canonical D1 runtime emitter refused the scene.
     Runtime(String),
@@ -122,11 +121,10 @@ struct Plan<'a> {
 
 enum Dim {
     Prop(f64),
-    Abs(i64),
     Fill,
 }
 
-/// Compile a GSSH/2 source to Kotlin.
+/// Compile a GSSH/3 source to Kotlin.
 pub fn compile_android_scene_with(
     source: &str,
     options: &AndroidSceneOptions,
@@ -145,7 +143,7 @@ pub fn compile_android_scene_with(
             range: whole,
         });
     }
-    let handoff = admit_v2(source).map_err(|error| AndroidSceneError {
+    let handoff = admit_v3(source).map_err(|error| AndroidSceneError {
         range: error.range,
         reason: AndroidSceneReason::Admission(Box::new(error)),
         origin: None,
@@ -184,16 +182,19 @@ pub fn compile_android_scene_with(
                 "more than 1024 elements in one scene",
             ));
         }
-        let no_reference = "a property the reference renderer does not define (stroke, stroke-width, text-size, text-anchor)";
-        for (present, name) in [
-            (cell.stroke.is_some(), "stroke"),
-            (cell.stroke_width.is_some(), "stroke_width"),
-            (cell.text_size.is_some(), "text_size"),
-            (cell.anchor.is_some(), "text_anchor"),
-        ] {
-            if present {
-                return Err(refuse(property(name), no_reference));
-            }
+        if cell.anchor.is_some() {
+            return Err(refuse(
+                property("text_anchor"),
+                "text-anchor (the reference renderer ignores it)",
+            ));
+        }
+        if cell.stroke.is_some() != cell.stroke_width_p.is_some() {
+            let (name, what) = if cell.stroke.is_some() {
+                ("stroke", "a stroke colour without stroke-width-p")
+            } else {
+                ("stroke_width_p", "stroke-width-p without a stroke colour")
+            };
+            return Err(refuse(property(name), what));
         }
         if cell.gestures.is_some() {
             return Err(refuse(
@@ -359,45 +360,36 @@ fn collect<'a>(
     }
 }
 
-/// `goya_lang::scene::scale_mp` for finite inputs (the parser rejects
-/// non-finite numbers).
-fn scale_mp(value: f64) -> i64 {
-    value as i64
-}
-
-fn extent(cell: &SceneCell) -> (Dim, Dim, Option<&'static str>) {
-    if let Some(e) = cell.extent_p {
-        (
-            Dim::Prop(e.x.clamp(0.0, 1.0)),
-            Dim::Prop(e.y.clamp(0.0, 1.0)),
-            Some("extent_p"),
-        )
-    } else if let Some(Vec3 { x, y, .. }) = cell.extent {
-        (
-            Dim::Abs(scale_mp(x * MP)),
-            Dim::Abs(scale_mp(y * MP)),
-            Some("extent"),
-        )
+/// The reference fraction rule: clamped to [0, 1] of the parent, or only
+/// to >= 0 inside a scroll viewport. Absolute lengths never reach here:
+/// GSSH/3 admission rejects them (GY-E1009).
+fn fraction(value: f64, overflow: bool) -> f64 {
+    if overflow {
+        value.max(0.0)
     } else {
-        (Dim::Fill, Dim::Fill, None)
+        value.clamp(0.0, 1.0)
     }
 }
 
-fn position(cell: &SceneCell) -> (Option<Dim>, Option<Dim>, Option<&'static str>) {
-    if let Some(p) = cell.position_p {
-        (
-            Some(Dim::Prop(p.x.clamp(0.0, 1.0))),
-            Some(Dim::Prop(p.y.clamp(0.0, 1.0))),
+fn extent(cell: &SceneCell, overflow: bool) -> (Dim, Dim, Option<&'static str>) {
+    match cell.extent_p {
+        Some(e) => (
+            Dim::Prop(fraction(e.x, overflow)),
+            Dim::Prop(fraction(e.y, overflow)),
+            Some("extent_p"),
+        ),
+        None => (Dim::Fill, Dim::Fill, None),
+    }
+}
+
+fn position(cell: &SceneCell, overflow: bool) -> (Option<Dim>, Option<Dim>, Option<&'static str>) {
+    match cell.position_p {
+        Some(p) => (
+            Some(Dim::Prop(fraction(p.x, overflow))),
+            Some(Dim::Prop(fraction(p.y, overflow))),
             Some("position_p"),
-        )
-    } else if let Some(Vec3 { x, y, .. }) = cell.position {
-        (
-            Some(Dim::Abs(scale_mp(x * MP))),
-            Some(Dim::Abs(scale_mp(y * MP))),
-            Some("position"),
-        )
-    } else {
-        (None, None, None)
+        ),
+        None => (None, None, None),
     }
 }
 
@@ -409,9 +401,6 @@ fn write_extent(w: &mut KotlinWriter, dim: &Dim, parent_size: &'static str) {
                 .code(", ")
                 .code(parent_size)
                 .code(")");
-        }
-        Dim::Abs(value) => {
-            w.long(*value);
         }
         Dim::Fill => {
             w.code(parent_size);
@@ -435,13 +424,6 @@ fn write_position(
                 .code(parent_size)
                 .code("))");
         }
-        Some(Dim::Abs(value)) => {
-            w.code("satAdd(")
-                .code(parent_origin)
-                .code(", ")
-                .long(*value)
-                .code(")");
-        }
         Some(Dim::Fill) | None => {
             w.code(parent_origin);
         }
@@ -456,7 +438,7 @@ fn emit_spec(
 ) -> (KotlinFile, Vec<SourceMapEntry>) {
     let mut w = KotlinWriter::new(format!("{spec}.kt"));
     write_package(&mut w, package);
-    w.code("/** Generated by Aragon from a GSSH/2 scene; do not edit. Mirrors goya_lang::layout\n")
+    w.code("/** Generated by Aragon from a GSSH/3 scene; do not edit. Mirrors goya_lang::layout\n")
         .code(" * (millipoints), Frame::scroll_limits and handoff::convert_field. No Android imports. */\n")
         .code("object ")
         .ident(spec)
@@ -487,6 +469,42 @@ fn emit_spec(
             w.code(", ");
         }
         w.boolean(plan.cell.scroll);
+    }
+    // Text size: fraction of the element's height, >= 0. Stroke width:
+    // fraction of its shorter side, in [0, 0.5]. -1 means not authored.
+    for (array, property, clamp) in [
+        ("TEXT_SIZE_P", "text_size_p", f64::INFINITY),
+        ("STROKE_WIDTH_P", "stroke_width_p", 0.5),
+    ] {
+        w.code(")\n    val ")
+            .ident(array)
+            .code(": DoubleArray = doubleArrayOf(");
+        for (index, plan) in plans.iter().enumerate() {
+            if index > 0 {
+                w.code(", ");
+            }
+            let value = if property == "text_size_p" {
+                plan.cell.text_size_p
+            } else {
+                plan.cell.stroke_width_p
+            };
+            match value {
+                Some(f) => {
+                    w.mapped(
+                        Origin::Property {
+                            element: plan.id.to_owned(),
+                            property: property.to_owned(),
+                        },
+                        |w| {
+                            w.double(f.clamp(0.0, clamp));
+                        },
+                    );
+                }
+                None => {
+                    w.code("-1.0");
+                }
+            }
+        }
     }
     w.code(")\n\n    /** Millipoint rects [x, y, width, height] per cell for a viewport in points. */\n")
         .code("    fun resolve(widthPt: Double, heightPt: Double): LongArray {\n")
@@ -521,8 +539,8 @@ fn emit_spec(
                 }
             }
             let id = plan.id.to_owned();
-            let (ew, eh, extent_property) = extent(plan.cell);
-            let (x, y, position_property) = position(plan.cell);
+            let (ew, eh, extent_property) = extent(plan.cell, plan.overflow);
+            let (x, y, position_property) = position(plan.cell, plan.overflow);
             w.code("        place(r, ")
                 .int(index)
                 .code(", px, py, pw, ph, ");
@@ -625,6 +643,14 @@ const SPEC_HELPERS: &str = r#"
         return longArrayOf(satSub(right, viewRight), satSub(bottom, viewBottom))
     }
 
+    /** Resolved text size of cell [i] in millipoints, or -1. */
+    fun textSizeMp(r: LongArray, i: Int): Long =
+        if (TEXT_SIZE_P[i] < 0.0) -1L else (TEXT_SIZE_P[i] * r[4 * i + 3].toDouble()).toLong()
+
+    /** Resolved stroke width of cell [i] in millipoints, or -1. */
+    fun strokeWidthMp(r: LongArray, i: Int): Long =
+        if (STROKE_WIDTH_P[i] < 0.0) -1L else (STROKE_WIDTH_P[i] * minOf(r[4 * i + 2], r[4 * i + 3]).toDouble()).toLong()
+
     /** handoff::convert_field for `int`; null is NotCanonicalInt. */
     fun convertInt(text: String): Long? {
         val digits = if (text.startsWith("-")) text.substring(1) else text
@@ -680,7 +706,7 @@ fn emit_view(
     let mut w = KotlinWriter::new("GoyaSceneView.kt");
     write_package(&mut w, package);
     w.code(VIEW_IMPORTS)
-        .code("/** Generated by Aragon from a GSSH/2 scene; do not edit. One point is one dp. */\n")
+        .code("/** Generated by Aragon from a GSSH/3 scene; do not edit. One point is one dp. */\n")
         .code("class GoyaSceneView(context: Context, private val report: (String) -> Unit) : ViewGroup(context) {\n")
         .code("    private val density: Double = resources.displayMetrics.density.toDouble()\n")
         .code("    private val cells = arrayOfNulls<GoyaCell>(")
@@ -759,6 +785,19 @@ fn emit_view(
                     .code("))\n");
             }
         }
+        if let Some(stroke) = cell.stroke {
+            w.code("        cell.stroke(");
+            w.mapped(
+                Origin::Property {
+                    element: id.clone(),
+                    property: "stroke".to_owned(),
+                },
+                |w| {
+                    w.color(stroke);
+                },
+            );
+            w.code(")\n");
+        }
         if let Some(fill) = cell.fill {
             w.code("        cell.fill(");
             w.mapped(
@@ -803,7 +842,13 @@ fn emit_view(
         .ident(spec)
         .code(".satAdd(right, limit[0])) - edges[4 * i + 2]\n            limits[2 * i + 1] = px(")
         .ident(spec)
-        .code(".satAdd(bottom, limit[1])) - edges[4 * i + 3]\n        }\n        measureCell(cells[0]!!)\n    }\n");
+        .code(".satAdd(bottom, limit[1])) - edges[4 * i + 3]\n            val textMp = ")
+        .ident(spec)
+        .code(".textSizeMp(rects, i)\n            val strokeMp = ")
+        .ident(spec)
+        .code(".strokeWidthMp(rects, i)\n")
+        .code("            cells[i]!!.applyLengths(if (textMp < 0) -1f else (textMp.toDouble() * density / 1000.0).toFloat(), if (strokeMp < 0) -1 else px(strokeMp))\n")
+        .code("        }\n        measureCell(cells[0]!!)\n    }\n");
     w.code(VIEW_LAYOUT);
 
     if has_actions {
@@ -880,7 +925,7 @@ fn emit_view(
     w.code(VIEW_CLASSES);
 
     if has_actions {
-        w.code("\n/** Session state: lives as long as the process (GSSH/2 `session`). */\nobject GoyaSession {\n")
+        w.code("\n/** Session state: lives as long as the process (GSSH `session`). */\nobject GoyaSession {\n")
             .code("    val runtime: GoyaD1Runtime by lazy {\n        GoyaD1Runtime(mapOf<String, GoyaD1Runtime.Value>(");
         for (index, decl) in handoff.state().iter().enumerate() {
             if index > 0 {
@@ -914,9 +959,11 @@ fn emit_view(
 }
 
 const VIEW_IMPORTS: &str = "import android.content.Context
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
 import android.text.InputType
+import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -1024,6 +1071,32 @@ class GoyaCell(context: Context, private val scene: GoyaSceneView, val index: In
         setBackgroundColor(color)
         val view = content
         if (view is Button || view is EditText) view.setBackgroundColor(color)
+    }
+
+    private var strokeColor = 0
+    private var strokeWidth = -1
+    private var border: GradientDrawable? = null
+
+    /** A border drawn inside the cell, above its content. */
+    fun stroke(color: Int) {
+        strokeColor = color
+        val drawable = GradientDrawable()
+        drawable.setColor(0)
+        border = drawable
+        foreground = drawable
+    }
+
+    /** Text size in pixels (em size) and stroke width in pixels; -1 means none. */
+    fun applyLengths(textPx: Float, strokePx: Int) {
+        val view = content
+        if (textPx >= 0f && view is TextView && view.textSize != textPx) {
+            view.setTextSize(TypedValue.COMPLEX_UNIT_PX, textPx)
+        }
+        val drawable = border
+        if (drawable != null && strokePx >= 0 && strokePx != strokeWidth) {
+            strokeWidth = strokePx
+            drawable.setStroke(strokePx, strokeColor)
+        }
     }
 
     override fun onMeasure(widthSpec: Int, heightSpec: Int) {

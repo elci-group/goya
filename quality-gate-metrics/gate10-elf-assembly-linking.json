@@ -1,0 +1,1 @@
+{"gate": 10, "stage": "elf-assembly-linking", "status": "PASS", "failed": 0, "commands": [{"command": "cargo build -p emperor-runtime --offline --release", "exit_code": 0}], "timestamp": "2026-11-18T17:43:17Z"}

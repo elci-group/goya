@@ -23,10 +23,29 @@ defaults:
 jobs:
   # Packages may be absent on this branch. Failure until they land is accepted.
   # Keep -D warnings. Do not ignore a clippy or fmt failure.
-  fmt-and-lint:
+  quality-gates:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - name: Install quality gates dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y libxkbcommon-dev bc python3
+      - uses: dtolnay/rust-toolchain@1.95.0
+      - name: Execute quality gates framework
+        run: |
+          mkdir -p scripts
+          chmod +x scripts/*.sh
+          ./scripts/run-quality-gates.sh
+        env:
+          TIMESTAMP: ${{ github.sha }}
+
+  fmt-and-lint:
+    needs: quality-gates
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install xkbcommon development library
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev
       - uses: dtolnay/rust-toolchain@1.95.0
         with:
           components: rustfmt, clippy
@@ -38,19 +57,43 @@ jobs:
         run: cargo clippy -p emperor -p emperor-runtime --all-targets -- -D warnings
 
   unit-and-property-tests:
-    needs: fmt-and-lint
+    needs: [quality-gates, fmt-and-lint]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - name: Install xkbcommon development library
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev
       - uses: dtolnay/rust-toolchain@1.95.0
+      # goya-kumimanu is the emperor backend; its headless tests run here so the
+      # DISPLAY-dependent suites can stay in kumimanu-display-tests below.
       - name: Unit and property tests
-        run: cargo test -p emperor -p emperor-runtime --offline --lib --tests
+        run: cargo test -p goya-kumimanu -p emperor -p emperor-runtime --offline --lib --tests
+
+  # Xvfb is a real X server, so the DISPLAY-dependent Kumimanu suites run
+  # against live protocol traffic. This is not a window-launch qualification;
+  # the Wayland and release gates above stay BLOCKED evidence.
+  kumimanu-display-tests:
+    needs: [quality-gates, unit-and-property-tests]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Xvfb and GTK 3 introspection
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev xvfb python3-gi gir1.2-gtk-3.0
+      - uses: dtolnay/rust-toolchain@1.95.0
+      - name: Kumimanu X11 protocol tests under Xvfb
+        run: xvfb-run -a cargo test -p goya-kumimanu --lib -- --ignored --offline
+      - name: Kumimanu GTK interop under Xvfb
+        run: xvfb-run -a cargo test -p goya-kumimanu --test gtk_interop -- --ignored --offline
+      - name: Kumimanu-hosted counter under Xvfb
+        run: xvfb-run -a cargo test -p emperor-runtime --features kumimanu --lib -- --ignored --offline
 
   frontend-contract-tests:
-    needs: unit-and-property-tests
+    needs: [quality-gates, unit-and-property-tests]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - name: Install xkbcommon development library
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev
       - uses: dtolnay/rust-toolchain@1.95.0
       # Emperor package tests are the contract tests. The full package is the
       # contract run, including any oracle tests. This is not a workspace run.
@@ -58,19 +101,23 @@ jobs:
         run: cargo test -p emperor --offline --lib --tests
 
   native-ir-validation:
-    needs: unit-and-property-tests
+    needs: [quality-gates, unit-and-property-tests]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - name: Install xkbcommon development library
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev
       - uses: dtolnay/rust-toolchain@1.95.0
       - name: Native IR library tests
         run: cargo test -p emperor-runtime --offline --lib
 
   x86_64-elf-build:
-    needs: unit-and-property-tests
+    needs: [quality-gates, unit-and-property-tests]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - name: Install xkbcommon development library
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev
       - uses: dtolnay/rust-toolchain@1.95.0
       - name: Build emperor
         run: cargo build -p emperor --offline
@@ -325,6 +372,7 @@ jobs:
 
   release-admission:
     needs:
+      - quality-gates
       - fmt-and-lint
       - unit-and-property-tests
       - x86_64-elf-build

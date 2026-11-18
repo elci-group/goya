@@ -1,0 +1,45 @@
+{
+  "argv": [
+    "cargo",
+    "run",
+    "-p",
+    "sash",
+    "--offline",
+    "--",
+    "verify",
+    "/home/sal/goya/evidence/demo-a/20261116T233818Z-dd50d5cb8e58-dirty/builds/windows-x64/App.exe",
+    "--target",
+    "x86_64-pc-windows-msvc",
+    "--format",
+    "json",
+    "--evidence",
+    "/home/sal/goya/evidence/demo-a/20261116T233818Z-dd50d5cb8e58-dirty/builds/windows-x64/evidence"
+  ],
+  "exit_code": 3,
+  "seconds": 0.08,
+  "stdout_path": "/home/sal/goya/evidence/demo-a/20261116T233818Z-dd50d5cb8e58-dirty/windows-x64/verify.json.stdout",
+  "stderr_path": "/home/sal/goya/evidence/demo-a/20261116T233818Z-dd50d5cb8e58-dirty/windows-x64/verify.json.stderr",
+  "json": {
+    "compiler": "sash",
+    "defenses": "HIGH_ENTROPY_VA,DYNAMIC_BASE,NX_COMPAT,GUARD_CF",
+    "diagnostics": [],
+    "directive": "SASH-ENT-001",
+    "format": "json",
+    "imports": [
+      "KERNEL32.dll",
+      "USER32.dll",
+      "GDI32.dll",
+      "ntdll.dll",
+      "api-ms-win-core-synch-l1-2-0.dll"
+    ],
+    "operation": "verify",
+    "pe_structure": "PASS",
+    "presentation_profile": "sash.win32.interactive/0.0.2",
+    "profile": "portable-native",
+    "release_admission": "BLOCKED",
+    "runtime_qualification": "BLOCKED",
+    "schema_version": "1",
+    "status": "BLOCKED",
+    "target": "x86_64-pc-windows-msvc"
+  }
+}

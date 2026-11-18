@@ -1,0 +1,4 @@
+// profile: gssh3
+// expect: GY-E1009
+// at: extent: (80, 40, 0);
+@ontology hello { @cell root { id: "window.root"; text: "Hi"; extent: (80, 40, 0); } }

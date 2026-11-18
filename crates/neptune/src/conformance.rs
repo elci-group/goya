@@ -377,15 +377,6 @@ fn application_run(
                 error: normalize_d1_error(error)?,
             });
         }
-        Err(D1ApplicationError::InvalidState(error))
-        | Err(D1ApplicationError::InvalidInput(error)) => {
-            if app.values() != &before || app.revision() != revision_before {
-                return Err("application changed state after a failed action".into());
-            }
-            Ok(Outcome::Error {
-                error: normalize_d1_error(error)?,
-            })
-        }
         Err(error) => {
             return Err(format!(
                 "unexpected application initialization error: {error}"
@@ -412,6 +403,13 @@ fn application_run(
             if app.values() != &before || app.revision() != revision_before {
                 return Err("application changed state after a failed action".into());
             }
+            if let D1ApplicationError::InvalidState(error)
+            | D1ApplicationError::InvalidInput(error) = error
+            {
+                return Ok(Outcome::Error {
+                    error: normalize_d1_error(error)?,
+                });
+            }
             let normalized = match error {
                 D1ApplicationError::ActionFailed(goya_lang::TransitionError::InputTypeMismatch) => {
                     "input_schema"
@@ -422,12 +420,6 @@ fn application_run(
                 D1ApplicationError::ActionFailed(goya_lang::TransitionError::VmRejected(
                     message,
                 )) if message == "state revision counter exhausted" => "revision_overflow",
-                D1ApplicationError::ActionFailed(goya_lang::TransitionError::VmRejected(
-                    message,
-                )) => match normalize_vm_error(&message) {
-                    Some(error) => error,
-                    None => return Err(format!("unexpected application error: {message}")),
-                },
                 D1ApplicationError::ActionFailed(goya_lang::TransitionError::VmRejected(
                     message,
                 )) => match normalize_vm_error(&message) {
@@ -539,6 +531,29 @@ fn run_fixture(scene_source: &str, case_source: &str) -> Result<CorpusReport, St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn byte_accounting_uses_utf8_and_exact_snapshot_boundaries() {
+        let exact_text = Scalar::Text("é".repeat(MAX_TEXT_BYTES / 2));
+        assert_eq!(scalar_error(&exact_text), None);
+        let over_text = Scalar::Text(format!(
+            "{}é",
+            match &exact_text {
+                Scalar::Text(s) => s,
+                _ => unreachable!(),
+            }
+        ));
+        assert_eq!(scalar_error(&over_text), Some("text_limit"));
+
+        let mut exact = BTreeMap::new();
+        for i in 0..16 {
+            exact.insert(format!("k{i}"), Scalar::Text("x".repeat(64_000)));
+        }
+        assert!(map_size(&exact).unwrap() < MAX_SNAPSHOT_BYTES);
+        let mut over = exact;
+        over.insert("k16".into(), Scalar::Text("x".repeat(64_000)));
+        assert_eq!(map_error(&over), Some("snapshot_limit"));
+    }
 
     #[test]
     fn incorrect_expected_trace_cannot_pass() {

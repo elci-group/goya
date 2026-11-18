@@ -16,7 +16,7 @@
 
 use goya_lang::handoff::{self, Origin};
 use goya_lang::{
-    lex, parse_strict, parse_strict_gssh2, parse_with_source_map, ParsedScene, SourceRange,
+    lex, parse_strict, parse_strict_gssh2, parse_strict_gssh3, parse_with_source_map, ParsedScene, SourceRange,
     StrictParseError,
 };
 use std::fs;
@@ -24,19 +24,23 @@ use std::path::{Path, PathBuf};
 
 const CODES: &[&str] = &[
     "GY-E1000", "GY-E1001", "GY-E1002", "GY-E1003", "GY-E1004", "GY-E1005", "GY-E1006", "GY-E1007",
-    "GY-E1008",
+    "GY-E1008", "GY-E1009",
 ];
 
 #[derive(Clone, Copy, Debug)]
 enum Profile {
     Gssh1,
     Gssh2,
+    Gssh3,
 }
+
+const ALL: [Profile; 3] = [Profile::Gssh1, Profile::Gssh2, Profile::Gssh3];
 
 fn admit(profile: Profile, source: &str) -> Result<ParsedScene, StrictParseError> {
     match profile {
         Profile::Gssh1 => parse_strict(source),
         Profile::Gssh2 => parse_strict_gssh2(source),
+        Profile::Gssh3 => parse_strict_gssh3(source),
     }
 }
 
@@ -71,6 +75,9 @@ fn profiles(path: &Path, source: &str) -> Vec<Profile> {
         "gssh1" => vec![Profile::Gssh1],
         "gssh2" => vec![Profile::Gssh2],
         "both" => vec![Profile::Gssh1, Profile::Gssh2],
+        "gssh3" => vec![Profile::Gssh3],
+        "gssh2+3" => vec![Profile::Gssh2, Profile::Gssh3],
+        "all" => ALL.to_vec(),
         other => panic!("{}: unknown profile {other}", path.display()),
     }
 }
@@ -116,9 +123,7 @@ fn accept_fixtures_are_admitted_with_resolvable_origins() {
             let parsed = admit(profile, &source)
                 .unwrap_or_else(|e| panic!("{} ({profile:?}): {e}", path.display()));
             check_admitted(&source, &parsed, &format!("{}", path.display()));
-            if let Profile::Gssh2 = profile {
-                check_gssh2(&source, &format!("{}", path.display()));
-            }
+            check_profile(profile, &source, &parsed, &format!("{}", path.display()));
         }
     }
 }
@@ -290,6 +295,45 @@ fn check_gssh2(source: &str, context: &str) {
 }
 
 /// Check one mutant under one profile. Returns whether it was admitted.
+/// Profile invariants of an admitted scene.
+fn check_profile(profile: Profile, source: &str, parsed: &ParsedScene, context: &str) {
+    fn cells(cell: &goya_lang::SceneCell, out: &mut Vec<goya_lang::SceneCell>) {
+        out.push(cell.clone());
+        for child in &cell.children {
+            cells(child, out);
+        }
+    }
+    let mut all = Vec::new();
+    cells(&parsed.scene.root, &mut all);
+    let proportional_lengths = all
+        .iter()
+        .any(|c| c.text_size_p.is_some() || c.stroke_width_p.is_some());
+    let absolute_lengths = all.iter().any(|c| {
+        c.position.is_some() || c.extent.is_some() || c.text_size.is_some() || c.stroke_width.is_some()
+    });
+    match profile {
+        Profile::Gssh1 => {
+            assert!(
+                parsed.declarations.state.is_none() && parsed.declarations.bindings.is_empty(),
+                "{context}: GSSH/1 admitted GSSH/2 declarations"
+            );
+            assert!(!proportional_lengths, "{context}: GSSH/1 admitted a GSSH/3 length");
+        }
+        Profile::Gssh2 => {
+            check_gssh2(source, context);
+            assert!(!proportional_lengths, "{context}: GSSH/2 admitted a GSSH/3 length");
+        }
+        Profile::Gssh3 => {
+            assert!(!absolute_lengths, "{context}: GSSH/3 admitted an absolute length");
+            let handoff = handoff::admit_v3(source).unwrap_or_else(|e| panic!("{context}: {e}"));
+            assert_eq!(handoff.contract(), "GSSH/3");
+            for (origin, range) in handoff.origins() {
+                assert_range(source, range, &format!("{context}: {origin:?}"));
+            }
+        }
+    }
+}
+
 fn check_mutant(profile: Profile, mutant: &str, context: &str) -> bool {
     let first = admit(profile, mutant);
     let second = admit(profile, mutant);
@@ -306,14 +350,7 @@ fn check_mutant(profile: Profile, mutant: &str, context: &str) -> bool {
         }
         (Ok(parsed), Ok(_)) => {
             check_admitted(mutant, parsed, context);
-            if let Profile::Gssh2 = profile {
-                check_gssh2(mutant, context);
-            } else {
-                assert!(
-                    parsed.declarations.state.is_none() && parsed.declarations.bindings.is_empty(),
-                    "{context}: GSSH/1 admitted GSSH/2 declarations"
-                );
-            }
+            check_profile(profile, mutant, parsed, context);
             true
         }
         _ => panic!("{context}: admission is not deterministic"),
@@ -357,7 +394,7 @@ fn token_mutations_never_panic_and_keep_range_invariants() {
     let mut rejected = 0usize;
     for (path, source) in fixtures("accept") {
         for (n, mutant) in token_mutants(&source).iter().enumerate() {
-            for profile in [Profile::Gssh1, Profile::Gssh2] {
+            for profile in ALL {
                 let context = format!("{} mutant {n} ({profile:?})", path.display());
                 if check_mutant(profile, mutant, &context) {
                     admitted += 1;
@@ -387,7 +424,7 @@ fn byte_deletions_never_panic_and_keep_range_invariants() {
             .collect();
         for (start, len) in boundaries {
             let mutant = format!("{}{}", &source[..start], &source[start + len..]);
-            for profile in [Profile::Gssh1, Profile::Gssh2] {
+            for profile in ALL {
                 let context = format!("{} delete@{start} ({profile:?})", path.display());
                 check_mutant(profile, &mutant, &context);
             }

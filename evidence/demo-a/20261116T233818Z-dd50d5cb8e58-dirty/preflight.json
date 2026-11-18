@@ -1,0 +1,34 @@
+{
+  "directive": "GY-DEMO-A-001",
+  "directive_version": "1.0.0",
+  "inspected_baseline": "018a319dd384fb116f455cc628bb3146435ec05c",
+  "source_revision": "dd50d5cb8e58f3fe2a7ecc75dc0ec5319e9eb116",
+  "worktree_dirty": true,
+  "worktree_status": "M .lwoodz/audit.jsonl\n M crates/dockyard/README.md\n M crates/dockyard/src/compile.rs\n M crates/dockyard/src/oci.rs\n M crates/dockyard/src/start.rs\n M crates/emperor-runtime/src/lib.rs\n M crates/emperor/src/cli.rs\n M crates/emperor/tests/cli.rs\n M crates/neptune/src/artifacts.rs\n M crates/neptune/src/conformance.rs\n M crates/neptune/src/main.rs\n M docs/dockyard/gap-ledger.md\n M docs/dockyard/profile.md\n M docs/emperor/GY-EMP-001.md\n M docs/emperor/contracts/gy-cross-parity-1.md\n M website/architecture-review/src/model.rs\n?? .github/workflows/demo-a.yml\n?? docs/emperor/reviews/cluster-parity.md\n?? docs/emperor/reviews/cluster-security.md\n?? docs/emperor/reviews/cut-copy-parity.md\n?? docs/emperor/reviews/cut-copy-security.md\n?? docs/emperor/reviews/wrap-parity.md\n?? docs/emperor/reviews/wrap-security.md\n?? scripts/demo-a/",
+  "source_sha256": "c550e4608d8217b84c946732fd2ecd9944c800d8979dc332dbea7d87fa9d61fd",
+  "scene": "crates/sash/fixtures/interactive-counter.gscene",
+  "recorded_at": "2026-11-16T23:38:18Z",
+  "rustc": "rustc 1.95.0 (59807616e 2026-04-14)",
+  "cargo": "cargo 1.95.0 (f2d3ce0bd 2026-03-21)",
+  "targets": [
+    "aarch64-pc-windows-msvc",
+    "i686-pc-windows-msvc",
+    "x86_64-pc-windows-msvc",
+    "x86_64-unknown-linux-gnu"
+  ],
+  "uname": "Linux pop-os 6.18.7-76061807-generic #202601231045~1769703228~24.04~cb87b5b SMP PREEMPT_DYNAMIC Thu J x86_64 x86_64 x86_64 GNU/Linux",
+  "os_release": "NAME=\"Pop!_OS\"\nVERSION=\"24.04 LTS\"\nID=pop\nID_LIKE=\"ubuntu debian\"\nPRETTY_NAME=\"Pop!_OS 24.04 LTS\"\nVERSION_ID=\"24.04\"\nHOME_URL=\"https://pop.system76.com\"\nSUPPORT_URL=\"https://support.system76.com\"\nBUG_REPORT_URL=\"https://github.com/pop-os/pop/issues\"\nPRIVACY_POLICY_URL=\"https://system76.com/privacy\"\nVERSION_CODENAME=noble\nUBUNTU_CODENAME=noble\nLOGO=distributor-logo-pop-os\n",
+  "virt": {
+    "exit_code": 1,
+    "stdout": "none",
+    "stderr": ""
+  },
+  "wayland_display": "wayland-1",
+  "session_type": "wayland",
+  "desktop": "COSMIC",
+  "xwin_done": true,
+  "wine": false,
+  "qemu": false,
+  "virsh": false,
+  "hostname": "pop-os"
+}

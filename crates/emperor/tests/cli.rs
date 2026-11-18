@@ -116,6 +116,88 @@ fn interaction_suite_dispatches_the_admitted_counter() {
 }
 
 #[test]
+fn format_json_before_the_scene_keeps_one_positional() {
+    let scene = fixture("interactive-counter.gscene");
+    let run = run(&[
+        "check",
+        "--format",
+        "json",
+        &scene,
+        "--target",
+        "x86_64-unknown-linux-gnu",
+    ]);
+    assert_eq!(run.code, 0, "{}", run.text);
+    assert_eq!(run.json["output"], "json");
+    assert_eq!(run.json["compiler"], "emperor");
+    assert_ne!(run.json["diagnostic"], "EMP-USAGE");
+}
+
+#[test]
+fn format_json_does_not_swallow_the_package_format() {
+    let ahead = run(&[
+        "package",
+        "--format",
+        "json",
+        "--format",
+        "linux-archive",
+        "missing-demo-a-package-dir",
+    ]);
+    assert_eq!(ahead.code, 4, "{}", ahead.text);
+    assert_eq!(ahead.json["diagnostic"], "EMP-ELF");
+    let behind = run(&[
+        "package",
+        "--format",
+        "linux-archive",
+        "--format",
+        "json",
+        "missing-demo-a-package-dir",
+    ]);
+    assert_eq!(behind.code, 4, "{}", behind.text);
+    assert_eq!(behind.json["diagnostic"], "EMP-ELF");
+    let swallowed = run(&["package", "--format", "json", "missing-demo-a-package-dir"]);
+    assert_eq!(swallowed.code, 2, "{}", swallowed.text);
+    assert_eq!(swallowed.json["diagnostic"], "EMP-USAGE");
+    assert!(
+        swallowed.text.contains("package requires --format"),
+        "{}",
+        swallowed.text
+    );
+}
+
+#[test]
+fn window_backend_accepts_wayland_and_kumimanu_and_rejects_electron() {
+    let scene = fixture("interactive-counter.gscene");
+    let wayland = run(&[
+        "check",
+        &scene,
+        "--window",
+        "wayland",
+        "--target",
+        "x86_64-unknown-linux-gnu",
+    ]);
+    assert_eq!(wayland.code, 0, "{}", wayland.text);
+    let kumimanu = run(&[
+        "check",
+        &scene,
+        "--window",
+        "kumimanu",
+        "--target",
+        "x86_64-unknown-linux-gnu",
+    ]);
+    assert_eq!(kumimanu.code, 0, "{}", kumimanu.text);
+    assert_ne!(kumimanu.json["diagnostic"], "EMP-USAGE");
+    let electron = run(&["check", &scene, "--window", "electron"]);
+    assert_eq!(electron.code, 2, "{}", electron.text);
+    assert_eq!(electron.json["diagnostic"], "EMP-USAGE");
+    assert!(electron.text.contains("unknown window backend"));
+    let duplicate = run(&[
+        "check", &scene, "--window", "wayland", "--window", "kumimanu",
+    ]);
+    assert_eq!(duplicate.code, 2, "{}", duplicate.text);
+    assert_eq!(duplicate.json["diagnostic"], "EMP-USAGE");
+}
+
+#[test]
 fn desktop_sota_stays_blocked_and_unknown_suites_exit_2() {
     let scene = fixture("interactive-counter.gscene");
     let blocked = run(&["test", &scene, "--suite", "desktop-sota"]);

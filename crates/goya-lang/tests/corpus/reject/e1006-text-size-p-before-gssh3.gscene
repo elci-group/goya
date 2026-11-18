@@ -1,0 +1,4 @@
+// profile: both
+// expect: GY-E1006
+// at: text-size-p: 0.5;
+@ontology hello { @cell root { id: "window.root"; text: "Hi"; text-size-p: 0.5; } }

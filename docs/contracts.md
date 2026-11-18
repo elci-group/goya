@@ -377,10 +377,11 @@ Unification plan: a GY-IR/2 amendment will define a shared node table so
 both frontends lower into one IR; scheduled Wave 2c alongside the EDC
 canonical IR work.
 
-## GSSH/1 and GSSH/2 — Shared semantic handoff (`crates/goya-lang`)
+## GSSH/1, GSSH/2 and GSSH/3 — Shared semantic handoff (`crates/goya-lang`)
 
 Status: GSSH/1 Candidate (in use by Sash, Emperor, goya-parity and the Aragon
-previews); GSSH/2 Candidate, 2026-11-17, awaiting architecture approval.
+previews); GSSH/2 Candidate, 2026-11-17; GSSH/3 Candidate, 2026-11-18 (used
+by the Aragon scene compiler). GSSH/2 and GSSH/3 await architecture approval.
 Specification: [`docs/gssh/GSSH-2.md`](gssh/GSSH-2.md); decisions:
 [`docs/gssh/decisions.md`](gssh/decisions.md).
 
@@ -396,8 +397,43 @@ Specification: [`docs/gssh/GSSH-2.md`](gssh/GSSH-2.md); decisions:
   whole source line. The `focus`/`blur`/`select`/`submit` gesture keys are
   removed. The compatibility parser records GSSH/2 syntax without validating
   it.
+- `handoff::admit_v3` / `parse_strict_gssh3` (GSSH/3) is GSSH/2 with every
+  length proportional (decision D7): absolute `position`, `extent`,
+  `text-size` and `stroke-width` are rejected with `GY-E1009`, and
+  `text-size-p` and `stroke-width-p` are admitted. GSSH/1 and GSSH/2 reject
+  the latter two with `GY-E1006`. GY-LANG/1 amendment: inside a `scroll`
+  element, `_p` fractions are no longer clamped above 1. Migration tool:
+  `goya_lang::proportional` (`goya-proportional`).
 - Conformance: `crates/goya-lang/tests/strict_corpus.rs` (exact-span reject
-  fixtures, accept fixtures, token and byte mutation sweeps).
+  fixtures, accept fixtures, token and byte mutation sweeps under all three
+  profiles) and `tests/proportional_migration.rs`.
+
+## SASH-WIN-IR/1 — Sash Windows emission IR (`crates/sash-ir`)
+
+Status: Candidate, 2026-11-18. Architecture approval is required before a
+target may cite it as a frozen contract. Specification:
+[`docs/sash/SASH-WIN-IR-1.md`](sash/SASH-WIN-IR-1.md).
+
+- Consumes: GSSH/1 admission output (`AdmittedWindow`,
+  `AdmittedInteractive`). Admission stays the gate for reachable meaning;
+  the IR adds, drops, and defaults nothing.
+- Provides: `IrDocument` (version, profile, window, controls, optional
+  interactive `Transition` and `GesturePolicy`, identity, resources,
+  provenance with per-control authored origins), lowering in
+  `crates/sash/src/ir_lower.rs`, code generation in
+  `crates/sash/src/ir_codegen.rs`.
+- Invariants: lowering and codegen are pure functions; two lowerings of one
+  admitted scene are equal documents, and two code generations of one
+  document produce equal bytes and equal digests. Every evidence source-map
+  origin decodes to the authored bytes it names. Emission is byte-identical
+  to the adopted direct emitters; fixture digests are pinned in the
+  `ir_codegen` tests, so any drift fails the suite.
+- Stability: Candidate. Field shape changes bump the major version; profile
+  changes never do. The serde form is for tooling and tests only — no build
+  artifact carries an IR document yet.
+- Not claimed: no new profile, no admission change, no Windows runtime
+  qualification. Runtime stays BLOCKED until a Windows worker launches the
+  images.
 
 ## Correction — Vico Vee reconnaissance (2026-11-04)
 

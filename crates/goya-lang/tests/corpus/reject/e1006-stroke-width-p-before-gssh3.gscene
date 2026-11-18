@@ -1,0 +1,4 @@
+// profile: both
+// expect: GY-E1006
+// at: stroke_width_p: 0.1;
+@ontology hello { @cell root { id: "window.root"; stroke: #000; stroke_width_p: 0.1; } }

@@ -1,0 +1,39 @@
+    Checking goya-ir v0.1.8 (/home/sal/goya/crates/goya-ir)
+    Checking goya-state v0.1.8 (/home/sal/goya/crates/goya-state)
+    Checking goya-determinism v0.1.8 (/home/sal/goya/crates/goya-determinism)
+    Checking goya-executable v0.1.8 (/home/sal/goya/crates/goya-executable)
+    Checking goya-chroma v0.1.8 (/home/sal/goya/crates/goya-chroma)
+    Checking goya-vee v0.1.8 (/home/sal/goya/crates/goya-vee)
+    Checking goya-lang v0.1.8 (/home/sal/goya/crates/goya-lang)
+error: unused import: `Node`
+  --> crates/goya-lang/src/transition.rs:11:25
+   |
+11 | use goya_ir::{ActionId, Node};
+   |                         ^^^^
+   |
+   = note: `-D unused-imports` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(unused_imports)]`
+
+error: unused import: `goya_ir::Node`
+  --> crates/goya-lang/src/lib.rs:22:5
+   |
+22 | use goya_ir::Node;
+   |     ^^^^^^^^^^^^^
+
+error: implementation of inherent method `to_string(&self) -> String` for type `parser::AuthoredIdError`
+   --> crates/goya-lang/src/parser.rs:403:5
+    |
+403 | /     fn to_string(&self) -> String {
+404 | |         match self {
+405 | |             Self::Missing { name, .. } => format!("missing ID for {name}"),
+406 | |             Self::Duplicate { id, .. } => id.clone(),
+407 | |         }
+408 | |     }
+    | |_____^
+    |
+    = help: implement trait `Display` for type `parser::AuthoredIdError` instead
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#inherent_to_string
+    = note: `-D clippy::inherent-to-string` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::inherent_to_string)]`
+
+error: could not compile `goya-lang` (lib) due to 3 previous errors
