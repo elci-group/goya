@@ -130,8 +130,8 @@ mod tests {
         };
         let out = f.reference_output().unwrap();
         assert!(f.check(&out).is_ok());
-        // Slightly off result inside relative tolerance passes.
-        assert!(f.check(&[4.0005, 6.0]).is_ok());
+        // Slightly off result inside relative tolerance (rel 1e-4 * 4.0 = 4e-4).
+        assert!(f.check(&[4.0003, 6.0]).is_ok());
         // Clearly wrong result fails.
         assert!(f.check(&[9.0, 6.0]).is_err());
     }
