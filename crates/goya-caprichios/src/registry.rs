@@ -1798,6 +1798,343 @@ mod tests {
     }
 
     #[test]
+    fn windows_hello_google_pay_and_samsung_pay_contracts_lower_without_panicking() {
+        let windows_hello_request = Request {
+            capabilities: vec![crate::windows_hello_caprichio::CONTRACT.into()],
+            windows_hello: Some(windows_hello()),
+            ..Request::default()
+        };
+        let negotiated = negotiate(&windows_hello_request, host()).unwrap();
+        assert_eq!(negotiated[0].id, crate::windows_hello_caprichio::CONTRACT);
+        assert_eq!(
+            negotiated[0].artifact.recipe(),
+            "windows-hello-bounded-attempt-gate"
+        );
+        assert_eq!(negotiated, negotiate(&windows_hello_request, host()).unwrap());
+
+        let google_pay_request = Request {
+            capabilities: vec![crate::google_pay_caprichio::CONTRACT.into()],
+            google_pay: Some(google_pay()),
+            ..Request::default()
+        };
+        let negotiated = negotiate(&google_pay_request, host()).unwrap();
+        assert_eq!(negotiated[0].id, crate::google_pay_caprichio::CONTRACT);
+        assert_eq!(
+            negotiated[0].artifact.recipe(),
+            "google-pay-bounded-payment-request"
+        );
+        assert_eq!(negotiated, negotiate(&google_pay_request, host()).unwrap());
+
+        let samsung_pay_request = Request {
+            capabilities: vec![crate::samsung_pay_caprichio::CONTRACT.into()],
+            samsung_pay: Some(samsung_pay()),
+            ..Request::default()
+        };
+        let negotiated = negotiate(&samsung_pay_request, host()).unwrap();
+        assert_eq!(negotiated[0].id, crate::samsung_pay_caprichio::CONTRACT);
+        assert_eq!(
+            negotiated[0].artifact.recipe(),
+            "samsung-pay-bounded-payment-request"
+        );
+        assert_eq!(negotiated, negotiate(&samsung_pay_request, host()).unwrap());
+
+        for (contract, kind) in [
+            (
+                crate::windows_hello_caprichio::CONTRACT,
+                "windows_hello",
+            ),
+            (crate::google_pay_caprichio::CONTRACT, "google_pay"),
+            (crate::samsung_pay_caprichio::CONTRACT, "samsung_pay"),
+        ] {
+            let missing = Request {
+                capabilities: vec![contract.into()],
+                ..Request::default()
+            };
+            assert_eq!(
+                negotiate(&missing, host()),
+                Err(NegotiationError::MissingDeclaration {
+                    capability: contract
+                })
+            );
+            let unexpected = match kind {
+                "windows_hello" => Request {
+                    windows_hello: Some(windows_hello()),
+                    ..Request::default()
+                },
+                "google_pay" => Request {
+                    google_pay: Some(google_pay()),
+                    ..Request::default()
+                },
+                _ => Request {
+                    samsung_pay: Some(samsung_pay()),
+                    ..Request::default()
+                },
+            };
+            assert_eq!(
+                negotiate(&unexpected, host()),
+                Err(NegotiationError::UnexpectedDeclaration { kind })
+            );
+        }
+    }
+
+    #[test]
+    fn bluetooth_central_contract_registers_exactly_and_fails_closed() {
+        let contract = crate::bluetooth_caprichio::CONTRACT;
+        assert_eq!(contract, "goya.hardware.bluetooth.central.v1");
+        assert!(supported_contracts().contains(&contract));
+        assert!(!supported_contracts().contains(&"hardware.bluetooth"));
+        assert!(!supported_contracts().contains(&"goya.hardware.bluetooth.v1"));
+
+        let request = Request {
+            capabilities: vec![contract.into()],
+            bluetooth_central: Some(bluetooth_central()),
+            ..Request::default()
+        };
+        let negotiated = negotiate(&request, host()).unwrap();
+        assert_eq!(negotiated.len(), 1);
+        assert_eq!(negotiated[0].id, contract);
+        assert_eq!(negotiated[0].artifact.contract(), contract);
+        assert_eq!(
+            negotiated[0].artifact.recipe(),
+            "apple-ble-central-bounded-scan"
+        );
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("session=ble_central_scan\n"));
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("radio_driven=none\n"));
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("peripherals_connected=none\n"));
+        assert_eq!(negotiated, negotiate(&request, host()).unwrap());
+
+        let missing = Request {
+            capabilities: vec![contract.into()],
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&missing, host()),
+            Err(NegotiationError::MissingDeclaration {
+                capability: contract
+            })
+        );
+        let unexpected = Request {
+            bluetooth_central: Some(bluetooth_central()),
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&unexpected, host()),
+            Err(NegotiationError::UnexpectedDeclaration {
+                kind: "bluetooth_central"
+            })
+        );
+
+        let mut unsupported_target = host();
+        unsupported_target.bluetooth_central_target = BluetoothTarget::Node;
+        assert_eq!(
+            negotiate(&request, unsupported_target),
+            Err(NegotiationError::Bluetooth(
+                crate::bluetooth_caprichio::Diagnostic::UnsupportedTarget
+            ))
+        );
+        let mut unpowered = host();
+        unpowered.bluetooth_central_host.bluetooth_powered = false;
+        assert_eq!(
+            negotiate(&request, unpowered),
+            Err(NegotiationError::Bluetooth(
+                crate::bluetooth_caprichio::Diagnostic::MissingBluetoothPower
+            ))
+        );
+        let mut unpermitted = host();
+        unpermitted.bluetooth_central_host.bluetooth_permission = false;
+        assert_eq!(
+            negotiate(&request, unpermitted),
+            Err(NegotiationError::Bluetooth(
+                crate::bluetooth_caprichio::Diagnostic::MissingBluetoothPermission
+            ))
+        );
+    }
+
+    #[test]
+    fn bluetooth_gatt_contract_registers_exactly_and_fails_closed() {
+        let contract = crate::bluetooth_control_caprichio::CONTRACT;
+        assert_eq!(contract, "goya.hardware.bluetooth.gatt.v1");
+        assert!(supported_contracts().contains(&contract));
+
+        let request = Request {
+            capabilities: vec![contract.into()],
+            bluetooth_gatt: Some(bluetooth_gatt()),
+            ..Request::default()
+        };
+        let negotiated = negotiate(&request, host()).unwrap();
+        assert_eq!(negotiated.len(), 1);
+        assert_eq!(negotiated[0].id, contract);
+        assert_eq!(negotiated[0].artifact.contract(), contract);
+        assert_eq!(
+            negotiated[0].artifact.recipe(),
+            "apple-ble-gatt-bounded-commands"
+        );
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("session=ble_gatt_bounded_commands\n"));
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("characteristics=2A6E:read_write:512,2A37:write:64\n"));
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("physical_execution=none\n"));
+        assert_eq!(negotiated, negotiate(&request, host()).unwrap());
+
+        let missing = Request {
+            capabilities: vec![contract.into()],
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&missing, host()),
+            Err(NegotiationError::MissingDeclaration {
+                capability: contract
+            })
+        );
+        let unexpected = Request {
+            bluetooth_gatt: Some(bluetooth_gatt()),
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&unexpected, host()),
+            Err(NegotiationError::UnexpectedDeclaration {
+                kind: "bluetooth_gatt"
+            })
+        );
+
+        let mut unsupported_target = host();
+        unsupported_target.bluetooth_gatt_target = BluetoothGattTarget::Node;
+        assert_eq!(
+            negotiate(&request, unsupported_target),
+            Err(NegotiationError::BluetoothGatt(
+                crate::bluetooth_control_caprichio::Diagnostic::UnsupportedTarget
+            ))
+        );
+        let mut without_gatt = host();
+        without_gatt.bluetooth_gatt_host.core_bluetooth_gatt = false;
+        assert_eq!(
+            negotiate(&request, without_gatt),
+            Err(NegotiationError::BluetoothGatt(
+                crate::bluetooth_control_caprichio::Diagnostic::MissingCoreBluetoothGatt
+            ))
+        );
+    }
+
+    #[test]
+    fn bluetooth_stream_contract_registers_exactly_and_fails_closed() {
+        let contract = crate::bluetooth_stream_caprichio::CONTRACT;
+        assert_eq!(contract, "goya.hardware.bluetooth.stream.v1");
+        assert!(supported_contracts().contains(&contract));
+
+        let request = Request {
+            capabilities: vec![contract.into()],
+            bluetooth_stream: Some(bluetooth_stream()),
+            ..Request::default()
+        };
+        let negotiated = negotiate(&request, host()).unwrap();
+        assert_eq!(negotiated.len(), 1);
+        assert_eq!(negotiated[0].id, contract);
+        assert_eq!(negotiated[0].artifact.contract(), contract);
+        assert_eq!(
+            negotiated[0].artifact.recipe(),
+            "apple-ble-stream-bounded-notifications"
+        );
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("session=ble_stream_bounded_notifications\n"));
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("characteristics=2A6E:notification,2A37:indication\n"));
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("delivery_guarantee=none\n"));
+        assert_eq!(negotiated, negotiate(&request, host()).unwrap());
+
+        let missing = Request {
+            capabilities: vec![contract.into()],
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&missing, host()),
+            Err(NegotiationError::MissingDeclaration {
+                capability: contract
+            })
+        );
+        let unexpected = Request {
+            bluetooth_stream: Some(bluetooth_stream()),
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&unexpected, host()),
+            Err(NegotiationError::UnexpectedDeclaration {
+                kind: "bluetooth_stream"
+            })
+        );
+
+        let mut unsupported_target = host();
+        unsupported_target.bluetooth_stream_target = BluetoothStreamTarget::Node;
+        assert_eq!(
+            negotiate(&request, unsupported_target),
+            Err(NegotiationError::BluetoothStream(
+                crate::bluetooth_stream_caprichio::Diagnostic::UnsupportedTarget
+            ))
+        );
+        // The mixed declaration uses both transports: either missing
+        // facility fails closed.
+        let mut without_notifications = host();
+        without_notifications
+            .bluetooth_stream_host
+            .characteristic_notifications = false;
+        assert_eq!(
+            negotiate(&request, without_notifications),
+            Err(NegotiationError::BluetoothStream(
+                crate::bluetooth_stream_caprichio::Diagnostic::MissingCharacteristicNotifications
+            ))
+        );
+        let mut without_indications = host();
+        without_indications
+            .bluetooth_stream_host
+            .characteristic_indications = false;
+        assert_eq!(
+            negotiate(&request, without_indications),
+            Err(NegotiationError::BluetoothStream(
+                crate::bluetooth_stream_caprichio::Diagnostic::MissingCharacteristicIndications
+            ))
+        );
+        // A notifications-only declaration does not require indications.
+        let notifications_only = Request {
+            bluetooth_stream: Some(BluetoothStreamDeclaration {
+                characteristics: vec![crate::bluetooth_runtime::StreamCharacteristic::new(
+                    "2A6E".to_owned(),
+                    crate::bluetooth_runtime::NotificationTransport::Notification,
+                )
+                .unwrap()],
+                ..bluetooth_stream()
+            }),
+            ..Request::default()
+        };
+        let mut without_indications = host();
+        without_indications
+            .bluetooth_stream_host
+            .characteristic_indications = false;
+        assert!(negotiate(&notifications_only, without_indications).is_ok());
+    }
+
+    #[test]
     fn ios_keychain_contract_registers_exactly_and_fails_closed() {
         let contract = crate::keychain_caprichio::CONTRACT;
         assert_eq!(contract, "goya.hardware.secure_storage.keychain.v1");
