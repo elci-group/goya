@@ -116,7 +116,10 @@ pub fn utterance_error(utterance: &str) -> Option<&'static str> {
                     return Some("unmatched '}'");
                 }
                 let after = &rest[open + 1..];
-                let close = after.find('}').ok_or("unclosed '{'")?;
+                let close = match after.find('}') {
+                    Some(close) => close,
+                    None => return Some("unclosed '{'"),
+                };
                 let slot = &after[..close];
                 if slot.is_empty() {
                     return Some("empty slot");
