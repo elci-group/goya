@@ -22,10 +22,11 @@ fn t01_cpu_backend_matches_frozen_golden() {
         }
         let mut it = line.split_whitespace();
         match it.next().unwrap() {
+            "op" => {}
             "a_dims" => a_dims = it.map(|v| v.parse().unwrap()).collect(),
             "a" => a = it.map(|v| v.parse::<f32>().unwrap()).collect(),
             "b_dims" => b_dims = it.map(|v| v.parse().unwrap()).collect(),
-            "b" => it.for_each(|v| drop(v.parse::<f32>().unwrap())),
+            "b" => b = it.map(|v| v.parse::<f32>().unwrap()).collect(),
             "expected_dims" => {}
             "expected" => expected = it.map(|v| v.parse::<f32>().unwrap()).collect(),
             other => panic!("unknown key {other}"),
