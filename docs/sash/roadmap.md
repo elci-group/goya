@@ -357,7 +357,7 @@ A profile `sash.win32.<name>/<version>` is **PROMOTE**d when:
 | Swarm | Status | Next Action |
 |-------|--------|-------------|
 | G | PASS | Maintain |
-| **J** | **BLOCKED** | **Acquire Windows x64 machine (Phase 0)** |
+| **J** | **BLOCKED** (smoke tier available: the `windows-smoke` CI job launches the x64 images on windows-latest; not qualification) | **Acquire Windows x64 machine (Phase 0)** |
 | B | HOLD | Wait for J |
 | C | PASS (build) | Wait for J |
 | D | PASS (build) | Wait for J |
@@ -365,7 +365,25 @@ A profile `sash.win32.<name>/<version>` is **PROMOTE**d when:
 | F | NOT_STARTED | Wait for Phase 2 |
 | H | NOT_STARTED | Wait for Phase 2 |
 | E | NOT_STARTED | Wait for Phase 2 |
-| A | NOT_STARTED | Wait for Phase 3 |
+| A | **COMPLETE** (except A.5, gated on Phase 3) | SASH-WIN-IR/1 Candidate published; both profiles emit through the IR; ten recorded links reproduce byte-for-byte |
+
+**Completed since the roadmap was written (2026-11-18):**
+- Swarm A: `crates/sash-ir` + lowering + codegen for both profiles, wired as the
+  only emission path, byte-exact against the adopted emitters, contract
+  published (`docs/sash/SASH-WIN-IR-1.md`, `docs/contracts.md`).
+- Cross-architecture end-to-end reproduction: x64, i686, and ARM64 links of
+  both fixtures reproduce the recorded SASH-ENT-002 hashes; `sash verify`
+  exits 3 with the correct machine and profile on all six images. The gate is
+  permanent: `cargo test -p sash --offline --test link_reproduction -- --ignored`.
+- Windows API floors: `--api-floor win10|win8` admits a system-DPI-aware
+  legacy adapter (no Windows 10 1703+ per-monitor imports) under the
+  `-legacy` presentation profiles for i686 and x64; win7/vista/xp are refused
+  with the toolchain reason, and win8 x ARM64 is refused as meaningless.
+- Phase 0 harness anti-drift: `sash expectations` projects the IR into the
+  runtime-contract JSON the launch harness consumes; the harness refuses to
+  run against hand-maintained tables.
+- Windows smoke tier: `windows-smoke` CI job launches the x64 images on
+  `windows-latest` with compiler-generated expectations. Informational only.
 
 **Immediate Next Step:** Execute **Phase 0** — provision Windows execution environment. All downstream swarms are gated on this.
 

@@ -22,6 +22,14 @@ cd /home/sal/goya
 # Or: --method winrm, --method smb
 ```
 
+The transfer script also generates `expectations.json` beside each `App.exe`
+with `sash expectations <scene> --format json`. That file carries the window
+class and title, the control table (native id, role, semantic id, text, DIP
+rectangle), and the import closure — all projected from the lowered IR by the
+same compiler revision that produced the binary. The launch harness refuses to
+run without it: a hand-maintained expectations table could silently drift from
+what the emitted program actually does.
+
 ### 3. Run Tests on Windows
 On each Windows machine (as `sash-test` user):
 ```powershell

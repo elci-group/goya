@@ -16,6 +16,25 @@ Profile `sash.win32.interactive/0.0.1` is selected by `check` and `build` when t
 
 Profile `sash.win32.interactive/0.0.2` is selected when that edit has a `gestures` block stating `copy` and `paste` as `allow` or `deny`. `cut` may be stated. An omitted cut leaves the system cut command. A denied cut also drops Shift+Delete. Delete without Shift is not a cut. Select, undo, and redo are not policy operations; authoring them is a syntax error. A denied paste does not change the edit. The static-window profile rejects every gestures block. Enter activates the button. Tab and Shift-Tab move between the edit and the button. Space is delivered to the focused control. The result text is written before the value is stored. The stored value changes only when that text reads back as the new value. A different readback restores the previous result text while the window is live. A second activation while that text is being written is ignored. A release that starts during that write drops the commit. A failed text update leaves the previous value. Close releases the font, semantic ids, and edit subclass, then unregisters the window class. Neither interactive executable has been launched on Windows.
 
+## API floors
+
+`--api-floor win10` (default) emits the per-monitor-v2 adapter of the first
+proof. `--api-floor win8` emits the system-DPI-aware legacy adapter: it drops
+every Windows 10 1703+ per-monitor API from the import table, reads the
+process DPI once from `GetDeviceCaps`, and names a `.Legacy` assembly so
+`sash verify` reports the floor the image was built for. The scene admits
+identically on both floors; only the Win32 adapter differs.
+
+The win8 floor is the lowest this toolchain can produce: the stable
+`pc-windows-msvc` standard library imports `api-ms-win-core-synch-l1-2-0.dll`
+(`WaitOnAddress`, Windows 8+). Windows 7, Vista, and XP need the tier-3
+`*-win7-windows-msvc` standard library that only a nightly `-Z build-std`
+toolchain can build, so those floors are refused with that reason. `win8`
+refuses ARM64, because ARM64 Windows did not exist before Windows 10.
+
+No image of any floor has been launched on any Windows version. The floor is
+an import-table and manifest declaration, not a support claim.
+
 The generated program is a Win32 window. It is not an Electron, WebView, or WinUI application.
 
 ## Commands
@@ -43,3 +62,15 @@ A Windows launch was not run for the proof recorded in `docs/sash/reconnaissance
 ```text
 cargo test -p sash --offline --lib
 ```
+
+The linked-artifact reproduction gate links both fixtures for every admitted
+triple and floor and asserts the recorded SHA-256 pairs. It performs ten
+cross-links, so it is ignored by default:
+
+```text
+cargo test -p sash --offline --test link_reproduction -- --ignored --nocapture
+```
+
+A deliberate toolchain bump or emitter change fails this gate by design.
+Update the recorded hashes only through a new programme record, never by
+loosening the assertion.
