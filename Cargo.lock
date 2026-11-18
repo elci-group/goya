@@ -844,6 +844,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "goya-fair"
+version = "0.1.8"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "goya-fsc"
 version = "0.1.8"
 dependencies = [

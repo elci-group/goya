@@ -1,0 +1,57 @@
+{
+  "contract": "GY-FAIR/1",
+  "source": {
+    "root": "fixtures/sample-app",
+    "files": [
+      {
+        "path": "src/main.ts",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    ]
+  },
+  "extractor": {
+    "name": "goya-disparate-electron",
+    "version": "0.0.1",
+    "id_rule": "sequential per discovery order, prefixed by subsystem"
+  },
+  "elements": [
+    {
+      "id": "node-0042",
+      "kind": "dynamic_module_resolution",
+      "provenance": {
+        "file": "src/main.ts",
+        "line": 74,
+        "span_start": null,
+        "span_end": null,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "undetermined",
+        "reason": "DYNAMIC_REQUIRE_UNRESOLVED",
+        "detail": "require() argument is a computed expression; destination not resolvable statically"
+      },
+      "semantics": {
+        "resolution": "unresolved"
+      }
+    },
+    {
+      "id": "ui-0001",
+      "kind": "component",
+      "provenance": {
+        "file": "src/main.ts",
+        "line": 12,
+        "span_start": 240,
+        "span_end": 812,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "name": "AppShell"
+      }
+    }
+  ]
+}

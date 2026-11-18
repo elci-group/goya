@@ -63,6 +63,7 @@ members = [
     "crates/goya-plugin-host",
     "crates/emperor",
     "crates/emperor-runtime",
+    "crates/goya-fair",
 ]
 
 [workspace.package]
@@ -117,6 +118,7 @@ goya-sdk = { path = "crates/goya-sdk" }
 goya-webview = { path = "crates/goya-webview" }
 goya-studio = { path = "crates/goya-studio" }
 emperor-runtime = { path = "crates/emperor-runtime" }
+goya-fair = { path = "crates/goya-fair" }
 unicode-segmentation = "1.12"
 cosmic-text = "0.17"
 
