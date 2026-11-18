@@ -140,7 +140,7 @@ jobs:
     name: Windows Test (${{ matrix.arch }}/${{ matrix.profile }})
     needs: verify-artifacts
     if: needs.verify-artifacts.outputs.artifacts_verified == 'true'
-    runs-on: [self-hosted, windows, ${{ matrix.arch }}]
+    runs-on: [self-hosted, windows, "${{ matrix.arch }}"]
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -292,6 +292,9 @@ jobs:
     if: needs.verify-artifacts.outputs.artifacts_verified == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    steps:
+      - name: Checkout repository (for scene files)
+        uses: actions/checkout@v4
     strategy:
       fail-fast: false
       matrix:
@@ -299,21 +302,27 @@ jobs:
           - arch: x64
             profile: static-window
             source: ${{ env.SASH_ENT002_STATIC_X64 }}
+            scene: crates/sash/fixtures/static-window.gscene
           - arch: x64
             profile: interactive-cut
             source: ${{ env.SASH_ENT002_INTERACTIVE_X64 }}
+            scene: crates/sash/fixtures/interactive-counter.gscene
           - arch: i686
             profile: static-window
             source: ${{ env.SASH_STAMP_STATIC_I686 }}
+            scene: crates/sash/fixtures/static-window.gscene
           - arch: i686
             profile: interactive-cut
             source: ${{ env.SASH_STAMP_INTERACTIVE_I686 }}
+            scene: crates/sash/fixtures/interactive-counter.gscene
           - arch: arm64
             profile: static-window
             source: ${{ env.SASH_STAMP_STATIC_ARM64 }}
+            scene: crates/sash/fixtures/static-window.gscene
           - arch: arm64
             profile: interactive-cut
             source: ${{ env.SASH_STAMP_INTERACTIVE_ARM64 }}
+            scene: crates/sash/fixtures/interactive-counter.gscene
     steps:
       - name: Prepare artifact directory
         run: |
@@ -324,11 +333,22 @@ jobs:
         run: |
           sha256sum ./artifacts/${{ matrix.arch }}/${{ matrix.profile }}/App.exe
 
+      - name: Generate expectations.json from the compiler
+        run: |
+          # The expectations file is projected from the lowered IR by the
+          # same compiler revision that produced the binary. The Windows
+          # harness refuses to run without it.
+          cargo run -q -p sash --offline -- \
+            expectations "${{ matrix.scene }}" --format json \
+            > ./artifacts/${{ matrix.arch }}/${{ matrix.profile }}/expectations.json
+          python3 -m json.tool ./artifacts/${{ matrix.arch }}/${{ matrix.profile }}/expectations.json > /dev/null
+          echo "expectations.json valid ($(wc -c < ./artifacts/${{ matrix.arch }}/${{ matrix.profile }}/expectations.json) bytes)"
+
       - name: Upload artifact for Windows runner
         uses: actions/upload-artifact@v4
         with:
           name: sash-${{ matrix.arch }}-${{ matrix.profile }}
-          path: ./artifacts/${{ matrix.arch }}/${{ matrix.profile }}/App.exe
+          path: ./artifacts/${{ matrix.arch }}/${{ matrix.profile }}/*
           retention-days: 7
 
 # Phase 0 Gate Summary (can be used as required check)

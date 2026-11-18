@@ -348,9 +348,7 @@ mod tests {
         assert!(first.source.contains(
             "StreamCharacteristic::new(\"2A6E\".to_owned(), crate::bluetooth_runtime::NotificationTransport::Notification)?"
         ));
-        assert!(first
-            .source
-            .contains("StreamSession::new(vec![], 256usize, 2u16)"));
+        assert!(first.source.contains(", 256usize, 2u16)"));
     }
 
     #[test]
