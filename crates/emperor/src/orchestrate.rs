@@ -1272,8 +1272,8 @@ const DEB_MAINTAINER: &str = "Emperor Compiler <emperor@goya.invalid>";
 /// else is refused rather than guessed at.
 fn deb_architecture(target: &str) -> Option<&'static str> {
     match target::elf_machine(target) {
-        Some(machine) if machine == 0x3E => Some("amd64"),
-        Some(machine) if machine == 0xB7 => Some("arm64"),
+        Some(0x3E) => Some("amd64"),
+        Some(0xB7) => Some("arm64"),
         _ => None,
     }
 }
@@ -1321,7 +1321,10 @@ fn package_deb(invocation: Invocation, format: &str) -> Run {
                 Fault::new(
                     2,
                     "EMP-TOOLCHAIN",
-                    format!("target {} has no Debian architecture mapping", invocation.target),
+                    format!(
+                        "target {} has no Debian architecture mapping",
+                        invocation.target
+                    ),
                 ),
             )
         }
@@ -1397,7 +1400,11 @@ fn package_deb(invocation: Invocation, format: &str) -> Run {
         ),
         Err(error) => fault_run(
             &invocation,
-            Fault::new(2, "EMP-TOOLCHAIN", format!("could not start dpkg-deb: {error}")),
+            Fault::new(
+                2,
+                "EMP-TOOLCHAIN",
+                format!("could not start dpkg-deb: {error}"),
+            ),
         ),
     }
 }
@@ -1429,8 +1436,11 @@ fn stage_deb(
         std::fs::Permissions::from_mode(0o755),
     )
     .map_err(io_fault)?;
-    fs::copy(desktop_source, staging.join("usr/local/share/applications/counter.desktop"))
-        .map_err(io_fault)?;
+    fs::copy(
+        desktop_source,
+        staging.join("usr/local/share/applications/counter.desktop"),
+    )
+    .map_err(io_fault)?;
     let copyright = format!(
         "emperor-counter is built by the Emperor compiler (version {COMPILER_VERSION}).\n\
          The workspace licenses live at LICENSE.txt, LICENSE-MIT, and LICENSE-APACHE\n\
@@ -1506,7 +1516,9 @@ fn blocked_scene(invocation: Invocation, code: &'static str, detail: &str) -> Ru
         3,
         stages,
         format!("{code}: {detail}\n"),
-        json!({}),
+        // Carry the diagnostic code like fault_run does, so callers can
+        // distinguish BLOCKED reasons in JSON without parsing text.
+        json!({"diagnostic": code}),
     )
 }
 
@@ -1524,7 +1536,9 @@ fn blocked_dir(invocation: Invocation, code: &'static str, detail: &str) -> Run 
         3,
         stages,
         format!("{code}: {detail}\n"),
-        json!({}),
+        // Carry the diagnostic code like fault_run does, so callers can
+        // distinguish BLOCKED reasons in JSON without parsing text.
+        json!({"diagnostic": code}),
     )
 }
 

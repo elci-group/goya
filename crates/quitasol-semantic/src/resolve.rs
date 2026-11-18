@@ -163,9 +163,7 @@ fn bool_str(value: bool) -> &'static str {
 /// cells are not focusable. This is not the shared N0-FOCUSGRAPH lowering:
 /// no viewport policy, scroll-container semantics or essential-element
 /// derivation beyond the caller's markers is claimed.
-pub fn scene_focus_elements(
-    frame_nodes: &[goya_lang::DrawNode],
-) -> Vec<FocusElement> {
+pub fn scene_focus_elements(frame_nodes: &[goya_lang::DrawNode]) -> Vec<FocusElement> {
     frame_nodes
         .iter()
         .enumerate()
@@ -191,14 +189,15 @@ pub fn device_support(profile_id: &str) -> Result<DeviceSupport, IntentDiagnosti
         name: format!("unknown OEM profile: {error}"),
         range: SourceRange { start: 0, end: 0 },
     })?;
-    let support = dcr::resolve(&profile.census).map_err(|error: ResolveError| IntentDiagnostic {
-        code: QS_E2003,
-        name: format!(
-            "profile {} census fails the Nevada baseline: {error}",
-            profile.id()
-        ),
-        range: SourceRange { start: 0, end: 0 },
-    })?;
+    let support =
+        dcr::resolve(&profile.census).map_err(|error: ResolveError| IntentDiagnostic {
+            code: QS_E2003,
+            name: format!(
+                "profile {} census fails the Nevada baseline: {error}",
+                profile.id()
+            ),
+            range: SourceRange { start: 0, end: 0 },
+        })?;
     Ok(DeviceSupport::from_support(profile.id(), support))
 }
 
@@ -239,7 +238,7 @@ pub fn resolve_manifest(
 
     let mut fallbacks = Vec::new();
     for intent in &scene.intents {
-        let mut resolve_target = |target: &Option<String>, reachability: bool| {
+        let resolve_target = |target: &Option<String>, reachability: bool| {
             let Some(target) = target else {
                 return Ok(None);
             };
@@ -273,7 +272,8 @@ pub fn resolve_manifest(
                 code: QS_E2002,
                 name: format!(
                     "intent {}: remote fallback {} is unreachable by D-pad focus",
-                    intent.name, remote.as_ref().unwrap().name
+                    intent.name,
+                    remote.as_ref().unwrap().name
                 ),
                 range: intent.range,
             });
@@ -328,10 +328,10 @@ mod tests {
         // collapse); go, back, field follow, then the plain panel.
         let focusable: Vec<bool> = elements.iter().map(|e| e.focusable).collect();
         assert_eq!(focusable, vec![false, true, true, true, false]);
-        // Millipoint geometry flows through unchanged.
-        assert_eq!(elements[0].x, 100_000);
-        assert_eq!(elements[0].w, 200_000);
-        assert!(!elements[3].focusable);
+        // Millipoint geometry flows through unchanged (element 1 = `go`).
+        assert_eq!(elements[1].x, 100_000);
+        assert_eq!(elements[1].w, 200_000);
+        assert!(!elements[4].focusable);
     }
 
     #[test]
@@ -360,9 +360,8 @@ mod tests {
     #[test]
     fn reachable_fallbacks_resolve_with_device_and_deterministic_json() {
         let scene = parse(SCENE).unwrap();
-        let resolved =
-            resolve_manifest(&scene, "oem.acme.voice-remote/1.0.0", 800.0, 600.0)
-                .expect("fallbacks exist and are reachable");
+        let resolved = resolve_manifest(&scene, "oem.acme.voice-remote/1.0.0", 800.0, 600.0)
+            .expect("fallbacks exist and are reachable");
         assert!(resolved.device().voice_input);
         let fallbacks = resolved.fallbacks();
         assert_eq!(fallbacks.len(), 1);
@@ -404,8 +403,7 @@ mod tests {
         // so D-pad focus can never reach it.
         let mutant = SCENE.replacen("remote: back;", "remote: panel;", 1);
         let scene = parse(&mutant).unwrap();
-        let error =
-            resolve_manifest(&scene, "oem.generic.tv/1.0.0", 800.0, 600.0).unwrap_err();
+        let error = resolve_manifest(&scene, "oem.generic.tv/1.0.0", 800.0, 600.0).unwrap_err();
         assert_eq!(error.code, QS_E2002);
         assert!(error.name.contains("unreachable by D-pad focus"), "{error}");
         assert!(mutant[error.range.start..error.range.end].starts_with("@intent main"));
@@ -415,8 +413,7 @@ mod tests {
     fn unknown_fallback_target_is_rejected_fail_closed() {
         let mutant = SCENE.replacen("remote: back;", "remote: nowhere;", 1);
         let scene = parse(&mutant).unwrap();
-        let error =
-            resolve_manifest(&scene, "oem.generic.tv/1.0.0", 800.0, 600.0).unwrap_err();
+        let error = resolve_manifest(&scene, "oem.generic.tv/1.0.0", 800.0, 600.0).unwrap_err();
         assert_eq!(error.code, QS_E2001);
         assert!(error.name.contains("names no scene element"), "{error}");
     }
@@ -425,10 +422,11 @@ mod tests {
     fn compile_errors_precede_resolution_errors() {
         let mutant = SCENE.replacen("action: act;", "action: missing;", 1);
         let scene = parse(&mutant).unwrap();
-        let error =
-            resolve_manifest(&scene, "oem.generic.tv/1.0.0", 800.0, 600.0).unwrap_err();
+        let error = resolve_manifest(&scene, "oem.generic.tv/1.0.0", 800.0, 600.0).unwrap_err();
         assert_eq!(error.code, "GY-E1011");
-        assert!(error.name.contains("does not reference a declared interaction"));
+        assert!(error
+            .name
+            .contains("does not reference a declared interaction"));
     }
 
     #[test]
@@ -447,8 +445,10 @@ mod tests {
 
     #[test]
     fn resolution_is_a_pure_function_of_scene_and_profile() {
-        let a = resolve_manifest(&parse(SCENE).unwrap(), "oem.generic.tv/1.0.0", 800.0, 600.0).unwrap();
-        let b = resolve_manifest(&parse(SCENE).unwrap(), "oem.generic.tv/1.0.0", 800.0, 600.0).unwrap();
+        let a =
+            resolve_manifest(&parse(SCENE).unwrap(), "oem.generic.tv/1.0.0", 800.0, 600.0).unwrap();
+        let b =
+            resolve_manifest(&parse(SCENE).unwrap(), "oem.generic.tv/1.0.0", 800.0, 600.0).unwrap();
         assert_eq!(a, b);
         assert_eq!(a.to_json(), b.to_json());
     }

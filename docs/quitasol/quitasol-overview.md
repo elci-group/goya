@@ -10,11 +10,12 @@ packaging or Alexa conformance is claimed.
 | Target | Ecosystem | Interaction priority |
 | --- | --- | --- |
 | Aragon | Android | Touch-first |
-| Nevada | Android TV | Remote-first (proposed; not implemented) |
+| Nevada | Android TV | Remote-first (phase 0 exists: `crates/nevada`) |
 | Quitasol | Fire TV | Voice-optimised |
 
-Quitasol shares proposed Nevada television infrastructure (spatial
-navigation, TV layout, hardware capability resolution) and adds a semantic
+Quitasol shares the Nevada television infrastructure (spatial navigation,
+TV layout, hardware capability resolution — `nevada.focus/0.0.1`,
+`nevada.profiles/0.0.1`, `nevada.dcr/0.0.1`) and adds a semantic
 interaction layer: translation of application functionality into
 voice-addressable actions, with conventional remote navigation preserved.
 
@@ -34,10 +35,17 @@ Eleven subsystems are described in the source proposal. The load-bearing
 initial three, in dependency order:
 
 1. **Semantic Intent Compiler** — classify voice-addressable actions.
-2. **Utterance Generator** — emit interaction definitions against a pinned
-   grammar (see [intents](intents.md) §6, open).
+   Draft implemented (phase 0).
+2. **Utterance Generator** — emit interaction definitions against the
+   pinned `quitasol.utterance.v0` grammar. Validated (phase 0); generation
+   of platform interaction definitions remains open (see
+   [intents](intents.md) §6).
 3. **OEM Capability Resolver** — resolve device, OS and remote capabilities.
+   Draft implemented over `nevada::profiles` + `nevada::dcr` (Q1); real
+   device censuses are BLOCKED (see [phase1](phase1.md)).
 
+The **Remote Fallback Engine** is also draft implemented (Q1): remote
+fallback targets must be D-pad-reachable (`nevada::focus`), `QS-E2002`.
 The Dialogue Manager, Confirmation Engine and remaining subsystems are not
 exercisable before native media integration (Q3+) and are treated as
 contingent, not committed.
@@ -53,6 +61,9 @@ contingent, not committed.
 ## 5. Related documents
 
 - [Intent primitive design](intents.md)
+- [Phase 0 record](phase0.md) — intent primitive
+- [Phase 1 record](phase1.md) — capability resolution over Nevada
+- [Q0 capability audit](q0-capability-audit.md) — what Amazon documents
 - [Gestures grounding](../gestures-grounding.md) — contrast for the
   physical/verbal split
 - [Gestures decision register](../gestures-decisions.md) — the G0

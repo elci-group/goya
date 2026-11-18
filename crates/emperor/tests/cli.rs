@@ -281,7 +281,11 @@ fn package_deb_builds_a_real_debian_archive() {
         .arg(deb)
         .output()
         .expect("dpkg-deb -I");
-    assert!(inspect.status.success(), "{}", String::from_utf8_lossy(&inspect.stderr));
+    assert!(
+        inspect.status.success(),
+        "{}",
+        String::from_utf8_lossy(&inspect.stderr)
+    );
     let control = String::from_utf8_lossy(&inspect.stdout);
     assert!(control.contains("Package: emperor-counter"), "{}", control);
     assert!(
@@ -306,20 +310,34 @@ fn appimage_flatpak_and_rpm_stay_blocked() {
         assert_eq!(blocked.code, 3, "{}: {}", format, blocked.text);
         assert_eq!(blocked.json["diagnostic"], "EMP-PACKAGE", "{}", format);
     }
-    let appimage = run(&["package", "--format", "appimage", "missing-demo-a-package-dir"]);
+    let appimage = run(&[
+        "package",
+        "--format",
+        "appimage",
+        "missing-demo-a-package-dir",
+    ]);
     assert!(
         appimage.text.contains("no appimagetool on this host"),
         "{}",
         appimage.text
     );
-    let flatpak = run(&["package", "--format", "flatpak", "missing-demo-a-package-dir"]);
+    let flatpak = run(&[
+        "package",
+        "--format",
+        "flatpak",
+        "missing-demo-a-package-dir",
+    ]);
     assert!(
         flatpak.text.contains("no flatpak-builder on this host"),
         "{}",
         flatpak.text
     );
     let rpm = run(&["package", "--format", "rpm", "missing-demo-a-package-dir"]);
-    assert!(rpm.text.contains("no rpmbuild on this host"), "{}", rpm.text);
+    assert!(
+        rpm.text.contains("no rpmbuild on this host"),
+        "{}",
+        rpm.text
+    );
 }
 
 #[test]

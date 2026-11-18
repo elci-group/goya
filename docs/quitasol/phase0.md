@@ -56,4 +56,8 @@ undocumented.
 ```
 cargo test -p goya-lang --offline
 cargo test -p quitasol-semantic --offline
+cargo test -p nevada --offline
 ```
+
+Q1 extends `quitasol-semantic` with capability resolution over Nevada; see
+[phase1.md](phase1.md).

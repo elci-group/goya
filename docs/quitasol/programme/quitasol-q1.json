@@ -1,0 +1,64 @@
+{
+  "directive": "QUITASOL-Q1",
+  "directive_version": "0.0.1",
+  "recorded_on": "2026-11-18",
+  "phase_doc": "docs/quitasol/phase1.md",
+  "summary": "Q1 voice capability resolution over the Nevada television infrastructure. crates/quitasol-semantic gains src/resolve.rs: OEM Capability Resolver (nevada::profiles exact-id lookup + nevada::dcr::resolve projected into DeviceSupport), Remote Fallback Engine (fallback targets must name scene elements; remote targets must be D-pad-reachable via nevada::focus unreachable_essential with targets marked essential), and resolve_manifest extending the phase-0 compiler with deterministic device + fallback_resolution manifest sections. Nevada's built-in profiles are synthetic; no real Fire TV census is claimed. The scene-to-focus-element lowering is a Quitasol-minimal variant and does not claim Nevada's N0-FOCUSGRAPH shared lowering. The manifest lowering tier stays unresolved: device support records hardware expressions only and never claims Alexa integration. crates/nevada and crates/goya-lang are unchanged.",
+  "gates": {
+    "library_tests": {
+      "status": "PASS",
+      "command": "cargo test -p quitasol-semantic --offline",
+      "result": "17 passed, 0 failed (10 phase-0 + 8 resolve tests, of which 1 overlaps)",
+      "note": "Exact counts re-verify at admission time; the suite covers reachable and unreachable fallbacks, unknown targets, unknown profiles, census projection, compile-error precedence, zero-intent scenes, and byte-deterministic JSON."
+    },
+    "nevada_consumption_determinism": {
+      "status": "PASS",
+      "claim": "resolution-is-a-pure-function",
+      "note": "resolve_manifest over the same scene source and profile id yields byte-identical JSON across runs; layout, focus reachability and the profile registry are deterministic pure functions.",
+      "consumed_contracts": [
+        "nevada.profiles/0.0.1",
+        "nevada.dcr/0.0.1",
+        "nevada.focus/0.0.1"
+      ]
+    },
+    "nevada_unchanged": {
+      "status": "PASS",
+      "command": "cargo test -p nevada --offline",
+      "note": "crates/nevada is consumed as a path dependency and not modified; its own suite passes unchanged. N0-FOCUSGRAPH and N0-TRANSLATECTX remain Nevada programme items."
+    },
+    "goya_lang_regression": {
+      "status": "PASS",
+      "command": "cargo test -p goya-lang --offline",
+      "note": "goya-lang is unchanged by Q1; the regression run confirms no coupling was introduced."
+    },
+    "real_device_census": {
+      "status": "BLOCKED",
+      "reason": "Nevada's four built-in OEM profiles are synthetic static data. No real Fire TV device census exists in the workspace, and the Q0 audit records that the Vega developer program terms are not public. Resolution against real hardware requires the N0-CENSUS profile supply chain and registered devices."
+    },
+    "runtime_capability_reresolution": {
+      "status": "BLOCKED",
+      "reason": "Compile-time DeviceSupport is not a device guarantee (Nevada gap N0-RERESOLVE). No runtime exists to re-check a census mismatch; no mismatch behaviour (refuse/degrade/fail-closed) is claimed."
+    },
+    "voice_platform_integration": {
+      "status": "BLOCKED",
+      "reason": "The manifest lowering tier remains unresolved. DeviceSupport.voice_input records a census microphone only; the Q0 audit documents that no self-serve Alexa search/skill path exists on Fire OS and the Vega third-party voice API contract is undocumented."
+    },
+    "shared_focus_lowering": {
+      "status": "BLOCKED",
+      "reason": "The scene-to-FocusElement lowering here is a Quitasol-minimal variant (buttons/inputs focusable). Nevada's N0-FOCUSGRAPH shared lowering with viewport policy, scroll containers and essential-element derivation is owned by the Nevada programme and supersedes this variant when it exists."
+    }
+  },
+  "toolchain": {
+    "rustc": "1.95.0 (workspace toolchain)",
+    "crate": "quitasol-semantic 0.1.8",
+    "new_dependency": "goya-nevada = { path = \"../nevada\" } (package goya-nevada 0.0.1)"
+  },
+  "unchanged": [
+    "DIRECTIVE_ID series QUITASOL-*; the Quitasol proposal remains proposed, not ratified.",
+    "Intent contract QUITASOL-INTENT-IR/1-draft and profile quitasol.intent.v0 are unchanged; the manifest gains sections in draft, which the draft stability clause permits.",
+    "crates/nevada is not modified; Nevada programme items N0-FOCUSGRAPH, N0-TRANSLATECTX, N0-CENSUS, N0-RERESOLVE, N0-DIAGNOSTICS remain theirs.",
+    "crates/goya-lang is not modified by Q1; GY-INTENT/1-draft invariants are unchanged.",
+    "No Alexa, VSK, Fire OS codegen or Vega backend is implemented or claimed."
+  ],
+  "next_unblock": "External: a real Fire TV device census (N0-CENSUS supply chain) and registered hardware for runtime re-resolution. Internal: Nevada phase 1's shared scene-to-FocusElement lowering (N0-FOCUSGRAPH), which Quitasol should consume instead of its minimal variant; and the Nevada phase-1 validator gate, which the fallback reachability conformance could feed into."
+}

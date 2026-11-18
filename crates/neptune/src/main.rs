@@ -448,6 +448,55 @@ fn main() -> ExitCode {
         println!("{description}");
         return ExitCode::SUCCESS;
     }
+    if args.len() >= 2 && args[1] == "plan-bluetooth-privacy" {
+        let mut usage_description = None;
+        let mut contracts = None;
+        for option in args[2..].chunks(2) {
+            if option.len() != 2 {
+                eprintln!("missing option value");
+                return ExitCode::from(2);
+            }
+            if option[0] == "--usage-description" && usage_description.is_none() {
+                usage_description = option[1].to_str();
+                if usage_description.is_none() {
+                    eprintln!("usage description must be UTF-8");
+                    return ExitCode::from(2);
+                }
+            } else if option[0] == "--contracts" && contracts.is_none() {
+                contracts = option[1].to_str();
+                if contracts.is_none() {
+                    eprintln!("contract list must be UTF-8");
+                    return ExitCode::from(2);
+                }
+            } else {
+                eprintln!("unknown or duplicate option");
+                return ExitCode::from(2);
+            }
+        }
+        let Some(usage_description) = usage_description else {
+            eprintln!("usage: neptune plan-bluetooth-privacy --usage-description <string> [--contracts <comma-separated-contracts>]");
+            return ExitCode::from(2);
+        };
+        // Build the same request the service protocol receives and emit the
+        // exact response Session::handle produces for it.
+        let mut request = serde_json::json!({
+            "schema_version": "1",
+            "job_id": "cli",
+            "operation": "plan-bluetooth-privacy",
+            "usage_description": usage_description,
+        });
+        if let Some(contracts) = contracts {
+            let list: Vec<&str> = contracts.split(',').collect();
+            request["contracts"] = serde_json::json!(list);
+        }
+        let mut session = neptune::service::Session::default();
+        let response = session.handle(&request);
+        println!("{response}");
+        return match response["status"].as_str() {
+            Some("PASS") => ExitCode::SUCCESS,
+            _ => ExitCode::FAILURE,
+        };
+    }
     if args.len() < 3
         || (args[1] != "inspect"
             && args[1] != "check"

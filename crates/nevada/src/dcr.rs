@@ -143,19 +143,22 @@ pub fn resolve(census: &DeviceProfile) -> Result<InteractionSupport, ResolveErro
         ));
     }
 
-    // A motion sensor without a usable output path must NOT enable the
-    // enhanced interaction (fail-closed).
+    // Presence is not usability. A motion sensor without a usable output
+    // path enables nothing (fail-closed); conversely a remote that exposes
+    // native pointer events IS usable for spatial pointing even without a
+    // declared accelerometer/gyroscope — the output path is the usability
+    // evidence, and sensor presence alone never enables it.
     let motion_sensor_present =
         census.has(HardwareCapability::Accelerometer) || census.has(HardwareCapability::Gyroscope);
-    let motion_usable = motion_sensor_present && census.motion_output != MotionOutput::None;
+    let motion_output_usable = census.motion_output != MotionOutput::None;
 
     let peripheral =
         census.has(HardwareCapability::Bluetooth) || census.has(HardwareCapability::Usb);
 
     Ok(InteractionSupport {
         spatial_navigation: true,
-        motion_gestures: motion_usable,
-        spatial_pointer: motion_usable && census.motion_output == MotionOutput::NativePointerEvents,
+        motion_gestures: motion_sensor_present && motion_output_usable,
+        spatial_pointer: census.motion_output == MotionOutput::NativePointerEvents,
         touch_scrolling: census.has(HardwareCapability::Touchpad),
         voice_input: census.has(HardwareCapability::Microphone),
         peripheral_connectivity: peripheral,

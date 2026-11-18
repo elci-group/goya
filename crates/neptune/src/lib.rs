@@ -108,7 +108,9 @@ pub fn preview_bundle_with_bluetooth(
     let capabilities = match bluetooth {
         None => serde_json::json!({"schema_version":"2", "profile":"source_preview", "capabilities":[{"semantic_id":"goya.text.static", "adapter":"swiftui.Text", "status":"experimental", "minimum_os":null, "frameworks":["SwiftUI"], "entitlements":[], "usage_description_keys":[], "privacy_declarations":"owner_review_required", "test_status":"apple_validation_not_run", "fallback":"reject"}]}).to_string() + "\n",
         Some(input) => {
-            let plan = crate::bluetooth::plan_bluetooth_privacy(&input.usage_description)?;
+            // Guard validation is the point: generic or placeholder
+            // descriptions fail closed before any inventory entry is emitted.
+            crate::bluetooth::plan_bluetooth_privacy(&input.usage_description)?;
             let mut contracts = input.contracts.clone();
             if contracts.is_empty() {
                 contracts = crate::bluetooth::contract_table()
