@@ -465,6 +465,205 @@ fn verify(invocation: Invocation) -> Run {
     )
 }
 
+/// Local qualification of one build directory.
+///
+/// Limitations, stated plainly:
+///
+/// - This is a LOCAL-RELEASE qualification. It executes everything the
+///   current host can execute: the same static verification as `verify`
+///   (build report read, sha256 match against `App`, ELF header and program
+///   header checks), the headless oracle, and the windowed smoke when a
+///   display is reachable.
+/// - It does NOT claim the full linux-release matrix. That matrix is a
+///   multi-machine run and has not been executed here; the final pipeline
+///   stage is reported `BLOCKED` with that reason, never `PASS`.
+/// - Windows parity is not executed and not claimed. Signing is not
+///   implemented. Both fold into the same blocked final stage.
+/// - Exit codes mirror `verify`: 4 on static/ELF failure, 5 on a runtime
+///   failure (oracle or a run smoke), and 0 when static verification and the
+///   oracle passed even if the smoke stayed `BLOCKED` for lack of a display.
+///   A missing display is not a failure, matching `build`'s convention.
+/// - `--launch` is honoured in a reduced form: requesting it without a
+///   reachable display records an explicit blocked reason in the smoke stage
+///   instead of silently skipping. Qualify always attempts the smoke when a
+///   display exists; it does not wait for `--launch` to do so.
+fn qualify(invocation: Invocation) -> Run {
+    let directory = match invocation.directory.clone() {
+        Some(path) => path,
+        None => {
+            return fault_run(
+                &invocation,
+                Fault::new(2, "EMP-USAGE", "qualify requires a build directory"),
+            )
+        }
+    };
+    if let Err(fault) = reject_traversal(&directory) {
+        return fault_run(&invocation, fault);
+    }
+    let app = directory.join("App");
+    let report_path = directory.join("build-report.json");
+    let report_bytes = match fs::read(&report_path) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            return fault_run(
+                &invocation,
+                Fault::new(
+                    4,
+                    "EMP-ELF",
+                    format!("could not read {}: {error}", report_path.display()),
+                ),
+            )
+        }
+    };
+    let report: Value = match serde_json::from_slice(&report_bytes) {
+        Ok(value) => value,
+        Err(error) => {
+            return fault_run(
+                &invocation,
+                Fault::new(4, "EMP-ELF", format!("build report is not JSON: {error}")),
+            )
+        }
+    };
+    let recorded = report
+        .get("artifact_sha256")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_owned();
+    let (bytes, _length, digest) = match hash_and_elf_prefix(&app) {
+        Ok(read) => read,
+        Err(fault) => return fault_run(&invocation, fault),
+    };
+    if digest != recorded {
+        return fault_run(
+            &invocation,
+            Fault::new(
+                4,
+                "EMP-ELF",
+                format!("artifact sha256 {digest} does not match the build report"),
+            ),
+        );
+    }
+    let target = report
+        .get("target")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_owned();
+    let release = report
+        .get("release")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let machine = match target::elf_machine(&target) {
+        Some(machine) => machine,
+        None => {
+            return fault_run(
+                &invocation,
+                Fault::new(4, "EMP-ELF", "build report has no admitted ELF machine"),
+            )
+        }
+    };
+    if let Err(message) =
+        elf::parse(&bytes).and_then(|summary| elf::check(&summary, machine, release))
+    {
+        return fault_run(&invocation, Fault::new(4, "EMP-ELF", message));
+    }
+    let oracle = match run_captured(&app, &["--oracle"], Duration::from_secs(20)) {
+        Ok(captured) if captured.code == 0 => captured,
+        Ok(captured) => {
+            return fault_run(
+                &invocation,
+                Fault::new(
+                    5,
+                    "EMP-RUNTIME",
+                    format!("oracle exited {}\n{}", captured.code, captured.stderr),
+                ),
+            )
+        }
+        Err(fault) => return fault_run(&invocation, fault),
+    };
+    let window = report
+        .get("window")
+        .and_then(Value::as_str)
+        .unwrap_or("wayland")
+        .to_owned();
+    // The smoke runs only when this host can actually open a window. Without
+    // a display the stage is BLOCKED, not FAILED: nothing was attempted.
+    let (smoke_status, smoke_exit, smoke_detail) = if display_ready(&window) {
+        match run_captured(&app, &["--smoke"], Duration::from_secs(25)) {
+            Ok(captured) if captured.code == 0 && smoke_matches(&window, &captured.stdout) => {
+                (Status::Pass, 0u8, captured.stdout)
+            }
+            Ok(captured) => {
+                return fault_run(
+                    &invocation,
+                    Fault::new(
+                        5,
+                        "EMP-RUNTIME",
+                        format!("smoke exited {}\n{}", captured.code, captured.stderr),
+                    ),
+                )
+            }
+            Err(fault) => return fault_run(&invocation, fault),
+        }
+    } else if invocation.launch {
+        (
+            Status::Blocked,
+            0u8,
+            format!(
+                "launch was requested and {} is unset; the smoke was not attempted",
+                display_env(&window)
+            ),
+        )
+    } else {
+        (
+            Status::Blocked,
+            0u8,
+            format!(
+                "no {} display; the windowed smoke was not attempted",
+                display_name(&window)
+            ),
+        )
+    };
+    let mut stages = Stages::new();
+    for (index, name) in crate::stage::NAMES.iter().enumerate() {
+        if *name == "runtime-conformance" {
+            stages.push(smoke_status, smoke_detail.clone());
+        } else if name == &"static-verification" {
+            stages.push(
+                Status::Pass,
+                format!("sha256 {digest} matches the build report"),
+            );
+        } else if index < 11 {
+            stages.push(Status::NotApplicable, "qualify does not repeat admission");
+        } else {
+            stages.push(
+                Status::Blocked,
+                "the multi-machine linux-release matrix, Windows parity, and signing were not executed on this host",
+            );
+        }
+    }
+    let exit = if smoke_status == Status::Pass {
+        0
+    } else {
+        smoke_exit
+    };
+    finish(
+        &invocation,
+        exit,
+        stages,
+        format!("qualified {digest}\n{}\n", oracle.stdout.trim()),
+        json!({
+            "artifact_sha256": digest,
+            "oracle_stdout": oracle.stdout,
+            "smoke": smoke_status.as_str().to_lowercase(),
+            "smoke_detail": smoke_detail,
+            "qualification_scope": "local-release",
+            "window": window,
+            "target": target,
+            "release": release,
+        }),
+    )
+}
+
 fn test_scene(invocation: Invocation) -> Run {
     let suite = invocation.suite.as_deref().unwrap_or("conformance");
     if suite == "desktop-sota" {

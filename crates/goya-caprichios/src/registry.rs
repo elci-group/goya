@@ -11,9 +11,17 @@ use crate::bluetooth_caprichio::{
     BluetoothCentralArtifact, BluetoothCentralDeclaration, RuntimeCapabilities as BluetoothHost,
     Target as BluetoothTarget,
 };
+use crate::bluetooth_continuity_caprichio::{
+    BluetoothContinuityArtifact, BluetoothContinuityDeclaration,
+    RuntimeCapabilities as BluetoothContinuityHost, Target as BluetoothContinuityTarget,
+};
 use crate::bluetooth_control_caprichio::{
     BluetoothGattArtifact, BluetoothGattDeclaration, RuntimeCapabilities as BluetoothGattHost,
     Target as BluetoothGattTarget,
+};
+use crate::bluetooth_guard_caprichio::{
+    BluetoothGuardArtifact, BluetoothGuardDeclaration, RuntimeCapabilities as BluetoothGuardHost,
+    Target as BluetoothGuardTarget,
 };
 use crate::bluetooth_stream_caprichio::{
     BluetoothStreamArtifact, BluetoothStreamDeclaration, RuntimeCapabilities as BluetoothStreamHost,
@@ -141,6 +149,8 @@ pub struct Request {
     pub bluetooth_central: Option<BluetoothCentralDeclaration>,
     pub bluetooth_gatt: Option<BluetoothGattDeclaration>,
     pub bluetooth_stream: Option<BluetoothStreamDeclaration>,
+    pub bluetooth_guard: Option<BluetoothGuardDeclaration>,
+    pub bluetooth_continuity: Option<BluetoothContinuityDeclaration>,
 }
 
 /// Host facts are supplied by the caller; the registry does not infer support
@@ -203,6 +213,10 @@ pub struct HostProfile {
     pub bluetooth_gatt_host: BluetoothGattHost,
     pub bluetooth_stream_target: BluetoothStreamTarget,
     pub bluetooth_stream_host: BluetoothStreamHost,
+    pub bluetooth_guard_target: BluetoothGuardTarget,
+    pub bluetooth_guard_host: BluetoothGuardHost,
+    pub bluetooth_continuity_target: BluetoothContinuityTarget,
+    pub bluetooth_continuity_host: BluetoothContinuityHost,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -236,6 +250,8 @@ pub enum Artifact {
     Bluetooth(BluetoothCentralArtifact),
     BluetoothGatt(BluetoothGattArtifact),
     BluetoothStream(BluetoothStreamArtifact),
+    BluetoothGuard(BluetoothGuardArtifact),
+    BluetoothContinuity(BluetoothContinuityArtifact),
 }
 
 impl Artifact {
@@ -270,6 +286,8 @@ impl Artifact {
             Self::Bluetooth(a) => a.contract,
             Self::BluetoothGatt(a) => a.contract,
             Self::BluetoothStream(a) => a.contract,
+            Self::BluetoothGuard(a) => a.contract,
+            Self::BluetoothContinuity(a) => a.contract,
         }
     }
 
@@ -304,6 +322,8 @@ impl Artifact {
             Self::Bluetooth(_) => "apple-ble-central-bounded-scan",
             Self::BluetoothGatt(_) => "apple-ble-gatt-bounded-commands",
             Self::BluetoothStream(_) => "apple-ble-stream-bounded-notifications",
+            Self::BluetoothGuard(_) => "apple-ble-guard-bounded-authorisation",
+            Self::BluetoothContinuity(_) => "apple-ble-continuity-bounded-restoration",
         }
     }
 
@@ -338,6 +358,8 @@ impl Artifact {
             Self::Bluetooth(a) => a.recipe_version,
             Self::BluetoothGatt(a) => a.recipe_version,
             Self::BluetoothStream(a) => a.recipe_version,
+            Self::BluetoothGuard(a) => a.recipe_version,
+            Self::BluetoothContinuity(a) => a.recipe_version,
         }
     }
 
@@ -372,6 +394,8 @@ impl Artifact {
             Self::Bluetooth(a) => &a.canonical_ir,
             Self::BluetoothGatt(a) => &a.canonical_ir,
             Self::BluetoothStream(a) => &a.canonical_ir,
+            Self::BluetoothGuard(a) => &a.canonical_ir,
+            Self::BluetoothContinuity(a) => &a.canonical_ir,
         }
     }
 
@@ -406,6 +430,8 @@ impl Artifact {
             Self::Bluetooth(a) => &a.source,
             Self::BluetoothGatt(a) => &a.source,
             Self::BluetoothStream(a) => &a.source,
+            Self::BluetoothGuard(a) => &a.source,
+            Self::BluetoothContinuity(a) => &a.source,
         }
     }
 }
@@ -437,7 +463,9 @@ pub const fn supported_contracts() -> &'static [&'static str] {
         crate::touch_id_caprichio::CONTRACT,
         crate::windows_hello_caprichio::CONTRACT,
         crate::bluetooth_caprichio::CONTRACT,
+        crate::bluetooth_continuity_caprichio::CONTRACT,
         crate::bluetooth_control_caprichio::CONTRACT,
+        crate::bluetooth_guard_caprichio::CONTRACT,
         crate::bluetooth_stream_caprichio::CONTRACT,
         crate::metal_caprichio::CONTRACT,
         crate::apple_pay_caprichio::CONTRACT,
@@ -488,6 +516,8 @@ pub enum NegotiationError {
     Bluetooth(crate::bluetooth_caprichio::Diagnostic),
     BluetoothGatt(crate::bluetooth_control_caprichio::Diagnostic),
     BluetoothStream(crate::bluetooth_stream_caprichio::Diagnostic),
+    BluetoothGuard(crate::bluetooth_guard_caprichio::Diagnostic),
+    BluetoothContinuity(crate::bluetooth_continuity_caprichio::Diagnostic),
 }
 
 impl fmt::Display for NegotiationError {
@@ -541,6 +571,10 @@ impl fmt::Display for NegotiationError {
             }
             Self::BluetoothStream(error) => {
                 write!(f, "Bluetooth stream negotiation failed: {error}")
+            }
+            Self::BluetoothGuard(error) => write!(f, "Bluetooth guard negotiation failed: {error}"),
+            Self::BluetoothContinuity(error) => {
+                write!(f, "Bluetooth continuity negotiation failed: {error}")
             }
         }
     }
