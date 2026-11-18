@@ -2792,7 +2792,7 @@ mod tests {
     fn static_fixture_digest_is_pinned() {
         let window = admit::admit(include_str!("../fixtures/static-window.gscene")).unwrap();
         let generated = codegen_from_ir(
-            &crate::ir_lower::lower_static_window(&window),
+            &crate::ir_lower::lower_static_window(&window, crate::api_floor::ApiFloor::Win10),
             crate::api_floor::ApiFloor::Win10,
         );
         assert_eq!(
@@ -2805,7 +2805,7 @@ mod tests {
     fn nested_static_fixture_digest_is_pinned() {
         let window = admit::admit(include_str!("../fixtures/nested-static.gscene")).unwrap();
         let generated = codegen_from_ir(
-            &crate::ir_lower::lower_static_window(&window),
+            &crate::ir_lower::lower_static_window(&window, crate::api_floor::ApiFloor::Win10),
             crate::api_floor::ApiFloor::Win10,
         );
         assert_eq!(
@@ -2822,7 +2822,7 @@ mod tests {
             SceneTarget::Static(_) => panic!("counter was admitted as a static window"),
         };
         let generated = codegen_from_ir(
-            &crate::ir_lower::lower_interactive_window(&app),
+            &crate::ir_lower::lower_interactive_window(&app, crate::api_floor::ApiFloor::Win10),
             crate::api_floor::ApiFloor::Win10,
         );
         assert_eq!(
@@ -2835,11 +2835,11 @@ mod tests {
     fn ir_codegen_is_deterministic() {
         let window = admit::admit(include_str!("../fixtures/static-window.gscene")).unwrap();
         let first = codegen_from_ir(
-            &crate::ir_lower::lower_static_window(&window),
+            &crate::ir_lower::lower_static_window(&window, crate::api_floor::ApiFloor::Win10),
             crate::api_floor::ApiFloor::Win10,
         );
         let second = codegen_from_ir(
-            &crate::ir_lower::lower_static_window(&window),
+            &crate::ir_lower::lower_static_window(&window, crate::api_floor::ApiFloor::Win10),
             crate::api_floor::ApiFloor::Win10,
         );
         assert_eq!(first.main_rs, second.main_rs);
@@ -2854,11 +2854,11 @@ mod tests {
             SceneTarget::Static(_) => panic!("counter was admitted as a static window"),
         };
         let first = codegen_from_ir(
-            &crate::ir_lower::lower_interactive_window(&app),
+            &crate::ir_lower::lower_interactive_window(&app, crate::api_floor::ApiFloor::Win10),
             crate::api_floor::ApiFloor::Win10,
         );
         let second = codegen_from_ir(
-            &crate::ir_lower::lower_interactive_window(&app),
+            &crate::ir_lower::lower_interactive_window(&app, crate::api_floor::ApiFloor::Win10),
             crate::api_floor::ApiFloor::Win10,
         );
         assert_eq!(first.main_rs, second.main_rs);
@@ -2877,7 +2877,7 @@ mod tests {
             include_str!("../fixtures/nested-static.gscene"),
         ] {
             let window = admit::admit(source).unwrap();
-            let ir = crate::ir_lower::lower_static_window(&window);
+            let ir = crate::ir_lower::lower_static_window(&window, crate::api_floor::ApiFloor::Win10);
             let generated = codegen_static_window(&ir);
             let origins = generated.source_map["files"][0]["origins"]
                 .as_array()
@@ -2911,7 +2911,7 @@ mod tests {
             SceneTarget::Static(_) => panic!("counter was admitted as a static window"),
         };
         let generated = codegen_from_ir(
-            &crate::ir_lower::lower_interactive_window(&app),
+            &crate::ir_lower::lower_interactive_window(&app, crate::api_floor::ApiFloor::Win10),
             crate::api_floor::ApiFloor::Win10,
         );
         let origins = generated.source_map["files"][0]["origins"]
