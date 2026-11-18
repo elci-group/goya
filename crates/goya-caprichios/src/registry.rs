@@ -1546,6 +1546,8 @@ mod tests {
             bluetooth_profile_host: BluetoothProfileHost {
                 utf8_strings: true,
             },
+            accelerator_model_target: AcceleratorModelTarget::CrossPlatform,
+            accelerator_model_host: AcceleratorModelHost::default(),
         }
     }
 
@@ -2987,6 +2989,7 @@ mod tests {
             bluetooth_continuity: None,
             bluetooth_access: None,
             bluetooth_profile: None,
+            accelerator_model: None,
         };
         let result = negotiate(&request, host()).unwrap();
         assert_eq!(
@@ -4125,6 +4128,7 @@ mod tests {
             bluetooth_continuity: None,
             bluetooth_access: None,
             bluetooth_profile: None,
+            accelerator_model: None,
         };
         let start = Instant::now();
         let iterations = 10_000;
