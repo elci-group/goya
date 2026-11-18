@@ -53,7 +53,7 @@ pub const GENERATIONS: &[(&str, MediaTekFacts)] = &[
     ("Dimensity 8100",  MediaTekFacts { series: "8", soc: "MT6895", apu_dsp: "APU 580", npu_tops_tenths: None, int8_accel: true, fp16_accel: true, year: 2022 }),
     ("Dimensity 8200",  MediaTekFacts { series: "8", soc: "MT6896", apu_dsp: "APU 580", npu_tops_tenths: None, int8_accel: true, fp16_accel: true, year: 2022 }),
     ("Dimensity 8300",  MediaTekFacts { series: "8", soc: "MT6897", apu_dsp: "APU 680", npu_tops_tenths: None, int8_accel: true, fp16_accel: true, year: 2023 }),
-    ("Dimensity 8400",  MediaTekFacts { series: "8", soc: "MT6899", apu_dsp: "NPU 880 (APU-lineage, Gen-AI/agentic)", npu_tops_tenths: None, int8_accel: true, fp16_accel: true, year: 2024 }),
+    ("Dimensity 8400",  MediaTekFacts { series: "8", soc: "MT6899", apu_dsp: "APU-lineage NPU 880 (Gen-AI/agentic)", npu_tops_tenths: None, int8_accel: true, fp16_accel: true, year: 2024 }),
     ("Dimensity 7200",  MediaTekFacts { series: "7", soc: "MT6886", apu_dsp: "APU 650", npu_tops_tenths: None, int8_accel: true, fp16_accel: true, year: 2023 }),
     ("Dimensity 7300",  MediaTekFacts { series: "7", soc: "MT6878", apu_dsp: "APU 650-class (name not officially confirmed)", npu_tops_tenths: None, int8_accel: true, fp16_accel: true, year: 2024 }),
     ("Dimensity 7400",  MediaTekFacts { series: "7", soc: "MT6878", apu_dsp: "APU 655 (third-party; not confirmed by MediaTek)", npu_tops_tenths: None, int8_accel: true, fp16_accel: true, year: 2025 }),
