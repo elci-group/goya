@@ -96,6 +96,7 @@ goya-wayland = { path = "crates/goya-wayland" }
 goya-kumimanu = { path = "crates/goya-kumimanu" }
 goya-window-management = { path = "crates/goya-window-management" }
 goya-lang = { path = "crates/goya-lang" }
+goya-caprichios = { path = "crates/goya-caprichios" }
 goya-change = { path = "crates/goya-change" }
 goya-rars = { path = "crates/goya-rars" }
 goya-csr = { path = "crates/goya-csr" }
