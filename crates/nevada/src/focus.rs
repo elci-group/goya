@@ -621,10 +621,14 @@ mod tests {
 
     #[test]
     fn duplicate_ids_take_first_occurrence() {
-        let first = element(1, 0, 0, 100, 50);
-        let second = element(1, 0, 100, 100, 50);
-        let elements = [first, second];
+        // Element 1 appears twice; lookups resolve to the first
+        // occurrence, so the successor below is the one under (0, 0).
+        let elements = [
+            element(1, 0, 0, 100, 50),
+            element(1, 500, 100, 100, 50),
+            element(2, 0, 100, 100, 50),
+        ];
         assert_eq!(next_focus(&elements, None, Direction::Down), Some(1));
-        assert_eq!(next_focus(&elements, Some(1), Direction::Down), Some(1));
+        assert_eq!(next_focus(&elements, Some(1), Direction::Down), Some(2));
     }
 }
