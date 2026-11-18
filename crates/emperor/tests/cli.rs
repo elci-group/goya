@@ -73,13 +73,96 @@ fn parent_directory_output_is_rejected() {
 }
 
 #[test]
-fn benchmark_does_not_invent_a_number() {
+fn benchmark_without_a_build_directory_is_a_static_failure() {
     let scene = fixture("interactive-counter.gscene");
-    let run = run(&["benchmark", &scene, "--suite", "desktop-sota"]);
-    assert_eq!(run.code, 3, "{}", run.text);
+    // benchmark is a directory command: a scene path is treated as a build
+    // directory, which has no build-report.json, so this is EMP-ELF, not a
+    // silently skipped benchmark.
+    let run = run(&["benchmark", &scene]);
+    assert_eq!(run.code, 4, "{}", run.text);
+    assert_eq!(run.json["diagnostic"], "EMP-ELF");
     let rendered = run.json.to_string();
     assert!(!rendered.contains("150 ms"));
-    assert_eq!(run.json["stages"][0]["status"], "BLOCKED");
+}
+
+#[test]
+fn benchmark_requires_a_build_directory() {
+    let missing = run(&["benchmark"]);
+    assert_eq!(missing.code, 2, "{}", missing.text);
+    assert_eq!(missing.json["diagnostic"], "EMP-USAGE");
+}
+
+/// A real release build plus the measured runs (1 warmup + 5 per benchmark)
+/// takes roughly a minute on this host; that cost is accepted so the numbers
+/// below are genuine measurements of a genuine artifact, not fixtures.
+#[test]
+fn benchmark_measures_oracle_and_elf_latency_with_machine_context() {
+    let scene = fixture("interactive-counter.gscene");
+    let out = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("benchmark-counter");
+    let out_str = out.display().to_string();
+    let build = run(&[
+        "build",
+        &scene,
+        "--out",
+        &out_str,
+        "--release",
+        "--target",
+        "x86_64-unknown-linux-gnu",
+    ]);
+    assert_eq!(build.code, 0, "{}", build.text);
+
+    let bench = run(&[
+        "benchmark",
+        &out_str,
+        "--target",
+        "x86_64-unknown-linux-gnu",
+        "--format",
+        "json",
+    ]);
+    assert_eq!(bench.code, 0, "{}", bench.text);
+    assert_eq!(bench.json["benchmark_scope"], "local-host");
+    assert_eq!(bench.json["operation"], "benchmark");
+
+    let oracle = &bench.json["oracle_latency"];
+    let oracle_runs = oracle["runs_seconds"].as_array().expect("oracle runs");
+    assert_eq!(oracle_runs.len(), 5);
+    assert!(oracle["min_seconds"].as_f64().expect("min") > 0.0);
+    assert!(oracle["median_seconds"].as_f64().expect("median") > 0.0);
+    assert!(oracle["mean_seconds"].as_f64().expect("mean") > 0.0);
+    let elf = &bench.json["elf_verification_latency"];
+    let elf_runs = elf["runs_seconds"].as_array().expect("elf runs");
+    assert_eq!(elf_runs.len(), 5);
+    assert_eq!(elf["in_process"], true);
+
+    let context = &bench.json["context"];
+    let cpu = context["cpu_model"].as_str().unwrap_or("");
+    assert!(!cpu.is_empty(), "cpu model context: {}", context);
+    assert_ne!(context["cores"].as_u64(), Some(0));
+    let rustc = context["rustc"].as_str().unwrap_or("");
+    assert!(rustc.starts_with("rustc "), "rustc context: {rustc}");
+
+    // Frame rate is never claimed, with or without a display.
+    assert_eq!(bench.json["frame_rate"]["status"], "BLOCKED");
+    let smoke = &bench.json["smoke_latency"];
+    if smoke.get("runs_seconds").is_some() {
+        assert_eq!(
+            smoke["runs_seconds"].as_array().expect("smoke runs").len(),
+            5
+        );
+    } else {
+        assert_eq!(smoke["status"], "BLOCKED");
+    }
+
+    let stages = bench.json["stages"].as_array().expect("stages");
+    assert_eq!(stages.len(), 13);
+    assert_eq!(stages[10]["name"], "static-verification");
+    assert_eq!(stages[10]["status"], "PASS");
+    assert_eq!(stages[11]["name"], "runtime-conformance");
+    assert_eq!(stages[11]["status"], "PASS");
+    assert_eq!(stages[12]["status"], "BLOCKED");
+    for stage in stages.iter().take(10) {
+        assert_eq!(stage["status"], "NOT_APPLICABLE", "{}", stage["name"]);
+    }
 }
 
 #[test]

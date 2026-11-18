@@ -212,6 +212,8 @@ impl Session {
                     | "initial"
                     | "activations"
                     | "manifest"
+                    | "usage_description"
+                    | "contracts"
             )
         }) {
             return error(Some(id), "protocol", "unknown request field");
@@ -237,6 +239,7 @@ impl Session {
                 | "trace-observable-column"
                 | "preview-static-column"
                 | "validate-deploy-manifest"
+                | "plan-bluetooth-privacy"
                 | "swift-parse"
         ) {
             return error(Some(id), "protocol", "operation is not supported");
@@ -268,6 +271,70 @@ impl Session {
                 Err(e) => {
                     json!({"schema_version":"1","job_id":id,"sequence":1,"stage":"manifest_validation","status":"FAIL","diagnostics":[{"code":"NPT-E6101","message":e.to_string()}]})
                 }
+            };
+        }
+        if operation == "plan-bluetooth-privacy" {
+            let Some(usage_description) = object.get("usage_description").and_then(Value::as_str)
+            else {
+                return error(
+                    Some(id),
+                    "bluetooth_privacy",
+                    "usage_description string is required",
+                );
+            };
+            let contracts: Vec<String> = match object.get("contracts") {
+                None | Some(Value::Null) => crate::bluetooth::contract_table()
+                    .iter()
+                    .map(|(contract, _)| (*contract).to_owned())
+                    .collect(),
+                Some(value) => match value.as_array() {
+                    Some(array) => {
+                        let mut contracts = Vec::with_capacity(array.len());
+                        for contract in array {
+                            let Some(contract) = contract.as_str() else {
+                                return error(
+                                    Some(id),
+                                    "bluetooth_privacy",
+                                    "contracts must be an array of strings",
+                                );
+                            };
+                            contracts.push(contract.to_owned());
+                        }
+                        contracts
+                    }
+                    None => {
+                        return error(
+                            Some(id),
+                            "bluetooth_privacy",
+                            "contracts must be an array of strings",
+                        )
+                    }
+                },
+            };
+            let plan = crate::bluetooth::plan_bluetooth_privacy(usage_description);
+            let entries = crate::bluetooth::bluetooth_capability_entries(
+                &contracts.iter().map(String::as_str).collect::<Vec<_>>(),
+            );
+            return match (plan, entries) {
+                (Ok(plan), Ok(entries)) => json!({
+                    "schema_version": "1",
+                    "job_id": id,
+                    "sequence": 1,
+                    "stage": "bluetooth_privacy",
+                    "status": "PASS",
+                    "result": {
+                        "privacy_plan": plan.to_json(),
+                        "capability_entries": entries,
+                    }
+                }),
+                (Err(diagnostic), _) | (_, Err(diagnostic)) => json!({
+                    "schema_version": "1",
+                    "job_id": id,
+                    "sequence": 1,
+                    "stage": "bluetooth_privacy",
+                    "status": "FAIL",
+                    "diagnostics": [{"code": diagnostic.code, "message": diagnostic.message}]
+                }),
             };
         }
         if operation == "test" {

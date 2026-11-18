@@ -56,6 +56,13 @@ const BLUETOOTH_CONTRACTS: &[(&str, &str)] = &[
     ),
 ];
 
+/// The implemented Blue Moon contract table, in lexical order: contract ID
+/// and registry recipe name. Exposed so the service protocol can default to
+/// all implemented contracts.
+pub fn contract_table() -> &'static [(&'static str, &'static str)] {
+    BLUETOOTH_CONTRACTS
+}
+
 /// Planned Apple Bluetooth privacy declarations. Background modes are always
 /// empty: no background execution is claimed (the directive's illustrative
 /// IR carries `background_execution: false`).
