@@ -300,13 +300,13 @@ impl AcceleratorIr {
         if target != AcceleratorTarget::Device {
             return Err(AcceleratorDiagnostic::UnsupportedTarget);
         }
-        if !capabilities.utf8_strings {
-            return Err(AcceleratorDiagnostic::MissingUtf8Strings);
-        }
         let entry = self.entry;
         if self.dispatch_capable() {
             if !capabilities.gpu_driver {
                 return Err(AcceleratorDiagnostic::MissingGpuDriver);
+            }
+            if !capabilities.utf8_strings {
+                return Err(AcceleratorDiagnostic::MissingUtf8Strings);
             }
             let profile_facts = format!(
                 "AcceleratorProfile::new({:?}, {}, {})",
