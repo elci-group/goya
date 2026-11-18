@@ -65,15 +65,15 @@ pub fn transport_actions(class: TransportClass) -> &'static [TransportAction] {
         keyword: "skip_previous",
     }];
     const SEEK_FORWARD: &[TransportAction] = &[TransportAction {
-        callback: "onSeekTo+offset",
+        callback: "onFastForward",
         keyword: "seek_forward",
     }];
     const SEEK_BACKWARD: &[TransportAction] = &[TransportAction {
-        callback: "onSeekTo-offset",
+        callback: "onRewind",
         keyword: "seek_backward",
     }];
     const RESTART: &[TransportAction] = &[TransportAction {
-        callback: "onSeekTo:0",
+        callback: "onSeekTo(0)",
         keyword: "restart",
     }];
     match class {
@@ -331,9 +331,9 @@ mod tests {
         for (class, callbacks) in [
             (TransportClass::SkipNext, vec!["onSkipToNext"]),
             (TransportClass::SkipPrevious, vec!["onSkipToPrevious"]),
-            (TransportClass::SeekForward, vec!["onSeekTo+offset"]),
-            (TransportClass::SeekBackward, vec!["onSeekTo-offset"]),
-            (TransportClass::Restart, vec!["onSeekTo:0"]),
+            (TransportClass::SeekForward, vec!["onFastForward"]),
+            (TransportClass::SeekBackward, vec!["onRewind"]),
+            (TransportClass::Restart, vec!["onSeekTo(0)"]),
         ] {
             let actions: Vec<&str> = transport_actions(class)
                 .iter()
