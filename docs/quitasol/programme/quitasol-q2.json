@@ -1,0 +1,58 @@
+{
+  "directive": "QUITASOL-Q2",
+  "directive_version": "0.0.1",
+  "recorded_on": "2026-11-18",
+  "phase_doc": "docs/quitasol/phase2.md",
+  "summary": "Q2 Fire OS integration emission over the Media Session transport path. goya-lang gains an optional transport key on @intent (six documented Media Session classes; unknown/duplicate keys are parse errors; strict GSSH profiles still reject all @intent with GY-E1010). crates/quitasol-semantic gains src/fireos.rs: emit_fire_os_plan over the Q1 ResolvedManifest emits the deterministic Fire OS integration plan (contract QUITASOL-FIREOS-PLAN/1-draft) with the com.amazon.permission.media.session.voicecommandcontrol permission exactly when transport is declared, per-intent MediaSession callback mappings for transport intents, Unresolved recorded honestly for everything else (VSK closed per Q0), and platform-provided voice launch. The plan-level lowering tier stays unresolved: a transport mapping is a candidate binding, not working voice control. No APK, project, runtime or on-device behaviour is produced or claimed.",
+  "gates": {
+    "library_tests": {
+      "status": "PASS",
+      "command": "cargo test -p quitasol-semantic --offline",
+      "result": "24 passed, 0 failed (7 fireos tests: transport mapping, permission iff transport declared, deterministic JSON across declaration order, pinned JSON shape, QS-E2004 mismatch rejection, zero-intent plan, per-class callback table)"
+    },
+    "goya_lang_tests": {
+      "status": "PASS",
+      "command": "cargo test -p goya-lang --offline",
+      "result": "105 lib + 6 intent-corpus suites passed, 0 failed, including the new transport-key test (six classes parse, unknown keyword and duplicate key rejected, absent key defaults to None)"
+    },
+    "clippy_fmt": {
+      "status": "PASS",
+      "command": "cargo clippy -p goya-lang -p quitasol-semantic --all-targets --offline -- -D warnings; cargo fmt -p goya-lang -p quitasol-semantic -- --check"
+    },
+    "plan_determinism": {
+      "status": "PASS",
+      "claim": "plan-is-a-pure-function",
+      "note": "emit_fire_os_plan over scenes differing only in declaration order yields byte-identical JSON; entries sorted by intent name."
+    },
+    "onsite_device_verification": {
+      "status": "BLOCKED",
+      "reason": "No Fire OS device or emulator has executed any plan output. The permission note (not required on Fire OS 14+) is documentary from the Q0 audit; no device-version resolution is implemented."
+    },
+    "mediasession_runtime": {
+      "status": "BLOCKED",
+      "reason": "No code path connects the plan to Android MediaSession callbacks. Implementing that runtime is later-phase work and would build on Aragon/goya-sdk infrastructure, which targets phone form factors today."
+    },
+    "apk_emission": {
+      "status": "BLOCKED",
+      "reason": "No APK/AAB is produced. Aragon owns phone-track code generation; the Nevada gap ledger (N0-CODEGEN) owns TV emission. The plan is an integration record, not a build artefact."
+    },
+    "vega_track": {
+      "status": "BLOCKED",
+      "reason": "Untouched by Q2. Vega (.vpkg, React Native for Vega) emission is a separate phase; see the Q0 audit for the documented Vega toolchain boundaries."
+    }
+  },
+  "toolchain": {
+    "rustc": "1.95.0 (workspace toolchain)",
+    "crates": "goya-lang 0.1.8 (+ TransportClass, transport key), quitasol-semantic 0.1.8 (+ fireos.rs)",
+    "branch": "nevada/phase0"
+  },
+  "unchanged": [
+    "DIRECTIVE_ID series QUITASOL-*; the Quitasol proposal remains proposed, not ratified.",
+    "Intent contract QUITASOL-INTENT-IR/1-draft and profile quitasol.intent.v0 are unchanged; the transport key is additive draft surface on the same declarations.",
+    "crates/nevada is not modified by Q2.",
+    "Strict GSSH/1/2/3 admission is unchanged: all @intent remain rejected with GY-E1010.",
+    "The plan-level lowering tier remains unresolved; no voice platform integration is claimed.",
+    "Every intent without a transport declaration is recorded Unresolved, never dropped."
+  ],
+  "next_unblock": "External: a Fire OS device with the Media Session permission to verify any transport behaviour, and the Q0-noted Fire OS 14+ permission exemption confirmed on hardware. Internal: a MediaSession runtime phase (Android callback emission over Aragon/goya-sdk) and, separately, the Vega (.vpkg) emission backend; both require the codegen ownership boundaries (Aragon vs Nevada N0-CODEGEN) to be settled first."
+}
