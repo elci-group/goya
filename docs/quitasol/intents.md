@@ -94,6 +94,12 @@ Engine does not exist.
 
 These remain unresolved and block admission:
 
+**Resolved for phase 0 (IR representation).** Phase 0 keeps intents as a
+side-collection on the goya-lang `Scene` (GY-INTENT/1-draft) and emits a
+standalone draft manifest via `quitasol-semantic` (QUITASOL-INTENT-IR/1-draft,
+profile `quitasol.intent.v0`); `goya-ir` is untouched (GY-IR/1 frozen). A
+permanent IR home for intents remains open and needs a contract revision.
+
 - **Utterance grammar.** Placeholder syntax (`{query}`) needs a pinned,
   versioned grammar with slot typing and escaping rules before any generator
   is admitted.
