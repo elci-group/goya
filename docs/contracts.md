@@ -408,6 +408,35 @@ Specification: [`docs/gssh/GSSH-2.md`](gssh/GSSH-2.md); decisions:
   fixtures, accept fixtures, token and byte mutation sweeps under all three
   profiles) and `tests/proportional_migration.rs`.
 
+## GY-INTENT/1-draft — Quitasol intent declarations (`crates/goya-lang` + `crates/quitasol-semantic`)
+
+Status: **draft/experimental — proposed, not ratified**. The shape may change;
+nothing is admitted. Design record:
+[`docs/quitasol/intents.md`](quitasol/intents.md); phase-0 scope:
+[`docs/quitasol/phase0.md`](quitasol/phase0.md).
+
+- Provides: `@intent Name { action: <interaction>; voice { utterance: "...";
+  confirmation: bool; } fallback { remote: <target>; keyboard: <target>; } }`
+  authoring syntax, parsed by the compatibility parser only — all strict
+  GSSH/1/2/3 profiles reject `@intent` with `GY-E1010` ("intent declaration
+  requires intent admission"). `IntentDecl` (name, authored_id, action,
+  utterances, confirmation, fallback_remote/keyboard, range) is carried on
+  `Scene`. `goya_lang::intents` validates intents with the pinned utterance
+  grammar `quitasol.utterance.v0`, emitting `GY-E1011` ("invalid intent
+  declaration") diagnostics. `quitasol-semantic::compile` emits a
+  deterministic versioned intent manifest (contract
+  `QUITASOL-INTENT-IR/1-draft`, profile `quitasol.intent.v0`, per-intent
+  lowering tier `unresolved`).
+- Invariants: parsing and validation are total and deterministic; validation
+  never mutates the scene; every intent requires at least one utterance and a
+  required non-voice fallback (remote or keyboard); duplicate utterances and
+  duplicate intent names are rejected; unknown or duplicate slot names in
+  `{slot}` placeholders are rejected, as are bare braces and empty
+  utterances. The manifest serialisation is byte-deterministic for identical
+  scenes.
+- Stability: draft. GY-IR/1 is untouched — no intent nodes exist in
+  `goya-ir`; a future IR home for intents requires a contract revision.
+
 ## SASH-WIN-IR/1 — Sash Windows emission IR (`crates/sash-ir`)
 
 Status: Candidate, 2026-11-18. Architecture approval is required before a

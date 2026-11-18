@@ -94,10 +94,6 @@ Engine does not exist.
 
 These remain unresolved and block admission:
 
-- **IR representation.** Whether intents enter `goya-ir` as new nodes, a
-  side-table on `Module`, or a separate intent IR consumed at lowering. GY-IR/1
-  freezes the `Module`/`Node` shape for Wave 1; growth here needs a contract
-  revision.
 - **Utterance grammar.** Placeholder syntax (`{query}`) needs a pinned,
   versioned grammar with slot typing and escaping rules before any generator
   is admitted.
