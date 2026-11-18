@@ -38,7 +38,12 @@
     },
     "workspace_build": {
       "command": "cargo build --workspace --offline",
-      "result": "FAILS at HEAD, pre-existing and unrelated: crates/goya-caprichios/src/registry.rs:1294 non-exhaustive match on Artifact::AcceleratorModel, introduced by commit c37f900 before this work. goya-fair itself compiles clean. This evidence does not claim workspace-wide build success."
+      "result": "SUCCESS after repairing the pre-existing c37f900 fallout in goya-caprichios: non-exhaustive Artifact::AcceleratorModel id match (registry.rs), test initializers missing new HostProfile/Request fields, accelerator lowering precedence (GPU-driver gate precedes UTF-8, per the inventory-ignores-gpu-driver doc), and snapdragon tests lowering int8-only models on non-int8 silicon (SD810 et al.) — those tests now use the first int8-capable generation and expect UnsupportedAccelerator for int8_accel=false SoCs. goya-caprichios: 255 passed, 0 failed.",
+      "residual_failures": {
+        "command": "cargo test -p emperor --test cli",
+        "result": "4 failed (appimage gate Null vs EMP-PACKAGE; dpkg-deb zstd checksum error; 2x artifact sha256 vs build-report mismatch)",
+        "attribution": "Pre-existing at HEAD and unrelated to this work: emperor's dependency closure (emperor-runtime, goya-lang, sash, serde_json, sha2) is untouched by this evidence. Not repaired here; belongs to the emperor/parity programme."
+      }
     },
     "determinism": {
       "claim": "canonical_json sorts elements by ID and uses BTreeMap key ordering; byte-identical output asserted across input orders in tests. Extraction determinism (identical input bytes + extractor version -> identical document) is a property of future extractors, not evidenced here."
