@@ -14,7 +14,7 @@ pub mod tensors;
 
 pub use errors::TypedError;
 pub use fixture::{GoldenFixture, TOLERANCE};
-pub use framing::{decode_frame, encode_frame, MAX_MESSAGE_BYTES};
+pub use framing::{decode_frame, encode_frame, FrameError, MAX_MESSAGE_BYTES};
 pub use messages::{CapabilityDescriptor, Request, Response, Status};
 pub use tensors::{DType, TensorDesc, TensorData};
 

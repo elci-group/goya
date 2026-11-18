@@ -797,3 +797,20 @@ Latin — uppercase/other characters render as boxes (Wave 4 typography).
 Calendar label off-by-one (1-based month indexing a 0-based name array)
 and a day-31-in-November test premise error — both caught by the
 self-test gate, fixed in the same commit.
+
+## IE-X01/1 — Iberia/España shared contract v0.1 (`crates/ie-contract`)
+
+- Provides: `TypedError` (11 frozen wire codes), `CapabilityDescriptor`,
+  `Request`/`Response`, `TensorDesc`/`TensorData` (FP32/INT8, static shapes,
+  checked shape product), bounded length-prefixed framing
+  (`encode_frame`/`decode_frame`, MAX 16 MiB, oversized rejected before
+  allocation), `EndpointState` lifecycle (only `Ready` admits jobs), and the
+  FP32 golden oracle (`GoldenFixture`, abs 1e-5 / rel 1e-4 reference
+  tolerances) with frozen fixture `fixtures/golden_t01_matmul.golden`.
+- Invariants: deadlines are remaining durations, never peer wall-clock;
+  protocol version mismatch is VERSION_MISMATCH, never best-effort; shape
+  and payload validation precede allocation; conformance seeds T01–T03 run
+  against the contract only, independent of any backend.
+- Stability: Frozen at G1 (ADR-IE-001). Field-level canonical wire encoding
+  of messages is not yet frozen; changes require a new ADR and downstream
+  notification per IE-E01.

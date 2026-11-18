@@ -54,7 +54,7 @@ impl TypedError {
         }
     }
 
-    pub(crate) fn from_code(code: u16, detail: &str) -> Option<TypedError> {
+    pub fn from_code(code: u16, detail: &str) -> Option<TypedError> {
         let mk = |s: &str| if s.is_empty() { None } else { Some(s.to_string()) };
         match code {
             1 => mk(detail).map(|op| TypedError::UnsupportedOp { op }),

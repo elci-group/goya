@@ -2,7 +2,7 @@
 //! ADR-IE-001). Deadlines are remaining durations, never peer wall-clock.
 
 use crate::errors::TypedError;
-use crate::tensors::{TensorData, TensorDesc};
+use crate::tensors::TensorData;
 
 /// Authenticated capability descriptor returned by Describe/discovery.
 /// Discovery metadata is untrusted until authenticated; this struct is what
@@ -66,9 +66,7 @@ pub struct Response {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    fn f32_input(vals: &[f32]) -> TensorData {
+    use crate::tensors::{DType, TensorData, TensorDesc};
         let desc = TensorDesc {
             dtype: crate::tensors::DType::F32,
             dims: vec![vals.len() as u64],
