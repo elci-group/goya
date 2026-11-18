@@ -431,6 +431,11 @@ impl Artifact {
             Self::BluetoothContinuity(a) => a.recipe_version,
             Self::BluetoothAccess(a) => a.recipe_version,
             Self::BluetoothProfile(a) => a.recipe_version,
+            Self::GoogleSso(a) => a.recipe_version,
+            Self::MicrosoftSso(a) => a.recipe_version,
+            Self::GithubSso(a) => a.recipe_version,
+            Self::XSso(a) => a.recipe_version,
+            Self::MetaSso(a) => a.recipe_version,
         }
     }
 
@@ -469,6 +474,11 @@ impl Artifact {
             Self::BluetoothContinuity(a) => &a.canonical_ir,
             Self::BluetoothAccess(a) => &a.canonical_ir,
             Self::BluetoothProfile(a) => &a.canonical_ir,
+            Self::GoogleSso(a) => &a.canonical_ir,
+            Self::MicrosoftSso(a) => &a.canonical_ir,
+            Self::GithubSso(a) => &a.canonical_ir,
+            Self::XSso(a) => &a.canonical_ir,
+            Self::MetaSso(a) => &a.canonical_ir,
         }
     }
 
@@ -507,6 +517,11 @@ impl Artifact {
             Self::BluetoothContinuity(a) => &a.source,
             Self::BluetoothAccess(a) => &a.source,
             Self::BluetoothProfile(a) => &a.source,
+            Self::GoogleSso(a) => &a.source,
+            Self::MicrosoftSso(a) => &a.source,
+            Self::GithubSso(a) => &a.source,
+            Self::XSso(a) => &a.source,
+            Self::MetaSso(a) => &a.source,
         }
     }
 }
