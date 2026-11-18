@@ -5,7 +5,7 @@ use crate::lexer::{lex, Token, TokenKind};
 use crate::scene::{
     Anchor, CellKind, EffectRequestDecl, EffectValueType, GestureDecision, GesturePolicy,
     InteractionClass, InteractionDecl, InteractionExpr, InteractionType, InteractionValue, IntentDecl,
-    Scene, SceneCell, StateAssignment, TypedKey, Vec3,
+    Scene, SceneCell, StateAssignment, TransportClass, TypedKey, Vec3,
 };
 use goya_determinism::EffectKind;
 use std::collections::BTreeMap;
@@ -1278,6 +1278,26 @@ impl P {
         self.expect(TokenKind::Colon)?;
         let action = self.expect_ident()?;
         self.optional_semi();
+        // Optional Q2 draft key: `transport: <class>;` declares the Media
+        // Session transport behaviour this intent represents. Absent means
+        // no transport lowering is declared; unknown keywords and duplicate
+        // keys are parse errors (fail-closed).
+        let transport = if self
+            .peek()
+            .is_some_and(|t| t.kind == TokenKind::Ident && t.text == "transport")
+        {
+            self.bump();
+            self.expect(TokenKind::Colon)?;
+            let keyword = self.expect_ident()?;
+            let parsed = TransportClass::from_keyword(&keyword);
+            if parsed.is_none() {
+                return Err(self.err_prev());
+            }
+            self.optional_semi();
+            parsed
+        } else {
+            None
+        };
         self.expect_ident_value("voice")?;
         self.expect(TokenKind::LBrace)?;
         let mut utterances = Vec::new();
@@ -1340,6 +1360,7 @@ impl P {
             confirmation: confirmation.unwrap_or(false),
             fallback_remote,
             fallback_keyboard,
+            transport,
             range: SourceRange {
                 start: intent_start,
                 end: self.tokens[self.i - 1].byte_end,
