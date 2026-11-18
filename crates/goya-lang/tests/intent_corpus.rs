@@ -97,9 +97,8 @@ fn rejections_carry_code_cause_and_declaration_span() {
     let cases: [(&str, &str, &str); 2] = [
         (
             "no fallback",
-            // The fixture's fallback block spans lines; strip its two keys.
             "remote: searchPanel;",
-            "remoteX: searchPanel;",
+            "",
         ),
         (
             "bad slot",
@@ -108,7 +107,12 @@ fn rejections_carry_code_cause_and_declaration_span() {
         ),
     ];
     for (cause, from, to) in cases {
-        let mutant = valid.replacen(from, to, 1);
+        let mut mutant = valid.replacen(from, to, 1);
+        // The fixture's fallback block spans lines; also strip the keyboard
+        // key so the "no fallback" case loses both non-voice targets.
+        if cause == "no fallback" {
+            mutant = mutant.replace("keyboard: searchField;", "");
+        }
         let parsed = parse_with_source_map(&mutant)
             .unwrap_or_else(|error| panic!("{cause}: mutation failed to parse: {error:?}"));
         let diagnostics = validate_intents(&parsed);
