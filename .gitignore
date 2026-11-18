@@ -4,3 +4,7 @@
 .uni/
 /swiftly-x86_64.tar.gz
 __pycache__/
+
+# Build artifacts under evidence dirs are disposable and exceed GitHub limits
+evidence/**/builds/
+evidence/**/execution/

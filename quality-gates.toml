@@ -93,8 +93,19 @@ number = 13
 stage = "packaging-signing-release"
 description = "Packaging, code signing, and release validation"
 script = "scripts/quality-gates-gate13-packaging-signing-release.sh"
-status = "BLOCKED"
-blocked_reason = "packaging and code signing require a release identity and artifact pipeline not available in CI"
+# Two-part gate: packaging runs a real end-to-end build + linux-archive
+# package and PASSes iff the archive exists and is non-empty. Signing is
+# genuinely unimplemented in compiler 0.0.1 and its sub-part stays BLOCKED
+# (no PASS string) per the emperor.yml blocked-evidence convention. Overall
+# gate exit is 0 iff packaging passed.
+status = "SPLIT"
+overall_exit = "0 iff packaging part PASS; signing BLOCKED is not a failure"
+[[gate.status_parts]]
+part = "packaging"
+result = "real end-to-end: emperor build + package --format linux-archive, PASS iff archive non-empty"
+[[gate.status_parts]]
+part = "signing"
+result = "BLOCKED: signing is not implemented in compiler 0.0.1"
 
 [metrics-collection]
 format = "json"

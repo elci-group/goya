@@ -1,1 +1,1 @@
-{"gate": 4, "stage": "effects-capabilities", "status": "PASS", "failed": 0, "commands": [{"command": "cargo test -p emperor -p sash -p sash-ir --offline --lib --tests", "exit_code": 0}], "timestamp": "2026-11-18T17:43:15Z"}
+{"gate": 4, "stage": "effects-capabilities", "status": "PASS", "failed": 0, "commands": [{"command": "cargo test -p emperor -p sash -p sash-ir --offline --lib --tests", "exit_code": 0}], "timestamp": "2026-11-18T18:58:57Z"}
