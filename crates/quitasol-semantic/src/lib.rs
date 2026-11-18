@@ -350,7 +350,10 @@ mod tests {
         assert_eq!(first.to_json(), second.to_json(), "byte-identical JSON");
 
         // Two compiles of the same scene are byte-identical.
-        assert_eq!(first.to_json(), compile(&parse(ACCEPT).unwrap()).unwrap().to_json());
+        assert_eq!(
+            first.to_json(),
+            compile(&parse(ACCEPT).unwrap()).unwrap().to_json()
+        );
     }
 
     #[test]
@@ -359,7 +362,12 @@ mod tests {
         let scene = parse(&mutant).unwrap();
         let error = compile(&scene).unwrap_err();
         assert_eq!(error.code, "GY-E1011");
-        assert!(error.name.contains("does not reference a declared interaction"), "{error}");
+        assert!(
+            error
+                .name
+                .contains("does not reference a declared interaction"),
+            "{error}"
+        );
         let span = &mutant[error.range.start..error.range.end];
         assert!(span.starts_with("@intent playback"), "{span}");
     }
@@ -377,7 +385,11 @@ mod tests {
     #[test]
     fn missing_fallback_is_rejected_fail_closed() {
         let mutant = ACCEPT
-            .replacen("remote: searchPanel;\n            keyboard: searchField;", "", 1)
+            .replacen(
+                "remote: searchPanel;\n            keyboard: searchField;",
+                "",
+                1,
+            )
             .replacen("remote: searchPanel;", "", 1);
         let scene = parse(&mutant).unwrap();
         let error = compile(&scene).unwrap_err();
@@ -387,11 +399,18 @@ mod tests {
 
     #[test]
     fn bad_slot_grammar_is_rejected_fail_closed() {
-        let mutant = ACCEPT.replacen("utterance: \"Find {query}\";", "utterance: \"Find {not a slot}\";", 1);
+        let mutant = ACCEPT.replacen(
+            "utterance: \"Find {query}\";",
+            "utterance: \"Find {not a slot}\";",
+            1,
+        );
         let scene = parse(&mutant).unwrap();
         let error = compile(&scene).unwrap_err();
         assert_eq!(error.code, "GY-E1011");
-        assert!(error.name.contains("slot name is not an identifier"), "{error}");
+        assert!(
+            error.name.contains("slot name is not an identifier"),
+            "{error}"
+        );
     }
 
     #[test]
@@ -416,11 +435,25 @@ mod tests {
         assert!(json.starts_with(prefix), "{json}");
         assert!(json.contains("\"name\":\"playback\""), "{json}");
         assert!(json.contains("\"action\":\"searchCatalogue\""), "{json}");
-        assert!(json.contains("\"authored_id\":\"intent.search.v1\""), "{json}");
-        assert!(json.contains("\"utterances\":[\"Pause playback\"]"), "{json}");
+        assert!(
+            json.contains("\"authored_id\":\"intent.search.v1\""),
+            "{json}"
+        );
+        assert!(
+            json.contains("\"utterances\":[\"Pause playback\"]"),
+            "{json}"
+        );
         assert!(json.contains("\"confirmation\":true"), "{json}");
-        assert!(json.contains("\"fallback\":{\"remote\":\"searchPanel\",\"keyboard\":\"searchField\"}}"), "{json}");
-        assert!(json.contains("\"fallback\":{\"remote\":\"searchPanel\",\"keyboard\":null}}"), "{json}");
+        assert!(
+            json.contains(
+                "\"fallback\":{\"remote\":\"searchPanel\",\"keyboard\":\"searchField\"}}"
+            ),
+            "{json}"
+        );
+        assert!(
+            json.contains("\"fallback\":{\"remote\":\"searchPanel\",\"keyboard\":null}}"),
+            "{json}"
+        );
     }
 
     #[test]
@@ -434,7 +467,9 @@ mod tests {
             .iter_mut()
             .find(|intent| intent.name == "playback")
             .unwrap();
-        playback.utterances.insert(0, "Pause \"it\" playback".to_owned());
+        playback
+            .utterances
+            .insert(0, "Pause \"it\" playback".to_owned());
         let json = compile(&scene).unwrap().to_json();
         assert!(
             json.contains("\"utterances\":[\"Pause \\\"it\\\" playback\""),
