@@ -4,6 +4,22 @@ use crate::apple_pay_caprichio::{
     ApplePayArtifact, ApplePayDeclaration, RuntimeCapabilities as ApplePayHost,
     Target as ApplePayTarget,
 };
+use crate::apple_watch_accelerator_caprichio::{
+    AppleWatchAcceleratorArtifact, AppleWatchAcceleratorDeclaration,
+    RuntimeCapabilities as AppleWatchAcceleratorHost, Target as AppleWatchAcceleratorTarget,
+};
+use crate::ipad_accelerator_caprichio::{
+    IpadAcceleratorArtifact, IpadAcceleratorDeclaration, RuntimeCapabilities as IpadAcceleratorHost,
+    Target as IpadAcceleratorTarget,
+};
+use crate::iphone_accelerator_caprichio::{
+    IphoneAcceleratorArtifact, IphoneAcceleratorDeclaration,
+    RuntimeCapabilities as IphoneAcceleratorHost, Target as IphoneAcceleratorTarget,
+};
+use crate::ipod_touch_accelerator_caprichio::{
+    IpodTouchAcceleratorArtifact, IpodTouchAcceleratorDeclaration,
+    RuntimeCapabilities as IpodTouchAcceleratorHost, Target as IpodTouchAcceleratorTarget,
+};
 use crate::batching_caprichio::{
     BatchArtifact, BatchDeclaration, RuntimeCapabilities as BatchRuntime, Target as BatchTarget,
 };
