@@ -111,6 +111,26 @@ permanent IR home for intents remains open and needs a contract revision.
 - **Privacy.** What utterance and slot data may leave the device; per the
   Privacy Enforcement Engine, nothing is asserted here.
 
+## 6a. Phase 0 status
+
+Phase 0 delivers an experimental surface, not a ratified profile:
+
+- **Parser arm.** `@intent` is parsed by the goya-lang compatibility parser
+  only; the scene carries `IntentDecl`. All strict GSSH/1/2/3 profiles reject
+  `@intent` with `GY-E1010`.
+- **Grammar v0 validator.** `goya_lang::intents` validates intents against
+  the pinned grammar `quitasol.utterance.v0` (`GY-E1011` diagnostics).
+- **Semantic manifest.** `quitasol-semantic::compile` emits a deterministic
+  versioned intent manifest (contract QUITASOL-INTENT-IR/1-draft, profile
+  `quitasol.intent.v0`, per-intent lowering tier `unresolved`).
+- **Tests.** goya-lang intent corpus with mutation sweep; strict-reject
+  fixtures under all three GSSH profiles.
+
+Still BLOCKED: platform lowerings, confirmation runtime, owners/ratification,
+locale policy, and fixtures beyond the phase-0 corpus. See
+[phase0.md](phase0.md) and [../contracts.md](../contracts.md)
+(GY-INTENT/1-draft).
+
 ## 7. Non-goals
 
 - No claim that arbitrary Goya actions can be exposed as native Alexa
