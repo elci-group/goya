@@ -97,8 +97,9 @@ fn rejections_carry_code_cause_and_declaration_span() {
     let cases: [(&str, &str, &str); 2] = [
         (
             "no fallback",
-            "fallback { remote: searchPanel; keyboard: searchField; }",
-            "fallback { }",
+            // The fixture's fallback block spans lines; strip its two keys.
+            "remote: searchPanel;",
+            "remoteX: searchPanel;",
         ),
         (
             "bad slot",
