@@ -505,7 +505,7 @@ mod tests {
             max_buffer_bytes: 8192,
         };
         assert_eq!(
-            wrong_model.normalize(entry),
+            wrong_model.clone().normalize(entry),
             Err(AcceleratorDiagnostic::BadModel)
         );
         assert_eq!(
