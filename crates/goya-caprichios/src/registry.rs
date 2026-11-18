@@ -7,6 +7,10 @@ use crate::apple_pay_caprichio::{
 use crate::batching_caprichio::{
     BatchArtifact, BatchDeclaration, RuntimeCapabilities as BatchRuntime, Target as BatchTarget,
 };
+use crate::bluetooth_access_caprichio::{
+    BluetoothAccessArtifact, BluetoothAccessDeclaration, RuntimeCapabilities as BluetoothAccessHost,
+    Target as BluetoothAccessTarget,
+};
 use crate::bluetooth_caprichio::{
     BluetoothCentralArtifact, BluetoothCentralDeclaration, RuntimeCapabilities as BluetoothHost,
     Target as BluetoothTarget,
@@ -22,6 +26,10 @@ use crate::bluetooth_control_caprichio::{
 use crate::bluetooth_guard_caprichio::{
     BluetoothGuardArtifact, BluetoothGuardDeclaration, RuntimeCapabilities as BluetoothGuardHost,
     Target as BluetoothGuardTarget,
+};
+use crate::bluetooth_profile_caprichio::{
+    BluetoothProfileArtifact, BluetoothProfileDeclaration, RuntimeCapabilities as BluetoothProfileHost,
+    Target as BluetoothProfileTarget,
 };
 use crate::bluetooth_stream_caprichio::{
     BluetoothStreamArtifact, BluetoothStreamDeclaration, RuntimeCapabilities as BluetoothStreamHost,
@@ -151,6 +159,8 @@ pub struct Request {
     pub bluetooth_stream: Option<BluetoothStreamDeclaration>,
     pub bluetooth_guard: Option<BluetoothGuardDeclaration>,
     pub bluetooth_continuity: Option<BluetoothContinuityDeclaration>,
+    pub bluetooth_access: Option<BluetoothAccessDeclaration>,
+    pub bluetooth_profile: Option<BluetoothProfileDeclaration>,
 }
 
 /// Host facts are supplied by the caller; the registry does not infer support
@@ -217,6 +227,10 @@ pub struct HostProfile {
     pub bluetooth_guard_host: BluetoothGuardHost,
     pub bluetooth_continuity_target: BluetoothContinuityTarget,
     pub bluetooth_continuity_host: BluetoothContinuityHost,
+    pub bluetooth_access_target: BluetoothAccessTarget,
+    pub bluetooth_access_host: BluetoothAccessHost,
+    pub bluetooth_profile_target: BluetoothProfileTarget,
+    pub bluetooth_profile_host: BluetoothProfileHost,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -252,6 +266,8 @@ pub enum Artifact {
     BluetoothStream(BluetoothStreamArtifact),
     BluetoothGuard(BluetoothGuardArtifact),
     BluetoothContinuity(BluetoothContinuityArtifact),
+    BluetoothAccess(BluetoothAccessArtifact),
+    BluetoothProfile(BluetoothProfileArtifact),
 }
 
 impl Artifact {
@@ -288,6 +304,8 @@ impl Artifact {
             Self::BluetoothStream(a) => a.contract,
             Self::BluetoothGuard(a) => a.contract,
             Self::BluetoothContinuity(a) => a.contract,
+            Self::BluetoothAccess(a) => a.contract,
+            Self::BluetoothProfile(a) => a.contract,
         }
     }
 
@@ -324,6 +342,8 @@ impl Artifact {
             Self::BluetoothStream(_) => "apple-ble-stream-bounded-notifications",
             Self::BluetoothGuard(_) => "apple-ble-guard-bounded-authorisation",
             Self::BluetoothContinuity(_) => "apple-ble-continuity-bounded-restoration",
+            Self::BluetoothAccess(_) => "apple-ble-access-bounded-mapping",
+            Self::BluetoothProfile(_) => "apple-ble-profile-bounded-classification",
         }
     }
 
@@ -360,6 +380,8 @@ impl Artifact {
             Self::BluetoothStream(a) => a.recipe_version,
             Self::BluetoothGuard(a) => a.recipe_version,
             Self::BluetoothContinuity(a) => a.recipe_version,
+            Self::BluetoothAccess(a) => a.recipe_version,
+            Self::BluetoothProfile(a) => a.recipe_version,
         }
     }
 
@@ -396,6 +418,8 @@ impl Artifact {
             Self::BluetoothStream(a) => &a.canonical_ir,
             Self::BluetoothGuard(a) => &a.canonical_ir,
             Self::BluetoothContinuity(a) => &a.canonical_ir,
+            Self::BluetoothAccess(a) => &a.canonical_ir,
+            Self::BluetoothProfile(a) => &a.canonical_ir,
         }
     }
 
@@ -432,6 +456,8 @@ impl Artifact {
             Self::BluetoothStream(a) => &a.source,
             Self::BluetoothGuard(a) => &a.source,
             Self::BluetoothContinuity(a) => &a.source,
+            Self::BluetoothAccess(a) => &a.source,
+            Self::BluetoothProfile(a) => &a.source,
         }
     }
 }
@@ -462,10 +488,12 @@ pub const fn supported_contracts() -> &'static [&'static str] {
         crate::face_id_caprichio::CONTRACT,
         crate::touch_id_caprichio::CONTRACT,
         crate::windows_hello_caprichio::CONTRACT,
+        crate::bluetooth_access_caprichio::CONTRACT,
         crate::bluetooth_caprichio::CONTRACT,
         crate::bluetooth_continuity_caprichio::CONTRACT,
         crate::bluetooth_control_caprichio::CONTRACT,
         crate::bluetooth_guard_caprichio::CONTRACT,
+        crate::bluetooth_profile_caprichio::CONTRACT,
         crate::bluetooth_stream_caprichio::CONTRACT,
         crate::metal_caprichio::CONTRACT,
         crate::apple_pay_caprichio::CONTRACT,
@@ -518,6 +546,8 @@ pub enum NegotiationError {
     BluetoothStream(crate::bluetooth_stream_caprichio::Diagnostic),
     BluetoothGuard(crate::bluetooth_guard_caprichio::Diagnostic),
     BluetoothContinuity(crate::bluetooth_continuity_caprichio::Diagnostic),
+    BluetoothAccess(crate::bluetooth_access_caprichio::Diagnostic),
+    BluetoothProfile(crate::bluetooth_profile_caprichio::Diagnostic),
 }
 
 impl fmt::Display for NegotiationError {
@@ -576,6 +606,10 @@ impl fmt::Display for NegotiationError {
             Self::BluetoothContinuity(error) => {
                 write!(f, "Bluetooth continuity negotiation failed: {error}")
             }
+            Self::BluetoothAccess(error) => write!(f, "Bluetooth access negotiation failed: {error}"),
+            Self::BluetoothProfile(error) => {
+                write!(f, "Bluetooth profile negotiation failed: {error}")
+            }
         }
     }
 }
@@ -629,6 +663,8 @@ pub fn negotiate(
             && *id != crate::bluetooth_stream_caprichio::CONTRACT
             && *id != crate::bluetooth_guard_caprichio::CONTRACT
             && *id != crate::bluetooth_continuity_caprichio::CONTRACT
+            && *id != crate::bluetooth_access_caprichio::CONTRACT
+            && *id != crate::bluetooth_profile_caprichio::CONTRACT
         {
             if catalog::find(id).is_some() {
                 return Err(NegotiationError::UnsupportedCapability((*id).to_owned()));
@@ -669,6 +705,8 @@ pub fn negotiate(
     let needs_bluetooth_guard = ordered.contains(crate::bluetooth_guard_caprichio::CONTRACT);
     let needs_bluetooth_continuity =
         ordered.contains(crate::bluetooth_continuity_caprichio::CONTRACT);
+    let needs_bluetooth_access = ordered.contains(crate::bluetooth_access_caprichio::CONTRACT);
+    let needs_bluetooth_profile = ordered.contains(crate::bluetooth_profile_caprichio::CONTRACT);
     if request.network.is_some() && !needs_network {
         return Err(NegotiationError::UnexpectedDeclaration { kind: "network" });
     }
@@ -786,6 +824,16 @@ pub fn negotiate(
     if request.bluetooth_continuity.is_some() && !needs_bluetooth_continuity {
         return Err(NegotiationError::UnexpectedDeclaration {
             kind: "bluetooth_continuity",
+        });
+    }
+    if request.bluetooth_access.is_some() && !needs_bluetooth_access {
+        return Err(NegotiationError::UnexpectedDeclaration {
+            kind: "bluetooth_access",
+        });
+    }
+    if request.bluetooth_profile.is_some() && !needs_bluetooth_profile {
+        return Err(NegotiationError::UnexpectedDeclaration {
+            kind: "bluetooth_profile",
         });
     }
 
@@ -1199,6 +1247,34 @@ pub fn negotiate(
                     .map_err(NegotiationError::BluetoothContinuity)?,
                 )
             }
+            crate::bluetooth_access_caprichio::CONTRACT => {
+                let declaration = request.bluetooth_access.clone().ok_or(
+                    NegotiationError::MissingDeclaration {
+                        capability: crate::bluetooth_access_caprichio::CONTRACT,
+                    },
+                )?;
+                let ir = declaration
+                    .normalize()
+                    .map_err(NegotiationError::BluetoothAccess)?;
+                Artifact::BluetoothAccess(
+                    ir.lower_checked(host.bluetooth_access_target, host.bluetooth_access_host)
+                        .map_err(NegotiationError::BluetoothAccess)?,
+                )
+            }
+            crate::bluetooth_profile_caprichio::CONTRACT => {
+                let declaration = request.bluetooth_profile.clone().ok_or(
+                    NegotiationError::MissingDeclaration {
+                        capability: crate::bluetooth_profile_caprichio::CONTRACT,
+                    },
+                )?;
+                let ir = declaration
+                    .normalize()
+                    .map_err(NegotiationError::BluetoothProfile)?;
+                Artifact::BluetoothProfile(
+                    ir.lower_checked(host.bluetooth_profile_target, host.bluetooth_profile_host)
+                        .map_err(NegotiationError::BluetoothProfile)?,
+                )
+            }
             _ => unreachable!("request IDs validated before lowering"),
         };
         let id = match artifact {
@@ -1233,6 +1309,8 @@ pub fn negotiate(
             Artifact::BluetoothStream(_) => crate::bluetooth_stream_caprichio::CONTRACT,
             Artifact::BluetoothGuard(_) => crate::bluetooth_guard_caprichio::CONTRACT,
             Artifact::BluetoothContinuity(_) => crate::bluetooth_continuity_caprichio::CONTRACT,
+            Artifact::BluetoothAccess(_) => crate::bluetooth_access_caprichio::CONTRACT,
+            Artifact::BluetoothProfile(_) => crate::bluetooth_profile_caprichio::CONTRACT,
         };
         result.push(NegotiatedCapability { id, artifact });
     }
@@ -1439,6 +1517,16 @@ mod tests {
                 bluetooth_state_restoration: true,
                 persistent_storage: true,
                 bluetooth_power_monitoring: true,
+                utf8_strings: true,
+            },
+            bluetooth_access_target: BluetoothAccessTarget::Ios,
+            bluetooth_access_host: BluetoothAccessHost {
+                accessibility_event_surface: true,
+                accessible_labels_supported: true,
+                utf8_strings: true,
+            },
+            bluetooth_profile_target: BluetoothProfileTarget::Ios,
+            bluetooth_profile_host: BluetoothProfileHost {
                 utf8_strings: true,
             },
         }
@@ -1700,6 +1788,53 @@ mod tests {
             max_associations: 4,
             max_subscriptions_per_association: 2,
             persist_across_launches: true,
+        }
+    }
+
+    fn bluetooth_access() -> BluetoothAccessDeclaration {
+        BluetoothAccessDeclaration {
+            bindings: vec![
+                crate::bluetooth_runtime::InputBinding::new(
+                    crate::bluetooth_runtime::InputSource::AccessibilitySwitch,
+                    crate::bluetooth_runtime::InputEventKind::SinglePress,
+                    crate::bluetooth_runtime::SemanticAction::Select,
+                    "Primary select",
+                )
+                .unwrap(),
+                crate::bluetooth_runtime::InputBinding::new(
+                    crate::bluetooth_runtime::InputSource::AccessibilitySwitch,
+                    crate::bluetooth_runtime::InputEventKind::DoublePress,
+                    crate::bluetooth_runtime::SemanticAction::NavigateNext,
+                    "Move to the next element",
+                )
+                .unwrap(),
+                crate::bluetooth_runtime::InputBinding::new(
+                    crate::bluetooth_runtime::InputSource::AccessibilitySwitch,
+                    crate::bluetooth_runtime::InputEventKind::LongPress,
+                    crate::bluetooth_runtime::SemanticAction::Back,
+                    "Return to the previous screen",
+                )
+                .unwrap(),
+            ],
+            debounce_ms: 500,
+            long_press_threshold_ms: 400,
+            double_press_window_ms: 300,
+            intercept_system_managed: false,
+        }
+    }
+
+    fn bluetooth_profile() -> BluetoothProfileDeclaration {
+        BluetoothProfileDeclaration {
+            profile_id: "com.goya.profile.test".to_owned(),
+            category: crate::bluetooth_runtime::ProfileCategory::Battery,
+            version: "1.0.0".to_owned(),
+            required: vec![crate::bluetooth_runtime::ProfileCharacteristic::new(
+                "2A19".to_owned(),
+                crate::bluetooth_runtime::ProfileProperties::new(true, false, false, false),
+                1,
+            )
+            .unwrap()],
+            optional: vec![],
         }
     }
 
@@ -2429,6 +2564,189 @@ mod tests {
     }
 
     #[test]
+    fn bluetooth_access_contract_registers_exactly_and_fails_closed() {
+        let contract = crate::bluetooth_access_caprichio::CONTRACT;
+        assert_eq!(contract, "goya.hardware.bluetooth.access.v1");
+        assert!(supported_contracts().contains(&contract));
+
+        let request = Request {
+            capabilities: vec![contract.into()],
+            bluetooth_access: Some(bluetooth_access()),
+            ..Request::default()
+        };
+        let negotiated = negotiate(&request, host()).unwrap();
+        assert_eq!(negotiated.len(), 1);
+        assert_eq!(negotiated[0].id, contract);
+        assert_eq!(negotiated[0].artifact.contract(), contract);
+        assert_eq!(
+            negotiated[0].artifact.recipe(),
+            "apple-ble-access-bounded-mapping"
+        );
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("session=ble_access_bounded_mapping\n"));
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("system_managed_devices=untouched\n"));
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("protected_streams_intercepted=none\n"));
+        assert_eq!(negotiated, negotiate(&request, host()).unwrap());
+
+        let missing = Request {
+            capabilities: vec![contract.into()],
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&missing, host()),
+            Err(NegotiationError::MissingDeclaration {
+                capability: contract
+            })
+        );
+        let unexpected = Request {
+            bluetooth_access: Some(bluetooth_access()),
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&unexpected, host()),
+            Err(NegotiationError::UnexpectedDeclaration {
+                kind: "bluetooth_access"
+            })
+        );
+
+        let mut unsupported_target = host();
+        unsupported_target.bluetooth_access_target = BluetoothAccessTarget::Node;
+        assert_eq!(
+            negotiate(&request, unsupported_target),
+            Err(NegotiationError::BluetoothAccess(
+                crate::bluetooth_access_caprichio::Diagnostic::UnsupportedTarget
+            ))
+        );
+        let mut without_surface = host();
+        without_surface
+            .bluetooth_access_host
+            .accessibility_event_surface = false;
+        assert_eq!(
+            negotiate(&request, without_surface),
+            Err(NegotiationError::BluetoothAccess(
+                crate::bluetooth_access_caprichio::Diagnostic::MissingAccessibilityEventSurface
+            ))
+        );
+        let mut without_labels = host();
+        without_labels
+            .bluetooth_access_host
+            .accessible_labels_supported = false;
+        assert_eq!(
+            negotiate(&request, without_labels),
+            Err(NegotiationError::BluetoothAccess(
+                crate::bluetooth_access_caprichio::Diagnostic::MissingAccessibleLabels
+            ))
+        );
+        // A declaration that intercepts system-managed streams is rejected.
+        let intercepting = Request {
+            capabilities: vec![contract.into()],
+            bluetooth_access: Some(BluetoothAccessDeclaration {
+                intercept_system_managed: true,
+                ..bluetooth_access()
+            }),
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&intercepting, host()),
+            Err(NegotiationError::BluetoothAccess(
+                crate::bluetooth_access_caprichio::Diagnostic::SystemManagedDevicesProtected
+            ))
+        );
+    }
+
+    #[test]
+    fn bluetooth_profile_contract_registers_exactly_and_fails_closed() {
+        let contract = crate::bluetooth_profile_caprichio::CONTRACT;
+        assert_eq!(contract, "goya.hardware.bluetooth.profile.v1");
+        assert!(supported_contracts().contains(&contract));
+
+        let request = Request {
+            capabilities: vec![contract.into()],
+            bluetooth_profile: Some(bluetooth_profile()),
+            ..Request::default()
+        };
+        let negotiated = negotiate(&request, host()).unwrap();
+        assert_eq!(negotiated.len(), 1);
+        assert_eq!(negotiated[0].id, contract);
+        assert_eq!(negotiated[0].artifact.contract(), contract);
+        assert_eq!(
+            negotiated[0].artifact.recipe(),
+            "apple-ble-profile-bounded-classification"
+        );
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("session=ble_profile_bounded_classification\n"));
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("devices_classified=none\n"));
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("spec_validation=category_invariants_only\n"));
+        assert_eq!(negotiated, negotiate(&request, host()).unwrap());
+
+        let missing = Request {
+            capabilities: vec![contract.into()],
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&missing, host()),
+            Err(NegotiationError::MissingDeclaration {
+                capability: contract
+            })
+        );
+        let unexpected = Request {
+            bluetooth_profile: Some(bluetooth_profile()),
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&unexpected, host()),
+            Err(NegotiationError::UnexpectedDeclaration {
+                kind: "bluetooth_profile"
+            })
+        );
+
+        let mut unsupported_target = host();
+        unsupported_target.bluetooth_profile_target = BluetoothProfileTarget::Node;
+        assert_eq!(
+            negotiate(&request, unsupported_target),
+            Err(NegotiationError::BluetoothProfile(
+                crate::bluetooth_profile_caprichio::Diagnostic::UnsupportedTarget
+            ))
+        );
+        // A battery profile without its required 2A19 read is rejected.
+        let invalid = Request {
+            capabilities: vec![contract.into()],
+            bluetooth_profile: Some(BluetoothProfileDeclaration {
+                required: vec![crate::bluetooth_runtime::ProfileCharacteristic::new(
+                    "2A19".to_owned(),
+                    crate::bluetooth_runtime::ProfileProperties::new(false, true, false, false),
+                    1,
+                )
+                .unwrap()],
+                ..bluetooth_profile()
+            }),
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&invalid, host()),
+            Err(NegotiationError::BluetoothProfile(
+                crate::bluetooth_profile_caprichio::Diagnostic::CategoryInvariantViolated
+            ))
+        );
+    }
+
+    #[test]
     fn ios_keychain_contract_registers_exactly_and_fails_closed() {
         let contract = crate::keychain_caprichio::CONTRACT;
         assert_eq!(contract, "goya.hardware.secure_storage.keychain.v1");
@@ -2644,6 +2962,8 @@ mod tests {
             bluetooth_stream: None,
             bluetooth_guard: None,
             bluetooth_continuity: None,
+            bluetooth_access: None,
+            bluetooth_profile: None,
         };
         let result = negotiate(&request, host()).unwrap();
         assert_eq!(
@@ -2762,10 +3082,12 @@ mod tests {
                 "goya.hardware.biometry.face_id.v1",
                 "goya.hardware.biometry.touch_id.v1",
                 "goya.hardware.biometry.windows_hello.v1",
+                "goya.hardware.bluetooth.access.v1",
                 "goya.hardware.bluetooth.central.v1",
                 "goya.hardware.bluetooth.continuity.v1",
                 "goya.hardware.bluetooth.gatt.v1",
                 "goya.hardware.bluetooth.guard.v1",
+                "goya.hardware.bluetooth.profile.v1",
                 "goya.hardware.bluetooth.stream.v1",
                 "goya.hardware.gpu_compute.apple_silicon_metal.v1",
                 "goya.hardware.payments.apple_pay.v1",
@@ -3778,6 +4100,8 @@ mod tests {
             bluetooth_stream: None,
             bluetooth_guard: None,
             bluetooth_continuity: None,
+            bluetooth_access: None,
+            bluetooth_profile: None,
         };
         let start = Instant::now();
         let iterations = 10_000;

@@ -6,6 +6,7 @@ pub mod apple;
 pub mod application;
 pub mod application_swift;
 pub mod artifacts;
+pub mod bluetooth;
 pub mod conformance;
 pub mod dock;
 pub mod native_swift;

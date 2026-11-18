@@ -1,7 +1,7 @@
 # Blue Moon roadmap
 
-Status: proposed, 18 November 2026 (phases 1–3 complete same day). This is a
-plan, not evidence. Nothing on this page claims Bluetooth hardware
+Status: proposed, 18 November 2026 (phases 1–4 complete; phase 5 started).
+This is a plan, not evidence. Nothing on this page claims Bluetooth hardware
 conformance, native Core Bluetooth execution, or compiler integration that
 does not yet exist.
 
@@ -118,25 +118,53 @@ Implemented as BLUE-MOON-1 (`docs/blue-moon/BLUE-MOON-1.md`):
 - [x] Both extend `bluetooth_runtime` and follow the BLUE-MOON-1 pattern;
       each has a rustc-piped generated-factory conformance test.
 
-### Phase 4 — Access (Gestures integration) and Profile schema (next)
+### Phase 4 — Access (Gestures integration) and Profile schema (complete 18 November 2026)
 
-- [ ] `goya.hardware.bluetooth.access.v1` — semantic input mapping from
-      supported hardware events, debouncing, long-press detection where raw
-      events are available; system-managed accessibility devices remain
-      system-managed.
-- [ ] Versioned device profile schema and reference profiles (Generic GATT,
-      Battery, Environmental, Heart Rate, HID, Controller, Accessibility
-      Switch, Serial, Audio, Custom), building on BLUE-MOON-2's
-      characteristic policies.
+- [x] BLUE-MOON-6 (`docs/blue-moon/BLUE-MOON-6.md`,
+      `goya.hardware.bluetooth.access.v1`): `bluetooth_access_caprichio` with
+      semantic input mappings (Select/Confirm/Navigate/Back/Custom) over
+      accessibility switches, adaptive controllers, game controllers and
+      custom buttons; single/double/long-press recognition from raw
+      press/release events with host-supplied monotonic timestamps;
+      debouncing; accessible labels on every binding; unmapped events
+      reported, never ignored; and structural protection of system-managed
+      accessibility devices (`intercept_system_managed` declarations are
+      rejected; keyboards/wearables/hearing devices follow system paths and
+      are not modelled).
+- [x] BLUE-MOON-7 (`docs/blue-moon/BLUE-MOON-7.md`,
+      `goya.hardware.bluetooth.profile.v1`): versioned device-profile schema
+      (`DeviceProfileRecord` + `ProfileCharacteristic` with observable GATT
+      properties) validated against per-category specification invariants,
+      a bounded `ProfileRegistry`, and all ten directive reference profiles
+      (`bluetooth.generic-gatt` … `bluetooth.custom`), each proven to
+      normalize and register in conformance tests.
+- [x] Both extend `bluetooth_runtime` and follow the BLUE-MOON-1 pattern;
+      each has a rustc-piped generated-factory conformance test.
 
-### Phase 5 — Goya language and Neptune integration
+### Phase 5 — Goya language and Neptune integration (in progress)
 
-- [ ] Bluetooth declarations in `goya-lang` (grammar, semantic validation).
-- [ ] Neptune consumes registry-negotiated artifacts; entitlement and
-      privacy-key generation (`NSBluetoothAlwaysUsageDescription` and
-      platform variants); capability resolution in the compiler pipeline.
-- [ ] This phase requires the Neptune build pipeline to exist for real
-      (`docs/neptune-roadmap.md` N-phases); no date is claimed.
+- [x] BLUE-MOON-8 (`docs/blue-moon/BLUE-MOON-8.md`): Neptune consumes
+      goya-caprichios for the first time. `crates/neptune/src/bluetooth.rs`
+      generates capability-inventory entries for all seven implemented Blue
+      Moon contracts (existing `capabilities.json` shape, `CoreBluetooth`
+      frameworks, fail-closed on unknown IDs with `NPT-BM-E001`) and plans
+      Apple privacy declarations (§9.2) from Guard-validated usage
+      descriptions (`NSBluetoothAlwaysUsageDescription` +
+      `NSBluetoothPeripheralUsageDescription`, empty background modes,
+      generic/placeholder descriptions rejected with `NPT-BM-E002`), plus a
+      deterministic Info.plist privacy *fragment*. Exposed through the
+      service protocol as `plan-bluetooth-privacy`.
+- [ ] Bluetooth declarations in `goya-lang` (grammar, semantic validation):
+      **contract-gated**. `EffectKind` is part of the frozen
+      `GY-DETERMINISM/1` contract with stable canonical serialisation
+      (`goya-determinism`), consumed by `goya-lang`, `goya-executable`
+      (D1/D2 VMs, D2 journal, bytecode) and `goya-vee`. Adding a `bluetooth`
+      variant is a contract revision requiring `docs/contracts.md` approval,
+      not an incremental patch.
+- [ ] Capability resolution inside the compile pipeline and entitlement /
+      plist *generation into builds*: requires the Neptune build pipeline to
+      exist for real (`docs/neptune-roadmap.md` N-phases); no date is
+      claimed.
 
 ### Phase 6 — Native Core Bluetooth adapters and physical conformance
 
@@ -159,12 +187,17 @@ blocked mandatory gates prevent production qualification (directive §16).
 
 ## Current supported surface
 
-Exactly five implemented Bluetooth contracts:
+Exactly seven implemented Bluetooth contracts:
+`goya.hardware.bluetooth.access.v1` (BLUE-MOON-6),
 `goya.hardware.bluetooth.central.v1` (BLUE-MOON-1),
 `goya.hardware.bluetooth.continuity.v1` (BLUE-MOON-5),
 `goya.hardware.bluetooth.gatt.v1` (BLUE-MOON-2),
-`goya.hardware.bluetooth.guard.v1` (BLUE-MOON-4) and
-`goya.hardware.bluetooth.stream.v1` (BLUE-MOON-3). The 80 draft catalog
-entries remain unimplemented design intent. No other Bluetooth capability —
-advertising, pairing, profiles, audio routing, watchOS/tvOS/visionOS targets
-— is implemented, and none may be reported as such.
+`goya.hardware.bluetooth.guard.v1` (BLUE-MOON-4),
+`goya.hardware.bluetooth.profile.v1` (BLUE-MOON-7) and
+`goya.hardware.bluetooth.stream.v1` (BLUE-MOON-3). This covers six of the
+directive's eight caprichios (Discovery, Link, Access, Control, Stream,
+Guard, Continuity, Profile) as deterministic construction contracts; only
+native execution is outstanding. The 80 draft catalog entries remain
+unimplemented design intent. No other Bluetooth capability — advertising,
+pairing, audio routing, watchOS/tvOS/visionOS targets — is implemented, and
+none may be reported as such.

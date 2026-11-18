@@ -212,6 +212,8 @@ impl Session {
                     | "initial"
                     | "activations"
                     | "manifest"
+                    | "usage_description"
+                    | "contracts"
             )
         }) {
             return error(Some(id), "protocol", "unknown request field");
@@ -237,6 +239,7 @@ impl Session {
                 | "trace-observable-column"
                 | "preview-static-column"
                 | "validate-deploy-manifest"
+                | "plan-bluetooth-privacy"
                 | "swift-parse"
         ) {
             return error(Some(id), "protocol", "operation is not supported");
@@ -268,6 +271,70 @@ impl Session {
                 Err(e) => {
                     json!({"schema_version":"1","job_id":id,"sequence":1,"stage":"manifest_validation","status":"FAIL","diagnostics":[{"code":"NPT-E6101","message":e.to_string()}]})
                 }
+            };
+        }
+        if operation == "plan-bluetooth-privacy" {
+            let Some(usage_description) = object.get("usage_description").and_then(Value::as_str)
+            else {
+                return error(
+                    Some(id),
+                    "bluetooth_privacy",
+                    "usage_description string is required",
+                );
+            };
+            let contracts: Vec<String> = match object.get("contracts") {
+                None | Some(Value::Null) => crate::bluetooth::contract_table()
+                    .iter()
+                    .map(|(contract, _)| (*contract).to_owned())
+                    .collect(),
+                Some(value) => match value.as_array() {
+                    Some(array) => {
+                        let mut contracts = Vec::with_capacity(array.len());
+                        for contract in array {
+                            let Some(contract) = contract.as_str() else {
+                                return error(
+                                    Some(id),
+                                    "bluetooth_privacy",
+                                    "contracts must be an array of strings",
+                                );
+                            };
+                            contracts.push(contract.to_owned());
+                        }
+                        contracts
+                    }
+                    None => {
+                        return error(
+                            Some(id),
+                            "bluetooth_privacy",
+                            "contracts must be an array of strings",
+                        )
+                    }
+                },
+            };
+            let plan = crate::bluetooth::plan_bluetooth_privacy(usage_description);
+            let entries = crate::bluetooth::bluetooth_capability_entries(
+                &contracts.iter().map(String::as_str).collect::<Vec<_>>(),
+            );
+            return match (plan, entries) {
+                (Ok(plan), Ok(entries)) => json!({
+                    "schema_version": "1",
+                    "job_id": id,
+                    "sequence": 1,
+                    "stage": "bluetooth_privacy",
+                    "status": "PASS",
+                    "result": {
+                        "privacy_plan": plan.to_json(),
+                        "capability_entries": entries,
+                    }
+                }),
+                (Err(diagnostic), _) | (_, Err(diagnostic)) => json!({
+                    "schema_version": "1",
+                    "job_id": id,
+                    "sequence": 1,
+                    "stage": "bluetooth_privacy",
+                    "status": "FAIL",
+                    "diagnostics": [{"code": diagnostic.code, "message": diagnostic.message}]
+                }),
             };
         }
         if operation == "test" {
@@ -649,5 +716,84 @@ mod tests {
             &json!({"schema_version":"1","job_id":"five","operation":"preview","source":"x"}),
         );
         assert_eq!(missing_module["status"], "FAIL");
+    }
+
+    #[test]
+    fn bluetooth_privacy_operation_plans_entries_and_fails_closed() {
+        let mut session = Session::default();
+        let all = session.handle(&json!({
+            "schema_version": "1",
+            "job_id": "bm-1",
+            "operation": "plan-bluetooth-privacy",
+            "usage_description": "Connects to your temperature sensor to show readings."
+        }));
+        assert_eq!(all["status"], "PASS");
+        assert_eq!(all["stage"], "bluetooth_privacy");
+        assert_eq!(
+            all["result"]["privacy_plan"]["usage_key"],
+            "NSBluetoothAlwaysUsageDescription"
+        );
+        assert_eq!(
+            all["result"]["privacy_plan"]["legacy_usage_key"],
+            "NSBluetoothPeripheralUsageDescription"
+        );
+        assert_eq!(all["result"]["privacy_plan"]["background_modes"], json!([]));
+        assert_eq!(all["result"]["capability_entries"].as_array().unwrap().len(), 7);
+        assert_eq!(
+            all["result"]["capability_entries"][0]["semantic_id"],
+            "goya.hardware.bluetooth.access.v1"
+        );
+        // Deterministic across sessions.
+        let mut again = Session::default();
+        assert_eq!(all, again.handle(&json!({
+            "schema_version": "1",
+            "job_id": "bm-1",
+            "operation": "plan-bluetooth-privacy",
+            "usage_description": "Connects to your temperature sensor to show readings."
+        })));
+
+        let explicit = session.handle(&json!({
+            "schema_version": "1",
+            "job_id": "bm-2",
+            "operation": "plan-bluetooth-privacy",
+            "usage_description": "Connects to your temperature sensor to show readings.",
+            "contracts": ["goya.hardware.bluetooth.guard.v1", "goya.hardware.bluetooth.central.v1"]
+        }));
+        assert_eq!(explicit["status"], "PASS");
+        assert_eq!(explicit["result"]["capability_entries"].as_array().unwrap().len(), 2);
+
+        let generic = session.handle(&json!({
+            "schema_version": "1",
+            "job_id": "bm-3",
+            "operation": "plan-bluetooth-privacy",
+            "usage_description": "uses bluetooth"
+        }));
+        assert_eq!(generic["status"], "FAIL");
+        assert_eq!(generic["diagnostics"][0]["code"], "NPT-BM-E002");
+
+        let unknown = session.handle(&json!({
+            "schema_version": "1",
+            "job_id": "bm-4",
+            "operation": "plan-bluetooth-privacy",
+            "usage_description": "Connects to your temperature sensor to show readings.",
+            "contracts": ["goya.hardware.bluetooth.pairing.v1"]
+        }));
+        assert_eq!(unknown["status"], "FAIL");
+        assert_eq!(unknown["diagnostics"][0]["code"], "NPT-BM-E001");
+
+        let missing = session.handle(&json!({
+            "schema_version": "1",
+            "job_id": "bm-5",
+            "operation": "plan-bluetooth-privacy"
+        }));
+        assert_eq!(missing["status"], "FAIL");
+
+        let duplicate = session.handle(&json!({
+            "schema_version": "1",
+            "job_id": "bm-1",
+            "operation": "plan-bluetooth-privacy",
+            "usage_description": "Connects to your temperature sensor to show readings."
+        }));
+        assert_eq!(duplicate["status"], "FAIL");
     }
 }
