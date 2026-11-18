@@ -779,9 +779,10 @@ fn emit_view(
         .ident(spec)
         .code(".PARENTS[cell.index]\n        if (parent < 0) addView(cell) else cells[parent]!!.addCell(cell)\n    }\n");
     w.code("\n    override fun onMeasure(widthSpec: Int, heightSpec: Int) {\n")
-        .code("        val width = MeasureSpec.getSize(widthSpec)\n")
-        .code("        val height = MeasureSpec.getSize(heightSpec)\n")
-        .code("        setMeasuredDimension(width, height)\n")
+        .code("        setMeasuredDimension(MeasureSpec.getSize(widthSpec), MeasureSpec.getSize(heightSpec))\n")
+        .code("        // The GSSH viewport is the area inside the system bars and cutouts.\n")
+        .code("        val width = maxOf(measuredWidth - paddingLeft - paddingRight, 0)\n")
+        .code("        val height = maxOf(measuredHeight - paddingTop - paddingBottom, 0)\n")
         .code("        val rects = ")
         .ident(spec)
         .code(".resolve(width / density, height / density)\n        for (i in 0 until ")
@@ -913,12 +914,16 @@ fn emit_view(
 }
 
 const VIEW_IMPORTS: &str = "import android.content.Context
+import android.os.Build
+import android.os.Bundle
 import android.text.InputType
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
+import android.view.WindowInsets
+import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
@@ -927,7 +932,18 @@ import android.widget.TextView
 
 const VIEW_LAYOUT: &str = r#"
     override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
-        layoutCell(cells[0]!!, 0, 0)
+        layoutCell(cells[0]!!, -paddingLeft, -paddingTop)
+    }
+
+    override fun onApplyWindowInsets(insets: WindowInsets): WindowInsets {
+        if (Build.VERSION.SDK_INT >= 30) {
+            val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
+            setPadding(bars.left, bars.top, bars.right, bars.bottom)
+        } else {
+            @Suppress("DEPRECATION")
+            setPadding(insets.systemWindowInsetLeft, insets.systemWindowInsetTop, insets.systemWindowInsetRight, insets.systemWindowInsetBottom)
+        }
+        return insets
     }
 
     internal fun measureCell(cell: GoyaCell) {
@@ -1059,6 +1075,44 @@ class GoyaScrollLayer(context: Context, private val scene: GoyaSceneView, privat
 
     fun scrollClamped(x: Int, y: Int) {
         scrollTo(x.coerceIn(0, scene.maxScrollX(index)), y.coerceIn(0, scene.maxScrollY(index)))
+    }
+
+    override fun canScrollVertically(direction: Int): Boolean =
+        if (direction < 0) scrollY > 0 else scrollY < scene.maxScrollY(index)
+
+    override fun canScrollHorizontally(direction: Int): Boolean =
+        if (direction < 0) scrollX > 0 else scrollX < scene.maxScrollX(index)
+
+    override fun getAccessibilityClassName(): CharSequence = "android.widget.ScrollView"
+
+    override fun onInitializeAccessibilityNodeInfo(info: AccessibilityNodeInfo) {
+        super.onInitializeAccessibilityNodeInfo(info)
+        val forward = scrollY < scene.maxScrollY(index) || scrollX < scene.maxScrollX(index)
+        val backward = scrollY > 0 || scrollX > 0
+        info.isScrollable = forward || backward
+        if (forward) info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_FORWARD)
+        if (backward) info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_BACKWARD)
+    }
+
+    /** One page per action: vertical first, then horizontal. */
+    override fun performAccessibilityAction(action: Int, arguments: Bundle?): Boolean {
+        val pageX = maxOf(width, 1)
+        val pageY = maxOf(height, 1)
+        when (action) {
+            AccessibilityNodeInfo.ACTION_SCROLL_FORWARD -> {
+                if (scrollY < scene.maxScrollY(index)) scrollClamped(scrollX, scrollY + pageY)
+                else if (scrollX < scene.maxScrollX(index)) scrollClamped(scrollX + pageX, scrollY)
+                else return false
+                return true
+            }
+            AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD -> {
+                if (scrollY > 0) scrollClamped(scrollX, scrollY - pageY)
+                else if (scrollX > 0) scrollClamped(scrollX - pageX, scrollY)
+                else return false
+                return true
+            }
+        }
+        return super.performAccessibilityAction(action, arguments)
     }
 
     override fun onInterceptTouchEvent(event: MotionEvent): Boolean {

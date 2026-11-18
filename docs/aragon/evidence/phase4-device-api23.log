@@ -1,0 +1,77 @@
+device: API 23, Android/sdk_phone_x86_64/generic_x86_64:6.0/MASTER/4174734:userdebug/test-keys, 1080x2340 @ 440
+built layout: unsigned release APK sha256 40f89dd7f7b2285df65f27f9a1420d51e4d052a50f28f0b7ceea7f5551e7a976
+built counter: unsigned release APK sha256 c792e345cd5bfc3679a6476bbbe372c049f8d68ee70a057bf2942a0d29c73979
+  ok   layout physical @ 440: viewport (0, 66, 1080, 2208) clear of system bars
+  ok   layout physical @ 440: 23 nodes match the reference
+  ok   layout physical @ 440, vscroll at its scroll limit: viewport (0, 66, 1080, 2208) clear of system bars
+  ok   layout physical @ 440, vscroll at its scroll limit: 20 nodes match the reference
+  ok   layout physical @ 440, vscroll back at 0: viewport (0, 66, 1080, 2208) clear of system bars
+  ok   layout physical @ 440, vscroll back at 0: 23 nodes match the reference
+  ok   layout physical @ 440, hscroll at its scroll limit: viewport (0, 66, 1080, 2208) clear of system bars
+  ok   layout physical @ 440, hscroll at its scroll limit: 25 nodes match the reference
+  ok   layout physical @ 440, hscroll back at 0: viewport (0, 66, 1080, 2208) clear of system bars
+  ok   layout physical @ 440, hscroll back at 0: 23 nodes match the reference
+  ok   layout physical @ 420: viewport (0, 66, 1080, 2208) clear of system bars
+  ok   layout physical @ 420: 23 nodes match the reference
+  ok   layout physical @ 420, vscroll at its scroll limit: viewport (0, 66, 1080, 2208) clear of system bars
+  ok   layout physical @ 420, vscroll at its scroll limit: 20 nodes match the reference
+  ok   layout physical @ 420, vscroll back at 0: viewport (0, 66, 1080, 2208) clear of system bars
+  ok   layout physical @ 420, vscroll back at 0: 23 nodes match the reference
+  ok   layout physical @ 420, hscroll at its scroll limit: viewport (0, 66, 1080, 2208) clear of system bars
+  ok   layout physical @ 420, hscroll at its scroll limit: 25 nodes match the reference
+  ok   layout physical @ 420, hscroll back at 0: viewport (0, 66, 1080, 2208) clear of system bars
+  ok   layout physical @ 420, hscroll back at 0: 23 nodes match the reference
+  ok   layout 900x1600 @ 380: viewport (0, 63, 900, 1474) clear of system bars
+  ok   layout 900x1600 @ 380: 23 nodes match the reference
+  ok   layout 900x1600 @ 380, vscroll at its scroll limit: viewport (0, 63, 900, 1474) clear of system bars
+  ok   layout 900x1600 @ 380, vscroll at its scroll limit: 20 nodes match the reference
+  ok   layout 900x1600 @ 380, vscroll back at 0: viewport (0, 63, 900, 1474) clear of system bars
+  ok   layout 900x1600 @ 380, vscroll back at 0: 23 nodes match the reference
+  ok   layout 900x1600 @ 380, hscroll at its scroll limit: viewport (0, 63, 900, 1474) clear of system bars
+  ok   layout 900x1600 @ 380, hscroll at its scroll limit: 25 nodes match the reference
+  ok   layout 900x1600 @ 380, hscroll back at 0: viewport (0, 63, 900, 1474) clear of system bars
+  ok   layout 900x1600 @ 380, hscroll back at 0: 23 nodes match the reference
+  ok   layout 1200x1920 @ 480: viewport (0, 57, 1200, 1806) clear of system bars
+  ok   layout 1200x1920 @ 480: 23 nodes match the reference
+  ok   layout 1200x1920 @ 480, vscroll at its scroll limit: viewport (0, 57, 1200, 1806) clear of system bars
+  ok   layout 1200x1920 @ 480, vscroll at its scroll limit: 20 nodes match the reference
+  ok   layout 1200x1920 @ 480, vscroll back at 0: viewport (0, 57, 1200, 1806) clear of system bars
+  ok   layout 1200x1920 @ 480, vscroll back at 0: 23 nodes match the reference
+  ok   layout 1200x1920 @ 480, hscroll at its scroll limit: viewport (0, 57, 1200, 1806) clear of system bars
+  ok   layout 1200x1920 @ 480, hscroll at its scroll limit: 25 nodes match the reference
+  ok   layout 1200x1920 @ 480, hscroll back at 0: viewport (0, 57, 1200, 1806) clear of system bars
+  ok   layout 1200x1920 @ 480, hscroll back at 0: 23 nodes match the reference
+  ok   layout landscape @ 440: viewport (0, 72, 2214, 1080) clear of system bars
+  ok   layout landscape @ 440: 23 nodes match the reference
+  ok   layout a11y pass: viewport (0, 72, 1080, 2196) clear of system bars
+  ok   layout a11y pass: 23 nodes match the reference
+  ok   button: clickable with its label as text
+  ok   scroll viewport: scrollable for accessibility
+  ok   counter portrait: viewport (0, 72, 1080, 2196) clear of system bars
+  ok   counter portrait: 13 nodes match the reference
+  ok   field: focusable; has no accessible name (no label in GSSH/2; recorded gap)
+  ok   soft keyboard shown when a field is tapped
+  ok   Add max: total = MAX: no failure (saw [])
+  ok   Add max again: checked overflow, state kept: toast 'Action failed: ARITHMETIC_OVERFLOW' (saw ['<toast text not recorded by this Android version>'])
+  ok   amount '01' refused before dispatch: no failure (saw [])
+  ok   amount '-0' refused before dispatch: no failure (saw [])
+  ok   amount '+1' refused before dispatch: no failure (saw [])
+  ok   amount ' 1' refused before dispatch: no failure (saw [])
+  ok   amount '1.0' refused before dispatch: no failure (saw [])
+  ok   amount 'abc' refused before dispatch: no failure (saw [])
+  ok   refused fields changed nothing: total still MAX: toast 'Action failed: ARITHMETIC_OVERFLOW' (saw ['<toast text not recorded by this Android version>'])
+  ok   Add -1: total = MAX-1: no failure (saw [])
+  ok   Add 1: total = MAX: no failure (saw [])
+  ok   Add 1 again overflows: arithmetic matches D1: toast 'Action failed: ARITHMETIC_OVERFLOW' (saw ['<toast text not recorded by this Android version>'])
+  ok   counter landscape after recreation: viewport (0, 72, 2214, 1080) clear of system bars
+  ok   counter landscape after recreation: 13 nodes match the reference
+  ok   field text restored after recreation
+  ok   session state survived recreation: toast 'Action failed: ARITHMETIC_OVERFLOW' (saw ['<toast text not recorded by this Android version>'])
+  ok   process killed in the background (am kill)
+  ok   counter after process death: viewport (0, 72, 1080, 2196) clear of system bars
+  ok   counter after process death: 13 nodes match the reference
+  ok   field text restored after process death
+  ok   Add 1 after process death: total reset to 0, now 1: no failure (saw [])
+  ok   Add max: 1 + MAX overflows, so the reset was to 0: toast 'Action failed: ARITHMETIC_OVERFLOW' (saw ['<toast text not recorded by this Android version>'])
+
+Device qualification checks passed on this device.

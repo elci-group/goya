@@ -24,7 +24,7 @@ with the exact source range of that construct, through
 | `position_p`, `extent_p` | As above, fractions clamped to [0, 1] | `goya_lang::layout` |
 | `text` on `@cell` | `TextView`, no automatic wrapping, clipped to the cell | Text of the reference frame |
 | `wrap` | The reference wrapper's output, embedded as literal text | `goya_lang::layout` (wrap transform) |
-| `scroll` | Children may overflow; drag scrolls, clamped to the limits | `Frame::scroll_limits` |
+| `scroll` | Children may overflow; drag scrolls, clamped to the limits; exposed to accessibility as a `ScrollView` with page scroll actions | `Frame::scroll_limits` |
 | `fill` | Opaque background (the 8-digit form's alpha is dropped by the parser) | — |
 | `@button` + D1 `@interaction` | `Button`; a click runs the activation protocol below | Canonical D1 executor |
 | `@input` | `EditText`, initially empty | — |
@@ -57,8 +57,11 @@ absolute values are precomputed by the compiler with the reference's
 conversion, proportional values are applied at run time with the same
 `Double` multiply and truncation, and clamping uses saturating arithmetic.
 
-On Android, one point is one dp. The viewport in points is the view size
-in pixels divided by `displayMetrics.density`. Each rect edge is converted on
+On Android, one point is one dp. The viewport is the area inside the system
+bars and display cutout. `GoyaSceneView` applies those insets as padding,
+and scene projects use a theme without an action bar (Phase 4; Android 15
+enforces edge-to-edge drawing). The viewport in points is that area in pixels
+divided by `displayMetrics.density`. Each rect edge is converted on
 its own as `round(mp × density / 1000)`, half up, and a cell's size is the
 difference of its edges. Adjacent cells therefore never gap or overlap. This
 is Aragon's resolution of the dp rounding rule left open in decision D1. Font
@@ -118,5 +121,6 @@ file is not mapped yet.
   action into an unsigned release APK, twice, offline, with strict
   verification. See [`android-toolchain-lock.md`](android-toolchain-lock.md).
 
-Not established: pixel output, touch scrolling, IME and TalkBack behaviour,
-and anything on an emulator or device (ARG-G05 to ARG-G08).
+Phase 4 ran these apps on Android 15 and Android 6.0 emulators; see
+[`android-device-qualification.md`](android-device-qualification.md). Not
+established: pixel output, TalkBack, IME composition, and physical devices.

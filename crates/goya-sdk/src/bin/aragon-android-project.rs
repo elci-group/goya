@@ -290,6 +290,12 @@ fn write_or_exit(root: &Path, files: &[(String, Vec<u8>)]) {
 
 /// Gradle, wrapper and manifest files shared by every generated project.
 fn base_files(project_name: &str) -> Vec<(String, Vec<u8>)> {
+    base_files_themed(project_name, "Theme.Material.Light")
+}
+
+/// Scene projects use a theme without an action bar: the scene owns the
+/// whole window inside the system bars.
+fn base_files_themed(project_name: &str, theme: &str) -> Vec<(String, Vec<u8>)> {
     vec![
         ("settings.gradle.kts".to_owned(), format!("pluginManagement {{ repositories {{ google(); mavenCentral(); gradlePluginPortal() }} }}\ndependencyResolutionManagement {{ repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS); repositories {{ google(); mavenCentral() }} }}\nrootProject.name = \"{project_name}\"\ninclude(\":app\")\n").into_bytes()),
         ("build.gradle.kts".to_owned(), ROOT_BUILD.as_bytes().to_vec()),
@@ -300,7 +306,7 @@ fn base_files(project_name: &str) -> Vec<(String, Vec<u8>)> {
         ("gradle/wrapper/gradle-wrapper.properties".to_owned(), WRAPPER_PROPERTIES.to_vec()),
         ("gradle/verification-metadata.xml".to_owned(), VERIFICATION_METADATA.to_vec()),
         ("app/build.gradle.kts".to_owned(), APP_BUILD.as_bytes().to_vec()),
-        ("app/src/main/AndroidManifest.xml".to_owned(), "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"><application android:theme=\"@android:style/Theme.Material.Light\" android:label=\"Goya preview\"><activity android:name=\"dev.goya.preview.MainActivity\" android:exported=\"true\"><intent-filter><action android:name=\"android.intent.action.MAIN\"/><category android:name=\"android.intent.category.LAUNCHER\"/></intent-filter></activity></application></manifest>\n".as_bytes().to_vec()),
+        ("app/src/main/AndroidManifest.xml".to_owned(), format!("<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"><application android:theme=\"@android:style/{theme}\" android:label=\"Goya preview\"><activity android:name=\"dev.goya.preview.MainActivity\" android:exported=\"true\"><intent-filter><action android:name=\"android.intent.action.MAIN\"/><category android:name=\"android.intent.category.LAUNCHER\"/></intent-filter></activity></application></manifest>\n").into_bytes()),
     ]
 }
 
@@ -314,7 +320,7 @@ fn generate_scene(input: &std::ffi::OsStr, root: &Path) {
         eprintln!("scene rejected at bytes {error}");
         process::exit(1);
     });
-    let mut files = base_files("GoyaScene");
+    let mut files = base_files_themed("GoyaScene", "Theme.Material.Light.NoActionBar");
     for file in &scene.files {
         files.push((
             format!("app/src/main/java/dev/goya/preview/{}", file.name),

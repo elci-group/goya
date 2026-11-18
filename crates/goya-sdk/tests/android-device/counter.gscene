@@ -1,0 +1,16 @@
+@ontology counter {
+  @state { total: int = 0 session; note: text = "none" session; }
+  @cell root { id: "root"; fill: #f4f1ea;
+    @cell title { id: "title"; position: (16, 16, 0); extent: (300, 40, 0); text: "Goya counter" }
+    @input amount { id: "field.amount"; position: (16, 64, 0); extent: (200, 48, 0); }
+    @input memo { id: "field.memo"; position_p: (0.05, 0.3, 0); extent_p: (0.9, 0.08, 0); }
+    @button add { id: "button.add"; position: (232, 64, 0); extent: (120, 48, 0); text: "Add" }
+    @cell list { id: "list"; position_p: (0.05, 0.45, 0); extent_p: (0.9, 0.5, 0); scroll: true; fill: #ffffff;
+      @cell para { id: "para"; extent: (280, 900, 0); wrap: 28; text: "Scroll cells clip their children and let them overflow; this paragraph is wrapped by the reference wrapper." }
+    }
+  }
+  @interaction add { id: "action.add"; trigger: button.add.activate; class: D1;
+    state { read total: int; write total: int; write note: text; }
+    input { amount: int from "field.amount"; memo: text from "field.memo"; }
+    set total = state.total + input.amount; set note = input.memo; }
+}

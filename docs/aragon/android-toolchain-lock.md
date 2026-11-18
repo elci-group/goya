@@ -15,6 +15,8 @@ Recorded 17 November 2026. This is the single toolchain that
 | Android SDK Platform | `platforms;android-35`, revision 2 | `android.jar` SHA-256 `4566663c…e619b` on this host |
 | Android Build Tools | `build-tools;34.0.0` | Set explicitly (`buildToolsVersion`) so AGP does not pick another |
 | Android platform tools | `platform-tools`, 37.0.1 | Not used by the build; locked so `adb` is fixed for Phase 4 |
+| Android Emulator (Phase 4, device checks only) | `emulator` 37.2.13 | Installed by `sdkmanager`, which verifies package checksums |
+| System images (Phase 4) | `system-images;android-35;default;x86_64` r2, `system-images;android-23;default;x86_64` r10 | As above; AOSP images, no Google apps |
 | SDK command-line tools | `commandlinetools-linux-13114758` (revision 19.0) | Archive checked against the SHA-1 in Google's repository manifest; used only to install the packages above |
 
 The generated `gradle.properties` sets `android.builder.sdkDownload=false`,
@@ -66,14 +68,17 @@ Result on this host, 17 November 2026 (Linux x86-64):
 ```text
 static: cd3e6f15892278b35490a3d46cb90109d069e870d9b20ec7e506c6d584f9b06b
 root-button: 47af8d6c0932c4aa6e19b0ee7576d8887eda269f056a8e40934e71e1efbab89e
-scene: ddabde96440df056f3a638f1d740df9fb4ee81362f9f320ba775afe00feb1754
+scene: c792e345cd5bfc3679a6476bbbe372c049f8d68ee70a057bf2942a0d29c73979
 Locked-toolchain release APK builds are reproducible and match the recorded hashes.
 ```
 
 Exit 0, offline with strict verification. Each hash is the same across both
 builds of that project. The root-button hash also equals an earlier
 prototype build of the same project on 17 November 2026. The scene project
-was added in Phase 3; adding it left the two earlier hashes unchanged.
+was added in Phase 3; adding it left the two earlier hashes unchanged. Its
+hash changed in Phase 4 (insets, theme and scroll accessibility; rerun 18
+November 2026). Kotlin's compile daemon can print a start-up error and fall
+back to compiling in-process; the APKs are unaffected.
 
 ## What this does not establish
 
