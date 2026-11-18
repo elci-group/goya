@@ -4,6 +4,11 @@ use crate::apple_pay_caprichio::{
     ApplePayArtifact, ApplePayDeclaration, RuntimeCapabilities as ApplePayHost,
     Target as ApplePayTarget,
 };
+use crate::accelerator_caprichio::{
+    AcceleratorArtifact, AcceleratorDeclaration, AcceleratorDiagnostic,
+    AcceleratorRuntimeCapabilities as AcceleratorModelHost,
+    AcceleratorTarget as AcceleratorModelTarget,
+};
 use crate::batching_caprichio::{
     BatchArtifact, BatchDeclaration, RuntimeCapabilities as BatchRuntime, Target as BatchTarget,
 };
@@ -161,6 +166,7 @@ pub struct Request {
     pub bluetooth_continuity: Option<BluetoothContinuityDeclaration>,
     pub bluetooth_access: Option<BluetoothAccessDeclaration>,
     pub bluetooth_profile: Option<BluetoothProfileDeclaration>,
+    pub accelerator_model: Option<AcceleratorDeclaration>,
 }
 
 /// Host facts are supplied by the caller; the registry does not infer support
@@ -231,6 +237,8 @@ pub struct HostProfile {
     pub bluetooth_access_host: BluetoothAccessHost,
     pub bluetooth_profile_target: BluetoothProfileTarget,
     pub bluetooth_profile_host: BluetoothProfileHost,
+    pub accelerator_model_target: AcceleratorModelTarget,
+    pub accelerator_model_host: AcceleratorModelHost,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -268,6 +276,7 @@ pub enum Artifact {
     BluetoothContinuity(BluetoothContinuityArtifact),
     BluetoothAccess(BluetoothAccessArtifact),
     BluetoothProfile(BluetoothProfileArtifact),
+    AcceleratorModel(AcceleratorArtifact),
 }
 
 impl Artifact {
@@ -306,6 +315,7 @@ impl Artifact {
             Self::BluetoothContinuity(a) => a.contract,
             Self::BluetoothAccess(a) => a.contract,
             Self::BluetoothProfile(a) => a.contract,
+            Self::AcceleratorModel(a) => a.contract,
         }
     }
 
@@ -344,6 +354,7 @@ impl Artifact {
             Self::BluetoothContinuity(_) => "apple-ble-continuity-bounded-restoration",
             Self::BluetoothAccess(_) => "apple-ble-access-bounded-mapping",
             Self::BluetoothProfile(_) => "apple-ble-profile-bounded-classification",
+            Self::AcceleratorModel(_) => "per-model-device-accelerator",
         }
     }
 
@@ -382,6 +393,7 @@ impl Artifact {
             Self::BluetoothContinuity(a) => a.recipe_version,
             Self::BluetoothAccess(a) => a.recipe_version,
             Self::BluetoothProfile(a) => a.recipe_version,
+            Self::AcceleratorModel(a) => a.recipe_version,
         }
     }
 
