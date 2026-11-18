@@ -221,9 +221,15 @@ fn scene_command(
             base["source_digest"] = serde_json::json!(crate::hex_encode(&source_digest));
             base["semantic_id"] = serde_json::json!(semantic_id);
             base["client_dip"] = serde_json::json!([width_dip, height_dip]);
-            base["dispositions"] = serde_json::json!(dispositions.iter().map(|item| {
+            base["dispositions"] = serde_json::json!(crate::orchestrate::legacy_dispositions(
+                dispositions.clone(),
+                api_floor
+            )
+            .iter()
+            .map(|item| {
                 serde_json::json!({"subject": item.subject, "disposition": item.disposition, "detail": item.detail})
-            }).collect::<Vec<_>>());
+            })
+            .collect::<Vec<_>>());
             base["diagnostics"] = serde_json::json!([]);
             let text = format!(
                 "admitted {profile}\n{semantic_id} {width_dip}x{height_dip} dip\nruntime-qualification: BLOCKED\n"
@@ -953,6 +959,53 @@ mod tests {
         ]);
         assert_eq!(run.code, ExitCode::SUCCESS);
         assert_eq!(run.json["api_floor"], "win8");
+    }
+
+    #[test]
+    fn check_reports_honest_legacy_dispositions() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/static-window.gscene");
+        let run = execute(&[
+            "sash".into(),
+            "check".into(),
+            path.into(),
+            "--api-floor".into(),
+            "win8".into(),
+            "--format".into(),
+            "json".into(),
+        ]);
+        assert_eq!(run.code, ExitCode::SUCCESS);
+        let dispositions = run.json["dispositions"].as_array().unwrap();
+        let background = dispositions
+            .iter()
+            .find(|item| item["subject"] == "background")
+            .expect("background disposition");
+        let detail = background["detail"].as_str().unwrap();
+        assert!(!detail.contains("recreated when that DPI changes"), "{detail}");
+        assert!(detail.contains("system DPI aware"), "{detail}");
+        assert!(dispositions
+            .iter()
+            .any(|item| item["subject"] == "dpi"
+                && item["detail"].as_str().unwrap().contains("GetDeviceCaps")));
+
+        // The win10 check keeps the per-monitor claim.
+        let run = execute(&[
+            "sash".into(),
+            "check".into(),
+            path.into(),
+            "--format".into(),
+            "json".into(),
+        ]);
+        assert_eq!(run.code, ExitCode::SUCCESS);
+        let dispositions = run.json["dispositions"].as_array().unwrap();
+        assert!(!dispositions.iter().any(|item| item["subject"] == "dpi"));
+        let background = dispositions
+            .iter()
+            .find(|item| item["subject"] == "background")
+            .expect("background disposition");
+        assert!(background["detail"]
+            .as_str()
+            .unwrap()
+            .contains("recreated when that DPI changes"));
     }
 
     #[test]

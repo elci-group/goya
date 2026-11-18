@@ -147,7 +147,7 @@ struct Prepared {
 /// the adapter the image actually carries, so the static background
 /// disposition is rewritten and every legacy image gains an explicit `dpi`
 /// disposition. The win10 dispositions pass through untouched.
-fn legacy_dispositions(
+pub(crate) fn legacy_dispositions(
     mut dispositions: Vec<crate::admit::Disposition>,
     floor: crate::api_floor::ApiFloor,
 ) -> Vec<crate::admit::Disposition> {
