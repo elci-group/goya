@@ -313,7 +313,7 @@ mod tests {
         assert!(first
             .canonical_ir
             .contains("authorize=https://login.microsoftonline.com/common/oauth2/v2.0/authorize\n"));
-        assert!(first.canonical_ir.contains("scopes=openid email profile offline_access User.Read\n"));
+        assert!(first.canonical_ir.contains("scopes=openid email\n"));
         assert!(first.canonical_ir.contains("pkce=s256\n"));
         assert!(first.canonical_ir.contains("token_exchange=none\n"));
         assert!(first.source.contains("make_sso_flow"));

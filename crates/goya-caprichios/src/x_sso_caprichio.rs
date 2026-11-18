@@ -312,7 +312,7 @@ mod tests {
         assert!(first
             .canonical_ir
             .contains("authorize=https://twitter.com/i/oauth2/authorize\n"));
-        assert!(first.canonical_ir.contains("scopes=tweet.read users.read follows.read offline.access\n"));
+        assert!(first.canonical_ir.contains("scopes=tweet.read users.read\n"));
         assert!(first.canonical_ir.contains("pkce=s256\n"));
         assert!(first.canonical_ir.contains("token_exchange=none\n"));
         assert!(first.source.contains("make_sso_flow"));

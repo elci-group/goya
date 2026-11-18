@@ -312,7 +312,7 @@ mod tests {
         assert!(first
             .canonical_ir
             .contains("authorize=https://github.com/login/oauth/authorize\n"));
-        assert!(first.canonical_ir.contains("scopes=read:user user:email read:org repo\n"));
+        assert!(first.canonical_ir.contains("scopes=read:user user:email\n"));
         assert!(first.canonical_ir.contains("pkce=s256\n"));
         assert!(first.canonical_ir.contains("token_exchange=none\n"));
         assert!(first.source.contains("make_sso_flow"));

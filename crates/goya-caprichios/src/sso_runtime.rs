@@ -31,6 +31,7 @@ pub enum SsoError {
     DuplicateScope,
     BadVerifier,
     StateMismatch,
+    RedirectMismatch,
     MissingCode,
     FlowCompleted,
 }
@@ -47,6 +48,7 @@ impl fmt::Display for SsoError {
             Self::DuplicateScope => "scopes must not repeat",
             Self::BadVerifier => "PKCE verifier must be 43-128 unreserved bytes",
             Self::StateMismatch => "redirect state does not match the request state",
+            Self::RedirectMismatch => "redirect URI does not match the registered redirect",
             Self::MissingCode => "redirect query carries no authorization code",
             Self::FlowCompleted => "authorization code was already consumed",
         })
@@ -374,10 +376,12 @@ impl SsoFlow {
         if self.completed {
             return Err(SsoError::FlowCompleted);
         }
-        let query = redirect
+        let (uri, query) = redirect
             .split_once('?')
-            .map(|(_, query)| query)
             .ok_or(SsoError::MissingCode)?;
+        if uri != self.redirect_uri {
+            return Err(SsoError::RedirectMismatch);
+        }
         let mut code = None;
         for param in query.split('&') {
             match param.split_once('=') {
@@ -428,11 +432,11 @@ mod tests {
             abc.iter().map(|b| format!("{b:02x}")).collect::<String>(),
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
-        // Longer than one block.
+        // Longer than one block (verified against a reference SHA-256).
         let long = sha256(&[b'a'; 1000]);
         assert_eq!(
             long.iter().map(|b| format!("{b:02x}")).collect::<String>(),
-            "41edece42d1e3444ea40a5eabffa36cd19e4be6b1a03c80be799a87a0c4a1eaf"
+            "41edece42d63e8d9bf515a9ba6932e1c20cbc9f5a5d134645adb5db1b9737ea3"
         );
     }
 
@@ -504,7 +508,7 @@ mod tests {
         );
         assert_eq!(
             flow.redirect_matches("https://other.example/callback?code=x"),
-            Err(SsoError::MissingCode)
+            Err(SsoError::RedirectMismatch)
         );
         // Host mismatch still fails through query parsing; exact-URI equality
         // is asserted by the code not being found in a matching-shape query.
