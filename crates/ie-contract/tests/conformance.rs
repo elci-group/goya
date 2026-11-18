@@ -13,7 +13,7 @@ fn load_golden(text: &str) -> GoldenFixture {
     let mut b_dims = Vec::new();
     let mut b = Vec::new();
     let mut expected = Vec::new();
-    let mut expected_dims = Vec::new();
+    let mut expected_dims: Vec<u64> = Vec::new();
     for line in text.lines() {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
