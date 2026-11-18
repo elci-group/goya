@@ -75,7 +75,6 @@ pub struct RuntimeCapabilities {
 pub enum Diagnostic {
     ZeroAssociationBound,
     AssociationBoundTooLarge,
-    ZeroSubscriptionBound,
     SubscriptionBoundTooLarge,
     UnsupportedTarget,
     MissingBluetoothStateRestoration,
@@ -90,9 +89,6 @@ impl fmt::Display for Diagnostic {
             Self::ZeroAssociationBound => "association bound must be positive",
             Self::AssociationBoundTooLarge => {
                 "association bound exceeds the supported bound"
-            }
-            Self::ZeroSubscriptionBound => {
-                "per-association subscription bound must not exceed the supported bound"
             }
             Self::SubscriptionBoundTooLarge => {
                 "per-association subscription bound exceeds the supported bound"
