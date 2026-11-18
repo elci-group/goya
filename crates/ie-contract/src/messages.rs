@@ -66,7 +66,10 @@ pub struct Response {
 
 #[cfg(test)]
 mod tests {
-    use crate::tensors::{DType, TensorData, TensorDesc};
+    use super::*;
+    use crate::tensors::{DType, TensorDesc};
+
+    fn f32_input(vals: &[f32]) -> TensorData {
         let desc = TensorDesc {
             dtype: crate::tensors::DType::F32,
             dims: vec![vals.len() as u64],
