@@ -263,7 +263,11 @@ fn qualify_runs_static_checks_and_oracle_and_blocks_the_rest() {
     // runtime-conformance is PASS only when a display was actually reachable;
     // headless environments leave it BLOCKED, which still exits 0.
     let conformance = stages[11]["status"].as_str().unwrap_or("");
-    assert!(conformance == "PASS" || conformance == "BLOCKED", "{}", conformance);
+    assert!(
+        conformance == "PASS" || conformance == "BLOCKED",
+        "{}",
+        conformance
+    );
     if smoke == "blocked" {
         assert_eq!(conformance, "BLOCKED");
     } else {
