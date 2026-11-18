@@ -4,10 +4,6 @@ use crate::apple_pay_caprichio::{
     ApplePayArtifact, ApplePayDeclaration, RuntimeCapabilities as ApplePayHost,
     Target as ApplePayTarget,
 };
-use crate::accelerator_caprichio::{
-    AcceleratorArtifact, AcceleratorDeclaration, AcceleratorDiagnostic,
-    AcceleratorRuntimeCapabilities as AcceleratorModelHost, AcceleratorTarget as AcceleratorModelTarget,
-};
 use crate::batching_caprichio::{
     BatchArtifact, BatchDeclaration, RuntimeCapabilities as BatchRuntime, Target as BatchTarget,
 };
@@ -165,7 +161,6 @@ pub struct Request {
     pub bluetooth_continuity: Option<BluetoothContinuityDeclaration>,
     pub bluetooth_access: Option<BluetoothAccessDeclaration>,
     pub bluetooth_profile: Option<BluetoothProfileDeclaration>,
-    pub accelerator_model: Option<AcceleratorDeclaration>,
 }
 
 /// Host facts are supplied by the caller; the registry does not infer support
@@ -236,14 +231,6 @@ pub struct HostProfile {
     pub bluetooth_access_host: BluetoothAccessHost,
     pub bluetooth_profile_target: BluetoothProfileTarget,
     pub bluetooth_profile_host: BluetoothProfileHost,
-    pub accelerator_iphone_target: IphoneAcceleratorTarget,
-    pub accelerator_iphone_host: IphoneAcceleratorHost,
-    pub accelerator_ipad_target: IpadAcceleratorTarget,
-    pub accelerator_ipad_host: IpadAcceleratorHost,
-    pub accelerator_ipod_touch_target: IpodTouchAcceleratorTarget,
-    pub accelerator_ipod_touch_host: IpodTouchAcceleratorHost,
-    pub accelerator_apple_watch_target: AppleWatchAcceleratorTarget,
-    pub accelerator_apple_watch_host: AppleWatchAcceleratorHost,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -281,10 +268,6 @@ pub enum Artifact {
     BluetoothContinuity(BluetoothContinuityArtifact),
     BluetoothAccess(BluetoothAccessArtifact),
     BluetoothProfile(BluetoothProfileArtifact),
-    IphoneAccelerator(IphoneAcceleratorArtifact),
-    IpadAccelerator(IpadAcceleratorArtifact),
-    IpodTouchAccelerator(IpodTouchAcceleratorArtifact),
-    AppleWatchAccelerator(AppleWatchAcceleratorArtifact),
 }
 
 impl Artifact {
@@ -323,10 +306,6 @@ impl Artifact {
             Self::BluetoothContinuity(a) => a.contract,
             Self::BluetoothAccess(a) => a.contract,
             Self::BluetoothProfile(a) => a.contract,
-            Self::IphoneAccelerator(a) => a.contract,
-            Self::IpadAccelerator(a) => a.contract,
-            Self::IpodTouchAccelerator(a) => a.contract,
-            Self::AppleWatchAccelerator(a) => a.contract,
         }
     }
 
@@ -365,10 +344,6 @@ impl Artifact {
             Self::BluetoothContinuity(_) => "apple-ble-continuity-bounded-restoration",
             Self::BluetoothAccess(_) => "apple-ble-access-bounded-mapping",
             Self::BluetoothProfile(_) => "apple-ble-profile-bounded-classification",
-            Self::IphoneAccelerator(_) => "iphone-metal-checked-dispatch",
-            Self::IpadAccelerator(_) => "ipad-metal-checked-dispatch",
-            Self::IpodTouchAccelerator(_) => "ipod_touch-metal-checked-dispatch",
-            Self::AppleWatchAccelerator(_) => "apple-watch-accelerator-inventory-only",
         }
     }
 
@@ -407,10 +382,6 @@ impl Artifact {
             Self::BluetoothContinuity(a) => a.recipe_version,
             Self::BluetoothAccess(a) => a.recipe_version,
             Self::BluetoothProfile(a) => a.recipe_version,
-            Self::IphoneAccelerator(a) => a.recipe_version,
-            Self::IpadAccelerator(a) => a.recipe_version,
-            Self::IpodTouchAccelerator(a) => a.recipe_version,
-            Self::AppleWatchAccelerator(a) => a.recipe_version,
         }
     }
 
@@ -449,10 +420,6 @@ impl Artifact {
             Self::BluetoothContinuity(a) => &a.canonical_ir,
             Self::BluetoothAccess(a) => &a.canonical_ir,
             Self::BluetoothProfile(a) => &a.canonical_ir,
-            Self::IphoneAccelerator(a) => &a.canonical_ir,
-            Self::IpadAccelerator(a) => &a.canonical_ir,
-            Self::IpodTouchAccelerator(a) => &a.canonical_ir,
-            Self::AppleWatchAccelerator(a) => &a.canonical_ir,
         }
     }
 
@@ -491,10 +458,6 @@ impl Artifact {
             Self::BluetoothContinuity(a) => &a.source,
             Self::BluetoothAccess(a) => &a.source,
             Self::BluetoothProfile(a) => &a.source,
-            Self::IphoneAccelerator(a) => &a.source,
-            Self::IpadAccelerator(a) => &a.source,
-            Self::IpodTouchAccelerator(a) => &a.source,
-            Self::AppleWatchAccelerator(a) => &a.source,
         }
     }
 }
@@ -522,10 +485,6 @@ pub const fn supported_contracts() -> &'static [&'static str] {
         crate::csv_caprichio::CONTRACT,
         crate::stream_caprichio::CONTRACT,
         crate::filesystem_caprichio::CONTRACT,
-        crate::apple_watch_accelerator_caprichio::CONTRACT,
-        crate::ipad_accelerator_caprichio::CONTRACT,
-        crate::iphone_accelerator_caprichio::CONTRACT,
-        crate::ipod_touch_accelerator_caprichio::CONTRACT,
         crate::face_id_caprichio::CONTRACT,
         crate::touch_id_caprichio::CONTRACT,
         crate::windows_hello_caprichio::CONTRACT,
@@ -589,10 +548,6 @@ pub enum NegotiationError {
     BluetoothContinuity(crate::bluetooth_continuity_caprichio::Diagnostic),
     BluetoothAccess(crate::bluetooth_access_caprichio::Diagnostic),
     BluetoothProfile(crate::bluetooth_profile_caprichio::Diagnostic),
-    IphoneAccelerator(crate::iphone_accelerator_caprichio::IphoneAcceleratorDiagnostic),
-    IpadAccelerator(crate::ipad_accelerator_caprichio::IpadAcceleratorDiagnostic),
-    IpodTouchAccelerator(crate::ipod_touch_accelerator_caprichio::IpodTouchAcceleratorDiagnostic),
-    AppleWatchAccelerator(crate::apple_watch_accelerator_caprichio::AppleWatchAcceleratorDiagnostic),
 }
 
 impl fmt::Display for NegotiationError {
@@ -655,18 +610,6 @@ impl fmt::Display for NegotiationError {
             Self::BluetoothProfile(error) => {
                 write!(f, "Bluetooth profile negotiation failed: {error}")
             }
-            Self::IphoneAccelerator(error) => {
-                write!(f, "iPhone accelerator negotiation failed: {error}")
-            }
-            Self::IpadAccelerator(error) => {
-                write!(f, "iPad accelerator negotiation failed: {error}")
-            }
-            Self::IpodTouchAccelerator(error) => {
-                write!(f, "iPod touch accelerator negotiation failed: {error}")
-            }
-            Self::AppleWatchAccelerator(error) => {
-                write!(f, "Apple Watch accelerator negotiation failed: {error}")
-            }
         }
     }
 }
@@ -698,10 +641,6 @@ pub fn negotiate(
             && *id != crate::checksum_caprichio::CONTRACT
             && *id != crate::retry_caprichio::CONTRACT
             && *id != crate::filesystem_caprichio::CONTRACT
-            && *id != crate::apple_watch_accelerator_caprichio::CONTRACT
-            && *id != crate::ipad_accelerator_caprichio::CONTRACT
-            && *id != crate::iphone_accelerator_caprichio::CONTRACT
-            && *id != crate::ipod_touch_accelerator_caprichio::CONTRACT
             && *id != crate::http_caprichio::CONTRACT
             && *id != crate::stream_caprichio::CONTRACT
             && *id != crate::compression_caprichio::CONTRACT
@@ -768,12 +707,6 @@ pub fn negotiate(
         ordered.contains(crate::bluetooth_continuity_caprichio::CONTRACT);
     let needs_bluetooth_access = ordered.contains(crate::bluetooth_access_caprichio::CONTRACT);
     let needs_bluetooth_profile = ordered.contains(crate::bluetooth_profile_caprichio::CONTRACT);
-    let needs_accelerator_iphone = ordered.contains(crate::iphone_accelerator_caprichio::CONTRACT);
-    let needs_accelerator_ipad = ordered.contains(crate::ipad_accelerator_caprichio::CONTRACT);
-    let needs_accelerator_ipod_touch =
-        ordered.contains(crate::ipod_touch_accelerator_caprichio::CONTRACT);
-    let needs_accelerator_apple_watch =
-        ordered.contains(crate::apple_watch_accelerator_caprichio::CONTRACT);
     if request.network.is_some() && !needs_network {
         return Err(NegotiationError::UnexpectedDeclaration { kind: "network" });
     }
@@ -901,26 +834,6 @@ pub fn negotiate(
     if request.bluetooth_profile.is_some() && !needs_bluetooth_profile {
         return Err(NegotiationError::UnexpectedDeclaration {
             kind: "bluetooth_profile",
-        });
-    }
-    if request.accelerator_iphone.is_some() && !needs_accelerator_iphone {
-        return Err(NegotiationError::UnexpectedDeclaration {
-            kind: "accelerator_iphone",
-        });
-    }
-    if request.accelerator_ipad.is_some() && !needs_accelerator_ipad {
-        return Err(NegotiationError::UnexpectedDeclaration {
-            kind: "accelerator_ipad",
-        });
-    }
-    if request.accelerator_ipod_touch.is_some() && !needs_accelerator_ipod_touch {
-        return Err(NegotiationError::UnexpectedDeclaration {
-            kind: "accelerator_ipod_touch",
-        });
-    }
-    if request.accelerator_apple_watch.is_some() && !needs_accelerator_apple_watch {
-        return Err(NegotiationError::UnexpectedDeclaration {
-            kind: "accelerator_apple_watch",
         });
     }
 
@@ -1362,71 +1275,6 @@ pub fn negotiate(
                         .map_err(NegotiationError::BluetoothProfile)?,
                 )
             }
-            crate::iphone_accelerator_caprichio::CONTRACT => {
-                let declaration = request.accelerator_iphone.clone().ok_or(
-                    NegotiationError::MissingDeclaration {
-                        capability: crate::iphone_accelerator_caprichio::CONTRACT,
-                    },
-                )?;
-                let ir = declaration
-                    .normalize()
-                    .map_err(NegotiationError::IphoneAccelerator)?;
-                Artifact::IphoneAccelerator(
-                    ir.lower_checked(
-                        host.accelerator_iphone_target,
-                        host.accelerator_iphone_host,
-                    )
-                    .map_err(NegotiationError::IphoneAccelerator)?,
-                )
-            }
-            crate::ipad_accelerator_caprichio::CONTRACT => {
-                let declaration = request.accelerator_ipad.clone().ok_or(
-                    NegotiationError::MissingDeclaration {
-                        capability: crate::ipad_accelerator_caprichio::CONTRACT,
-                    },
-                )?;
-                let ir = declaration
-                    .normalize()
-                    .map_err(NegotiationError::IpadAccelerator)?;
-                Artifact::IpadAccelerator(
-                    ir.lower_checked(host.accelerator_ipad_target, host.accelerator_ipad_host)
-                        .map_err(NegotiationError::IpadAccelerator)?,
-                )
-            }
-            crate::ipod_touch_accelerator_caprichio::CONTRACT => {
-                let declaration = request.accelerator_ipod_touch.clone().ok_or(
-                    NegotiationError::MissingDeclaration {
-                        capability: crate::ipod_touch_accelerator_caprichio::CONTRACT,
-                    },
-                )?;
-                let ir = declaration
-                    .normalize()
-                    .map_err(NegotiationError::IpodTouchAccelerator)?;
-                Artifact::IpodTouchAccelerator(
-                    ir.lower_checked(
-                        host.accelerator_ipod_touch_target,
-                        host.accelerator_ipod_touch_host,
-                    )
-                    .map_err(NegotiationError::IpodTouchAccelerator)?,
-                )
-            }
-            crate::apple_watch_accelerator_caprichio::CONTRACT => {
-                let declaration = request.accelerator_apple_watch.clone().ok_or(
-                    NegotiationError::MissingDeclaration {
-                        capability: crate::apple_watch_accelerator_caprichio::CONTRACT,
-                    },
-                )?;
-                let ir = declaration
-                    .normalize()
-                    .map_err(NegotiationError::AppleWatchAccelerator)?;
-                Artifact::AppleWatchAccelerator(
-                    ir.lower_checked(
-                        host.accelerator_apple_watch_target,
-                        host.accelerator_apple_watch_host,
-                    )
-                    .map_err(NegotiationError::AppleWatchAccelerator)?,
-                )
-            }
             _ => unreachable!("request IDs validated before lowering"),
         };
         let id = match artifact {
@@ -1463,10 +1311,6 @@ pub fn negotiate(
             Artifact::BluetoothContinuity(_) => crate::bluetooth_continuity_caprichio::CONTRACT,
             Artifact::BluetoothAccess(_) => crate::bluetooth_access_caprichio::CONTRACT,
             Artifact::BluetoothProfile(_) => crate::bluetooth_profile_caprichio::CONTRACT,
-            Artifact::IphoneAccelerator(_) => crate::iphone_accelerator_caprichio::CONTRACT,
-            Artifact::IpadAccelerator(_) => crate::ipad_accelerator_caprichio::CONTRACT,
-            Artifact::IpodTouchAccelerator(_) => crate::ipod_touch_accelerator_caprichio::CONTRACT,
-            Artifact::AppleWatchAccelerator(_) => crate::apple_watch_accelerator_caprichio::CONTRACT,
         };
         result.push(NegotiatedCapability { id, artifact });
     }
@@ -1683,25 +1527,6 @@ mod tests {
             },
             bluetooth_profile_target: BluetoothProfileTarget::Ios,
             bluetooth_profile_host: BluetoothProfileHost {
-                utf8_strings: true,
-            },
-            accelerator_iphone_target: IphoneAcceleratorTarget::Device,
-            accelerator_iphone_host: IphoneAcceleratorHost {
-                gpu_driver: true,
-                utf8_strings: true,
-            },
-            accelerator_ipad_target: IpadAcceleratorTarget::Device,
-            accelerator_ipad_host: IpadAcceleratorHost {
-                gpu_driver: true,
-                utf8_strings: true,
-            },
-            accelerator_ipod_touch_target: IpodTouchAcceleratorTarget::Device,
-            accelerator_ipod_touch_host: IpodTouchAcceleratorHost {
-                gpu_driver: true,
-                utf8_strings: true,
-            },
-            accelerator_apple_watch_target: AppleWatchAcceleratorTarget::Device,
-            accelerator_apple_watch_host: AppleWatchAcceleratorHost {
                 utf8_strings: true,
             },
         }
@@ -2013,205 +1838,11 @@ mod tests {
         }
     }
 
-    fn accelerator_iphone() -> IphoneAcceleratorDeclaration {
-        IphoneAcceleratorDeclaration {
-            model: "iPhone 15 Pro".into(),
-            threads_per_group: 256,
-            groups: 8,
-            max_buffer_bytes: 8192,
-        }
-    }
 
-    fn accelerator_ipad() -> IpadAcceleratorDeclaration {
-        IpadAcceleratorDeclaration {
-            model: "iPad Air (5th generation)".into(),
-            threads_per_group: 256,
-            groups: 8,
-            max_buffer_bytes: 8192,
-        }
-    }
 
-    fn accelerator_ipod_touch() -> IpodTouchAcceleratorDeclaration {
-        IpodTouchAcceleratorDeclaration {
-            model: "iPod touch (7th generation)".into(),
-            threads_per_group: 64,
-            groups: 16,
-            max_buffer_bytes: 4096,
-        }
-    }
 
-    fn accelerator_apple_watch() -> AppleWatchAcceleratorDeclaration {
-        AppleWatchAcceleratorDeclaration {
-            model: "Apple Watch Series 9".into(),
-        }
-    }
 
-    #[test]
-    fn iphone_accelerator_contract_registers_exactly_and_fails_closed() {
-        let contract = crate::iphone_accelerator_caprichio::CONTRACT;
-        assert_eq!(contract, "goya.hardware.accelerator.iphone.v1");
-        assert!(supported_contracts().contains(&contract));
-        assert!(!supported_contracts().contains(&"hardware.accelerator"));
-        assert!(!supported_contracts().contains(&"goya.hardware.accelerator.v1"));
 
-        let request = Request {
-            capabilities: vec![contract.into()],
-            accelerator_iphone: Some(accelerator_iphone()),
-            ..Request::default()
-        };
-        let negotiated = negotiate(&request, host()).unwrap();
-        assert_eq!(negotiated.len(), 1);
-        assert_eq!(negotiated[0].id, contract);
-        assert_eq!(negotiated[0].artifact.contract(), contract);
-        assert_eq!(negotiated[0].artifact.recipe(), "iphone-metal-checked-dispatch");
-        assert!(negotiated[0]
-            .artifact
-            .canonical_ir()
-            .contains("category=iphone\n"));
-        assert!(negotiated[0]
-            .artifact
-            .canonical_ir()
-            .contains("model=iPhone 15 Pro\n"));
-        assert!(negotiated[0]
-            .artifact
-            .canonical_ir()
-            .contains("execution=none_attempted\n"));
-        assert_eq!(negotiated, negotiate(&request, host()).unwrap());
-
-        let missing = Request {
-            capabilities: vec![contract.into()],
-            ..Request::default()
-        };
-        assert_eq!(
-            negotiate(&missing, host()),
-            Err(NegotiationError::MissingDeclaration {
-                capability: contract
-            })
-        );
-        let unexpected = Request {
-            accelerator_iphone: Some(accelerator_iphone()),
-            ..Request::default()
-        };
-        assert_eq!(
-            negotiate(&unexpected, host()),
-            Err(NegotiationError::UnexpectedDeclaration {
-                kind: "accelerator_iphone"
-            })
-        );
-
-        let mut unsupported_target = host();
-        unsupported_target.accelerator_iphone_target = IphoneAcceleratorTarget::CrossPlatform;
-        assert_eq!(
-            negotiate(&request, unsupported_target),
-            Err(NegotiationError::IphoneAccelerator(
-                crate::iphone_accelerator_caprichio::IphoneAcceleratorDiagnostic::UnsupportedTarget
-            ))
-        );
-        let mut no_gpu_driver = host();
-        no_gpu_driver.accelerator_iphone_host.gpu_driver = false;
-        assert_eq!(
-            negotiate(&request, no_gpu_driver),
-            Err(NegotiationError::IphoneAccelerator(
-                crate::iphone_accelerator_caprichio::IphoneAcceleratorDiagnostic::MissingGpuDriver
-            ))
-        );
-
-        let draft = Request {
-            capabilities: vec!["hardware.accelerator".into()],
-            ..Request::default()
-        };
-        assert_eq!(
-            negotiate(&draft, host()),
-            Err(NegotiationError::UnknownCapability(
-                "hardware.accelerator".into()
-            ))
-        );
-    }
-
-    #[test]
-    fn ipad_ipod_touch_and_apple_watch_accelerator_contracts_lower_and_fail_closed() {
-        let ipad_request = Request {
-            capabilities: vec![crate::ipad_accelerator_caprichio::CONTRACT.into()],
-            accelerator_ipad: Some(accelerator_ipad()),
-            ..Request::default()
-        };
-        let ipod_request = Request {
-            capabilities: vec![crate::ipod_touch_accelerator_caprichio::CONTRACT.into()],
-            accelerator_ipod_touch: Some(accelerator_ipod_touch()),
-            ..Request::default()
-        };
-        let watch_request = Request {
-            capabilities: vec![crate::apple_watch_accelerator_caprichio::CONTRACT.into()],
-            accelerator_apple_watch: Some(accelerator_apple_watch()),
-            ..Request::default()
-        };
-        for (request, contract, recipe, category_line) in [
-            (
-                &ipad_request,
-                crate::ipad_accelerator_caprichio::CONTRACT,
-                "ipad-metal-checked-dispatch",
-                "category=ipad\n",
-            ),
-            (
-                &ipod_request,
-                crate::ipod_touch_accelerator_caprichio::CONTRACT,
-                "ipod_touch-metal-checked-dispatch",
-                "category=ipod_touch\n",
-            ),
-            (
-                &watch_request,
-                crate::apple_watch_accelerator_caprichio::CONTRACT,
-                "apple-watch-accelerator-inventory-only",
-                "category=apple_watch\n",
-            ),
-        ] {
-            let negotiated = negotiate(request, host()).unwrap();
-            assert_eq!(negotiated.len(), 1);
-            assert_eq!(negotiated[0].id, contract);
-            assert_eq!(negotiated[0].artifact.contract(), contract);
-            assert_eq!(negotiated[0].artifact.recipe(), recipe);
-            assert!(negotiated[0].artifact.canonical_ir().contains(category_line));
-            assert_eq!(negotiated, negotiate(request, host()).unwrap());
-
-            let missing = Request {
-                capabilities: vec![contract.into()],
-                ..Request::default()
-            };
-            assert_eq!(
-                negotiate(&missing, host()),
-                Err(NegotiationError::MissingDeclaration {
-                    capability: contract
-                })
-            );
-        }
-
-        let mut ipad_cross_platform = host();
-        ipad_cross_platform.accelerator_ipad_target = IpadAcceleratorTarget::CrossPlatform;
-        assert_eq!(
-            negotiate(&ipad_request, ipad_cross_platform),
-            Err(NegotiationError::IpadAccelerator(
-                crate::ipad_accelerator_caprichio::IpadAcceleratorDiagnostic::UnsupportedTarget
-            ))
-        );
-        let mut ipod_cross_platform = host();
-        ipod_cross_platform.accelerator_ipod_touch_target =
-            IpodTouchAcceleratorTarget::CrossPlatform;
-        assert_eq!(
-            negotiate(&ipod_request, ipod_cross_platform),
-            Err(NegotiationError::IpodTouchAccelerator(
-                crate::ipod_touch_accelerator_caprichio::IpodTouchAcceleratorDiagnostic::UnsupportedTarget
-            ))
-        );
-        let mut watch_cross_platform = host();
-        watch_cross_platform.accelerator_apple_watch_target =
-            AppleWatchAcceleratorTarget::CrossPlatform;
-        assert_eq!(
-            negotiate(&watch_request, watch_cross_platform),
-            Err(NegotiationError::AppleWatchAccelerator(
-                crate::apple_watch_accelerator_caprichio::AppleWatchAcceleratorDiagnostic::UnsupportedTarget
-            ))
-        );
-    }
 
     #[test]
     fn touch_id_contract_registers_exactly_and_fails_closed() {
@@ -3339,10 +2970,6 @@ mod tests {
             bluetooth_continuity: None,
             bluetooth_access: None,
             bluetooth_profile: None,
-            accelerator_iphone: None,
-            accelerator_ipad: None,
-            accelerator_ipod_touch: None,
-            accelerator_apple_watch: None,
         };
         let result = negotiate(&request, host()).unwrap();
         assert_eq!(
@@ -3458,10 +3085,6 @@ mod tests {
                 "goya.data.csv.bounded_crlf.v1",
                 "goya.data.stream.process_local_bounded.v1",
                 "goya.filesystem.read_file.v1",
-                "goya.hardware.accelerator.apple_watch.v1",
-                "goya.hardware.accelerator.ipad.v1",
-                "goya.hardware.accelerator.iphone.v1",
-                "goya.hardware.accelerator.ipod_touch.v1",
                 "goya.hardware.biometry.face_id.v1",
                 "goya.hardware.biometry.touch_id.v1",
                 "goya.hardware.biometry.windows_hello.v1",
@@ -4485,10 +4108,6 @@ mod tests {
             bluetooth_continuity: None,
             bluetooth_access: None,
             bluetooth_profile: None,
-            accelerator_iphone: None,
-            accelerator_ipad: None,
-            accelerator_ipod_touch: None,
-            accelerator_apple_watch: None,
         };
         let start = Instant::now();
         let iterations = 10_000;
