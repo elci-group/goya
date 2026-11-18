@@ -1,0 +1,87 @@
+{
+  "directive": "QUITASOL-Q0",
+  "directive_version": "0.0.1",
+  "recorded_on": "2026-11-18",
+  "audit_doc": "docs/quitasol/q0-capability-audit.md",
+  "summary": "Capability audit of Amazon's publicly documented Fire TV voice-enablement and compilation mechanisms as of 2026-11-18. Fire OS: the only self-serve documented voice integration for a new third-party app is the Media Session transport path plus automatic app launch by name; VSK partner onboarding is closed; in-app speech recognition and raw microphone access are unavailable to third-party apps; embedded custom skills have no documented integration path. Vega OS: SDK 2.0 GA 2026-10-29; React Native for Vega (RN 0.72/0.83) is the only supported app framework with C++ Turbo Modules as the sanctioned native seam and no official Rust story; packages are .vpkg; APKs do not run on Vega devices; Fire TV Stick 4K 3rd Gen (2026) ships Vega OS 2.0, confirming the proposal's device claim; platform-level Alexa voice control of navigation and media is documented, but the third-party voice API contract for Vega is not documented. Dual-track packaging (APK/AAB + VPKG under one listing) is a hard requirement. No Goya or Quitasol implementation, runtime conformance, or Appstore submission is asserted.",
+  "gates": {
+    "fire_os_voice_mechanisms": {
+      "status": "PASS",
+      "claim": "documented-with-sources",
+      "key_findings": [
+        "MediaSession transport (play/pause, seek by offset not absolute, skip, restart) is self-serve with the com.amazon.permission.media.session.voicecommandcontrol manifest permission; not required on Fire OS 14+",
+        "VSK app-only documentation carries a standing warning: no new partners will be onboarded; catalog integration is select-partner-only",
+        "Voice scrolling and selection is back-end activated by Amazon per app after verification; not self-serve",
+        "Fire TV does not support the Android RecognizerIntent; no in-app dictation API found",
+        "RECORD_AUDIO is silently denied to third-party Fire TV apps (Amazon moderator statement; not a formal policy page)",
+        "Custom Alexa skills cannot be embedded in or invoked by a Fire TV app through any documented SDK"
+      ],
+      "sources": [
+        "https://developer.amazon.com/docs/fire-tv/mediasession-api-integration.html",
+        "https://developer.amazon.com/docs/video-skills-fire-tv-apps/integration-overview-app-only.html",
+        "https://developer.amazon.com/docs/fire-tv/voice-enable-your-app-and-content.html",
+        "https://developer.amazon.com/docs/fire-tv/implementing-search.html"
+      ]
+    },
+    "vega_os_tooling": {
+      "status": "PASS",
+      "claim": "documented-with-sources",
+      "key_findings": [
+        "Vega SDK 2.0 GA 2026-10-29; annual major releases, stable minor API surface",
+        "React Native for Vega on the new architecture; RN 0.72 and 0.83 supported; RN runtime and Hermes are OS-delivered",
+        "Vega Native SDK: C++ Turbo Modules over JSI/Node-API; W3C MSE/EME media framework; Rust not documented",
+        ".vpkg packaging via VPT; one listing can carry APK/AAB and VPKG; APKs do not run on Vega",
+        "Fire TV Stick 4K 3rd Gen (2026) ships Vega OS 2.0; 4K Max and Cube remain Fire OS",
+        "Fire OS to Vega voice migration is documented; legacy ADB-based integration is not compatible with Vega"
+      ],
+      "sources": [
+        "https://developer.amazon.com/apps-and-games/blogs/2026/10/vega-2-0-sdk-launch",
+        "https://developer.amazon.com/docs/vega/2.0/vega-rn-overview",
+        "https://developer.amazon.com/docs/vega/0.21/app-submission"
+      ]
+    },
+    "appstore_policy": {
+      "status": "PASS",
+      "claim": "documented-with-gaps",
+      "key_findings": [
+        "APK/AAB accepted for Fire OS track; 64-bit required; privacy policy URL and test credentials required at submission",
+        "No dedicated public Appstore voice-data policy page for Fire TV apps was found",
+        "Alexa skill policy requirements and COPPA rules apply if a custom skill is involved",
+        "Vega developer program terms are not public (NDA); joining the program is the only path to see them"
+      ],
+      "sources": [
+        "https://developer.amazon.com/docs/app-submission/submitting-apps-to-amazon-appstore.html",
+        "https://developer.amazon.com/en-US/docs/alexa/custom-skills/policy-requirements-for-an-alexa-skill.html"
+      ]
+    },
+    "device_matrix_rows": {
+      "status": "BLOCKED",
+      "reason": "Per-device RAM and full SKU tables were not individually verified against Amazon's device specifications page. The named-device OS split (4K Select, Stick HD, Stick 4K 3rd Gen = Vega; 4K Max, Cube, most TVs = Fire OS) is supported by official pages and press coverage. Must be re-verified per device at admission time."
+    },
+    "vega_third_party_voice_api_contract": {
+      "status": "BLOCKED",
+      "reason": "The precise API surface a third-party Vega app implements for voice beyond platform defaults is not documented. No Vega VSK equivalent, no AVS embedding for apps, and the Vega Virtual Device lacks Alexa voice services. Direct inspection of the Vega API reference under a registered developer account is required."
+    },
+    "vega_program_terms": {
+      "status": "BLOCKED",
+      "reason": "The Vega developer program ran under NDA; its license, redistribution, and compiler/toolchain terms are not public. Building a compiler target requires joining the program and agreeing to terms that cannot be inspected publicly."
+    },
+    "appstore_conformance": {
+      "status": "BLOCKED",
+      "reason": "Nothing has been submitted to the Amazon Appstore. Q8 conformance claims require a real submission. No evidence, not claimed."
+    }
+  },
+  "toolchain": {
+    "research_agents": 3,
+    "research_date": "2026-11-18",
+    "method": "Web research against developer.amazon.com primary documentation, Amazon Developer Blog, Amazon Developer Community forum, and corroborating press; every claim carries a source URL and a confidence marker in the audit doc",
+    "confidence_markers": "documented = Amazon page states it directly; partially documented = stated but incomplete or secondary-sourced; not found = no public documentation located (recorded as absence of evidence, not impossibility)"
+  },
+  "unchanged": [
+    "DIRECTIVE_ID remains QUITASOL-Q0; the Quitasol proposal remains proposed, not ratified.",
+    "Phase-0 intent surface (GY-INTENT/1-draft, quitasol.intent.v0) is unchanged by this audit.",
+    "The integration hierarchy in quitasol-overview.md is unchanged; this audit only re-anchors which tiers are achievable.",
+    "No lowering, backend, packaging, or Appstore conformance is implemented or claimed."
+  ],
+  "next_unblock": "Three items, all external: (1) register for the Vega developer program to inspect the API reference and program terms under account; (2) obtain a registered Vega device and a Fire OS device with the Media Session permission to run any on-device evidence; (3) re-verify the per-device specification table at admission time. Internally, Quitasol Q1/Q2 work may proceed on the Fire OS track using the Media Session transport path as the only committed voice tier."
+}
