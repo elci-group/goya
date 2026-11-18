@@ -307,7 +307,7 @@ mod tests {
     fn declaration_normalizes_and_lowers_to_deterministic_factory() {
         let ir = declaration().normalize().unwrap();
         assert_eq!(ir.client_id(), "goya-client.apps.googleusercontent.com");
-        assert_eq!(ir.scopes(), ["openid", "profile"]);
+        assert_eq!(ir.scopes().to_vec(), ["openid".to_owned(), "profile".to_owned()]);
         assert!(ir.uses_pkce());
         let first = ir.lower_checked(Target::Browser, BROWSER).unwrap();
         let second = ir.lower_checked(Target::Browser, BROWSER).unwrap();
@@ -401,7 +401,7 @@ mod tests {
         );
         assert_eq!(
             GoogleSsoDeclaration {
-                scopes: vec!["openid"; crate::sso_runtime::MAX_SCOPES + 1],
+                scopes: vec!["openid".to_owned(); crate::sso_runtime::MAX_SCOPES + 1],
                 ..declaration()
             }
             .normalize(),

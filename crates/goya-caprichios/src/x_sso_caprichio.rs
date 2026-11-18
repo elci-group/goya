@@ -269,7 +269,7 @@ impl XSsoIr {
             recipe_version: RECIPE_VERSION,
             canonical_ir: self.canonical_for(target),
             source: format!(
-                "// {CONTRACT}; recipe={RECIPE_VERSION}; x SSO authorization-code flow, no network connection is opened here.\npub fn make_sso_flow() -> Result<crate::sso_runtime::SsoFlow, crate::sso_runtime::SsoError> {{\n{pkce_lines}    crate::sso_runtime::SsoFlow::new(\n        {AUTHORIZE_ENDPOINT:?},\n        {TOKEN_ENDPOINT:?},\n        {:?},\n        {:?},\n        {:?},\n        &[{scope_literals}],\n        {pkce_arg},\n    )\n}\n",
+                "// {CONTRACT}; recipe={RECIPE_VERSION}; x SSO authorization-code flow, no network connection is opened here.\npub fn make_sso_flow() -> Result<crate::sso_runtime::SsoFlow, crate::sso_runtime::SsoError> {{\n{pkce_lines}    crate::sso_runtime::SsoFlow::new(\n        {AUTHORIZE_ENDPOINT:?},\n        {TOKEN_ENDPOINT:?},\n        {:?},\n        {:?},\n        {:?},\n        &[{scope_literals}],\n        {pkce_arg},\n    )\n}}\n",
                 self.client_id, self.redirect_uri, self.state
             ),
         })
@@ -395,7 +395,7 @@ mod tests {
         );
         assert_eq!(
             XSsoDeclaration {
-                scopes: vec!["tweet.read"; crate::sso_runtime::MAX_SCOPES + 1],
+                scopes: vec!["tweet.read".to_owned(); crate::sso_runtime::MAX_SCOPES + 1],
                 ..declaration()
             }
             .normalize(),
@@ -469,7 +469,7 @@ mod tests {
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/sso_runtime.rs");
         assert!(runtime_path.is_file());
         let harness = format!(
-            "#[path = {runtime_path:?}]\nmod sso_runtime;\n{}\nfn main() {\n    let mut flow = make_sso_flow().expect(\"factory should construct flow\");\n    assert_eq!(flow.client_id(), \"goya-client.example\");\n    assert!(flow.authorization_url().starts_with(\"https://twitter.com/i/oauth2/authorize\"));\n    assert!(flow.pkce_challenge().is_some());\n    let redirect = \"https://app.example/oauth/callback?code=abc123&state=state-1234567890ab\";\n    assert_eq!(flow.redirect_matches(redirect).unwrap(), \"abc123\");\n    assert!(flow.is_completed());\n}\n",
+            "#[path = {runtime_path:?}]\nmod sso_runtime;\n{}\nfn main() {{\n    let mut flow = make_sso_flow().expect(\"factory should construct flow\");\n    assert_eq!(flow.client_id(), \"goya-client.example\");\n    assert!(flow.authorization_url().starts_with(\"https://twitter.com/i/oauth2/authorize\"));\n    assert!(flow.pkce_challenge().is_some());\n    let redirect = \"https://app.example/oauth/callback?code=abc123&state=state-1234567890ab\";\n    assert_eq!(flow.redirect_matches(redirect).unwrap(), \"abc123\");\n    assert!(flow.is_completed());\n}}\n",
             artifact.source
         );
         let nonce = SystemTime::now()
