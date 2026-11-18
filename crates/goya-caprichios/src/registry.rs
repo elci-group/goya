@@ -1377,6 +1377,71 @@ pub fn negotiate(
                         .map_err(NegotiationError::BluetoothProfile)?,
                 )
             }
+            crate::iphone_accelerator_caprichio::CONTRACT => {
+                let declaration = request.accelerator_iphone.clone().ok_or(
+                    NegotiationError::MissingDeclaration {
+                        capability: crate::iphone_accelerator_caprichio::CONTRACT,
+                    },
+                )?;
+                let ir = declaration
+                    .normalize()
+                    .map_err(NegotiationError::IphoneAccelerator)?;
+                Artifact::IphoneAccelerator(
+                    ir.lower_checked(
+                        host.accelerator_iphone_target,
+                        host.accelerator_iphone_host,
+                    )
+                    .map_err(NegotiationError::IphoneAccelerator)?,
+                )
+            }
+            crate::ipad_accelerator_caprichio::CONTRACT => {
+                let declaration = request.accelerator_ipad.clone().ok_or(
+                    NegotiationError::MissingDeclaration {
+                        capability: crate::ipad_accelerator_caprichio::CONTRACT,
+                    },
+                )?;
+                let ir = declaration
+                    .normalize()
+                    .map_err(NegotiationError::IpadAccelerator)?;
+                Artifact::IpadAccelerator(
+                    ir.lower_checked(host.accelerator_ipad_target, host.accelerator_ipad_host)
+                        .map_err(NegotiationError::IpadAccelerator)?,
+                )
+            }
+            crate::ipod_touch_accelerator_caprichio::CONTRACT => {
+                let declaration = request.accelerator_ipod_touch.clone().ok_or(
+                    NegotiationError::MissingDeclaration {
+                        capability: crate::ipod_touch_accelerator_caprichio::CONTRACT,
+                    },
+                )?;
+                let ir = declaration
+                    .normalize()
+                    .map_err(NegotiationError::IpodTouchAccelerator)?;
+                Artifact::IpodTouchAccelerator(
+                    ir.lower_checked(
+                        host.accelerator_ipod_touch_target,
+                        host.accelerator_ipod_touch_host,
+                    )
+                    .map_err(NegotiationError::IpodTouchAccelerator)?,
+                )
+            }
+            crate::apple_watch_accelerator_caprichio::CONTRACT => {
+                let declaration = request.accelerator_apple_watch.clone().ok_or(
+                    NegotiationError::MissingDeclaration {
+                        capability: crate::apple_watch_accelerator_caprichio::CONTRACT,
+                    },
+                )?;
+                let ir = declaration
+                    .normalize()
+                    .map_err(NegotiationError::AppleWatchAccelerator)?;
+                Artifact::AppleWatchAccelerator(
+                    ir.lower_checked(
+                        host.accelerator_apple_watch_target,
+                        host.accelerator_apple_watch_host,
+                    )
+                    .map_err(NegotiationError::AppleWatchAccelerator)?,
+                )
+            }
             _ => unreachable!("request IDs validated before lowering"),
         };
         let id = match artifact {
@@ -1413,6 +1478,10 @@ pub fn negotiate(
             Artifact::BluetoothContinuity(_) => crate::bluetooth_continuity_caprichio::CONTRACT,
             Artifact::BluetoothAccess(_) => crate::bluetooth_access_caprichio::CONTRACT,
             Artifact::BluetoothProfile(_) => crate::bluetooth_profile_caprichio::CONTRACT,
+            Artifact::IphoneAccelerator(_) => crate::iphone_accelerator_caprichio::CONTRACT,
+            Artifact::IpadAccelerator(_) => crate::ipad_accelerator_caprichio::CONTRACT,
+            Artifact::IpodTouchAccelerator(_) => crate::ipod_touch_accelerator_caprichio::CONTRACT,
+            Artifact::AppleWatchAccelerator(_) => crate::apple_watch_accelerator_caprichio::CONTRACT,
         };
         result.push(NegotiatedCapability { id, artifact });
     }
@@ -1629,6 +1698,25 @@ mod tests {
             },
             bluetooth_profile_target: BluetoothProfileTarget::Ios,
             bluetooth_profile_host: BluetoothProfileHost {
+                utf8_strings: true,
+            },
+            accelerator_iphone_target: IphoneAcceleratorTarget::Device,
+            accelerator_iphone_host: IphoneAcceleratorHost {
+                gpu_driver: true,
+                utf8_strings: true,
+            },
+            accelerator_ipad_target: IpadAcceleratorTarget::Device,
+            accelerator_ipad_host: IpadAcceleratorHost {
+                gpu_driver: true,
+                utf8_strings: true,
+            },
+            accelerator_ipod_touch_target: IpodTouchAcceleratorTarget::Device,
+            accelerator_ipod_touch_host: IpodTouchAcceleratorHost {
+                gpu_driver: true,
+                utf8_strings: true,
+            },
+            accelerator_apple_watch_target: AppleWatchAcceleratorTarget::Device,
+            accelerator_apple_watch_host: AppleWatchAcceleratorHost {
                 utf8_strings: true,
             },
         }
@@ -3181,6 +3269,10 @@ mod tests {
                 "goya.data.csv.bounded_crlf.v1",
                 "goya.data.stream.process_local_bounded.v1",
                 "goya.filesystem.read_file.v1",
+                "goya.hardware.accelerator.apple_watch.v1",
+                "goya.hardware.accelerator.ipad.v1",
+                "goya.hardware.accelerator.iphone.v1",
+                "goya.hardware.accelerator.ipod_touch.v1",
                 "goya.hardware.biometry.face_id.v1",
                 "goya.hardware.biometry.touch_id.v1",
                 "goya.hardware.biometry.windows_hello.v1",
