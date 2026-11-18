@@ -1,0 +1,8 @@
+[package]
+name = "quitasol-semantic"
+version = "0.1.8"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+goya-lang = { path = "../goya-lang" }
