@@ -86,8 +86,9 @@ choice.
 The `confirmation` field is a declaration, not a guarantee. The Confirmation
 Engine treats any intent marked `confirmation: true` (or classified as
 consequential — purchases, sharing, destructive state changes) as requiring
-explicit authorisation at runtime. Until ratified and implemented, the field
-is recorded in the IR only.
+explicit authorisation at runtime. In phase 0 the field is parsed and
+recorded on `IntentDecl` (default `false`) with no runtime; the Confirmation
+Engine does not exist.
 
 ## 6. Open decisions (BLOCKED)
 
