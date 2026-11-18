@@ -18,6 +18,7 @@ pub mod apple_pay_caprichio;
 pub mod apple_runtime;
 pub mod bluetooth_access_caprichio;
 pub mod bluetooth_caprichio;
+pub mod bluetooth_facade;
 pub mod bluetooth_continuity_caprichio;
 pub mod bluetooth_control_caprichio;
 pub mod bluetooth_guard_caprichio;

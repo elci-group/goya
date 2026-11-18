@@ -1325,7 +1325,7 @@ pub fn negotiate(
             Artifact::BluetoothContinuity(_) => crate::bluetooth_continuity_caprichio::CONTRACT,
             Artifact::BluetoothAccess(_) => crate::bluetooth_access_caprichio::CONTRACT,
             Artifact::BluetoothProfile(_) => crate::bluetooth_profile_caprichio::CONTRACT,
-            Artifact::AcceleratorModel(_) => crate::accelerator_caprichio::CONTRACT,
+            Artifact::AcceleratorModel(a) => a.contract,
         };
         result.push(NegotiatedCapability { id, artifact });
     }
