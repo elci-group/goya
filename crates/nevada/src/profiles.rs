@@ -55,7 +55,6 @@ const fn profile(
     OemProfile {
         family,
         version,
-        id: "",
         census: DeviceProfile {
             present: present.to_vec(),
             motion_output,
@@ -80,10 +79,7 @@ static PROFILES: [OemProfile; 4] = [
     profile(
         "oem.acme.voice-remote",
         "1.0.0",
-        &[
-            HardwareCapability::Dpad,
-            HardwareCapability::Microphone,
-        ],
+        &[HardwareCapability::Dpad, HardwareCapability::Microphone],
         MotionOutput::None,
     ),
     profile(
@@ -149,7 +145,10 @@ mod tests {
     fn pointer_remote_has_touchpad_and_pointer_output() {
         let profile = lookup("oem.acme.pointer-remote/1.0.0").expect("registered profile");
         assert!(profile.census.present.contains(&HardwareCapability::Dpad));
-        assert!(profile.census.present.contains(&HardwareCapability::Touchpad));
+        assert!(profile
+            .census
+            .present
+            .contains(&HardwareCapability::Touchpad));
         assert_eq!(
             profile.census.motion_output,
             MotionOutput::NativePointerEvents
@@ -159,8 +158,14 @@ mod tests {
     #[test]
     fn voice_remote_has_microphone() {
         let profile = lookup("oem.acme.voice-remote/1.0.0").expect("registered profile");
-        assert!(profile.census.present.contains(&HardwareCapability::Microphone));
-        assert!(!profile.census.present.contains(&HardwareCapability::Touchpad));
+        assert!(profile
+            .census
+            .present
+            .contains(&HardwareCapability::Microphone));
+        assert!(!profile
+            .census
+            .present
+            .contains(&HardwareCapability::Touchpad));
     }
 
     #[test]
@@ -170,14 +175,19 @@ mod tests {
             .census
             .present
             .contains(&HardwareCapability::GameController));
-        assert!(profile.census.present.contains(&HardwareCapability::Bluetooth));
+        assert!(profile
+            .census
+            .present
+            .contains(&HardwareCapability::Bluetooth));
     }
 
     #[test]
     fn unknown_id_fails_closed() {
         assert_eq!(
             lookup("oem.unheard-of.tv/9.9.9"),
-            Err(LookupError::UnknownProfile("oem.unheard-of.tv/9.9.9".to_owned()))
+            Err(LookupError::UnknownProfile(
+                "oem.unheard-of.tv/9.9.9".to_owned()
+            ))
         );
     }
 

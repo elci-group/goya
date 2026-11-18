@@ -121,19 +121,14 @@ pub enum TranslationOutcome {
         fallbacks: Vec<RemoteInteraction>,
     },
     /// The intent could not be expressed; nothing was silently dropped.
-    Refused {
-        reason: IncompatibilityReason,
-    },
+    Refused { reason: IncompatibilityReason },
 }
 
 /// Translate a single touch interaction into a remote-native outcome.
 ///
 /// Deterministic and total: every input maps to exactly one outcome for a
 /// given [`DeviceCapabilities`].
-pub fn translate(
-    interaction: TouchInteraction,
-    ctx: &DeviceCapabilities,
-) -> TranslationOutcome {
+pub fn translate(interaction: TouchInteraction, ctx: &DeviceCapabilities) -> TranslationOutcome {
     match interaction {
         TouchInteraction::TouchTap => TranslationOutcome::Translated {
             primary: RemoteInteraction::FocusAndSelect,
@@ -280,10 +275,7 @@ pub fn translate_all(
     interactions: &[TouchInteraction],
     ctx: &DeviceCapabilities,
 ) -> Vec<TranslationOutcome> {
-    interactions
-        .iter()
-        .map(|i| translate(*i, ctx))
-        .collect()
+    interactions.iter().map(|i| translate(*i, ctx)).collect()
 }
 
 /// Build a deterministic conformance report.
@@ -336,7 +328,10 @@ mod tests {
     fn every_row_translates_in_dpad_only_context() {
         let ctx = DeviceCapabilities::dpad_only();
         let expected = [
-            (TouchInteraction::TouchTap, RemoteInteraction::FocusAndSelect),
+            (
+                TouchInteraction::TouchTap,
+                RemoteInteraction::FocusAndSelect,
+            ),
             (
                 TouchInteraction::Swipe,
                 RemoteInteraction::DirectionalNavigation,
@@ -346,19 +341,28 @@ mod tests {
                 RemoteInteraction::DirectionalScroll,
             ),
             (TouchInteraction::Hover, RemoteInteraction::FocusState),
-            (TouchInteraction::RightClick, RemoteInteraction::ContextAction),
+            (
+                TouchInteraction::RightClick,
+                RemoteInteraction::ContextAction,
+            ),
             (
                 TouchInteraction::DragAndDrop,
                 RemoteInteraction::SelectRepositionConfirm,
             ),
-            (TouchInteraction::PinchZoom, RemoteInteraction::IncrementalZoom),
+            (
+                TouchInteraction::PinchZoom,
+                RemoteInteraction::IncrementalZoom,
+            ),
             (TouchInteraction::TextInput, RemoteInteraction::TvKeyboard),
             (
                 TouchInteraction::NavigationDrawer,
                 RemoteInteraction::RemoteAccessiblePanel,
             ),
             // long-press unsupported -> ContextAction
-            (TouchInteraction::LongPress, RemoteInteraction::ContextAction),
+            (
+                TouchInteraction::LongPress,
+                RemoteInteraction::ContextAction,
+            ),
         ];
         for (touch, remote) in expected {
             let outcome = translate(touch, &ctx);

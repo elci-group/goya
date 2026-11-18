@@ -145,8 +145,8 @@ pub fn resolve(census: &DeviceProfile) -> Result<InteractionSupport, ResolveErro
 
     // A motion sensor without a usable output path must NOT enable the
     // enhanced interaction (fail-closed).
-    let motion_sensor_present = census.has(HardwareCapability::Accelerometer)
-        || census.has(HardwareCapability::Gyroscope);
+    let motion_sensor_present =
+        census.has(HardwareCapability::Accelerometer) || census.has(HardwareCapability::Gyroscope);
     let motion_usable = motion_sensor_present && census.motion_output != MotionOutput::None;
 
     let peripheral =

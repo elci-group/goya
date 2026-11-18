@@ -267,11 +267,7 @@ fn initial_focus_in_viewport(
 /// unbounded layout. See the module documentation for the exact rule and
 /// tie-break. Returns `None` for an empty layout, an unknown or
 /// non-focusable `current` id, or when no candidate exists.
-pub fn next_focus(
-    elements: &[FocusElement],
-    current: Option<u32>,
-    dir: Direction,
-) -> Option<u32> {
+pub fn next_focus(elements: &[FocusElement], current: Option<u32>, dir: Direction) -> Option<u32> {
     match current {
         None => initial_focus_in_viewport(elements, None),
         Some(id) => {
@@ -319,9 +315,8 @@ pub fn focus_graph_in_viewport(
         })
         .map(|element| FocusSuccessors {
             id: element.id,
-            successors: Direction::ALL.map(|dir| {
-                successor_in_viewport(elements, element, dir, viewport)
-            }),
+            successors: Direction::ALL
+                .map(|dir| successor_in_viewport(elements, element, dir, viewport)),
         })
         .collect();
     rows.sort_by_key(|row| row.id);
@@ -453,19 +448,13 @@ mod tests {
     fn non_overlapping_candidates_are_not_eligible() {
         // Candidate below but with no horizontal overlap: unreachable
         // downward even though it is the only element in that direction.
-        let elements = [
-            element(1, 0, 0, 100, 50),
-            element(2, 500, 100, 100, 50),
-        ];
+        let elements = [element(1, 0, 0, 100, 50), element(2, 500, 100, 100, 50)];
         assert_eq!(next_focus(&elements, Some(1), Direction::Down), None);
     }
 
     #[test]
     fn shared_edge_has_zero_primary_distance() {
-        let elements = [
-            element(1, 0, 0, 100, 100),
-            element(2, 0, 100, 100, 100),
-        ];
+        let elements = [element(1, 0, 0, 100, 100), element(2, 0, 100, 100, 100)];
         assert_eq!(next_focus(&elements, Some(1), Direction::Down), Some(2));
         assert_eq!(next_focus(&elements, Some(2), Direction::Up), Some(1));
     }
@@ -557,10 +546,7 @@ mod tests {
 
     #[test]
     fn invalid_initial_fails_closed_to_all_essential() {
-        let elements = [
-            essential(1, 0, 0, 100, 50),
-            essential(2, 0, 100, 100, 50),
-        ];
+        let elements = [essential(1, 0, 0, 100, 50), essential(2, 0, 100, 100, 50)];
         assert_eq!(unreachable_essential(&elements, Some(99)), vec![1, 2]);
         let mut locked = essential(1, 0, 0, 100, 50);
         locked.focusable = false;
@@ -592,10 +578,7 @@ mod tests {
             None
         );
         // Without the viewport the same query reaches element 3.
-        assert_eq!(
-            next_focus(&elements, Some(2), Direction::Down),
-            Some(3)
-        );
+        assert_eq!(next_focus(&elements, Some(2), Direction::Down), Some(3));
         // A current element outside the viewport fails closed.
         assert_eq!(
             next_focus_in_viewport(&elements, Some(3), Direction::Up, &viewport),
