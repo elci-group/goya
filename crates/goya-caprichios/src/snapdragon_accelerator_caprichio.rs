@@ -356,7 +356,13 @@ mod tests {
     }
 
     fn first_generation() -> &'static str {
-        GENERATIONS[0].0
+        // Tests lower plans, so start from the first generation with a DSP
+        // and documented Int8 acceleration.
+        GENERATIONS
+            .iter()
+            .find(|(_, facts)| facts.hexagon_dsp != "none" && facts.int8_accel)
+            .map(|(name, _)| *name)
+            .expect("catalog must contain a DSP-capable generation")
     }
 
     #[test]
@@ -371,7 +377,7 @@ mod tests {
                 "unexpected DSP label {}",
                 facts.hexagon_dsp
             );
-            if facts.hexagon_dsp == "none" {
+            if facts.hexagon_dsp == "none" || !facts.int8_accel {
                 assert!(!facts.int8_accel && !facts.fp16_accel);
             }
             assert!((2013..=2030).contains(&facts.year));
@@ -504,7 +510,7 @@ mod tests {
         let mut lowered = 0;
         for (name, facts) in GENERATIONS {
             let ir = declaration(name, 4, 2).normalize().unwrap();
-            if facts.hexagon_dsp == "none" {
+            if facts.hexagon_dsp == "none" || !facts.int8_accel {
                 assert_eq!(
                     ir.lower_checked(Target::Snapdragon, CAPABILITIES),
                     Err(SnapdragonAcceleratorDiagnostic::UnsupportedAccelerator)

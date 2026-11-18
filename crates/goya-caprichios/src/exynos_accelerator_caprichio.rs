@@ -52,7 +52,7 @@ pub const GENERATIONS: &[(&str, ExynosFacts)] = &[
     ("Exynos 990",   ExynosFacts { series: "8", soc: "S5E9830",  npu_dsp: "NPU (dual-core) + DSP",              npu_tops_tenths: None,      int8_accel: false, fp16_accel: false, year: 2020 }),
     ("Exynos 2100",  ExynosFacts { series: "8", soc: "S5E9840",  npu_dsp: "NPU (tri-core) + DSP",               npu_tops_tenths: Some(260), int8_accel: false, fp16_accel: false, year: 2021 }),
     ("Exynos 2200",  ExynosFacts { series: "8", soc: "S5E9925",  npu_dsp: "NPU + DSP (INT8/INT16/FP16)",        npu_tops_tenths: None,      int8_accel: true,  fp16_accel: true,  year: 2022 }),
-    ("Exynos 2400",  ExynosFacts { series: "8", soc: "S5E9240",  npu_dsp: "GNPU + SNPU (17K MAC)",              npu_tops_tenths: None,      int8_accel: true,  fp16_accel: true,  year: 2024 }),
+    ("Exynos 2400",  ExynosFacts { series: "8", soc: "S5E9240",  npu_dsp: "NPU (GNPU + SNPU, 17K MAC)",              npu_tops_tenths: None,      int8_accel: true,  fp16_accel: true,  year: 2024 }),
     ("Exynos 2500",  ExynosFacts { series: "8", soc: "S5E9955",  npu_dsp: "NPU (dual 12K-MAC clusters)",        npu_tops_tenths: Some(590), int8_accel: true,  fp16_accel: true,  year: 2025 }),
 ];
 
@@ -310,7 +310,13 @@ mod tests {
     }
 
     fn first_generation() -> &'static str {
-        GENERATIONS[0].0
+        // Tests lower plans, so start from the first generation with a DSP
+        // and documented Int8 acceleration.
+        GENERATIONS
+            .iter()
+            .find(|(_, facts)| facts.npu_dsp != "none" && facts.int8_accel)
+            .map(|(name, _)| *name)
+            .expect("catalog must contain a DSP-capable generation")
     }
 
     #[test]
@@ -325,7 +331,7 @@ mod tests {
                 "unexpected DSP label {}",
                 facts.npu_dsp
             );
-            if facts.npu_dsp == "none" {
+            if facts.npu_dsp == "none" || !facts.int8_accel {
                 assert!(!facts.int8_accel && !facts.fp16_accel);
             }
             assert!((2013..=2030).contains(&facts.year));
@@ -458,7 +464,7 @@ mod tests {
         let mut lowered = 0;
         for (name, facts) in GENERATIONS {
             let ir = declaration(name, 4, 2).normalize().unwrap();
-            if facts.npu_dsp == "none" {
+            if facts.npu_dsp == "none" || !facts.int8_accel {
                 assert_eq!(
                     ir.lower_checked(Target::Exynos, CAPABILITIES),
                     Err(ExynosAcceleratorDiagnostic::UnsupportedAccelerator)
