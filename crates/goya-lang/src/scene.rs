@@ -132,8 +132,62 @@ pub struct IntentDecl {
     pub fallback_remote: Option<String>,
     /// Required non-voice equivalent: a keyboard-addressable target.
     pub fallback_keyboard: Option<String>,
+    /// Optional Media Session transport class (Quitasol Q2 draft surface):
+    /// the documented Fire OS voice transport behaviour this intent
+    /// represents. `None` means the intent declares no transport lowering.
+    /// See docs/quitasol/q0-capability-audit.md — the Media Session path is
+    /// the only self-serve Fire OS voice integration.
+    pub transport: Option<TransportClass>,
     /// Source range of the whole declaration.
     pub range: crate::parser::SourceRange,
+}
+
+/// The Media Session transport behaviours Amazon documents for Fire OS
+/// voice control (Quitasol Q2 draft). Absolute-time seek is deliberately
+/// absent: the Q0 audit records that Fire OS Media Session voice seeks do
+/// not support absolute time, only offsets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransportClass {
+    /// Play or pause playback.
+    PlayPause,
+    /// Skip to the next item.
+    SkipNext,
+    /// Skip to the previous item.
+    SkipPrevious,
+    /// Seek forward by an offset (voice supplies the offset).
+    SeekForward,
+    /// Seek backward by an offset (voice supplies the offset).
+    SeekBackward,
+    /// Restart the current item from the beginning.
+    Restart,
+}
+
+impl TransportClass {
+    /// Canonical authored keyword for this class.
+    pub fn keyword(self) -> &'static str {
+        match self {
+            TransportClass::PlayPause => "play_pause",
+            TransportClass::SkipNext => "skip_next",
+            TransportClass::SkipPrevious => "skip_previous",
+            TransportClass::SeekForward => "seek_forward",
+            TransportClass::SeekBackward => "seek_backward",
+            TransportClass::Restart => "restart",
+        }
+    }
+
+    /// Parse an authored keyword. Returns `None` for unknown keywords;
+    /// callers turn that into a parse error (fail-closed).
+    pub fn from_keyword(keyword: &str) -> Option<Self> {
+        Some(match keyword {
+            "play_pause" => TransportClass::PlayPause,
+            "skip_next" => TransportClass::SkipNext,
+            "skip_previous" => TransportClass::SkipPrevious,
+            "seek_forward" => TransportClass::SeekForward,
+            "seek_backward" => TransportClass::SeekBackward,
+            "restart" => TransportClass::Restart,
+            _ => return None,
+        })
+    }
 }
 
 /// D1 scalar schema type for authored interaction contracts.
