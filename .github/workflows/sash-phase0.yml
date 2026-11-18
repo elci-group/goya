@@ -233,6 +233,69 @@ jobs:
           path: C:\sash-test\results\${{ matrix.arch }}-${{ matrix.profile }}*evidence.json
           retention-days: 90
 
+  # Smoke tier: first-launch evidence on a GitHub-hosted runner.
+  #
+  # A hosted runner carries developer tools and is NOT a clean machine, so
+  # this job never clears S1-EXE or any Phase 1 gate. It records only that a
+  # real Windows session could create the window, find the controls, and exit
+  # cleanly. Qualification stays with the self-hosted windows-test job.
+  windows-smoke:
+    name: Windows Smoke Launch (windows-latest, x64)
+    needs: prepare-artifacts
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository (for harness scripts)
+        uses: actions/checkout@v4
+
+      - name: Setup smoke directories
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path C:\sash-test\artifacts\x64\static-window | Out-Null
+          New-Item -ItemType Directory -Force -Path C:\sash-test\artifacts\x64\interactive-cut | Out-Null
+          New-Item -ItemType Directory -Force -Path C:\sash-test\harness | Out-Null
+
+      - name: Copy harness scripts
+        shell: pwsh
+        run: |
+          Copy-Item -Path ${{ github.workspace }}\docs\sash\phase0\harness\smoke_launch.ps1 -Destination C:\sash-test\harness\ -Force
+
+      # Two explicit downloads: merging would collide App.exe from both
+      # artifacts, since each stores its files at the artifact root.
+      - name: Download static-window artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: sash-x64-static-window
+          path: C:\sash-test\artifacts\x64\static-window
+
+      - name: Download interactive-cut artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: sash-x64-interactive-cut
+          path: C:\sash-test\artifacts\x64\interactive-cut
+
+      - name: Smoke launch static window
+        shell: pwsh
+        run: |
+          & C:\sash-test\harness\smoke_launch.ps1 -ArtifactDir C:\sash-test\artifacts\x64\static-window
+          exit $LASTEXITCODE
+
+      - name: Smoke launch interactive counter
+        shell: pwsh
+        run: |
+          & C:\sash-test\harness\smoke_launch.ps1 -ArtifactDir C:\sash-test\artifacts\x64\interactive-cut
+          exit $LASTEXITCODE
+
+      - name: Upload smoke evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: phase0-smoke-evidence-x64
+          path: |
+            C:\sash-test\artifacts\x64\static-window\smoke_evidence.json
+            C:\sash-test\artifacts\x64\interactive-cut\smoke_evidence.json
+          retention-days: 90
+
   # Consolidate evidence and determine Phase 0 gate
   consolidate:
     name: Consolidate Evidence & Gate
@@ -354,7 +417,7 @@ jobs:
 # Phase 0 Gate Summary (can be used as required check)
   phase0-gate:
     name: Phase 0 Gate Summary
-    needs: [consolidate]
+    needs: [consolidate, windows-smoke]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -364,6 +427,9 @@ jobs:
           echo "## Phase 0 Validation Result" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Status:** $STATUS" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          SMOKE="${{ needs.windows-smoke.result }}"
+          echo "**Windows smoke tier (windows-latest, x64):** $SMOKE - informational only. A hosted runner is not a clean machine; smoke never clears S1-EXE or the Phase 1 gates. Qualification requires the self-hosted windows-test job on provisioned hardware." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
           if [[ "$STATUS" == "PASS" ]]; then
