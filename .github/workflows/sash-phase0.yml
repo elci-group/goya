@@ -60,86 +60,179 @@ env:
 
 jobs:
   # Linux-side: verify artifacts exist and are valid before transferring
-  verify-artifacts:
-    name: Verify Linux Artifacts
+  # Self-contained CI linking: build every admitted artifact from the
+  # committed fixtures with a freshly bootstrapped cross toolchain.
+  #
+  # HONESTY: these binaries are NOT the recorded SASH-ENT-002/003 hashes.
+  # Microsoft republishes SDK/CRT cab content in place, so a fresh download
+  # cannot reproduce the host's pinned-sysroot snapshot byte-for-byte (486 of
+  # 523 x64 libs drifted between November and this bootstrap). The recorded
+  # hash reproduction stays a host-pinned gate
+  # (crates/sash/tests/link_reproduction.rs). CI asserts the structural gates
+  # only: PE policy PASS, verify exit 3, the correct machine, presentation
+  # profile, and api floor.
+  link-artifacts:
+    name: Link ${{ matrix.profile }} (${{ matrix.arch }})
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    outputs:
-      artifacts_verified: ${{ steps.verify.outputs.verified }}
-      artifact_list: ${{ steps.verify.outputs.artifact_list }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            profile: static-window
+            scene: crates/sash/fixtures/static-window.gscene
+            triple: x86_64-pc-windows-msvc
+            floor: win10
+          - arch: x64
+            profile: interactive-cut
+            scene: crates/sash/fixtures/interactive-counter.gscene
+            triple: x86_64-pc-windows-msvc
+            floor: win10
+          - arch: i686
+            profile: static-window
+            scene: crates/sash/fixtures/static-window.gscene
+            triple: i686-pc-windows-msvc
+            floor: win10
+          - arch: i686
+            profile: interactive-cut
+            scene: crates/sash/fixtures/interactive-counter.gscene
+            triple: i686-pc-windows-msvc
+            floor: win10
+          - arch: arm64
+            profile: static-window
+            scene: crates/sash/fixtures/static-window.gscene
+            triple: aarch64-pc-windows-msvc
+            floor: win10
+          - arch: arm64
+            profile: interactive-cut
+            scene: crates/sash/fixtures/interactive-counter.gscene
+            triple: aarch64-pc-windows-msvc
+            floor: win10
+          - arch: x64
+            profile: legacy-static
+            scene: crates/sash/fixtures/static-window.gscene
+            triple: x86_64-pc-windows-msvc
+            floor: win8
+          - arch: i686
+            profile: legacy-static
+            scene: crates/sash/fixtures/static-window.gscene
+            triple: i686-pc-windows-msvc
+            floor: win8
+          - arch: x64
+            profile: legacy-interactive
+            scene: crates/sash/fixtures/interactive-counter.gscene
+            triple: x86_64-pc-windows-msvc
+            floor: win8
+          - arch: i686
+            profile: legacy-interactive
+            scene: crates/sash/fixtures/interactive-counter.gscene
+            triple: i686-pc-windows-msvc
+            floor: win8
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Verify Sash binary
+      - name: Install Windows cross toolchain
         run: |
-          if ! command -v sash &> /dev/null; then
-            echo "Installing sash from workspace..."
-            cargo install --path crates/sash --locked --offline 2>/dev/null || cargo install --path crates/sash --locked
-          fi
-          sash --help
+          rustup target add x86_64-pc-windows-msvc i686-pc-windows-msvc aarch64-pc-windows-msvc
+          sudo apt-get update
+          sudo apt-get install -y llvm-18 clang-18
+          # cargo-xwin invokes `llvm-rc` and `clang` unversioned; Ubuntu ships
+          # them under /usr/lib/llvm-18/bin.
+          echo "/usr/lib/llvm-18/bin" >> "$GITHUB_PATH"
 
-      - name: Verify source artifacts exist
-        id: verify
+      - name: Install cargo-xwin and xwin
         run: |
-          declare -A ARTIFACTS=(
-            ["x64/static-window"]="${SASH_ENT002_STATIC_X64}"
-            ["x64/interactive-cut"]="${SASH_ENT002_INTERACTIVE_X64}"
-            ["i686/static-window"]="${SASH_STAMP_STATIC_I686}"
-            ["i686/interactive-cut"]="${SASH_STAMP_INTERACTIVE_I686}"
-            ["arm64/static-window"]="${SASH_STAMP_STATIC_ARM64}"
-            ["arm64/interactive-cut"]="${SASH_STAMP_INTERACTIVE_ARM64}"
-          )
+          cargo install cargo-xwin --locked
+          cargo install xwin --locked
 
-          # Filter by inputs
-          SELECTED_ARCH="${{ inputs.arch }}"
-          SELECTED_PROFILE="${{ inputs.profile }}"
+      - name: Restore bootstrapped Windows sysroot
+        id: sysroot
+        uses: actions/cache@v4
+        with:
+          path: ~/sysroot
+          key: sash-windows-msvc-sysroot-v1
 
-          verified=()
-          for key in "${!ARTIFACTS[@]}"; do
-            arch="${key%/*}"
-            profile="${key#*/}"
-
-            if [[ "$SELECTED_ARCH" != "all" && "$arch" != "$SELECTED_ARCH" ]]; then
-              continue
-            fi
-            if [[ "$SELECTED_PROFILE" != "all" && "$profile" != "$SELECTED_PROFILE" ]]; then
-              continue
-            fi
-
-            src="${ARTIFACTS[$key]}"
-            if [[ -f "$src" ]]; then
-              sha256=$(sha256sum "$src" | cut -d' ' -f1)
-              size=$(stat -c%s "$src")
-              echo "  ✓ $key: $src (${size} bytes, ${sha256:0:16}...)"
-              verified+=("$key:$src:$sha256:$size")
-            else
-              echo "  ✗ $key: $src NOT FOUND"
-              echo "verified=false" >> $GITHUB_OUTPUT
-              echo "artifact_list=" >> $GITHUB_OUTPUT
-              exit 1
-            fi
+      - name: Bootstrap the pinned Windows sysroot (first run only)
+        if: steps.sysroot.outputs.cache-hit != 'true'
+        run: |
+          # Recipe proven end-to-end on 2026-11-18 (xwin 0.10.0):
+          # splat produces crt/ + sdk/ trees; Sash requires a merged layout
+          # with per-rust-triple lib directories and a DONE marker.
+          CACHE="$HOME/.cache/xwin"
+          mkdir -p "$CACHE"
+          xwin --accept-license --cache-dir "$CACHE/download" \
+            --arch x86_64 --arch x86 --arch aarch64 \
+            splat --output "$CACHE/splat"
+          INNER="$CACHE/splat"
+          mkdir -p ~/sysroot/windows-msvc-sysroot/lib
+          for pair in "x86_64-unknown-windows-msvc x86_64" "i686-unknown-windows-msvc x86" "aarch64-unknown-windows-msvc aarch64"; do
+            set -- $pair
+            mkdir -p ~/sysroot/windows-msvc-sysroot/lib/$1
+            cp -a "$INNER"/crt/lib/$2/* ~/sysroot/windows-msvc-sysroot/lib/$1/
+            cp -a "$INNER"/sdk/lib/ucrt/$2/* ~/sysroot/windows-msvc-sysroot/lib/$1/
+            cp -a "$INNER"/sdk/lib/um/$2/* ~/sysroot/windows-msvc-sysroot/lib/$1/
           done
+          mkdir -p ~/sysroot/windows-msvc-sysroot/include
+          cp -a "$INNER"/crt/include/* ~/sysroot/windows-msvc-sysroot/include/
+          cp -a "$INNER"/sdk/include/ucrt/* ~/sysroot/windows-msvc-sysroot/include/
+          cp -a "$INNER"/sdk/include/shared/* ~/sysroot/windows-msvc-sysroot/include/
+          cp -a "$INNER"/sdk/include/um/* ~/sysroot/windows-msvc-sysroot/include/
+          touch ~/sysroot/windows-msvc-sysroot/DONE
+          # The pinned linker: a symlink to this toolchain's rust-lld.
+          ln -s "$(rustc --print sysroot)/lib/rustlib/x86_64-unknown-linux-gnu/bin/rust-lld" \
+            ~/sysroot/lld-link
+          du -sh ~/sysroot
 
-          echo "verified=true" >> $GITHUB_OUTPUT
-          echo "artifact_list=$(IFS=,; echo "${verified[*]}")" >> $GITHUB_OUTPUT
-
-      - name: Verify artifacts with sash verify
-        if: steps.verify.outputs.verified == 'true'
+      - name: Republish the bootstrapped sysroot where Sash looks for it
         run: |
-          IFS=',' read -ra ARTIFACTS <<< "${{ steps.verify.outputs.artifact_list }}"
-          for entry in "${ARTIFACTS[@]}"; do
-            IFS=':' read -r key src sha256 size <<< "$entry"
-            echo "Verifying $key ($src)..."
-            sash verify "$src" --format json | jq -e '.pe_structure == "PASS" and .runtime_qualification == "BLOCKED"' > /dev/null
-            echo "  ✓ PE structure PASS, runtime_qualification BLOCKED (expected)"
-          done
+          mkdir -p "$HOME/.cache/xwin"
+          rm -rf "$HOME/.cache/xwin/windows-msvc-sysroot" "$HOME/.cache/xwin/lld-link"
+          cp -al ~/sysroot/windows-msvc-sysroot "$HOME/.cache/xwin/windows-msvc-sysroot"
+          ln -s ~/sysroot/lld-link "$HOME/.cache/xwin/lld-link"
 
-  # Windows-side: run test harness on self-hosted Windows runners
+      - name: Link the artifact
+        run: |
+          cargo run -q -p sash -- \
+            build "${{ matrix.scene }}" \
+            --profile portable-native --release \
+            --api-floor ${{ matrix.floor }} \
+            --out ./artifacts/${{ matrix.arch }}/${{ matrix.profile }} \
+            --target ${{ matrix.triple }}
+
+      - name: Verify the artifact structurally
+        run: |
+          sash_bin=target/debug/sash
+          $sash_bin verify \
+            ./artifacts/${{ matrix.arch }}/${{ matrix.profile }}/App.exe \
+            --evidence ./artifacts/${{ matrix.arch }}/${{ matrix.profile }}/evidence \
+            --target ${{ matrix.triple }} --api-floor ${{ matrix.floor }} \
+            --format json | tee verify.json
+          # Structural gates only: PE PASS, runtime and release BLOCKED, and
+          # the image must report the requested machine, profile, and floor.
+          jq -e '.pe_structure == "PASS" and .runtime_qualification == "BLOCKED" \
+            and .release_admission == "BLOCKED" \
+            and .target == "${{ matrix.triple }}" \
+            and .api_floor == "${{ matrix.floor }}"' verify.json > /dev/null
+
+      - name: Generate expectations.json from the compiler
+        run: |
+          cargo run -q -p sash -- \
+            expectations "${{ matrix.scene }}" --api-floor ${{ matrix.floor }} --format json \
+            > ./artifacts/${{ matrix.arch }}/${{ matrix.profile }}/expectations.json
+          python3 -m json.tool ./artifacts/${{ matrix.arch }}/${{ matrix.profile }}/expectations.json > /dev/null
+
+      - name: Upload artifact for Windows runners
+        uses: actions/upload-artifact@v4
+        with:
+          name: sash-${{ matrix.arch }}-${{ matrix.profile }}
+          path: ./artifacts/${{ matrix.arch }}/${{ matrix.profile }}/*
+          retention-days: 7
+
   windows-test:
     name: Windows Test (${{ matrix.arch }}/${{ matrix.profile }})
-    needs: verify-artifacts
-    if: needs.verify-artifacts.outputs.artifacts_verified == 'true'
+    needs: link-artifacts
     runs-on: [self-hosted, windows, "${{ matrix.arch }}"]
     timeout-minutes: 30
     strategy:
@@ -241,7 +334,7 @@ jobs:
   # cleanly. Qualification stays with the self-hosted windows-test job.
   windows-smoke:
     name: Windows Smoke Launch (windows-latest, x64)
-    needs: prepare-artifacts
+    needs: link-artifacts
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
@@ -299,7 +392,7 @@ jobs:
   # Consolidate evidence and determine Phase 0 gate
   consolidate:
     name: Consolidate Evidence & Gate
-    needs: [verify-artifacts, windows-test]
+    needs: [link-artifacts, windows-test]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
@@ -349,72 +442,6 @@ jobs:
           retention-days: 90
 
   # Artifact preparation for Windows runners (separate job to run on Linux)
-  prepare-artifacts:
-    name: Prepare Artifacts for Windows Runners
-    needs: verify-artifacts
-    if: needs.verify-artifacts.outputs.artifacts_verified == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Checkout repository (for scene files)
-        uses: actions/checkout@v4
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: x64
-            profile: static-window
-            source: ${{ env.SASH_ENT002_STATIC_X64 }}
-            scene: crates/sash/fixtures/static-window.gscene
-          - arch: x64
-            profile: interactive-cut
-            source: ${{ env.SASH_ENT002_INTERACTIVE_X64 }}
-            scene: crates/sash/fixtures/interactive-counter.gscene
-          - arch: i686
-            profile: static-window
-            source: ${{ env.SASH_STAMP_STATIC_I686 }}
-            scene: crates/sash/fixtures/static-window.gscene
-          - arch: i686
-            profile: interactive-cut
-            source: ${{ env.SASH_STAMP_INTERACTIVE_I686 }}
-            scene: crates/sash/fixtures/interactive-counter.gscene
-          - arch: arm64
-            profile: static-window
-            source: ${{ env.SASH_STAMP_STATIC_ARM64 }}
-            scene: crates/sash/fixtures/static-window.gscene
-          - arch: arm64
-            profile: interactive-cut
-            source: ${{ env.SASH_STAMP_INTERACTIVE_ARM64 }}
-            scene: crates/sash/fixtures/interactive-counter.gscene
-    steps:
-      - name: Prepare artifact directory
-        run: |
-          mkdir -p ./artifacts/${{ matrix.arch }}/${{ matrix.profile }}
-          cp "${{ matrix.source }}" ./artifacts/${{ matrix.arch }}/${{ matrix.profile }}/App.exe
-
-      - name: Verify artifact
-        run: |
-          sha256sum ./artifacts/${{ matrix.arch }}/${{ matrix.profile }}/App.exe
-
-      - name: Generate expectations.json from the compiler
-        run: |
-          # The expectations file is projected from the lowered IR by the
-          # same compiler revision that produced the binary. The Windows
-          # harness refuses to run without it.
-          cargo run -q -p sash --offline -- \
-            expectations "${{ matrix.scene }}" --format json \
-            > ./artifacts/${{ matrix.arch }}/${{ matrix.profile }}/expectations.json
-          python3 -m json.tool ./artifacts/${{ matrix.arch }}/${{ matrix.profile }}/expectations.json > /dev/null
-          echo "expectations.json valid ($(wc -c < ./artifacts/${{ matrix.arch }}/${{ matrix.profile }}/expectations.json) bytes)"
-
-      - name: Upload artifact for Windows runner
-        uses: actions/upload-artifact@v4
-        with:
-          name: sash-${{ matrix.arch }}-${{ matrix.profile }}
-          path: ./artifacts/${{ matrix.arch }}/${{ matrix.profile }}/*
-          retention-days: 7
-
-# Phase 0 Gate Summary (can be used as required check)
   phase0-gate:
     name: Phase 0 Gate Summary
     needs: [consolidate, windows-smoke]
