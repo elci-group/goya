@@ -958,3 +958,111 @@ fn observable_column_trace_cli_and_service_match_and_require_profile() {
     bad["activations"] = serde_json::json!(["action.missing"]);
     assert_eq!(session.handle(&bad)["status"], "FAIL");
 }
+
+#[test]
+fn bluetooth_privacy_cli_matches_service() {
+    let usage = "Connects to your temperature sensor to show readings.";
+    // The CLI must print exactly the response Session::handle produces for
+    // the equivalent request, byte for byte, on PASS and FAIL alike.
+    let expect = |args: &[&str], request: serde_json::Value| -> serde_json::Value {
+        let output = Command::new(env!("CARGO_BIN_EXE_neptune"))
+            .args(args)
+            .output()
+            .unwrap();
+        let mut session = neptune::service::Session::default();
+        let expected = session.handle(&request);
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            format!("{expected}\n"),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        expected
+    };
+
+    // Default contracts: all seven implemented Blue Moon contracts.
+    let all = expect(
+        &["plan-bluetooth-privacy", "--usage-description", usage],
+        serde_json::json!({
+            "schema_version": "1",
+            "job_id": "cli",
+            "operation": "plan-bluetooth-privacy",
+            "usage_description": usage
+        }),
+    );
+    assert_eq!(all["status"], "PASS");
+    assert_eq!(all["stage"], "bluetooth_privacy");
+    assert_eq!(
+        all["result"]["privacy_plan"]["usage_key"],
+        "NSBluetoothAlwaysUsageDescription"
+    );
+    assert_eq!(
+        all["result"]["capability_entries"]
+            .as_array()
+            .unwrap()
+            .len(),
+        7
+    );
+
+    // An explicit comma-separated subset keeps request order.
+    let subset = expect(
+        &[
+            "plan-bluetooth-privacy",
+            "--usage-description",
+            usage,
+            "--contracts",
+            "goya.hardware.bluetooth.guard.v1,goya.hardware.bluetooth.central.v1",
+        ],
+        serde_json::json!({
+            "schema_version": "1",
+            "job_id": "cli",
+            "operation": "plan-bluetooth-privacy",
+            "usage_description": usage,
+            "contracts": [
+                "goya.hardware.bluetooth.guard.v1",
+                "goya.hardware.bluetooth.central.v1"
+            ]
+        }),
+    );
+    assert_eq!(subset["status"], "PASS");
+    let entries = subset["result"]["capability_entries"].as_array().unwrap();
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[0]["semantic_id"], "goya.hardware.bluetooth.guard.v1");
+    assert_eq!(
+        entries[1]["semantic_id"],
+        "goya.hardware.bluetooth.central.v1"
+    );
+
+    // A generic description fails closed exactly like the service.
+    let generic = expect(
+        &["plan-bluetooth-privacy", "--usage-description", "uses bluetooth"],
+        serde_json::json!({
+            "schema_version": "1",
+            "job_id": "cli",
+            "operation": "plan-bluetooth-privacy",
+            "usage_description": "uses bluetooth"
+        }),
+    );
+    assert_eq!(generic["status"], "FAIL");
+    assert_eq!(generic["diagnostics"][0]["code"], "NPT-BM-E002");
+
+    // An unknown contract fails closed exactly like the service.
+    let unknown = expect(
+        &[
+            "plan-bluetooth-privacy",
+            "--usage-description",
+            usage,
+            "--contracts",
+            "goya.hardware.bluetooth.pairing.v1",
+        ],
+        serde_json::json!({
+            "schema_version": "1",
+            "job_id": "cli",
+            "operation": "plan-bluetooth-privacy",
+            "usage_description": usage,
+            "contracts": ["goya.hardware.bluetooth.pairing.v1"]
+        }),
+    );
+    assert_eq!(unknown["status"], "FAIL");
+    assert_eq!(unknown["diagnostics"][0]["code"], "NPT-BM-E001");
+}
