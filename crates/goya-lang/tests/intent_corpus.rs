@@ -93,26 +93,23 @@ fn accept_scene_validates_and_preserves_declared_fields() {
 #[test]
 fn rejections_carry_code_cause_and_declaration_span() {
     let valid = ACCEPT;
-    let cases: [(&str, &str, &str); 4] = [
+    // (cause, from, to) — mutations that parse and then fail validation.
+    let cases: [(&str, &str, &str); 2] = [
         (
             "no fallback",
             "fallback { remote: searchPanel; keyboard: searchField; }",
             "fallback { }",
         ),
-        ("no voice", "voice {", "voice {"),
-        ("bad slot", "utterance: \"Find {query}\";", "utterance: \"Find {not a slot}\";"),
         (
-            "duplicate utterance",
-            "utterance: \"Show me {query}\";",
-            "utterance: \"Find {query}\";\n            utterance: \"Find {query}\";",
+            "bad slot",
+            "utterance: \"Find {query}\";",
+            "utterance: \"Find {not a slot}\";",
         ),
     ];
     for (cause, from, to) in cases {
         let mutant = valid.replacen(from, to, 1);
-        let parsed = match parse_with_source_map(&mutant) {
-            Ok(parsed) => parsed,
-            Err(_) => continue, // rejected at parse time; also acceptable
-        };
+        let parsed = parse_with_source_map(&mutant)
+            .unwrap_or_else(|error| panic!("{cause}: mutation failed to parse: {error:?}"));
         let diagnostics = validate_intents(&parsed);
         assert_eq!(
             diagnostics.len(),
@@ -123,11 +120,16 @@ fn rejections_carry_code_cause_and_declaration_span() {
         assert_in_bounds(&mutant, &diagnostics[0]);
     }
 
+    // Duplicate utterances are rejected at parse time, not validation.
+    let duplicate_utterance =
+        valid.replacen("utterance: \"Show me {query}\";", "utterance: \"Find {query}\";", 1);
+    assert!(parse_with_source_map(&duplicate_utterance).is_err());
+
     // Missing utterances and duplicate intent names are semantic-only.
-    let no_utterances = valid.replace("utterance: \"Find {query}\";", "").replace(
-        "utterance: \"Search for {query}\";",
-        "",
-    ).replace("utterance: \"Show me {query}\";", "");
+    let no_utterances = valid
+        .replace("utterance: \"Find {query}\";", "")
+        .replace("utterance: \"Search for {query}\";", "")
+        .replace("utterance: \"Show me {query}\";", "");
     let parsed = parse_with_source_map(&no_utterances).unwrap();
     let diagnostics = validate_intents(&parsed);
     assert!(diagnostics
