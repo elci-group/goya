@@ -4,8 +4,8 @@
 use crate::lexer::{lex, Token, TokenKind};
 use crate::scene::{
     Anchor, CellKind, EffectRequestDecl, EffectValueType, GestureDecision, GesturePolicy,
-    InteractionClass, InteractionDecl, InteractionExpr, InteractionType, InteractionValue, Scene,
-    SceneCell, StateAssignment, TypedKey, Vec3,
+    InteractionClass, InteractionDecl, InteractionExpr, InteractionType, InteractionValue, IntentDecl,
+    Scene, SceneCell, StateAssignment, TypedKey, Vec3,
 };
 use goya_determinism::EffectKind;
 use std::collections::BTreeMap;
@@ -142,6 +142,8 @@ impl fmt::Display for StrictParseError {
             "GY-E1007" => "invalid input binding",
             "GY-E1008" => "invalid state declaration",
             "GY-E1009" => "absolute length in a proportional profile",
+            "GY-E1010" => "intent declaration requires intent admission",
+            "GY-E1011" => "invalid intent declaration",
             _ => "strict parsing failed",
         };
         write!(f, "{}: {} '{}'", self.code, description, self.name)
@@ -173,6 +175,7 @@ pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
         tokens,
         i: 0,
         interactions: Vec::new(),
+        intents: Vec::new(),
         entries: Vec::new(),
         source_len: source.len(),
         anchor: 0,
@@ -308,6 +311,7 @@ pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
             name,
             root,
             interactions: p.interactions,
+            intents: p.intents,
         },
         entries: p.entries,
         source_digest,
@@ -401,6 +405,9 @@ fn strict(source: &str, profile: Profile) -> Result<ParsedScene, StrictParseErro
             "property" if !is_known_property(&entry.name) => Some("GY-E1001"),
             "template" => Some("GY-E1002"),
             "state" | "binding" if profile == Profile::Gssh1 => Some("GY-E1006"),
+            // Intent declarations are Quitasol phase-0 experimental surface.
+            // No strict GSSH consumer implements them, so none may admit one.
+            "intent" => Some("GY-E1010"),
             // Proportional text and stroke lengths are GSSH/3 only, so older
             // consumers never receive a length they would ignore.
             "property"
@@ -782,6 +789,7 @@ struct P {
     tokens: Vec<Token>,
     i: usize,
     interactions: Vec<InteractionDecl>,
+    intents: Vec<IntentDecl>,
     entries: Vec<SourceEntry>,
     source_len: usize,
     /// Start of the construct currently being parsed; diagnostics span from
@@ -968,6 +976,22 @@ impl P {
                                 source_digest: [0; 32],
                             });
                             self.interactions.push(interaction);
+                        }
+                        "intent" => {
+                            let name = self.expect_ident()?;
+                            let intent = self.parse_intent(name)?;
+                            self.entries.push(SourceEntry {
+                                kind: word.clone(),
+                                name: intent.name.clone(),
+                                scene_path: None,
+                                semantic_id: None,
+                                range: SourceRange {
+                                    start: tok.byte_start,
+                                    end: self.tokens[self.i - 1].byte_end,
+                                },
+                                source_digest: [0; 32],
+                            });
+                            self.intents.push(intent);
                         }
                         "state" => {
                             // GSSH/2 state declarations live only in the
@@ -1229,6 +1253,97 @@ impl P {
             state_writes,
             inputs,
             assignments,
+        })
+    }
+
+    /// Experimental `@intent Name { action: ...; voice { ... } fallback { ... } }`
+    /// (Quitasol phase 0; proposed, not ratified). Body keyword order is
+    /// fixed like `@interaction`; unknown keys and duplicate keys are errors.
+    fn parse_intent(&mut self, name: String) -> Result<IntentDecl, ParseError> {
+        let intent_start = self.anchor;
+        self.expect(TokenKind::LBrace)?;
+        let authored_id = if self
+            .peek()
+            .is_some_and(|token| token.kind == TokenKind::Ident && token.text == "id")
+        {
+            self.bump();
+            self.expect(TokenKind::Colon)?;
+            let value = self.expect(TokenKind::Str)?.text;
+            self.optional_semi();
+            Some(value)
+        } else {
+            None
+        };
+        self.expect_ident_value("action")?;
+        self.expect(TokenKind::Colon)?;
+        let action = self.expect_ident()?;
+        self.optional_semi();
+        self.expect_ident_value("voice")?;
+        self.expect(TokenKind::LBrace)?;
+        let mut utterances = Vec::new();
+        let mut confirmation: Option<bool> = None;
+        while !matches!(self.peek().map(|t| t.kind), Some(TokenKind::RBrace)) {
+            let key = self.expect_ident()?;
+            self.expect(TokenKind::Colon)?;
+            match key.as_str() {
+                "utterance" => {
+                    let text = self.expect(TokenKind::Str)?.text;
+                    if utterances.contains(&text) {
+                        return Err(self.err_prev());
+                    }
+                    utterances.push(text);
+                }
+                "confirmation" => {
+                    let value = self.expect_ident()?;
+                    let parsed = match value.as_str() {
+                        "true" => true,
+                        "false" => false,
+                        _ => return Err(self.err_prev()),
+                    };
+                    if confirmation.is_some() {
+                        return Err(self.err_prev());
+                    }
+                    confirmation = Some(parsed);
+                }
+                _ => return Err(self.err_prev()),
+            }
+            self.optional_semi();
+        }
+        self.expect(TokenKind::RBrace)?;
+        self.expect_ident_value("fallback")?;
+        self.expect(TokenKind::LBrace)?;
+        let mut fallback_remote: Option<String> = None;
+        let mut fallback_keyboard: Option<String> = None;
+        while !matches!(self.peek().map(|t| t.kind), Some(TokenKind::RBrace)) {
+            let key = self.expect_ident()?;
+            self.expect(TokenKind::Colon)?;
+            let target = self.expect_ident()?;
+            let slot = match key.as_str() {
+                "remote" => &mut fallback_remote,
+                "keyboard" => &mut fallback_keyboard,
+                _ => return Err(self.err_prev()),
+            };
+            if slot.is_some() {
+                return Err(self.err_prev());
+            }
+            *slot = Some(target);
+            self.optional_semi();
+        }
+        self.expect(TokenKind::RBrace)?;
+        self.anchor = intent_start;
+        self.expect(TokenKind::RBrace)?;
+        Ok(IntentDecl {
+            name,
+            authored_id,
+            action,
+            utterances,
+            confirmation: confirmation.unwrap_or(false),
+            fallback_remote,
+            fallback_keyboard,
+            range: SourceRange {
+                start: intent_start,
+                end: self.tokens[self.i - 1].byte_end,
+            },
         })
     }
 
