@@ -1,0 +1,10 @@
+# Golden fixture T01 — PAMPER IE-X01 reference graph (frozen at G1)
+# op matmul; A[2x2] * B[2x2] -> C[2x2]; little-endian FP32, row-major.
+# All values exact in IEEE-754 f32 (small integers).
+op matmul
+a_dims 2 2
+a 1.0 2.0 3.0 4.0
+b_dims 2 2
+b 5.0 6.0 7.0 8.0
+expected_dims 2 2
+expected 19.0 22.0 43.0 50.0
