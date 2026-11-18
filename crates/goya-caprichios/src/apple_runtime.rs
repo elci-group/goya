@@ -226,6 +226,65 @@ impl MetalDispatchPlan {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AcceleratorError {
+    EmptyChip,
+}
+
+impl fmt::Display for AcceleratorError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("accelerator chip name must not be empty")
+    }
+}
+
+impl std::error::Error for AcceleratorError {}
+
+/// Published facts about a device accelerator: chip identifier, GPU core
+/// count where Apple publishes one, and the Metal GPU family level where the
+/// device supports Metal. This type inventories the accelerator; it never
+/// claims GPU execution or driver access.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AcceleratorProfile {
+    chip: &'static str,
+    gpu_cores: Option<u16>,
+    metal_family: Option<u8>,
+}
+
+impl AcceleratorProfile {
+    pub fn new(
+        chip: &'static str,
+        gpu_cores: Option<u16>,
+        metal_family: Option<u8>,
+    ) -> Result<Self, AcceleratorError> {
+        if chip.is_empty() {
+            return Err(AcceleratorError::EmptyChip);
+        }
+        Ok(Self {
+            chip,
+            gpu_cores,
+            metal_family,
+        })
+    }
+
+    pub fn chip(&self) -> &str {
+        self.chip
+    }
+
+    pub fn gpu_cores(&self) -> Option<u16> {
+        self.gpu_cores
+    }
+
+    pub fn metal_family(&self) -> Option<u8> {
+        self.metal_family
+    }
+
+    /// True only when the device supports Metal at the given family level or
+    /// higher.
+    pub fn supports_metal_family(&self, min: u8) -> bool {
+        self.metal_family.is_some_and(|family| family >= min)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AuthError {
     ZeroAttempts,
     AttemptsTooLarge,
