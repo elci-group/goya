@@ -744,6 +744,11 @@ pub fn negotiate(
             && *id != crate::bluetooth_continuity_caprichio::CONTRACT
             && *id != crate::bluetooth_access_caprichio::CONTRACT
             && *id != crate::bluetooth_profile_caprichio::CONTRACT
+            && *id != crate::google_sso_caprichio::CONTRACT
+            && *id != crate::microsoft_sso_caprichio::CONTRACT
+            && *id != crate::github_sso_caprichio::CONTRACT
+            && *id != crate::x_sso_caprichio::CONTRACT
+            && *id != crate::meta_sso_caprichio::CONTRACT
         {
             if catalog::find(id).is_some() {
                 return Err(NegotiationError::UnsupportedCapability((*id).to_owned()));
