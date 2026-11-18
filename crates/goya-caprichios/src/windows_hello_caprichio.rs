@@ -326,7 +326,7 @@ mod tests {
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/apple_runtime.rs");
         assert!(runtime_path.is_file());
         let harness = format!(
-            "#[path = {runtime_path:?}]\nmod apple_runtime;\n{}\nfn main() {{\n    let mut gate = make_windows_hello_gate().expect(\"factory should construct gate\");\n    assert_eq!(gate.max_attempts(), 3);\n    assert_eq!(gate.timeout_ms(), 20000);\n    assert_eq!(gate.attempt(false), Ok(apple_runtime::AuthOutcome::Retry));\n    assert_eq!(gate.attempt(false), Err(apple_runtime::AuthError::AttemptsExhausted));\n    assert!(gate.is_resolved());\n}}\n",
+            "#[path = {runtime_path:?}]\nmod apple_runtime;\n{}\nfn main() {{\n    let mut gate = make_windows_hello_gate().expect(\"factory should construct gate\");\n    assert_eq!(gate.max_attempts(), 3);\n    assert_eq!(gate.timeout_ms(), 20000);\n    assert_eq!(gate.attempt(false), Ok(apple_runtime::AuthOutcome::Retry));\n    assert_eq!(gate.attempt(false), Ok(apple_runtime::AuthOutcome::Retry));\n    assert_eq!(gate.attempt(false), Err(apple_runtime::AuthError::AttemptsExhausted));\n    assert!(gate.is_resolved());\n}}\n",
             artifact.source
         );
         let nonce = SystemTime::now()

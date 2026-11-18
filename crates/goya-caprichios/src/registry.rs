@@ -1097,6 +1097,46 @@ pub fn negotiate(
                         .map_err(NegotiationError::SamsungPay)?,
                 )
             }
+            crate::bluetooth_caprichio::CONTRACT => {
+                let declaration = request.bluetooth_central.clone().ok_or(
+                    NegotiationError::MissingDeclaration {
+                        capability: crate::bluetooth_caprichio::CONTRACT,
+                    },
+                )?;
+                let ir = declaration.normalize().map_err(NegotiationError::Bluetooth)?;
+                Artifact::Bluetooth(
+                    ir.lower_checked(host.bluetooth_central_target, host.bluetooth_central_host)
+                        .map_err(NegotiationError::Bluetooth)?,
+                )
+            }
+            crate::bluetooth_control_caprichio::CONTRACT => {
+                let declaration = request.bluetooth_gatt.clone().ok_or(
+                    NegotiationError::MissingDeclaration {
+                        capability: crate::bluetooth_control_caprichio::CONTRACT,
+                    },
+                )?;
+                let ir = declaration
+                    .normalize()
+                    .map_err(NegotiationError::BluetoothGatt)?;
+                Artifact::BluetoothGatt(
+                    ir.lower_checked(host.bluetooth_gatt_target, host.bluetooth_gatt_host)
+                        .map_err(NegotiationError::BluetoothGatt)?,
+                )
+            }
+            crate::bluetooth_stream_caprichio::CONTRACT => {
+                let declaration = request.bluetooth_stream.clone().ok_or(
+                    NegotiationError::MissingDeclaration {
+                        capability: crate::bluetooth_stream_caprichio::CONTRACT,
+                    },
+                )?;
+                let ir = declaration
+                    .normalize()
+                    .map_err(NegotiationError::BluetoothStream)?;
+                Artifact::BluetoothStream(
+                    ir.lower_checked(host.bluetooth_stream_target, host.bluetooth_stream_host)
+                        .map_err(NegotiationError::BluetoothStream)?,
+                )
+            }
             _ => unreachable!("request IDs validated before lowering"),
         };
         let id = match artifact {
