@@ -324,8 +324,10 @@ mod tests {
         let scene = parse(SCENE).unwrap();
         let frame = layout(&scene, 800.0, 600.0);
         let elements = scene_focus_elements(&frame.nodes);
+        // Index 0 is the ontology wrapper cell (four children, so it does not
+        // collapse); go, back, field follow, then the plain panel.
         let focusable: Vec<bool> = elements.iter().map(|e| e.focusable).collect();
-        assert_eq!(focusable, vec![true, true, true, false]);
+        assert_eq!(focusable, vec![false, true, true, true, false]);
         // Millipoint geometry flows through unchanged.
         assert_eq!(elements[0].x, 100_000);
         assert_eq!(elements[0].w, 200_000);
