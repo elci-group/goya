@@ -2145,113 +2145,87 @@ mod tests {
 
     #[test]
     fn ipad_ipod_touch_and_apple_watch_accelerator_contracts_lower_and_fail_closed() {
-        struct Case {
-            contract: &'static str,
-            recipe: &'static str,
-            category_line: &'static str,
-        }
-        for (case, declaration, target_field, host_field) in [
+        let ipad_request = Request {
+            capabilities: vec![crate::ipad_accelerator_caprichio::CONTRACT.into()],
+            accelerator_ipad: Some(accelerator_ipad()),
+            ..Request::default()
+        };
+        let ipod_request = Request {
+            capabilities: vec![crate::ipod_touch_accelerator_caprichio::CONTRACT.into()],
+            accelerator_ipod_touch: Some(accelerator_ipod_touch()),
+            ..Request::default()
+        };
+        let watch_request = Request {
+            capabilities: vec![crate::apple_watch_accelerator_caprichio::CONTRACT.into()],
+            accelerator_apple_watch: Some(accelerator_apple_watch()),
+            ..Request::default()
+        };
+        for (request, contract, recipe, category_line) in [
             (
-                Case {
-                    contract: crate::ipad_accelerator_caprichio::CONTRACT,
-                    recipe: "ipad-metal-checked-dispatch",
-                    category_line: "category=ipad\n",
-                },
-                RequestField::Ipad(accelerator_ipad()),
-                HostField::IpadTarget,
-                HostField::IpadHost,
+                &ipad_request,
+                crate::ipad_accelerator_caprichio::CONTRACT,
+                "ipad-metal-checked-dispatch",
+                "category=ipad\n",
             ),
             (
-                Case {
-                    contract: crate::ipod_touch_accelerator_caprichio::CONTRACT,
-                    recipe: "ipod_touch-metal-checked-dispatch",
-                    category_line: "category=ipod_touch\n",
-                },
-                RequestField::IpodTouch(accelerator_ipod_touch()),
-                HostField::IpodTouchTarget,
-                HostField::IpodTouchHost,
+                &ipod_request,
+                crate::ipod_touch_accelerator_caprichio::CONTRACT,
+                "ipod_touch-metal-checked-dispatch",
+                "category=ipod_touch\n",
             ),
             (
-                Case {
-                    contract: crate::apple_watch_accelerator_caprichio::CONTRACT,
-                    recipe: "apple-watch-accelerator-inventory-only",
-                    category_line: "category=apple_watch\n",
-                },
-                RequestField::AppleWatch(accelerator_apple_watch()),
-                HostField::AppleWatchTarget,
-                HostField::AppleWatchHost,
+                &watch_request,
+                crate::apple_watch_accelerator_caprichio::CONTRACT,
+                "apple-watch-accelerator-inventory-only",
+                "category=apple_watch\n",
             ),
         ] {
-            let request = Request {
-                capabilities: vec![case.contract.into()],
-                accelerator_ipad: matches!(declaration, RequestField::Ipad(_))
-                    .then(|| accelerator_ipad()),
-                accelerator_ipod_touch: matches!(declaration, RequestField::IpodTouch(_))
-                    .then(|| accelerator_ipod_touch()),
-                accelerator_apple_watch: matches!(declaration, RequestField::AppleWatch(_))
-                    .then(|| accelerator_apple_watch()),
-                ..Request::default()
-            };
-            let negotiated = negotiate(&request, host()).unwrap();
+            let negotiated = negotiate(request, host()).unwrap();
             assert_eq!(negotiated.len(), 1);
-            assert_eq!(negotiated[0].id, case.contract);
-            assert_eq!(negotiated[0].artifact.contract(), case.contract);
-            assert_eq!(negotiated[0].artifact.recipe(), case.recipe);
-            assert!(negotiated[0]
-                .artifact
-                .canonical_ir()
-                .contains(case.category_line));
-            assert_eq!(negotiated, negotiate(&request, host()).unwrap());
+            assert_eq!(negotiated[0].id, contract);
+            assert_eq!(negotiated[0].artifact.contract(), contract);
+            assert_eq!(negotiated[0].artifact.recipe(), recipe);
+            assert!(negotiated[0].artifact.canonical_ir().contains(category_line));
+            assert_eq!(negotiated, negotiate(request, host()).unwrap());
 
             let missing = Request {
-                capabilities: vec![case.contract.into()],
+                capabilities: vec![contract.into()],
                 ..Request::default()
             };
             assert_eq!(
                 negotiate(&missing, host()),
                 Err(NegotiationError::MissingDeclaration {
-                    capability: case.contract
+                    capability: contract
                 })
             );
-
-            let mut cross_platform = host();
-            match target_field {
-                HostField::IpadTarget => {
-                    cross_platform.accelerator_ipad_target =
-                        IpadAcceleratorTarget::CrossPlatform;
-                }
-                HostField::IpodTouchTarget => {
-                    cross_platform.accelerator_ipod_touch_target =
-                        IpodTouchAcceleratorTarget::CrossPlatform;
-                }
-                HostField::AppleWatchTarget => {
-                    cross_platform.accelerator_apple_watch_target =
-                        AppleWatchAcceleratorTarget::CrossPlatform;
-                }
-                _ => unreachable!("target field"),
-            }
-            match host_field {
-                HostField::IpadHost => assert_eq!(
-                    negotiate(&request, cross_platform),
-                    Err(NegotiationError::IpadAccelerator(
-                        crate::ipad_accelerator_caprichio::IpadAcceleratorDiagnostic::UnsupportedTarget
-                    ))
-                ),
-                HostField::IpodTouchHost => assert_eq!(
-                    negotiate(&request, cross_platform),
-                    Err(NegotiationError::IpodTouchAccelerator(
-                        crate::ipod_touch_accelerator_caprichio::IpodTouchAcceleratorDiagnostic::UnsupportedTarget
-                    ))
-                ),
-                HostField::AppleWatchHost => assert_eq!(
-                    negotiate(&request, cross_platform),
-                    Err(NegotiationError::AppleWatchAccelerator(
-                        crate::apple_watch_accelerator_caprichio::AppleWatchAcceleratorDiagnostic::UnsupportedTarget
-                    ))
-                ),
-                _ => unreachable!("host field"),
-            }
         }
+
+        let mut ipad_cross_platform = host();
+        ipad_cross_platform.accelerator_ipad_target = IpadAcceleratorTarget::CrossPlatform;
+        assert_eq!(
+            negotiate(&ipad_request, ipad_cross_platform),
+            Err(NegotiationError::IpadAccelerator(
+                crate::ipad_accelerator_caprichio::IpadAcceleratorDiagnostic::UnsupportedTarget
+            ))
+        );
+        let mut ipod_cross_platform = host();
+        ipod_cross_platform.accelerator_ipod_touch_target =
+            IpodTouchAcceleratorTarget::CrossPlatform;
+        assert_eq!(
+            negotiate(&ipod_request, ipod_cross_platform),
+            Err(NegotiationError::IpodTouchAccelerator(
+                crate::ipod_touch_accelerator_caprichio::IpodTouchAcceleratorDiagnostic::UnsupportedTarget
+            ))
+        );
+        let mut watch_cross_platform = host();
+        watch_cross_platform.accelerator_apple_watch_target =
+            AppleWatchAcceleratorTarget::CrossPlatform;
+        assert_eq!(
+            negotiate(&watch_request, watch_cross_platform),
+            Err(NegotiationError::AppleWatchAccelerator(
+                crate::apple_watch_accelerator_caprichio::AppleWatchAcceleratorDiagnostic::UnsupportedTarget
+            ))
+        );
     }
 
     #[test]
