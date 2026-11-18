@@ -792,7 +792,7 @@ mod tests {
     #[test]
     fn emitted_transition_agrees_with_eval() {
         let app = fixture();
-        let generated = generate(&app);
+        let generated = generate(&app, crate::api_floor::ApiFloor::Win10);
         assert!(generated.main_rs.contains("SashInteractiveWindow"));
         assert!(generated.main_rs.contains("BUTTON"));
         assert!(generated.main_rs.contains("EDIT"));
@@ -919,7 +919,7 @@ mod tests {
             SceneTarget::Interactive(app) => {
                 assert_eq!(app.profile, PROFILE);
                 assert!(app.paste_allowed);
-                let generated = generate(&app);
+                let generated = generate(&app, crate::api_floor::ApiFloor::Win10);
                 assert!(generated
                     .main_rs
                     .contains("const PASTE_ALLOWED: bool = true;"));

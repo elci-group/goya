@@ -7,6 +7,18 @@ use crate::apple_pay_caprichio::{
 use crate::batching_caprichio::{
     BatchArtifact, BatchDeclaration, RuntimeCapabilities as BatchRuntime, Target as BatchTarget,
 };
+use crate::bluetooth_caprichio::{
+    BluetoothCentralArtifact, BluetoothCentralDeclaration, RuntimeCapabilities as BluetoothHost,
+    Target as BluetoothTarget,
+};
+use crate::bluetooth_control_caprichio::{
+    BluetoothGattArtifact, BluetoothGattDeclaration, RuntimeCapabilities as BluetoothGattHost,
+    Target as BluetoothGattTarget,
+};
+use crate::bluetooth_stream_caprichio::{
+    BluetoothStreamArtifact, BluetoothStreamDeclaration, RuntimeCapabilities as BluetoothStreamHost,
+    Target as BluetoothStreamTarget,
+};
 use crate::google_pay_caprichio::{
     GooglePayArtifact, GooglePayDeclaration, RuntimeCapabilities as GooglePayHost,
     Target as GooglePayTarget,
@@ -126,6 +138,9 @@ pub struct Request {
     pub windows_hello: Option<WindowsHelloDeclaration>,
     pub google_pay: Option<GooglePayDeclaration>,
     pub samsung_pay: Option<SamsungPayDeclaration>,
+    pub bluetooth_central: Option<BluetoothCentralDeclaration>,
+    pub bluetooth_gatt: Option<BluetoothGattDeclaration>,
+    pub bluetooth_stream: Option<BluetoothStreamDeclaration>,
 }
 
 /// Host facts are supplied by the caller; the registry does not infer support
@@ -182,6 +197,12 @@ pub struct HostProfile {
     pub google_pay_host: GooglePayHost,
     pub samsung_pay_target: SamsungPayTarget,
     pub samsung_pay_host: SamsungPayHost,
+    pub bluetooth_central_target: BluetoothTarget,
+    pub bluetooth_central_host: BluetoothHost,
+    pub bluetooth_gatt_target: BluetoothGattTarget,
+    pub bluetooth_gatt_host: BluetoothGattHost,
+    pub bluetooth_stream_target: BluetoothStreamTarget,
+    pub bluetooth_stream_host: BluetoothStreamHost,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -212,6 +233,9 @@ pub enum Artifact {
     WindowsHello(WindowsHelloArtifact),
     GooglePay(GooglePayArtifact),
     SamsungPay(SamsungPayArtifact),
+    Bluetooth(BluetoothCentralArtifact),
+    BluetoothGatt(BluetoothGattArtifact),
+    BluetoothStream(BluetoothStreamArtifact),
 }
 
 impl Artifact {
@@ -243,6 +267,9 @@ impl Artifact {
             Self::WindowsHello(a) => a.contract,
             Self::GooglePay(a) => a.contract,
             Self::SamsungPay(a) => a.contract,
+            Self::Bluetooth(a) => a.contract,
+            Self::BluetoothGatt(a) => a.contract,
+            Self::BluetoothStream(a) => a.contract,
         }
     }
 
@@ -274,6 +301,9 @@ impl Artifact {
             Self::WindowsHello(_) => "windows-hello-bounded-attempt-gate",
             Self::GooglePay(_) => "google-pay-bounded-payment-request",
             Self::SamsungPay(_) => "samsung-pay-bounded-payment-request",
+            Self::Bluetooth(_) => "apple-ble-central-bounded-scan",
+            Self::BluetoothGatt(_) => "apple-ble-gatt-bounded-commands",
+            Self::BluetoothStream(_) => "apple-ble-stream-bounded-notifications",
         }
     }
 
@@ -305,6 +335,9 @@ impl Artifact {
             Self::WindowsHello(a) => a.recipe_version,
             Self::GooglePay(a) => a.recipe_version,
             Self::SamsungPay(a) => a.recipe_version,
+            Self::Bluetooth(a) => a.recipe_version,
+            Self::BluetoothGatt(a) => a.recipe_version,
+            Self::BluetoothStream(a) => a.recipe_version,
         }
     }
 
@@ -336,6 +369,9 @@ impl Artifact {
             Self::WindowsHello(a) => &a.canonical_ir,
             Self::GooglePay(a) => &a.canonical_ir,
             Self::SamsungPay(a) => &a.canonical_ir,
+            Self::Bluetooth(a) => &a.canonical_ir,
+            Self::BluetoothGatt(a) => &a.canonical_ir,
+            Self::BluetoothStream(a) => &a.canonical_ir,
         }
     }
 
@@ -367,6 +403,9 @@ impl Artifact {
             Self::WindowsHello(a) => &a.source,
             Self::GooglePay(a) => &a.source,
             Self::SamsungPay(a) => &a.source,
+            Self::Bluetooth(a) => &a.source,
+            Self::BluetoothGatt(a) => &a.source,
+            Self::BluetoothStream(a) => &a.source,
         }
     }
 }
@@ -397,6 +436,9 @@ pub const fn supported_contracts() -> &'static [&'static str] {
         crate::face_id_caprichio::CONTRACT,
         crate::touch_id_caprichio::CONTRACT,
         crate::windows_hello_caprichio::CONTRACT,
+        crate::bluetooth_caprichio::CONTRACT,
+        crate::bluetooth_control_caprichio::CONTRACT,
+        crate::bluetooth_stream_caprichio::CONTRACT,
         crate::metal_caprichio::CONTRACT,
         crate::apple_pay_caprichio::CONTRACT,
         crate::google_pay_caprichio::CONTRACT,
@@ -443,6 +485,9 @@ pub enum NegotiationError {
     WindowsHello(crate::windows_hello_caprichio::Diagnostic),
     GooglePay(crate::google_pay_caprichio::Diagnostic),
     SamsungPay(crate::samsung_pay_caprichio::Diagnostic),
+    Bluetooth(crate::bluetooth_caprichio::Diagnostic),
+    BluetoothGatt(crate::bluetooth_control_caprichio::Diagnostic),
+    BluetoothStream(crate::bluetooth_stream_caprichio::Diagnostic),
 }
 
 impl fmt::Display for NegotiationError {
@@ -490,6 +535,13 @@ impl fmt::Display for NegotiationError {
             Self::WindowsHello(error) => write!(f, "Windows Hello negotiation failed: {error}"),
             Self::GooglePay(error) => write!(f, "Google Pay negotiation failed: {error}"),
             Self::SamsungPay(error) => write!(f, "Samsung Pay negotiation failed: {error}"),
+            Self::Bluetooth(error) => write!(f, "Bluetooth negotiation failed: {error}"),
+            Self::BluetoothGatt(error) => {
+                write!(f, "Bluetooth GATT negotiation failed: {error}")
+            }
+            Self::BluetoothStream(error) => {
+                write!(f, "Bluetooth stream negotiation failed: {error}")
+            }
         }
     }
 }
@@ -538,6 +590,9 @@ pub fn negotiate(
             && *id != crate::windows_hello_caprichio::CONTRACT
             && *id != crate::google_pay_caprichio::CONTRACT
             && *id != crate::samsung_pay_caprichio::CONTRACT
+            && *id != crate::bluetooth_caprichio::CONTRACT
+            && *id != crate::bluetooth_control_caprichio::CONTRACT
+            && *id != crate::bluetooth_stream_caprichio::CONTRACT
         {
             if catalog::find(id).is_some() {
                 return Err(NegotiationError::UnsupportedCapability((*id).to_owned()));
@@ -569,6 +624,12 @@ pub fn negotiate(
     let needs_touch_id = ordered.contains(crate::touch_id_caprichio::CONTRACT);
     let needs_face_id = ordered.contains(crate::face_id_caprichio::CONTRACT);
     let needs_apple_pay = ordered.contains(crate::apple_pay_caprichio::CONTRACT);
+    let needs_windows_hello = ordered.contains(crate::windows_hello_caprichio::CONTRACT);
+    let needs_google_pay = ordered.contains(crate::google_pay_caprichio::CONTRACT);
+    let needs_samsung_pay = ordered.contains(crate::samsung_pay_caprichio::CONTRACT);
+    let needs_bluetooth_central = ordered.contains(crate::bluetooth_caprichio::CONTRACT);
+    let needs_bluetooth_gatt = ordered.contains(crate::bluetooth_control_caprichio::CONTRACT);
+    let needs_bluetooth_stream = ordered.contains(crate::bluetooth_stream_caprichio::CONTRACT);
     let needs_windows_hello = ordered.contains(crate::windows_hello_caprichio::CONTRACT);
     let needs_google_pay = ordered.contains(crate::google_pay_caprichio::CONTRACT);
     let needs_samsung_pay = ordered.contains(crate::samsung_pay_caprichio::CONTRACT);
@@ -649,6 +710,36 @@ pub fn negotiate(
     if request.apple_pay.is_some() && !needs_apple_pay {
         return Err(NegotiationError::UnexpectedDeclaration {
             kind: "apple_pay",
+        });
+    }
+    if request.windows_hello.is_some() && !needs_windows_hello {
+        return Err(NegotiationError::UnexpectedDeclaration {
+            kind: "windows_hello",
+        });
+    }
+    if request.google_pay.is_some() && !needs_google_pay {
+        return Err(NegotiationError::UnexpectedDeclaration {
+            kind: "google_pay",
+        });
+    }
+    if request.samsung_pay.is_some() && !needs_samsung_pay {
+        return Err(NegotiationError::UnexpectedDeclaration {
+            kind: "samsung_pay",
+        });
+    }
+    if request.bluetooth_central.is_some() && !needs_bluetooth_central {
+        return Err(NegotiationError::UnexpectedDeclaration {
+            kind: "bluetooth_central",
+        });
+    }
+    if request.bluetooth_gatt.is_some() && !needs_bluetooth_gatt {
+        return Err(NegotiationError::UnexpectedDeclaration {
+            kind: "bluetooth_gatt",
+        });
+    }
+    if request.bluetooth_stream.is_some() && !needs_bluetooth_stream {
+        return Err(NegotiationError::UnexpectedDeclaration {
+            kind: "bluetooth_stream",
         });
     }
     if request.windows_hello.is_some() && !needs_windows_hello {
@@ -1035,6 +1126,9 @@ pub fn negotiate(
             Artifact::WindowsHello(_) => crate::windows_hello_caprichio::CONTRACT,
             Artifact::GooglePay(_) => crate::google_pay_caprichio::CONTRACT,
             Artifact::SamsungPay(_) => crate::samsung_pay_caprichio::CONTRACT,
+            Artifact::Bluetooth(_) => crate::bluetooth_caprichio::CONTRACT,
+            Artifact::BluetoothGatt(_) => crate::bluetooth_control_caprichio::CONTRACT,
+            Artifact::BluetoothStream(_) => crate::bluetooth_stream_caprichio::CONTRACT,
         };
         result.push(NegotiatedCapability { id, artifact });
     }
@@ -1205,6 +1299,29 @@ mod tests {
                 samsung_device: true,
                 secure_element_credential: true,
                 network_session: true,
+                utf8_strings: true,
+            },
+            bluetooth_central_target: BluetoothTarget::Ios,
+            bluetooth_central_host: BluetoothHost {
+                core_bluetooth_central: true,
+                bluetooth_powered: true,
+                bluetooth_permission: true,
+                utf8_strings: true,
+            },
+            bluetooth_gatt_target: BluetoothGattTarget::Ios,
+            bluetooth_gatt_host: BluetoothGattHost {
+                core_bluetooth_gatt: true,
+                bluetooth_powered: true,
+                bluetooth_permission: true,
+                utf8_strings: true,
+            },
+            bluetooth_stream_target: BluetoothStreamTarget::Ios,
+            bluetooth_stream_host: BluetoothStreamHost {
+                core_bluetooth_gatt: true,
+                characteristic_notifications: true,
+                characteristic_indications: true,
+                bluetooth_powered: true,
+                bluetooth_permission: true,
                 utf8_strings: true,
             },
         }
@@ -1796,6 +1913,9 @@ mod tests {
             windows_hello: None,
             google_pay: None,
             samsung_pay: None,
+            bluetooth_central: None,
+            bluetooth_gatt: None,
+            bluetooth_stream: None,
         };
         let result = negotiate(&request, host()).unwrap();
         assert_eq!(
@@ -1913,8 +2033,14 @@ mod tests {
                 "goya.filesystem.read_file.v1",
                 "goya.hardware.biometry.face_id.v1",
                 "goya.hardware.biometry.touch_id.v1",
+                "goya.hardware.biometry.windows_hello.v1",
+                "goya.hardware.bluetooth.central.v1",
+                "goya.hardware.bluetooth.gatt.v1",
+                "goya.hardware.bluetooth.stream.v1",
                 "goya.hardware.gpu_compute.apple_silicon_metal.v1",
                 "goya.hardware.payments.apple_pay.v1",
+                "goya.hardware.payments.google_pay.v1",
+                "goya.hardware.payments.samsung_pay.v1",
                 "goya.hardware.secure_storage.keychain.v1",
                 "goya.input.ascii_set_validation.process_local.v1",
                 "goya.memory.buffers.process_local.v1",
@@ -2917,6 +3043,9 @@ mod tests {
             windows_hello: None,
             google_pay: None,
             samsung_pay: None,
+            bluetooth_central: None,
+            bluetooth_gatt: None,
+            bluetooth_stream: None,
         };
         let start = Instant::now();
         let iterations = 10_000;

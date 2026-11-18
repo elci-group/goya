@@ -298,7 +298,7 @@ mod tests {
         let source = "@ontology hello {\n  @cell root {\n    id: \"window.root\";\n    text: \"hello\\oops\";\n    extent: (80, 40, 0);\n  }\n}\n";
         let window = admit(source).unwrap();
         assert_eq!(window.text, "hello\\oops");
-        let generated = super::generate(&window);
+        let generated = super::generate(&window, crate::api_floor::ApiFloor::Win10);
         assert!(!generated.main_rs.contains("hello\\oops"));
         assert!(generated
             .main_rs
@@ -324,7 +324,7 @@ mod tests {
     #[test]
     fn nested_fixture_emits_one_static_per_text_cell() {
         let window = admit(include_str!("../fixtures/nested-static.gscene")).unwrap();
-        let generated = super::generate(&window);
+        let generated = super::generate(&window, crate::api_floor::ApiFloor::Win10);
         assert!(generated.main_rs.contains("x: 0, y: 0, w: 320, h: 160"));
         assert!(generated.main_rs.contains("x: 40, y: 20, w: 80, h: 40"));
         assert!(generated.main_rs.contains("const TEXT_0:"));
@@ -337,7 +337,7 @@ mod tests {
     #[test]
     fn labels_use_the_dpi_message_font() {
         let window = admit(include_str!("../fixtures/static-window.gscene")).unwrap();
-        let generated = super::generate(&window);
+        let generated = super::generate(&window, crate::api_floor::ApiFloor::Win10);
         assert!(generated.main_rs.contains("SystemParametersInfoForDpi"));
         assert!(generated.main_rs.contains("CreateFontIndirectW"));
         assert!(generated
