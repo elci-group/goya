@@ -292,7 +292,6 @@ pub enum Artifact {
     AcceleratorModel(AcceleratorArtifact),
     SnapdragonAccelerator(SnapdragonAcceleratorArtifact),
     ExynosAccelerator(ExynosAcceleratorArtifact),
-    ExynosAccelerator(ExynosAcceleratorArtifact),
 }
 
 impl Artifact {
@@ -535,8 +534,8 @@ pub const fn supported_contracts() -> &'static [&'static str] {
         crate::bluetooth_guard_caprichio::CONTRACT,
         crate::bluetooth_profile_caprichio::CONTRACT,
         crate::bluetooth_stream_caprichio::CONTRACT,
-        crate::snapdragon_accelerator_caprichio::CONTRACT,
         crate::exynos_accelerator_caprichio::CONTRACT,
+        crate::snapdragon_accelerator_caprichio::CONTRACT,
         crate::metal_caprichio::CONTRACT,
         crate::apple_pay_caprichio::CONTRACT,
         crate::google_pay_caprichio::CONTRACT,
@@ -1579,7 +1578,7 @@ mod tests {
                 int8_model: true,
                 utf8_strings: true,
             },
-            exynos_accelerator_target: ExynosAcceleratorTarget::Snapdragon,
+            exynos_accelerator_target: ExynosAcceleratorTarget::Exynos,
             exynos_accelerator_host: ExynosAcceleratorHost {
                 npu_dsp: true,
                 neural_delegate: true,
@@ -1983,6 +1982,8 @@ mod tests {
         assert!(!supported_contracts().contains(&"goya.hardware.biometry.v1"));
 
         let request = Request {
+        snapdragon_neural_accel: None,
+        exynos_neural_accel: None,
             capabilities: vec![contract.into()],
             touch_id: Some(touch_id()),
             ..Request::default()
@@ -2062,6 +2063,8 @@ mod tests {
         assert!(!supported_contracts().contains(&"goya.hardware.biometry.face_id.v2"));
 
         let request = Request {
+        snapdragon_neural_accel: None,
+        exynos_neural_accel: None,
             capabilities: vec![contract.into()],
             face_id: Some(face_id()),
             ..Request::default()
@@ -2124,6 +2127,8 @@ mod tests {
         assert!(!supported_contracts().contains(&"goya.hardware.payments.v1"));
 
         let request = Request {
+        snapdragon_neural_accel: None,
+        exynos_neural_accel: None,
             capabilities: vec![contract.into()],
             apple_pay: Some(apple_pay()),
             ..Request::default()
@@ -2269,6 +2274,8 @@ mod tests {
         assert!(!supported_contracts().contains(&"goya.hardware.bluetooth.v1"));
 
         let request = Request {
+        snapdragon_neural_accel: None,
+        exynos_neural_accel: None,
             capabilities: vec![contract.into()],
             bluetooth_central: Some(bluetooth_central()),
             ..Request::default()
@@ -2349,6 +2356,8 @@ mod tests {
         assert!(supported_contracts().contains(&contract));
 
         let request = Request {
+        snapdragon_neural_accel: None,
+        exynos_neural_accel: None,
             capabilities: vec![contract.into()],
             bluetooth_gatt: Some(bluetooth_gatt()),
             ..Request::default()
@@ -2421,6 +2430,8 @@ mod tests {
         assert!(supported_contracts().contains(&contract));
 
         let request = Request {
+        snapdragon_neural_accel: None,
+        exynos_neural_accel: None,
             capabilities: vec![contract.into()],
             bluetooth_stream: Some(bluetooth_stream()),
             ..Request::default()
@@ -2527,6 +2538,8 @@ mod tests {
         assert!(!supported_contracts().contains(&"goya.hardware.bluetooth.guard"));
 
         let request = Request {
+        snapdragon_neural_accel: None,
+        exynos_neural_accel: None,
             capabilities: vec![contract.into()],
             bluetooth_guard: Some(bluetooth_guard()),
             ..Request::default()
@@ -2612,6 +2625,8 @@ mod tests {
         assert!(!supported_contracts().contains(&"goya.hardware.bluetooth.continuity"));
 
         let request = Request {
+        snapdragon_neural_accel: None,
+        exynos_neural_accel: None,
             capabilities: vec![contract.into()],
             bluetooth_continuity: Some(bluetooth_continuity()),
             ..Request::default()
@@ -2706,6 +2721,8 @@ mod tests {
         assert!(supported_contracts().contains(&contract));
 
         let request = Request {
+        snapdragon_neural_accel: None,
+        exynos_neural_accel: None,
             capabilities: vec![contract.into()],
             bluetooth_access: Some(bluetooth_access()),
             ..Request::default()
@@ -2805,6 +2822,8 @@ mod tests {
         assert!(supported_contracts().contains(&contract));
 
         let request = Request {
+        snapdragon_neural_accel: None,
+        exynos_neural_accel: None,
             capabilities: vec![contract.into()],
             bluetooth_profile: Some(bluetooth_profile()),
             ..Request::default()
@@ -2891,6 +2910,8 @@ mod tests {
         assert!(!supported_contracts().contains(&"goya.hardware.keychain.v1"));
 
         let request = Request {
+        snapdragon_neural_accel: None,
+        exynos_neural_accel: None,
             capabilities: vec![contract.into()],
             keychain: Some(keychain()),
             ..Request::default()
@@ -2978,6 +2999,8 @@ mod tests {
         assert!(!supported_contracts().contains(&"goya.hardware.gpu_compute.v1"));
 
         let request = Request {
+        snapdragon_neural_accel: None,
+        exynos_neural_accel: None,
             capabilities: vec![contract.into()],
             metal_compute: Some(metal_dispatch()),
             ..Request::default()
@@ -3053,6 +3076,8 @@ mod tests {
     #[test]
     fn mixed_request_is_sorted_and_artifacts_keep_contract_identity() {
         let request = Request {
+        snapdragon_neural_accel: None,
+        exynos_neural_accel: None,
             capabilities: vec![
                 crate::storage::CONTRACT.into(),
                 crate::memory_caprichio::CONTRACT.into(),
@@ -3257,6 +3282,8 @@ mod tests {
         assert!(!supported_contracts().contains(&"goya.compute.batching.v1"));
 
         let request = Request {
+        snapdragon_neural_accel: None,
+        exynos_neural_accel: None,
             capabilities: vec![contract.into()],
             batching: Some(batching()),
             ..Request::default()
@@ -3327,6 +3354,8 @@ mod tests {
         assert!(!supported_contracts().contains(&"goya.compute.deadline.v1"));
 
         let request = Request {
+        snapdragon_neural_accel: None,
+        exynos_neural_accel: None,
             capabilities: vec![contract.into()],
             deadline: Some(deadline()),
             ..Request::default()
@@ -3392,6 +3421,8 @@ mod tests {
         assert!(!supported_contracts().contains(&"goya.network.http.v1"));
 
         let request = Request {
+        snapdragon_neural_accel: None,
+        exynos_neural_accel: None,
             capabilities: vec![contract.into()],
             http: Some(http()),
             ..Request::default()
@@ -3469,6 +3500,8 @@ mod tests {
         assert!(!supported_contracts().contains(&"goya.data.compression.v1"));
 
         let request = Request {
+        snapdragon_neural_accel: None,
+        exynos_neural_accel: None,
             capabilities: vec![stream_id.into(), compression_id.into()],
             stream: Some(stream()),
             compression: Some(compression()),
@@ -3589,6 +3622,8 @@ mod tests {
         assert!(!supported_contracts().contains(&"goya.data.csv.v1"));
 
         let request = Request {
+        snapdragon_neural_accel: None,
+        exynos_neural_accel: None,
             capabilities: vec![crate::compression_caprichio::CONTRACT.into(), csv_id.into()],
             compression: Some(compression()),
             csv: Some(csv()),
@@ -3677,6 +3712,8 @@ mod tests {
         assert!(!supported_contracts().contains(&"compute.priorities"));
         assert!(!supported_contracts().contains(&"goya.compute.priority.v1"));
         let request = Request {
+        snapdragon_neural_accel: None,
+        exynos_neural_accel: None,
             capabilities: vec![crate::deadline_caprichio::CONTRACT.into(), contract.into()],
             deadline: Some(deadline()),
             priority: Some(priority()),
@@ -3754,6 +3791,8 @@ mod tests {
         assert!(!supported_contracts().contains(&"security.input_validation"));
         assert!(!supported_contracts().contains(&"goya.security.input_validation.v1"));
         let request = Request {
+        snapdragon_neural_accel: None,
+        exynos_neural_accel: None,
             capabilities: vec![
                 crate::filesystem_caprichio::CONTRACT.into(),
                 contract.into(),
@@ -4095,6 +4134,8 @@ mod tests {
     #[test]
     fn filesystem_negotiation_maps_only_the_narrow_contract_and_checks_host() {
         let request = Request {
+        snapdragon_neural_accel: None,
+        exynos_neural_accel: None,
             capabilities: vec![crate::filesystem_caprichio::CONTRACT.into()],
             filesystem: Some(filesystem()),
             ..Request::default()
@@ -4136,6 +4177,8 @@ mod tests {
     #[test]
     fn memory_is_the_only_supported_memory_contract_and_requires_a_matching_host() {
         let request = Request {
+        snapdragon_neural_accel: None,
+        exynos_neural_accel: None,
             capabilities: vec![crate::memory_caprichio::CONTRACT.into()],
             memory: Some(memory()),
             ..Request::default()
@@ -4170,6 +4213,8 @@ mod tests {
     #[test]
     fn missing_host_facilities_are_propagated_as_lowering_errors() {
         let request = Request {
+        snapdragon_neural_accel: None,
+        exynos_neural_accel: None,
             capabilities: vec![crate::CONTRACT.into()],
             network: Some(network()),
             ..Request::default()
@@ -4190,6 +4235,8 @@ mod tests {
     fn benchmark_negotiation() {
         use std::time::Instant;
         let request = Request {
+        snapdragon_neural_accel: None,
+        exynos_neural_accel: None,
             capabilities: vec![
                 crate::CONTRACT.into(),
                 crate::storage::CONTRACT.into(),
