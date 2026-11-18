@@ -377,9 +377,16 @@ mod tests {
             assert!((2013..=2030).contains(&facts.year));
             assert!(!facts.soc.is_empty());
         }
-        // Release order must be non-decreasing in year.
-        for window in GENERATIONS.windows(2) {
-            assert!(window[0].1.year <= window[1].1.year);
+        // Series blocks appear in 8, 7, 6, 4 order and never interleave.
+        let series_order: Vec<&str> = GENERATIONS.iter().map(|(_, f)| f.series).collect();
+        let mut compact: Vec<&str> = series_order.clone();
+        compact.dedup();
+        assert_eq!(compact, vec!["8", "7", "6", "4"]);
+        // Published TOPS figures, when present, are positive tenths.
+        for (_, facts) in GENERATIONS {
+            if let Some(tenths) = facts.npu_tops_tenths {
+                assert!(tenths > 0, "published TOPS must be positive");
+            }
         }
     }
 
