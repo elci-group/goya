@@ -711,9 +711,9 @@ fn place_control(
     Ok(())
 }
 
-pub fn generate(app: &AdmittedInteractive) -> Generated {
-    let window_ir = crate::ir_lower::lower_interactive_window(app);
-    crate::ir_codegen::codegen_from_ir(&window_ir)
+pub fn generate(app: &AdmittedInteractive, floor: crate::api_floor::ApiFloor) -> Generated {
+    let window_ir = crate::ir_lower::lower_interactive_window(app, floor);
+    crate::ir_codegen::codegen_from_ir(&window_ir, floor)
 }
 
 

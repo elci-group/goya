@@ -14,9 +14,9 @@ pub struct Generated {
     pub source_map: serde_json::Value,
 }
 
-pub fn generate(window: &AdmittedWindow) -> Generated {
-    let window_ir = crate::ir_lower::lower_static_window(window);
-    crate::ir_codegen::codegen_from_ir(&window_ir)
+pub fn generate(window: &AdmittedWindow, floor: crate::api_floor::ApiFloor) -> Generated {
+    let window_ir = crate::ir_lower::lower_static_window(window, floor);
+    crate::ir_codegen::codegen_from_ir(&window_ir, floor)
 }
 
 pub(crate) fn array_line(out: &mut String, name: &str, bytes: &[u8]) -> (usize, usize) {
