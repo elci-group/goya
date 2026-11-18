@@ -18,10 +18,20 @@ use crate::frame::{self, PixelFormat};
 use crate::keymap::{Keymap, Modifiers};
 use crate::phase::{self, Phase, Step};
 use crate::queue;
-use crate::selection::{self, Answer, Atoms, Incoming, Outgoing, Pending, Progress};
+use crate::selection::{self, Answer, Atoms, Incoming, Outgoing, Pending, Progress, Selection};
 use crate::{Capabilities, Diagnostics, Event, WindowConfig, WindowId};
 
 const BACKGROUND: [u8; 3] = [235, 235, 240];
+
+/// Ownership and in-flight conversion state for one [`Selection`].
+#[derive(Default)]
+struct SelectionState {
+    /// Text this client owns on this selection, and the ownership time.
+    owned: Option<(String, u32)>,
+    pending: Option<Pending>,
+    /// INCR read in progress for `pending`.
+    incoming: Option<Incoming>,
+}
 
 /// One X11 connection and at most one window.
 ///
@@ -51,12 +61,10 @@ pub struct Session {
     atoms: Atoms,
     /// Latest server timestamp seen on input. 0 until the first event.
     last_time: u32,
-    /// Text this client owns on the selection, and the ownership time.
-    owned: Option<(String, u32)>,
-    pending: Option<Pending>,
-    /// INCR read in progress for `pending`.
-    incoming: Option<Incoming>,
-    /// INCR writes in progress to other clients.
+    /// Per-selection ownership, request, and read state, indexed by
+    /// [`Selection::index`].
+    selections: [SelectionState; Selection::COUNT],
+    /// INCR writes in progress to other clients, for either selection.
     transfers: Vec<Outgoing>,
     /// Largest property written in one request. `None` derives it from the
     /// server's maximum request length. Tests lower it to force INCR.
@@ -102,12 +110,14 @@ impl Session {
         let wm_delete = intern(&connection, b"WM_DELETE_WINDOW")?;
         let atoms = Atoms {
             selection: intern(&connection, selection)?,
+            primary: intern(&connection, b"PRIMARY")?,
             targets: intern(&connection, b"TARGETS")?,
             utf8_string: intern(&connection, b"UTF8_STRING")?,
             text_plain_utf8: intern(&connection, b"text/plain;charset=utf-8")?,
             text_plain: intern(&connection, b"text/plain")?,
             incr: intern(&connection, b"INCR")?,
             property: intern(&connection, b"GOYA_KUMIMANU_SELECTION")?,
+            primary_property: intern(&connection, b"GOYA_KUMIMANU_PRIMARY")?,
         };
         let phase = phase::advance(Phase::Connecting, Step::Connected)
             .map_err(|_| Error::Connect("phase machine rejected the connection edge".into()))?;
@@ -131,9 +141,7 @@ impl Session {
             diagnostics: Diagnostics::default(),
             atoms,
             last_time: selection::CURRENT_TIME,
-            owned: None,
-            pending: None,
-            incoming: None,
+            selections: [SelectionState::default(), SelectionState::default()],
             transfers: Vec::new(),
             single_limit: None,
         })
@@ -191,20 +199,24 @@ impl Session {
         }
         self.pump(Duration::ZERO)?;
         if self.queue.is_empty() {
-            let timeout = match self.pending {
-                Some(pending) => {
-                    timeout.min(pending.deadline.saturating_duration_since(Instant::now()))
+            let mut timeout = timeout;
+            for state in &self.selections {
+                if let Some(pending) = state.pending {
+                    timeout =
+                        timeout.min(pending.deadline.saturating_duration_since(Instant::now()));
                 }
-                None => timeout,
-            };
+            }
             self.wait(timeout)?;
             self.pump(Duration::ZERO)?;
         }
         let now = Instant::now();
-        if self.pending.is_some_and(|pending| pending.expired(now)) {
-            self.pending = None;
-            self.incoming = None;
-            queue::push(&mut self.queue, Event::ClipboardText(None))?;
+        for selection in [Selection::Clipboard, Selection::Primary] {
+            let state = &mut self.selections[selection.index()];
+            if state.pending.is_some_and(|pending| pending.expired(now)) {
+                state.pending = None;
+                state.incoming = None;
+                queue::push(&mut self.queue, selection.answered(None))?;
+            }
         }
         let stale: Vec<u32> = self
             .transfers
@@ -223,34 +235,51 @@ impl Session {
 
     /// Own the clipboard selection with `text`.
     ///
+    /// A shorthand for [`Session::set_selection_text`] with
+    /// [`Selection::Clipboard`].
+    pub fn set_clipboard_text(&mut self, id: WindowId, text: &str) -> Result<bool, Error> {
+        self.set_selection_text(id, Selection::Clipboard, text)
+    }
+
+    /// Own `selection` with `text`.
+    ///
     /// Returns `Ok(true)` when the server reports this window as the owner.
     /// `Ok(false)` means another client kept it, or `text` is empty or
     /// larger than [`selection::MAX_CLIPBOARD_BYTES`]; nothing is owned then.
     /// The text stays in this process and is written only to a requestor's
-    /// property. It is dropped on `SelectionClear` or close.
-    pub fn set_clipboard_text(&mut self, id: WindowId, text: &str) -> Result<bool, Error> {
+    /// property. It is dropped on `SelectionClear` or close. The two
+    /// selections are owned independently: taking one does not drop the
+    /// other.
+    pub fn set_selection_text(
+        &mut self,
+        id: WindowId,
+        selection: Selection,
+        text: &str,
+    ) -> Result<bool, Error> {
         self.require_window(id, "own the clipboard")?;
+        let atom = self.selection_atom(selection);
         if text.is_empty() || text.len() > selection::MAX_CLIPBOARD_BYTES {
-            self.owned = None;
+            self.selections[selection.index()].owned = None;
             return Ok(false);
         }
         let window = self.window.ok_or(Error::StaleWindow)?;
         let time = self.last_time;
         let connection = self.connection()?;
         connection
-            .set_selection_owner(window, self.atoms.selection, time)
+            .set_selection_owner(window, atom, time)
             .map_err(map_connection)?;
         let owner = connection
-            .get_selection_owner(self.atoms.selection)
+            .get_selection_owner(atom)
             .map_err(map_connection)?
             .reply()
             .map_err(map_reply)?
             .owner;
+        let owned = &mut self.selections[selection.index()].owned;
         if owner == window {
-            self.owned = Some((text.to_owned(), time));
+            *owned = Some((text.to_owned(), time));
             Ok(true)
         } else {
-            self.owned = None;
+            *owned = None;
             Ok(false)
         }
     }
@@ -260,55 +289,97 @@ impl Session {
     /// no owner, the owner refused, the payload is empty, invalid, larger
     /// than 1 MiB, needs INCR, or [`selection::REQUEST_TIMEOUT`] passed.
     ///
-    /// One request may be outstanding. A second call while one is pending
-    /// is a no-op. When this window owns the selection the answer is the
-    /// owned text, without a round trip through another client.
+    /// A shorthand for [`Session::request_selection_text`] with
+    /// [`Selection::Clipboard`].
     pub fn request_clipboard_text(&mut self, id: WindowId) -> Result<(), Error> {
+        self.request_selection_text(id, Selection::Clipboard)
+    }
+
+    /// Ask for the text on `selection`. The answer arrives once as
+    /// [`Event::ClipboardText`] for CLIPBOARD and [`Event::PrimaryText`]
+    /// for PRIMARY, with the same `None` cases as the clipboard. One
+    /// request per selection may be outstanding; a second call while one is
+    /// pending on the same selection is a no-op, and does not disturb the
+    /// other selection. When this window owns the selection the answer is
+    /// the owned text, without a round trip through another client.
+    pub fn request_selection_text(
+        &mut self,
+        id: WindowId,
+        selection: Selection,
+    ) -> Result<(), Error> {
         self.require_window(id, "read the clipboard")?;
-        if self.pending.is_some() {
+        let state = &self.selections[selection.index()];
+        if state.pending.is_some() {
             return Ok(());
         }
         let window = self.window.ok_or(Error::StaleWindow)?;
+        let atom = self.selection_atom(selection);
         let owner = self
             .connection()?
-            .get_selection_owner(self.atoms.selection)
+            .get_selection_owner(atom)
             .map_err(map_connection)?
             .reply()
             .map_err(map_reply)?
             .owner;
         if owner == x11rb::NONE {
-            self.owned = None;
-            return queue::push(&mut self.queue, Event::ClipboardText(None));
+            self.selections[selection.index()].owned = None;
+            return queue::push(&mut self.queue, selection.answered(None));
         }
         if owner == window {
-            let text = self
+            let text = state
                 .owned
                 .as_ref()
                 .map(|(text, _)| text.clone())
                 .filter(|text| !text.is_empty());
-            return queue::push(&mut self.queue, Event::ClipboardText(text));
+            return queue::push(&mut self.queue, selection.answered(text));
         }
-        self.convert(self.atoms.utf8_string)
+        self.convert(selection, self.atoms.utf8_string)
     }
 
-    fn convert(&mut self, target: u32) -> Result<(), Error> {
+    /// Own the primary selection with `text`. A shorthand for
+    /// [`Session::set_selection_text`] with [`Selection::Primary`].
+    pub fn set_primary_text(&mut self, id: WindowId, text: &str) -> Result<bool, Error> {
+        self.set_selection_text(id, Selection::Primary, text)
+    }
+
+    /// Ask for the primary selection text. The answer arrives once as
+    /// [`Event::PrimaryText`]. A shorthand for [`Session::request_selection_text`]
+    /// with [`Selection::Primary`].
+    pub fn request_primary_text(&mut self, id: WindowId) -> Result<(), Error> {
+        self.request_selection_text(id, Selection::Primary)
+    }
+
+    fn convert(&mut self, selection: Selection, target: u32) -> Result<(), Error> {
         let window = self.window.ok_or(Error::StaleWindow)?;
         let connection = self.connection()?;
+        let atom = self.selection_atom(selection);
+        let property = self.property_atom(selection);
         connection
-            .delete_property(window, self.atoms.property)
+            .delete_property(window, property)
             .map_err(map_connection)?;
         connection
-            .convert_selection(
-                window,
-                self.atoms.selection,
-                target,
-                self.atoms.property,
-                self.last_time,
-            )
+            .convert_selection(window, atom, target, property, self.last_time)
             .map_err(map_connection)?;
         connection.flush().map_err(map_connection)?;
-        self.pending = Some(Pending::new(target, Instant::now()));
+        self.selections[selection.index()].pending = Some(Pending::new(target, Instant::now()));
         Ok(())
+    }
+
+    /// The selection atom for `selection`: the private test name for the
+    /// clipboard role, the real `PRIMARY` for primary.
+    fn selection_atom(&self, selection: Selection) -> u32 {
+        match selection {
+            Selection::Clipboard => self.atoms.selection,
+            Selection::Primary => self.atoms.primary,
+        }
+    }
+
+    /// The conversion property on this window used for `selection`.
+    fn property_atom(&self, selection: Selection) -> u32 {
+        match selection {
+            Selection::Clipboard => self.atoms.property,
+            Selection::Primary => self.atoms.primary_property,
+        }
     }
 
     pub fn present_rgba(
@@ -343,9 +414,9 @@ impl Session {
             return Err(Error::StaleWindow);
         }
         self.phase = next(self.phase, Step::Close, "close a window")?;
-        self.owned = None;
-        self.pending = None;
-        self.incoming = None;
+        for state in &mut self.selections {
+            *state = SelectionState::default();
+        }
         self.transfers.clear();
         self.destroy_ids();
         self.connection = None;
@@ -581,8 +652,11 @@ impl Session {
                 None
             }
             XEvent::SelectionClear(event) => {
-                if event.selection == self.atoms.selection && Some(event.owner) == self.window {
-                    self.owned = None;
+                let selection = self.selection_of(event.selection);
+                if let Some(selection) = selection {
+                    if Some(event.owner) == self.window {
+                        self.selections[selection.index()].owned = None;
+                    }
                 }
                 None
             }
@@ -697,14 +771,26 @@ impl Session {
         }
     }
 
+    /// Map a selection atom on an event to one of this session's selections.
+    fn selection_of(&self, atom: u32) -> Option<Selection> {
+        if atom == self.atoms.selection {
+            Some(Selection::Clipboard)
+        } else if atom == self.atoms.primary {
+            Some(Selection::Primary)
+        } else {
+            None
+        }
+    }
+
     /// Answer one `SelectionRequest`. Requests for another selection, or
     /// for a window this session does not own the selection with, are refused.
     fn serve(&mut self, request: SelectionRequestEvent) -> Result<(), Error> {
-        let ours = request.selection == self.atoms.selection && Some(request.owner) == self.window;
-        let (text, owned_at) = match (&self.owned, ours) {
-            (Some((text, at)), true) => (Some(text.as_str()), *at),
-            _ => (None, selection::CURRENT_TIME),
-        };
+        let selection = self.selection_of(request.selection);
+        let owned = selection
+            .filter(|_| Some(request.owner) == self.window)
+            .and_then(|selection| self.selections[selection.index()].owned.as_ref())
+            .map(|(text, at)| (Some(text.as_str()), *at));
+        let (text, owned_at) = owned.unwrap_or((None, selection::CURRENT_TIME));
         let connection = self.connection.as_ref().ok_or(Error::ServerDisconnect)?;
         // Obsolete requestors send property None and expect the target.
         let property = if request.property == x11rb::NONE {
@@ -835,9 +921,18 @@ impl Session {
             self.advance_transfer(event.window, event.atom)?;
             return Ok(None);
         }
+        // Route by conversion property, so concurrent conversions on both
+        // selections never feed each other's chunks.
+        let selection = match event.atom {
+            atom if atom == self.atoms.property => Some(Selection::Clipboard),
+            atom if atom == self.atoms.primary_property => Some(Selection::Primary),
+            _ => None,
+        };
+        let Some(selection) = selection else {
+            return Ok(None);
+        };
         if Some(event.window) != self.window
-            || event.atom != self.atoms.property
-            || self.incoming.is_none()
+            || self.selections[selection.index()].incoming.is_none()
         {
             return Ok(None);
         }
@@ -860,7 +955,8 @@ impl Session {
                 .delete_property(event.window, event.atom)
                 .map_err(map_connection)?;
         }
-        let Some(incoming) = self.incoming.as_mut() else {
+        let state = &mut self.selections[selection.index()];
+        let Some(incoming) = state.incoming.as_mut() else {
             return Ok(None);
         };
         match incoming.push(
@@ -871,15 +967,15 @@ impl Session {
             reply.value,
         ) {
             Progress::More => {
-                if let Some(pending) = self.pending.as_mut() {
+                if let Some(pending) = state.pending.as_mut() {
                     pending.touch(Instant::now());
                 }
                 Ok(None)
             }
             Progress::Done(text) => {
-                self.incoming = None;
-                self.pending = None;
-                Ok(Some(Event::ClipboardText(text)))
+                state.incoming = None;
+                state.pending = None;
+                Ok(Some(selection.answered(text)))
             }
         }
     }
@@ -941,22 +1037,22 @@ impl Session {
     /// Finish the outstanding conversion. A notify for another selection,
     /// another target, or with no request pending is ignored.
     fn selection_notify(&mut self, event: SelectionNotifyEvent) -> Result<Option<Event>, Error> {
-        let Some(pending) = self.pending else {
+        let Some(selection) = self.selection_of(event.selection) else {
             return Ok(None);
         };
-        if event.selection != self.atoms.selection
-            || Some(event.requestor) != self.window
-            || event.target != pending.target
-        {
+        let Some(pending) = self.selections[selection.index()].pending else {
+            return Ok(None);
+        };
+        if Some(event.requestor) != self.window || event.target != pending.target {
             return Ok(None);
         }
-        self.pending = None;
+        self.selections[selection.index()].pending = None;
         if event.property == x11rb::NONE {
             if let Some(next) = selection::fallback(&self.atoms, pending.target) {
-                self.convert(next)?;
+                self.convert(selection, next)?;
                 return Ok(None);
             }
-            return Ok(Some(Event::ClipboardText(None)));
+            return Ok(Some(selection.answered(None)));
         }
         let window = self.window.ok_or(Error::StaleWindow)?;
         let reply = self
@@ -980,8 +1076,9 @@ impl Session {
             // The delete above asked the owner for the first chunk.
             let mut pending = pending;
             pending.touch(Instant::now());
-            self.pending = Some(pending);
-            self.incoming = Some(Incoming::default());
+            let state = &mut self.selections[selection.index()];
+            state.pending = Some(pending);
+            state.incoming = Some(Incoming::default());
             self.diagnostics.incr_reads = self.diagnostics.incr_reads.saturating_add(1);
             self.connection()?.flush().map_err(map_connection)?;
             return Ok(None);
@@ -993,7 +1090,7 @@ impl Session {
             reply.bytes_after,
             reply.value,
         );
-        Ok(Some(Event::ClipboardText(text)))
+        Ok(Some(selection.answered(text)))
     }
 
     fn note_held(&mut self, keycode: u8, pressed: bool) -> bool {
@@ -1905,6 +2002,158 @@ mod tests {
     }
 
     #[test]
+    fn selection_atoms_route_to_the_right_state() {
+        let session = headless_session();
+        assert_eq!(
+            session.selection_of(session.atoms.selection),
+            Some(Selection::Clipboard)
+        );
+        assert_eq!(
+            session.selection_of(session.atoms.primary),
+            Some(Selection::Primary)
+        );
+        assert_eq!(session.selection_of(999), None);
+        assert_eq!(
+            session.property_atom(Selection::Clipboard),
+            session.atoms.property
+        );
+        assert_eq!(
+            session.property_atom(Selection::Primary),
+            session.atoms.primary_property
+        );
+        assert_ne!(
+            session.atoms.property, session.atoms.primary_property,
+            "concurrent conversions must not share a property"
+        );
+    }
+
+    #[test]
+    fn ownership_is_tracked_per_selection() {
+        let mut session = headless_session();
+        session.selections[Selection::Clipboard.index()].owned = Some(("clip".into(), 5));
+        session.selections[Selection::Primary.index()].owned = Some(("prim".into(), 7));
+        // Clearing one selection keeps the other owned.
+        session.selections[Selection::Primary.index()].owned = None;
+        assert_eq!(
+            session.selections[Selection::Clipboard.index()]
+                .owned
+                .as_ref()
+                .expect("clipboard still owned")
+                .0,
+            "clip"
+        );
+    }
+
+    #[test]
+    fn selection_clear_drops_only_the_named_selection() {
+        let mut session = headless_session();
+        let clear = |selection: u32| x11rb::protocol::xproto::SelectionClearEvent {
+            response_type: x11rb::protocol::xproto::SELECTION_CLEAR_EVENT,
+            sequence: 0,
+            time: 9,
+            owner: 42,
+            selection,
+        };
+        let owned = |session: &Session, selection: Selection| {
+            session.selections[selection.index()].owned.clone()
+        };
+        session.selections[Selection::Clipboard.index()].owned = Some(("clip".into(), 5));
+        session.selections[Selection::Primary.index()].owned = Some(("prim".into(), 7));
+
+        // A clear on PRIMARY drops only the primary text.
+        session
+            .ingest(XEvent::SelectionClear(clear(session.atoms.primary)))
+            .expect("clear");
+        assert_eq!(owned(&session, Selection::Primary), None);
+        assert_eq!(
+            owned(&session, Selection::Clipboard),
+            Some(("clip".to_owned(), 5))
+        );
+
+        // A clear on CLIPBOARD drops only the clipboard text.
+        session
+            .ingest(XEvent::SelectionClear(clear(session.atoms.selection)))
+            .expect("clear");
+        assert_eq!(owned(&session, Selection::Clipboard), None);
+
+        // A foreign selection, or a clear naming another owner, touches
+        // nothing.
+        session.selections[Selection::Clipboard.index()].owned = Some(("clip".into(), 5));
+        session
+            .ingest(XEvent::SelectionClear(clear(999)))
+            .expect("foreign clear");
+        session
+            .ingest(XEvent::SelectionClear(clear(session.atoms.primary)))
+            .expect("clear with foreign owner");
+        assert_eq!(
+            owned(&session, Selection::Clipboard),
+            Some(("clip".to_owned(), 5))
+        );
+    }
+
+    #[test]
+    fn selection_notify_routes_to_the_matching_event_per_selection() {
+        let mut session = headless_session();
+        let notify = |selection: u32| SelectionNotifyEvent {
+            response_type: SELECTION_NOTIFY_EVENT,
+            sequence: 0,
+            time: 9,
+            requestor: 42,
+            selection,
+            target: selection::STRING,
+            property: x11rb::NONE,
+        };
+        // No pending request: ignored for either selection.
+        assert_eq!(
+            session
+                .selection_notify(notify(session.atoms.selection))
+                .expect("no pending"),
+            None
+        );
+
+        // Clipboard pending on STRING, where no fallback remains.
+        session.selections[Selection::Clipboard.index()].pending =
+            Some(Pending::new(selection::STRING, Instant::now()));
+        // A notify for PRIMARY does not finish the clipboard request.
+        assert_eq!(
+            session
+                .selection_notify(notify(session.atoms.primary))
+                .expect("other selection"),
+            None
+        );
+        assert!(session.selections[Selection::Clipboard.index()]
+            .pending
+            .is_some());
+        assert_eq!(
+            session
+                .selection_notify(notify(session.atoms.selection))
+                .expect("clipboard answer"),
+            Some(Event::ClipboardText(None))
+        );
+
+        // Primary pending resolves to PrimaryText, not ClipboardText.
+        session.selections[Selection::Primary.index()].pending =
+            Some(Pending::new(selection::STRING, Instant::now()));
+        assert_eq!(
+            session
+                .selection_notify(notify(session.atoms.primary))
+                .expect("primary answer"),
+            Some(Event::PrimaryText(None))
+        );
+
+        // A foreign selection atom is ignored even with a request pending.
+        session.selections[Selection::Primary.index()].pending =
+            Some(Pending::new(selection::STRING, Instant::now()));
+        assert_eq!(
+            session.selection_notify(notify(999)).expect("foreign"),
+            None
+        );
+        assert!(session.selections[Selection::Primary.index()]
+            .pending
+            .is_some());
+    }
+
+    #[test]
     fn expired_transfers_are_retired_even_when_the_release_fails() {
         let mut session = headless_session();
         session.transfers.push(Outgoing::new(
@@ -1981,17 +2230,20 @@ mod tests {
             diagnostics: crate::Diagnostics::default(),
             atoms: crate::selection::Atoms {
                 selection: 1,
+                primary: 8,
                 targets: 2,
                 utf8_string: 3,
                 text_plain_utf8: 4,
                 text_plain: 5,
                 incr: 6,
                 property: 7,
+                primary_property: 9,
             },
             last_time: 0,
-            owned: None,
-            pending: None,
-            incoming: None,
+            selections: [
+                crate::backend::SelectionState::default(),
+                crate::backend::SelectionState::default(),
+            ],
             transfers: Vec::new(),
             single_limit: None,
         }
@@ -2207,11 +2459,19 @@ mod tests {
         assert!(reader.set_clipboard_text(reader_id, "2").expect("own"));
         for _ in 0..20 {
             let _ = owner.poll_events(Duration::from_millis(5)).unwrap();
-            if owner.owned.is_none() {
+            if owner.selections[Selection::Clipboard.index()]
+                .owned
+                .is_none()
+            {
                 break;
             }
         }
-        assert!(owner.owned.is_none(), "SelectionClear was not applied");
+        assert!(
+            owner.selections[Selection::Clipboard.index()]
+                .owned
+                .is_none(),
+            "SelectionClear was not applied"
+        );
         // A real paste is stamped by its Ctrl+V. Without one, the last time
         // this session saw predates the reader's ownership and the reader
         // correctly refuses it.
@@ -2247,7 +2507,12 @@ mod tests {
         owner.single_limit = Some(64 * 1024);
         let big = "a".repeat(MAX_CLIPBOARD_BYTES);
         assert!(owner.set_clipboard_text(owner_id, &big).expect("own"));
-        owner.owned.as_mut().unwrap().0.push('a');
+        owner.selections[Selection::Clipboard.index()]
+            .owned
+            .as_mut()
+            .unwrap()
+            .0
+            .push('a');
         reader.request_clipboard_text(reader_id).expect("request");
         assert_eq!(read_through(&mut owner, &mut reader), None);
 

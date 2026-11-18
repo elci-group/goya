@@ -38,6 +38,12 @@ pub use canonical::{
 pub const PROFILE: &str = "sash.win32.interactive/0.0.1";
 pub const PROFILE_CLIPBOARD: &str = "sash.win32.interactive/0.0.2";
 
+/// Interactive window emitted for the win8 API floor. The clipboard policy
+/// distinction follows the scene exactly as on the win10 floor: 0.0.1 keeps
+/// the system clipboard, 0.0.2 compiles an authored copy and paste policy.
+pub const PROFILE_LEGACY: &str = "sash.win32.interactive-legacy/0.0.1";
+pub const PROFILE_CLIPBOARD_LEGACY: &str = "sash.win32.interactive-legacy/0.0.2";
+
 const MAX_CONTROLS: usize = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

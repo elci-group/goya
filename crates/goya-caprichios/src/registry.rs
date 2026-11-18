@@ -569,6 +569,9 @@ pub fn negotiate(
     let needs_touch_id = ordered.contains(crate::touch_id_caprichio::CONTRACT);
     let needs_face_id = ordered.contains(crate::face_id_caprichio::CONTRACT);
     let needs_apple_pay = ordered.contains(crate::apple_pay_caprichio::CONTRACT);
+    let needs_windows_hello = ordered.contains(crate::windows_hello_caprichio::CONTRACT);
+    let needs_google_pay = ordered.contains(crate::google_pay_caprichio::CONTRACT);
+    let needs_samsung_pay = ordered.contains(crate::samsung_pay_caprichio::CONTRACT);
     if request.network.is_some() && !needs_network {
         return Err(NegotiationError::UnexpectedDeclaration { kind: "network" });
     }
@@ -646,6 +649,21 @@ pub fn negotiate(
     if request.apple_pay.is_some() && !needs_apple_pay {
         return Err(NegotiationError::UnexpectedDeclaration {
             kind: "apple_pay",
+        });
+    }
+    if request.windows_hello.is_some() && !needs_windows_hello {
+        return Err(NegotiationError::UnexpectedDeclaration {
+            kind: "windows_hello",
+        });
+    }
+    if request.google_pay.is_some() && !needs_google_pay {
+        return Err(NegotiationError::UnexpectedDeclaration {
+            kind: "google_pay",
+        });
+    }
+    if request.samsung_pay.is_some() && !needs_samsung_pay {
+        return Err(NegotiationError::UnexpectedDeclaration {
+            kind: "samsung_pay",
         });
     }
 
@@ -946,6 +964,48 @@ pub fn negotiate(
                         .map_err(NegotiationError::ApplePay)?,
                 )
             }
+            crate::windows_hello_caprichio::CONTRACT => {
+                let declaration = request
+                    .windows_hello
+                    .ok_or(NegotiationError::MissingDeclaration {
+                        capability: crate::windows_hello_caprichio::CONTRACT,
+                    })?;
+                let ir = declaration
+                    .normalize()
+                    .map_err(NegotiationError::WindowsHello)?;
+                Artifact::WindowsHello(
+                    ir.lower_checked(host.windows_hello_target, host.windows_hello_host)
+                        .map_err(NegotiationError::WindowsHello)?,
+                )
+            }
+            crate::google_pay_caprichio::CONTRACT => {
+                let declaration = request.google_pay.clone().ok_or(
+                    NegotiationError::MissingDeclaration {
+                        capability: crate::google_pay_caprichio::CONTRACT,
+                    },
+                )?;
+                let ir = declaration
+                    .normalize()
+                    .map_err(NegotiationError::GooglePay)?;
+                Artifact::GooglePay(
+                    ir.lower_checked(host.google_pay_target, host.google_pay_host)
+                        .map_err(NegotiationError::GooglePay)?,
+                )
+            }
+            crate::samsung_pay_caprichio::CONTRACT => {
+                let declaration = request.samsung_pay.clone().ok_or(
+                    NegotiationError::MissingDeclaration {
+                        capability: crate::samsung_pay_caprichio::CONTRACT,
+                    },
+                )?;
+                let ir = declaration
+                    .normalize()
+                    .map_err(NegotiationError::SamsungPay)?;
+                Artifact::SamsungPay(
+                    ir.lower_checked(host.samsung_pay_target, host.samsung_pay_host)
+                        .map_err(NegotiationError::SamsungPay)?,
+                )
+            }
             _ => unreachable!("request IDs validated before lowering"),
         };
         let id = match artifact {
@@ -972,6 +1032,9 @@ pub fn negotiate(
             Artifact::TouchId(_) => crate::touch_id_caprichio::CONTRACT,
             Artifact::FaceId(_) => crate::face_id_caprichio::CONTRACT,
             Artifact::ApplePay(_) => crate::apple_pay_caprichio::CONTRACT,
+            Artifact::WindowsHello(_) => crate::windows_hello_caprichio::CONTRACT,
+            Artifact::GooglePay(_) => crate::google_pay_caprichio::CONTRACT,
+            Artifact::SamsungPay(_) => crate::samsung_pay_caprichio::CONTRACT,
         };
         result.push(NegotiatedCapability { id, artifact });
     }
@@ -1118,6 +1181,28 @@ mod tests {
             apple_pay_target: ApplePayTarget::Ios,
             apple_pay_host: ApplePayHost {
                 pass_kit: true,
+                secure_element_credential: true,
+                network_session: true,
+                utf8_strings: true,
+            },
+            windows_hello_target: WindowsHelloTarget::Windows,
+            windows_hello_host: WindowsHelloHost {
+                hello_sensor: true,
+                hello_provider: true,
+                tpm_backed_match: true,
+                utf8_strings: true,
+            },
+            google_pay_target: GooglePayTarget::Android,
+            google_pay_host: GooglePayHost {
+                google_pay_services: true,
+                secure_element_credential: true,
+                network_session: true,
+                utf8_strings: true,
+            },
+            samsung_pay_target: SamsungPayTarget::SamsungAndroid,
+            samsung_pay_host: SamsungPayHost {
+                samsung_pay_services: true,
+                samsung_device: true,
                 secure_element_credential: true,
                 network_session: true,
                 utf8_strings: true,
@@ -1708,6 +1793,9 @@ mod tests {
             touch_id: None,
             face_id: None,
             apple_pay: None,
+            windows_hello: None,
+            google_pay: None,
+            samsung_pay: None,
         };
         let result = negotiate(&request, host()).unwrap();
         assert_eq!(
@@ -2826,6 +2914,9 @@ mod tests {
             touch_id: None,
             face_id: None,
             apple_pay: None,
+            windows_hello: None,
+            google_pay: None,
+            samsung_pay: None,
         };
         let start = Instant::now();
         let iterations = 10_000;

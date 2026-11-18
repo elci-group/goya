@@ -33,6 +33,13 @@ Copy/cut publish text with `set_clipboard_text`; paste converts the
 `CLIPBOARD` selection via `request_clipboard_text` and arrives as an
 `Event::ClipboardText(Option<String>)`.
 
+The `PRIMARY` selection follows the same rules with
+`set_primary_text`/`request_primary_text` (or the generic
+`set_selection_text`/`request_selection_text` taking a `Selection` value)
+and arrives as an `Event::PrimaryText(Option<String>)`. The two selections
+are owned and tracked independently: taking one does not drop the other,
+and one request may be pending per selection at a time.
+
 ## Phase lifecycle
 
 `Phase` values: `Connecting`, `Connected`, `WindowCreated`, `Mapped`,
@@ -62,15 +69,17 @@ From the crate documentation:
 - `LOGICAL_SCALE` is 1: pointer positions are X11 window pixels and are the
   Goya logical coordinates. High-DPI, RandR output scale, and fractional
   scale are discovered only as capability bits and are not applied.
-- Not implemented: `PRIMARY`, XDND, XIM, XInput2 devices, the Present
+- Not implemented: XDND, XIM, XInput2 devices, the Present
   extension, MIT-SHM transport, Render acceleration, Vulkan, and EGL.
   Missing extensions reduce `Capabilities` and do not abort the connection.
   Accessibility is not bridged.
-- Clipboard: `CLIPBOARD` text only, valid UTF-8 or `STRING`, never empty.
-  INCR works in both directions for text over 256 KiB, capped at
-  `MAX_CLIPBOARD_BYTES` = 1 MiB total (an oversized transfer is drained and
-  discarded, not buffered). At most four INCR transfers are served at once;
-  one idle for five seconds is dropped.
+- Selections: `CLIPBOARD` and `PRIMARY` text, with identical rules for
+  both: valid UTF-8 or `STRING`, never empty. INCR works in both directions
+  for text over 256 KiB, capped at `MAX_CLIPBOARD_BYTES` = 1 MiB total (an
+  oversized transfer is drained and discarded, not buffered). At most four
+  INCR transfers are served at once across both selections; one idle for
+  five seconds is dropped. Ownership, request timeouts (2 s), and
+  `SelectionClear` are tracked per selection.
 - Hostile clients: another client on the same X server can still observe or
   inject input. Kumimanu does not claim isolation the X11 protocol cannot
   provide.

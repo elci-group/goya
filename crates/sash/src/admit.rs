@@ -10,6 +10,11 @@ use goya_lang::{handoff, layout, CellKind, ParsedScene, RectMp, SceneCell, Sourc
 /// Profile implemented by this module. It is not the full Sash v0.0.1 slice.
 pub const PROFILE: &str = "sash.win32.static-window/0.0.3";
 
+/// Static window emitted for the win8 API floor: the same admitted meaning
+/// with the system-DPI-aware Win32 adapter. The floor is a build-time choice,
+/// not an admission change.
+pub const PROFILE_LEGACY: &str = "sash.win32.static-window-legacy/0.0.1";
+
 /// Millipoints in one Goya point. Matches the private layout constant.
 const MP: f64 = 1000.0;
 

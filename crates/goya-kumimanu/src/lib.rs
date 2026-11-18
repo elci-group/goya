@@ -9,14 +9,20 @@
 //! Pointer positions are X11 window pixels. [`LOGICAL_SCALE`] is 1, so those
 //! pixels are the Goya logical coordinates for this slice. High-DPI, RandR
 //! output scale, and fractional scale are discovered only as capability bits.
-//! They are not applied.
+//! They are not applied, and that is a decision rather than a gap: X11 has no
+//! authoritative scale property, so any RandR-derived scale is a heuristic
+//! guess, and applying it here alone would only enlarge the rasterized frame.
+//! Sharp output at a higher scale needs the host to re-rasterize glyphs at
+//! pixel dimensions, which is a host concern, not a backend one.
 //!
 //! # What this slice does not do
 //!
-//! `CLIPBOARD` text is owned and converted, with INCR in both directions
-//! for text over 256 KiB: at most [`MAX_CLIPBOARD_BYTES`] in total, valid UTF-8 or `STRING`, never
-//! empty. At most four INCR transfers are served at once; one idle for five
-//! seconds is dropped. `PRIMARY`, XDND, XIM, XInput2 devices, the
+//! `CLIPBOARD` and `PRIMARY` text are owned and converted, with identical
+//! rules for both: INCR in both directions for text over 256 KiB, at most
+//! [`MAX_CLIPBOARD_BYTES`] in total, valid UTF-8 or `STRING`, never empty.
+//! At most four INCR transfers are served at once across both selections;
+//! one idle for five seconds is dropped. The two selections are owned,
+//! requested, and cleared independently. XDND, XIM, XInput2 devices, the
 //! Present extension, MIT-SHM transport, Render acceleration, Vulkan, and EGL
 //! are not implemented. Missing extensions reduce [`Capabilities`] and do not
 //! abort the connection. Accessibility is not bridged. A hostile client on
@@ -40,7 +46,7 @@ pub use error::Error;
 pub use frame::{EncodedFrame, PixelFormat, MAX_PIXELS};
 pub use keymap::{InterpretedKey, Keymap, Modifiers, NamedKey};
 pub use phase::Phase;
-pub use selection::MAX_CLIPBOARD_BYTES;
+pub use selection::{Selection, MAX_CLIPBOARD_BYTES};
 
 /// Contract implemented by this crate.
 pub const CONTRACT: &str = "KUM-X11/0.0.1";
@@ -159,6 +165,9 @@ pub enum Event {
     },
     /// Answer to [`Session::request_clipboard_text`]. `None` is no text.
     ClipboardText(Option<String>),
+    /// Answer to [`Session::request_primary_text`]. `None` is no text, under
+    /// the same conditions as [`Event::ClipboardText`].
+    PrimaryText(Option<String>),
     CloseRequested,
 }
 

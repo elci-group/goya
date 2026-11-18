@@ -6,13 +6,46 @@
 //!
 //! Limits match the Wayland host: at most [`MAX_CLIPBOARD_BYTES`], valid
 //! UTF-8, and not empty. The cap holds across INCR chunks, so a large
-//! transfer is drained and discarded rather than buffered. `PRIMARY` is
-//! not read or owned.
+//! transfer is drained and discarded rather than buffered. The same rules
+//! apply to `CLIPBOARD` and `PRIMARY`; this module is selection-agnostic
+//! and the backend routes per [`Selection`].
 
 use std::time::{Duration, Instant};
 
 /// Largest clipboard payload served or accepted, in bytes.
 pub const MAX_CLIPBOARD_BYTES: usize = 1024 * 1024;
+
+/// The two selections this backend serves.
+///
+/// Both follow identical rules: the same cap, targets, INCR handling,
+/// timeouts, and transfer limits. They are owned and tracked independently.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Selection {
+    /// The desktop clipboard, set on copy or cut.
+    Clipboard,
+    /// The primary selection, set by selecting text.
+    Primary,
+}
+
+impl Selection {
+    pub(crate) const COUNT: usize = 2;
+
+    /// Index into the backend's per-selection state array.
+    pub(crate) fn index(self) -> usize {
+        match self {
+            Self::Clipboard => 0,
+            Self::Primary => 1,
+        }
+    }
+
+    /// The event variant that carries this selection's answer.
+    pub(crate) fn answered(self, text: Option<String>) -> crate::Event {
+        match self {
+            Self::Clipboard => crate::Event::ClipboardText(text),
+            Self::Primary => crate::Event::PrimaryText(text),
+        }
+    }
+}
 
 /// A conversion that has not answered by then resolves as no text.
 pub(crate) const REQUEST_TIMEOUT: Duration = Duration::from_secs(2);
@@ -40,13 +73,21 @@ pub(crate) const STRING: u32 = 31;
 /// Interned atoms the selection path needs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Atoms {
+    /// The `CLIPBOARD`-role selection: `CLIPBOARD` itself, or a private
+    /// test name under `connect_with_selection`.
     pub selection: u32,
+    /// The `PRIMARY` selection.
+    pub primary: u32,
     pub targets: u32,
     pub utf8_string: u32,
     pub text_plain_utf8: u32,
     pub text_plain: u32,
     pub incr: u32,
+    /// Conversion property for the `CLIPBOARD`-role selection.
     pub property: u32,
+    /// Conversion property for `PRIMARY`. Distinct from `property` so two
+    /// concurrent conversions never write the same window property.
+    pub primary_property: u32,
 }
 
 /// What the owner sends back for one `SelectionRequest`.
@@ -306,13 +347,28 @@ mod tests {
 
     const ATOMS: Atoms = Atoms {
         selection: 100,
+        primary: 107,
         targets: 101,
         utf8_string: 102,
         text_plain_utf8: 103,
         text_plain: 104,
         incr: 105,
         property: 106,
+        primary_property: 108,
     };
+
+    #[test]
+    fn selections_have_distinct_indexes_and_answer_events() {
+        assert_ne!(Selection::Clipboard.index(), Selection::Primary.index());
+        assert_eq!(
+            Selection::Clipboard.answered(None),
+            crate::Event::ClipboardText(None)
+        );
+        assert_eq!(
+            Selection::Primary.answered(Some("x".into())),
+            crate::Event::PrimaryText(Some("x".into()))
+        );
+    }
 
     #[test]
     fn nothing_owned_refuses_every_target() {

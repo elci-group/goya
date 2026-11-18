@@ -7,6 +7,7 @@
 #![forbid(unsafe_code)]
 
 pub mod admit;
+pub mod api_floor;
 pub mod cli;
 pub mod emit;
 pub mod interactive;

@@ -135,6 +135,159 @@ BEGIN
 END
 "#;
 
+/// Manifest for the static window. The win8 floor is system DPI aware and
+/// names a `.Legacy` assembly, so the verifier reads the floor the image
+/// was built for. Nothing here requests per-monitor awareness.
+pub(crate) fn static_manifest(legacy: bool) -> String {
+    if legacy {
+        return r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <assemblyIdentity type="win32" name="ELCI.Goya.Sash.StaticWindow.Legacy" version="0.0.1.0" processorArchitecture="amd64"/>
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+    <security>
+      <requestedPrivileges>
+        <requestedExecutionLevel level="asInvoker" uiAccess="false"/>
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true</dpiAware>
+    </windowsSettings>
+  </application>
+</assembly>
+"#
+        .to_string();
+    }
+    MANIFEST.to_string()
+}
+
+/// Resource script for the static window.
+pub(crate) fn static_resource_script(legacy: bool) -> String {
+    if !legacy {
+        return RESOURCE_SCRIPT.to_string();
+    }
+    r#"1 24 "app.manifest"
+
+1 VERSIONINFO
+FILEVERSION 0,0,1,0
+PRODUCTVERSION 0,0,1,0
+FILEFLAGSMASK 0x3f
+FILEFLAGS 0
+FILEOS 0x00040004
+FILETYPE 0x1
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904B0"
+    BEGIN
+      VALUE "FileDescription", "Goya Sash static window (legacy)"
+      VALUE "ProductName", "Goya Sash"
+      VALUE "FileVersion", "0.0.1"
+      VALUE "ProductVersion", "0.0.1"
+      VALUE "OriginalFilename", "App.exe"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x409, 1200
+  END
+END
+"#
+    .to_string()
+}
+
+/// Manifest for the interactive window. `profile_version` is `"0.0.1"` or
+/// `"0.0.2"` following the authored clipboard policy; the win8 floor names a
+/// `.Legacy` assembly and stays system DPI aware.
+pub(crate) fn interactive_manifest(profile_version: &str, legacy: bool) -> String {
+    let name = if legacy {
+        "ELCI.Goya.Sash.InteractiveWindow.Legacy"
+    } else {
+        "ELCI.Goya.Sash.InteractiveWindow"
+    };
+    if legacy {
+        return format!(
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <assemblyIdentity type="win32" name="{name}" version="{profile_version}.0" processorArchitecture="amd64"/>
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+    <security>
+      <requestedPrivileges>
+        <requestedExecutionLevel level="asInvoker" uiAccess="false"/>
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true</dpiAware>
+    </windowsSettings>
+  </application>
+</assembly>
+"#
+        );
+    }
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <assemblyIdentity type="win32" name="{name}" version="{profile_version}.0" processorArchitecture="amd64"/>
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+    <security>
+      <requestedPrivileges>
+        <requestedExecutionLevel level="asInvoker" uiAccess="false"/>
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
+      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2</dpiAwareness>
+    </windowsSettings>
+  </application>
+</assembly>
+"#
+    )
+}
+
+/// Resource script for the interactive window.
+pub(crate) fn interactive_resource_script(profile_version: &str, legacy: bool) -> String {
+    let commas = profile_version.replace('.', ",");
+    let description = if legacy {
+        "Goya Sash interactive window (legacy)"
+    } else {
+        "Goya Sash interactive window"
+    };
+    format!(
+        r#"1 24 "app.manifest"
+
+1 VERSIONINFO
+FILEVERSION {commas},0
+PRODUCTVERSION {commas},0
+FILEFLAGSMASK 0x3f
+FILEFLAGS 0
+FILEOS 0x00040004
+FILETYPE 0x1
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904B0"
+    BEGIN
+      VALUE "FileDescription", "{description}"
+      VALUE "ProductName", "Goya Sash"
+      VALUE "FileVersion", "{profile_version}"
+      VALUE "ProductVersion", "{profile_version}"
+      VALUE "OriginalFilename", "App.exe"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x409, 1200
+  END
+END
+"#
+    )
+}
+
 
 #[cfg(test)]
 mod tests {

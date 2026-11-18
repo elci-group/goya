@@ -89,7 +89,24 @@ pub fn policy_errors(info: &PeInfo) -> Vec<String> {
         errors.push("manifest resource is missing".into());
     } else {
         let text = String::from_utf8_lossy(&info.manifest);
-        for required in ["level=\"asInvoker\"", "uiAccess=\"false\"", "PerMonitorV2"] {
+        let legacy = manifest_is_legacy(&info.manifest);
+        if legacy {
+            // A win8-floor image is system DPI aware. It must not request
+            // per-monitor awareness, which its adapter cannot honor.
+            if !text.contains(">true</dpiAware>") {
+                errors.push("legacy manifest is not system DPI aware".into());
+            }
+            if text.contains("PerMonitorV2") {
+                errors.push("legacy manifest must not request PerMonitorV2".into());
+            }
+        } else {
+            for required in ["level=\"asInvoker\"", "uiAccess=\"false\"", "PerMonitorV2"] {
+                if !text.contains(required) {
+                    errors.push(format!("manifest does not contain {required}"));
+                }
+            }
+        }
+        for required in ["level=\"asInvoker\"", "uiAccess=\"false\""] {
             if !text.contains(required) {
                 errors.push(format!("manifest does not contain {required}"));
             }
@@ -480,6 +497,12 @@ pub fn presentation_profile(manifest: &[u8]) -> Option<&'static str> {
     let interactive_name = text
         .matches("name=\"ELCI.Goya.Sash.InteractiveWindow\"")
         .count();
+    let static_legacy = text
+        .matches("name=\"ELCI.Goya.Sash.StaticWindow.Legacy\"")
+        .count();
+    let interactive_legacy = text
+        .matches("name=\"ELCI.Goya.Sash.InteractiveWindow.Legacy\"")
+        .count();
     let version_001 = text.matches("version=\"0.0.1.0\"").count();
     let version_002 = text.matches("version=\"0.0.2.0\"").count();
     if static_name == 1 && interactive_name == 0 && version_001 == 1 && version_002 == 0 {
@@ -491,7 +514,30 @@ pub fn presentation_profile(manifest: &[u8]) -> Option<&'static str> {
     if static_name == 0 && interactive_name == 1 && version_001 == 0 && version_002 == 1 {
         return Some(crate::interactive::PROFILE_CLIPBOARD);
     }
+    // The win8 API floor names its own assemblies, so the verifier can read
+    // the floor the image was built for instead of guessing.
+    if static_legacy == 1 && interactive_name == 0 && interactive_legacy == 0
+        && version_001 == 1 && version_002 == 0
+    {
+        return Some(crate::admit::PROFILE_LEGACY);
+    }
+    if static_name == 0 && static_legacy == 0 && interactive_legacy == 1
+        && version_001 == 1 && version_002 == 0
+    {
+        return Some(crate::interactive::PROFILE_LEGACY);
+    }
+    if static_name == 0 && static_legacy == 0 && interactive_legacy == 1
+        && version_001 == 0 && version_002 == 1
+    {
+        return Some(crate::interactive::PROFILE_CLIPBOARD_LEGACY);
+    }
     None
+}
+
+/// True when the manifest names a win8-floor presentation profile.
+pub fn manifest_is_legacy(manifest: &[u8]) -> bool {
+    presentation_profile(manifest)
+        .is_some_and(|profile| profile.contains("-legacy"))
 }
 
 pub fn format_flags(characteristics: u16) -> String {
