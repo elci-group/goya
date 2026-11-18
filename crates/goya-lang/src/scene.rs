@@ -103,6 +103,37 @@ pub struct Scene {
     pub root: SceneCell,
     /// Authored, bounded interaction programs. Visual layout remains separate.
     pub interactions: Vec<InteractionDecl>,
+    /// Experimental `@intent` declarations (Quitasol phase 0; proposed, not
+    /// ratified). Empty unless the source authors them. Validated by
+    /// [`crate::intents`], not by layout.
+    pub intents: Vec<IntentDecl>,
+}
+
+/// One experimental `@intent` declaration (Quitasol phase 0).
+///
+/// A voice-addressable action binding: the named interaction to invoke, the
+/// natural-language utterances that may address it under the pinned utterance
+/// grammar v0, whether invocation requires explicit confirmation, and the
+/// required non-voice fallback. See docs/quitasol/intents.md. Not admitted by
+/// any strict profile and not ratified; the shape may change.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IntentDecl {
+    pub name: String,
+    /// Authored identity for stable intent references (optional).
+    pub authored_id: Option<String>,
+    /// The `@interaction` this intent invokes.
+    pub action: String,
+    /// Utterance patterns with `{slot}` placeholders, grammar v0.
+    pub utterances: Vec<String>,
+    /// Whether invocation requires explicit authorisation at runtime.
+    /// Recorded only; no runtime confirmation is implemented.
+    pub confirmation: bool,
+    /// Required non-voice equivalent: a remote-navigable target.
+    pub fallback_remote: Option<String>,
+    /// Required non-voice equivalent: a keyboard-addressable target.
+    pub fallback_keyboard: Option<String>,
+    /// Source range of the whole declaration.
+    pub range: crate::parser::SourceRange,
 }
 
 /// D1 scalar schema type for authored interaction contracts.
