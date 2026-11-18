@@ -305,7 +305,7 @@ mod tests {
         let (name, accelerator) = MODELS[0];
         let ir = declaration(name).normalize().unwrap();
         assert_eq!(ir.model(), name);
-        assert_eq!(ir.accelerator(), accelerator);
+        assert_eq!(ir.accelerator(), &accelerator);
         let first = ir
             .lower_checked(AppleWatchAcceleratorTarget::Device, WATCH)
             .unwrap();

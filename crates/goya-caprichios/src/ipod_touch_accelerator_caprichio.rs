@@ -90,7 +90,7 @@ pub fn accelerator_for(model: &str) -> Option<&'static DeviceAccelerator> {
         .map(|(_, accelerator)| accelerator)
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct IpodTouchAcceleratorDeclaration {
     /// Device model name, matched exactly against the catalog.
     pub model: String,
@@ -484,7 +484,7 @@ mod tests {
         use std::process::{Command, Stdio};
         use std::time::{SystemTime, UNIX_EPOCH};
 
-        let artifact = declaration(first_metal_capable(), 64, 16)
+        let artifact = declaration("iPod touch (7th generation)", 64, 16)
             .normalize()
             .unwrap()
             .lower_checked(IpodTouchAcceleratorTarget::Device, IPOD_TOUCH)

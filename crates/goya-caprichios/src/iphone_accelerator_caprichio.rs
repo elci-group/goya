@@ -95,7 +95,7 @@ pub struct IphoneAcceleratorRuntimeCapabilities {
     pub utf8_strings: bool,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct IphoneAcceleratorDeclaration {
     /// Exact model name from the catalog; unknown models never normalize.
     pub model: String,
@@ -109,7 +109,7 @@ pub struct IphoneAcceleratorDeclaration {
     pub max_buffer_bytes: u64,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct IphoneAcceleratorIr {
     model: String,
     threads_per_group: u32,
