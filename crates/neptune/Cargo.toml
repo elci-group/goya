@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+goya-caprichios.workspace = true
 goya-lang.workspace = true
 goya-ir.workspace = true
 goya-executable.workspace = true

@@ -1460,6 +1460,7 @@ dependencies = [
 name = "neptune"
 version = "0.1.8"
 dependencies = [
+ "goya-caprichios",
  "goya-executable",
  "goya-ir",
  "goya-lang",
