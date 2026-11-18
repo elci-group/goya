@@ -29,6 +29,17 @@ not admit, ratify or freeze the intent profile. Design record:
 | Strict rejection | `GY-E1010` |
 | Validation diagnostics | `GY-E1011` |
 
+## Q0 follow-up
+
+The roadmap Q0 capability audit is recorded in
+[q0-capability-audit.md](q0-capability-audit.md) with its evidence record at
+[programme/quitasol-q0.json](programme/quitasol-q0.json). It re-anchors the
+[intents.md](intents.md) §4 lowering map: Media Session transport and app
+launch are the only self-serve Fire OS voice tiers; VSK is closed to new
+partners; in-app speech recognition and raw microphone access are
+unavailable to third-party apps; the Vega third-party voice API contract is
+undocumented.
+
 ## BLOCKED (no evidence, not claimed)
 
 | Item | Status |
