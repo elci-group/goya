@@ -37,6 +37,12 @@ pub mod priority_caprichio;
 pub mod progress_caprichio;
 pub mod registry;
 pub mod retry_caprichio;
+pub mod sso_runtime;
+pub mod github_sso_caprichio;
+pub mod google_sso_caprichio;
+pub mod meta_sso_caprichio;
+pub mod microsoft_sso_caprichio;
+pub mod x_sso_caprichio;
 pub mod storage;
 pub mod stream_caprichio;
 

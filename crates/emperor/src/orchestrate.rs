@@ -802,6 +802,7 @@ fn benchmark(invocation: Invocation) -> Run {
         let (bytes, _length, _digest) = hash_and_elf_prefix(&app)?;
         elf::parse(&bytes)
             .and_then(|summary| elf::check(&summary, machine, release))
+            .map_err(|message| Fault::new(4, "EMP-ELF", message))
             .map(|_| started.elapsed().as_secs_f64())
     };
     if verify_once().is_err() {
@@ -871,14 +872,20 @@ fn benchmark(invocation: Invocation) -> Run {
     let oracle_stats = run_stats(&oracle_runs);
     let elf_stats = run_stats(&elf_runs);
     let mut conformance_detail = format!(
-        "oracle subprocess wall time over {} runs: min {oracle_stats.min:.6}s median {oracle_stats.median:.6}s mean {oracle_stats.mean:.6}s",
+        "oracle subprocess wall time over {} runs: min {:.6}s median {:.6}s mean {:.6}s",
         oracle_runs.len(),
+        oracle_stats.min,
+        oracle_stats.median,
+        oracle_stats.mean,
     );
     if let Some(runs) = &smoke_runs {
         let smoke_stats = run_stats(runs);
         conformance_detail.push_str(&format!(
-            "; smoke launch wall time over {} runs: min {smoke_stats.min:.6}s median {smoke_stats.median:.6}s mean {smoke_stats.mean:.6}s (launch latency, not frame rate)",
+            "; smoke launch wall time over {} runs: min {:.6}s median {:.6}s mean {:.6}s (launch latency, not frame rate)",
             runs.len(),
+            smoke_stats.min,
+            smoke_stats.median,
+            smoke_stats.mean,
         ));
     }
     let mut stages = Stages::new();
@@ -889,8 +896,11 @@ fn benchmark(invocation: Invocation) -> Run {
             stages.push(
                 Status::Pass,
                 format!(
-                    "sha256 {digest} matches the build report; ELF verification over {} runs: min {elf_stats.min:.6}s median {elf_stats.median:.6}s mean {elf_stats.mean:.6}s",
+                    "sha256 {digest} matches the build report; ELF verification over {} runs: min {:.6}s median {:.6}s mean {:.6}s",
                     elf_runs.len(),
+                    elf_stats.min,
+                    elf_stats.median,
+                    elf_stats.mean,
                 ),
             );
         } else if index < 10 {
@@ -924,9 +934,8 @@ fn benchmark(invocation: Invocation) -> Run {
         0,
         stages,
         format!(
-            "benchmarked {digest}\noracle median {oracle_stats:.6}s elf median {elf_stats:.6}s\n",
-            oracle_stats = oracle_stats.median,
-            elf_stats = elf_stats.median,
+            "benchmarked {digest}\noracle median {:.6}s elf median {:.6}s\n",
+            oracle_stats.median, elf_stats.median,
         ),
         json!({
             "artifact_sha256": digest,

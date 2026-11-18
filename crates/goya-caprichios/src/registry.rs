@@ -48,6 +48,25 @@ use crate::windows_hello_caprichio::{
     WindowsHelloArtifact, WindowsHelloDeclaration,
 };
 use crate::catalog;
+use crate::github_sso_caprichio::{
+    GithubSsoArtifact, GithubSsoDeclaration, RuntimeCapabilities as GithubSsoHost,
+    Target as GithubSsoTarget,
+};
+use crate::google_sso_caprichio::{
+    GoogleSsoArtifact, GoogleSsoDeclaration, RuntimeCapabilities as GoogleSsoHost,
+    Target as GoogleSsoTarget,
+};
+use crate::meta_sso_caprichio::{
+    MetaSsoArtifact, MetaSsoDeclaration, RuntimeCapabilities as MetaSsoHost,
+    Target as MetaSsoTarget,
+};
+use crate::microsoft_sso_caprichio::{
+    MicrosoftSsoArtifact, MicrosoftSsoDeclaration, RuntimeCapabilities as MicrosoftSsoHost,
+    Target as MicrosoftSsoTarget,
+};
+use crate::x_sso_caprichio::{
+    RuntimeCapabilities as XSsoHost, Target as XSsoTarget, XSsoArtifact, XSsoDeclaration,
+};
 use crate::checksum_caprichio::{
     Artifact as ChecksumArtifact, Declaration as ChecksumDeclaration, HostProfile as ChecksumHost,
 };
@@ -161,6 +180,11 @@ pub struct Request {
     pub bluetooth_continuity: Option<BluetoothContinuityDeclaration>,
     pub bluetooth_access: Option<BluetoothAccessDeclaration>,
     pub bluetooth_profile: Option<BluetoothProfileDeclaration>,
+    pub sso_google: Option<GoogleSsoDeclaration>,
+    pub sso_microsoft: Option<MicrosoftSsoDeclaration>,
+    pub sso_github: Option<GithubSsoDeclaration>,
+    pub sso_x: Option<XSsoDeclaration>,
+    pub sso_meta: Option<MetaSsoDeclaration>,
 }
 
 /// Host facts are supplied by the caller; the registry does not infer support

@@ -717,4 +717,83 @@ mod tests {
         );
         assert_eq!(missing_module["status"], "FAIL");
     }
+
+    #[test]
+    fn bluetooth_privacy_operation_plans_entries_and_fails_closed() {
+        let mut session = Session::default();
+        let all = session.handle(&json!({
+            "schema_version": "1",
+            "job_id": "bm-1",
+            "operation": "plan-bluetooth-privacy",
+            "usage_description": "Connects to your temperature sensor to show readings."
+        }));
+        assert_eq!(all["status"], "PASS");
+        assert_eq!(all["stage"], "bluetooth_privacy");
+        assert_eq!(
+            all["result"]["privacy_plan"]["usage_key"],
+            "NSBluetoothAlwaysUsageDescription"
+        );
+        assert_eq!(
+            all["result"]["privacy_plan"]["legacy_usage_key"],
+            "NSBluetoothPeripheralUsageDescription"
+        );
+        assert_eq!(all["result"]["privacy_plan"]["background_modes"], json!([]));
+        assert_eq!(all["result"]["capability_entries"].as_array().unwrap().len(), 7);
+        assert_eq!(
+            all["result"]["capability_entries"][0]["semantic_id"],
+            "goya.hardware.bluetooth.access.v1"
+        );
+        // Deterministic across sessions.
+        let mut again = Session::default();
+        assert_eq!(all, again.handle(&json!({
+            "schema_version": "1",
+            "job_id": "bm-1",
+            "operation": "plan-bluetooth-privacy",
+            "usage_description": "Connects to your temperature sensor to show readings."
+        })));
+
+        let explicit = session.handle(&json!({
+            "schema_version": "1",
+            "job_id": "bm-2",
+            "operation": "plan-bluetooth-privacy",
+            "usage_description": "Connects to your temperature sensor to show readings.",
+            "contracts": ["goya.hardware.bluetooth.guard.v1", "goya.hardware.bluetooth.central.v1"]
+        }));
+        assert_eq!(explicit["status"], "PASS");
+        assert_eq!(explicit["result"]["capability_entries"].as_array().unwrap().len(), 2);
+
+        let generic = session.handle(&json!({
+            "schema_version": "1",
+            "job_id": "bm-3",
+            "operation": "plan-bluetooth-privacy",
+            "usage_description": "uses bluetooth"
+        }));
+        assert_eq!(generic["status"], "FAIL");
+        assert_eq!(generic["diagnostics"][0]["code"], "NPT-BM-E002");
+
+        let unknown = session.handle(&json!({
+            "schema_version": "1",
+            "job_id": "bm-4",
+            "operation": "plan-bluetooth-privacy",
+            "usage_description": "Connects to your temperature sensor to show readings.",
+            "contracts": ["goya.hardware.bluetooth.pairing.v1"]
+        }));
+        assert_eq!(unknown["status"], "FAIL");
+        assert_eq!(unknown["diagnostics"][0]["code"], "NPT-BM-E001");
+
+        let missing = session.handle(&json!({
+            "schema_version": "1",
+            "job_id": "bm-5",
+            "operation": "plan-bluetooth-privacy"
+        }));
+        assert_eq!(missing["status"], "FAIL");
+
+        let duplicate = session.handle(&json!({
+            "schema_version": "1",
+            "job_id": "bm-1",
+            "operation": "plan-bluetooth-privacy",
+            "usage_description": "Connects to your temperature sensor to show readings."
+        }));
+        assert_eq!(duplicate["status"], "FAIL");
+    }
 }
