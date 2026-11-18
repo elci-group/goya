@@ -38,13 +38,14 @@ pub fn execute(args: &[std::ffi::OsString]) -> Run {
         return usage();
     };
     match command {
-        "inspect" | "check" | "build" | "verify" => {}
+        "inspect" | "check" | "build" | "verify" | "expectations" => {}
         _ => return usage(),
     }
     let mut positionals = Vec::new();
     let mut target = TARGET_MSVC_X64.to_string();
     let mut target_explicit = false;
     let mut json = false;
+    let mut api_floor = crate::api_floor::ApiFloor::Win10;
     let mut profile = PROFILE_PORTABLE.to_string();
     let mut release = false;
     let mut out = None;
@@ -89,6 +90,17 @@ pub fn execute(args: &[std::ffi::OsString]) -> Run {
             };
             evidence = Some(PathBuf::from(value));
             index += 2;
+        } else if text == "--api-floor" {
+            let Some(value) = args.get(index + 1).and_then(|value| value.to_str()) else {
+                return cli_error(2, "--api-floor needs a value");
+            };
+            match crate::api_floor::admit_floor(value) {
+                Ok(floor) => api_floor = floor,
+                Err(reason) => {
+                    return cli_error(2, &format!("api floor {value} is not admitted: {reason}"))
+                }
+            }
+            index += 2;
         } else if text == "--release" {
             release = true;
             index += 1;
@@ -112,6 +124,13 @@ pub fn execute(args: &[std::ffi::OsString]) -> Run {
             "profile {profile} is not admitted; the only profile is {PROFILE_PORTABLE}"
         ));
     }
+    if api_floor.is_legacy() && admitted.machine == crate::windows_target::ARM64.machine {
+        return refuse(
+            "the win8 api floor admits i686 and x64 only. ARM64 Windows did not exist before \
+             Windows 10, so a legacy-floor ARM64 image has no runtime to run on."
+                .to_string(),
+        );
+    }
     let base = serde_json::json!({
         "schema_version": "1",
         "directive": DIRECTIVE_ID,
@@ -119,6 +138,7 @@ pub fn execute(args: &[std::ffi::OsString]) -> Run {
         "operation": command,
         "target": admitted.triple,
         "profile": profile,
+        "api_floor": api_floor.label(),
         "presentation_profile": PROFILE,
         "format": if json { "json" } else { "text" },
     });
@@ -127,7 +147,13 @@ pub fn execute(args: &[std::ffi::OsString]) -> Run {
             let Some(path) = one_path(&positionals) else {
                 return cli_error(2, "expected one scene path");
             };
-            scene_command(base, path, command == "inspect")
+            scene_command(base, path, command == "inspect", api_floor)
+        }
+        "expectations" => {
+            let Some(path) = one_path(&positionals) else {
+                return cli_error(2, "expected one scene path");
+            };
+            expectations_command(base, path, api_floor)
         }
         "build" => {
             let Some(path) = one_path(&positionals) else {
@@ -139,7 +165,7 @@ pub fn execute(args: &[std::ffi::OsString]) -> Run {
             let Some(out) = out else {
                 return cli_error(2, "build requires --out");
             };
-            build_command(base, path, &out, admitted)
+            build_command(base, path, &out, admitted, api_floor)
         }
         "verify" => {
             let Some(path) = one_path(&positionals) else {
@@ -156,7 +182,12 @@ pub fn execute(args: &[std::ffi::OsString]) -> Run {
     }
 }
 
-fn scene_command(mut base: serde_json::Value, path: &Path, inspect: bool) -> Run {
+fn scene_command(
+    mut base: serde_json::Value,
+    path: &Path,
+    inspect: bool,
+    api_floor: crate::api_floor::ApiFloor,
+) -> Run {
     let source = match read_scene(path) {
         Ok(source) => source,
         Err(diagnostic) => return finish(base, 1, diagnostic, "scene was not read"),
@@ -183,6 +214,7 @@ fn scene_command(mut base: serde_json::Value, path: &Path, inspect: bool) -> Run
                     ),
                 };
             base["presentation_profile"] = serde_json::json!(profile);
+            base["api_floor"] = serde_json::json!(api_floor.label());
             base["status"] = serde_json::json!("ADMITTED");
             base["runtime_qualification"] = serde_json::json!("BLOCKED");
             base["release_admission"] = serde_json::json!("BLOCKED");
@@ -207,11 +239,111 @@ fn scene_command(mut base: serde_json::Value, path: &Path, inspect: bool) -> Run
     }
 }
 
+/// Runtime-window expectations, projected from the lowered IR.
+///
+/// The Phase 0 launch harness consumes this JSON instead of hand-maintained
+/// control tables, so a compiler change cannot desynchronize the harness from
+/// what the emitted program actually does. The expectations cover what a
+/// Windows observer can check without a launch: the window class and title,
+/// the native control id, role, semantic id, authored text, and DIP rectangle
+/// of every control, and the import closure the PE policy admits. This
+/// command does not link and does not launch; runtime qualification stays
+/// BLOCKED.
+fn expectations_command(
+    mut base: serde_json::Value,
+    path: &Path,
+    api_floor: crate::api_floor::ApiFloor,
+) -> Run {
+    let source = match read_scene(path) {
+        Ok(source) => source,
+        Err(diagnostic) => return finish(base, 1, diagnostic, "scene was not read"),
+    };
+    let document = match admit::open(&source) {
+        Ok(SceneTarget::Static(window)) => {
+            crate::ir_lower::lower_static_window(&window, api_floor)
+        }
+        Ok(SceneTarget::Interactive(app)) => {
+            crate::ir_lower::lower_interactive_window(&app, api_floor)
+        }
+        Err(diagnostic) => return finish(base, 1, diagnostic, "scene was not admitted"),
+    };
+    let window_class = if document.profile.starts_with("sash.win32.static-window") {
+        "SashStaticWindow"
+    } else {
+        "SashInteractiveWindow"
+    };
+    base["presentation_profile"] = serde_json::json!(document.profile);
+    base["api_floor"] = serde_json::json!(api_floor.label());
+    base["status"] = serde_json::json!("ADMITTED");
+    base["runtime_qualification"] = serde_json::json!("BLOCKED");
+    base["release_admission"] = serde_json::json!("BLOCKED");
+    base["window"] = serde_json::json!({
+        "title": document.window.scene_name,
+        "class": window_class,
+        "client_dip": [document.window.width_dip, document.window.height_dip],
+    });
+    base["controls"] = serde_json::json!(document
+        .controls
+        .iter()
+        .map(|control| {
+            let role = match control.role {
+                sash_ir::ControlRole::Static => "static",
+                sash_ir::ControlRole::Edit => "edit",
+                sash_ir::ControlRole::Button => "button",
+            };
+            serde_json::json!({
+                "index": control.index,
+                "role": role,
+                "control_id": control.control_id,
+                "semantic_id": control.semantic_id,
+                "text": control.text,
+                "dip": [
+                    control.x_dip,
+                    control.y_dip,
+                    control.width_dip,
+                    control.height_dip,
+                ],
+            })
+        })
+        .collect::<Vec<_>>());
+    base["imports"] = serde_json::json!({
+        "expected": EXPECTED_IMPORTS,
+        "must_not_import": MUST_NOT_IMPORT,
+    });
+    let text = format!(
+        "admitted {profile}\n{class} '{title}' {width}x{height} dip, {count} controls\nruntime-qualification: BLOCKED\n",
+        profile = document.profile,
+        class = window_class,
+        title = document.window.scene_name,
+        width = document.window.width_dip,
+        height = document.window.height_dip,
+        count = document.controls.len(),
+    );
+    Run {
+        code: ExitCode::SUCCESS,
+        json: base,
+        text,
+    }
+}
+
+/// Import closure the PE policy admits for every generated image.
+const EXPECTED_IMPORTS: &[&str] = &[
+    "KERNEL32.dll",
+    "USER32.dll",
+    "GDI32.dll",
+    "ntdll.dll",
+    "api-ms-win-core-synch-l1-2-0.dll",
+];
+
+/// CRT redistributables and other dependencies the static CRT must exclude.
+const MUST_NOT_IMPORT: &[&str] = &["MSVCRT", "VCRUNTIME", "ucrtbase", "concrt", "msvcp"];
+
 fn build_command(
     mut base: serde_json::Value,
     scene: &Path,
     out: &Path,
     target: crate::windows_target::WindowsTarget,
+    api_floor: crate::api_floor::ApiFloor,
 ) -> Run {
     let output = match fresh_output(out) {
         Ok(path) => path,
@@ -221,7 +353,7 @@ fn build_command(
         Ok(source) => source,
         Err(diagnostic) => return finish(base, 1, diagnostic, "scene was not read"),
     };
-    match orchestrate::link(&source, &output, target) {
+    match orchestrate::link(&source, &output, target, api_floor) {
         Ok(linked) => {
             base["presentation_profile"] = serde_json::json!(linked.presentation_profile);
             base["status"] = serde_json::json!("LINKED");
@@ -296,6 +428,12 @@ fn verify_command(
     }
     if let Some(profile) = pe::presentation_profile(&info.manifest) {
         base["presentation_profile"] = serde_json::json!(profile);
+        let floor = if pe::manifest_is_legacy(&info.manifest) {
+            crate::api_floor::ApiFloor::Win8
+        } else {
+            crate::api_floor::ApiFloor::Win10
+        };
+        base["api_floor"] = serde_json::json!(floor.label());
     }
     if let Some(dir) = evidence {
         match evidence_problems(dir, &bytes) {
@@ -391,7 +529,7 @@ fn finish(mut base: serde_json::Value, code: u8, diagnostic: Diagnostic, summary
 fn usage() -> Run {
     cli_error(
         2,
-        "usage: sash inspect|check|build|verify <path> [--target i686-pc-windows-msvc|x86_64-pc-windows-msvc|aarch64-pc-windows-msvc] [--profile portable-native] [--release] [--out dir] [--evidence dir] [--format json]",
+        "usage: sash inspect|check|build|verify|expectations <path> [--target i686-pc-windows-msvc|x86_64-pc-windows-msvc|aarch64-pc-windows-msvc] [--profile portable-native] [--api-floor win10|win8] [--release] [--out dir] [--evidence dir] [--format json]",
     )
 }
 
