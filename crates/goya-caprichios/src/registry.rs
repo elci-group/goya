@@ -925,6 +925,23 @@ pub fn negotiate(
             kind: "bluetooth_profile",
         });
     }
+    if request.sso_google.is_some() && !needs_sso_google {
+        return Err(NegotiationError::UnexpectedDeclaration { kind: "sso_google" });
+    }
+    if request.sso_microsoft.is_some() && !needs_sso_microsoft {
+        return Err(NegotiationError::UnexpectedDeclaration {
+            kind: "sso_microsoft",
+        });
+    }
+    if request.sso_github.is_some() && !needs_sso_github {
+        return Err(NegotiationError::UnexpectedDeclaration { kind: "sso_github" });
+    }
+    if request.sso_x.is_some() && !needs_sso_x {
+        return Err(NegotiationError::UnexpectedDeclaration { kind: "sso_x" });
+    }
+    if request.sso_meta.is_some() && !needs_sso_meta {
+        return Err(NegotiationError::UnexpectedDeclaration { kind: "sso_meta" });
+    }
 
     let mut result = Vec::with_capacity(ordered.len());
     for id in ordered {
