@@ -537,6 +537,10 @@ pub const fn supported_contracts() -> &'static [&'static str] {
         crate::csv_caprichio::CONTRACT,
         crate::stream_caprichio::CONTRACT,
         crate::filesystem_caprichio::CONTRACT,
+        crate::apple_watch_accelerator_caprichio::CONTRACT,
+        crate::ipad_accelerator_caprichio::CONTRACT,
+        crate::iphone_accelerator_caprichio::CONTRACT,
+        crate::ipod_touch_accelerator_caprichio::CONTRACT,
         crate::face_id_caprichio::CONTRACT,
         crate::touch_id_caprichio::CONTRACT,
         crate::windows_hello_caprichio::CONTRACT,
@@ -600,6 +604,10 @@ pub enum NegotiationError {
     BluetoothContinuity(crate::bluetooth_continuity_caprichio::Diagnostic),
     BluetoothAccess(crate::bluetooth_access_caprichio::Diagnostic),
     BluetoothProfile(crate::bluetooth_profile_caprichio::Diagnostic),
+    IphoneAccelerator(crate::iphone_accelerator_caprichio::IphoneAcceleratorDiagnostic),
+    IpadAccelerator(crate::ipad_accelerator_caprichio::IpadAcceleratorDiagnostic),
+    IpodTouchAccelerator(crate::ipod_touch_accelerator_caprichio::IpodTouchAcceleratorDiagnostic),
+    AppleWatchAccelerator(crate::apple_watch_accelerator_caprichio::AppleWatchAcceleratorDiagnostic),
 }
 
 impl fmt::Display for NegotiationError {
@@ -662,6 +670,18 @@ impl fmt::Display for NegotiationError {
             Self::BluetoothProfile(error) => {
                 write!(f, "Bluetooth profile negotiation failed: {error}")
             }
+            Self::IphoneAccelerator(error) => {
+                write!(f, "iPhone accelerator negotiation failed: {error}")
+            }
+            Self::IpadAccelerator(error) => {
+                write!(f, "iPad accelerator negotiation failed: {error}")
+            }
+            Self::IpodTouchAccelerator(error) => {
+                write!(f, "iPod touch accelerator negotiation failed: {error}")
+            }
+            Self::AppleWatchAccelerator(error) => {
+                write!(f, "Apple Watch accelerator negotiation failed: {error}")
+            }
         }
     }
 }
@@ -693,6 +713,10 @@ pub fn negotiate(
             && *id != crate::checksum_caprichio::CONTRACT
             && *id != crate::retry_caprichio::CONTRACT
             && *id != crate::filesystem_caprichio::CONTRACT
+            && *id != crate::apple_watch_accelerator_caprichio::CONTRACT
+            && *id != crate::ipad_accelerator_caprichio::CONTRACT
+            && *id != crate::iphone_accelerator_caprichio::CONTRACT
+            && *id != crate::ipod_touch_accelerator_caprichio::CONTRACT
             && *id != crate::http_caprichio::CONTRACT
             && *id != crate::stream_caprichio::CONTRACT
             && *id != crate::compression_caprichio::CONTRACT
@@ -759,6 +783,12 @@ pub fn negotiate(
         ordered.contains(crate::bluetooth_continuity_caprichio::CONTRACT);
     let needs_bluetooth_access = ordered.contains(crate::bluetooth_access_caprichio::CONTRACT);
     let needs_bluetooth_profile = ordered.contains(crate::bluetooth_profile_caprichio::CONTRACT);
+    let needs_accelerator_iphone = ordered.contains(crate::iphone_accelerator_caprichio::CONTRACT);
+    let needs_accelerator_ipad = ordered.contains(crate::ipad_accelerator_caprichio::CONTRACT);
+    let needs_accelerator_ipod_touch =
+        ordered.contains(crate::ipod_touch_accelerator_caprichio::CONTRACT);
+    let needs_accelerator_apple_watch =
+        ordered.contains(crate::apple_watch_accelerator_caprichio::CONTRACT);
     if request.network.is_some() && !needs_network {
         return Err(NegotiationError::UnexpectedDeclaration { kind: "network" });
     }
@@ -886,6 +916,26 @@ pub fn negotiate(
     if request.bluetooth_profile.is_some() && !needs_bluetooth_profile {
         return Err(NegotiationError::UnexpectedDeclaration {
             kind: "bluetooth_profile",
+        });
+    }
+    if request.accelerator_iphone.is_some() && !needs_accelerator_iphone {
+        return Err(NegotiationError::UnexpectedDeclaration {
+            kind: "accelerator_iphone",
+        });
+    }
+    if request.accelerator_ipad.is_some() && !needs_accelerator_ipad {
+        return Err(NegotiationError::UnexpectedDeclaration {
+            kind: "accelerator_ipad",
+        });
+    }
+    if request.accelerator_ipod_touch.is_some() && !needs_accelerator_ipod_touch {
+        return Err(NegotiationError::UnexpectedDeclaration {
+            kind: "accelerator_ipod_touch",
+        });
+    }
+    if request.accelerator_apple_watch.is_some() && !needs_accelerator_apple_watch {
+        return Err(NegotiationError::UnexpectedDeclaration {
+            kind: "accelerator_apple_watch",
         });
     }
 
