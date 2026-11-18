@@ -64,6 +64,7 @@ members = [
     "crates/goya-plugin-host",
     "crates/emperor",
     "crates/emperor-runtime",
+    "crates/ie-contract",
 ]
 
 [workspace.package]
