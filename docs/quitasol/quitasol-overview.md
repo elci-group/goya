@@ -50,6 +50,10 @@ The **Fire OS integration plan** (Q2,
 `QUITASOL-FIREOS-PLAN/1-draft`) emits the documented Media Session
 transport mappings and permission entries for transport-declaring intents,
 recording everything else `Unresolved` (see [phase2](phase2.md)).
+The **MediaSession runtime glue** (Q3, `QUITASOL-MEDIASESSION-RT/1-draft`)
+lowers the plan to deterministic Kotlin callbacks over an app-supplied
+intent bridge; callback conflicts are compile-time refusals (`QS-E2005`),
+and the glue has never been compiled (see [phase3](phase3.md)).
 The Dialogue Manager, Confirmation Engine and remaining subsystems are not
 exercisable before native media integration (Q3+) and are treated as
 contingent, not committed.
@@ -68,6 +72,7 @@ contingent, not committed.
 - [Phase 0 record](phase0.md) — intent primitive
 - [Phase 1 record](phase1.md) — capability resolution over Nevada
 - [Phase 2 record](phase2.md) — Fire OS integration emission
+- [Phase 3 record](phase3.md) — MediaSession runtime glue
 - [Q0 capability audit](q0-capability-audit.md) — what Amazon documents
 - [Gestures grounding](../gestures-grounding.md) — contrast for the
   physical/verbal split
