@@ -1331,6 +1331,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ie-conformance"
+version = "0.1.8"
+dependencies = [
+ "ie-contract",
+ "ie-cpu",
+]
+
+[[package]]
 name = "ie-contract"
 version = "0.1.8"
 
@@ -1355,6 +1363,15 @@ dependencies = [
  "ie-contract",
  "ie-cpu",
  "ie-gate",
+]
+
+[[package]]
+name = "ie-uds"
+version = "0.1.8"
+dependencies = [
+ "ie-contract",
+ "ie-cpu",
+ "ie-loopback",
 ]
 
 [[package]]

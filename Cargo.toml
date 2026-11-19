@@ -68,6 +68,8 @@ members = [
     "crates/ie-cpu",
     "crates/ie-loopback",
     "crates/ie-gate",
+    "crates/ie-uds",
+    "crates/ie-conformance",
 ]
 
 [workspace.package]
@@ -126,6 +128,7 @@ ie-contract = { path = "crates/ie-contract" }
 ie-cpu = { path = "crates/ie-cpu" }
 ie-loopback = { path = "crates/ie-loopback" }
 ie-gate = { path = "crates/ie-gate" }
+ie-uds = { path = "crates/ie-uds" }
 unicode-segmentation = "1.12"
 cosmic-text = "0.17"
 
