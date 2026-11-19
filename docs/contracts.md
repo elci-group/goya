@@ -864,3 +864,21 @@ self-test gate, fixed in the same commit.
   unconsumable result (PEER_LOST).
 - Stability: Candidate. TLS/mTLS transport, pairing and peer trust are
   later S3 packets; this mock is clearly marked non-production per IE-E01.
+
+## IE-GATE/1 — Goya feature declarations and runtime gate (`crates/ie-gate`, WP-007 seed)
+
+- Provides: `FeatureDecl` (required ops, model digest, max input bytes,
+  max latency, `Sensitivity` Shareable/LocalOnly, `Fallback`
+  Disable/Defer/Substitute/Required), `compile_manifest` (compile-time
+  validation; empty op sets are build errors), `evaluate` against an
+  authenticated `CapabilityDescriptor`, `Verdict` with
+  `remediation()` text.
+- Invariants: availability is only ever asserted against an
+  authenticated descriptor (PR-04); unavailability is typed
+  (Unsupported/ResourceLimited/LatencyUnmet/PolicyBlocked/VersionMismatch)
+  with remediation text, never a bare false; LocalOnly features are
+  policy-blocked on non-local endpoints (PR-05); a provider publishing no
+  latency budget is LatencyUnmet, not assumed fast.
+- Stability: Candidate. T11 seed embedded. Wiring to `goya-ir` scene
+  compilation and the disconnect/epoch-discard path (P02) are later S4
+  packets.
