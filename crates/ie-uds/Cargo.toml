@@ -1,0 +1,10 @@
+[package]
+name = "ie-uds"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ie-contract.workspace = true
+ie-cpu.workspace = true
+ie-loopback.workspace = true

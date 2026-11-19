@@ -426,7 +426,13 @@ nothing is admitted. Design record:
   `transport` key (Q2 draft) declares one of six documented Fire OS Media
   Session transport behaviours (`play_pause`, `skip_next`, `skip_previous`,
   `seek_forward`, `seek_backward`, `restart`); unknown keywords and
-  duplicate keys are parse errors. `goya_lang::intents` validates intents
+  duplicate keys are parse errors. Q4 draft additions: optional
+  `category: <keyword>;` (closed set search/playback/navigation/selection/
+  settings/confirm/general, default general) and optional typed
+  `slots { name: int|text|bool; }` blocks with fail-closed usage symmetry
+  (every utterance slot reference must be declared; every declared slot must
+  be used — `GY-E1011`); utterance text syntax is unchanged from pinned
+  grammar `quitasol.utterance.v0`. `goya_lang::intents` validates intents
   with the pinned utterance grammar `quitasol.utterance.v0`, emitting
   `GY-E1011` ("invalid intent declaration") diagnostics.
   `quitasol-semantic::compile` emits a deterministic versioned intent
@@ -912,3 +918,31 @@ self-test gate, fixed in the same commit.
 - Evidence class: loopback transport, no network or hardware. Per IE-E01
   evidence rules this is a seed, not a gate pass; the real demo A requires
   a physical second host and measured latency.
+
+## IE-UDS/1 — Unix-domain-socket transport (`crates/ie-uds`, WP-005 completion candidate)
+
+- Provides: `Server` (UDS accept loop, framed request → handler → framed
+  response; handler errors surface as canonical `Failed` responses) and
+  `Client::call` (encode → frame → bounded read → decode). Bounded reads
+  validate the length prefix against MAX_MESSAGE_BYTES before reserving
+  the body; oversized declarations close the connection with a typed
+  error; all sockets carry read/write timeouts; peer-input failures are
+  typed errors, never panics.
+- Stability: Candidate. Not authenticated TLS — this is the
+  same-trust-boundary LAN transport step; mTLS and pairing-over-wire are
+  the next S3 packets. Connection lease is server-side (the untrusted
+  request `lease_id` field is ignored by dispatch, mirroring
+  `handle_frame`).
+
+## IE-CONF/1 — Independent fault-injection harness (`crates/ie-conformance`, WP-009 seed)
+
+- Tests-only crate (no public API): seeded deterministic decoder
+  mutation (~4000 mutations/run, never-panic, implausible-length rules),
+  ledger fault injection (cancellation/deadline/retention boundaries,
+  no-false-exactly-once), pairing trust injection (replay, expiry,
+  theft, code enumeration, quota boundaries), and golden-oracle
+  cross-check asserting bit-for-bit parity between ie-cpu and the
+  ie-contract reference oracle.
+- Finding: BUG-IE-LOOPBACK-01 (revoke_client left queued work running
+  after consent ended) — found by this harness, fixed in ie-loopback,
+  regression test un-ignored and passing.

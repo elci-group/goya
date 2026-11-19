@@ -100,8 +100,8 @@ impl SharedProvider {
     }
 
     /// Owner revokes consent (P02: provider owner may revoke). The
-    /// client's outstanding lease is released; queued work from that
-    /// client is cancelled so it never starts after consent ends.
+    /// client's outstanding lease is released and its queued work is
+    /// cancelled so it never starts after consent ends.
     pub fn revoke_client(&mut self, client_id: &str) {
         self.states.insert(client_id.to_string(), ClientState::Revoked);
         let owned: Vec<u64> = self
@@ -112,6 +112,16 @@ impl SharedProvider {
             .collect();
         for id in owned {
             self.inner.release_lease(id);
+        }
+        // BUG-IE-LOOPBACK-01 fix: consent has ended, so any of the
+        // client's still-queued requests are cancelled now — they must
+        // not execute after revocation. Terminal results already finished
+        // before revocation are retained for polling (evidence, not new
+        // work).
+        if let Some(ids) = self.queued.remove(client_id) {
+            for id in ids {
+                let _ = self.inner.cancel(id);
+            }
         }
     }
 
