@@ -78,6 +78,13 @@ pub struct Reader<'a> {
 }
 
 impl<'a> Reader<'a> {
+    /// New reader over a full buffer. Public so external conformance tests
+    /// can drive the public `decode_*` functions directly (visibility-only
+    /// change; no wire encoding is affected).
+    pub fn new(buf: &'a [u8]) -> Self {
+        Self { buf, pos: 0 }
+    }
+
     fn remaining(&self) -> usize {
         self.buf.len() - self.pos
     }
