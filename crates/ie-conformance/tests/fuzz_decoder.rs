@@ -166,7 +166,10 @@ fn request_seeded_mutations_never_panic() {
         let mutated = match rng.below(3) {
             0 => apply_bit_flip(&buf, &mut rng),
             1 => apply_truncate(&buf, &mut rng),
-            _ => apply_length_inflation(&buf, &mut rng, rng.next_u64() as u32),
+            _ => {
+                let kind = rng.next_u64() as u32;
+                apply_length_inflation(&buf, &mut rng, kind)
+            }
         };
         let r = decode_request_checked(&mutated);
         assert_mutation_safe(&buf, &mutated, r);
@@ -181,7 +184,10 @@ fn response_seeded_mutations_never_panic() {
         let mutated = match rng.below(3) {
             0 => apply_bit_flip(&buf, &mut rng),
             1 => apply_truncate(&buf, &mut rng),
-            _ => apply_length_inflation(&buf, &mut rng, rng.next_u64() as u32),
+            _ => {
+                let kind = rng.next_u64() as u32;
+                apply_length_inflation(&buf, &mut rng, kind)
+            }
         };
         let r = decode_response_checked(&mutated);
         assert_mutation_safe(&buf, &mutated, r);

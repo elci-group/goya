@@ -124,7 +124,7 @@ fn cross_client_lease_theft_is_untrusted() {
 
     let mut r1 = request(1, 1_000);
     r1.lease_id = phone.lease_id;
-    assert_eq!(p.submit("laptop", &phone, r1).unwrap_err().name(), "UNTRUSTED_PEER");
+    assert_eq!(p.submit("laptop", &phone, r1.clone()).unwrap_err().name(), "UNTRUSTED_PEER");
 
     let mut r2 = request(2, 1_000);
     r2.lease_id = laptop.lease_id;
