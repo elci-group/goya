@@ -13,6 +13,9 @@
 //! monotonic; results carry the provider epoch so stale completions can
 //! be discarded by the caller.
 
+pub mod pairing;
+pub use pairing::SharedProvider;
+
 use ie_contract::codec;
 use ie_contract::errors::TypedError;
 use ie_contract::framing::{decode_frame, encode_frame};
@@ -34,7 +37,7 @@ pub struct Provider {
     endpoint_id: String,
     epoch: u64,
     next_lease: u64,
-    active_lease: Option<Lease>,
+    active_leases: Vec<Lease>,
     ledger: Ledger,
     /// Monotonic provider clock, advanced explicitly by the test/runtime.
     now_ms: u64,
@@ -46,7 +49,7 @@ impl Provider {
             endpoint_id: endpoint_id.to_string(),
             epoch: 1,
             next_lease: 1,
-            active_lease: None,
+            active_leases: Vec::new(),
             ledger: Ledger::new(queue_limit, retention),
             now_ms: 0,
         }
@@ -68,8 +71,10 @@ impl Provider {
             max_tensor_bytes: ie_contract::tensors::MAX_TENSOR_BYTES,
             queue_limit: self.ledger.queue_depth() as u32, // depth, not limit
             expiry_ms: self
-                .active_lease
+                .active_leases
+                .iter()
                 .map(|l| l.expiry_ms.saturating_sub(self.now_ms))
+                .max()
                 .unwrap_or(0),
         }
     }
@@ -79,8 +84,9 @@ impl Provider {
         self.now_ms += ms;
     }
 
-    /// Issue a lease with the given TTL. Any previously issued lease is
-    /// replaced (single-tenant loopback).
+    /// Issue a lease with the given TTL. Leases are per-client (the
+    /// pairing layer binds them to identities); all remain valid until
+    /// expiry or revocation.
     pub fn acquire_lease(&mut self, ttl_ms: u64) -> Result<Lease, TypedError> {
         if ttl_ms == 0 {
             return Err(TypedError::PolicyDenied { reason: "zero TTL".into() });
@@ -91,7 +97,7 @@ impl Provider {
             expiry_ms: self.now_ms + ttl_ms,
         };
         self.next_lease += 1;
-        self.active_lease = Some(lease);
+        self.active_leases.push(lease);
         Ok(lease)
     }
 
@@ -99,7 +105,12 @@ impl Provider {
     /// IE-M01): epoch bump invalidates every outstanding lease.
     pub fn revoke(&mut self) {
         self.epoch += 1;
-        self.active_lease = None;
+        self.active_leases.clear();
+    }
+
+    /// Drop one lease (e.g. released by its owner or revoked by pairing).
+    pub fn release_lease(&mut self, lease_id: u64) {
+        self.active_leases.retain(|l| l.lease_id != lease_id);
     }
 
     fn lease_valid(&self, lease: &Lease) -> Result<(), TypedError> {
@@ -108,8 +119,8 @@ impl Provider {
         if lease.epoch != self.epoch {
             return Err(TypedError::UntrustedPeer);
         }
-        match self.active_lease {
-            Some(a) if a.lease_id == lease.lease_id && self.now_ms < a.expiry_ms => Ok(()),
+        match self.active_leases.iter().find(|l| l.lease_id == lease.lease_id) {
+            Some(l) if self.now_ms < l.expiry_ms => Ok(()),
             _ => Err(TypedError::PolicyDenied { reason: "no valid lease".into() }),
         }
     }
