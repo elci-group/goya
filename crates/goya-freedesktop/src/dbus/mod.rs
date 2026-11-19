@@ -5,6 +5,10 @@
 //! method calls and wait for the matching `METHOD_RETURN` or `ERROR`.
 //! Messages that are not the reply being waited for (signals such as
 //! `NameAcquired`, replies to other serials) are read and discarded.
+//! Frames over [`MAX_MESSAGE_SIZE`] (but within the specification's
+//! 128 MiB) are drained in bounded chunks without being allocated; only
+//! an oversized reply to the call in flight fails it, with
+//! [`Error::MessageTooLarge`], and the connection stays usable.
 //!
 //! Not implemented: unix fd passing (`h`), signal subscription
 //! (`AddMatch`), serving objects, TCP and `launchd`/`autolaunch`
@@ -41,6 +45,8 @@ pub enum Error {
     /// stream unusable.
     Disconnected,
     /// A message exceeds [`MAX_MESSAGE_SIZE`] (or an array exceeds 64 MiB).
+    /// For an incoming reply this leaves the connection usable unless the
+    /// declared length also exceeds the specification's 128 MiB.
     MessageTooLarge(u64),
     /// Bytes on the wire do not form a valid message.
     Malformed { offset: usize, reason: &'static str },
@@ -368,6 +374,16 @@ fn current_uid() -> Result<u32, Error> {
     Ok(std::fs::metadata("/proc/self")?.uid())
 }
 
+/// One frame read from the socket.
+enum Frame {
+    /// A complete message within [`MAX_MESSAGE_SIZE`].
+    Message(Vec<u8>),
+    /// A frame over [`MAX_MESSAGE_SIZE`] (but within the specification
+    /// limit) whose bytes were read and dropped. `header` is its decoded
+    /// header when that fitted under the cap and parsed.
+    Skipped { total: u64, header: Option<Header> },
+}
+
 enum ReadFail {
     /// Deadline passed; `partial` is true if some bytes were consumed.
     Timeout {
@@ -561,26 +577,65 @@ impl Connection {
 
     /// Read one framed message. A timeout before the first byte leaves the
     /// connection usable; any failure after that marks it broken.
-    fn read_message(&mut self, deadline: Instant) -> Result<Vec<u8>, Error> {
+    ///
+    /// A frame over [`MAX_MESSAGE_SIZE`] but within the specification limit
+    /// is not allocated: its header is decoded if it fits under the cap,
+    /// the rest is read and discarded in bounded chunks, and
+    /// [`Frame::Skipped`] is returned with the connection still in sync.
+    /// A declared length over the specification limit breaks the connection.
+    fn read_message(&mut self, deadline: Instant) -> Result<Frame, Error> {
         let mut fixed = [0u8; 16];
         if let Err(f) = self.read_full(&mut fixed, deadline) {
             return Err(self.read_fail(f));
         }
-        let total = match wire::frame_length(&fixed) {
+        let (header_len, total) = match wire::frame_lengths(&fixed) {
             Ok(t) => t,
             Err(e) => {
                 self.broken = true;
                 return Err(e);
             }
         };
-        let mut msg = vec![0u8; total];
+        if total > MAX_MESSAGE_SIZE as u64 {
+            let mut consumed = 16;
+            let header = if header_len <= MAX_MESSAGE_SIZE as u64 {
+                let mut hb = vec![0u8; header_len as usize];
+                hb[..16].copy_from_slice(&fixed);
+                if let Err(f) = self.read_full(&mut hb[16..], deadline) {
+                    let e = self.read_fail(f);
+                    self.broken = true;
+                    return Err(e);
+                }
+                consumed = header_len;
+                wire::decode_header_only(&hb).ok()
+            } else {
+                None
+            };
+            self.discard(total - consumed, deadline)?;
+            return Ok(Frame::Skipped { total, header });
+        }
+        let mut msg = vec![0u8; total as usize];
         msg[..16].copy_from_slice(&fixed);
         if let Err(f) = self.read_full(&mut msg[16..], deadline) {
             let e = self.read_fail(f);
             self.broken = true;
             return Err(e);
         }
-        Ok(msg)
+        Ok(Frame::Message(msg))
+    }
+
+    /// Read and drop `n` bytes of the current frame without allocating them.
+    fn discard(&mut self, mut n: u64, deadline: Instant) -> Result<(), Error> {
+        let mut chunk = [0u8; 8192];
+        while n > 0 {
+            let k = n.min(chunk.len() as u64) as usize;
+            if let Err(f) = self.read_full(&mut chunk[..k], deadline) {
+                let e = self.read_fail(f);
+                self.broken = true;
+                return Err(e);
+            }
+            n -= k as u64;
+        }
+        Ok(())
     }
 
     fn read_fail(&mut self, f: ReadFail) -> Error {
@@ -637,7 +692,19 @@ impl Connection {
         let deadline = Instant::now() + self.timeout;
         self.write_all(&bytes, deadline)?;
         loop {
-            let msg = self.read_message(deadline)?;
+            let msg = match self.read_message(deadline)? {
+                Frame::Message(m) => m,
+                Frame::Skipped { total, header } => {
+                    let ours = header.is_some_and(|h| {
+                        h.reply_serial == Some(serial)
+                            && matches!(h.kind, MessageKind::MethodReturn | MessageKind::Error)
+                    });
+                    if ours {
+                        return Err(Error::MessageTooLarge(total));
+                    }
+                    continue;
+                }
+            };
             let (rh, body_start, big) = wire::decode_header(&msg)?;
             if rh.reply_serial != Some(serial)
                 || !matches!(rh.kind, MessageKind::MethodReturn | MessageKind::Error)

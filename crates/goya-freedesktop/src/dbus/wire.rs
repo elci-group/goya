@@ -774,9 +774,16 @@ pub fn encode_message(header: &Header, body: &[Value]) -> Result<Vec<u8>, Error>
     Ok(enc.buf)
 }
 
-/// Given at least the first 16 bytes of a message, return its total length.
-/// Fails for unknown endianness or a length above [`MAX_MESSAGE_SIZE`].
-pub(crate) fn frame_length(prefix: &[u8]) -> Result<usize, Error> {
+/// Largest message the D-Bus specification allows (128 MiB). Frames over
+/// [`MAX_MESSAGE_SIZE`] but within this limit can be skipped without
+/// losing framing; anything larger is a protocol violation.
+pub(crate) const SPEC_MAX_MESSAGE_SIZE: u64 = 1 << 27;
+
+/// Given at least the first 16 bytes of a message, return the length of
+/// its header (fixed part plus fields, padded to 8) and its total length.
+/// Applies only the specification limit, not [`MAX_MESSAGE_SIZE`]. Fails
+/// for unknown endianness or a total above [`SPEC_MAX_MESSAGE_SIZE`].
+pub(crate) fn frame_lengths(prefix: &[u8]) -> Result<(u64, u64), Error> {
     if prefix.len() < 16 {
         return Err(Error::Malformed {
             offset: prefix.len(),
@@ -804,6 +811,16 @@ pub(crate) fn frame_length(prefix: &[u8]) -> Result<usize, Error> {
     let fields_len = rd(12);
     let header_len = (16 + fields_len).div_ceil(8) * 8;
     let total = header_len + body_len;
+    if total > SPEC_MAX_MESSAGE_SIZE {
+        return Err(Error::MessageTooLarge(total));
+    }
+    Ok((header_len, total))
+}
+
+/// Given at least the first 16 bytes of a message, return its total length.
+/// Fails for unknown endianness or a length above [`MAX_MESSAGE_SIZE`].
+pub(crate) fn frame_length(prefix: &[u8]) -> Result<usize, Error> {
+    let (_, total) = frame_lengths(prefix)?;
     if total > MAX_MESSAGE_SIZE as u64 {
         return Err(Error::MessageTooLarge(total));
     }
@@ -821,6 +838,40 @@ pub(crate) fn decode_header(bytes: &[u8]) -> Result<(Header, usize, bool), Error
             } else {
                 "trailing bytes after message"
             },
+        });
+    }
+    let (h, body_start, big, body_len) = parse_header(bytes)?;
+    if body_start + body_len != bytes.len() {
+        return Err(Error::Malformed {
+            offset: body_start,
+            reason: "body length mismatch",
+        });
+    }
+    Ok((h, body_start, big))
+}
+
+/// Decode only the header of a message whose body was not read: `bytes`
+/// is exactly the header (fixed part plus fields and padding). Used to
+/// decide whether a frame over [`MAX_MESSAGE_SIZE`] is the reply we wait for.
+pub(crate) fn decode_header_only(bytes: &[u8]) -> Result<Header, Error> {
+    let (h, body_start, _, _) = parse_header(bytes)?;
+    if body_start != bytes.len() {
+        return Err(Error::Malformed {
+            offset: body_start.min(bytes.len()),
+            reason: "header length mismatch",
+        });
+    }
+    Ok(h)
+}
+
+/// Parse the fixed header and header fields at the start of `bytes`.
+/// Returns the header, body offset, endianness and declared body length;
+/// the caller checks how much of `bytes` the body occupies.
+fn parse_header(bytes: &[u8]) -> Result<(Header, usize, bool, usize), Error> {
+    if bytes.len() < 16 {
+        return Err(Error::Malformed {
+            offset: bytes.len(),
+            reason: "truncated fixed header",
         });
     }
     let big = bytes[0] == b'B';
@@ -854,9 +905,6 @@ pub(crate) fn decode_header(bytes: &[u8]) -> Result<(Header, usize, bool), Error
     let fields = dec.value(&fields_t, 0)?;
     dec.align(8)?;
     let body_start = dec.pos;
-    if body_start + body_len != bytes.len() {
-        return Err(dec.err("body length mismatch"));
-    }
 
     let mut h = Header::new(kind, serial);
     h.flags = bytes[2];
@@ -895,7 +943,7 @@ pub(crate) fn decode_header(bytes: &[u8]) -> Result<(Header, usize, bool), Error
     }
     h.check_required()
         .map_err(|reason| Error::Malformed { offset: 0, reason })?;
-    Ok((h, body_start, big))
+    Ok((h, body_start, big, body_len))
 }
 
 /// Decode a body that follows a header from [`decode_header`].

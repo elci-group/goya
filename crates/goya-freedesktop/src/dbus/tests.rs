@@ -620,3 +620,95 @@ fn oversized_frame_is_rejected_without_allocation() {
     ));
     drop(t.join());
 }
+
+/// A message of `kind` with an `ay` body of `n` zero bytes, built by hand
+/// because [`encode_message`] refuses anything over [`MAX_MESSAGE_SIZE`].
+fn oversized(kind: MessageKind, serial: u32, reply_to: Option<u32>, n: usize) -> Vec<u8> {
+    let mut h = Header::new(kind, serial);
+    if kind == MessageKind::Signal {
+        h.path = Some("/org/example/Flood".into());
+        h.interface = Some("org.example.Flood".into());
+        h.member = Some("Big".into());
+    }
+    h.reply_serial = reply_to;
+    h.signature = "ay".into();
+    let small = encode_message(
+        &h,
+        &[Value::Array {
+            elem_sig: "y".into(),
+            items: vec![],
+        }],
+    )
+    .unwrap();
+    let header_len = small.len() - 4; // body was the 4-byte array length
+    let mut m = small[..header_len].to_vec();
+    m[4..8].copy_from_slice(&(4 + n as u32).to_le_bytes());
+    m.extend_from_slice(&(n as u32).to_le_bytes());
+    m.resize(m.len() + n, 0);
+    m
+}
+
+#[test]
+fn oversized_unrelated_signal_is_skipped_and_connection_stays_usable() {
+    let (mut conn, mut server) = pair();
+    conn.set_timeout(Duration::from_secs(5));
+    let t = thread::spawn(move || {
+        let (h, _) = server_read(&mut server);
+        // A same-user peer floods us with a 2 MiB unicast signal first.
+        server
+            .write_all(&oversized(MessageKind::Signal, 1, None, 2 << 20))
+            .unwrap();
+        // ...and an oversized reply to some other serial.
+        server
+            .write_all(&oversized(
+                MessageKind::MethodReturn,
+                2,
+                Some(h.serial + 100),
+                (1 << 20) + 1,
+            ))
+            .unwrap();
+        server
+            .write_all(&reply(3, h.serial, "u", &[Value::Uint32(7)]))
+            .unwrap();
+        let (h2, _) = server_read(&mut server);
+        server
+            .write_all(&reply(4, h2.serial, "u", &[Value::Uint32(8)]))
+            .unwrap();
+        server
+    });
+    let out = conn.call("d.e", "/p", "i.f", "M", "", &[]).unwrap();
+    assert_eq!(out, vec![Value::Uint32(7)]);
+    let out = conn.call("d.e", "/p", "i.f", "M", "", &[]).unwrap();
+    assert_eq!(out, vec![Value::Uint32(8)]);
+    drop(t.join());
+}
+
+#[test]
+fn oversized_reply_to_our_serial_is_too_large_and_stream_stays_in_sync() {
+    let (mut conn, mut server) = pair();
+    conn.set_timeout(Duration::from_secs(5));
+    let t = thread::spawn(move || {
+        let (h, _) = server_read(&mut server);
+        server
+            .write_all(&oversized(
+                MessageKind::MethodReturn,
+                1,
+                Some(h.serial),
+                2 << 20,
+            ))
+            .unwrap();
+        let (h2, _) = server_read(&mut server);
+        server
+            .write_all(&reply(2, h2.serial, "u", &[Value::Uint32(9)]))
+            .unwrap();
+        server
+    });
+    match conn.call("d.e", "/p", "i.f", "M", "", &[]) {
+        Err(Error::MessageTooLarge(n)) => assert!(n > (2 << 20)),
+        other => panic!("unexpected {other:?}"),
+    }
+    // The oversized frame was consumed whole, so the next call works.
+    let out = conn.call("d.e", "/p", "i.f", "M", "", &[]).unwrap();
+    assert_eq!(out, vec![Value::Uint32(9)]);
+    drop(t.join());
+}

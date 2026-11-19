@@ -15,8 +15,12 @@ dependencies. COSMIC-specific behaviour belongs in `nebula`, not here.
   - `Connection::call` waits for the `METHOD_RETURN`/`ERROR` whose
     reply serial matches and discards other messages. Reply timeout is
     configurable (default 2 s) and covers the whole call.
-  - Parsing is bounds-checked: messages over 1 MiB are refused before
-    allocation, nesting is capped at 64, decoded values per message are
+  - Parsing is bounds-checked: messages over 1 MiB are never allocated.
+    An incoming over-cap frame (up to the spec's 128 MiB) is drained in
+    8 KiB chunks and skipped, so a peer's large signal cannot kill the
+    connection; only an over-cap reply to the call in flight fails it
+    (`MessageTooLarge`, connection still usable). A declared length over
+    128 MiB breaks the connection. Also: nesting is capped at 64, decoded values per message are
     capped, padding must be zero, strings must be UTF-8 and NUL-terminated.
     Malformed input returns `Error::Malformed`/`InvalidSignature`/
     `MessageTooLarge`.
