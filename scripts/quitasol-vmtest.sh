@@ -77,14 +77,25 @@ class MainActivity : AppCompatActivity() {
     }
 }
 EOF
-# NB: kotlinc flags BEFORE sources.
-"$KOTLINC" -jvm-target 17 -no-jdk -no-stdlib \
+# NB: kotlinc flags BEFORE sources. kotlin-stdlib must be DEXED into the APK
+# (VM-test finding 2026-11-19: omitting it crashes with NoClassDefFoundError
+# kotlin/jvm/internal/Intrinsics at Application.onCreate).
+STDLIB="$(dirname "$(dirname "$KOTLINC")")/lib/kotlin-stdlib.jar"
+"$KOTLINC" -jvm-target 17 \
   -cp "$SDK/platforms/android-34/android.jar:$LIBS"/*.jar \
   -d "$OUT/build/classes.jar" "$KT_SRC" "$OUT/app/MainActivity.kt"
+# androidx + kotlin-stdlib ship INSIDE the APK (regular inputs, not --lib):
+# MediaSessionCompat and Intrinsics must be present at runtime.
 "$BT/d8" --release --min-api 24 --lib "$SDK/platforms/android-34/android.jar" \
-  $(ls "$LIBS"/*.jar | sed 's/^/--lib /') --output "$OUT/build" "$OUT/build/classes.jar"
-"$BT/aapt" package -f -M "$OUT/build/AndroidManifest.xml" \
-  -I "$SDK/platforms/android-34/android.jar" -F "$OUT/build/unsigned.apk"
+  --output "$OUT/build" "$OUT/build/classes.jar" \
+  "$LIBS"/media-classes.jar "$LIBS"/core-classes.jar "$LIBS"/annotation-classes.jar \
+  "$STDLIB"
+# aapt2 link (not `aapt package`): a targetSdk-0 APK is refused at install
+# with INSTALL_FAILED_DEPRECATED_SDK_VERSION (VM-test finding 2026-11-19).
+"$BT/aapt2" link -I "$SDK/platforms/android-34/android.jar" \
+  --manifest "$OUT/build/AndroidManifest.xml" \
+  --min-sdk-version 21 --target-sdk-version 34 \
+  -o "$OUT/build/unsigned.apk"
 (cd "$OUT/build" && "$BT/aapt" add unsigned.apk classes.dex)
 keytool -genkeypair -keystore "$OUT/build/debug.keystore" -storepass android \
   -keypass android -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
