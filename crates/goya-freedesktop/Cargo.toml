@@ -1,0 +1,9 @@
+[package]
+name = "goya-freedesktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Desktop-neutral freedesktop.org integration: session D-Bus, notifications, portal settings."
+
+[dependencies]

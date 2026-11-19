@@ -844,6 +844,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "goya-freedesktop"
+version = "0.1.8"
+
+[[package]]
 name = "goya-fsc"
 version = "0.1.8"
 dependencies = [
@@ -1504,6 +1508,10 @@ dependencies = [
  "adler2",
  "simd-adler32",
 ]
+
+[[package]]
+name = "nebula"
+version = "0.1.8"
 
 [[package]]
 name = "neptune"

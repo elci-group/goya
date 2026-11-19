@@ -64,6 +64,8 @@ members = [
     "crates/goya-plugin-host",
     "crates/emperor",
     "crates/emperor-runtime",
+    "crates/goya-freedesktop",
+    "crates/nebula",
     "crates/ie-contract",
     "crates/ie-cpu",
     "crates/ie-loopback",
@@ -124,6 +126,8 @@ goya-sdk = { path = "crates/goya-sdk" }
 goya-webview = { path = "crates/goya-webview" }
 goya-studio = { path = "crates/goya-studio" }
 emperor-runtime = { path = "crates/emperor-runtime" }
+goya-freedesktop = { path = "crates/goya-freedesktop" }
+nebula = { path = "crates/nebula" }
 ie-contract = { path = "crates/ie-contract" }
 ie-cpu = { path = "crates/ie-cpu" }
 ie-loopback = { path = "crates/ie-loopback" }
