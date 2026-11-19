@@ -1342,6 +1342,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ie-loopback"
+version = "0.1.8"
+dependencies = [
+ "ie-contract",
+ "ie-cpu",
+]
+
+[[package]]
 name = "indexmap"
 version = "2.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
