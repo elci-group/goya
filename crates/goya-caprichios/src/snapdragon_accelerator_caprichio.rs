@@ -35,8 +35,9 @@ pub struct SoCFacts {
     pub year: u16,
 }
 
-/// Catalog order is series-major (8, 7, 6, 4); within a series, release
-/// order. Facts come from Qualcomm product briefs and the public Hexagon
+/// Catalog order is series-major (8, 7, 6, 4); within a series,
+/// model-number order, and the `year` field records each generation's
+/// launch year. Facts come from Qualcomm product briefs and the public Hexagon
 /// documentation; figures Qualcomm did not publish are `None`, never
 /// guessed. Conflicting sources are recorded as such in the DSP label.
 #[rustfmt::skip]

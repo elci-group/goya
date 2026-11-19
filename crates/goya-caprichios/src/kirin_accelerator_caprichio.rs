@@ -17,14 +17,14 @@ pub const MAX_WEIGHT_BYTES: u64 = crate::kirin_runtime::MAX_WEIGHT_BYTES;
 /// Published accelerator facts for one Kirin SoC generation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct KirinFacts {
-    /// Qualcomm model number (for example `SM8475`), or `unpublished`.
+    /// HiSilicon part number (for example `Hi36A0`), or `unpublished`.
     pub soc: &'static str,
-    /// Kirin series digit: `8`, `7`, `6` or `4`.
+    /// Kirin series tag: `9`.
     pub series: &'static str,
     /// Documented NPU/NPU generation, or `none`.
     pub apu_dsp: &'static str,
-    /// Peak AI throughput Qualcomm published for this SoC, in TOPS times
-    /// ten (5.5 TOPS is stored as `55`). `None` means Qualcomm did not
+    /// Peak AI throughput Huawei published for this SoC, in TOPS times
+    /// ten (2.36 TOPS floors to `23`). `None` means Huawei did not
     /// publish a figure; none is guessed.
     pub npu_tops_tenths: Option<u16>,
     /// Documented Int8 neural acceleration.

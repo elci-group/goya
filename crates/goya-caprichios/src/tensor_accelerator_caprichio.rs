@@ -17,14 +17,14 @@ pub const MAX_WEIGHT_BYTES: u64 = crate::tensor_runtime::MAX_WEIGHT_BYTES;
 /// Published accelerator facts for one Tensor SoC generation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TensorFacts {
-    /// Qualcomm model number (for example `SM8475`), or `unpublished`.
+    /// Google part number (for example `GS501`), or `unpublished`.
     pub soc: &'static str,
-    /// Tensor series digit: `8`, `7`, `6` or `4`.
+    /// Tensor series tag: `G`.
     pub series: &'static str,
     /// Documented NPU/NPU generation, or `none`.
     pub apu_dsp: &'static str,
-    /// Peak AI throughput Qualcomm published for this SoC, in TOPS times
-    /// ten (5.5 TOPS is stored as `55`). `None` means Qualcomm did not
+    /// Peak AI throughput Google published for this SoC, in TOPS times
+    /// ten. `None` means Google did not
     /// publish a figure; none is guessed.
     pub npu_tops_tenths: Option<u16>,
     /// Documented Int8 neural acceleration.

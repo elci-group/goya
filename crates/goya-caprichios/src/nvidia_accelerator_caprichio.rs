@@ -39,8 +39,9 @@ pub struct GpuFacts {
     pub year: u16,
 }
 
-/// Catalog order is release order within each series block; series blocks
-/// appear in ascending order. Facts come from NVIDIA's CUDA GPU list and
+/// Catalog order is tier/model-number order within each series block;
+/// series blocks appear in ascending order, and the `year` field records
+/// each SKU's true launch year. Facts come from NVIDIA's CUDA GPU list and
 /// the public GeForce record; disputed multi-SKU cards are recorded under
 /// their dominant SKU with variants noted in the chip label.
 #[rustfmt::skip]

@@ -17,14 +17,14 @@ pub const MAX_WEIGHT_BYTES: u64 = crate::mediatek_runtime::MAX_WEIGHT_BYTES;
 /// Published accelerator facts for one MediaTek SoC generation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MediaTekFacts {
-    /// Qualcomm model number (for example `SM8475`), or `unpublished`.
+    /// MediaTek part number (for example `MT6991`), or `unpublished`.
     pub soc: &'static str,
-    /// MediaTek series digit: `8`, `7`, `6` or `4`.
+    /// MediaTek series tag: `9`, `8` or `7`.
     pub series: &'static str,
     /// Documented NPU/NPU generation, or `none`.
     pub apu_dsp: &'static str,
-    /// Peak AI throughput Qualcomm published for this SoC, in TOPS times
-    /// ten (5.5 TOPS is stored as `55`). `None` means Qualcomm did not
+    /// Peak AI throughput MediaTek published for this SoC, in TOPS times
+    /// ten. `None` means MediaTek did not
     /// publish a figure; none is guessed.
     pub npu_tops_tenths: Option<u16>,
     /// Documented Int8 neural acceleration.

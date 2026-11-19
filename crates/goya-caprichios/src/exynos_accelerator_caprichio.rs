@@ -17,14 +17,14 @@ pub const MAX_WEIGHT_BYTES: u64 = crate::exynos_runtime::MAX_WEIGHT_BYTES;
 /// Published accelerator facts for one Exynos SoC generation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ExynosFacts {
-    /// Qualcomm model number (for example `SM8475`), or `unpublished`.
+    /// Samsung part number (for example `S5E9955`), or `unpublished`.
     pub soc: &'static str,
-    /// Exynos series digit: `8`, `7`, `6` or `4`.
+    /// Series tag; all cataloged Exynos flagships are `8`-series contemporaries.
     pub series: &'static str,
     /// Documented NPU/NPU generation, or `none`.
     pub npu_dsp: &'static str,
-    /// Peak AI throughput Qualcomm published for this SoC, in TOPS times
-    /// ten (5.5 TOPS is stored as `55`). `None` means Qualcomm did not
+    /// Peak AI throughput Samsung published for this SoC, in TOPS times
+    /// ten (26 TOPS is stored as `260`). `None` means Samsung did not
     /// publish a figure; none is guessed.
     pub npu_tops_tenths: Option<u16>,
     /// Documented Int8 neural acceleration.
@@ -36,7 +36,7 @@ pub struct ExynosFacts {
 }
 
 /// Catalog order is series-major (8, 7, 6, 4); within a series, release
-/// order. Facts come from Qualcomm product briefs and the public npu
+/// order. Facts come from Samsung product briefs and official Exynos
 /// documentation; figures Samsung did not publish are `None`, never
 /// guessed. Exynos 2300 is excluded: designed but never shipped
 /// commercially. Each entry is the Samsung flagship contemporary with a
