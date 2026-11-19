@@ -129,8 +129,9 @@ impl Server {
 
     /// Accept exactly one connection and serve framed requests on it until
     /// the peer closes or a fatal condition is reached. `handler` receives
-    /// the current lease and the framed request bytes; it returns the
-    /// unframed canonical response payload (which this layer frames).
+    /// the current lease and the framed request bytes (prefix included,
+    /// the shape `Provider::handle_frame` consumes); it returns the
+    /// complete framed response bytes, which are written verbatim.
     /// Never panics on peer input.
     pub fn serve_one_connection<F>(&self, mut handler: F) -> Result<(), TypedError>
     where
@@ -198,8 +199,10 @@ impl Server {
 
     /// Accept connections forever, serving each sequentially. The handler
     /// is shared across connections; stateful providers go behind a
-    /// caller-owned lock inside the closure. Intended for test and
-    /// single-client runtimes; stops on the first fatal error.
+    /// caller-owned lock inside the closure. The handler receives framed
+    /// request bytes and returns framed response bytes (see
+    /// `serve_one_connection`). Intended for test and single-client
+    /// runtimes; stops on the first fatal error.
     pub fn serve_forever<F>(&self, handler: F) -> Result<(), TypedError>
     where
         F: Fn(&Lease, &[u8]) -> Result<Vec<u8>, TypedError>,
