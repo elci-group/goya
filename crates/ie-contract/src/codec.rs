@@ -72,7 +72,7 @@ fn put_bytes32(out: &mut Vec<u8>, v: &[u8; 32]) {
 
 // ---------- primitive readers ----------
 
-struct Reader<'a> {
+pub struct Reader<'a> {
     buf: &'a [u8],
     pos: usize,
 }
