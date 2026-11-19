@@ -145,7 +145,7 @@ impl Server {
     /// Serve framed requests on an already-accepted stream until the peer
     /// closes or a fatal condition is reached. Never panics on peer input.
     pub fn serve_stream<F>(
-        stream: &UnixStream,
+        mut stream: &UnixStream,
         lease: &Lease,
         handler: &mut F,
     ) -> Result<(), TypedError>
