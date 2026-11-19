@@ -71,6 +71,18 @@ or Vega OS images, and the Vega Virtual Device lacks Alexa voice services
 emitted glue into a real signed APK and exercises MediaSession dispatch on a
 generic AOSP 34 emulator. The **compilation** gate is now **PASS** — the
 first real compile of the glue (kotlinc 2.0.21, zero errors/warnings;
-supersedes the BLOCKED gate above). The runtime dispatch verdict on AOSP is
-still pending, recorded only from observed logcat. Evidence record:
+supersedes the BLOCKED gate above).
+
+**Runtime dispatch verdict (AOSP, 2026-11-19): PASS with scope.** From
+observed logcat only: `dispatch play` and `dispatch pause` routed through
+the generated `onPlay`/`onPause` overrides to `intent_dispatched:playback`;
+`dispatch fast-forward` produced no log — correctly absent, since no binding
+exists for the fixture scene. Alexa speech recognition (the layer that
+would issue these dispatches from voice) is not present on AOSP and stays a
+hardware gate.
+
+Five build/run findings are recorded in the evidence record and baked into
+the harness, the load-bearing one being: **a `MediaSessionCompat` without a
+`PlaybackState` is not the media button session on API 34** — dispatch
+routed nowhere until `setPlaybackState` was added. Evidence record:
 [programme/quitasol-vmtest.json](programme/quitasol-vmtest.json).
