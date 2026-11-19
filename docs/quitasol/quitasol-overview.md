@@ -37,9 +37,9 @@ initial three, in dependency order:
 1. **Semantic Intent Compiler** — classify voice-addressable actions.
    Draft implemented (phase 0).
 2. **Utterance Generator** — emit interaction definitions against the
-   pinned `quitasol.utterance.v0` grammar. Validated (phase 0); generation
-   of platform interaction definitions remains open (see
-   [intents](intents.md) §6).
+   pinned `quitasol.utterance.v0` grammar. Validated with typed slots and
+   semantic categories (Q4); generation of platform interaction definitions
+   (Alexa skill-model fragments) is Q5 (see [phase4](phase4.md)).
 3. **OEM Capability Resolver** — resolve device, OS and remote capabilities.
    Draft implemented over `nevada::profiles` + `nevada::dcr` (Q1); real
    device censuses are BLOCKED (see [phase1](phase1.md)).
@@ -73,6 +73,7 @@ contingent, not committed.
 - [Phase 1 record](phase1.md) — capability resolution over Nevada
 - [Phase 2 record](phase2.md) — Fire OS integration emission
 - [Phase 3 record](phase3.md) — MediaSession runtime glue
+- [Phase 4 record](phase4.md) — typed slots, semantic categories
 - [Q0 capability audit](q0-capability-audit.md) — what Amazon documents
 - [Gestures grounding](../gestures-grounding.md) — contrast for the
   physical/verbal split

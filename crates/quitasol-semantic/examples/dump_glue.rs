@@ -38,6 +38,7 @@ const SCENE: &str = "\
     }
     @intent catalogue {
         action: find;
+        slots { query: text; }
         voice { utterance: \"Find {query}\"; }
         fallback { remote: search; }
     }
@@ -49,24 +50,15 @@ fn main() {
         .nth(1)
         .expect("usage: dump_glue <output-dir>");
     let scene = parse(SCENE).expect("fixture scene parses");
-    let resolved = quitasol_semantic::resolve_manifest(
-        &scene,
-        "oem.acme.voice-remote/1.0.0",
-        800.0,
-        600.0,
-    )
-    .expect("fixture resolves");
-    let plan =
-        quitasol_semantic::emit_fire_os_plan(&scene, &resolved).expect("plan emits");
-    let glue = quitasol_semantic::emit_media_session_glue(&scene, &plan)
-        .expect("glue emits");
+    let resolved =
+        quitasol_semantic::resolve_manifest(&scene, "oem.acme.voice-remote/1.0.0", 800.0, 600.0)
+            .expect("fixture resolves");
+    let plan = quitasol_semantic::emit_fire_os_plan(&scene, &resolved).expect("plan emits");
+    let glue = quitasol_semantic::emit_media_session_glue(&scene, &plan).expect("glue emits");
     std::fs::create_dir_all(&out).expect("create output dir");
     std::fs::write(format!("{out}/glue.kt"), glue.kotlin()).expect("write glue.kt");
-    std::fs::write(
-        format!("{out}/MainApplication.kt"),
-        MAIN_APP,
-    )
-    .expect("write MainApplication.kt");
+    std::fs::write(format!("{out}/MainApplication.kt"), MAIN_APP)
+        .expect("write MainApplication.kt");
     std::fs::write(format!("{out}/AndroidManifest.xml"), MANIFEST)
         .expect("write AndroidManifest.xml");
     eprintln!(

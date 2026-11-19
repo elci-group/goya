@@ -1066,3 +1066,119 @@ fn bluetooth_privacy_cli_matches_service() {
     assert_eq!(unknown["status"], "FAIL");
     assert_eq!(unknown["diagnostics"][0]["code"], "NPT-BM-E001");
 }
+
+#[test]
+fn sideload_is_blocked_without_open_i() {
+    let blocked = Command::new(env!("CARGO_BIN_EXE_neptune"))
+        .args(["sideload", "/definitely/missing/app.ipa"])
+        .env("PATH", "")
+        .output()
+        .unwrap();
+    assert_eq!(blocked.status.code(), Some(3));
+    assert!(String::from_utf8_lossy(&blocked.stderr).contains("open-i unavailable"));
+}
+
+#[test]
+fn sideload_blocked_report_is_machine_readable() {
+    let output = Command::new(env!("CARGO_BIN_EXE_neptune"))
+        .args(["sideload", "/definitely/missing/app.ipa", "--format", "json"])
+        .env("PATH", "")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(3));
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["schema_version"], "1");
+    assert_eq!(report["status"], "BLOCKED");
+    assert_eq!(report["stages"]["device_install"], "BLOCKED");
+}
+
+#[test]
+fn sideload_reports_usage_error_for_bad_arguments() {
+    let output = Command::new(env!("CARGO_BIN_EXE_neptune"))
+        .args(["sideload"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+}
+
+fn write_mock_open_i(script: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!(
+        "neptune-open-i-mock-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("mock-open-i");
+    std::fs::write(&path, script).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    path
+}
+
+#[test]
+fn sideload_succeeds_with_mock_open_i() {
+    let mock = write_mock_open_i("#!/bin/sh\necho '{\"ok\": true}'\n");
+    let artifact = std::env::temp_dir().join("neptune-sideload-mock.ipa");
+    std::fs::write(&artifact, b"mock").unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_neptune"))
+        .args([
+            "sideload",
+            artifact.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .env("NEPTUNE_OPEN_I_BIN", &mock)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["status"], "PASS");
+    assert_eq!(report["stages"]["device_install"], "PASS");
+    assert_eq!(report["admission"], "MANUAL_TEST_ONLY");
+}
+
+#[test]
+fn sideload_fails_when_mock_open_i_fails() {
+    let mock = write_mock_open_i(
+        "#!/bin/sh\necho '{\"ok\": false, \"error\": {\"message\": \"no device selected\"}}'\nexit 1\n",
+    );
+    let artifact = std::env::temp_dir().join("neptune-sideload-mock-fail.ipa");
+    std::fs::write(&artifact, b"mock").unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_neptune"))
+        .args([
+            "sideload",
+            artifact.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .env("NEPTUNE_OPEN_I_BIN", &mock)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["status"], "FAIL");
+    assert_eq!(report["message"], "no device selected");
+}
+
+#[test]
+fn sideload_fails_for_missing_artifact_before_invoking_open_i() {
+    let mock = write_mock_open_i("#!/bin/sh\nexit 0\n");
+    let output = Command::new(env!("CARGO_BIN_EXE_neptune"))
+        .args(["sideload", "/definitely/missing/app.ipa", "--format", "json"])
+        .env("NEPTUNE_OPEN_I_BIN", &mock)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["status"], "FAIL");
+    assert!(report["message"]
+        .as_str()
+        .unwrap()
+        .contains("artifact not found"));
+}

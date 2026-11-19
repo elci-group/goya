@@ -83,3 +83,11 @@ allows 15 seconds for the compiler and its pipes to finish, terminates and
 reaps the direct compiler process on timeout, and limits returned diagnostics
 to 16 KiB. A failed compiler response indicates whether diagnostics were
 truncated. The standalone CLI uses the same timeout and diagnostic limit.
+
+`neptune sideload <artifact> [--format json]` hands a built artifact (for
+example a manually produced `.ipa`) to the `open-i` CLI for installation on a
+connected device for manual testing. `open-i` is located on `PATH`, or via the
+`NEPTUNE_OPEN_I_BIN` environment variable. When `open-i` is unavailable the
+report is `BLOCKED` and the exit code is 3; a failed install exits 1. The
+report marks `device_install` and never claims device admission: the artifact
+is for manual testing only.

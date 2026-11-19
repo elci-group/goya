@@ -100,9 +100,11 @@ standalone draft manifest via `quitasol-semantic` (QUITASOL-INTENT-IR/1-draft,
 profile `quitasol.intent.v0`); `goya-ir` is untouched (GY-IR/1 frozen). A
 permanent IR home for intents remains open and needs a contract revision.
 
-- **Utterance grammar.** Placeholder syntax (`{query}`) needs a pinned,
-  versioned grammar with slot typing and escaping rules before any generator
-  is admitted.
+- **Utterance grammar.** Placeholder syntax (`{query}`) is pinned as
+  grammar v0 with escaping rules. **Slot typing resolved for Q4**: slots are
+  declared (and typed) via `slots { }` blocks with fail-closed usage
+  symmetry — the text grammar itself is unchanged, so the identifier stays
+  `quitasol.utterance.v0` (see [phase4](phase4.md)).
 - **Language policy.** Utterance locales, pluralisation and localisation
   requirements.
 - **Owners.** Named owners and ratification, per the Gestures G0 precedent.

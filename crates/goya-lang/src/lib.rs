@@ -37,7 +37,8 @@ pub use parser::{
 };
 pub use scene::{
     hit_test, hit_test_scrolled, layout, Anchor, CellKind, DrawNode, Frame, GestureDecision,
-    GesturePolicy, IntentDecl, RectMp, Scene, SceneCell, ScrollOffsets, TransportClass, Vec3,
+    GesturePolicy, IntentCategory, IntentDecl, RectMp, Scene, SceneCell, ScrollOffsets,
+    TransportClass, TypedSlot, Vec3,
 };
 pub use scene::{
     EffectRequestDecl, EffectValueType, InteractionClass, InteractionDecl, InteractionExpr,

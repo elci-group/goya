@@ -275,6 +275,7 @@ mod tests {
     }
     @intent catalogue {
         action: find;
+        slots { query: text; }
         voice { utterance: \"Find {query}\"; }
         fallback { remote: search; }
     }
@@ -365,6 +366,7 @@ mod tests {
     }
     @intent catalogue {
         action: find;
+        slots { query: text; }
         voice { utterance: \"Find {query}\"; }
         fallback { remote: search; }
     }

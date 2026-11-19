@@ -201,6 +201,7 @@ mod tests {
     }
     @intent catalogue {
         action: find;
+        slots { query: text; }
         voice { utterance: \"Find {query}\"; }
         fallback { remote: search; }
     }
@@ -255,8 +256,8 @@ mod tests {
     fn conflicting_callback_bindings_are_refused_fail_closed() {
         // Two play_pause intents: both would override onPlay.
         let duplicated = SCENE.replacen(
-            "action: find;\n        voice {",
-            "action: find;\n        transport: play_pause;\n        voice {",
+            "action: find;\n        slots { query: text; }",
+            "action: find;\n        transport: play_pause;\n        slots { query: text; }",
             1,
         );
         let error = glue(&duplicated).unwrap_err();

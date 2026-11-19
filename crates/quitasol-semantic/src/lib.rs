@@ -54,6 +54,11 @@ pub struct IntentManifestEntry {
     pub confirmation: bool,
     pub fallback_remote: Option<String>,
     pub fallback_keyboard: Option<String>,
+    pub transport: Option<goya_lang::TransportClass>,
+    /// Typed slots (Q4): declared, usage-symmetric (validated upstream).
+    pub slots: Vec<(String, goya_lang::InteractionType)>,
+    /// Semantic category keyword (Q4 closed set), e.g. `"general"`.
+    pub category: &'static str,
 }
 
 /// The deterministic output of compilation: a versioned intent manifest.
@@ -160,6 +165,26 @@ pub(crate) fn push_entry_json(
         None => out.push_str("null"),
     }
     out.push('}');
+    out.push_str(",\"transport\":");
+    match &entry.transport {
+        Some(class) => push_json_string(out, class.keyword()),
+        None => out.push_str("null"),
+    }
+    out.push_str(",\"category\":");
+    push_json_string(out, entry.category);
+    out.push_str(",\"slots\":[");
+    for (j, (name, value_type)) in entry.slots.iter().enumerate() {
+        if j > 0 {
+            out.push(',');
+        }
+        out.push_str("{\"name\":");
+        push_json_string(out, name);
+        out.push_str(",\"type\":");
+        push_json_string(out, value_type.keyword());
+        out.push('}');
+    }
+    out.push(']');
+    out.push('}');
     if let Some(fallback) = fallback {
         out.push_str(",\"fallback_resolution\":{\"remote\":");
         match &fallback.remote {
@@ -246,6 +271,13 @@ fn entry_from_decl(intent: &IntentDecl) -> IntentManifestEntry {
         confirmation: intent.confirmation,
         fallback_remote: intent.fallback_remote.clone(),
         fallback_keyboard: intent.fallback_keyboard.clone(),
+        transport: intent.transport,
+        slots: intent
+            .slots
+            .iter()
+            .map(|slot| (slot.name.clone(), slot.value_type))
+            .collect(),
+        category: intent.category.keyword(),
     }
 }
 
@@ -305,6 +337,7 @@ mod tests {
     @intent search {
         id: \"intent.search.v1\";
         action: searchCatalogue;
+        slots { query: text; }
         voice {
             utterance: \"Find {query}\";
             utterance: \"Search for {query}\";
@@ -381,6 +414,7 @@ mod tests {
     @intent search {
         id: \"intent.search.v1\";
         action: searchCatalogue;
+        slots { query: text; }
         voice {
             utterance: \"Find {query}\";
             utterance: \"Search for {query}\";
@@ -499,14 +533,57 @@ mod tests {
         assert!(json.contains("\"confirmation\":true"), "{json}");
         assert!(
             json.contains(
-                "\"fallback\":{\"remote\":\"searchPanel\",\"keyboard\":\"searchField\"}}"
+                "\"fallback\":{\"remote\":\"searchPanel\",\"keyboard\":\"searchField\"},\"transport\":null,\"category\":\"general\",\"slots\":[{\"name\":\"query\",\"type\":\"text\"}]}}"
             ),
             "{json}"
         );
         assert!(
-            json.contains("\"fallback\":{\"remote\":\"searchPanel\",\"keyboard\":null}}"),
+            json.contains(
+                "\"fallback\":{\"remote\":\"searchPanel\",\"keyboard\":null},\"transport\":null,\"category\":\"general\",\"slots\":[]}}"
+            ),
             "{json}"
         );
+    }
+
+    #[test]
+    fn q4_slots_and_category_reach_the_manifest() {
+        let scene_src = "@ontology app { @button go { } @interaction a { trigger: button.go.activate; class: D1; state { } input { } } @intent main { action: a; category: search; slots { query: text; limit: int; } voice { utterance: \"Find {query} top {limit}\"; } fallback { remote: go; } } }";
+        let manifest = compile(&parse(scene_src).unwrap()).unwrap();
+        let entry = &manifest.entries()[0];
+        assert_eq!(entry.category, "search");
+        assert_eq!(
+            entry.slots,
+            vec![
+                ("query".to_owned(), goya_lang::InteractionType::Text),
+                ("limit".to_owned(), goya_lang::InteractionType::Int),
+            ]
+        );
+        assert!(manifest
+            .to_json()
+            .contains("\"category\":\"search\",\"slots\":[{\"name\":\"query\",\"type\":\"text\"},{\"name\":\"limit\",\"type\":\"int\"}]"));
+
+        // Slot symmetry failures surface through the fail-closed compiler.
+        let undeclared = scene_src.replace(
+            "slots { query: text; limit: int; }",
+            "slots { query: text; }",
+        );
+        let error = compile(&parse(&undeclared).unwrap()).unwrap_err();
+        assert_eq!(error.code, "GY-E1011");
+        assert!(error.name.contains("undeclared slot limit"), "{error}");
+
+        let unused = scene_src.replace(
+            "utterance: \"Find {query} top {limit}\";",
+            "utterance: \"Find {query}\";",
+        );
+        let error = compile(&parse(&unused).unwrap()).unwrap_err();
+        assert!(
+            error.name.contains("declared slot limit is unused"),
+            "{error}"
+        );
+
+        // Unknown category: parse error, never a silent default.
+        let unknown = scene_src.replacen("category: search;", "category: discovery;", 1);
+        assert!(parse(&unknown).is_err());
     }
 
     #[test]

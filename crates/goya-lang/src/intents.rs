@@ -88,6 +88,39 @@ pub fn validate_intents(parsed: &ParsedScene) -> Vec<IntentDiagnostic> {
                 intent.range,
             ));
         }
+        // Q4 slot symmetry, fail-closed both directions: every slot an
+        // utterance references must be declared (typed), and every declared
+        // slot must be referenced by at least one utterance.
+        let declared: std::collections::BTreeSet<&str> =
+            intent.slots.iter().map(|slot| slot.name.as_str()).collect();
+        let mut used: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+        for utterance in &intent.utterances {
+            for slot in utterance_slots(utterance) {
+                used.insert(slot);
+                if !declared.contains(slot) {
+                    out.push(diagnostic(
+                        "GY-E1011",
+                        format!(
+                            "intent {}: utterance {:?} references undeclared slot {}",
+                            intent.name, utterance, slot
+                        ),
+                        intent.range,
+                    ));
+                }
+            }
+        }
+        for slot in &intent.slots {
+            if !used.contains(slot.name.as_str()) {
+                out.push(diagnostic(
+                    "GY-E1011",
+                    format!(
+                        "intent {}: declared slot {} is unused by any utterance",
+                        intent.name, slot.name
+                    ),
+                    intent.range,
+                ));
+            }
+        }
     }
     out
 }
@@ -191,6 +224,37 @@ pub fn validate_intent_decl(intent: &IntentDecl) -> Vec<IntentDiagnostic> {
             intent.range,
         ));
     }
+    // Q4 slot symmetry, identical to `validate_intents`'s per-intent pass.
+    let declared: std::collections::BTreeSet<&str> =
+        intent.slots.iter().map(|slot| slot.name.as_str()).collect();
+    let mut used: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+    for utterance in &intent.utterances {
+        for slot in utterance_slots(utterance) {
+            used.insert(slot);
+            if !declared.contains(slot) {
+                out.push(diagnostic(
+                    "GY-E1011",
+                    format!(
+                        "intent {}: utterance {:?} references undeclared slot {}",
+                        intent.name, utterance, slot
+                    ),
+                    intent.range,
+                ));
+            }
+        }
+    }
+    for slot in &intent.slots {
+        if !used.contains(slot.name.as_str()) {
+            out.push(diagnostic(
+                "GY-E1011",
+                format!(
+                    "intent {}: declared slot {} is unused by any utterance",
+                    intent.name, slot.name
+                ),
+                intent.range,
+            ));
+        }
+    }
     out
 }
 
@@ -236,7 +300,7 @@ mod tests {
 
     #[test]
     fn valid_intents_pass_and_fallback_is_required() {
-        let ok = "@ontology app { @button go { } @interaction searchCatalogue { trigger: button.go.activate; class: D1; state { } input { } } @intent search { action: searchCatalogue; voice { utterance: \"Find {query}\"; confirmation: false; } fallback { remote: searchPanel; keyboard: searchField; } } }";
+        let ok = "@ontology app { @button go { } @interaction searchCatalogue { trigger: button.go.activate; class: D1; state { } input { } } @intent search { action: searchCatalogue; slots { query: text; } voice { utterance: \"Find {query}\"; confirmation: false; } fallback { remote: searchPanel; keyboard: searchField; } } }";
         assert_eq!(validate(ok), Vec::new());
 
         let no_fallback = ok.replace(

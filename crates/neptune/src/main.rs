@@ -395,6 +395,44 @@ fn main() -> ExitCode {
             }
         };
     }
+    if args.len() >= 2 && args[1] == "sideload" {
+        if !(args.len() == 3 || (args.len() == 5 && args[3] == "--format" && args[4] == "json")) {
+            eprintln!("usage: neptune sideload <artifact> [--format json]");
+            return ExitCode::from(2);
+        }
+        let json = args.len() == 5;
+        if neptune::sideload::find_open_i().is_none() {
+            if json {
+                println!("{}", neptune::sideload::blocked_report());
+            } else {
+                eprintln!("open-i unavailable; install open-i or set NEPTUNE_OPEN_I_BIN");
+            }
+            return ExitCode::from(3);
+        }
+        return match neptune::sideload::sideload(std::path::Path::new(&args[2])) {
+            Ok(report) => {
+                if json {
+                    println!("{report}");
+                } else {
+                    println!("Artifact installed for manual testing; device admission is not claimed");
+                }
+                ExitCode::SUCCESS
+            }
+            Err(error) => {
+                if json {
+                    let mut report = serde_json::json!({
+                        "schema_version":"1","operation":"sideload","status":"FAIL",
+                        "stages":{"goya_parse":"NOT_RUN","ios_validation":"NOT_RUN","apple_validation":"NOT_RUN","device_install":"FAIL"}
+                    });
+                    report["message"] = serde_json::Value::String(error.clone());
+                    println!("{report}");
+                } else {
+                    eprintln!("sideload failed: {error}");
+                }
+                ExitCode::FAILURE
+            }
+        };
+    }
     if args.len() >= 2 && args[1] == "verify-preview" {
         if !(args.len() == 3 || (args.len() == 5 && args[3] == "--format" && args[4] == "json")) {
             eprintln!("usage: neptune verify-preview <directory> [--format json]");

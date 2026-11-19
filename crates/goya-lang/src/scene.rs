@@ -138,8 +138,73 @@ pub struct IntentDecl {
     /// See docs/quitasol/q0-capability-audit.md — the Media Session path is
     /// the only self-serve Fire OS voice integration.
     pub transport: Option<TransportClass>,
+    /// Typed slots (Quitasol Q4 draft surface): every `{slot}` placeholder
+    /// used in any utterance must be declared here, and every declared slot
+    /// must be used in at least one utterance (validated in
+    /// [`crate::intents`], fail-closed). Slot text syntax is unchanged from
+    /// grammar v0; typing lives in this declaration.
+    pub slots: Vec<TypedSlot>,
+    /// Semantic category (Quitasol Q4 draft surface): the closed
+    /// classification the Semantic Intent Compiler records for this intent.
+    /// Defaults to [`IntentCategory::General`] when not authored.
+    pub category: IntentCategory,
     /// Source range of the whole declaration.
     pub range: crate::parser::SourceRange,
+}
+
+/// One declared, typed intent slot: `{name}` in utterances, typed with the
+/// D1 scalar schema.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypedSlot {
+    pub name: String,
+    pub value_type: InteractionType,
+}
+
+/// Closed semantic classification of an intent (Q4 draft). Mirrors the
+/// conventional-to-voice equivalence table in the Quitasol proposal:
+/// search, playback, navigation, selection, settings, confirmation, and a
+/// default bucket. A future category is a new keyword and a contract
+/// revision, never a reinterpretation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum IntentCategory {
+    Search,
+    Playback,
+    Navigation,
+    Selection,
+    Settings,
+    Confirm,
+    #[default]
+    General,
+}
+
+impl IntentCategory {
+    /// Canonical authored keyword for this category.
+    pub fn keyword(self) -> &'static str {
+        match self {
+            IntentCategory::Search => "search",
+            IntentCategory::Playback => "playback",
+            IntentCategory::Navigation => "navigation",
+            IntentCategory::Selection => "selection",
+            IntentCategory::Settings => "settings",
+            IntentCategory::Confirm => "confirm",
+            IntentCategory::General => "general",
+        }
+    }
+
+    /// Parse an authored keyword. Returns `None` for unknown keywords;
+    /// callers turn that into a parse error (fail-closed).
+    pub fn from_keyword(keyword: &str) -> Option<Self> {
+        Some(match keyword {
+            "search" => IntentCategory::Search,
+            "playback" => IntentCategory::Playback,
+            "navigation" => IntentCategory::Navigation,
+            "selection" => IntentCategory::Selection,
+            "settings" => IntentCategory::Settings,
+            "confirm" => IntentCategory::Confirm,
+            "general" => IntentCategory::General,
+            _ => return None,
+        })
+    }
 }
 
 /// The Media Session transport behaviours Amazon documents for Fire OS
@@ -196,6 +261,17 @@ pub enum InteractionType {
     Int,
     Text,
     Bool,
+}
+
+impl InteractionType {
+    /// Canonical authored keyword for this scalar type.
+    pub fn keyword(self) -> &'static str {
+        match self {
+            InteractionType::Int => "int",
+            InteractionType::Text => "text",
+            InteractionType::Bool => "bool",
+        }
+    }
 }
 
 /// Authored execution class for a bounded interaction.

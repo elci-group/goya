@@ -33,6 +33,7 @@ const ACCEPT: &str = "\
     @intent search {
         id: \"intent.search.v1\";
         action: searchCatalogue;
+        slots { query: text; }
         voice {
             utterance: \"Find {query}\";
             utterance: \"Search for {query}\";
@@ -273,4 +274,99 @@ fn transport_key_parses_or_fails_closed() {
     let absent = "@ontology app { @button go { } @interaction a { trigger: button.go.activate; class: D1; state { } input { } } @intent main { action: a; voice { utterance: \"Go\"; } fallback { remote: go; } } }";
     let scene = parse_with_source_map(absent).unwrap();
     assert_eq!(scene.scene.intents[0].transport, None);
+}
+
+/// Q4 draft surface: `category:` parses the closed keyword set, defaults to
+/// `general`, and rejects unknown keywords.
+#[test]
+fn category_key_parses_or_fails_closed() {
+    use goya_lang::{parse_with_source_map, IntentCategory, TransportClass};
+
+    let base = |category: &str| {
+        format!(
+            "@ontology app {{ @button go {{ }} @interaction a {{ trigger: button.go.activate; class: D1; state {{ }} input {{ }} }} @intent main {{ action: a; category: {category}; voice {{ utterance: \"Go\"; }} fallback {{ remote: go; }} }} }}"
+        )
+    };
+    for keyword in [
+        "search",
+        "playback",
+        "navigation",
+        "selection",
+        "settings",
+        "confirm",
+        "general",
+    ] {
+        let scene = parse_with_source_map(&base(keyword)).unwrap();
+        let intent = &scene.scene.intents[0];
+        assert_eq!(
+            intent.category.keyword(),
+            keyword,
+            "round-trip for {keyword}"
+        );
+    }
+    // Absent key defaults to `general`.
+    let absent = "@ontology app { @button go { } @interaction a { trigger: button.go.activate; class: D1; state { } input { } } @intent main { action: a; voice { utterance: \"Go\"; } fallback { remote: go; } } }";
+    let scene = parse_with_source_map(absent).unwrap();
+    assert_eq!(scene.scene.intents[0].category.keyword(), "general");
+
+    // Unknown keyword: parse error, never a silent default.
+    assert!(parse_with_source_map(&base("discovery")).is_err());
+
+    // Keyword round-trip helpers stay closed (exercised alongside transport
+    // to keep the closed-set discipline visible).
+    assert_eq!(IntentCategory::from_keyword("nope"), None);
+    let _ = TransportClass::from_keyword("play_pause").unwrap();
+}
+
+/// Q4 draft surface: typed `slots { }` blocks parse; duplicates are parse
+/// errors; slot symmetry is validated with GY-E1011 both directions.
+#[test]
+fn typed_slots_parse_and_symmetry_is_enforced() {
+    use goya_lang::{parse_with_source_map, validate_intents, InteractionType};
+
+    let ok = "@ontology app { @button go { } @interaction a { trigger: button.go.activate; class: D1; state { } input { } } @intent main { action: a; slots { query: text; limit: int; } voice { utterance: \"Find {query} top {limit}\"; } fallback { remote: go; } } }";
+    let scene = parse_with_source_map(ok).unwrap();
+    let intent = &scene.scene.intents[0];
+    assert_eq!(intent.slots.len(), 2);
+    assert_eq!(intent.slots[0].name, "query");
+    assert_eq!(intent.slots[0].value_type, InteractionType::Text);
+    assert_eq!(intent.slots[1].value_type, InteractionType::Int);
+    assert_eq!(validate_intents(&scene), Vec::new());
+
+    // Undeclared slot reference: GY-E1011 with the slot named.
+    let undeclared = ok.replace(
+        "slots { query: text; limit: int; }",
+        "slots { query: text; }",
+    );
+    let scene = parse_with_source_map(&undeclared).unwrap();
+    let diagnostics = validate_intents(&scene);
+    assert_eq!(diagnostics.len(), 1);
+    assert!(
+        diagnostics[0].name.contains("undeclared slot limit"),
+        "{}",
+        diagnostics[0].name
+    );
+
+    // Declared but unused slot: GY-E1011.
+    let unused = ok.replace(
+        "utterance: \"Find {query} top {limit}\";",
+        "utterance: \"Find {query}\";",
+    );
+    let scene = parse_with_source_map(&unused).unwrap();
+    let diagnostics = validate_intents(&scene);
+    assert_eq!(diagnostics.len(), 1);
+    assert!(
+        diagnostics[0]
+            .name
+            .contains("declared slot limit is unused"),
+        "{}",
+        diagnostics[0].name
+    );
+
+    // Duplicate slot name: parse error.
+    let duplicated = ok.replace(
+        "slots { query: text; limit: int; }",
+        "slots { query: text; query: int; }",
+    );
+    assert!(parse_with_source_map(&duplicated).is_err());
 }

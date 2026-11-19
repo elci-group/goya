@@ -4,8 +4,9 @@
 use crate::lexer::{lex, Token, TokenKind};
 use crate::scene::{
     Anchor, CellKind, EffectRequestDecl, EffectValueType, GestureDecision, GesturePolicy,
-    IntentDecl, InteractionClass, InteractionDecl, InteractionExpr, InteractionType,
-    InteractionValue, Scene, SceneCell, StateAssignment, TransportClass, TypedKey, Vec3,
+    IntentCategory, IntentDecl, InteractionClass, InteractionDecl, InteractionExpr,
+    InteractionType, InteractionValue, Scene, SceneCell, StateAssignment, TransportClass, TypedKey,
+    TypedSlot, Vec3,
 };
 use goya_determinism::EffectKind;
 use std::collections::BTreeMap;
@@ -1298,6 +1299,49 @@ impl P {
         } else {
             None
         };
+        // Optional Q4 draft key: `category: <keyword>;` classifies the
+        // intent in the closed Q4 set; default is `general`.
+        let category = if self
+            .peek()
+            .is_some_and(|t| t.kind == TokenKind::Ident && t.text == "category")
+        {
+            self.bump();
+            self.expect(TokenKind::Colon)?;
+            let keyword = self.expect_ident()?;
+            let parsed = IntentCategory::from_keyword(&keyword);
+            if parsed.is_none() {
+                return Err(self.err_prev());
+            }
+            self.optional_semi();
+            parsed.unwrap()
+        } else {
+            IntentCategory::default()
+        };
+        // Optional Q4 draft block: `slots { <name>: <type>; ... }` declares
+        // the typed slots utterances may reference. Duplicates are errors;
+        // usage symmetry is validated in `crate::intents` (GY-E1011).
+        let slots = if self
+            .peek()
+            .is_some_and(|t| t.kind == TokenKind::Ident && t.text == "slots")
+        {
+            self.bump();
+            self.expect(TokenKind::LBrace)?;
+            let mut slots: Vec<TypedSlot> = Vec::new();
+            while !matches!(self.peek().map(|t| t.kind), Some(TokenKind::RBrace)) {
+                let name = self.expect_ident()?;
+                self.expect(TokenKind::Colon)?;
+                let value_type = self.parse_interaction_type()?;
+                if slots.iter().any(|slot| slot.name == name) {
+                    return Err(self.err_prev());
+                }
+                slots.push(TypedSlot { name, value_type });
+                self.optional_semi();
+            }
+            self.expect(TokenKind::RBrace)?;
+            slots
+        } else {
+            Vec::new()
+        };
         self.expect_ident_value("voice")?;
         self.expect(TokenKind::LBrace)?;
         let mut utterances = Vec::new();
@@ -1361,6 +1405,8 @@ impl P {
             fallback_remote,
             fallback_keyboard,
             transport,
+            slots,
+            category,
             range: SourceRange {
                 start: intent_start,
                 end: self.tokens[self.i - 1].byte_end,

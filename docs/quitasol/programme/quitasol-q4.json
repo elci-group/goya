@@ -1,0 +1,52 @@
+{
+  "directive": "QUITASOL-Q4",
+  "directive_version": "0.0.1",
+  "recorded_on": "2026-11-19",
+  "phase_doc": "docs/quitasol/phase4.md",
+  "summary": "Q4 Goya-native voice primitives. goya-lang gains typed slots (slots { name: int|text|bool; } blocks on @intent; InteractionType::keyword closed keyword set added) and semantic categories (category: search|playback|navigation|selection|settings|confirm|general; default general; unknown keywords are parse errors). Slot symmetry is enforced fail-closed in both directions in validate_intents and validate_intent_decl (GY-E1011): every utterance slot reference must be declared and every declared slot must be used. Utterance text syntax is unchanged from pinned grammar quitasol.utterance.v0 — typing lives in the declaration, so the grammar identifier does not change. quitasol-semantic manifest entries carry transport, category and typed slots in deterministic JSON; contract/profile identifiers unchanged (QUITASOL-INTENT-IR/1-draft, quitasol.intent.v0). No platform lowering of slots or categories: Q5 (custom Skills generation) is the intended consumer; locale/pluralisation policy remains open; no runtime exists.",
+  "gates": {
+    "library_tests": {
+      "status": "PASS",
+      "command": "cargo test -p goya-lang --offline",
+      "result": "105 lib + 8 intent-corpus suites passed, 0 failed, including new tests: category closed-keyword round-trip (7 keywords + default general + unknown rejected), typed-slot parsing (int/text), slot symmetry both directions (GY-E1011), duplicate slot parse error"
+    },
+    "semantic_tests": {
+      "status": "PASS",
+      "command": "cargo test -p quitasol-semantic --offline",
+      "result": "31 passed, 0 failed, including the Q4 manifest test: slots and category reach deterministic JSON, undeclared-slot and unused-slot failures surface fail-closed through compile, unknown category is a parse error"
+    },
+    "clippy_fmt": {
+      "status": "PASS",
+      "command": "cargo clippy -p goya-lang -p quitasol-semantic --all-targets --offline -- -D warnings; cargo fmt -p goya-lang -p quitasol-semantic -- --check"
+    },
+    "platform_lowering_of_slots": {
+      "status": "BLOCKED",
+      "reason": "Q5 (custom Skills generation where supported) is the intended consumer of slots/categories for an Alexa interaction-model fragment. No mapping is implemented or claimed here."
+    },
+    "locale_and_pluralisation_policy": {
+      "status": "BLOCKED",
+      "reason": "Open per intents.md §6; slot typing is orthogonal to utterance locale policy, which remains unresolved."
+    },
+    "runtime_slot_filling": {
+      "status": "BLOCKED",
+      "reason": "No runtime exists (phase 3 boundary unchanged): slots are recorded and validated, never filled."
+    },
+    "owners_ratification": {
+      "status": "BLOCKED",
+      "reason": "Unresolved per phase 0; the profile remains proposed, not ratified."
+    }
+  },
+  "toolchain": {
+    "rustc": "1.95.0 (workspace toolchain)",
+    "crates": "goya-lang 0.1.8 (+ TypedSlot, IntentCategory, InteractionType::keyword), quitasol-semantic 0.1.8 (manifest slots/category/transport)",
+    "branch": "nevada/phase0 lineage (current checkout branch follows the concurrent session's naming)"
+  },
+  "unchanged": [
+    "Pinned utterance grammar identifier stays quitasol.utterance.v0: slot text syntax is unchanged; typing is declarative.",
+    "Intent contract QUITASOL-INTENT-IR/1-draft and profile quitasol.intent.v0 are unchanged; draft shape grows under the draft stability clause.",
+    "Strict GSSH/1/2/3 admission is unchanged: all @intent remain rejected with GY-E1010.",
+    "The lowering tier remains unresolved; no voice platform integration is claimed.",
+    "crates/nevada is not modified by Q4."
+  ],
+  "next_unblock": "Q5: custom Skills generation where supported — emit an Alexa interaction-model fragment from the manifest (slots to slot types, categories to intent groupings), recorded as a candidate artifact with the Q0-audit certification boundaries (skill policy, invocation rules, COPPA if child-directed). Also open: locale/pluralisation policy and owners/ratification."
+}

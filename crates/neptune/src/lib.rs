@@ -14,6 +14,7 @@ pub mod observable_buttons;
 pub mod observable_column;
 pub mod observable_trace;
 pub mod service;
+pub mod sideload;
 pub mod source_map;
 pub mod static_column;
 pub mod swift;
