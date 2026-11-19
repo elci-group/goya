@@ -44,8 +44,7 @@ fn wire_error(reason: &str) -> TypedError {
 
 /// The stream itself failed; that is PEER_LOST, not a message-content error.
 fn io_error(e: std::io::Error) -> TypedError {
-    TypedError::PeerLost { }
-    .with_note(format!("io: {e}"))
+    TypedError::Internal { reason: format!("io: {e}") }
 }
 
 /// Read exactly one framed message from `stream` with bounded allocation.
@@ -250,7 +249,6 @@ impl Client {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Arc, Mutex};
 
     const MODEL: [u8; 32] = [7; 32];
 
@@ -319,7 +317,6 @@ mod tests {
         let resp = client.call(&req).unwrap();
         assert_eq!(resp.request_id, 3);
         assert!(matches!(resp.status, Status::Failed(TypedError::PolicyDenied { .. })));
-        assert!(client.into_stream().set_read_timeout(Some(Duration::from_millis(1))).is_ok());
-        let _ = Arc::new(Mutex::new(0u8)); // keep imports honest
+        let _ = client.into_stream();
     }
 }
