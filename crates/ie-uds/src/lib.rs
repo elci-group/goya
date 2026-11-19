@@ -164,12 +164,14 @@ impl Server {
             let _ = payload;
             // The handler receives the full framed bytes (prefix included),
             // exactly the shape loopback's handle_frame consumes.
-            let resp = match handler(lease, &frame) {
+            let resp_frame = match handler(lease, &frame) {
+                // The handler returns the complete framed response bytes
+                // (e.g. Provider::handle_frame output); written verbatim.
                 Ok(r) => r,
                 Err(e) => {
                     // Typed provider failure: surface it canonically as a
-                    // Failed response rather than dropping the connection
-                    // silently. Best-effort request-id extraction.
+                    // framed Failed response rather than dropping the
+                    // connection silently. Best-effort request-id extraction.
                     let request_id = codec::decode_request(payload)
                         .map(|(r, _)| r.request_id)
                         .unwrap_or(0);
@@ -185,10 +187,12 @@ impl Server {
                     let mut buf = Vec::new();
                     codec::encode_response(&mut buf, &resp)
                         .map_err(|_| TypedError::Internal { reason: "encode".into() })?;
-                    buf
+                    encode_frame(&buf)
+                        .map_err(|_| TypedError::Internal { reason: "frame".into() })?
                 }
             };
-            write_frame(stream, &resp)?;
+            use std::io::Write;
+            stream.write_all(&resp_frame).map_err(io_error)?;
         }
     }
 
