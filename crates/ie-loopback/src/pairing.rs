@@ -276,7 +276,7 @@ mod tests {
         let (mut p, laptop, phone) = setup();
         let mut r = req(1, 1_000);
         r.lease_id = phone.lease_id; // laptop presenting phone's lease
-        assert_eq!(p.submit("laptop", &laptop, r).unwrap_err().name(), "UNTRUSTED_PEER");
+        assert_eq!(p.submit("laptop", &phone, r).unwrap_err().name(), "UNTRUSTED_PEER");
     }
 
     /// Revocation: consent ends, new work denied, other clients unaffected.
