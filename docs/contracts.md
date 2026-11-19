@@ -851,3 +851,16 @@ self-test gate, fixed in the same commit.
   than replaying — no exactly-once claim. Op dispatch by rank (rank-1 add,
   rank-2 matmul) is a reference-backend seed decision, not a wire rule.
 - Stability: Candidate. Conformance seeds T04/T05 embedded as tests.
+
+## IE-ESP/1 — Loopback provider transport (`crates/ie-loopback`, WP-005 seed)
+
+- Provides: `Provider` (Describe/AcquireLease/Submit/Poll/Cancel),
+  `Lease { lease_id, epoch, expiry_ms }`, `handle_frame` (framed canonical
+  request → framed canonical response), `revoke()` (epoch bump).
+- Invariants: no lease, no service — submit without a valid lease is
+  `POLICY_DENIED`; stale-epoch leases are `UNTRUSTED_PEER`; expired leases
+  are `POLICY_DENIED`; responses carry the provider epoch so callers can
+  discard stale completions; `handle_frame` never fabricates success for an
+  unconsumable result (PEER_LOST).
+- Stability: Candidate. TLS/mTLS transport, pairing and peer trust are
+  later S3 packets; this mock is clearly marked non-production per IE-E01.
