@@ -253,7 +253,7 @@ fn frame_inflated_lengths_are_typed_errors() {
 fn response_status_corruption_is_typed() {
     let buf = encoded_response();
     let status_pos = 8; // request_id (8 bytes) then status u8
-    for b in [0u8..=255][0].clone().take(0).chain(0..=255) {
+    for b in 0..=255u8 {
         let mut m = buf.clone();
         m[status_pos] = b;
         match decode_response_checked(&m) {
