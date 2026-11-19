@@ -882,3 +882,33 @@ self-test gate, fixed in the same commit.
 - Stability: Candidate. T11 seed embedded. Wiring to `goya-ir` scene
   compilation and the disconnect/epoch-discard path (P02) are later S4
   packets.
+
+## IE-ESP/2 — Pairing and provider quotas (`ie-loopback::pairing`, WP-006 seed)
+
+- Provides: `SharedProvider` over the loopback `Provider` —
+  `offer_pairing(client, code, quota)`, `pair(client, code)`,
+  `revoke_client`, `acquire_lease` bound to the paired identity,
+  quota-checked `submit`/`cancel`, lease-release on revocation.
+- Invariants: no discovery message confers trust — pairing is the only
+  admission path; wrong/unknown codes are `UNTRUSTED_PEER`; revoked
+  clients get `POLICY_DENIED` on new work with their lease released;
+  quotas (max concurrent queued, max deadline) are per-client and breach
+  is `RESOURCE_EXHAUSTED`/`POLICY_DENIED` without starving other clients;
+  presenting another client's lease is `UNTRUSTED_PEER`; the underlying
+  provider is multi-lease per epoch, all invalidated on `revoke()`.
+- Stability: Candidate. Out-of-band code equality models the
+  user-confirmed pairing step; real key verification and TLS binding are
+  later S3 packets.
+
+## IE-ESP/3 — Flagship demo A, loopback edition (`ie-loopback/tests/demo_a.rs`)
+
+- Four legs: (1) gated feature advertises on a paired capable peer and
+  produces transport parity with the golden result; (2) peer loss
+  mid-request — stale-generation completion rejected by lease epoch, gate
+  re-evaluates to typed Unsupported with remediation, fallback Disable
+  preserves the baseline; (3) untrusted provider refused at pairing and
+  at lease acquisition; (4) reconnect requires explicit re-admission via
+  a fresh epoch lease.
+- Evidence class: loopback transport, no network or hardware. Per IE-E01
+  evidence rules this is a seed, not a gate pass; the real demo A requires
+  a physical second host and measured latency.

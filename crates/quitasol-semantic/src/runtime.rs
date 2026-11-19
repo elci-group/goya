@@ -134,6 +134,7 @@ pub fn emit_media_session_glue(
         "// Anchor: docs/quitasol/q0-capability-audit.md | plan: QUITASOL-FIREOS-PLAN/1-draft\n",
     );
     kotlin.push_str(&format!("package {package}\n\n"));
+    kotlin.push_str("import android.support.v4.media.session.MediaSessionCompat\n\n");
     kotlin.push_str(
         "interface QuitasolIntentBridge {\n    fun invoke(intent: String): Boolean\n}\n\n",
     );
@@ -291,6 +292,8 @@ mod tests {
 // Profile: quitasol.intent.v0 | lowering tier: unresolved (candidate bindings; never compiled here).
 // Anchor: docs/quitasol/q0-capability-audit.md | plan: QUITASOL-FIREOS-PLAN/1-draft
 package app.quitasol
+
+import android.support.v4.media.session.MediaSessionCompat
 
 interface QuitasolIntentBridge {
     fun invoke(intent: String): Boolean

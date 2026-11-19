@@ -36,6 +36,8 @@ pub mod memory_runtime;
 pub mod metal_caprichio;
 pub mod face_id_caprichio;
 pub mod samsung_pay_caprichio;
+pub mod nvidia_accelerator_caprichio;
+pub mod nvidia_runtime;
 pub mod kirin_accelerator_caprichio;
 pub mod kirin_runtime;
 pub mod mediatek_accelerator_caprichio;

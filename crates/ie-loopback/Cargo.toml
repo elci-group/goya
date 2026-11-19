@@ -7,3 +7,6 @@ license.workspace = true
 [dependencies]
 ie-contract.workspace = true
 ie-cpu.workspace = true
+
+[dev-dependencies]
+ie-gate.workspace = true

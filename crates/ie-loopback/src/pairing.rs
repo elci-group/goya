@@ -74,6 +74,11 @@ impl SharedProvider {
         &mut self.inner
     }
 
+    /// Read-only access for describe/gate evaluation.
+    pub fn inner(&self) -> &Provider {
+        &self.inner
+    }
+
     /// Owner side: publish a pairing code for an intending client and set
     /// its quota. The code is confirmed out-of-band by the owner.
     pub fn offer_pairing(&mut self, client_id: &str, code: PairingCode, quota: Quota) {

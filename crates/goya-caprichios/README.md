@@ -66,18 +66,36 @@ about sensors, payment networks or peripherals.
 The mobile-SoC neural-acceleration caprichios follow the accelerator-catalog
 shape: `snapdragon_accelerator_caprichio`
 (`goya.hardware.neural_accel.snapdragon.v1`) catalogs published Hexagon/NPU
-facts for 55 Snapdragon generations across the 8, 7, 6 and 4 series, and
+facts for 55 Snapdragon generations across the 8, 7, 6 and 4 series;
 `exynos_accelerator_caprichio` (`goya.hardware.neural_accel.exynos.v1`)
-catalogs the contemporary Samsung flagship generations. Each entry records
+catalogs the contemporary Samsung flagship generations;
+`mediatek_accelerator_caprichio` (`goya.hardware.neural_accel.mediatek.v1`)
+catalogs Dimensity 700/800/900-series parts; `tensor_accelerator_caprichio`
+(`goya.hardware.neural_accel.tensor.v1`) catalogs Google Tensor G1 through G5;
+and `kirin_accelerator_caprichio` (`goya.hardware.neural_accel.kirin.v1`)
+catalogs Huawei Kirin 970 through 9020. Each entry records
 only figures the vendor published (TOPS figures are `None` where the vendor
 published none, in tenths of TOPS where it did); conflicting Hexagon version
 sources are recorded in the label rather than guessed. A declaration names a
 generation from the catalog and bounds layers, batch and weight bytes;
-normalization builds a checked `HexagonDelegatePlan` / `NpuDelegatePlan` in
-`snapdragon_runtime` / `exynos_runtime`; lowering fails closed unless the host
-reports a DSP/NPU, a neural delegate and an Int8 model. The artifacts are
+normalization builds a checked delegate plan in the vendor's `*_runtime`
+module; lowering fails closed unless the host reports the vendor DSP/NPU, a
+neural delegate and an Int8 model. The artifacts are
 plan factories only: no model is compiled, no DSP is contacted and no
 inference runs.
+
+`nvidia_accelerator_caprichio`
+(`goya.hardware.gpu_compute.nvidia_cuda.v1`) applies the same catalog shape
+to NVIDIA GPUs: GTX 10/16/20-series (Pascal/Turing) and RTX 30/40-series
+(Ampere/Ada Lovelace) SKUs plus integrated Blackwell parts, each with
+published chip, architecture, compute capability, core and VRAM facts. A
+declaration names a GPU from the catalog and bounds threads-per-block,
+blocks and per-block shared memory; normalization builds a checked
+`CudaLaunchPlan` in `nvidia_runtime`; lowering fails closed unless the host
+reports a CUDA device, the CUDA runtime API and an Int8-quantized kernel
+graph, and GPUs without Tensor Cores reject Int8 tensor delegation. The
+artifact is a launch-plan factory only: no kernel is compiled and no GPU
+work is launched.
 
 `bluetooth_caprichio` (`goya.hardware.bluetooth.central.v1`, recipe
 `apple-ble-central-bounded-scan`) covers BLE central discovery and connection

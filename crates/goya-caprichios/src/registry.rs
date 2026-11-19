@@ -109,6 +109,22 @@ use crate::exynos_accelerator_caprichio::{
     ExynosAcceleratorArtifact, ExynosAcceleratorDeclaration,
     RuntimeCapabilities as ExynosAcceleratorHost, Target as ExynosAcceleratorTarget,
 };
+use crate::mediatek_accelerator_caprichio::{
+    MediaTekAcceleratorArtifact, MediaTekAcceleratorDeclaration,
+    RuntimeCapabilities as MediaTekAcceleratorHost, Target as MediaTekAcceleratorTarget,
+};
+use crate::tensor_accelerator_caprichio::{
+    TensorAcceleratorArtifact, TensorAcceleratorDeclaration,
+    RuntimeCapabilities as TensorAcceleratorHost, Target as TensorAcceleratorTarget,
+};
+use crate::kirin_accelerator_caprichio::{
+    KirinAcceleratorArtifact, KirinAcceleratorDeclaration,
+    RuntimeCapabilities as KirinAcceleratorHost, Target as KirinAcceleratorTarget,
+};
+use crate::nvidia_accelerator_caprichio::{
+    NvidiaCudaArtifact, NvidiaCudaDeclaration,
+    RuntimeCapabilities as NvidiaCudaHost, Target as NvidiaCudaTarget,
+};
 use crate::parallelism_caprichio::{
     ParallelismArtifact, ParallelismDeclaration, RuntimeCapabilities as ParallelismRuntime,
     Target as ParallelismTarget,
@@ -173,6 +189,10 @@ pub struct Request {
     pub bluetooth_continuity: Option<BluetoothContinuityDeclaration>,
     pub bluetooth_access: Option<BluetoothAccessDeclaration>,
     pub bluetooth_profile: Option<BluetoothProfileDeclaration>,
+    pub mediatek_neural_accel: Option<MediaTekAcceleratorDeclaration>,
+    pub tensor_neural_accel: Option<TensorAcceleratorDeclaration>,
+    pub kirin_neural_accel: Option<KirinAcceleratorDeclaration>,
+    pub nvidia_cuda: Option<NvidiaCudaDeclaration>,
     pub snapdragon_neural_accel: Option<SnapdragonAcceleratorDeclaration>,
     pub exynos_neural_accel: Option<ExynosAcceleratorDeclaration>,
     pub accelerator_model: Option<AcceleratorDeclaration>,
@@ -246,6 +266,14 @@ pub struct HostProfile {
     pub bluetooth_access_host: BluetoothAccessHost,
     pub bluetooth_profile_target: BluetoothProfileTarget,
     pub bluetooth_profile_host: BluetoothProfileHost,
+    pub mediatek_neural_accel_target: MediaTekAcceleratorTarget,
+    pub mediatek_neural_accel_host: MediaTekAcceleratorHost,
+    pub tensor_neural_accel_target: TensorAcceleratorTarget,
+    pub tensor_neural_accel_host: TensorAcceleratorHost,
+    pub kirin_neural_accel_target: KirinAcceleratorTarget,
+    pub kirin_neural_accel_host: KirinAcceleratorHost,
+    pub nvidia_cuda_target: NvidiaCudaTarget,
+    pub nvidia_cuda_host: NvidiaCudaHost,
     pub snapdragon_accelerator_target: SnapdragonAcceleratorTarget,
     pub snapdragon_accelerator_host: SnapdragonAcceleratorHost,
     pub exynos_accelerator_target: ExynosAcceleratorTarget,
@@ -290,6 +318,10 @@ pub enum Artifact {
     BluetoothAccess(BluetoothAccessArtifact),
     BluetoothProfile(BluetoothProfileArtifact),
     AcceleratorModel(AcceleratorArtifact),
+    MediaTekAccelerator(MediaTekAcceleratorArtifact),
+    TensorAccelerator(TensorAcceleratorArtifact),
+    KirinAccelerator(KirinAcceleratorArtifact),
+    NvidiaCuda(NvidiaCudaArtifact),
     SnapdragonAccelerator(SnapdragonAcceleratorArtifact),
     ExynosAccelerator(ExynosAcceleratorArtifact),
 }
@@ -330,6 +362,10 @@ impl Artifact {
             Self::BluetoothContinuity(a) => a.contract,
             Self::BluetoothAccess(a) => a.contract,
             Self::BluetoothProfile(a) => a.contract,
+            Self::MediaTekAccelerator(_) => crate::mediatek_accelerator_caprichio::CONTRACT,
+            Self::TensorAccelerator(_) => crate::tensor_accelerator_caprichio::CONTRACT,
+            Self::KirinAccelerator(_) => crate::kirin_accelerator_caprichio::CONTRACT,
+            Self::NvidiaCuda(_) => crate::nvidia_accelerator_caprichio::CONTRACT,
             Self::SnapdragonAccelerator(_) => crate::snapdragon_accelerator_caprichio::CONTRACT,
             Self::ExynosAccelerator(_) => crate::exynos_accelerator_caprichio::CONTRACT,
             Self::AcceleratorModel(a) => a.contract,
@@ -371,6 +407,10 @@ impl Artifact {
             Self::BluetoothContinuity(_) => "apple-ble-continuity-bounded-restoration",
             Self::BluetoothAccess(_) => "apple-ble-access-bounded-mapping",
             Self::BluetoothProfile(_) => "apple-ble-profile-bounded-classification",
+            Self::MediaTekAccelerator(_) => "mediatek-npu-bounded-delegate-plan",
+            Self::TensorAccelerator(_) => "tensor-npu-bounded-delegate-plan",
+            Self::KirinAccelerator(_) => "kirin-npu-bounded-delegate-plan",
+            Self::NvidiaCuda(_) => "nvidia-cuda-checked-launch-plan",
             Self::SnapdragonAccelerator(_) => "snapdragon-hexagon-bounded-delegate-plan",
             Self::ExynosAccelerator(_) => "exynos-npu-bounded-delegate-plan",
             Self::AcceleratorModel(_) => "per-model-device-accelerator",
@@ -412,6 +452,10 @@ impl Artifact {
             Self::BluetoothContinuity(a) => a.recipe_version,
             Self::BluetoothAccess(a) => a.recipe_version,
             Self::BluetoothProfile(a) => a.recipe_version,
+            Self::MediaTekAccelerator(a) => a.recipe_version,
+            Self::TensorAccelerator(a) => a.recipe_version,
+            Self::KirinAccelerator(a) => a.recipe_version,
+            Self::NvidiaCuda(a) => a.recipe_version,
             Self::SnapdragonAccelerator(a) => a.recipe_version,
             Self::ExynosAccelerator(a) => a.recipe_version,
             Self::AcceleratorModel(a) => a.recipe_version,
@@ -453,6 +497,10 @@ impl Artifact {
             Self::BluetoothContinuity(a) => &a.canonical_ir,
             Self::BluetoothAccess(a) => &a.canonical_ir,
             Self::BluetoothProfile(a) => &a.canonical_ir,
+            Self::MediaTekAccelerator(a) => &a.canonical_ir,
+            Self::TensorAccelerator(a) => &a.canonical_ir,
+            Self::KirinAccelerator(a) => &a.canonical_ir,
+            Self::NvidiaCuda(a) => &a.canonical_ir,
             Self::SnapdragonAccelerator(a) => &a.canonical_ir,
             Self::ExynosAccelerator(a) => &a.canonical_ir,
             Self::AcceleratorModel(a) => &a.canonical_ir,
@@ -494,6 +542,10 @@ impl Artifact {
             Self::BluetoothContinuity(a) => &a.source,
             Self::BluetoothAccess(a) => &a.source,
             Self::BluetoothProfile(a) => &a.source,
+            Self::MediaTekAccelerator(a) => &a.source,
+            Self::TensorAccelerator(a) => &a.source,
+            Self::KirinAccelerator(a) => &a.source,
+            Self::NvidiaCuda(a) => &a.source,
             Self::SnapdragonAccelerator(a) => &a.source,
             Self::ExynosAccelerator(a) => &a.source,
             Self::AcceleratorModel(a) => &a.source,
@@ -535,8 +587,12 @@ pub const fn supported_contracts() -> &'static [&'static str] {
         crate::bluetooth_profile_caprichio::CONTRACT,
         crate::bluetooth_stream_caprichio::CONTRACT,
         crate::metal_caprichio::CONTRACT,
+        crate::nvidia_accelerator_caprichio::CONTRACT,
         crate::exynos_accelerator_caprichio::CONTRACT,
+        crate::kirin_accelerator_caprichio::CONTRACT,
+        crate::mediatek_accelerator_caprichio::CONTRACT,
         crate::snapdragon_accelerator_caprichio::CONTRACT,
+        crate::tensor_accelerator_caprichio::CONTRACT,
         crate::apple_pay_caprichio::CONTRACT,
         crate::google_pay_caprichio::CONTRACT,
         crate::samsung_pay_caprichio::CONTRACT,
@@ -575,6 +631,10 @@ pub enum NegotiationError {
     Parallelism(crate::parallelism_caprichio::Diagnostic),
     InputValidation(crate::input_validation_caprichio::Diagnostic),
     Keychain(crate::keychain_caprichio::Diagnostic),
+    MediaTekAccelerator(crate::mediatek_accelerator_caprichio::MediaTekAcceleratorDiagnostic),
+    TensorAccelerator(crate::tensor_accelerator_caprichio::TensorAcceleratorDiagnostic),
+    KirinAccelerator(crate::kirin_accelerator_caprichio::KirinAcceleratorDiagnostic),
+    NvidiaCuda(crate::nvidia_accelerator_caprichio::NvidiaCudaDiagnostic),
     SnapdragonAccelerator(crate::snapdragon_accelerator_caprichio::SnapdragonAcceleratorDiagnostic),
     ExynosAccelerator(crate::exynos_accelerator_caprichio::ExynosAcceleratorDiagnostic),
     Metal(crate::metal_caprichio::Diagnostic),
@@ -631,6 +691,34 @@ impl fmt::Display for NegotiationError {
                 write!(f, "input validation negotiation failed: {error}")
             }
             Self::Keychain(error) => write!(f, "keychain negotiation failed: {error}"),
+            Self::MediaTekAccelerator(error) => {
+                write!(
+                    f,
+                    "MediaTek neural-acceleration negotiation failed: {e}",
+                    e = error
+                )
+            }
+            Self::TensorAccelerator(error) => {
+                write!(
+                    f,
+                    "Tensor neural-acceleration negotiation failed: {e}",
+                    e = error
+                )
+            }
+            Self::KirinAccelerator(error) => {
+                write!(
+                    f,
+                    "Kirin neural-acceleration negotiation failed: {e}",
+                    e = error
+                )
+            }
+            Self::NvidiaCuda(error) => {
+                write!(
+                    f,
+                    "NVIDIA CUDA negotiation failed: {e}",
+                    e = error
+                )
+            }
             Self::SnapdragonAccelerator(error) => {
                 write!(
                     f,
@@ -708,8 +796,12 @@ pub fn negotiate(
             && *id != crate::parallelism_caprichio::CONTRACT
             && *id != crate::input_validation_caprichio::CONTRACT
             && *id != crate::keychain_caprichio::CONTRACT
+            && *id != crate::mediatek_accelerator_caprichio::CONTRACT
+            && *id != crate::tensor_accelerator_caprichio::CONTRACT
+            && *id != crate::kirin_accelerator_caprichio::CONTRACT
             && *id != crate::snapdragon_accelerator_caprichio::CONTRACT
             && *id != crate::exynos_accelerator_caprichio::CONTRACT
+            && *id != crate::nvidia_accelerator_caprichio::CONTRACT
             && *id != crate::metal_caprichio::CONTRACT
             && *id != crate::touch_id_caprichio::CONTRACT
             && *id != crate::face_id_caprichio::CONTRACT
@@ -751,6 +843,10 @@ pub fn negotiate(
     let needs_parallelism = ordered.contains(crate::parallelism_caprichio::CONTRACT);
     let needs_input_validation = ordered.contains(crate::input_validation_caprichio::CONTRACT);
     let needs_keychain = ordered.contains(crate::keychain_caprichio::CONTRACT);
+    let needs_mediatek_neural_accel = ordered.contains(crate::mediatek_accelerator_caprichio::CONTRACT);
+    let needs_tensor_neural_accel = ordered.contains(crate::tensor_accelerator_caprichio::CONTRACT);
+    let needs_kirin_neural_accel = ordered.contains(crate::kirin_accelerator_caprichio::CONTRACT);
+    let needs_nvidia_cuda = ordered.contains(crate::nvidia_accelerator_caprichio::CONTRACT);
     let needs_snapdragon_accelerator = ordered.contains(crate::snapdragon_accelerator_caprichio::CONTRACT);
     let needs_exynos_accelerator = ordered.contains(crate::exynos_accelerator_caprichio::CONTRACT);
     let needs_metal = ordered.contains(crate::metal_caprichio::CONTRACT);
@@ -830,6 +926,26 @@ pub fn negotiate(
     }
     if request.keychain.is_some() && !needs_keychain {
         return Err(NegotiationError::UnexpectedDeclaration { kind: "keychain" });
+    }
+    if request.mediatek_neural_accel.is_some() && !needs_mediatek_neural_accel {
+        return Err(NegotiationError::UnexpectedDeclaration {
+            kind: "mediatek_neural_accel",
+        });
+    }
+    if request.tensor_neural_accel.is_some() && !needs_tensor_neural_accel {
+        return Err(NegotiationError::UnexpectedDeclaration {
+            kind: "tensor_neural_accel",
+        });
+    }
+    if request.kirin_neural_accel.is_some() && !needs_kirin_neural_accel {
+        return Err(NegotiationError::UnexpectedDeclaration {
+            kind: "kirin_neural_accel",
+        });
+    }
+    if request.nvidia_cuda.is_some() && !needs_nvidia_cuda {
+        return Err(NegotiationError::UnexpectedDeclaration {
+            kind: "nvidia_cuda",
+        });
     }
     if request.snapdragon_neural_accel.is_some() && !needs_snapdragon_accelerator {
         return Err(NegotiationError::UnexpectedDeclaration {
@@ -1156,6 +1272,66 @@ pub fn negotiate(
                         .map_err(NegotiationError::Keychain)?,
                 )
             }
+            crate::mediatek_accelerator_caprichio::CONTRACT => {
+                let declaration = request
+                    .mediatek_neural_accel
+                    .clone()
+                    .ok_or(NegotiationError::MissingDeclaration {
+                        capability: crate::mediatek_accelerator_caprichio::CONTRACT,
+                    })?;
+                let ir = declaration
+                    .normalize()
+                    .map_err(NegotiationError::MediaTekAccelerator)?;
+                Artifact::MediaTekAccelerator(
+                    ir.lower_checked(host.mediatek_neural_accel_target, host.mediatek_neural_accel_host)
+                        .map_err(NegotiationError::MediaTekAccelerator)?,
+                )
+            }
+            crate::tensor_accelerator_caprichio::CONTRACT => {
+                let declaration = request
+                    .tensor_neural_accel
+                    .clone()
+                    .ok_or(NegotiationError::MissingDeclaration {
+                        capability: crate::tensor_accelerator_caprichio::CONTRACT,
+                    })?;
+                let ir = declaration
+                    .normalize()
+                    .map_err(NegotiationError::TensorAccelerator)?;
+                Artifact::TensorAccelerator(
+                    ir.lower_checked(host.tensor_neural_accel_target, host.tensor_neural_accel_host)
+                        .map_err(NegotiationError::TensorAccelerator)?,
+                )
+            }
+            crate::kirin_accelerator_caprichio::CONTRACT => {
+                let declaration = request
+                    .kirin_neural_accel
+                    .clone()
+                    .ok_or(NegotiationError::MissingDeclaration {
+                        capability: crate::kirin_accelerator_caprichio::CONTRACT,
+                    })?;
+                let ir = declaration
+                    .normalize()
+                    .map_err(NegotiationError::KirinAccelerator)?;
+                Artifact::KirinAccelerator(
+                    ir.lower_checked(host.kirin_neural_accel_target, host.kirin_neural_accel_host)
+                        .map_err(NegotiationError::KirinAccelerator)?,
+                )
+            }
+            crate::nvidia_accelerator_caprichio::CONTRACT => {
+                let declaration = request
+                    .nvidia_cuda
+                    .clone()
+                    .ok_or(NegotiationError::MissingDeclaration {
+                        capability: crate::nvidia_accelerator_caprichio::CONTRACT,
+                    })?;
+                let ir = declaration
+                    .normalize()
+                    .map_err(NegotiationError::NvidiaCuda)?;
+                Artifact::NvidiaCuda(
+                    ir.lower_checked(host.nvidia_cuda_target, host.nvidia_cuda_host)
+                        .map_err(NegotiationError::NvidiaCuda)?,
+                )
+            }
             crate::snapdragon_accelerator_caprichio::CONTRACT => {
                 let declaration = request
                     .snapdragon_neural_accel
@@ -1418,6 +1594,10 @@ pub fn negotiate(
             Artifact::BluetoothContinuity(_) => crate::bluetooth_continuity_caprichio::CONTRACT,
             Artifact::BluetoothAccess(_) => crate::bluetooth_access_caprichio::CONTRACT,
             Artifact::BluetoothProfile(_) => crate::bluetooth_profile_caprichio::CONTRACT,
+            Artifact::MediaTekAccelerator(_) => crate::mediatek_accelerator_caprichio::CONTRACT,
+            Artifact::TensorAccelerator(_) => crate::tensor_accelerator_caprichio::CONTRACT,
+            Artifact::KirinAccelerator(_) => crate::kirin_accelerator_caprichio::CONTRACT,
+            Artifact::NvidiaCuda(_) => crate::nvidia_accelerator_caprichio::CONTRACT,
             Artifact::SnapdragonAccelerator(_) => crate::snapdragon_accelerator_caprichio::CONTRACT,
             Artifact::ExynosAccelerator(_) => crate::exynos_accelerator_caprichio::CONTRACT,
             Artifact::AcceleratorModel(ref a) => a.contract,
@@ -1569,6 +1749,34 @@ mod tests {
                 pass_kit: true,
                 secure_element_credential: true,
                 network_session: true,
+                utf8_strings: true,
+            },
+            mediatek_neural_accel_target: MediaTekAcceleratorTarget::MediaTek,
+            mediatek_neural_accel_host: MediaTekAcceleratorHost {
+                apu_dsp: true,
+                neural_delegate: true,
+                int8_model: true,
+                utf8_strings: true,
+            },
+            tensor_neural_accel_target: TensorAcceleratorTarget::Tensor,
+            tensor_neural_accel_host: TensorAcceleratorHost {
+                apu_dsp: true,
+                neural_delegate: true,
+                int8_model: true,
+                utf8_strings: true,
+            },
+            kirin_neural_accel_target: KirinAcceleratorTarget::Kirin,
+            kirin_neural_accel_host: KirinAcceleratorHost {
+                apu_dsp: true,
+                neural_delegate: true,
+                int8_model: true,
+                utf8_strings: true,
+            },
+            nvidia_cuda_target: NvidiaCudaTarget::NvidiaCuda,
+            nvidia_cuda_host: NvidiaCudaHost {
+                cuda_device: true,
+                cuda_runtime_api: true,
+                int8_model: true,
                 utf8_strings: true,
             },
             snapdragon_accelerator_target: SnapdragonAcceleratorTarget::Snapdragon,
@@ -1982,6 +2190,10 @@ mod tests {
         assert!(!supported_contracts().contains(&"goya.hardware.biometry.v1"));
 
         let request = Request {
+        nvidia_cuda: None,
+        kirin_neural_accel: None,
+        mediatek_neural_accel: None,
+        tensor_neural_accel: None,
         snapdragon_neural_accel: None,
         exynos_neural_accel: None,
             capabilities: vec![contract.into()],
@@ -2063,6 +2275,10 @@ mod tests {
         assert!(!supported_contracts().contains(&"goya.hardware.biometry.face_id.v2"));
 
         let request = Request {
+        nvidia_cuda: None,
+        kirin_neural_accel: None,
+        mediatek_neural_accel: None,
+        tensor_neural_accel: None,
         snapdragon_neural_accel: None,
         exynos_neural_accel: None,
             capabilities: vec![contract.into()],
@@ -2127,6 +2343,10 @@ mod tests {
         assert!(!supported_contracts().contains(&"goya.hardware.payments.v1"));
 
         let request = Request {
+        nvidia_cuda: None,
+        kirin_neural_accel: None,
+        mediatek_neural_accel: None,
+        tensor_neural_accel: None,
         snapdragon_neural_accel: None,
         exynos_neural_accel: None,
             capabilities: vec![contract.into()],
@@ -2274,6 +2494,10 @@ mod tests {
         assert!(!supported_contracts().contains(&"goya.hardware.bluetooth.v1"));
 
         let request = Request {
+        nvidia_cuda: None,
+        kirin_neural_accel: None,
+        mediatek_neural_accel: None,
+        tensor_neural_accel: None,
         snapdragon_neural_accel: None,
         exynos_neural_accel: None,
             capabilities: vec![contract.into()],
@@ -2356,6 +2580,10 @@ mod tests {
         assert!(supported_contracts().contains(&contract));
 
         let request = Request {
+        nvidia_cuda: None,
+        kirin_neural_accel: None,
+        mediatek_neural_accel: None,
+        tensor_neural_accel: None,
         snapdragon_neural_accel: None,
         exynos_neural_accel: None,
             capabilities: vec![contract.into()],
@@ -2430,6 +2658,10 @@ mod tests {
         assert!(supported_contracts().contains(&contract));
 
         let request = Request {
+        nvidia_cuda: None,
+        kirin_neural_accel: None,
+        mediatek_neural_accel: None,
+        tensor_neural_accel: None,
         snapdragon_neural_accel: None,
         exynos_neural_accel: None,
             capabilities: vec![contract.into()],
@@ -2538,6 +2770,10 @@ mod tests {
         assert!(!supported_contracts().contains(&"goya.hardware.bluetooth.guard"));
 
         let request = Request {
+        nvidia_cuda: None,
+        kirin_neural_accel: None,
+        mediatek_neural_accel: None,
+        tensor_neural_accel: None,
         snapdragon_neural_accel: None,
         exynos_neural_accel: None,
             capabilities: vec![contract.into()],
@@ -2625,6 +2861,10 @@ mod tests {
         assert!(!supported_contracts().contains(&"goya.hardware.bluetooth.continuity"));
 
         let request = Request {
+        nvidia_cuda: None,
+        kirin_neural_accel: None,
+        mediatek_neural_accel: None,
+        tensor_neural_accel: None,
         snapdragon_neural_accel: None,
         exynos_neural_accel: None,
             capabilities: vec![contract.into()],
@@ -2721,6 +2961,10 @@ mod tests {
         assert!(supported_contracts().contains(&contract));
 
         let request = Request {
+        nvidia_cuda: None,
+        kirin_neural_accel: None,
+        mediatek_neural_accel: None,
+        tensor_neural_accel: None,
         snapdragon_neural_accel: None,
         exynos_neural_accel: None,
             capabilities: vec![contract.into()],
@@ -2822,6 +3066,10 @@ mod tests {
         assert!(supported_contracts().contains(&contract));
 
         let request = Request {
+        nvidia_cuda: None,
+        kirin_neural_accel: None,
+        mediatek_neural_accel: None,
+        tensor_neural_accel: None,
         snapdragon_neural_accel: None,
         exynos_neural_accel: None,
             capabilities: vec![contract.into()],
@@ -2910,6 +3158,10 @@ mod tests {
         assert!(!supported_contracts().contains(&"goya.hardware.keychain.v1"));
 
         let request = Request {
+        nvidia_cuda: None,
+        kirin_neural_accel: None,
+        mediatek_neural_accel: None,
+        tensor_neural_accel: None,
         snapdragon_neural_accel: None,
         exynos_neural_accel: None,
             capabilities: vec![contract.into()],
@@ -2999,6 +3251,10 @@ mod tests {
         assert!(!supported_contracts().contains(&"goya.hardware.gpu_compute.v1"));
 
         let request = Request {
+        nvidia_cuda: None,
+        kirin_neural_accel: None,
+        mediatek_neural_accel: None,
+        tensor_neural_accel: None,
         snapdragon_neural_accel: None,
         exynos_neural_accel: None,
             capabilities: vec![contract.into()],
@@ -3076,6 +3332,10 @@ mod tests {
     #[test]
     fn mixed_request_is_sorted_and_artifacts_keep_contract_identity() {
         let request = Request {
+        nvidia_cuda: None,
+        kirin_neural_accel: None,
+        mediatek_neural_accel: None,
+        tensor_neural_accel: None,
         snapdragon_neural_accel: None,
         exynos_neural_accel: None,
             capabilities: vec![
@@ -3252,8 +3512,12 @@ mod tests {
                 "goya.hardware.bluetooth.profile.v1",
                 "goya.hardware.bluetooth.stream.v1",
                 "goya.hardware.gpu_compute.apple_silicon_metal.v1",
+                "goya.hardware.gpu_compute.nvidia_cuda.v1",
                 "goya.hardware.neural_accel.exynos.v1",
+                "goya.hardware.neural_accel.kirin.v1",
+                "goya.hardware.neural_accel.mediatek.v1",
                 "goya.hardware.neural_accel.snapdragon.v1",
+                "goya.hardware.neural_accel.tensor.v1",
                 "goya.hardware.payments.apple_pay.v1",
                 "goya.hardware.payments.google_pay.v1",
                 "goya.hardware.payments.samsung_pay.v1",
@@ -3284,6 +3548,10 @@ mod tests {
         assert!(!supported_contracts().contains(&"goya.compute.batching.v1"));
 
         let request = Request {
+        nvidia_cuda: None,
+        kirin_neural_accel: None,
+        mediatek_neural_accel: None,
+        tensor_neural_accel: None,
         snapdragon_neural_accel: None,
         exynos_neural_accel: None,
             capabilities: vec![contract.into()],
@@ -3356,6 +3624,10 @@ mod tests {
         assert!(!supported_contracts().contains(&"goya.compute.deadline.v1"));
 
         let request = Request {
+        nvidia_cuda: None,
+        kirin_neural_accel: None,
+        mediatek_neural_accel: None,
+        tensor_neural_accel: None,
         snapdragon_neural_accel: None,
         exynos_neural_accel: None,
             capabilities: vec![contract.into()],
@@ -3423,6 +3695,10 @@ mod tests {
         assert!(!supported_contracts().contains(&"goya.network.http.v1"));
 
         let request = Request {
+        nvidia_cuda: None,
+        kirin_neural_accel: None,
+        mediatek_neural_accel: None,
+        tensor_neural_accel: None,
         snapdragon_neural_accel: None,
         exynos_neural_accel: None,
             capabilities: vec![contract.into()],
@@ -3502,6 +3778,10 @@ mod tests {
         assert!(!supported_contracts().contains(&"goya.data.compression.v1"));
 
         let request = Request {
+        nvidia_cuda: None,
+        kirin_neural_accel: None,
+        mediatek_neural_accel: None,
+        tensor_neural_accel: None,
         snapdragon_neural_accel: None,
         exynos_neural_accel: None,
             capabilities: vec![stream_id.into(), compression_id.into()],
@@ -3624,6 +3904,10 @@ mod tests {
         assert!(!supported_contracts().contains(&"goya.data.csv.v1"));
 
         let request = Request {
+        nvidia_cuda: None,
+        kirin_neural_accel: None,
+        mediatek_neural_accel: None,
+        tensor_neural_accel: None,
         snapdragon_neural_accel: None,
         exynos_neural_accel: None,
             capabilities: vec![crate::compression_caprichio::CONTRACT.into(), csv_id.into()],
@@ -3714,6 +3998,10 @@ mod tests {
         assert!(!supported_contracts().contains(&"compute.priorities"));
         assert!(!supported_contracts().contains(&"goya.compute.priority.v1"));
         let request = Request {
+        nvidia_cuda: None,
+        kirin_neural_accel: None,
+        mediatek_neural_accel: None,
+        tensor_neural_accel: None,
         snapdragon_neural_accel: None,
         exynos_neural_accel: None,
             capabilities: vec![crate::deadline_caprichio::CONTRACT.into(), contract.into()],
@@ -3793,6 +4081,10 @@ mod tests {
         assert!(!supported_contracts().contains(&"security.input_validation"));
         assert!(!supported_contracts().contains(&"goya.security.input_validation.v1"));
         let request = Request {
+        nvidia_cuda: None,
+        kirin_neural_accel: None,
+        mediatek_neural_accel: None,
+        tensor_neural_accel: None,
         snapdragon_neural_accel: None,
         exynos_neural_accel: None,
             capabilities: vec![
@@ -4136,6 +4428,10 @@ mod tests {
     #[test]
     fn filesystem_negotiation_maps_only_the_narrow_contract_and_checks_host() {
         let request = Request {
+        nvidia_cuda: None,
+        kirin_neural_accel: None,
+        mediatek_neural_accel: None,
+        tensor_neural_accel: None,
         snapdragon_neural_accel: None,
         exynos_neural_accel: None,
             capabilities: vec![crate::filesystem_caprichio::CONTRACT.into()],
@@ -4179,6 +4475,10 @@ mod tests {
     #[test]
     fn memory_is_the_only_supported_memory_contract_and_requires_a_matching_host() {
         let request = Request {
+        nvidia_cuda: None,
+        kirin_neural_accel: None,
+        mediatek_neural_accel: None,
+        tensor_neural_accel: None,
         snapdragon_neural_accel: None,
         exynos_neural_accel: None,
             capabilities: vec![crate::memory_caprichio::CONTRACT.into()],
@@ -4215,6 +4515,10 @@ mod tests {
     #[test]
     fn missing_host_facilities_are_propagated_as_lowering_errors() {
         let request = Request {
+        nvidia_cuda: None,
+        kirin_neural_accel: None,
+        mediatek_neural_accel: None,
+        tensor_neural_accel: None,
         snapdragon_neural_accel: None,
         exynos_neural_accel: None,
             capabilities: vec![crate::CONTRACT.into()],
@@ -4237,6 +4541,10 @@ mod tests {
     fn benchmark_negotiation() {
         use std::time::Instant;
         let request = Request {
+        nvidia_cuda: None,
+        kirin_neural_accel: None,
+        mediatek_neural_accel: None,
+        tensor_neural_accel: None,
         snapdragon_neural_accel: None,
         exynos_neural_accel: None,
             capabilities: vec![
