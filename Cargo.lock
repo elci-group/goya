@@ -1342,6 +1342,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ie-gate"
+version = "0.1.8"
+dependencies = [
+ "ie-contract",
+]
+
+[[package]]
 name = "ie-loopback"
 version = "0.1.8"
 dependencies = [
