@@ -78,13 +78,28 @@ fn main() {
 
 /// App-side bridge: logs every dispatched intent (visible via logcat, tagged
 /// `QuitasolBridge`) and records the last intent for adb verification.
+///
+/// VM-test findings baked in (observed on the AOSP 34 emulator, 2026-11-19):
+/// - a `MediaSessionCompat` without a `PlaybackState` is NOT the media
+///   button session — `cmd media_session dispatch` routes nowhere until
+///   `setPlaybackState` is called (state PLAYING, actions
+///   PLAY|PAUSE|FAST_FORWARD);
+/// - kotlin-stdlib must be dexed into the APK (NoClassDefFoundError:
+///   kotlin/jvm/internal/Intrinsics otherwise);
+/// - androidx.versionedparcelable must be on the classpath — SystemUI's
+///   MediaController attach crashes the process without it (real builds
+///   fetch androidx.versionedparcelable:versionedparcelable; the VM test
+///   stubbed it because Google Maven was unreachable from the test host).
 const MAIN_APP: &str = r#"// Test harness bridge — not generated; app-side wiring of the Q3 contract.
 package app.quitasol
 
+import android.app.Activity
 import android.app.Application
-import android.content.Context
-import android.support.v4.media.session.MediaSessionCompat
+import android.support.v4.media.MediaSessionCompat
+import android.support.v4.media.session.PlaybackStateCompat
 import android.util.Log
+
+class TestActivity : Activity()
 
 class QuitasolTestBridge : QuitasolIntentBridge {
     override fun invoke(intent: String): Boolean {
@@ -104,6 +119,18 @@ class MainApplication : Application() {
         super.onCreate()
         val session = MediaSessionCompat(this, "QuitasolSession")
         session.setCallback(QuitasolMediaSessionCallback(QuitasolTestBridge()))
+        // Without a PlaybackState the session is never chosen as the media
+        // button session on API 34 and dispatch routes nowhere.
+        session.setPlaybackState(
+            PlaybackStateCompat.Builder()
+                .setActions(
+                    PlaybackStateCompat.ACTION_PLAY
+                        or PlaybackStateCompat.ACTION_PAUSE
+                        or PlaybackStateCompat.ACTION_FAST_FORWARD
+                )
+                .setState(PlaybackStateCompat.STATE_PLAYING, 0L, 1.0f)
+                .build()
+        )
         session.isActive = true
         Log.i("QuitasolBridge", "session_active")
     }
@@ -113,6 +140,8 @@ class MainApplication : Application() {
 const MANIFEST: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="app.quitasol">
+    <!-- targetSdk-0 APKs are refused at install (INSTALL_FAILED_DEPRECATED_SDK_VERSION). -->
+    <uses-sdk android:minSdkVersion="21" android:targetSdkVersion="34" />
     <!-- Fire OS MediaSession voice transport permission (Q2 plan emission).
          Unknown to stock Android; harmless to declare on AOSP images. -->
     <uses-permission android:name="com.amazon.permission.media.session.voicecommandcontrol" />
@@ -120,6 +149,14 @@ const MANIFEST: &str = r#"<?xml version="1.0" encoding="utf-8"?>
         android:name=".MainApplication"
         android:label="QuitasolVMTest"
         android:allowBackup="false">
+        <!-- A launcher activity: without one the process never starts on a
+             clean emulator install (nothing to monkey/am start). -->
+        <activity android:name=".TestActivity" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
     </application>
 </manifest>
 "#;
