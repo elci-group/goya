@@ -18,8 +18,29 @@
       "result": "APK built (491863 bytes); d8 emitted a single classes.dex with no missing-class warnings; apksigner verify OK."
     },
     "runtime_dispatch_aosp": {
-      "status": "PENDING",
-      "reason": "Emulator dispatch test in flight; verdict to be recorded from observed logcat only. Harness: scripts/quitasol-vmtest.sh --with-emulator."
+      "status": "PASS",
+      "claim": "dispatch-table-executed",
+      "measured_on": "2026-11-19",
+      "environment": "headless AOSP android-34 google_apis x86_64 emulator, AVD quitasol-test, KVM, boot ~340s",
+      "observed_logcat": [
+        "I QuitasolBridge: session_active",
+        "I QuitasolBridge: intent_dispatched:playback",
+        "I QuitasolBridge: intent_dispatched:playback"
+      ],
+      "dispatches": {
+        "play": "routed to our onPlay override; intent_dispatched:playback",
+        "pause": "routed to our onPause override; intent_dispatched:playback",
+        "fast-forward": "no log line — correctly absent: no binding exists for this scene (unresolved intents bind nothing); absence observed, not assumed"
+      },
+      "findings": [
+        "MediaSessionCompat without a PlaybackState is not the media button session on API 34: dumpsys showed 'Media button session is null' and dispatch routed nowhere (0 callbacks) until setPlaybackState(STATE_PLAYING, actions PLAY|PAUSE|FAST_FORWARD) was added. This is a real integration requirement, now baked into the dump_glue harness.",
+        "targetSdk-0 APKs are refused at install (INSTALL_FAILED_DEPRECATED_SDK_VERSION): packaging must set min/target SDK (aapt2 link --min-sdk-version/--target-sdk-version or uses-sdk in the manifest).",
+        "A manifest without a launcher activity leaves the process unstartable on a clean install (nothing to monkey/am start).",
+        "kotlin-stdlib must be dexed into the APK: NoClassDefFoundError kotlin/jvm/internal/Intrinsics at Application.onCreate otherwise.",
+        "androidx.versionedparcelable must be present: SystemUI MediaController attach crashes the process via MediaSessionCompat's GET_EXTRA_BINDER path. Real builds fetch androidx.versionedparcelable:versionedparcelable; the test host's proxy blocked Google Maven so minimal stub classes were used in the rebuild only. The repo harness notes this requirement.",
+        "The first build agent's APK failed install for reasons 1-3 above; the runtime verdict comes from the emulator agent's rebuild with those fixed plus the PlaybackState patch (disclosed in full)."
+      ],
+      "scope": "Verdict covers the callback-to-intent dispatch table on stock Android. Alexa's speech recognition (the layer that would issue these dispatches from voice) is not present on AOSP and remains a hardware gate."
     },
     "alexa_speech_verification": {
       "status": "BLOCKED",
@@ -45,5 +66,5 @@
     "crates are unchanged: the harness consumes the emitted glue, it does not modify quitasol-semantic.",
     "DIRECTIVE_ID series QUITASOL-* conventions unchanged."
   ],
-  "next_unblock": "Record the runtime_dispatch_aosp verdict strictly from observed emulator logcat (scripts/quitasol-vmtest.sh --with-emulator). Real-hardware Alexa speech verification remains blocked until a Fire TV device is available."
+  "next_unblock": "Real-hardware verification: a Fire TV device to (a) confirm the Fire OS 14+ permission exemption observed in the Q0 audit and (b) run Alexa speech-to-dispatch end to end. The emulator harness (scripts/quitasol-vmtest.sh --with-emulator) is reproducible and now bakes in all five build/run findings."
 }
