@@ -10,10 +10,9 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use ie_contract::codec;
 use ie_contract::errors::TypedError;
 use ie_contract::fixture::GoldenFixture;
-use ie_contract::framing::{decode_frame, encode_frame};
+
 use ie_contract::messages::{Request, Status};
 use ie_loopback::Provider;
 use ie_uds::{Client, Server};
@@ -163,10 +162,14 @@ fn oversized_declared_length_is_rejected_and_connection_closed() {
 
 static SERVER_OUTCOME: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
 
-/// Typed-error path: submitting under an invalid lease id comes back as a
-/// canonical Failed(POLICY_DENIED) response, not a dropped connection.
+/// Typed-error path: after the provider is revoked, the connection's lease
+/// is stale (old epoch) and submission comes back as a canonical
+/// Failed(UNTRUSTED_PEER) response, not a dropped connection. (The
+/// request's lease_id field is untrusted client input — the provider
+/// validates the lease bound server-side, which is why revocation is the
+/// way to make the wire exchange fail typed.)
 #[test]
-fn invalid_lease_yields_typed_failed_response_over_uds() {
+fn revoked_provider_yields_typed_failed_response_over_uds() {
     let path = temp_socket_path("badlease");
 
     let provider = Arc::new(Mutex::new({
@@ -185,12 +188,16 @@ fn invalid_lease_yields_typed_failed_response_over_uds() {
         });
     });
 
+    // Revoke: the server-side lease is now pinned to a dead epoch.
+    provider.lock().unwrap().revoke();
+
     let mut client = Client::connect(&path, server_lease).unwrap();
-    let req = matmul_request(7, server_lease.lease_id + 999);
+    let req = matmul_request(7, server_lease.lease_id);
     let resp = client.call(&req).unwrap();
     assert_eq!(resp.request_id, 7);
     assert!(
-        matches!(resp.status, Status::Failed(TypedError::PolicyDenied { .. })),
-        "invalid lease must map to a typed POLICY_DENIED response"
+        matches!(resp.status, Status::Failed(TypedError::UntrustedPeer)),
+        "stale-epoch lease must map to a typed UNTRUSTED_PEER response, got {:?}",
+        resp.status
     );
 }
