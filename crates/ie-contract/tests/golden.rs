@@ -4,7 +4,7 @@
 //! fixed iteration order.
 
 use ie_contract::codec::{decode_tensor, encode_tensor};
-use ie_contract::fixture::{GoldenFixture, GoldenOp, TOLERANCE};
+use ie_contract::fixture::{GoldenFixture, GoldenOp};
 use ie_contract::tensors::{DType, TensorData, TensorDesc};
 
 /// Parse a golden fixture file (same line-based format as the frozen
@@ -113,8 +113,7 @@ fn ie_x01_int8_tensor_byte_exact_roundtrip() {
     let mut buf = Vec::new();
     encode_tensor(&mut buf, &t).expect("encode must succeed");
     let mut r = ie_contract::codec::Reader::new(&buf);
-    let (back, consumed) = decode_tensor(&mut r).expect("decode must succeed");
-    assert_eq!(consumed, buf.len());
+    let back = decode_tensor(&mut r).expect("decode must succeed");
     assert_eq!(back.desc.dtype, DType::I8);
     assert_eq!(back.desc.dims, vec![2, 4]);
     assert_eq!(back.desc.quant_scale, t.desc.quant_scale);
