@@ -94,11 +94,20 @@ impl SharedProvider {
         }
     }
 
-    /// Owner revokes consent (P02: consumer/provider may revoke).
-    /// Kills the client's outstanding lease; queued work from that client
-    /// is cancelled so it never starts after consent ends.
+    /// Owner revokes consent (P02: provider owner may revoke). The
+    /// client's outstanding lease is released; queued work from that
+    /// client is cancelled so it never starts after consent ends.
     pub fn revoke_client(&mut self, client_id: &str) {
         self.states.insert(client_id.to_string(), ClientState::Revoked);
+        let owned: Vec<u64> = self
+            .lease_owner
+            .iter()
+            .filter(|(_, c)| c.as_str() == client_id)
+            .map(|(id, _)| *id)
+            .collect();
+        for id in owned {
+            self.inner.release_lease(id);
+        }
     }
 
     fn client_ok(&self, client_id: &str) -> Result<(), TypedError> {
