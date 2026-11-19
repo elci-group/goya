@@ -1336,6 +1336,7 @@ version = "0.1.8"
 dependencies = [
  "ie-contract",
  "ie-cpu",
+ "ie-loopback",
 ]
 
 [[package]]

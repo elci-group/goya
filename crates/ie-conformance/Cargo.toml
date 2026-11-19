@@ -1,0 +1,10 @@
+[package]
+name = "ie-conformance"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dev-dependencies]
+ie-contract.workspace = true
+ie-cpu.workspace = true
+ie-loopback.workspace = true

@@ -70,20 +70,7 @@ fn encoded_response() -> Vec<u8> {
     buf
 }
 
-/// Every truncation of a canonical message must yield a typed error —
-/// never a panic, never a bogus Ok with consumed beyond the buffer.
-fn assert_truncations_mutation_safe(buf: &[u8]) {
-    for cut in 0..buf.len() {
-        let sliced = &buf[..cut];
-        let r = decode_kind(buf, sliced);
-        assert_mutation_safe(buf, sliced, r);
-    }
-}
-
-/// Call the right decoder for the kind of buffer. We distinguish by trying
-/// both: request and response decoders have disjoint leading request_id
-/// interpretation but both are total functions on &[u8]; we fuzz each with
-/// its own encoder output, tracked by `is_request`.
+/// Call the right decoder for the kind of buffer.
 fn decode_request_checked(buf: &[u8]) -> Result<usize, CodecError> {
     codec::decode_request(buf).map(|(_, c)| c)
 }
