@@ -52,7 +52,7 @@ fn io_error(e: std::io::Error) -> TypedError {
 /// length is validated against `MAX_MESSAGE_BYTES` *before* any body
 /// buffer is reserved. Returns the full frame bytes (prefix + payload).
 /// On an oversized declared length the caller must close the connection.
-pub fn read_frame_bounded(stream: &UnixStream) -> Result<Vec<u8>, TypedError> {
+pub fn read_frame_bounded(mut stream: &UnixStream) -> Result<Vec<u8>, TypedError> {
     use std::io::Read;
     let mut header = [0u8; 4];
     match stream.read_exact(&mut header) {
@@ -73,7 +73,7 @@ pub fn read_frame_bounded(stream: &UnixStream) -> Result<Vec<u8>, TypedError> {
 }
 
 /// Write one framed message (length prefix + payload) to `stream`.
-pub fn write_frame(stream: &UnixStream, payload: &[u8]) -> Result<(), TypedError> {
+pub fn write_frame(mut stream: &UnixStream, payload: &[u8]) -> Result<(), TypedError> {
     use std::io::Write;
     let frame = encode_frame(payload).map_err(|_| {
         TypedError::Internal { reason: "payload exceeds framing cap".into() }
