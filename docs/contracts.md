@@ -435,7 +435,10 @@ nothing is admitted. Design record:
   `quitasol-semantic::resolve` resolves device support and fallback
   reachability over Nevada (`QS-E2000`..`QS-E2003`), and
   `quitasol-semantic::fireos` emits the Fire OS integration plan
-  (`QUITASOL-FIREOS-PLAN/1-draft`, `QS-E2004` on manifest/scene mismatch).
+  (`QUITASOL-FIREOS-PLAN/1-draft`, `QS-E2004` on manifest/scene mismatch). `quitasol-semantic::runtime`
+  lowers the plan to deterministic Kotlin MediaSession glue
+  (`QUITASOL-MEDIASESSION-RT/1-draft`, `QS-E2005` on callback conflicts;
+  never compiled in-tree).
 - Invariants: parsing and validation are total and deterministic; validation
   never mutates the scene; every intent requires at least one utterance and a
   required non-voice fallback (remote or keyboard); duplicate utterances and
@@ -833,3 +836,18 @@ self-test gate, fixed in the same commit.
 - Invariants: deterministic FP32 in fixed iteration order; validation before
   compute; typed errors only. G2 conformance seed reproduces frozen golden
   fixture T01 exactly and deterministically.
+
+## IE-CPU/2 — Resource ledger and cancellation (`ie-cpu::ledger`, WP-004 seed)
+
+- Provides: `Ledger::new(queue_limit, retention_capacity)`,
+  `register_model`, `submit`, `run_one(now_elapsed_ms)`, `poll`, `cancel`,
+  `queue_depth`.
+- Invariants: bounded queue — saturation is `RESOURCE_EXHAUSTED`, slot
+  released atomically on cancellation or terminal completion;
+  request-ID dedup within retention (no double-queueing); deadlines are
+  remaining durations enforced backend-side, expiry is
+  `DEADLINE_EXCEEDED`; unregistered model digests are `MODEL_MISSING`;
+  consumed terminal results report unknown outcome (`PEER_LOST`) rather
+  than replaying — no exactly-once claim. Op dispatch by rank (rank-1 add,
+  rank-2 matmul) is a reference-backend seed decision, not a wire rule.
+- Stability: Candidate. Conformance seeds T04/T05 embedded as tests.
