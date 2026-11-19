@@ -1,0 +1,11 @@
+# Golden fixture T01 — PAMPER IE-X01 elementwise add (WP-002 expansion).
+# op add; A[4] + B[4] -> C[4]; little-endian FP32, row-major.
+# All values (multiples of 1/8) exact in IEEE-754 f32; sums are exact too,
+# so the deterministic equality assertions hold with zero tolerance slack.
+op add
+a_dims 4
+a 0.5 1.25 -2.75 3.125
+b_dims 4
+b 0.25 -0.5 2.0 1.875
+expected_dims 4
+expected 0.75 0.75 -0.75 5.0

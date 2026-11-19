@@ -1,0 +1,13 @@
+# Golden fixture T01 — PAMPER IE-X01 non-square matmul (WP-002 expansion).
+# op matmul; A[3x2] * B[2x4] -> C[3x4]; little-endian FP32, row-major.
+# All values are small integers; every product and partial sum is exact in
+# IEEE-754 f32 (verified: f32 round-trip of 11,14,17,20,23,30,37,44,35,46,57,68
+# is identity), so the deterministic equality assertions need zero tolerance
+# slack — no judgment call on the frozen 1e-5/1e-4 tolerances was required.
+op matmul
+a_dims 3 2
+a 1.0 2.0 3.0 4.0 5.0 6.0
+b_dims 2 4
+b 1.0 2.0 3.0 4.0 5.0 6.0 7.0 8.0
+expected_dims 3 4
+expected 11.0 14.0 17.0 20.0 23.0 30.0 37.0 44.0 35.0 46.0 57.0 68.0
