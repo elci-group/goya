@@ -57,10 +57,6 @@ impl Ledger {
         }
     }
 
-    fn slot_used(&self) -> bool {
-        self.entries.iter().any(|(_, e)| matches!(e, Entry::Queued(_)))
-    }
-
     /// Admit a request. Reserves a queue slot atomically on success.
     /// Typed rejections: RESOURCE_EXHAUSTED (queue full), MODEL_MISSING
     /// (unregistered digest), INVALID_TENSOR (payload/descriptor mismatch,
@@ -82,7 +78,7 @@ impl Ledger {
         if !self.models.contains(&req.model_sha256) {
             return Err(TypedError::ModelMissing { digest: hex(&req.model_sha256) });
         }
-        if self.slot_used() >= self.queue_limit {
+        if self.queue_depth() >= self.queue_limit {
             return Err(TypedError::ResourceExhausted { reason: "queue full".into() });
         }
         self.entries.push((req.request_id, Entry::Queued(req)));
@@ -100,7 +96,11 @@ impl Ledger {
             self.finish(id, Status::Failed(TypedError::DeadlineExceeded), Vec::new());
             return Some(id);
         }
-        match execute("add", &req.inputs).or_else(|_| execute("matmul", &req.inputs)) {
+        // Dispatch by rank: rank-1 -> add, rank>=2 -> matmul (first op of
+        // the golden subset that fits the input shape).
+        let rank = req.inputs.first().map(|t| t.desc.dims.len()).unwrap_or(0);
+        let op = if rank <= 1 { "add" } else { "matmul" };
+        match execute(op, &req.inputs) {
             Ok(out) => {
                 self.finish(id, Status::Completed, vec![out]);
             }
