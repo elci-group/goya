@@ -161,7 +161,10 @@ impl Server {
             // an undecodable frame closes the connection with a typed error.
             let (payload, _) =
                 decode_frame(&frame).map_err(|_| wire_error("bad frame"))?;
-            let resp = match handler(lease, payload) {
+            let _ = payload;
+            // The handler receives the full framed bytes (prefix included),
+            // exactly the shape loopback's handle_frame consumes.
+            let resp = match handler(lease, &frame) {
                 Ok(r) => r,
                 Err(e) => {
                     // Typed provider failure: surface it canonically as a
