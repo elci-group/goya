@@ -8,6 +8,8 @@
 
 use goya_ir::{Module, Node, NodeId};
 
+pub mod proportional;
+
 /// Contract identifier implemented by this crate.
 pub const LAYOUT_CONTRACT: &str = "GY-LAYOUT/1";
 
