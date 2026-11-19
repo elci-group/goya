@@ -1,0 +1,49 @@
+{
+  "directive": "QUITASOL-VMTEST",
+  "directive_version": "0.0.1",
+  "recorded_on": "2026-11-19",
+  "phase_doc": "docs/quitasol/phase3.md",
+  "summary": "Fire TV OS cannot be installed on a VM: Amazon does not distribute Fire OS or Vega OS system images for emulators or virtual machines, and the Vega Virtual Device lacks Alexa voice services, so voice testing on virtualised targets is impossible by design (docs/quitasol/q0-capability-audit.md). Alexa speech recognition itself is only testable on Amazon hardware. The substitute evidence path: compile the Q3 MediaSession glue (contract QUITASOL-MEDIASESSION-RT/1-draft) into a real signed APK and exercise MediaSession transport dispatch (play/pause/fast-forward via `cmd media_session dispatch`) on a generic AOSP android-34 emulator, with the verdict taken from observed logcat only. An AOSP emulator is not Fire OS: nothing here claims Fire OS behaviour.",
+  "gates": {
+    "toolchain_setup": {
+      "status": "PASS",
+      "result": "JDK 17, Android cmdline-tools, platform android-34, build-tools 34.0.0, platform-tools, emulator, system-images;android-34;google_apis;x86_64, kotlinc 2.0.21, androidx media 1.7.0 / core 1.13.1 from Google Maven."
+    },
+    "kotlin_compilation": {
+      "status": "PASS",
+      "result": "kotlinc 2.0.21 compiled the emitted glue with zero errors and zero warnings against android-34 + androidx.media. First real compile of the glue — supersedes the BLOCKED kotlin_compilation gate in quitasol-q3.json."
+    },
+    "apk_build_and_sign": {
+      "status": "PASS",
+      "result": "APK built (491863 bytes); d8 emitted a single classes.dex with no missing-class warnings; apksigner verify OK."
+    },
+    "runtime_dispatch_aosp": {
+      "status": "PENDING",
+      "reason": "Emulator dispatch test in flight; verdict to be recorded from observed logcat only. Harness: scripts/quitasol-vmtest.sh --with-emulator."
+    },
+    "alexa_speech_verification": {
+      "status": "BLOCKED",
+      "reason": "Alexa speech recognition and voice-command routing are only testable on Amazon hardware; no VM substitute exists (Q0 audit: Vega Virtual Device lacks Alexa voice services, Fire OS images are not distributed)."
+    },
+    "fire_os_conformance": {
+      "status": "BLOCKED",
+      "reason": "The AOSP emulator is not Fire OS. Amazon's Media Session permission com.amazon.permission.media.session.voicecommandcontrol is unknown to stock Android; on the emulator it was exercised only as a declared-but-unenforced manifest permission. No Fire OS behaviour is claimed."
+    }
+  },
+  "toolchain": {
+    "rustc": "1.95.0 (workspace toolchain)",
+    "crate": "quitasol-semantic 0.1.8 (+ runtime.rs)",
+    "kotlinc": "2.0.21",
+    "android": "platform android-34, build-tools 34.0.0, system-images;android-34;google_apis;x86_64",
+    "androidx": "media 1.7.0, core 1.13.1",
+    "branch": "nevada/phase0"
+  },
+  "unchanged": [
+    "The Quitasol proposal remains proposed, not ratified.",
+    "The lowering tier remains unresolved across manifest, plan and glue.",
+    "The glue has never been claimed to run on Fire OS; this VM test is explicitly an AOSP substitute.",
+    "crates are unchanged: the harness consumes the emitted glue, it does not modify quitasol-semantic.",
+    "DIRECTIVE_ID series QUITASOL-* conventions unchanged."
+  ],
+  "next_unblock": "Record the runtime_dispatch_aosp verdict strictly from observed emulator logcat (scripts/quitasol-vmtest.sh --with-emulator). Real-hardware Alexa speech verification remains blocked until a Fire TV device is available."
+}

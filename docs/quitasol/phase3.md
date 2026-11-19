@@ -61,3 +61,16 @@ cargo test -p quitasol-semantic --offline
 ```
 
 Evidence record: [programme/quitasol-q3.json](programme/quitasol-q3.json).
+
+## VM test (Q3 evidence)
+
+Fire TV OS cannot be installed on a VM — Amazon does not distribute Fire OS
+or Vega OS images, and the Vega Virtual Device lacks Alexa voice services
+(see the [Q0 audit](q0-capability-audit.md)). The substitute: the harness in
+[scripts/quitasol-vmtest.sh](../../scripts/quitasol-vmtest.sh) compiles the
+emitted glue into a real signed APK and exercises MediaSession dispatch on a
+generic AOSP 34 emulator. The **compilation** gate is now **PASS** — the
+first real compile of the glue (kotlinc 2.0.21, zero errors/warnings;
+supersedes the BLOCKED gate above). The runtime dispatch verdict on AOSP is
+still pending, recorded only from observed logcat. Evidence record:
+[programme/quitasol-vmtest.json](programme/quitasol-vmtest.json).
