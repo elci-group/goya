@@ -5,6 +5,7 @@
 
 use std::env;
 use std::fs::File;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use ie_contract::fixture::GoldenFixture;
@@ -22,18 +23,16 @@ fn main() {
 }
 
 fn run() -> Result<(), String> {
-    let mut args = env::args().skip(1);
-    let Some(package_path) = args.next() else {
+    let mut args = env::args_os().skip(1);
+    let Some(package_arg) = args.next() else {
         return Err(format!("missing package path\n\n{HELP}"));
     };
-    if package_path == "--help" || package_path == "-h" {
+    if package_arg == "--help" || package_arg == "-h" {
         println!("{HELP}");
         return Ok(());
     }
-    let expected_sha = args
-        .next()
-        .ok_or_else(|| format!("missing expected SHA-256\n\n{HELP}"))
-        .and_then(|value| parse_sha256(&value))?;
+    let package_path = PathBuf::from(package_arg);
+    let expected_sha = parse_sha256(args.next(), "expected SHA-256")?;
     let x = parse_f32(args.next(), "first input")?;
     let y = parse_f32(args.next(), "second input")?;
     if let Some(extra) = args.next() {
@@ -41,7 +40,7 @@ fn run() -> Result<(), String> {
     }
 
     let file = File::open(&package_path)
-        .map_err(|error| format!("cannot open package {package_path:?}: {error}"))?;
+        .map_err(|error| format!("cannot open package {}: {error}", package_path.display()))?;
     let package = ModelPackage::load(file, expected_sha)
         .map_err(|error| format!("package rejected: {} ({error:?})", error.name()))?;
     let mut runtime = Runtime::new(Limits::default());
@@ -63,26 +62,41 @@ fn run() -> Result<(), String> {
     let output = completion
         .result
         .map_err(|error| format!("local execution failed: {} ({error:?})", error.name()))?;
+    let output_len = output.data.len();
     let values = output
         .data
         .chunks_exact(4)
-        .map(|bytes| f32::from_le_bytes(bytes.try_into().expect("four bytes in FP32 output")))
-        .collect::<Vec<_>>();
+        .map(|bytes| {
+            let bytes: [u8; 4] = bytes
+                .try_into()
+                .map_err(|_| "runtime returned a malformed FP32 element".to_string())?;
+            Ok(f32::from_le_bytes(bytes))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    if output_len % 4 != 0 {
+        return Err("runtime returned a truncated FP32 output".into());
+    }
 
     println!("Iberia checked-package local CPU demo");
-    println!("package: {package_path}");
+    println!("package: {}", package_path.display());
     println!("input: [{x}, {y}]");
     println!("output: {values:?}");
-    println!("queue time: {:.3} ms", completion.queue_time.as_secs_f64() * 1_000.0);
-    println!("execution time: {:.3} ms", completion.execution_time.as_secs_f64() * 1_000.0);
-    if values != [14.0, 15.0] {
-        return Err(format!("fixture output was {values:?}, expected [14.0, 15.0] for input [1, 2]"));
-    }
+    println!(
+        "queue time: {:.3} ms",
+        completion.queue_time.as_secs_f64() * 1_000.0
+    );
+    println!(
+        "execution time: {:.3} ms",
+        completion.execution_time.as_secs_f64() * 1_000.0
+    );
     Ok(())
 }
 
-fn parse_f32(value: Option<String>, label: &str) -> Result<f32, String> {
+fn parse_f32(value: Option<std::ffi::OsString>, label: &str) -> Result<f32, String> {
     let value = value.ok_or_else(|| format!("missing {label}\n\n{HELP}"))?;
+    let value = value
+        .into_string()
+        .map_err(|_| format!("{label} must be valid UTF-8 numeric text"))?;
     let parsed = value
         .parse::<f32>()
         .map_err(|error| format!("invalid {label} {value:?}: {error}"))?;
@@ -92,9 +106,15 @@ fn parse_f32(value: Option<String>, label: &str) -> Result<f32, String> {
     Ok(parsed)
 }
 
-fn parse_sha256(value: &str) -> Result<[u8; 32], String> {
+fn parse_sha256(value: Option<std::ffi::OsString>, label: &str) -> Result<[u8; 32], String> {
+    let value = value.ok_or_else(|| format!("missing {label}\n\n{HELP}"))?;
+    let value = value
+        .into_string()
+        .map_err(|_| format!("{label} must be valid UTF-8 hexadecimal text"))?;
     if value.len() != 64 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return Err(format!("expected SHA-256 must be exactly 64 hexadecimal digits, got {value:?}"));
+        return Err(format!(
+            "expected SHA-256 must be exactly 64 hexadecimal digits, got {value:?}"
+        ));
     }
     let mut digest = [0; 32];
     for (index, byte) in digest.iter_mut().enumerate() {
