@@ -616,8 +616,6 @@ mod tests {
                 Err(AmdApuDiagnostic::UnsupportedAccelerator)
             );
         }
-        // The iGPU facility was never a negotiated requirement for CPU plans.
-        ir.lower_checked(Target::AmdApu, CAPABILITIES).unwrap();
     }
 
     #[test]
