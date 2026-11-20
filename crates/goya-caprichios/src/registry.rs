@@ -2210,6 +2210,46 @@ mod tests {
         }
     }
 
+    fn amd_desktop_declaration() -> AmdDesktopDeclaration {
+        AmdDesktopDeclaration {
+            cpu: "Ryzen 9000".into(),
+            worker_threads: 16,
+            batch: 8,
+            workspace_bytes: 65_536,
+            isa: crate::amd_desktop_caprichio::Isa::Avx512,
+        }
+    }
+
+    fn amd_apu_declaration() -> AmdApuDeclaration {
+        AmdApuDeclaration {
+            apu: "Strix Halo".into(),
+            worker_threads: 16,
+            batch: 8,
+            workspace_bytes: 65_536,
+            isa: crate::amd_apu_caprichio::Isa::Avx512,
+        }
+    }
+
+    fn amd_threadripper_declaration() -> AmdThreadripperDeclaration {
+        AmdThreadripperDeclaration {
+            cpu: "Threadripper Pro 7000WX".into(),
+            worker_threads: 96,
+            batch: 8,
+            workspace_bytes: 65_536,
+            isa: crate::amd_threadripper_caprichio::Isa::Avx512,
+        }
+    }
+
+    fn amd_epyc_declaration() -> AmdEpycDeclaration {
+        AmdEpycDeclaration {
+            cpu: "EPYC 9005 (Turin)".into(),
+            worker_threads: 192,
+            batch: 8,
+            workspace_bytes: 65_536,
+            isa: crate::amd_epyc_caprichio::Isa::Avx512,
+        }
+    }
+
     fn touch_id() -> TouchIdDeclaration {
         TouchIdDeclaration {
             max_attempts: 3,
