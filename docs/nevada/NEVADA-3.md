@@ -11,7 +11,7 @@ cd /tmp/nevada-counter
 ./gradlew --offline --dependency-verification strict assembleRelease bundleRelease
 ```
 
-Gradle writes `app/build/outputs/apk/release/app-release-unsigned.apk` and `app/build/outputs/bundle/release/app-release.aab`. The output project includes a Leanback launcher with an xhdpi banner and platform-touchscreen requirement disabled. The Gradle toolchain is shared with Aragon.
+Gradle writes `app/build/outputs/apk/release/app-release-unsigned.apk` and `app/build/outputs/bundle/release/app-release.aab`. The project uses Aragon's locked toolchain and `dev.goya.preview` application ID. Its Leanback launcher includes an xhdpi banner and a density-independent icon. The manifest marks the touchscreen feature optional. [Android TV app requirements](https://developer.android.com/training/tv/get-started/create)
 
 ## Supported scene and runtime
 
