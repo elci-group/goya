@@ -94,6 +94,7 @@ impl Runtime {
                 digest: hex(&digest),
             });
         };
+        let graph = &self.models[graph_index].1;
         if self.pending.len() >= self.limits.max_pending {
             return Err(exhausted("pending queue full"));
         }

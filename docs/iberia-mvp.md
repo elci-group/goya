@@ -10,3 +10,15 @@ The MVP gives a Rust application an in-process CPU endpoint for a small, statica
 4. **Verify the MVP.** Run the six Iberia/España regression packages and require clean formatting and strict Clippy on the local Iberia crate. Record the commands and results below.
 
 The local API is independent of leases, discovery, and transport. The frozen `ie-contract` codec stays intact. ONNX import, signed model packages, quantized execution, accelerators, España delegation, and Goya compiler integration are follow-on work.
+
+## Run the reference app
+
+```sh
+cargo run --locked -p ie-cpu --example iberia_local
+```
+
+The example uses synthetic FP32 inputs and prints the expected affine result `[14.0, 15.0]`, measured queue and execution times, and the preserved baseline `[1.0, 2.0]` after a typed `MODEL_MISSING` response.
+
+For an embedding application, compile a `Graph` from input shapes and ordered nodes, register it with `local::Runtime`, and use the returned digest to submit a request. Drive the queue with `run_one` on the application's chosen worker thread and retrieve the completion with `poll`. The digest covers the graph operations, references, and input shapes. Weights and other tensor values supplied at execution time are request inputs.
+
+The executor runs one job at a time. Queued jobs can be cancelled, and a running graph checks its elapsed deadline periodically inside each kernel. By default, a runtime admits up to 16 graphs, eight queued requests, and eight retained completions. Each job is limited to 8 MiB of tensor payload across its inputs, intermediate values, and output, and 16,777,216 scalar operations. A retrieved or evicted result is unavailable on subsequent polls.
