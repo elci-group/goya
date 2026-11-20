@@ -412,7 +412,10 @@ mod tests {
                     | "Zen 4"
                     | "Zen 5"
             ));
-            assert!(matches!(facts.socket, "AM2+/AM3" | "AM3+" | "AM4" | "AM5"));
+            assert!(matches!(
+                facts.socket,
+                "AM2+/AM3" | "AM3+" | "AM4" | "AM5" | "FM2+/AM4"
+            ));
             assert!((2008..=2030).contains(&facts.year));
             assert!(facts.cores_min >= 1 && facts.cores_min <= facts.cores_max);
             assert!(facts.threads_per_core >= 1);
