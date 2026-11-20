@@ -6,7 +6,14 @@ state and binding contract. Do not replace that rejection to make this suite
 run. Chrome and Firefox executables were found locally; finding an executable
 does not establish automation, supported versions, accessibility support, or
 successful browser execution. Node, Playwright, and chromedriver were not
-found on the initial PATH check.
+found on the initial PATH check. As of 20 November 2026, Node 18 is on PATH
+and is used by the Maja Rust differential tests; Playwright and chromedriver
+are still absent.
+
+The five prerequisites below were written for `maja.web.v1`. The
+experimental `maja.web.local.v2` profile addresses 2 and 3 through the GSSH/2
+Candidate contract and the `goya:transition` observation event; 1, 4 and 5
+remain open (see `docs/maja/wave-3.md`).
 
 Before implementing the browser counter test, integration must supply:
 
@@ -44,6 +51,15 @@ Python `websocket-client`. A hand-authored probe verified the harness; this
 does not constitute a Maja build or browser qualification. The smoke check
 does not test keyboard interaction, state, lifecycle, assistive technology,
 or multiple browsers. The sandbox may require permission for loopback sockets.
+
+`chrome_counter.py OUTPUT_DIRECTORY` exercises a `maja.web.local.v2` build of
+`fixtures/nevada/counter.gscene` in headless Chrome through CDP: geometry
+against the layout mirror, Tab order, Enter/Space/pointer activation,
+field-conversion and overflow rejection with state unchanged, the
+accessibility tree, reload and console errors. Outcomes are read from the
+shell's read-only `goya:transition` event. It is written alongside the
+implementation, so it is not independent qualification; see
+`docs/maja/interactive-profile.md` for the last recorded run and its limits.
 
 Run the independent local-build cases with
 `MAJA_BIN=/absolute/path/to/maja PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests/maja/browsers -p 'test_*.py' -v`.

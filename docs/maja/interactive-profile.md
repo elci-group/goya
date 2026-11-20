@@ -118,7 +118,7 @@ The Rust tests need Node (`MAJA_SKIP_NODE=1` skips those parts, and says so)
 and cover:
 
 * `crates/maja-runtime/tests/d1_differential.rs`: generated runtime vs
-  canonical executor over 600+ cases across int, text and bool actions,
+  canonical executor over 523 cases across int, text and bool actions,
   multi-assignment, i64 and u64 boundaries, the 64 KiB text limit with
   multibyte text, and schema/type failures; failures must leave state and
   revision unchanged. Four seeded mutations of the emitter were each caught.
