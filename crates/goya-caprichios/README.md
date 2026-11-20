@@ -119,6 +119,33 @@ ISA's host facility, UTF-8 strings and silicon-documented ISA support for the
 named generation. The artifact is a generated worker-plan factory only: no
 threads spawn, no SIMD executes and nothing proves a CPU ran work.
 
+The Intel CPU-compute caprichios apply the same catalog shape to x86-64 CPU
+generations: `intel_desktop_caprichio`
+(`goya.hardware.cpu_compute.intel_desktop.v1`) catalogs 17 socketed desktop
+families from Core 2 Penryn (2008) through Arrow Lake (2024), including the
+HEDT Core-X block; `intel_mobile_caprichio`
+(`goya.hardware.cpu_compute.intel_mobile.v1`) catalogs 19 mobile families
+from Penryn mobile (2008) through Arrow Lake-H/HX (2025), with
+integrated-GPU execution-unit ranges recorded only where Intel published
+them; and `intel_xeon_caprichio`
+(`goya.hardware.cpu_compute.intel_xeon.v1`) catalogs 22 server and
+workstation generations from Xeon 5500 Nehalem-EP (2009) through Xeon 6
+Granite Rapids, including Cooper Lake, Sierra Forest E-cores without
+Hyper-Threading, and Xeon W workstation rows. Each entry records only
+silicon-documented facts (sockets, core counts, thread technology, ISA
+support, process node). The catalog records the hybrid-aware `threads_max`
+fact: the vendor-documented OS-visible thread count for the family, which
+normalize uses to bound `worker_threads`, so Raptor Lake's 32 real threads
+govern instead of the 48 the cores-times-threads product would suggest. AMX
+is documented from Sapphire Rapids onward. A declaration names a generation
+from the catalog and bounds worker threads, batch size and workspace bytes
+against a chosen ISA level (SSE3, AVX, AVX2 or AVX-512); lowering fails
+closed unless the host reports x86-64 execution with an OS thread API, UTF-8
+strings and silicon-documented ISA support for the named generation on the
+SSE3/AVX/AVX2/AVX-512 ladder. The artifact is a generated worker-plan
+factory only: no threads spawn, no SIMD executes and nothing proves a CPU
+ran work.
+
 `bluetooth_caprichio` (`goya.hardware.bluetooth.central.v1`, recipe
 `apple-ble-central-bounded-scan`) covers BLE central discovery and connection
 lifecycle accounting for iOS and Apple Silicon Mac targets. Scans are
