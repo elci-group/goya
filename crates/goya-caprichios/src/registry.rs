@@ -1971,7 +1971,6 @@ mod tests {
                 avx: true,
                 avx2: true,
                 avx512: true,
-                igpu_present: true,
                 utf8_strings: true,
             },
             amd_threadripper_target: AmdThreadripperTarget::AmdThreadripper,

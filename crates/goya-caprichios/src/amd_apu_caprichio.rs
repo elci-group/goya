@@ -144,10 +144,6 @@ pub struct RuntimeCapabilities {
     pub avx2: bool,
     /// Host reports AVX-512 support.
     pub avx512: bool,
-    /// Host reports the integrated Radeon GPU is present and addressable.
-    /// Not required for CPU worker plans, but part of the reported
-    /// facility set.
-    pub igpu_present: bool,
     pub utf8_strings: bool,
 }
 
@@ -414,7 +410,6 @@ mod tests {
         avx: true,
         avx2: true,
         avx512: true,
-        igpu_present: true,
         utf8_strings: true,
     };
 
@@ -621,10 +616,8 @@ mod tests {
                 Err(AmdApuDiagnostic::UnsupportedAccelerator)
             );
         }
-        // The iGPU facility is reported but never required for CPU plans.
-        let mut no_igpu = CAPABILITIES;
-        no_igpu.igpu_present = false;
-        ir.lower_checked(Target::AmdApu, no_igpu).unwrap();
+        // The iGPU facility was never a negotiated requirement for CPU plans.
+        ir.lower_checked(Target::AmdApu, CAPABILITIES).unwrap();
     }
 
     #[test]

@@ -83,7 +83,6 @@ impl ModelPackage {
     }
 
     fn parse_json(bytes: &[u8], digest: [u8; 32]) -> Result<Self, TypedError> {
-
         let header: VersionHeader =
             serde_json::from_slice(bytes).map_err(|error| TypedError::InvalidTensor {
                 reason: format!("invalid model package JSON: {error}"),
@@ -253,6 +252,8 @@ fn verify_digest(digest: [u8; 32], expected_sha256: [u8; 32]) -> Result<(), Type
 mod tests {
     use super::*;
     use crate::local::{Limits, Runtime};
+    use crate::signing::{signing_payload, ModelFormat};
+    use ed25519_dalek::{Signer, SigningKey};
     use ie_contract::fixture::GoldenFixture;
     use std::io::Cursor;
     use std::time::Duration;
@@ -262,6 +263,15 @@ mod tests {
     }
 
     const VALID: &[u8] = br#"{"version":1,"inputs":[{"shape":[1,2]},{"shape":[2,2],"values":[3.0,4.0,5.0,6.0]}],"nodes":[{"op":"matmul","left":0,"right":1}]}"#;
+
+    fn signing_key() -> SigningKey {
+        SigningKey::from_bytes(&[0x42; 32])
+    }
+
+    fn signature(key: &SigningKey, format: ModelFormat, bytes: &[u8]) -> [u8; 64] {
+        let digest: [u8; 32] = Sha256::digest(bytes).into();
+        key.sign(&signing_payload(format, digest)).to_bytes()
+    }
 
     #[test]
     fn runs_pinned_onnx_fixture_with_embedded_weights() {
@@ -361,6 +371,94 @@ mod tests {
         let oversized = vec![b' '; MAX_PACKAGE_BYTES as usize + 1];
         assert!(matches!(
             load(&oversized),
+            Err(TypedError::ResourceExhausted { .. })
+        ));
+    }
+
+    #[test]
+    fn loads_signed_json_and_onnx_with_artifact_digest_identity() {
+        let key = signing_key();
+        let json_digest: [u8; 32] = Sha256::digest(VALID).into();
+        let json = ModelPackage::load_signed(
+            Cursor::new(VALID),
+            ModelFormat::Json,
+            key.verifying_key().to_bytes(),
+            signature(&key, ModelFormat::Json, VALID),
+        )
+        .unwrap();
+        assert_eq!(json.digest(), json_digest);
+
+        let onnx: &[u8] = include_bytes!("../tests/fixtures/affine.onnx");
+        let onnx_digest: [u8; 32] = Sha256::digest(onnx).into();
+        let package = ModelPackage::load_signed(
+            Cursor::new(onnx),
+            ModelFormat::Onnx,
+            key.verifying_key().to_bytes(),
+            signature(&key, ModelFormat::Onnx, onnx),
+        )
+        .unwrap();
+        assert_eq!(package.digest(), onnx_digest);
+    }
+
+    #[test]
+    fn signed_load_rejects_wrong_key_changed_bytes_and_changed_format() {
+        let key = signing_key();
+        let signature = signature(&key, ModelFormat::Json, VALID);
+        let trusted = key.verifying_key().to_bytes();
+        let wrong_key = SigningKey::from_bytes(&[0x24; 32])
+            .verifying_key()
+            .to_bytes();
+
+        assert!(matches!(
+            ModelPackage::load_signed(Cursor::new(VALID), ModelFormat::Json, wrong_key, signature),
+            Err(TypedError::PolicyDenied { .. })
+        ));
+
+        let changed = String::from_utf8_lossy(VALID).replacen("3.0", "9.0", 1);
+        assert!(matches!(
+            ModelPackage::load_signed(changed.as_bytes(), ModelFormat::Json, trusted, signature),
+            Err(TypedError::PolicyDenied { .. })
+        ));
+
+        assert!(matches!(
+            ModelPackage::load_signed(Cursor::new(VALID), ModelFormat::Onnx, trusted, signature),
+            Err(TypedError::PolicyDenied { .. })
+        ));
+    }
+
+    #[test]
+    fn signed_load_verifies_before_parse_and_enforces_size_cap() {
+        let key = signing_key();
+        let malformed = b"{";
+        let valid_signature = signature(&key, ModelFormat::Json, malformed);
+        assert!(matches!(
+            ModelPackage::load_signed(
+                Cursor::new(malformed),
+                ModelFormat::Json,
+                key.verifying_key().to_bytes(),
+                valid_signature
+            ),
+            Err(TypedError::InvalidTensor { .. })
+        ));
+        assert!(matches!(
+            ModelPackage::load_signed(
+                Cursor::new(malformed),
+                ModelFormat::Json,
+                key.verifying_key().to_bytes(),
+                [0; 64]
+            ),
+            Err(TypedError::PolicyDenied { .. })
+        ));
+
+        let oversized = vec![b' '; MAX_PACKAGE_BYTES as usize + 1];
+        let oversized_signature = signature(&key, ModelFormat::Json, &oversized);
+        assert!(matches!(
+            ModelPackage::load_signed(
+                Cursor::new(&oversized),
+                ModelFormat::Json,
+                key.verifying_key().to_bytes(),
+                oversized_signature
+            ),
             Err(TypedError::ResourceExhausted { .. })
         ));
     }
