@@ -22,8 +22,8 @@
 //! synchronous, so activations cannot interleave.
 
 use goya_lang::{
-    InteractionClass, InteractionExpr, InteractionType, InteractionValue, ParsedScene,
-    SourceRange, TransitionError,
+    InteractionClass, InteractionExpr, InteractionType, InteractionValue, ParsedScene, SourceRange,
+    TransitionError,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -119,7 +119,9 @@ pub fn emit_d1_runtime(parsed: &ParsedScene) -> Result<D1Runtime, D1RuntimeError
             .iter()
             .find(|e| e.kind == "interaction" && e.semantic_id.as_deref() == Some(id.as_str()))
             .map(|e| e.range)
-            .ok_or(D1RuntimeError::Unsupported("actions without source origins"))?;
+            .ok_or(D1RuntimeError::Unsupported(
+                "actions without source origins",
+            ))?;
         let inputs = interaction
             .inputs
             .iter()
@@ -151,7 +153,11 @@ pub fn emit_d1_runtime(parsed: &ParsedScene) -> Result<D1Runtime, D1RuntimeError
         if n > 0 {
             out.push_str(", ");
         }
-        out.push_str(&format!("[{}, {}]", js_string(key), js_string(type_name(*ty))));
+        out.push_str(&format!(
+            "[{}, {}]",
+            js_string(key),
+            js_string(type_name(*ty))
+        ));
     }
     out.push_str("]);\n");
     out.push_str("const ACTIONS = new Map([\n");
@@ -162,12 +168,19 @@ pub fn emit_d1_runtime(parsed: &ParsedScene) -> Result<D1Runtime, D1RuntimeError
             .chain(&interaction.state_writes)
             .map(|k| k.name.as_str())
             .collect::<BTreeSet<_>>();
-        out.push_str(&format!("  [{}, {{\n    inputs: [", js_string(&action.action_id)));
+        out.push_str(&format!(
+            "  [{}, {{\n    inputs: [",
+            js_string(&action.action_id)
+        ));
         for (n, (key, ty)) in action.inputs.iter().enumerate() {
             if n > 0 {
                 out.push_str(", ");
             }
-            out.push_str(&format!("[{}, {}]", js_string(key), js_string(type_name(*ty))));
+            out.push_str(&format!(
+                "[{}, {}]",
+                js_string(key),
+                js_string(type_name(*ty))
+            ));
         }
         out.push_str("],\n    touched: [");
         for (n, key) in touched.iter().enumerate() {
@@ -225,7 +238,9 @@ fn emit_expr(expr: &InteractionExpr, next: &mut usize, out: &mut String) -> Stri
     *next += 1;
     out.push_str(&format!("      const {reg} = {value};\n"));
     if matches!(expr, InteractionExpr::Add(..)) {
-        out.push_str(&format!("      if ({reg} === null) return \"ARITHMETIC_OVERFLOW\";\n"));
+        out.push_str(&format!(
+            "      if ({reg} === null) return \"ARITHMETIC_OVERFLOW\";\n"
+        ));
     }
     out.push_str(&format!(
         "      rb += {} + valueSize({reg}); if (rb > MAX_REGISTER_BYTES) return \"REGISTER_LIMIT\";\n",

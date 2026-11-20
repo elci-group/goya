@@ -154,8 +154,11 @@ fn canonical(
     };
     match interaction.execute(&snapshot, &inputs) {
         Ok(outcome) => {
-            let mut state: BTreeMap<String, D1Value> =
-                case.state.iter().map(|(k, v)| (k.clone(), v.d1())).collect();
+            let mut state: BTreeMap<String, D1Value> = case
+                .state
+                .iter()
+                .map(|(k, v)| (k.clone(), v.d1()))
+                .collect();
             state.extend(outcome.next_state);
             let body: Vec<String> = state
                 .iter()
@@ -165,7 +168,9 @@ fn canonical(
         }
         Err(goya_lang::TransitionError::InputTypeMismatch) => "err:INPUT".into(),
         Err(goya_lang::TransitionError::StateTypeMismatch) => "err:STATE_TYPE".into(),
-        Err(goya_lang::TransitionError::VmRejected(message)) => format!("err:{}", vm_code(&message)),
+        Err(goya_lang::TransitionError::VmRejected(message)) => {
+            format!("err:{}", vm_code(&message))
+        }
         Err(other) => panic!("unexpected canonical error {other:?}"),
     }
 }
@@ -430,7 +435,10 @@ fn generated_runtime_rejects_what_the_canonical_compiler_rejects() {
     let add = &runtime.actions[0];
     assert_eq!(add.action_id, "action.add");
     assert_eq!(add.trigger_button, "add");
-    assert_eq!(add.inputs, vec![("amount".to_owned(), InteractionType::Int)]);
+    assert_eq!(
+        add.inputs,
+        vec![("amount".to_owned(), InteractionType::Int)]
+    );
     assert!(SOURCE[add.range.start..add.range.end].contains("action.add"));
     assert_eq!(
         runtime
@@ -445,7 +453,10 @@ fn generated_runtime_rejects_what_the_canonical_compiler_rejects() {
 #[test]
 fn generated_runtime_guards_javascript_only_failure_modes() {
     if !node_available() {
-        assert!(std::env::var_os("MAJA_SKIP_NODE").is_some(), "node is required");
+        assert!(
+            std::env::var_os("MAJA_SKIP_NODE").is_some(),
+            "node is required"
+        );
         return;
     }
     let handoff = handoff::admit_v2(SOURCE).unwrap();
@@ -483,9 +494,16 @@ process.stdout.write(out.join("\n") + "\n");
     fs::create_dir(&dir).unwrap();
     fs::write(dir.join("runtime.mjs"), &runtime.javascript).unwrap();
     fs::write(dir.join("driver.mjs"), driver).unwrap();
-    let output = Command::new("node").arg(dir.join("driver.mjs")).output().unwrap();
+    let output = Command::new("node")
+        .arg(dir.join("driver.mjs"))
+        .output()
+        .unwrap();
     let _ = fs::remove_dir_all(&dir);
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let lines: Vec<String> = String::from_utf8(output.stdout)
         .unwrap()
         .lines()

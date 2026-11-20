@@ -79,10 +79,13 @@ fn build(source: &str, name: &str) -> PathBuf {
     out
 }
 
-fn run_node(dir: &PathBuf, driver: &str) -> String {
+fn run_node(dir: &std::path::Path, driver: &str) -> String {
     fs::write(dir.join("package.json"), "{\"type\":\"module\"}\n").unwrap();
     fs::write(dir.join("driver.js"), driver).unwrap();
-    let output = Command::new("node").arg(dir.join("driver.js")).output().unwrap();
+    let output = Command::new("node")
+        .arg(dir.join("driver.js"))
+        .output()
+        .unwrap();
     assert!(
         output.status.success(),
         "{}",

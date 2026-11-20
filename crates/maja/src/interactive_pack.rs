@@ -32,16 +32,18 @@ pub fn generate(ir: &InteractiveWebIr) -> Result<InteractivePackage, Diagnostic>
     let runtime = if parsed.scene.interactions.is_empty() {
         None
     } else {
-        Some(emit_d1_runtime(parsed).map_err(|error| Diagnostic {
-            code: "MAJA-E0201",
-            message: error.to_string(),
-            range: parsed.scene.interactions[0]
-                .authored_id
-                .as_ref()
-                .and_then(|id| {
-                    ir.handoff()
-                        .origin(&goya_lang::handoff::Origin::Interaction(id.clone()))
-                }),
+        Some(emit_d1_runtime(parsed).map_err(|error| {
+            Diagnostic {
+                code: "MAJA-E0201",
+                message: error.to_string(),
+                range: parsed.scene.interactions[0]
+                    .authored_id
+                    .as_ref()
+                    .and_then(|id| {
+                        ir.handoff()
+                            .origin(&goya_lang::handoff::Origin::Interaction(id.clone()))
+                    }),
+            }
         })?)
     };
     let scene = scene_js(ir, runtime.as_ref())?;
@@ -207,7 +209,11 @@ fn manifest(
 ) -> String {
     let mut out = String::from("{\n");
     let _ = writeln!(out, "  \"schema\": \"{MANIFEST_SCHEMA}\",");
-    let _ = writeln!(out, "  \"compiler\": \"maja {}\",", env!("CARGO_PKG_VERSION"));
+    let _ = writeln!(
+        out,
+        "  \"compiler\": \"maja {}\",",
+        env!("CARGO_PKG_VERSION")
+    );
     let _ = writeln!(out, "  \"profile\": \"{INTERACTIVE_PROFILE}\",");
     let _ = writeln!(out, "  \"qualification\": \"experimental\",");
     let _ = writeln!(out, "  \"handoff\": \"{}\",", ir.handoff().contract());
@@ -220,7 +226,11 @@ fn manifest(
             "null".into()
         }
     );
-    let _ = writeln!(out, "  \"source_sha256\": \"{}\",", hex(&ir.source_digest()));
+    let _ = writeln!(
+        out,
+        "  \"source_sha256\": \"{}\",",
+        hex(&ir.source_digest())
+    );
     out.push_str("  \"elements\": {");
     for (n, cell) in ir.cells().iter().enumerate() {
         let _ = write!(

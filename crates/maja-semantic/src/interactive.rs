@@ -9,7 +9,9 @@
 
 use crate::Diagnostic;
 use goya_lang::handoff::{admit_v3, canonical_property, Origin, SemanticHandoffV2};
-use goya_lang::{CellKind, InteractionClass, InteractionValue, SceneCell, SourceRange, StateLifetime};
+use goya_lang::{
+    CellKind, InteractionClass, InteractionValue, SceneCell, SourceRange, StateLifetime,
+};
 
 /// Experimental interactive browser profile; not a production qualification.
 pub const INTERACTIVE_PROFILE: &str = "maja.web.local.v2";
@@ -297,7 +299,11 @@ pub fn admit_local_interactive(
     })
 }
 
-fn collect<'a>(cell: &'a SceneCell, parent: Option<usize>, out: &mut Vec<(&'a SceneCell, Option<usize>)>) {
+fn collect<'a>(
+    cell: &'a SceneCell,
+    parent: Option<usize>,
+    out: &mut Vec<(&'a SceneCell, Option<usize>)>,
+) {
     let index = out.len();
     out.push((cell, parent));
     for child in &cell.children {
@@ -352,10 +358,16 @@ mod tests {
                 "scroll: true",
             ),
             (
-                COUNTER.replace("text: \"Counter\";", "text: \"Counter\"; text-anchor: middle;"),
+                COUNTER.replace(
+                    "text: \"Counter\";",
+                    "text: \"Counter\"; text-anchor: middle;",
+                ),
                 "text-anchor: middle",
             ),
-            (COUNTER.replace("= 0 session", "= 0 durable"), "count: int = 0 durable"),
+            (
+                COUNTER.replace("= 0 session", "= 0 durable"),
+                "count: int = 0 durable",
+            ),
             (
                 COUNTER.replace("stroke: #333; stroke_width_p: 0.05;", "stroke: #333;"),
                 "stroke: #333",

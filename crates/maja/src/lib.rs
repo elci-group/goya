@@ -631,13 +631,11 @@ fn interactive_source(
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> i32 {
-    let ir = match maja_semantic::admit_local_interactive(
-        source,
-        maja_semantic::INTERACTIVE_PROFILE,
-    ) {
-        Ok(ir) => ir,
-        Err(diagnostic) => return reject(err, &diagnostic),
-    };
+    let ir =
+        match maja_semantic::admit_local_interactive(source, maja_semantic::INTERACTIVE_PROFILE) {
+            Ok(ir) => ir,
+            Err(diagnostic) => return reject(err, &diagnostic),
+        };
     // Generate before reporting success so runtime refusals surface on check.
     let package = match interactive_pack::generate(&ir) {
         Ok(package) => package,
