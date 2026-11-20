@@ -3935,6 +3935,10 @@ mod tests {
             tensor_neural_accel: None,
             snapdragon_neural_accel: None,
             exynos_neural_accel: None,
+            amd_desktop: None,
+            amd_apu: None,
+            amd_threadripper: None,
+            amd_epyc: None,
             capabilities: vec![
                 crate::storage::CONTRACT.into(),
                 crate::memory_caprichio::CONTRACT.into(),
@@ -5148,6 +5152,10 @@ mod tests {
             tensor_neural_accel: None,
             snapdragon_neural_accel: None,
             exynos_neural_accel: None,
+            amd_desktop: None,
+            amd_apu: None,
+            amd_threadripper: None,
+            amd_epyc: None,
             capabilities: vec![
                 crate::CONTRACT.into(),
                 crate::storage::CONTRACT.into(),
