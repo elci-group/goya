@@ -3590,6 +3590,343 @@ mod tests {
     }
 
     #[test]
+    fn amd_desktop_contract_registers_exactly_and_fails_closed() {
+        let contract = crate::amd_desktop_caprichio::CONTRACT;
+        assert_eq!(contract, "goya.hardware.cpu_compute.amd_desktop.v1");
+        assert!(supported_contracts().contains(&contract));
+        assert!(!supported_contracts().contains(&"hardware.cpu_compute"));
+        assert!(!supported_contracts().contains(&"goya.hardware.cpu_compute.v1"));
+
+        let request = Request {
+            capabilities: vec![contract.into()],
+            amd_desktop: Some(amd_desktop_declaration()),
+            ..Request::default()
+        };
+        let negotiated = negotiate(&request, host()).unwrap();
+        assert_eq!(negotiated.len(), 1);
+        assert_eq!(negotiated[0].id, contract);
+        assert_eq!(negotiated[0].artifact.contract(), contract);
+        assert_eq!(
+            negotiated[0].artifact.recipe(),
+            "amd-desktop-bounded-worker-plan"
+        );
+        assert_eq!(
+            negotiated[0].artifact.recipe_version(),
+            crate::amd_desktop_caprichio::RECIPE_VERSION
+        );
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("target=amd_desktop\n"));
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("execution=none_attempted\n"));
+        assert_eq!(negotiated, negotiate(&request, host()).unwrap());
+
+        let missing = Request {
+            capabilities: vec![contract.into()],
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&missing, host()),
+            Err(NegotiationError::MissingDeclaration {
+                capability: contract
+            })
+        );
+        let unexpected = Request {
+            amd_desktop: Some(amd_desktop_declaration()),
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&unexpected, host()),
+            Err(NegotiationError::UnexpectedDeclaration {
+                kind: "amd_desktop"
+            })
+        );
+
+        let mut unsupported_target = host();
+        unsupported_target.amd_desktop_target = AmdDesktopTarget::CrossPlatform;
+        assert_eq!(
+            negotiate(&request, unsupported_target),
+            Err(NegotiationError::AmdDesktop(
+                crate::amd_desktop_caprichio::AmdDesktopDiagnostic::UnsupportedTarget
+            ))
+        );
+        let mut no_avx512 = host();
+        no_avx512.amd_desktop_host.avx512 = false;
+        assert_eq!(
+            negotiate(&request, no_avx512),
+            Err(NegotiationError::AmdDesktop(
+                crate::amd_desktop_caprichio::AmdDesktopDiagnostic::MissingAvx512
+            ))
+        );
+
+        let draft = Request {
+            capabilities: vec!["hardware.cpu_compute".into()],
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&draft, host()),
+            Err(NegotiationError::UnknownCapability(
+                "hardware.cpu_compute".into()
+            ))
+        );
+    }
+
+    #[test]
+    fn amd_apu_contract_registers_exactly_and_fails_closed() {
+        let contract = crate::amd_apu_caprichio::CONTRACT;
+        assert_eq!(contract, "goya.hardware.cpu_compute.amd_apu.v1");
+        assert!(supported_contracts().contains(&contract));
+        assert!(!supported_contracts().contains(&"hardware.cpu_compute"));
+        assert!(!supported_contracts().contains(&"goya.hardware.cpu_compute.v1"));
+
+        let request = Request {
+            capabilities: vec![contract.into()],
+            amd_apu: Some(amd_apu_declaration()),
+            ..Request::default()
+        };
+        let negotiated = negotiate(&request, host()).unwrap();
+        assert_eq!(negotiated.len(), 1);
+        assert_eq!(negotiated[0].id, contract);
+        assert_eq!(negotiated[0].artifact.contract(), contract);
+        assert_eq!(negotiated[0].artifact.recipe(), "amd-apu-bounded-worker-plan");
+        assert_eq!(
+            negotiated[0].artifact.recipe_version(),
+            crate::amd_apu_caprichio::RECIPE_VERSION
+        );
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("target=amd_apu\n"));
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("execution=none_attempted\n"));
+        assert_eq!(negotiated, negotiate(&request, host()).unwrap());
+
+        let missing = Request {
+            capabilities: vec![contract.into()],
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&missing, host()),
+            Err(NegotiationError::MissingDeclaration {
+                capability: contract
+            })
+        );
+        let unexpected = Request {
+            amd_apu: Some(amd_apu_declaration()),
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&unexpected, host()),
+            Err(NegotiationError::UnexpectedDeclaration {
+                kind: "amd_apu"
+            })
+        );
+
+        let mut unsupported_target = host();
+        unsupported_target.amd_apu_target = AmdApuTarget::CrossPlatform;
+        assert_eq!(
+            negotiate(&request, unsupported_target),
+            Err(NegotiationError::AmdApu(
+                crate::amd_apu_caprichio::AmdApuDiagnostic::UnsupportedTarget
+            ))
+        );
+        let mut no_runtime = host();
+        no_runtime.amd_apu_host.x86_64_runtime = false;
+        assert_eq!(
+            negotiate(&request, no_runtime),
+            Err(NegotiationError::AmdApu(
+                crate::amd_apu_caprichio::AmdApuDiagnostic::MissingX86_64Runtime
+            ))
+        );
+
+        let draft = Request {
+            capabilities: vec!["goya.hardware.cpu_compute.v1".into()],
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&draft, host()),
+            Err(NegotiationError::UnknownCapability(
+                "goya.hardware.cpu_compute.v1".into()
+            ))
+        );
+    }
+
+    #[test]
+    fn amd_threadripper_contract_registers_exactly_and_fails_closed() {
+        let contract = crate::amd_threadripper_caprichio::CONTRACT;
+        assert_eq!(contract, "goya.hardware.cpu_compute.amd_threadripper.v1");
+        assert!(supported_contracts().contains(&contract));
+        assert!(!supported_contracts().contains(&"hardware.cpu_compute"));
+        assert!(!supported_contracts().contains(&"goya.hardware.cpu_compute.v1"));
+
+        let request = Request {
+            capabilities: vec![contract.into()],
+            amd_threadripper: Some(amd_threadripper_declaration()),
+            ..Request::default()
+        };
+        let negotiated = negotiate(&request, host()).unwrap();
+        assert_eq!(negotiated.len(), 1);
+        assert_eq!(negotiated[0].id, contract);
+        assert_eq!(negotiated[0].artifact.contract(), contract);
+        assert_eq!(
+            negotiated[0].artifact.recipe(),
+            "amd-threadripper-bounded-worker-plan"
+        );
+        assert_eq!(
+            negotiated[0].artifact.recipe_version(),
+            crate::amd_threadripper_caprichio::RECIPE_VERSION
+        );
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("target=amd_threadripper\n"));
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("execution=none_attempted\n"));
+        assert_eq!(negotiated, negotiate(&request, host()).unwrap());
+
+        let missing = Request {
+            capabilities: vec![contract.into()],
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&missing, host()),
+            Err(NegotiationError::MissingDeclaration {
+                capability: contract
+            })
+        );
+        let unexpected = Request {
+            amd_threadripper: Some(amd_threadripper_declaration()),
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&unexpected, host()),
+            Err(NegotiationError::UnexpectedDeclaration {
+                kind: "amd_threadripper"
+            })
+        );
+
+        let mut unsupported_target = host();
+        unsupported_target.amd_threadripper_target = AmdThreadripperTarget::CrossPlatform;
+        assert_eq!(
+            negotiate(&request, unsupported_target),
+            Err(NegotiationError::AmdThreadripper(
+                crate::amd_threadripper_caprichio::AmdThreadripperDiagnostic::UnsupportedTarget
+            ))
+        );
+        let mut no_utf8 = host();
+        no_utf8.amd_threadripper_host.utf8_strings = false;
+        assert_eq!(
+            negotiate(&request, no_utf8),
+            Err(NegotiationError::AmdThreadripper(
+                crate::amd_threadripper_caprichio::AmdThreadripperDiagnostic::MissingUtf8Strings
+            ))
+        );
+
+        let draft = Request {
+            capabilities: vec!["hardware.cpu_compute".into()],
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&draft, host()),
+            Err(NegotiationError::UnknownCapability(
+                "hardware.cpu_compute".into()
+            ))
+        );
+    }
+
+    #[test]
+    fn amd_epyc_contract_registers_exactly_and_fails_closed() {
+        let contract = crate::amd_epyc_caprichio::CONTRACT;
+        assert_eq!(contract, "goya.hardware.cpu_compute.amd_epyc.v1");
+        assert!(supported_contracts().contains(&contract));
+        assert!(!supported_contracts().contains(&"hardware.cpu_compute"));
+        assert!(!supported_contracts().contains(&"goya.hardware.cpu_compute.v1"));
+
+        let request = Request {
+            capabilities: vec![contract.into()],
+            amd_epyc: Some(amd_epyc_declaration()),
+            ..Request::default()
+        };
+        let negotiated = negotiate(&request, host()).unwrap();
+        assert_eq!(negotiated.len(), 1);
+        assert_eq!(negotiated[0].id, contract);
+        assert_eq!(negotiated[0].artifact.contract(), contract);
+        assert_eq!(
+            negotiated[0].artifact.recipe(),
+            "amd-epyc-bounded-worker-plan"
+        );
+        assert_eq!(
+            negotiated[0].artifact.recipe_version(),
+            crate::amd_epyc_caprichio::RECIPE_VERSION
+        );
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("target=amd_epyc\n"));
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("execution=none_attempted\n"));
+        assert_eq!(negotiated, negotiate(&request, host()).unwrap());
+
+        let missing = Request {
+            capabilities: vec![contract.into()],
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&missing, host()),
+            Err(NegotiationError::MissingDeclaration {
+                capability: contract
+            })
+        );
+        let unexpected = Request {
+            amd_epyc: Some(amd_epyc_declaration()),
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&unexpected, host()),
+            Err(NegotiationError::UnexpectedDeclaration {
+                kind: "amd_epyc"
+            })
+        );
+
+        let mut unsupported_target = host();
+        unsupported_target.amd_epyc_target = AmdEpycTarget::CrossPlatform;
+        assert_eq!(
+            negotiate(&request, unsupported_target),
+            Err(NegotiationError::AmdEpyc(
+                crate::amd_epyc_caprichio::AmdEpycDiagnostic::UnsupportedTarget
+            ))
+        );
+        let mut no_avx512 = host();
+        no_avx512.amd_epyc_host.avx512 = false;
+        assert_eq!(
+            negotiate(&request, no_avx512),
+            Err(NegotiationError::AmdEpyc(
+                crate::amd_epyc_caprichio::AmdEpycDiagnostic::MissingAvx512
+            ))
+        );
+
+        let draft = Request {
+            capabilities: vec!["hardware.cpu_compute".into()],
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&draft, host()),
+            Err(NegotiationError::UnknownCapability(
+                "hardware.cpu_compute".into()
+            ))
+        );
+    }
+
+    #[test]
     fn mixed_request_is_sorted_and_artifacts_keep_contract_identity() {
         let request = Request {
             nvidia_cuda: None,
