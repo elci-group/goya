@@ -1352,6 +1352,7 @@ name = "ie-cpu"
 version = "0.1.8"
 dependencies = [
  "ie-contract",
+ "sha2",
 ]
 
 [[package]]

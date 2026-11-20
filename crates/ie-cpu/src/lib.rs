@@ -10,34 +10,131 @@
 //! - typed errors only; no panics on peer input.
 
 pub mod ledger;
+pub mod graph;
+pub mod local;
 
 use ie_contract::errors::TypedError;
 use ie_contract::fixture::GoldenOp;
-use ie_contract::tensors::{DType, TensorData};
+use ie_contract::tensors::{DType, TensorData, TensorDesc};
 
 /// Operators the CPU reference supports (allowlist; everything else is
 /// rejected with UNSUPPORTED_OP before execution, PR-08/T02).
 pub const SUPPORTED_OPS: &[&str] = &["add", "matmul"];
 
-/// Decode f32 elements from a validated FP32 tensor payload.
-fn as_f32(t: &TensorData) -> Result<Vec<f32>, TypedError> {
-    if t.desc.dtype != DType::F32 {
-        return Err(TypedError::InvalidTensor { reason: "CPU reference is FP32-only".into() });
-    }
-    Ok(t.data.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect())
+fn invalid(reason: &str) -> TypedError {
+    TypedError::InvalidTensor { reason: reason.into() }
 }
 
-fn pack_f32(vals: &[f32], dims: &[u64]) -> Result<TensorData, TypedError> {
-    let desc = ie_contract::TensorDesc {
+/// Validate a descriptor and payload even when callers constructed the
+/// public TensorData fields directly instead of using TensorData::new.
+fn validate_f32(t: &TensorData) -> Result<(), TypedError> {
+    if t.desc.dtype != DType::F32 {
+        return Err(invalid("CPU reference is FP32-only"));
+    }
+    t.desc.validate(t.data.len())
+}
+
+fn f32_desc(dims: &[u64]) -> TensorDesc {
+    TensorDesc {
         dtype: DType::F32,
         dims: dims.to_vec(),
         quant_scale: None,
         quant_zero_point: None,
-    };
-    let mut data = Vec::with_capacity(vals.len() * 4);
-    for v in vals {
-        data.extend_from_slice(&v.to_le_bytes());
     }
+}
+
+fn read_f32(data: &[u8], index: usize) -> f32 {
+    let offset = index * 4;
+    f32::from_le_bytes([data[offset], data[offset + 1], data[offset + 2], data[offset + 3]])
+}
+
+/// Validate an operation and derive its bounded output shape and scalar work.
+pub(crate) fn plan_pair(
+    op: GoldenOp,
+    left: &TensorDesc,
+    right: &TensorDesc,
+) -> Result<(TensorDesc, u64), TypedError> {
+    for desc in [left, right] {
+        if desc.dtype != DType::F32 {
+            return Err(invalid("CPU reference is FP32-only"));
+        }
+        desc.payload_len()?;
+    }
+    match op {
+        GoldenOp::Add => {
+            if left.dims != right.dims {
+                return Err(invalid("add shape mismatch"));
+            }
+            let count = left.dims.iter().try_fold(1u64, |n, d| n.checked_mul(*d))
+                .ok_or_else(|| invalid("add work overflow"))?;
+            let output = f32_desc(&left.dims);
+            output.payload_len()?;
+            Ok((output, count))
+        }
+        GoldenOp::MatMul => {
+            if left.dims.len() != 2 || right.dims.len() != 2 {
+                return Err(invalid("matmul requires rank-2 inputs"));
+            }
+            let (m, k, rk, n) = (left.dims[0], left.dims[1], right.dims[0], right.dims[1]);
+            if rk != k {
+                return Err(invalid("matmul inner dimension mismatch"));
+            }
+            let work = m.checked_mul(k).and_then(|v| v.checked_mul(n))
+                .ok_or_else(|| invalid("matmul work overflow"))?;
+            let output = f32_desc(&[m, n]);
+            output.payload_len()?;
+            Ok((output, work))
+        }
+    }
+}
+
+/// Execute a validated pair without materializing decoded input or FP32
+/// output scratch vectors. Checkpoints run at most 1024 scalar operations apart.
+pub(crate) fn execute_pair(
+    op: GoldenOp,
+    left: &TensorData,
+    right: &TensorData,
+    checkpoint: &mut impl FnMut() -> Result<(), TypedError>,
+) -> Result<TensorData, TypedError> {
+    validate_f32(left)?;
+    validate_f32(right)?;
+    let (desc, _) = plan_pair(op, &left.desc, &right.desc)?;
+    let output_bytes = usize::try_from(desc.payload_len()?)
+        .map_err(|_| invalid("output does not fit address space"))?;
+    let mut data = Vec::new();
+    data.try_reserve_exact(output_bytes).map_err(|_| TypedError::ResourceExhausted {
+        reason: "CPU output allocation failed".into(),
+    })?;
+    let mut since_checkpoint = 0u64;
+    match op {
+        GoldenOp::Add => {
+            let count = usize::try_from(left.desc.payload_len()? / 4)
+                .map_err(|_| invalid("input does not fit address space"))?;
+            for i in 0..count {
+                if since_checkpoint == 0 { checkpoint()?; }
+                let value = read_f32(&left.data, i) + read_f32(&right.data, i);
+                data.extend_from_slice(&value.to_le_bytes());
+                since_checkpoint = (since_checkpoint + 1) % 1024;
+            }
+        }
+        GoldenOp::MatMul => {
+            let m = usize::try_from(left.desc.dims[0]).map_err(|_| invalid("dimension overflow"))?;
+            let k = usize::try_from(left.desc.dims[1]).map_err(|_| invalid("dimension overflow"))?;
+            let n = usize::try_from(right.desc.dims[1]).map_err(|_| invalid("dimension overflow"))?;
+            for i in 0..m {
+                for j in 0..n {
+                    let mut acc = 0f32;
+                    for t in 0..k {
+                        if since_checkpoint == 0 { checkpoint()?; }
+                        acc += read_f32(&left.data, i * k + t) * read_f32(&right.data, t * n + j);
+                        since_checkpoint = (since_checkpoint + 1) % 1024;
+                    }
+                    data.extend_from_slice(&acc.to_le_bytes());
+                }
+            }
+        }
+    }
+    checkpoint()?;
     TensorData::new(desc, data)
 }
 
@@ -53,52 +150,10 @@ fn op_from_name(name: &str) -> Result<GoldenOp, TypedError> {
 /// This is the numerical oracle the conformance harness compares against.
 pub fn execute(op_name: &str, inputs: &[TensorData]) -> Result<TensorData, TypedError> {
     let op = op_from_name(op_name)?;
-    match op {
-        GoldenOp::Add => {
-            if inputs.len() != 2 {
-                return Err(TypedError::InvalidTensor { reason: "add requires 2 inputs".into() });
-            }
-            let a = as_f32(&inputs[0])?;
-            let b = as_f32(&inputs[1])?;
-            if inputs[0].desc.dims != inputs[1].desc.dims {
-                return Err(TypedError::InvalidTensor { reason: "add shape mismatch".into() });
-            }
-            let out: Vec<f32> = a.iter().zip(&b).map(|(x, y)| x + y).collect();
-            pack_f32(&out, &inputs[0].desc.dims)
-        }
-        GoldenOp::MatMul => {
-            if inputs.len() != 2 {
-                return Err(TypedError::InvalidTensor { reason: "matmul requires 2 inputs".into() });
-            }
-            if inputs[0].desc.dims.len() != 2 || inputs[1].desc.dims.len() != 2 {
-                return Err(TypedError::InvalidTensor {
-                    reason: "matmul requires rank-2 inputs".into(),
-                });
-            }
-            let m = inputs[0].desc.dims[0];
-            let k = inputs[0].desc.dims[1];
-            if inputs[1].desc.dims[0] != k {
-                return Err(TypedError::InvalidTensor {
-                    reason: "matmul inner dimension mismatch".into(),
-                });
-            }
-            let n = inputs[1].desc.dims[1];
-            let a = as_f32(&inputs[0])?;
-            let b = as_f32(&inputs[1])?;
-            let (m, k, n) = (m as usize, k as usize, n as usize);
-            let mut out = vec![0f32; m * n];
-            for i in 0..m {
-                for j in 0..n {
-                    let mut acc = 0f32;
-                    for t in 0..k {
-                        acc += a[i * k + t] * b[t * n + j];
-                    }
-                    out[i * n + j] = acc;
-                }
-            }
-            pack_f32(&out, &[m as u64, n as u64])
-        }
+    if inputs.len() != 2 {
+        return Err(invalid("operation requires 2 inputs"));
     }
+    execute_pair(op, &inputs[0], &inputs[1], &mut || Ok(()))
 }
 
 #[cfg(test)]
@@ -146,6 +201,41 @@ mod tests {
         let b = GoldenFixture::tensor(&[1.0, 2.0, 3.0], &[3]);
         assert!(matches!(
             execute("add", &[a, b]),
+            Err(TypedError::InvalidTensor { .. })
+        ));
+    }
+
+    #[test]
+    fn malformed_public_tensor_fields_are_rejected() {
+        let malformed = TensorData {
+            desc: ie_contract::TensorDesc {
+                dtype: DType::F32,
+                dims: vec![1],
+                quant_scale: None,
+                quant_zero_point: None,
+            },
+            data: vec![0, 0, 0, 0, 99],
+        };
+        let valid = GoldenFixture::tensor(&[1.0], &[1]);
+        assert!(matches!(execute("add", &[malformed, valid]), Err(TypedError::InvalidTensor { .. })));
+    }
+
+    #[test]
+    fn oversized_matmul_output_is_rejected_during_planning() {
+        let left = ie_contract::TensorDesc {
+            dtype: DType::F32,
+            dims: vec![8192, 2],
+            quant_scale: None,
+            quant_zero_point: None,
+        };
+        let right = ie_contract::TensorDesc {
+            dtype: DType::F32,
+            dims: vec![2, 8192],
+            quant_scale: None,
+            quant_zero_point: None,
+        };
+        assert!(matches!(
+            plan_pair(GoldenOp::MatMul, &left, &right),
             Err(TypedError::InvalidTensor { .. })
         ));
     }
