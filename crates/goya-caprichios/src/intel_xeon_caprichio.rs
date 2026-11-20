@@ -33,6 +33,11 @@ pub struct XeonFacts {
     /// E-cores run one thread per core; entry SKUs of some families ship
     /// with Hyper-Threading disabled while the family label records two.
     pub threads_per_core: u32,
+    /// Vendor-documented maximum OS-visible hardware threads for the
+    /// family (Intel publishes Total Threads per SKU); equals cores_max
+    /// × threads_per_core on homogeneous generations, and hybrid P+E
+    /// generations sit below that product.
+    pub threads_max: u32,
     /// Intel's own name for its multithreading technology (`SMT`, called
     /// Hyper-Threading by Intel), or `none` on one-thread-per-core lines.
     pub thread_tech: &'static str,
