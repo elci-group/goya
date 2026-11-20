@@ -108,7 +108,7 @@ fn scene_js(ir: &InteractiveWebIr, runtime: Option<&D1Runtime>) -> Result<String
         };
         let _ = writeln!(
             out,
-            "  {{ id: {}, kind: {}, parent: {}, position: {}, extent: {}, fill: {}, stroke: {}, textSize: {}, text: {} }},",
+            "  {{ id: {}, kind: {}, parent: {}, position: {}, extent: {}, fill: {}, stroke: {}, textSize: {}, text: {}, scroll: {} }},",
             js_string(&cell.id),
             js_string(match cell.kind {
                 WebCellKind::Cell => "cell",
@@ -132,6 +132,7 @@ fn scene_js(ir: &InteractiveWebIr, runtime: Option<&D1Runtime>) -> Result<String
                 .transpose()?
                 .unwrap_or_else(|| "null".into()),
             cell.text.as_deref().map_or("null".into(), js_string),
+            cell.scroll,
         );
     }
     out.push_str("];\n");
@@ -315,6 +316,7 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden}
 .goya-el{position:absolute;box-sizing:border-box;overflow:hidden;margin:0}
 .goya-text{display:block;white-space:pre;margin:0}
 .goya-control{position:absolute;inset:0;width:100%;height:100%;box-sizing:border-box;margin:0;font:inherit;font-size:inherit}
+.goya-scroller{position:absolute;inset:0;overflow:auto;scrollbar-width:none}
 .goya-stroke{position:absolute;inset:0;box-sizing:border-box;border-style:solid;border-width:var(--goya-stroke-width);border-color:var(--goya-stroke);pointer-events:none}
 #goya-status{position:fixed;left:0;right:0;bottom:0;margin:0;padding:4px 8px;font:13px/1.4 system-ui,sans-serif;background:#222;color:#fff}
 #goya-status:empty{display:none}
@@ -326,7 +328,8 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden}
 pub const LAYOUT_JS: &str = r#"// Maja layout and field conversion mirrors. Do not edit.
 export const MAX_VIEWPORT_POINTS = 1000000;
 const trunc = Math.trunc;
-const fraction = (v) => Math.min(Math.max(v, 0), 1);
+const clamp01 = (v) => Math.min(Math.max(v, 0), 1);
+const nonNegative = (v) => Math.max(v, 0);
 // Resolve every cell to a millipoint rect, as goya_lang::layout does for a
 // viewport of widthPt x heightPt points.
 export function resolve(cells, widthPt, heightPt) {
@@ -337,6 +340,9 @@ export function resolve(cells, widthPt, heightPt) {
     const parent = cell.parent === null
       ? { x: 0, y: 0, width: trunc(w * 1000), height: trunc(h * 1000) }
       : out[cell.parent].rect;
+    // Direct children of a scroll viewport may extend past it (>= 0 only).
+    const overflow = cell.parent !== null && cells[cell.parent].scroll;
+    const fraction = overflow ? nonNegative : clamp01;
     let width, height;
     if (cell.extent !== null) {
       width = trunc(fraction(cell.extent[0]) * parent.width);
@@ -354,9 +360,9 @@ export function resolve(cells, widthPt, heightPt) {
     }
     const right = parent.x + parent.width;
     const bottom = parent.y + parent.height;
-    x = Math.min(Math.max(x, parent.x), right);
-    y = Math.min(Math.max(y, parent.y), bottom);
-    const rect = {
+    x = overflow ? Math.max(x, parent.x) : Math.min(Math.max(x, parent.x), right);
+    y = overflow ? Math.max(y, parent.y) : Math.min(Math.max(y, parent.y), bottom);
+    const rect = overflow ? { x, y, width, height } : {
       x, y,
       width: Math.max(Math.min(width, right - x), 0),
       height: Math.max(Math.min(height, bottom - y), 0),
@@ -368,6 +374,24 @@ export function resolve(cells, widthPt, heightPt) {
     });
   }
   return out;
+}
+// Mirror of Frame::scroll_limits: for each scroll viewport, how far its
+// descendants extend past its right and bottom edges; null otherwise.
+export function scrollLimits(cells, resolved) {
+  return cells.map((cell, i) => {
+    if (!cell.scroll) return null;
+    const v = resolved[i].rect;
+    let right = v.x + v.width, bottom = v.y + v.height;
+    for (let j = 0; j < cells.length; j++) {
+      let a = cells[j].parent;
+      while (a !== null && a !== i) a = cells[a].parent;
+      if (a !== i) continue;
+      const r = resolved[j].rect;
+      right = Math.max(right, r.x + r.width);
+      bottom = Math.max(bottom, r.y + r.height);
+    }
+    return [right - (v.x + v.width), bottom - (v.y + v.height)];
+  });
 }
 const MAX_FIELD_TEXT_BYTES = 65536;
 const I64_MIN = -9223372036854775808n;
@@ -447,8 +471,16 @@ for (const cell of CELLS) {
     stroke.className = "goya-stroke";
     stroke.style.setProperty("--goya-stroke", cell.stroke[0]);
   }
-  elements.push({ el, stroke });
-  (cell.parent === null ? root : elements[cell.parent].el).append(el);
+  // A scroll viewport's children live in an inner scroller, so the
+  // viewport's own fill, text and stroke stay put while its content moves.
+  let container = el;
+  if (cell.scroll) {
+    container = document.createElement("div");
+    container.className = "goya-scroller";
+    el.append(container);
+  }
+  elements.push({ el, stroke, container });
+  (cell.parent === null ? root : elements[cell.parent].container).append(el);
 }
 // Stroke overlays are appended after children so they draw above content.
 for (const { el, stroke } of elements) if (stroke !== null) el.append(stroke);
