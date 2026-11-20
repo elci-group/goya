@@ -22,18 +22,12 @@ impl fmt::Display for WorkerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::ZeroWorkerThreads => "worker thread count must be positive",
-            Self::WorkerThreadsTooLarge => {
-                "worker thread count exceeds the supported bound"
-            }
+            Self::WorkerThreadsTooLarge => "worker thread count exceeds the supported bound",
             Self::ZeroBatch => "batch size must be positive",
             Self::BatchTooLarge => "batch size exceeds the supported bound",
             Self::ZeroWorkspaceBytes => "workspace bound must be positive",
-            Self::WorkspaceBytesTooLarge => {
-                "workspace bound exceeds the supported bound"
-            }
-            Self::WorkerOverflow => {
-                "total worker executions do not fit the supported bound"
-            }
+            Self::WorkspaceBytesTooLarge => "workspace bound exceeds the supported bound",
+            Self::WorkerOverflow => "total worker executions do not fit the supported bound",
         })
     }
 }
