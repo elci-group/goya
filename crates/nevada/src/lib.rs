@@ -1,11 +1,10 @@
 //! Nevada — Goya's Android TV compiler target.
 //!
 //! Nevada translates Goya application intent into television-native,
-//! remote-first interaction models. This crate is phase 0: the
-//! deterministic core subsystems (capability resolution, interaction
-//! translation, spatial focus) as pure, std-only library modules with
-//! fail-closed semantics. It produces no artefacts yet and admits no
-//! scenes; see `docs/nevada/roadmap.md`.
+//! remote-first interaction models. This crate owns the dependency-free
+//! capability model, interaction translation, spatial focus and blocking
+//! static gate. The SDK admits GSSH/3 scenes and consumes the gate receipt
+//! to emit the Android TV project.
 
 pub mod caprichio;
 pub mod conformance;

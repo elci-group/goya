@@ -93,6 +93,41 @@ fn emits_a_deterministic_minimal_android_project() {
 }
 
 #[test]
+fn nevada_gate_controls_whether_the_cli_writes_a_project() {
+    let scratch = Scratch::new();
+    let input = scratch.path("counter.gscene");
+    let output = scratch.path("tv");
+    let source = include_str!("../../../fixtures/nevada/counter.gscene");
+    let run = || {
+        cli()
+            .arg(&input)
+            .arg(&output)
+            .args(["--tv", "--profile", "oem.generic.tv/1.0.0"])
+            .output()
+            .unwrap()
+    };
+    fs::write(&input, source.replace("(0.65, 0.22, 0)", "(0.65, 0.5, 0)")).unwrap();
+    let refused = run();
+    assert!(!refused.status.success());
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("GY-NV-501"));
+    assert!(!output.exists());
+
+    fs::write(&input, source).unwrap();
+    let emitted = run();
+    assert!(
+        emitted.status.success(),
+        "{}",
+        String::from_utf8_lossy(&emitted.stderr)
+    );
+    let project = files(&output);
+    let receipt = String::from_utf8_lossy(&project["nevada-conformance.txt"]);
+    assert!(receipt.contains("GY-NV-GATE-11 static-verification PASS"));
+    assert!(project.contains_key("app/src/main/res/drawable-xhdpi/nevada_banner.png"));
+    assert!(!run().status.success());
+    assert_eq!(files(&output), project);
+}
+
+#[test]
 fn rejects_unsupported_scene_without_creating_project() {
     let scratch = Scratch::new();
     let source = scratch.path("input.gscene");

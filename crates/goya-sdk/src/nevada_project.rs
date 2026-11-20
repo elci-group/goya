@@ -8,9 +8,9 @@ use goya_nevada::{
 };
 
 use crate::{
-    AndroidSceneError, AndroidSourceMap, KotlinFile,
     nevada_android::emit_nevada_android,
-    nevada_scene::{NevadaSceneError, TV_VIEWPORT, lower_nevada_scene},
+    nevada_scene::{lower_nevada_scene, NevadaSceneError, TV_VIEWPORT},
+    AndroidSceneError, AndroidSourceMap, KotlinFile,
 };
 
 /// Files and static conformance evidence for the locked Aragon Gradle project.
@@ -141,22 +141,16 @@ mod tests {
     fn tv_project_preserves_authored_routes_and_is_reproducible() {
         let project = compile_nevada_project(COUNTER, PROFILE).unwrap();
         assert_eq!(project, compile_nevada_project(COUNTER, PROFILE).unwrap());
-        assert!(
-            project
-                .manifest
-                .contains("android.intent.category.LEANBACK_LAUNCHER")
-        );
+        assert!(project
+            .manifest
+            .contains("android.intent.category.LEANBACK_LAUNCHER"));
         assert!(project.manifest.contains("@drawable/nevada_banner"));
-        assert!(
-            project
-                .conformance
-                .contains("action.add\" TouchTap -> FocusAndSelect")
-        );
-        assert!(
-            project
-                .conformance
-                .contains("window.amount\" TextInput -> TvKeyboard")
-        );
+        assert!(project
+            .conformance
+            .contains("action.add\" TouchTap -> FocusAndSelect"));
+        assert!(project
+            .conformance
+            .contains("window.amount\" TextInput -> TvKeyboard"));
         assert!(project.conformance.contains("runtime-conformance BLOCKED"));
         let remote = project
             .files

@@ -50,7 +50,7 @@ impl NevadaScene {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NevadaSceneReason {
-    Admission(StrictParseError),
+    Admission(Box<StrictParseError>),
     Unsupported(&'static str),
 }
 
@@ -74,7 +74,7 @@ impl fmt::Display for NevadaSceneError {
 impl std::error::Error for NevadaSceneError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match &self.reason {
-            NevadaSceneReason::Admission(error) => Some(error),
+            NevadaSceneReason::Admission(error) => Some(error.as_ref()),
             NevadaSceneReason::Unsupported(_) => None,
         }
     }
@@ -85,7 +85,7 @@ pub fn lower_nevada_scene(source: &str) -> Result<NevadaScene, NevadaSceneError>
     let handoff = admit_v3(source).map_err(|error| NevadaSceneError {
         range: error.range,
         origin: None,
-        reason: NevadaSceneReason::Admission(error),
+        reason: NevadaSceneReason::Admission(Box::new(error)),
     })?;
     let parsed = handoff.parsed();
     let scene = &parsed.scene;
