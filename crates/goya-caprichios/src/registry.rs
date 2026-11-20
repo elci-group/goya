@@ -98,6 +98,18 @@ use crate::input_validation_caprichio::{
     Artifact as InputValidationArtifact, Declaration as InputValidationDeclaration,
     HostProfile as InputValidationHost, Target as InputValidationTarget,
 };
+use crate::intel_desktop_caprichio::{
+    IntelDesktopArtifact, IntelDesktopDeclaration, RuntimeCapabilities as IntelDesktopHost,
+    Target as IntelDesktopTarget,
+};
+use crate::intel_mobile_caprichio::{
+    IntelMobileArtifact, IntelMobileDeclaration, RuntimeCapabilities as IntelMobileHost,
+    Target as IntelMobileTarget,
+};
+use crate::intel_xeon_caprichio::{
+    IntelXeonArtifact, IntelXeonDeclaration, RuntimeCapabilities as IntelXeonHost,
+    Target as IntelXeonTarget,
+};
 use crate::keychain_caprichio::{
     KeychainArtifact, KeychainDeclaration, RuntimeCapabilities as KeychainHost,
     Target as KeychainTarget,
@@ -215,6 +227,9 @@ pub struct Request {
     pub amd_apu: Option<AmdApuDeclaration>,
     pub amd_threadripper: Option<AmdThreadripperDeclaration>,
     pub amd_epyc: Option<AmdEpycDeclaration>,
+    pub intel_desktop: Option<IntelDesktopDeclaration>,
+    pub intel_mobile: Option<IntelMobileDeclaration>,
+    pub intel_xeon: Option<IntelXeonDeclaration>,
     pub accelerator_model: Option<AcceleratorDeclaration>,
 }
 
@@ -306,6 +321,12 @@ pub struct HostProfile {
     pub amd_threadripper_host: AmdThreadripperHost,
     pub amd_epyc_target: AmdEpycTarget,
     pub amd_epyc_host: AmdEpycHost,
+    pub intel_desktop_target: IntelDesktopTarget,
+    pub intel_desktop_host: IntelDesktopHost,
+    pub intel_mobile_target: IntelMobileTarget,
+    pub intel_mobile_host: IntelMobileHost,
+    pub intel_xeon_target: IntelXeonTarget,
+    pub intel_xeon_host: IntelXeonHost,
     pub accelerator_model_target: AcceleratorModelTarget,
     pub accelerator_model_host: AcceleratorModelHost,
 }
@@ -356,6 +377,9 @@ pub enum Artifact {
     AmdApu(AmdApuArtifact),
     AmdThreadripper(AmdThreadripperArtifact),
     AmdEpyc(AmdEpycArtifact),
+    IntelDesktop(IntelDesktopArtifact),
+    IntelMobile(IntelMobileArtifact),
+    IntelXeon(IntelXeonArtifact),
 }
 
 impl Artifact {
@@ -404,6 +428,9 @@ impl Artifact {
             Self::AmdApu(_) => crate::amd_apu_caprichio::CONTRACT,
             Self::AmdThreadripper(_) => crate::amd_threadripper_caprichio::CONTRACT,
             Self::AmdEpyc(_) => crate::amd_epyc_caprichio::CONTRACT,
+            Self::IntelDesktop(_) => crate::intel_desktop_caprichio::CONTRACT,
+            Self::IntelMobile(_) => crate::intel_mobile_caprichio::CONTRACT,
+            Self::IntelXeon(_) => crate::intel_xeon_caprichio::CONTRACT,
             Self::AcceleratorModel(a) => a.contract,
         }
     }
@@ -453,6 +480,9 @@ impl Artifact {
             Self::AmdApu(_) => "amd-apu-bounded-worker-plan",
             Self::AmdThreadripper(_) => "amd-threadripper-bounded-worker-plan",
             Self::AmdEpyc(_) => "amd-epyc-bounded-worker-plan",
+            Self::IntelDesktop(_) => "intel-desktop-bounded-worker-plan",
+            Self::IntelMobile(_) => "intel-mobile-bounded-worker-plan",
+            Self::IntelXeon(_) => "intel-xeon-bounded-worker-plan",
             Self::AcceleratorModel(_) => "per-model-device-accelerator",
         }
     }
@@ -502,6 +532,9 @@ impl Artifact {
             Self::AmdApu(a) => a.recipe_version,
             Self::AmdThreadripper(a) => a.recipe_version,
             Self::AmdEpyc(a) => a.recipe_version,
+            Self::IntelDesktop(a) => a.recipe_version,
+            Self::IntelMobile(a) => a.recipe_version,
+            Self::IntelXeon(a) => a.recipe_version,
             Self::AcceleratorModel(a) => a.recipe_version,
         }
     }
@@ -551,6 +584,9 @@ impl Artifact {
             Self::AmdApu(a) => &a.canonical_ir,
             Self::AmdThreadripper(a) => &a.canonical_ir,
             Self::AmdEpyc(a) => &a.canonical_ir,
+            Self::IntelDesktop(a) => &a.canonical_ir,
+            Self::IntelMobile(a) => &a.canonical_ir,
+            Self::IntelXeon(a) => &a.canonical_ir,
             Self::AcceleratorModel(a) => &a.canonical_ir,
         }
     }
@@ -600,6 +636,9 @@ impl Artifact {
             Self::AmdApu(a) => &a.source,
             Self::AmdThreadripper(a) => &a.source,
             Self::AmdEpyc(a) => &a.source,
+            Self::IntelDesktop(a) => &a.source,
+            Self::IntelMobile(a) => &a.source,
+            Self::IntelXeon(a) => &a.source,
             Self::AcceleratorModel(a) => &a.source,
         }
     }
@@ -642,6 +681,9 @@ pub const fn supported_contracts() -> &'static [&'static str] {
         crate::amd_desktop_caprichio::CONTRACT,
         crate::amd_epyc_caprichio::CONTRACT,
         crate::amd_threadripper_caprichio::CONTRACT,
+        crate::intel_desktop_caprichio::CONTRACT,
+        crate::intel_mobile_caprichio::CONTRACT,
+        crate::intel_xeon_caprichio::CONTRACT,
         crate::metal_caprichio::CONTRACT,
         crate::nvidia_accelerator_caprichio::CONTRACT,
         crate::exynos_accelerator_caprichio::CONTRACT,
@@ -697,6 +739,9 @@ pub enum NegotiationError {
     AmdApu(crate::amd_apu_caprichio::AmdApuDiagnostic),
     AmdThreadripper(crate::amd_threadripper_caprichio::AmdThreadripperDiagnostic),
     AmdEpyc(crate::amd_epyc_caprichio::AmdEpycDiagnostic),
+    IntelDesktop(crate::intel_desktop_caprichio::IntelDesktopDiagnostic),
+    IntelMobile(crate::intel_mobile_caprichio::IntelMobileDiagnostic),
+    IntelXeon(crate::intel_xeon_caprichio::IntelXeonDiagnostic),
     Metal(crate::metal_caprichio::Diagnostic),
     TouchId(crate::touch_id_caprichio::Diagnostic),
     FaceId(crate::face_id_caprichio::Diagnostic),
@@ -797,6 +842,15 @@ impl fmt::Display for NegotiationError {
                 write!(f, "AMD Threadripper negotiation failed: {e}", e = error)
             }
             Self::AmdEpyc(error) => write!(f, "AMD EPYC negotiation failed: {e}", e = error),
+            Self::IntelDesktop(error) => {
+                write!(f, "Intel desktop CPU negotiation failed: {e}", e = error)
+            }
+            Self::IntelMobile(error) => {
+                write!(f, "Intel mobile CPU negotiation failed: {e}", e = error)
+            }
+            Self::IntelXeon(error) => {
+                write!(f, "Intel Xeon CPU negotiation failed: {e}", e = error)
+            }
             Self::Metal(error) => write!(f, "Metal dispatch negotiation failed: {error}"),
             Self::TouchId(error) => write!(f, "Touch ID negotiation failed: {error}"),
             Self::FaceId(error) => write!(f, "Face ID negotiation failed: {error}"),
@@ -871,6 +925,9 @@ pub fn negotiate(
             && *id != crate::amd_apu_caprichio::CONTRACT
             && *id != crate::amd_threadripper_caprichio::CONTRACT
             && *id != crate::amd_epyc_caprichio::CONTRACT
+            && *id != crate::intel_desktop_caprichio::CONTRACT
+            && *id != crate::intel_mobile_caprichio::CONTRACT
+            && *id != crate::intel_xeon_caprichio::CONTRACT
             && *id != crate::nvidia_accelerator_caprichio::CONTRACT
             && *id != crate::metal_caprichio::CONTRACT
             && *id != crate::touch_id_caprichio::CONTRACT
@@ -925,6 +982,9 @@ pub fn negotiate(
     let needs_amd_apu = ordered.contains(crate::amd_apu_caprichio::CONTRACT);
     let needs_amd_threadripper = ordered.contains(crate::amd_threadripper_caprichio::CONTRACT);
     let needs_amd_epyc = ordered.contains(crate::amd_epyc_caprichio::CONTRACT);
+    let needs_intel_desktop = ordered.contains(crate::intel_desktop_caprichio::CONTRACT);
+    let needs_intel_mobile = ordered.contains(crate::intel_mobile_caprichio::CONTRACT);
+    let needs_intel_xeon = ordered.contains(crate::intel_xeon_caprichio::CONTRACT);
     let needs_metal = ordered.contains(crate::metal_caprichio::CONTRACT);
     let needs_touch_id = ordered.contains(crate::touch_id_caprichio::CONTRACT);
     let needs_face_id = ordered.contains(crate::face_id_caprichio::CONTRACT);
@@ -1048,6 +1108,21 @@ pub fn negotiate(
     }
     if request.amd_epyc.is_some() && !needs_amd_epyc {
         return Err(NegotiationError::UnexpectedDeclaration { kind: "amd_epyc" });
+    }
+    if request.intel_desktop.is_some() && !needs_intel_desktop {
+        return Err(NegotiationError::UnexpectedDeclaration {
+            kind: "intel_desktop",
+        });
+    }
+    if request.intel_mobile.is_some() && !needs_intel_mobile {
+        return Err(NegotiationError::UnexpectedDeclaration {
+            kind: "intel_mobile",
+        });
+    }
+    if request.intel_xeon.is_some() && !needs_intel_xeon {
+        return Err(NegotiationError::UnexpectedDeclaration {
+            kind: "intel_xeon",
+        });
     }
     if request.metal_compute.is_some() && !needs_metal {
         return Err(NegotiationError::UnexpectedDeclaration {
