@@ -262,30 +262,20 @@ impl AmdApuDeclaration {
             crate::amd_apu_runtime::WorkerError::WorkerThreadsTooLarge => {
                 AmdApuDiagnostic::WorkerThreadsTooLarge
             }
-            crate::amd_apu_runtime::WorkerError::ZeroBatch => {
-                AmdApuDiagnostic::ZeroBatch
-            }
-            crate::amd_apu_runtime::WorkerError::BatchTooLarge => {
-                AmdApuDiagnostic::BatchTooLarge
-            }
+            crate::amd_apu_runtime::WorkerError::ZeroBatch => AmdApuDiagnostic::ZeroBatch,
+            crate::amd_apu_runtime::WorkerError::BatchTooLarge => AmdApuDiagnostic::BatchTooLarge,
             crate::amd_apu_runtime::WorkerError::ZeroWorkspaceBytes => {
                 AmdApuDiagnostic::ZeroWorkspaceBytes
             }
             crate::amd_apu_runtime::WorkerError::WorkspaceBytesTooLarge => {
                 AmdApuDiagnostic::WorkspaceBytesTooLarge
             }
-            crate::amd_apu_runtime::WorkerError::WorkerOverflow => {
-                AmdApuDiagnostic::WorkerOverflow
-            }
+            crate::amd_apu_runtime::WorkerError::WorkerOverflow => AmdApuDiagnostic::WorkerOverflow,
         })?;
         debug_assert_eq!(plan.worker_threads(), self.worker_threads);
         debug_assert_eq!(plan.batch(), self.batch);
         debug_assert_eq!(plan.workspace_bytes(), self.workspace_bytes);
-        if self.worker_threads
-            > facts
-                .cores_max
-                .saturating_mul(facts.threads_per_core)
-        {
+        if self.worker_threads > facts.cores_max.saturating_mul(facts.threads_per_core) {
             return Err(AmdApuDiagnostic::ThreadsExceedGeneration);
         }
         Ok(AmdApuIr {
@@ -469,7 +459,11 @@ mod tests {
             );
             assert_eq!(
                 facts.thread_tech,
-                if facts.threads_per_core == 1 { "none" } else { "SMT" },
+                if facts.threads_per_core == 1 {
+                    "none"
+                } else {
+                    "SMT"
+                },
                 "thread_tech must match threads_per_core"
             );
             assert!(
@@ -553,20 +547,18 @@ mod tests {
             Err(AmdApuDiagnostic::WorkspaceBytesTooLarge)
         );
         // Strix Halo publishes 16 SMT cores, exactly the global bound.
-        assert!(declaration("Strix Halo", MAX_WORKER_THREADS, MAX_BATCH, Isa::Sse3)
-            .normalize()
-            .is_ok());
+        assert!(
+            declaration("Strix Halo", MAX_WORKER_THREADS, MAX_BATCH, Isa::Sse3)
+                .normalize()
+                .is_ok()
+        );
     }
 
     #[test]
     fn negotiation_rejects_other_targets_and_missing_facilities() {
         let apu = first_avx512_generation();
         let ir = declaration(apu, 4, 8, Isa::Avx512).normalize().unwrap();
-        for target in [
-            Target::CrossPlatform,
-            Target::Browser,
-            Target::Node,
-        ] {
+        for target in [Target::CrossPlatform, Target::Browser, Target::Node] {
             assert_eq!(
                 ir.lower_checked(target, CAPABILITIES),
                 Err(AmdApuDiagnostic::UnsupportedTarget)
@@ -588,38 +580,41 @@ mod tests {
                 AmdApuDiagnostic::MissingUtf8Strings,
             ),
         ] {
-            assert_eq!(
-                ir.lower_checked(Target::AmdApu, missing),
-                Err(expected)
-            );
+            assert_eq!(ir.lower_checked(Target::AmdApu, missing), Err(expected));
         }
         // ISA negotiation: each level asks for its own runtime facility and
         // fails closed when the generation lacks the hardware support.
         for (isa, flag, missing, unsupported_apu) in [
             (
                 Isa::Avx,
-                RuntimeCapabilities { avx: false, ..CAPABILITIES },
+                RuntimeCapabilities {
+                    avx: false,
+                    ..CAPABILITIES
+                },
                 AmdApuDiagnostic::MissingAvx,
                 "Brazos",
             ),
             (
                 Isa::Avx2,
-                RuntimeCapabilities { avx2: false, ..CAPABILITIES },
+                RuntimeCapabilities {
+                    avx2: false,
+                    ..CAPABILITIES
+                },
                 AmdApuDiagnostic::MissingAvx2,
                 "Kaveri",
             ),
             (
                 Isa::Avx512,
-                RuntimeCapabilities { avx512: false, ..CAPABILITIES },
+                RuntimeCapabilities {
+                    avx512: false,
+                    ..CAPABILITIES
+                },
                 AmdApuDiagnostic::MissingAvx512,
                 "Cezanne",
             ),
         ] {
             let ir = declaration(apu, 4, 8, isa).normalize().unwrap();
-            assert_eq!(
-                ir.lower_checked(Target::AmdApu, flag),
-                Err(missing)
-            );
+            assert_eq!(ir.lower_checked(Target::AmdApu, flag), Err(missing));
             let older = declaration(unsupported_apu, 2, 2, isa).normalize().unwrap();
             assert_eq!(
                 older.lower_checked(Target::AmdApu, CAPABILITIES),
