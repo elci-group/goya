@@ -41,6 +41,11 @@ pub struct MobileCpuFacts {
     /// (`2` where Hyper-Threading ships, `1` where it does not; hybrid
     /// E/LP-E cores are single-threaded).
     pub threads_per_core: u32,
+    /// Vendor-documented maximum OS-visible hardware threads for the
+    /// family (Intel publishes Total Threads per SKU); equals cores_max
+    /// × threads_per_core on homogeneous generations, and hybrid P+E
+    /// generations sit below that product.
+    pub threads_max: u32,
     /// Threading technology: `none` or `SMT`.
     pub thread_tech: &'static str,
     /// Documented AVX ISA support.
