@@ -546,6 +546,10 @@ impl Artifact {
             Self::NvidiaCuda(a) => &a.canonical_ir,
             Self::SnapdragonAccelerator(a) => &a.canonical_ir,
             Self::ExynosAccelerator(a) => &a.canonical_ir,
+            Self::AmdDesktop(a) => &a.canonical_ir,
+            Self::AmdApu(a) => &a.canonical_ir,
+            Self::AmdThreadripper(a) => &a.canonical_ir,
+            Self::AmdEpyc(a) => &a.canonical_ir,
             Self::AcceleratorModel(a) => &a.canonical_ir,
         }
     }
@@ -591,6 +595,10 @@ impl Artifact {
             Self::NvidiaCuda(a) => &a.source,
             Self::SnapdragonAccelerator(a) => &a.source,
             Self::ExynosAccelerator(a) => &a.source,
+            Self::AmdDesktop(a) => &a.source,
+            Self::AmdApu(a) => &a.source,
+            Self::AmdThreadripper(a) => &a.source,
+            Self::AmdEpyc(a) => &a.source,
             Self::AcceleratorModel(a) => &a.source,
         }
     }
@@ -680,6 +688,10 @@ pub enum NegotiationError {
     NvidiaCuda(crate::nvidia_accelerator_caprichio::NvidiaCudaDiagnostic),
     SnapdragonAccelerator(crate::snapdragon_accelerator_caprichio::SnapdragonAcceleratorDiagnostic),
     ExynosAccelerator(crate::exynos_accelerator_caprichio::ExynosAcceleratorDiagnostic),
+    AmdDesktop(crate::amd_desktop_caprichio::AmdDesktopDiagnostic),
+    AmdApu(crate::amd_apu_caprichio::AmdApuDiagnostic),
+    AmdThreadripper(crate::amd_threadripper_caprichio::AmdThreadripperDiagnostic),
+    AmdEpyc(crate::amd_epyc_caprichio::AmdEpycDiagnostic),
     Metal(crate::metal_caprichio::Diagnostic),
     TouchId(crate::touch_id_caprichio::Diagnostic),
     FaceId(crate::face_id_caprichio::Diagnostic),
@@ -772,6 +784,14 @@ impl fmt::Display for NegotiationError {
                     err = error
                 )
             }
+            Self::AmdDesktop(error) => {
+                write!(f, "AMD desktop CPU negotiation failed: {e}", e = error)
+            }
+            Self::AmdApu(error) => write!(f, "AMD APU negotiation failed: {e}", e = error),
+            Self::AmdThreadripper(error) => {
+                write!(f, "AMD Threadripper negotiation failed: {e}", e = error)
+            }
+            Self::AmdEpyc(error) => write!(f, "AMD EPYC negotiation failed: {e}", e = error),
             Self::Metal(error) => write!(f, "Metal dispatch negotiation failed: {error}"),
             Self::TouchId(error) => write!(f, "Touch ID negotiation failed: {error}"),
             Self::FaceId(error) => write!(f, "Face ID negotiation failed: {error}"),
