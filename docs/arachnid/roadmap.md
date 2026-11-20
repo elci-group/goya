@@ -15,7 +15,7 @@ responsibility, and pointer and 5-way input must both work at all times.
 ## 1. Reconciliation with the repository as it exists
 
 The pasted proposal was written without inspecting the repository. This is
-how its assumptions compare with the tree on branch `nevada/v0.1`, checked
+how its assumptions compare with the tree on branch `nebula/v0.1`, checked
 on 20 November 2026.
 
 | Proposal assumption | Repository reality |
@@ -241,4 +241,4 @@ would plan against systems that are not in the repository.
 5. Do Inquisition, Tauromaquia and Mesut-in-browser exist outside this
    repository? If so, where are their specifications?
 6. Which branch should Arachnid work go on? This file was written in a
-   checkout of `nevada/v0.1` and is not committed.
+   checkout of `nebula/v0.1` and is not committed.
