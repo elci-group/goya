@@ -301,7 +301,7 @@ mod tests {
 #[test]
     fn alexa_model_maps_transport_to_builtin() {
         let scene = parse(
-            r#"@ontology app { @button go { id: "button.go"; } @input playField { id: "element.playField"; } @interaction p { id: "action.p"; trigger: button.go.activate; class: D1; state { } input { } } @intent play { id: "intent.play.v1"; action: p; transport: play_pause; category: playback; voice { utterance: "Play"; } fallback { remote: playField; } }"#,
+            r#"@ontology app { @button go { id: "button.go"; } @cell playField { id: "element.playField"; } @interaction p { id: "action.p"; trigger: button.go.activate; class: D1; state { } input { } } @intent play { id: "intent.play.v1"; action: p; transport: play_pause; category: playback; voice { utterance: "Play"; } fallback { remote: playField; } }"#,
         ).unwrap();
         let model = emit_alexa_interaction_model(&scene, "oem.generic.tv/1.0.0", 800.0, 600.0)
             .expect("model emits");
@@ -313,7 +313,7 @@ mod tests {
 #[test]
     fn alexa_model_includes_certification_metadata() {
         let scene = parse(
-            r#"@ontology app { @button go { id: "button.go"; } @input searchField { id: "element.searchField"; } @interaction a { id: "action.a"; trigger: button.go.activate; class: D1; state { } input { } } @intent main { id: "intent.main.v1"; action: a; category: general; voice { utterance: "Go"; } fallback { remote: searchField; } }"#,
+            r#"@ontology app { @button go { id: "button.go"; } @cell searchField { id: "element.searchField"; } @interaction a { id: "action.a"; trigger: button.go.activate; class: D1; state { } input { } } @intent main { id: "intent.main.v1"; action: a; category: general; voice { utterance: "Go"; } fallback { remote: searchField; } }"#,
         ).unwrap();
         let model = emit_alexa_interaction_model(&scene, "oem.generic.tv/1.0.0", 800.0, 600.0)
             .expect("model emits");
