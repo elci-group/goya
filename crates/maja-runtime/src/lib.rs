@@ -1,5 +1,12 @@
-//! Experimental, narrowly admitted D1 action code generation.
-//! This module does not own state, bind controls, or admit a web profile.
+//! Experimental D1 code generation for Maja.
+//!
+//! [`emit_d1_runtime`] emits a standalone JavaScript state owner for every
+//! canonical D1 interaction of a scene. [`emit_checked_increment`] is the
+//! older single-shape specialization. Neither binds controls or admits a web
+//! profile; that is the caller's job.
+
+mod d1;
+pub use d1::{emit_d1_runtime, D1Runtime, D1RuntimeError, RuntimeAction, D1_RUNTIME_CONTRACT};
 
 use goya_lang::{InteractionClass, InteractionExpr, InteractionType, InteractionValue, Scene};
 use std::fmt;

@@ -6,3 +6,6 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 goya-lang = { path = "../goya-lang" }
+
+[dev-dependencies]
+goya-executable = { path = "../goya-executable" }
