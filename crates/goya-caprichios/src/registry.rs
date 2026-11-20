@@ -13,11 +13,12 @@ use crate::amd_desktop_caprichio::{
     Target as AmdDesktopTarget,
 };
 use crate::amd_epyc_caprichio::{
-    AmdEpycArtifact, AmdEpycDeclaration, RuntimeCapabilities as AmdEpycHost, Target as AmdEpycTarget,
+    AmdEpycArtifact, AmdEpycDeclaration, RuntimeCapabilities as AmdEpycHost,
+    Target as AmdEpycTarget,
 };
 use crate::amd_threadripper_caprichio::{
-    AmdThreadripperArtifact, AmdThreadripperDeclaration, RuntimeCapabilities as AmdThreadripperHost,
-    Target as AmdThreadripperTarget,
+    AmdThreadripperArtifact, AmdThreadripperDeclaration,
+    RuntimeCapabilities as AmdThreadripperHost, Target as AmdThreadripperTarget,
 };
 use crate::apple_pay_caprichio::{
     ApplePayArtifact, ApplePayDeclaration, RuntimeCapabilities as ApplePayHost,
@@ -1038,9 +1039,7 @@ pub fn negotiate(
         });
     }
     if request.amd_apu.is_some() && !needs_amd_apu {
-        return Err(NegotiationError::UnexpectedDeclaration {
-            kind: "amd_apu",
-        });
+        return Err(NegotiationError::UnexpectedDeclaration { kind: "amd_apu" });
     }
     if request.amd_threadripper.is_some() && !needs_amd_threadripper {
         return Err(NegotiationError::UnexpectedDeclaration {
@@ -1048,9 +1047,7 @@ pub fn negotiate(
         });
     }
     if request.amd_epyc.is_some() && !needs_amd_epyc {
-        return Err(NegotiationError::UnexpectedDeclaration {
-            kind: "amd_epyc",
-        });
+        return Err(NegotiationError::UnexpectedDeclaration { kind: "amd_epyc" });
     }
     if request.metal_compute.is_some() && !needs_metal {
         return Err(NegotiationError::UnexpectedDeclaration {
@@ -1461,11 +1458,13 @@ pub fn negotiate(
                 )
             }
             crate::amd_desktop_caprichio::CONTRACT => {
-                let declaration = request.amd_desktop.clone().ok_or(
-                    NegotiationError::MissingDeclaration {
-                        capability: crate::amd_desktop_caprichio::CONTRACT,
-                    },
-                )?;
+                let declaration =
+                    request
+                        .amd_desktop
+                        .clone()
+                        .ok_or(NegotiationError::MissingDeclaration {
+                            capability: crate::amd_desktop_caprichio::CONTRACT,
+                        })?;
                 let ir = declaration
                     .normalize()
                     .map_err(NegotiationError::AmdDesktop)?;
@@ -3691,7 +3690,10 @@ mod tests {
         assert_eq!(negotiated.len(), 1);
         assert_eq!(negotiated[0].id, contract);
         assert_eq!(negotiated[0].artifact.contract(), contract);
-        assert_eq!(negotiated[0].artifact.recipe(), "amd-apu-bounded-worker-plan");
+        assert_eq!(
+            negotiated[0].artifact.recipe(),
+            "amd-apu-bounded-worker-plan"
+        );
         assert_eq!(
             negotiated[0].artifact.recipe_version(),
             crate::amd_apu_caprichio::RECIPE_VERSION
@@ -3722,9 +3724,7 @@ mod tests {
         };
         assert_eq!(
             negotiate(&unexpected, host()),
-            Err(NegotiationError::UnexpectedDeclaration {
-                kind: "amd_apu"
-            })
+            Err(NegotiationError::UnexpectedDeclaration { kind: "amd_apu" })
         );
 
         let mut unsupported_target = host();
@@ -3892,9 +3892,7 @@ mod tests {
         };
         assert_eq!(
             negotiate(&unexpected, host()),
-            Err(NegotiationError::UnexpectedDeclaration {
-                kind: "amd_epyc"
-            })
+            Err(NegotiationError::UnexpectedDeclaration { kind: "amd_epyc" })
         );
 
         let mut unsupported_target = host();
