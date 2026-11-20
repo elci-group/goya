@@ -245,9 +245,7 @@ impl fmt::Display for IntelXeonDiagnostic {
             Self::UnsupportedAccelerator => {
                 "generation does not implement the requested ISA extensions"
             }
-            Self::MissingX86_64Runtime => {
-                "target runtime must report a Xeon CPU with a thread API"
-            }
+            Self::MissingX86_64Runtime => "target runtime must report a Xeon CPU with a thread API",
             Self::MissingAvx => "target runtime must report AVX support",
             Self::MissingAvx2 => "target runtime must report AVX2 support",
             Self::MissingAvx512 => "target runtime must report AVX-512 support",
@@ -558,9 +556,7 @@ mod tests {
         assert_eq!(first.contract, CONTRACT);
         assert!(first.canonical_ir.contains("target=intel_xeon\n"));
         assert!(first.canonical_ir.contains("worker_threads=120\n"));
-        assert!(first
-            .canonical_ir
-            .contains("total_worker_executions=480\n"));
+        assert!(first.canonical_ir.contains("total_worker_executions=480\n"));
         assert!(first.canonical_ir.contains("execution=none_attempted\n"));
         assert!(first
             .source
@@ -616,14 +612,18 @@ mod tests {
             declaration("Xeon 6 6700E (Sierra Forest-SP)", 145, 8).normalize(),
             Err(IntelXeonDiagnostic::ThreadsExceedGeneration)
         );
-        assert!(declaration("Xeon 6 6700E (Sierra Forest-SP)", 144, MAX_BATCH)
-            .normalize()
-            .is_ok());
+        assert!(
+            declaration("Xeon 6 6700E (Sierra Forest-SP)", 144, MAX_BATCH)
+                .normalize()
+                .is_ok()
+        );
         // The Granite Rapids-AP top SKU bound (128 cores times 2 threads)
         // is representable at the full plan and batch bounds.
-        assert!(declaration("Xeon 6 6900P (Granite Rapids-AP)", 256, MAX_BATCH)
-            .normalize()
-            .is_ok());
+        assert!(
+            declaration("Xeon 6 6900P (Granite Rapids-AP)", 256, MAX_BATCH)
+                .normalize()
+                .is_ok()
+        );
     }
 
     #[test]
@@ -690,9 +690,9 @@ mod tests {
         }
         // Requesting AVX or AVX-512 on pre-Sandy-Bridge silicon fails
         // closed on the accelerator, not the host.
-        let nehalem_avx = declaration("Xeon 5500 (Nehalem-EP)", 4, 8)
-            .normalize()
-            .unwrap();
+        let mut nehalem_avx = declaration("Xeon 5500 (Nehalem-EP)", 4, 8);
+        nehalem_avx.isa = Isa::Avx;
+        let nehalem_avx = nehalem_avx.normalize().unwrap();
         assert_eq!(
             nehalem_avx.lower_checked(Target::IntelXeon, CAPABILITIES),
             Err(IntelXeonDiagnostic::UnsupportedAccelerator)
