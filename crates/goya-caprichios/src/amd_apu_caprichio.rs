@@ -552,7 +552,8 @@ mod tests {
             huge_workspace.normalize(),
             Err(AmdApuDiagnostic::WorkspaceBytesTooLarge)
         );
-        assert!(declaration(apu, MAX_WORKER_THREADS, MAX_BATCH, Isa::Sse3)
+        // Strix Halo publishes 16 SMT cores, exactly the global bound.
+        assert!(declaration("Strix Halo", MAX_WORKER_THREADS, MAX_BATCH, Isa::Sse3)
             .normalize()
             .is_ok());
     }
@@ -614,6 +615,7 @@ mod tests {
                 "Cezanne",
             ),
         ] {
+            let ir = declaration(apu, 4, 8, isa).normalize().unwrap();
             assert_eq!(
                 ir.lower_checked(Target::AmdApu, flag),
                 Err(missing)
