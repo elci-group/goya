@@ -4098,6 +4098,282 @@ mod tests {
     }
 
     #[test]
+    fn intel_desktop_contract_registers_exactly_and_fails_closed() {
+        let contract = crate::intel_desktop_caprichio::CONTRACT;
+        assert_eq!(contract, "goya.hardware.cpu_compute.intel_desktop.v1");
+        assert!(supported_contracts().contains(&contract));
+        assert!(!supported_contracts().contains(&"hardware.cpu_compute"));
+        assert!(!supported_contracts().contains(&"goya.hardware.cpu_compute.v1"));
+
+        let request = Request {
+            capabilities: vec![contract.into()],
+            intel_desktop: Some(intel_desktop_declaration()),
+            ..Request::default()
+        };
+        let negotiated = negotiate(&request, host()).unwrap();
+        assert_eq!(negotiated.len(), 1);
+        assert_eq!(negotiated[0].id, contract);
+        assert_eq!(negotiated[0].artifact.contract(), contract);
+        assert_eq!(
+            negotiated[0].artifact.recipe(),
+            "intel-desktop-bounded-worker-plan"
+        );
+        assert_eq!(
+            negotiated[0].artifact.recipe_version(),
+            crate::intel_desktop_caprichio::RECIPE_VERSION
+        );
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("target=intel_desktop\n"));
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("execution=none_attempted\n"));
+        assert_eq!(negotiated, negotiate(&request, host()).unwrap());
+
+        let missing = Request {
+            capabilities: vec![contract.into()],
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&missing, host()),
+            Err(NegotiationError::MissingDeclaration {
+                capability: contract
+            })
+        );
+        let unexpected = Request {
+            intel_desktop: Some(intel_desktop_declaration()),
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&unexpected, host()),
+            Err(NegotiationError::UnexpectedDeclaration {
+                kind: "intel_desktop"
+            })
+        );
+
+        let mut unsupported_target = host();
+        unsupported_target.intel_desktop_target = IntelDesktopTarget::CrossPlatform;
+        assert_eq!(
+            negotiate(&request, unsupported_target),
+            Err(NegotiationError::IntelDesktop(
+                crate::intel_desktop_caprichio::IntelDesktopDiagnostic::UnsupportedTarget
+            ))
+        );
+        // The helper plans on the low-thread Penryn row, so the ISA-ladder
+        // negative needs an AVX-512-capable generation to reach the host
+        // capability check.
+        let mut avx512_declaration = intel_desktop_declaration();
+        avx512_declaration.cpu = "Rocket Lake".into();
+        avx512_declaration.isa = crate::intel_desktop_caprichio::Isa::Avx512;
+        let avx512_request = Request {
+            capabilities: vec![contract.into()],
+            intel_desktop: Some(avx512_declaration),
+            ..Request::default()
+        };
+        let mut no_avx512 = host();
+        no_avx512.intel_desktop_host.avx512 = false;
+        assert_eq!(
+            negotiate(&avx512_request, no_avx512),
+            Err(NegotiationError::IntelDesktop(
+                crate::intel_desktop_caprichio::IntelDesktopDiagnostic::MissingAvx512
+            ))
+        );
+
+        let draft = Request {
+            capabilities: vec!["hardware.cpu_compute".into()],
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&draft, host()),
+            Err(NegotiationError::UnknownCapability(
+                "hardware.cpu_compute".into()
+            ))
+        );
+    }
+
+    #[test]
+    fn intel_mobile_contract_registers_exactly_and_fails_closed() {
+        let contract = crate::intel_mobile_caprichio::CONTRACT;
+        assert_eq!(contract, "goya.hardware.cpu_compute.intel_mobile.v1");
+        assert!(supported_contracts().contains(&contract));
+        assert!(!supported_contracts().contains(&"hardware.cpu_compute"));
+        assert!(!supported_contracts().contains(&"goya.hardware.cpu_compute.v1"));
+
+        let request = Request {
+            capabilities: vec![contract.into()],
+            intel_mobile: Some(intel_mobile_declaration()),
+            ..Request::default()
+        };
+        let negotiated = negotiate(&request, host()).unwrap();
+        assert_eq!(negotiated.len(), 1);
+        assert_eq!(negotiated[0].id, contract);
+        assert_eq!(negotiated[0].artifact.contract(), contract);
+        assert_eq!(
+            negotiated[0].artifact.recipe(),
+            "intel-mobile-bounded-worker-plan"
+        );
+        assert_eq!(
+            negotiated[0].artifact.recipe_version(),
+            crate::intel_mobile_caprichio::RECIPE_VERSION
+        );
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("target=intel_mobile\n"));
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("execution=none_attempted\n"));
+        assert_eq!(negotiated, negotiate(&request, host()).unwrap());
+
+        let missing = Request {
+            capabilities: vec![contract.into()],
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&missing, host()),
+            Err(NegotiationError::MissingDeclaration {
+                capability: contract
+            })
+        );
+        let unexpected = Request {
+            intel_mobile: Some(intel_mobile_declaration()),
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&unexpected, host()),
+            Err(NegotiationError::UnexpectedDeclaration {
+                kind: "intel_mobile"
+            })
+        );
+
+        let mut unsupported_target = host();
+        unsupported_target.intel_mobile_target = IntelMobileTarget::CrossPlatform;
+        assert_eq!(
+            negotiate(&request, unsupported_target),
+            Err(NegotiationError::IntelMobile(
+                crate::intel_mobile_caprichio::IntelMobileDiagnostic::UnsupportedTarget
+            ))
+        );
+        let mut no_avx512 = host();
+        no_avx512.intel_mobile_host.avx512 = false;
+        assert_eq!(
+            negotiate(&request, no_avx512),
+            Err(NegotiationError::IntelMobile(
+                crate::intel_mobile_caprichio::IntelMobileDiagnostic::MissingAvx512
+            ))
+        );
+
+        let draft = Request {
+            capabilities: vec!["hardware.cpu_compute".into()],
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&draft, host()),
+            Err(NegotiationError::UnknownCapability(
+                "hardware.cpu_compute".into()
+            ))
+        );
+    }
+
+    #[test]
+    fn intel_xeon_contract_registers_exactly_and_fails_closed() {
+        let contract = crate::intel_xeon_caprichio::CONTRACT;
+        assert_eq!(contract, "goya.hardware.cpu_compute.intel_xeon.v1");
+        assert!(supported_contracts().contains(&contract));
+        assert!(!supported_contracts().contains(&"hardware.cpu_compute"));
+        assert!(!supported_contracts().contains(&"goya.hardware.cpu_compute.v1"));
+
+        let request = Request {
+            capabilities: vec![contract.into()],
+            intel_xeon: Some(intel_xeon_declaration()),
+            ..Request::default()
+        };
+        let negotiated = negotiate(&request, host()).unwrap();
+        assert_eq!(negotiated.len(), 1);
+        assert_eq!(negotiated[0].id, contract);
+        assert_eq!(negotiated[0].artifact.contract(), contract);
+        assert_eq!(
+            negotiated[0].artifact.recipe(),
+            "intel-xeon-bounded-worker-plan"
+        );
+        assert_eq!(
+            negotiated[0].artifact.recipe_version(),
+            crate::intel_xeon_caprichio::RECIPE_VERSION
+        );
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("target=intel_xeon\n"));
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("execution=none_attempted\n"));
+        assert_eq!(negotiated, negotiate(&request, host()).unwrap());
+
+        let missing = Request {
+            capabilities: vec![contract.into()],
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&missing, host()),
+            Err(NegotiationError::MissingDeclaration {
+                capability: contract
+            })
+        );
+        let unexpected = Request {
+            intel_xeon: Some(intel_xeon_declaration()),
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&unexpected, host()),
+            Err(NegotiationError::UnexpectedDeclaration {
+                kind: "intel_xeon"
+            })
+        );
+
+        let mut unsupported_target = host();
+        unsupported_target.intel_xeon_target = IntelXeonTarget::CrossPlatform;
+        assert_eq!(
+            negotiate(&request, unsupported_target),
+            Err(NegotiationError::IntelXeon(
+                crate::intel_xeon_caprichio::IntelXeonDiagnostic::UnsupportedTarget
+            ))
+        );
+        // The helper plans on Nehalem-EP, so the ISA-ladder negative needs
+        // an AVX-512-capable generation to reach the host capability check.
+        let mut avx512_declaration = intel_xeon_declaration();
+        avx512_declaration.cpu = "Xeon 6 6900P (Granite Rapids-AP)".into();
+        avx512_declaration.isa = crate::intel_xeon_caprichio::Isa::Avx512;
+        let avx512_request = Request {
+            capabilities: vec![contract.into()],
+            intel_xeon: Some(avx512_declaration),
+            ..Request::default()
+        };
+        let mut no_avx512 = host();
+        no_avx512.intel_xeon_host.avx512 = false;
+        assert_eq!(
+            negotiate(&avx512_request, no_avx512),
+            Err(NegotiationError::IntelXeon(
+                crate::intel_xeon_caprichio::IntelXeonDiagnostic::MissingAvx512
+            ))
+        );
+
+        let draft = Request {
+            capabilities: vec!["hardware.cpu_compute".into()],
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&draft, host()),
+            Err(NegotiationError::UnknownCapability(
+                "hardware.cpu_compute".into()
+            ))
+        );
+    }
+
+    #[test]
     fn mixed_request_is_sorted_and_artifacts_keep_contract_identity() {
         let request = Request {
             nvidia_cuda: None,
