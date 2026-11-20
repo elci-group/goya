@@ -1120,9 +1120,7 @@ pub fn negotiate(
         });
     }
     if request.intel_xeon.is_some() && !needs_intel_xeon {
-        return Err(NegotiationError::UnexpectedDeclaration {
-            kind: "intel_xeon",
-        });
+        return Err(NegotiationError::UnexpectedDeclaration { kind: "intel_xeon" });
     }
     if request.metal_compute.is_some() && !needs_metal {
         return Err(NegotiationError::UnexpectedDeclaration {
@@ -1591,11 +1589,13 @@ pub fn negotiate(
                 )
             }
             crate::intel_desktop_caprichio::CONTRACT => {
-                let declaration = request.intel_desktop.clone().ok_or(
-                    NegotiationError::MissingDeclaration {
-                        capability: crate::intel_desktop_caprichio::CONTRACT,
-                    },
-                )?;
+                let declaration =
+                    request
+                        .intel_desktop
+                        .clone()
+                        .ok_or(NegotiationError::MissingDeclaration {
+                            capability: crate::intel_desktop_caprichio::CONTRACT,
+                        })?;
                 let ir = declaration
                     .normalize()
                     .map_err(NegotiationError::IntelDesktop)?;
@@ -1605,11 +1605,13 @@ pub fn negotiate(
                 )
             }
             crate::intel_mobile_caprichio::CONTRACT => {
-                let declaration = request.intel_mobile.clone().ok_or(
-                    NegotiationError::MissingDeclaration {
-                        capability: crate::intel_mobile_caprichio::CONTRACT,
-                    },
-                )?;
+                let declaration =
+                    request
+                        .intel_mobile
+                        .clone()
+                        .ok_or(NegotiationError::MissingDeclaration {
+                            capability: crate::intel_mobile_caprichio::CONTRACT,
+                        })?;
                 let ir = declaration
                     .normalize()
                     .map_err(NegotiationError::IntelMobile)?;
@@ -1619,11 +1621,13 @@ pub fn negotiate(
                 )
             }
             crate::intel_xeon_caprichio::CONTRACT => {
-                let declaration = request.intel_xeon.clone().ok_or(
-                    NegotiationError::MissingDeclaration {
-                        capability: crate::intel_xeon_caprichio::CONTRACT,
-                    },
-                )?;
+                let declaration =
+                    request
+                        .intel_xeon
+                        .clone()
+                        .ok_or(NegotiationError::MissingDeclaration {
+                            capability: crate::intel_xeon_caprichio::CONTRACT,
+                        })?;
                 let ir = declaration
                     .normalize()
                     .map_err(NegotiationError::IntelXeon)?;
@@ -4329,9 +4333,7 @@ mod tests {
         };
         assert_eq!(
             negotiate(&unexpected, host()),
-            Err(NegotiationError::UnexpectedDeclaration {
-                kind: "intel_xeon"
-            })
+            Err(NegotiationError::UnexpectedDeclaration { kind: "intel_xeon" })
         );
 
         let mut unsupported_target = host();
