@@ -594,12 +594,11 @@ mod tests {
         }
         // ISA negotiation: each level asks for its own runtime facility and
         // fails closed when the generation lacks the hardware support.
-        for (isa, flag, missing, unsupported_apu, expected_missing) in [
+        for (isa, flag, missing, unsupported_apu) in [
             (
                 Isa::Avx,
                 RuntimeCapabilities { avx: false, ..CAPABILITIES },
                 AmdApuDiagnostic::MissingAvx,
-                "Brazos",
                 "Brazos",
             ),
             (
@@ -607,19 +606,17 @@ mod tests {
                 RuntimeCapabilities { avx2: false, ..CAPABILITIES },
                 AmdApuDiagnostic::MissingAvx2,
                 "Kaveri",
-                "Kaveri",
             ),
             (
                 Isa::Avx512,
                 RuntimeCapabilities { avx512: false, ..CAPABILITIES },
                 AmdApuDiagnostic::MissingAvx512,
                 "Cezanne",
-                "Cezanne",
             ),
         ] {
             assert_eq!(
                 ir.lower_checked(Target::AmdApu, flag),
-                Err(expected_missing)
+                Err(missing)
             );
             let older = declaration(unsupported_apu, 2, 2, isa).normalize().unwrap();
             assert_eq!(
