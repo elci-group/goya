@@ -17,6 +17,11 @@ use goya_lang::IntentDecl;
 pub mod fireos;
 pub mod resolve;
 pub mod runtime;
+pub mod alexa;
+pub use alexa::{
+    emit_alexa_interaction_model, AlexaIntent, AlexaInteractionModel, AlexaSlot,
+    CertificationInfo, ALEXA_IM_CONTRACT,
+};
 pub use fireos::{
     emit_fire_os_plan, transport_actions, FireOsIntent, FireOsPlan, IntentLowering, LaunchSupport,
     TransportAction, FIRE_OS_PLAN_CONTRACT, MEDIA_SESSION_PERMISSION,
