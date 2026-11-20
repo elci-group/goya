@@ -1,6 +1,6 @@
 use goya_sdk::{
     compile_android_scene, emit_android_d1_runtime, emit_android_root_button_preview,
-    emit_android_static_text_preview_named,
+    emit_android_static_text_preview_named, compile_nevada_project,
 };
 use std::{
     collections::{BTreeMap, HashSet},
@@ -13,6 +13,7 @@ use std::{
 const CLASS_NAME: &str = "GoyaStaticTextPreview";
 const BUTTON_CLASS_NAME: &str = "GoyaRootButtonPreview";
 const PACKAGE: &str = "dev.goya.preview";
+const USAGE: &str = "usage: aragon-android-project <input.gscene> <output-directory> [--scene | --root-button [--initial key=int:value|text:value|bool:value ...] | --tv --profile <id>]";
 
 // Locked Gradle wrapper and dependency checksums for the toolchain in
 // docs/aragon/android-toolchain-lock.md. The wrapper jar is Gradle 8.9's
@@ -45,7 +46,7 @@ android {
 kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
 "#;
 fn usage() -> ! {
-    eprintln!("usage: aragon-android-project <input.gscene> <output-directory> [--scene | --root-button [--initial key=int:value|text:value|bool:value ...]]");
+    eprintln!("{USAGE}");
     process::exit(2);
 }
 
@@ -132,8 +133,8 @@ fn make_executable(_file: &fs::File) -> std::io::Result<()> {
 fn main() {
     let args: Vec<_> = env::args_os().skip(1).collect();
     if args.len() == 1 && (args[0] == "--help" || args[0] == "-h") {
-        println!("usage: aragon-android-project <input.gscene> <output-directory> [--scene | --root-button [--initial key=int:value|text:value|bool:value ...]]");
-        println!("Generate a deterministic Android app: --scene compiles a GSSH/3 scene; without it, a static-text or root-button D1 preview.");
+        println!("{USAGE}");
+        println!("Generate an Android app project. Use --scene for a GSSH/3 scene or --tv for a Nevada Android TV project.");
         process::exit(0);
     }
     if args.len() < 2 {
@@ -141,6 +142,11 @@ fn main() {
     }
     if args.len() == 3 && args[2] == "--scene" {
         generate_scene(&args[0], Path::new(&args[1]));
+        return;
+    }
+    if args.len() == 5 && args[2] == "--tv" && args[3] == "--profile" {
+        let profile = args[4].to_str().unwrap_or_else(|| usage());
+        generate_tv(&args[0], Path::new(&args[1]), profile);
         return;
     }
 
@@ -296,6 +302,11 @@ fn base_files(project_name: &str) -> Vec<(String, Vec<u8>)> {
 /// Scene projects use a theme without an action bar: the scene owns the
 /// whole window inside the system bars.
 fn base_files_themed(project_name: &str, theme: &str) -> Vec<(String, Vec<u8>)> {
+    let manifest = format!("<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"><application android:theme=\"@android:style/{theme}\" android:label=\"Goya preview\"><activity android:name=\"dev.goya.preview.MainActivity\" android:exported=\"true\"><intent-filter><action android:name=\"android.intent.action.MAIN\"/><category android:name=\"android.intent.category.LAUNCHER\"/></intent-filter></activity></application></manifest>\n");
+    base_files_with_manifest(project_name, &manifest)
+}
+
+fn base_files_with_manifest(project_name: &str, manifest: &str) -> Vec<(String, Vec<u8>)> {
     vec![
         ("settings.gradle.kts".to_owned(), format!("pluginManagement {{ repositories {{ google(); mavenCentral(); gradlePluginPortal() }} }}\ndependencyResolutionManagement {{ repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS); repositories {{ google(); mavenCentral() }} }}\nrootProject.name = \"{project_name}\"\ninclude(\":app\")\n").into_bytes()),
         ("build.gradle.kts".to_owned(), ROOT_BUILD.as_bytes().to_vec()),
@@ -306,8 +317,41 @@ fn base_files_themed(project_name: &str, theme: &str) -> Vec<(String, Vec<u8>)> 
         ("gradle/wrapper/gradle-wrapper.properties".to_owned(), WRAPPER_PROPERTIES.to_vec()),
         ("gradle/verification-metadata.xml".to_owned(), VERIFICATION_METADATA.to_vec()),
         ("app/build.gradle.kts".to_owned(), APP_BUILD.as_bytes().to_vec()),
-        ("app/src/main/AndroidManifest.xml".to_owned(), format!("<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"><application android:theme=\"@android:style/{theme}\" android:label=\"Goya preview\"><activity android:name=\"dev.goya.preview.MainActivity\" android:exported=\"true\"><intent-filter><action android:name=\"android.intent.action.MAIN\"/><category android:name=\"android.intent.category.LAUNCHER\"/></intent-filter></activity></application></manifest>\n").into_bytes()),
+        ("app/src/main/AndroidManifest.xml".to_owned(), manifest.as_bytes().to_vec()),
     ]
+}
+
+fn generate_tv(input: &std::ffi::OsStr, root: &Path, profile: &str) {
+    let source = fs::read_to_string(input).unwrap_or_else(|error| {
+        eprintln!("could not read scene {}: {error}", input.to_string_lossy());
+        process::exit(1);
+    });
+    let project = compile_nevada_project(&source, profile).unwrap_or_else(|error| {
+        eprintln!("{error}");
+        process::exit(1);
+    });
+    let mut files = base_files_with_manifest("GoyaNevada", project.manifest);
+    files.extend(project.files.into_iter().map(|file| {
+        (
+            format!("app/src/main/java/dev/goya/preview/{}", file.name),
+            file.text.into_bytes(),
+        )
+    }));
+    files.extend([
+        (
+            "app/src/main/res/drawable-xhdpi/nevada_banner.png".to_owned(),
+            project.banner.to_vec(),
+        ),
+        (
+            "aragon-source-map.json".to_owned(),
+            project.source_map.to_json().into_bytes(),
+        ),
+        (
+            "nevada-conformance.txt".to_owned(),
+            project.conformance.into_bytes(),
+        ),
+    ]);
+    write_or_exit(root, &files);
 }
 
 /// `--scene`: compile a GSSH/3 scene with the Aragon scene compiler.

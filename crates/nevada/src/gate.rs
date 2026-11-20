@@ -127,7 +127,10 @@ pub fn verify(
         {
             return Err(GateError::new(
                 NvFeatureRefused,
-                format!("invalid authored binding on control {}", interaction.element_id),
+                format!(
+                    "invalid authored binding on control {}",
+                    interaction.element_id
+                ),
             ));
         }
     }
@@ -138,7 +141,10 @@ pub fn verify(
         ));
     }
 
-    let kinds: Vec<_> = interactions.iter().map(|interaction| interaction.kind).collect();
+    let kinds: Vec<_> = interactions
+        .iter()
+        .map(|interaction| interaction.kind)
+        .collect();
     let report = conformance::validate(elements, &kinds, factory.census());
     if report.status != ConformanceStatus::Pass {
         return Err(GateError(report.diagnostics));
@@ -165,7 +171,10 @@ pub fn verify(
         let remote = wired.ok_or_else(|| {
             GateError::new(
                 NvFeatureRefused,
-                format!("no wired TV route for {:?} ({})", interaction.kind, interaction.authored_id),
+                format!(
+                    "no wired TV route for {:?} ({})",
+                    interaction.kind, interaction.authored_id
+                ),
             )
         })?;
         routes.push(Route {
@@ -190,12 +199,25 @@ mod tests {
     use super::*;
 
     const PROFILE: &str = "oem.generic.tv/1.0.0";
-    const VIEWPORT: Viewport = Viewport { x: 0, y: 0, w: 100, h: 100 };
+    const VIEWPORT: Viewport = Viewport {
+        x: 0,
+        y: 0,
+        w: 100,
+        h: 100,
+    };
     const BUTTON: FocusElement = FocusElement {
-        id: 1, x: 0, y: 0, w: 10, h: 10, focusable: true, essential: true,
+        id: 1,
+        x: 0,
+        y: 0,
+        w: 10,
+        h: 10,
+        focusable: true,
+        essential: true,
     };
     const TAP: SceneInteraction<'static> = SceneInteraction {
-        element_id: 1, authored_id: "action.add", kind: TouchInteraction::TouchTap,
+        element_id: 1,
+        authored_id: "action.add",
+        kind: TouchInteraction::TouchTap,
     };
 
     #[test]
@@ -203,24 +225,45 @@ mod tests {
         let verified = verify(PROFILE, VIEWPORT, &[BUTTON], &[TAP]).unwrap();
         assert_eq!(verified.initial_focus(), 1);
         assert_eq!(verified.graph()[0].id, 1);
-        assert_eq!(verified.routes()[0].remote, RemoteInteraction::FocusAndSelect);
+        assert_eq!(
+            verified.routes()[0].remote,
+            RemoteInteraction::FocusAndSelect
+        );
         assert_eq!(verified.routes()[0].authored_id, "action.add");
     }
 
     #[test]
     fn translated_gesture_with_no_runtime_handler_is_refused() {
-        let swipe = SceneInteraction { kind: TouchInteraction::Swipe, ..TAP };
+        let swipe = SceneInteraction {
+            kind: TouchInteraction::Swipe,
+            ..TAP
+        };
         let error = verify(PROFILE, VIEWPORT, &[BUTTON], &[swipe]).unwrap_err();
-        assert_eq!(error.diagnostics()[0].code, DiagnosticCode::NvFeatureRefused);
+        assert_eq!(
+            error.diagnostics()[0].code,
+            DiagnosticCode::NvFeatureRefused
+        );
     }
 
     #[test]
     fn off_axis_and_offscreen_controls_block_emission() {
-        let second = SceneInteraction { element_id: 2, authored_id: "action.other", ..TAP };
+        let second = SceneInteraction {
+            element_id: 2,
+            authored_id: "action.other",
+            ..TAP
+        };
         for position in [20, 100] {
-            let isolated = FocusElement { id: 2, x: position, y: position, ..BUTTON };
+            let isolated = FocusElement {
+                id: 2,
+                x: position,
+                y: position,
+                ..BUTTON
+            };
             let error = verify(PROFILE, VIEWPORT, &[BUTTON, isolated], &[TAP, second]).unwrap_err();
-            assert_eq!(error.diagnostics()[0].code, DiagnosticCode::NvFocusUnreachableEssential);
+            assert_eq!(
+                error.diagnostics()[0].code,
+                DiagnosticCode::NvFocusUnreachableEssential
+            );
         }
     }
 }
