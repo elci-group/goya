@@ -59,49 +59,48 @@ pub struct CpuFacts {
 /// are desktop silicon.
 #[rustfmt::skip]
 pub const GENERATIONS: &[(&str, CpuFacts)] = &[
-    ("Core 2 (Penryn)",              CpuFacts { arch: "Penryn",         socket: "LGA775",  cores_min: 2,  cores_max: 4,  threads_per_core: 1, thread_tech: "none", avx: false, avx2: false, avx512: false, process: "45nm",     year: 2008 }),
-    ("Nehalem (Core i7-900)",        CpuFacts { arch: "Nehalem",        socket: "LGA1366", cores_min: 4,  cores_max: 4,  threads_per_core: 2, thread_tech: "SMT",  avx: false, avx2: false, avx512: false, process: "45nm",     year: 2008 }),
+    ("Core 2 (Penryn)",              CpuFacts { arch: "Penryn",         socket: "LGA775",  cores_min: 2,  cores_max: 4,  threads_per_core: 1, threads_max: 4,  thread_tech: "none", avx: false, avx2: false, avx512: false, process: "45nm",     year: 2008 }),
+    ("Nehalem (Core i7-900)",        CpuFacts { arch: "Nehalem",        socket: "LGA1366", cores_min: 4,  cores_max: 4,  threads_per_core: 2, threads_max: 8,  thread_tech: "SMT",  avx: false, avx2: false, avx512: false, process: "45nm",     year: 2008 }),
     // Gulftown six-cores; AES-NI arrived with this generation. The
     // dual-core Clarkdale parts shipped on LGA1156 and are out of scope
     // for this LGA1366 row.
-    ("Westmere",                     CpuFacts { arch: "Westmere",       socket: "LGA1366", cores_min: 6,  cores_max: 6,  threads_per_core: 2, thread_tech: "SMT",  avx: false, avx2: false, avx512: false, process: "32nm",     year: 2010 }),
-    ("Sandy Bridge",                 CpuFacts { arch: "Sandy Bridge",   socket: "LGA1155", cores_min: 4,  cores_max: 4,  threads_per_core: 2, thread_tech: "SMT",  avx: true,  avx2: false, avx512: false, process: "32nm",     year: 2011 }),
-    ("Ivy Bridge",                   CpuFacts { arch: "Ivy Bridge",     socket: "LGA1155", cores_min: 4,  cores_max: 4,  threads_per_core: 2, thread_tech: "SMT",  avx: true,  avx2: false, avx512: false, process: "22nm",     year: 2012 }),
-    ("Haswell",                      CpuFacts { arch: "Haswell",        socket: "LGA1150", cores_min: 4,  cores_max: 4,  threads_per_core: 2, thread_tech: "SMT",  avx: true,  avx2: true,  avx512: false, process: "22nm",     year: 2013 }),
+    ("Westmere",                     CpuFacts { arch: "Westmere",       socket: "LGA1366", cores_min: 6,  cores_max: 6,  threads_per_core: 2, threads_max: 12, thread_tech: "SMT",  avx: false, avx2: false, avx512: false, process: "32nm",     year: 2010 }),
+    ("Sandy Bridge",                 CpuFacts { arch: "Sandy Bridge",   socket: "LGA1155", cores_min: 4,  cores_max: 4,  threads_per_core: 2, threads_max: 8,  thread_tech: "SMT",  avx: true,  avx2: false, avx512: false, process: "32nm",     year: 2011 }),
+    ("Ivy Bridge",                   CpuFacts { arch: "Ivy Bridge",     socket: "LGA1155", cores_min: 4,  cores_max: 4,  threads_per_core: 2, threads_max: 8,  thread_tech: "SMT",  avx: true,  avx2: false, avx512: false, process: "22nm",     year: 2012 }),
+    ("Haswell",                      CpuFacts { arch: "Haswell",        socket: "LGA1150", cores_min: 4,  cores_max: 4,  threads_per_core: 2, threads_max: 8,  thread_tech: "SMT",  avx: true,  avx2: true,  avx512: false, process: "22nm",     year: 2013 }),
     // Desktop Broadwell SKUs (i7-5775C class) shipped mid-2015; 2014 is
     // the family's first launch year (Core M).
-    ("Broadwell",                    CpuFacts { arch: "Broadwell",      socket: "LGA1150", cores_min: 4,  cores_max: 4,  threads_per_core: 2, thread_tech: "SMT",  avx: true,  avx2: true,  avx512: false, process: "14nm",     year: 2014 }),
+    ("Broadwell",                    CpuFacts { arch: "Broadwell",      socket: "LGA1150", cores_min: 4,  cores_max: 4,  threads_per_core: 2, threads_max: 8,  thread_tech: "SMT",  avx: true,  avx2: true,  avx512: false, process: "14nm",     year: 2014 }),
     // AVX-512 was never enabled on mainstream Skylake desktop parts.
-    ("Skylake",                      CpuFacts { arch: "Skylake",        socket: "LGA1151", cores_min: 4,  cores_max: 4,  threads_per_core: 2, thread_tech: "SMT",  avx: true,  avx2: true,  avx512: false, process: "14nm",     year: 2015 }),
-    ("Kaby Lake",                    CpuFacts { arch: "Kaby Lake",      socket: "LGA1151", cores_min: 4,  cores_max: 4,  threads_per_core: 2, thread_tech: "SMT",  avx: true,  avx2: true,  avx512: false, process: "14nm",     year: 2017 }),
-    ("Coffee Lake",                  CpuFacts { arch: "Coffee Lake",    socket: "LGA1151", cores_min: 4,  cores_max: 8,  threads_per_core: 2, thread_tech: "SMT",  avx: true,  avx2: true,  avx512: false, process: "14nm",     year: 2017 }),
-    ("Comet Lake",                   CpuFacts { arch: "Comet Lake",     socket: "LGA1200", cores_min: 4,  cores_max: 10, threads_per_core: 2, thread_tech: "SMT",  avx: true,  avx2: true,  avx512: false, process: "14nm",     year: 2020 }),
+    ("Skylake",                      CpuFacts { arch: "Skylake",        socket: "LGA1151", cores_min: 4,  cores_max: 4,  threads_per_core: 2, threads_max: 8,  thread_tech: "SMT",  avx: true,  avx2: true,  avx512: false, process: "14nm",     year: 2015 }),
+    ("Kaby Lake",                    CpuFacts { arch: "Kaby Lake",      socket: "LGA1151", cores_min: 4,  cores_max: 4,  threads_per_core: 2, threads_max: 8,  thread_tech: "SMT",  avx: true,  avx2: true,  avx512: false, process: "14nm",     year: 2017 }),
+    ("Coffee Lake",                  CpuFacts { arch: "Coffee Lake",    socket: "LGA1151", cores_min: 4,  cores_max: 8,  threads_per_core: 2, threads_max: 16, thread_tech: "SMT",  avx: true,  avx2: true,  avx512: false, process: "14nm",     year: 2017 }),
+    ("Comet Lake",                   CpuFacts { arch: "Comet Lake",     socket: "LGA1200", cores_min: 4,  cores_max: 10, threads_per_core: 2, threads_max: 20, thread_tech: "SMT",  avx: true,  avx2: true,  avx512: false, process: "14nm",     year: 2020 }),
     // First mainstream desktop generation with AVX-512.
-    ("Rocket Lake",                  CpuFacts { arch: "Rocket Lake",    socket: "LGA1200", cores_min: 8,  cores_max: 8,  threads_per_core: 2, thread_tech: "SMT",  avx: true,  avx2: true,  avx512: true,  process: "14nm",     year: 2021 }),
+    ("Rocket Lake",                  CpuFacts { arch: "Rocket Lake",    socket: "LGA1200", cores_min: 8,  cores_max: 8,  threads_per_core: 2, threads_max: 16, thread_tech: "SMT",  avx: true,  avx2: true,  avx512: true,  process: "14nm",     year: 2021 }),
     // Hybrid 8P+8E flagship (i9 class); Hyper-Threading exists on P-cores
-    // only, so cores_max * threads_per_core = 32 stays a safe upper
-    // bound. AVX-512 is fused off on production parts (the E-cores never
+    // only, so the family documents 24 OS-visible threads (threads_max),
+    // below the 32 upper bound the cores_max * threads_per_core product
+    // gives. AVX-512 is fused off on production parts (the E-cores never
     // implemented it, and Intel fused it off in silicon going forward).
-    ("Alder Lake",                   CpuFacts { arch: "Alder Lake",     socket: "LGA1700", cores_min: 16, cores_max: 16, threads_per_core: 2, thread_tech: "SMT",  avx: true,  avx2: true,  avx512: false, process: "Intel 7",  year: 2021 }),
+    ("Alder Lake",                   CpuFacts { arch: "Alder Lake",     socket: "LGA1700", cores_min: 16, cores_max: 16, threads_per_core: 2, threads_max: 24, thread_tech: "SMT",  avx: true,  avx2: true,  avx512: false, process: "Intel 7",  year: 2021 }),
     // Hybrid 8P+16E flagship: 32 OS-visible threads (8 Hyper-Threaded
-    // P-cores + 16 E-cores). threads_per_core 2 keeps the cores_max *
-    // threads_per_core guard a safe upper bound; the v1 plan cap of 32
-    // threads equals the part's real OS thread count. AVX-512 remains
-    // disabled.
-    ("Raptor Lake",                  CpuFacts { arch: "Raptor Lake",    socket: "LGA1700", cores_min: 24, cores_max: 24, threads_per_core: 2, thread_tech: "SMT",  avx: true,  avx2: true,  avx512: false, process: "Intel 7",  year: 2022 }),
+    // P-cores + 16 E-cores), recorded as threads_max; the homogeneous
+    // cores_max * threads_per_core product (48) is only an upper bound.
+    // AVX-512 remains disabled.
+    ("Raptor Lake",                  CpuFacts { arch: "Raptor Lake",    socket: "LGA1700", cores_min: 24, cores_max: 24, threads_per_core: 2, threads_max: 32, thread_tech: "SMT",  avx: true,  avx2: true,  avx512: false, process: "Intel 7",  year: 2022 }),
     // Hyper-Threading removed (Lion Cove): 24 cores / 24 threads, one
     // thread per core. Lion Cove P-cores implement AVX-512, but it is
     // disabled on shipping parts because Skymont E-cores lack it. The
     // compute tile moved from the cancelled Intel 20A node to TSMC N3B.
-    ("Arrow Lake (Core Ultra 200S)", CpuFacts { arch: "Arrow Lake",     socket: "LGA1851", cores_min: 24, cores_max: 24, threads_per_core: 1, thread_tech: "none", avx: true,  avx2: true,  avx512: false, process: "TSMC N3B", year: 2024 }),
+    ("Arrow Lake (Core Ultra 200S)", CpuFacts { arch: "Arrow Lake",     socket: "LGA1851", cores_min: 24, cores_max: 24, threads_per_core: 1, threads_max: 24, thread_tech: "none", avx: true,  avx2: true,  avx512: false, process: "TSMC N3B", year: 2024 }),
     // HEDT block (desktop silicon). The row covers the 6-18 core
     // X-series parts; the 4-core i7-7640X/7740X are Kaby-derived and out
-    // of scope. 18 cores with SMT document 36 hardware threads, above
-    // the 32-thread v1 plan cap: planning fails closed at the runtime
-    // bound (WorkerThreadsTooLarge), and the catalog records the
-    // hardware fact rather than trimming it.
-    ("Core-X (Skylake-X)",           CpuFacts { arch: "Skylake-X",      socket: "LGA2066", cores_min: 6,  cores_max: 18, threads_per_core: 2, thread_tech: "SMT",  avx: true,  avx2: true,  avx512: true,  process: "14nm",     year: 2017 }),
-    ("Cascade Lake-X",               CpuFacts { arch: "Cascade Lake-X", socket: "LGA2066", cores_min: 8,  cores_max: 18, threads_per_core: 2, thread_tech: "SMT",  avx: true,  avx2: true,  avx512: true,  process: "14nm",     year: 2019 }),
+    // of scope. 18 cores with SMT document 36 hardware threads; the v1
+    // plan bound of 36 (Cascade Lake-X 18C/36T) covers exactly that,
+    // and the catalog records the hardware fact rather than trimming it.
+    ("Core-X (Skylake-X)",           CpuFacts { arch: "Skylake-X",      socket: "LGA2066", cores_min: 6,  cores_max: 18, threads_per_core: 2, threads_max: 36, thread_tech: "SMT",  avx: true,  avx2: true,  avx512: true,  process: "14nm",     year: 2017 }),
+    ("Cascade Lake-X",               CpuFacts { arch: "Cascade Lake-X", socket: "LGA2066", cores_min: 8,  cores_max: 18, threads_per_core: 2, threads_max: 36, thread_tech: "SMT",  avx: true,  avx2: true,  avx512: true,  process: "14nm",     year: 2019 }),
 ];
 
 /// Per-generation lookup. Unknown generations return None; the catalog never
@@ -283,9 +282,7 @@ impl IntelDesktopDeclaration {
         })?;
         // Planned worker threads cannot exceed the generation's documented
         // hardware thread count.
-        if u64::from(self.worker_threads)
-            > u64::from(facts.cores_max) * u64::from(facts.threads_per_core)
-        {
+        if u64::from(self.worker_threads) > u64::from(facts.threads_max) {
             return Err(IntelDesktopDiagnostic::ThreadsExceedGeneration);
         }
         debug_assert_eq!(plan.worker_threads(), self.worker_threads);
@@ -333,13 +330,14 @@ impl IntelDesktopIr {
 
     fn canonical(&self) -> String {
         format!(
-            "contract={CONTRACT}\nrecipe_version={RECIPE_VERSION}\ntarget=intel_desktop\ncpu={}\narch={}\nsocket={}\ncores_min={}\ncores_max={}\nthreads_per_core={}\nthread_tech={}\navx={}\navx2={}\navx512={}\nprocess={}\nyear={}\nisa={}\nworker_threads={}\nbatch={}\ntotal_worker_executions={}\nworkspace_bytes={}\nexecution=none_attempted\n",
+            "contract={CONTRACT}\nrecipe_version={RECIPE_VERSION}\ntarget=intel_desktop\ncpu={}\narch={}\nsocket={}\ncores_min={}\ncores_max={}\nthreads_per_core={}\nthreads_max={}\nthread_tech={}\navx={}\navx2={}\navx512={}\nprocess={}\nyear={}\nisa={}\nworker_threads={}\nbatch={}\ntotal_worker_executions={}\nworkspace_bytes={}\nexecution=none_attempted\n",
             self.cpu,
             self.facts.arch,
             self.facts.socket,
             self.facts.cores_min,
             self.facts.cores_max,
             self.facts.threads_per_core,
+            self.facts.threads_max,
             self.facts.thread_tech,
             self.facts.avx,
             self.facts.avx2,
