@@ -97,6 +97,28 @@ graph, and GPUs without Tensor Cores reject Int8 tensor delegation. The
 artifact is a launch-plan factory only: no kernel is compiled and no GPU
 work is launched.
 
+The AMD CPU-compute caprichios apply the same catalog shape to x86-64 CPU
+generations: `amd_desktop_caprichio`
+(`goya.hardware.cpu_compute.amd_desktop.v1`) catalogs 11 socketed desktop
+families from Phenom II (2008) through Ryzen 9000 (2024);
+`amd_apu_caprichio` (`goya.hardware.cpu_compute.amd_apu.v1`) catalogs 21 APU
+families from Llano (2011) through Strix Halo (2025), with integrated-GPU
+compute-unit ranges recorded only where AMD published them;
+`amd_threadripper_caprichio` (`goya.hardware.cpu_compute.amd_threadripper.v1`)
+catalogs 8 HEDT generations from Threadripper 1000 through Threadripper Pro
+9000WX; and `amd_epyc_caprichio` (`goya.hardware.cpu_compute.amd_epyc.v1`)
+catalogs 8 server generations from EPYC 7001 (Naples) through EPYC 9005
+(Turin). Each entry records only silicon-documented facts (sockets, core
+counts, thread technology, ISA support, process node). A declaration names a
+generation from the catalog and bounds worker threads, batch size and
+workspace bytes against a chosen ISA level (SSE3, AVX, AVX2 or AVX-512);
+normalization rejects worker-thread counts above the generation's documented
+hardware thread count (`ThreadsExceedGeneration`). Lowering fails closed
+unless the host reports x86-64 execution with an OS thread API, the declared
+ISA's host facility, UTF-8 strings and silicon-documented ISA support for the
+named generation. The artifact is a generated worker-plan factory only: no
+threads spawn, no SIMD executes and nothing proves a CPU ran work.
+
 `bluetooth_caprichio` (`goya.hardware.bluetooth.central.v1`, recipe
 `apple-ble-central-bounded-scan`) covers BLE central discovery and connection
 lifecycle accounting for iOS and Apple Silicon Mac targets. Scans are
