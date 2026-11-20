@@ -12,6 +12,7 @@ pub struct NevadaAndroid {
     pub scene: AndroidScene,
     pub manifest: &'static str,
     pub banner: &'static [u8],
+    pub icon: &'static str,
     pub activity: KotlinFile,
 }
 
@@ -19,7 +20,8 @@ const MANIFEST: &str = r#"<manifest xmlns:android="http://schemas.android.com/ap
     <uses-feature android:name="android.software.leanback" android:required="true" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <application android:theme="@android:style/Theme.Material.Light.NoActionBar"
-                 android:label="Nevada" android:banner="@drawable/nevada_banner">
+                 android:label="Nevada" android:banner="@drawable/nevada_banner"
+                 android:icon="@drawable/nevada_icon">
         <activity android:name="dev.goya.preview.MainActivity" android:exported="true"
                   android:windowSoftInputMode="stateAlwaysHidden|adjustNothing">
             <intent-filter>
@@ -32,6 +34,15 @@ const MANIFEST: &str = r#"<manifest xmlns:android="http://schemas.android.com/ap
 "#;
 
 const BANNER: &[u8] = include_bytes!("../android-template/nevada_banner.png");
+
+const ICON: &str = r##"<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="80dp" android:height="80dp" android:viewportWidth="160"
+    android:viewportHeight="160">
+    <path android:fillColor="#161B29" android:pathData="M0,0 H160 V160 H0 Z" />
+    <path android:fillColor="#FBD780"
+        android:pathData="M43,115 V45 H58 L102,91 V45 H117 V115 H102 L58,69 V115 Z" />
+</vector>
+"##;
 
 const ACTIVITY: &str = r#"package dev.goya.preview
 
@@ -122,6 +133,7 @@ pub(crate) fn emit_nevada_android(
         scene,
         manifest: MANIFEST,
         banner: BANNER,
+        icon: ICON,
         activity: KotlinFile {
             name: "MainActivity.kt".to_owned(),
             text: ACTIVITY.to_owned(),

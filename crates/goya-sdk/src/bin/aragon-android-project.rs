@@ -343,6 +343,10 @@ fn generate_tv(input: &std::ffi::OsStr, root: &Path, profile: &str) {
             project.banner.to_vec(),
         ),
         (
+            "app/src/main/res/drawable/nevada_icon.xml".to_owned(),
+            project.icon.as_bytes().to_vec(),
+        ),
+        (
             "aragon-source-map.json".to_owned(),
             project.source_map.to_json().into_bytes(),
         ),

@@ -123,6 +123,7 @@ fn nevada_gate_controls_whether_the_cli_writes_a_project() {
     let receipt = String::from_utf8_lossy(&project["nevada-conformance.txt"]);
     assert!(receipt.contains("GY-NV-GATE-11 static-verification PASS"));
     assert!(project.contains_key("app/src/main/res/drawable-xhdpi/nevada_banner.png"));
+    assert!(project.contains_key("app/src/main/res/drawable/nevada_icon.xml"));
     assert!(!run().status.success());
     assert_eq!(files(&output), project);
 }

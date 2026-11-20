@@ -18,6 +18,7 @@ use crate::{
 pub struct NevadaProject {
     pub manifest: &'static str,
     pub banner: &'static [u8],
+    pub icon: &'static str,
     pub files: Vec<KotlinFile>,
     pub source_map: AndroidSourceMap,
     pub conformance: String,
@@ -124,6 +125,7 @@ pub fn compile_nevada_project(
     Ok(NevadaProject {
         manifest: android.manifest,
         banner: android.banner,
+        icon: android.icon,
         files,
         source_map: android.scene.source_map,
         conformance: evidence,
@@ -145,6 +147,7 @@ mod tests {
             .manifest
             .contains("android.intent.category.LEANBACK_LAUNCHER"));
         assert!(project.manifest.contains("@drawable/nevada_banner"));
+        assert!(project.manifest.contains("@drawable/nevada_icon"));
         assert!(project
             .conformance
             .contains("action.add\" TouchTap -> FocusAndSelect"));
