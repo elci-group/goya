@@ -3,6 +3,8 @@
 //! Example:
 //! `cargo run --locked -p ie-cpu --example iberia_package -- crates/ie-cpu/tests/fixtures/affine.iberia.json SHA256 1 2`
 //! `cargo run --locked -p ie-cpu --example iberia_package -- --onnx crates/ie-cpu/tests/fixtures/affine.onnx SHA256 1 2`
+//! `cargo run --locked -p ie-cpu --example iberia_package -- crates/ie-cpu/tests/fixtures/affine.iberia.json --signed PUBLIC_KEY_HEX SIGNATURE_HEX 1 2`
+//! `cargo run --locked -p ie-cpu --example iberia_package -- --onnx crates/ie-cpu/tests/fixtures/affine.onnx --signed PUBLIC_KEY_HEX SIGNATURE_HEX 1 2`
 
 use std::env;
 use std::fs::File;
@@ -13,8 +15,9 @@ use ie_contract::fixture::GoldenFixture;
 use ie_contract::tensors::TensorData;
 use ie_cpu::local::{Limits, Runtime};
 use ie_cpu::package::ModelPackage;
+use ie_cpu::signing::ModelFormat;
 
-const HELP: &str = "Usage:\n  cargo run --locked -p ie-cpu --example iberia_package -- <package-path> <expected-sha256> <f32> <f32>\n  cargo run --locked -p ie-cpu --example iberia_package -- --onnx <model.onnx> <expected-sha256> <f32> <f32>\n\nThe first form loads the native Iberia JSON package; the explicit --onnx form loads a supported ONNX model. Both require the exact 64-digit SHA-256 of the file and pack the two supplied FP32 values into one [1,2] input tensor for a local CPU request. The checked-in affine fixtures produce [14.0, 15.0] for values 1 2. This demo uses a local reference CPU and does not connect to a peer.";
+const HELP: &str = "Usage:\n  cargo run --locked -p ie-cpu --example iberia_package -- <package-path> <expected-sha256> <f32> <f32>\n  cargo run --locked -p ie-cpu --example iberia_package -- --onnx <model.onnx> <expected-sha256> <f32> <f32>\n  cargo run --locked -p ie-cpu --example iberia_package -- <package-path> --signed <public-key-hex> <signature-hex> <f32> <f32>\n  cargo run --locked -p ie-cpu --example iberia_package -- --onnx <model.onnx> --signed <public-key-hex> <signature-hex> <f32> <f32>\n\nThe first two forms load a native Iberia JSON package or, with explicit --onnx, a supported ONNX model using an exact 64-digit SHA-256 pin. The --signed forms verify a detached Ed25519 signature with the exact 32-byte trusted public key (64 hex digits) and 64-byte signature (128 hex digits); no digest-only fallback is attempted. Both forms pack the two supplied FP32 values into one [1,2] input tensor for a local CPU request. The checked-in affine fixtures produce [14.0, 15.0] for values 1 2. This demo uses a local reference CPU and does not connect to a peer.";
 
 fn main() {
     if let Err(message) = run() {
@@ -40,21 +43,41 @@ fn run() -> Result<(), String> {
         first_arg
     };
     let package_path = PathBuf::from(package_arg);
-    let expected_sha = parse_sha256(args.next(), "expected SHA-256")?;
-    let x = parse_f32(args.next(), "first input")?;
-    let y = parse_f32(args.next(), "second input")?;
+    let format = if onnx {
+        ModelFormat::Onnx
+    } else {
+        ModelFormat::Json
+    };
+    let first_option = args
+        .next()
+        .ok_or_else(|| format!("missing package integrity input\n\n{HELP}"))?;
+    let (package, x, y) = if first_option == "--signed" {
+        let public_key = parse_hex::<32>(args.next(), "Ed25519 public key")?;
+        let signature = parse_hex::<64>(args.next(), "Ed25519 signature")?;
+        let x = parse_f32(args.next(), "first input")?;
+        let y = parse_f32(args.next(), "second input")?;
+        let file = File::open(&package_path)
+            .map_err(|error| format!("cannot open package {}: {error}", package_path.display()))?;
+        let package = ModelPackage::load_signed(file, format, public_key, signature)
+            .map_err(|error| format!("signed package rejected: {} ({error:?})", error.name()))?;
+        (package, x, y)
+    } else {
+        let expected_sha = parse_sha256_value(first_option)?;
+        let x = parse_f32(args.next(), "first input")?;
+        let y = parse_f32(args.next(), "second input")?;
+        let file = File::open(&package_path)
+            .map_err(|error| format!("cannot open package {}: {error}", package_path.display()))?;
+        let package = if onnx {
+            ModelPackage::load_onnx(file, expected_sha)
+        } else {
+            ModelPackage::load(file, expected_sha)
+        }
+        .map_err(|error| format!("package rejected: {} ({error:?})", error.name()))?;
+        (package, x, y)
+    };
     if let Some(extra) = args.next() {
         return Err(format!("unexpected extra argument {extra:?}\n\n{HELP}"));
     }
-
-    let file = File::open(&package_path)
-        .map_err(|error| format!("cannot open package {}: {error}", package_path.display()))?;
-    let package = if onnx {
-        ModelPackage::load_onnx(file, expected_sha)
-    } else {
-        ModelPackage::load(file, expected_sha)
-    }
-    .map_err(|error| format!("package rejected: {} ({error:?})", error.name()))?;
     let mut runtime = Runtime::new(Limits::default());
     let model = runtime
         .register_package(package)
@@ -109,21 +132,36 @@ fn parse_f32(value: Option<std::ffi::OsString>, label: &str) -> Result<f32, Stri
     Ok(parsed)
 }
 
-fn parse_sha256(value: Option<std::ffi::OsString>, label: &str) -> Result<[u8; 32], String> {
+fn parse_sha256_value(value: std::ffi::OsString) -> Result<[u8; 32], String> {
+    let value = value
+        .into_string()
+        .map_err(|_| "expected SHA-256 must be valid UTF-8 hexadecimal text".to_string())?;
+    parse_hex_text(&value, "expected SHA-256")
+}
+
+fn parse_hex<const N: usize>(
+    value: Option<std::ffi::OsString>,
+    label: &str,
+) -> Result<[u8; N], String> {
     let value = value.ok_or_else(|| format!("missing {label}\n\n{HELP}"))?;
     let value = value
         .into_string()
         .map_err(|_| format!("{label} must be valid UTF-8 hexadecimal text"))?;
-    if value.len() != 64 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+    parse_hex_text(&value, label)
+}
+
+fn parse_hex_text<const N: usize>(value: &str, label: &str) -> Result<[u8; N], String> {
+    if value.len() != N * 2 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Err(format!(
-            "expected SHA-256 must be exactly 64 hexadecimal digits, got {value:?}"
+            "{label} must be exactly {} hexadecimal digits, got {value:?}",
+            N * 2
         ));
     }
-    let mut digest = [0; 32];
-    for (index, byte) in digest.iter_mut().enumerate() {
+    let mut bytes = [0; N];
+    for (index, byte) in bytes.iter_mut().enumerate() {
         let start = index * 2;
         *byte = u8::from_str_radix(&value[start..start + 2], 16)
-            .map_err(|_| "invalid SHA-256 hexadecimal encoding".to_string())?;
+            .map_err(|_| format!("invalid {label} hexadecimal encoding"))?;
     }
-    Ok(digest)
+    Ok(bytes)
 }

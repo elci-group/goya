@@ -9,7 +9,7 @@ The MVP gives a Rust application an in-process CPU endpoint for a small, statica
 3. **Demonstrate integration.** Provide a runnable Rust example that executes an affine layer through the public API and preserves its baseline output when a requested model is unavailable. Exercise the same API in regression tests.
 4. **Verify the MVP.** Run the six Iberia/España regression packages and require clean formatting and strict Clippy on the local Iberia crate. Record the commands and results below.
 
-The local API is independent of leases, discovery, and transport. The frozen `ie-contract` codec stays intact. Iberia accepts pinned local JSON packages and a restricted ONNX profile. Package signing, quantized execution, accelerators, España delegation, and Goya compiler integration are follow-on work.
+The local API is independent of leases, discovery, and transport. The frozen `ie-contract` codec stays intact. Iberia accepts local JSON packages and a restricted ONNX profile, authenticated by digest pinning or a trusted Ed25519 signature. Quantized execution, accelerators, España delegation, and Goya compiler integration are follow-on work.
 
 ## Run the reference app
 
@@ -52,6 +52,31 @@ cargo run --locked -p ie-cpu --example iberia_package -- --onnx \
 ```
 
 This model produces the same `[14.0, 15.0]` result as the JSON fixture. The checked-in artifact was generated and validated with the ONNX 1.16.2 Python API.
+
+## Sign and verify a model package
+
+Use `ModelPackage::load_signed` with the artifact, its format, the publisher's trusted 32-byte Ed25519 public key, and a detached 64-byte signature. Supply the public key from application configuration. Iberia limits the artifact to 1 MiB and verifies the signature before parsing. The SHA-256 digest of the artifact remains the runtime model identifier. A trusted publisher can sign multiple artifacts, so an application that requires one exact model version can also compare its digest before registering the package.
+
+A signer can use `ie_cpu::signing::signing_payload` or construct the same binary statement. It consists of the ASCII prefix `iberia/model-package/signature/v1` followed by a NUL byte, a format byte (`01` for JSON or `02` for ONNX), and the 32 raw SHA-256 bytes of the artifact. The detached signature uses plain Ed25519 over this statement. [Ed25519 specification](https://www.rfc-editor.org/rfc/rfc8032.html)
+
+For example, sign a JSON model with an existing Ed25519 PEM key and print the detached signature in hex.
+
+```sh
+payload=$(mktemp)
+python3 - model.json "$payload" <<'PY'
+import hashlib
+from pathlib import Path
+import sys
+
+model = Path(sys.argv[1]).read_bytes()
+Path(sys.argv[2]).write_bytes(
+    b"iberia/model-package/signature/v1\x00\x01" + hashlib.sha256(model).digest()
+)
+PY
+openssl pkeyutl -sign -rawin -inkey model-signing.pem -in "$payload" |
+  od -An -v -tx1 | tr -d ' \n'
+rm "$payload"
+```
 
 ## Verification
 
