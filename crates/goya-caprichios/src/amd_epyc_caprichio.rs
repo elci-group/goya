@@ -236,7 +236,9 @@ impl AmdEpycDeclaration {
         debug_assert_eq!(plan.worker_threads(), self.worker_threads);
         debug_assert_eq!(plan.batch(), self.batch);
         debug_assert_eq!(plan.workspace_bytes(), self.workspace_bytes);
-        if self.worker_threads > facts.cores_max * facts.threads_per_core {
+        if u64::from(self.worker_threads)
+            > u64::from(facts.cores_max) * u64::from(facts.threads_per_core)
+        {
             return Err(AmdEpycDiagnostic::ThreadsExceedGeneration);
         }
         Ok(AmdEpycIr {

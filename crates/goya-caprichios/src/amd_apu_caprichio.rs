@@ -271,7 +271,9 @@ impl AmdApuDeclaration {
         debug_assert_eq!(plan.worker_threads(), self.worker_threads);
         debug_assert_eq!(plan.batch(), self.batch);
         debug_assert_eq!(plan.workspace_bytes(), self.workspace_bytes);
-        if self.worker_threads > facts.cores_max.saturating_mul(facts.threads_per_core) {
+        if u64::from(self.worker_threads)
+            > u64::from(facts.cores_max) * u64::from(facts.threads_per_core)
+        {
             return Err(AmdApuDiagnostic::ThreadsExceedGeneration);
         }
         Ok(AmdApuIr {
@@ -462,7 +464,8 @@ mod tests {
                 "thread_tech must match threads_per_core"
             );
             assert!(
-                facts.cores_max.saturating_mul(facts.threads_per_core) <= MAX_WORKER_THREADS,
+                u64::from(facts.cores_max) * u64::from(facts.threads_per_core)
+                    <= u64::from(MAX_WORKER_THREADS),
                 "generation threads must fit the runtime bound"
             );
             // AVX2 implies AVX; AVX-512 implies AVX2 and AVX.
