@@ -1469,6 +1469,8 @@ name = "maja"
 version = "0.0.1"
 dependencies = [
  "goya-caprichios",
+ "goya-lang",
+ "maja-runtime",
  "maja-semantic",
  "sha2",
 ]

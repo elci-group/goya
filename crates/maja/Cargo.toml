@@ -6,5 +6,7 @@ license.workspace = true
 
 [dependencies]
 maja-semantic = { path = "../maja-semantic" }
+maja-runtime = { path = "../maja-runtime" }
+goya-lang = { path = "../goya-lang" }
 goya-caprichios = { path = "../goya-caprichios" }
 sha2 = "0.10"
