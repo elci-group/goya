@@ -62,20 +62,11 @@ fn run() -> Result<(), String> {
     let output = completion
         .result
         .map_err(|error| format!("local execution failed: {} ({error:?})", error.name()))?;
-    let output_len = output.data.len();
-    let values = output
-        .data
-        .chunks_exact(4)
-        .map(|bytes| {
-            let bytes: [u8; 4] = bytes
-                .try_into()
-                .map_err(|_| "runtime returned a malformed FP32 element".to_string())?;
-            Ok(f32::from_le_bytes(bytes))
-        })
-        .collect::<Result<Vec<_>, String>>()?;
-    if output_len % 4 != 0 {
+    let (elements, trailing) = output.data.as_chunks::<4>();
+    if !trailing.is_empty() {
         return Err("runtime returned a truncated FP32 output".into());
     }
+    let values: Vec<_> = elements.iter().copied().map(f32::from_le_bytes).collect();
 
     println!("Iberia checked-package local CPU demo");
     println!("package: {}", package_path.display());
