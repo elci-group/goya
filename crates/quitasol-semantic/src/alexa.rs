@@ -100,7 +100,6 @@ pub struct AlexaInteractionModel {
     pub certification: CertificationInfo,
 }
 
-
 impl AlexaInteractionModel {
     pub fn contract(&self) -> &'static str {
         self.contract
