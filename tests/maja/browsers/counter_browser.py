@@ -39,6 +39,8 @@ class Chrome:
     """Chrome DevTools Protocol driver."""
 
     name = "chrome"
+    # Why keyboard activation cannot be verified with this driver, or None.
+    keyboard_activation_gap = None
 
     def __init__(self, profile):
         self.errors = []
@@ -127,6 +129,11 @@ class Firefox:
     """WebDriver BiDi driver (no geckodriver)."""
 
     name = "firefox"
+    keyboard_activation_gap = (
+        "headless Firefox 150 over BiDi delivers keydown/keypress/keyup to the focused "
+        "native button but synthesizes no click (document.hasFocus() stays false, even "
+        "with focusmanager.testmode); a programmatic or pointer click works"
+    )
     KEYS = {"Tab": "", "Enter": "", " ": " ", "Delete": ""}
 
     def __init__(self, profile):
@@ -228,6 +235,7 @@ class Firefox:
 
 def scenario(browser, url):
     passed = []
+    not_verified = []
     ev = browser.evaluate
 
     def load(action):
@@ -299,9 +307,18 @@ def scenario(browser, url):
     browser.press("Tab")
     if focused() != "window.add":
         raise AssertionError(f"second Tab focused {focused()!r}")
+    ev("(window.__keys = [], document.addEventListener('keyup', (e) => window.__keys.push(e.key + ':' + e.target.tagName), true), 0)")
     browser.press("Enter")
-    expect(last_event(1), True, "1", "5")
-    passed.append("Tab order field -> button; Enter activates: count 0 + 5 = 5, revision 1")
+    if ev("window.__events").__len__() == 0 and browser.keyboard_activation_gap:
+        if ev("window.__keys") != ["Enter:BUTTON"]:
+            raise AssertionError(f"Enter did not reach the button: {ev('window.__keys')!r}")
+        not_verified.append(f"Enter/Space activation: {browser.keyboard_activation_gap}")
+        click_add()
+        expect(last_event(1), True, "1", "5")
+        passed.append("Tab order field -> button; Enter reaches the button; pointer activates: count 0 + 5 = 5, revision 1")
+    else:
+        expect(last_event(1), True, "1", "5")
+        passed.append("Tab order field -> button; Enter activates: count 0 + 5 = 5, revision 1")
 
     set_field("-2")
     click_add()
@@ -329,15 +346,18 @@ def scenario(browser, url):
 
     set_field("0")
     ev("(document.querySelector('[data-goya-id=\"window.add\"] button').focus(), 0)")
-    browser.press(" ")
+    if browser.keyboard_activation_gap:
+        click_add()
+    else:
+        browser.press(" ")
     expect(last_event(9), True, "3", "3")
     if ev("document.getElementById('goya-status').textContent") != "":
         raise AssertionError("status was not cleared after success")
-    passed.append("Space activates: 3 + 0 = 3, revision 3; status cleared")
+    passed.append(("pointer" if browser.keyboard_activation_gap else "Space") + " activates: 3 + 0 = 3, revision 3; status cleared")
 
     roles = browser.accessibility()
     if roles is None:
-        passed.append("accessibility tree: NOT AVAILABLE through this protocol")
+        not_verified.append("accessibility tree: not exposed by WebDriver BiDi")
     else:
         if ("button", "Add") not in roles or ("StaticText", "Counter") not in roles:
             raise AssertionError(f"AX tree: {roles!r}")
@@ -356,7 +376,7 @@ def scenario(browser, url):
     if browser.errors:
         raise AssertionError(f"browser errors: {browser.errors!r}")
     passed.append("no console errors or uncaught exceptions")
-    return passed
+    return passed, not_verified
 
 
 def main(kind, output):
@@ -377,7 +397,7 @@ def main(kind, output):
         with tempfile.TemporaryDirectory(prefix=f"maja-{kind}-") as profile:
             browser = {"chrome": Chrome, "firefox": Firefox}[kind](profile)
             try:
-                passed = scenario(browser, f"http://127.0.0.1:{server.server_port}/index.html")
+                passed, not_verified = scenario(browser, f"http://127.0.0.1:{server.server_port}/index.html")
                 version = browser.version()
             finally:
                 browser.close()
@@ -389,6 +409,8 @@ def main(kind, output):
                     browser.process.wait()
             for line in passed:
                 print("PASS:", line)
+            for line in not_verified:
+                print("NOT VERIFIED:", line)
             print("BROWSER:", version)
             print("NOT TESTED: assistive technology, IME composition, touch, visual typography, durable state")
     finally:
