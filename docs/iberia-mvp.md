@@ -21,4 +21,14 @@ The example uses synthetic FP32 inputs and prints the expected affine result `[1
 
 For an embedding application, compile a `Graph` from input shapes and ordered nodes, register it with `local::Runtime`, and use the returned digest to submit a request. Drive the queue with `run_one` on the application's chosen worker thread and retrieve the completion with `poll`. The digest covers the graph operations, references, and input shapes. Weights and other tensor values supplied at execution time are request inputs.
 
-The executor runs one job at a time. Queued jobs can be cancelled, and a running graph checks its elapsed deadline periodically inside each kernel. By default, a runtime admits up to 16 graphs, eight queued requests, and eight retained completions. Each job is limited to 8 MiB of tensor payload across its inputs, intermediate values, and output, and 16,777,216 scalar operations. A retrieved or evicted result is unavailable on subsequent polls.
+The executor runs one job at a time. Queued jobs can be cancelled, and a running graph checks its elapsed deadline periodically inside each kernel. By default, a runtime admits up to 16 graphs, eight queued requests, and eight retained completions. Each job is limited to 8 MiB of tensor payload across its inputs, intermediate values, and output, and 16,777,216 work units. An elementwise addition or a matrix multiply-accumulate counts as one unit. A retrieved or evicted result is unavailable on subsequent polls.
+
+## Verification
+
+The six-package regression run passed 109 tests on Linux with Rust 1.95.0. The Unix socket tests require permission to bind local sockets. Package formatting, strict Clippy for `ie-cpu`, and the reference-app output check passed. The broader `uni` analysis scored 73/100 against a threshold of 80 and reported incomplete analyzer results.
+
+```sh
+cargo test --locked -p ie-contract -p ie-cpu -p ie-loopback -p ie-uds -p ie-gate -p ie-conformance
+cargo fmt --check -p ie-cpu
+cargo clippy --no-deps --locked -p ie-cpu --all-targets -- -D warnings
+```
