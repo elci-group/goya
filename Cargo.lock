@@ -1364,6 +1364,7 @@ version = "0.1.8"
 name = "ie-cpu"
 version = "0.1.8"
 dependencies = [
+ "ed25519-dalek",
  "ie-contract",
  "prost",
  "serde",

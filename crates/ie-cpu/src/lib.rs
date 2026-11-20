@@ -16,6 +16,7 @@ pub mod ledger;
 pub mod local;
 mod onnx;
 pub mod package;
+pub mod signing;
 
 use ie_contract::errors::TypedError;
 use ie_contract::fixture::GoldenOp;

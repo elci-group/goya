@@ -60,10 +60,32 @@ impl ModelPackage {
     /// The expected digest must come from a caller-trusted policy or
     /// configuration source. It is compared before JSON parsing.
     pub fn load(reader: impl Read, expected_sha256: [u8; 32]) -> Result<Self, TypedError> {
-        let bytes = read_pinned(reader, expected_sha256)?;
+        let (bytes, digest) = read_bounded(reader)?;
+        verify_digest(digest, expected_sha256)?;
+        Self::parse_json(&bytes, digest)
+    }
+
+    /// Load a digest-pinned package after verifying its format-bound Ed25519
+    /// signature. The complete artifact is read and hashed once; verification
+    /// always precedes either format parser.
+    pub fn load_signed(
+        reader: impl Read,
+        format: crate::signing::ModelFormat,
+        trusted_key: [u8; 32],
+        signature: [u8; 64],
+    ) -> Result<Self, TypedError> {
+        let (bytes, digest) = read_bounded(reader)?;
+        crate::signing::verify(format, digest, trusted_key, signature)?;
+        match format {
+            crate::signing::ModelFormat::Json => Self::parse_json(&bytes, digest),
+            crate::signing::ModelFormat::Onnx => crate::onnx::import(&bytes, digest),
+        }
+    }
+
+    fn parse_json(bytes: &[u8], digest: [u8; 32]) -> Result<Self, TypedError> {
 
         let header: VersionHeader =
-            serde_json::from_slice(&bytes).map_err(|error| TypedError::InvalidTensor {
+            serde_json::from_slice(bytes).map_err(|error| TypedError::InvalidTensor {
                 reason: format!("invalid model package JSON: {error}"),
             })?;
         if header.version != 1 {
@@ -73,7 +95,7 @@ impl ModelPackage {
             });
         }
         let raw: RawPackage =
-            serde_json::from_slice(&bytes).map_err(|error| TypedError::InvalidTensor {
+            serde_json::from_slice(bytes).map_err(|error| TypedError::InvalidTensor {
                 reason: format!("invalid model package JSON: {error}"),
             })?;
 
@@ -129,7 +151,7 @@ impl ModelPackage {
         let shape_refs: Vec<&[u64]> = shapes.iter().map(Vec::as_slice).collect();
         let graph = Graph::compile(&shape_refs, &nodes)?;
 
-        Ok(Self::from_parts(expected_sha256, graph, fixed_inputs))
+        Ok(Self::from_parts(digest, graph, fixed_inputs))
     }
 
     /// Load a pinned ONNX model no larger than 1 MiB.
@@ -196,6 +218,12 @@ impl ModelPackage {
 }
 
 fn read_pinned(reader: impl Read, expected_sha256: [u8; 32]) -> Result<Vec<u8>, TypedError> {
+    let (bytes, digest) = read_bounded(reader)?;
+    verify_digest(digest, expected_sha256)?;
+    Ok(bytes)
+}
+
+fn read_bounded(reader: impl Read) -> Result<(Vec<u8>, [u8; 32]), TypedError> {
     let mut bytes = Vec::new();
     reader
         .take(MAX_PACKAGE_BYTES + 1)
@@ -209,12 +237,16 @@ fn read_pinned(reader: impl Read, expected_sha256: [u8; 32]) -> Result<Vec<u8>, 
         });
     }
     let digest: [u8; 32] = Sha256::digest(&bytes).into();
+    Ok((bytes, digest))
+}
+
+fn verify_digest(digest: [u8; 32], expected_sha256: [u8; 32]) -> Result<(), TypedError> {
     if digest != expected_sha256 {
         return Err(TypedError::PolicyDenied {
             reason: "model package SHA-256 does not match trusted pin".into(),
         });
     }
-    Ok(bytes)
+    Ok(())
 }
 
 #[cfg(test)]
