@@ -58,7 +58,7 @@ const SOURCE: &str = r#"@ontology diff {
         class: D1;
         state { write label: text; }
         input { }
-        set label = "γειά 🌍 \"quoted\" \\ end";
+        set label = "γειά 🌍 <tag> & 'end'";
     }
     @interaction raise {
         id: "action.raise";
