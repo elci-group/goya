@@ -43,7 +43,15 @@ The command prints `[14.0, 15.0]`. Changing the inputs to `0 0` prints `[1.0, -1
 
 Use `ModelPackage::load_onnx` with the expected SHA-256 digest of the original `.onnx` artifact. Iberia applies the same 1 MiB limit and verifies the digest before decoding. The resulting package registers with the same local runtime, and embedded initializers fill fixed slots.
 
-The importer targets ONNX IR 8–10 and the standard domain at opset 13. It supports statically shaped FP32 values, embedded dense FP32 initializers, equal-shape `Add`, and rank-2 `MatMul`. A graph has one declared output supplied by its last node. Broadcasting, symbolic dimensions, external or sparse tensors, and custom operators are outside this profile. [ONNX schema](https://github.com/onnx/onnx/blob/v1.16.2/onnx/onnx.proto) · [Add](https://onnx.ai/onnx/operators/onnx__Add.html) · [MatMul](https://onnx.ai/onnx/operators/onnx__MatMul.html)
+The importer targets ONNX IR 8–10 and the standard domain at opset 13. It supports statically shaped FP32 values, embedded dense FP32 initializers, equal-shape `Add`, and rank-2 `MatMul`. The graph can use up to 16 inputs and initializers combined and up to 32 nodes. Its last node supplies the single declared output. Broadcasting, symbolic dimensions, external or sparse tensors, and custom operators are outside this profile. [ONNX schema](https://github.com/onnx/onnx/blob/v1.16.2/onnx/onnx.proto) · [Add](https://onnx.ai/onnx/operators/onnx__Add.html) · [MatMul](https://onnx.ai/onnx/operators/onnx__MatMul.html)
+
+```sh
+cargo run --locked -p ie-cpu --example iberia_package -- --onnx \
+  crates/ie-cpu/tests/fixtures/affine.onnx \
+  9b7131e35fe1280244d2dc4c97e6b8d3a460583291eb0e1361e916c4c3215fca 1 2
+```
+
+This model produces the same `[14.0, 15.0]` result as the JSON fixture. The checked-in artifact was generated and validated with the ONNX 1.16.2 Python API.
 
 ## Verification
 
