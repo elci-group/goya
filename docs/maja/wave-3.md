@@ -18,13 +18,15 @@ What changed:
 * The experimental profile [`maja.web.local.v2`](interactive-profile.md)
   compiles GSSH/3 scenes with nested elements, buttons, inputs, session
   state and D1 interactions into a static, deterministic, CSP-restricted
-  package. Its layout and field-conversion mirrors are differentially
-  tested against `goya_lang::layout` and `convert_field`.
+  package. Its layout, scroll-limit and field-conversion mirrors are
+  differentially tested against `goya_lang::layout`,
+  `Frame::scroll_limits` and `convert_field`. Scroll viewports are admitted
+  except when nested.
 * A generated counter (`fixtures/nevada/counter.gscene`) ran in headless
   Chrome 157 and Firefox 150, with pointer activation (and keyboard
   activation in Chrome), conversion and overflow rejection with state
   unchanged, reload, and no console errors
-  (`tests/maja/browsers/counter_browser.py`).
+  (`tests/maja/browsers/maja_browser.py`).
 
 What still blocks M2 and later gates:
 
@@ -47,8 +49,8 @@ The v1 static profile and the reserved production profile `maja.web.v1`
 are unchanged; `maja.web.v1` still refuses every build.
 
 Verification run for this wave: `cargo test --offline -p maja -p
-maja-semantic -p maja-runtime -p maja-frampton` (34 tests) and clippy with
+maja-semantic -p maja-runtime -p maja-frampton` (36 tests) and clippy with
 `-D warnings` passed; the `tests/maja` and `tests/maja/browsers` Python
 suites and the host differential in `tests/maja/differential` passed;
-`counter_browser.py` passed in both browsers as described in the
+`maja_browser.py` (counter and scroll) passed in both browsers as described in the
 [profile document](interactive-profile.md#verification).

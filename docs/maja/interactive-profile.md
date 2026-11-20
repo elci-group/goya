@@ -35,13 +35,16 @@ refuses GSSH/2 declarations (`GY-E1006`).
 | `@input` | Native `<input type="text">`, initially empty | — |
 | `from` bindings | Snapshot, convert, dispatch | `handoff::convert_field` (Node differential) |
 | `@state … session` | Initial values in a runtime that lives for one page load | `initial_state()` |
+| `scroll` | The element keeps its fill, text and stroke; its children live in an inner `overflow: auto` scroller with hidden scrollbars (wheel, touch and focused-keyboard scrolling are the browser's). Direct children may extend past it, clamped only to >= 0. | `goya_lang::layout` and `Frame::scroll_limits` (Node differential); `Frame::scrolled_nodes` translation and clipping (browser) |
 
 Refused at the construct's own range:
 
 | Construct | Why |
 | --- | --- |
 | `text:` on `@input` | Placeholder or initial content is undecided (decision D3). |
-| `scroll` | Maja does not yet mirror `Frame::scroll_limits`. |
+| `scroll` on `@button` or `@input` | They cannot have children. |
+| `scroll` inside another scroll viewport | The reference counts nested content in the outer limit; browsers count only what the inner viewport shows. |
+| `scroll` on an element whose structural name is not unique | The reference keys scroll offsets by name. |
 | `text-anchor` | The reference renderer ignores it. |
 | `gestures` | Clipboard policy is not implemented for the web. |
 | `stroke` without `stroke-width-p`, or the reverse | A border needs both. |
@@ -111,8 +114,9 @@ failures as one error, so the differential compares them as one class.
 cargo test --offline -p maja -p maja-semantic -p maja-runtime -p maja-frampton
 cargo clippy --offline -p maja -p maja-semantic -p maja-runtime -p maja-frampton --all-targets --no-deps -- -D warnings
 cargo run --offline -p maja -- build fixtures/nevada/counter.gscene --profile maja.web.local.v2 --out OUT
-python3 tests/maja/browsers/counter_browser.py chrome OUT
-python3 tests/maja/browsers/counter_browser.py firefox OUT
+python3 tests/maja/browsers/maja_browser.py chrome counter OUT    # and firefox
+cargo run --offline -p maja -- build tests/maja/fixtures/scroll.gscene --profile maja.web.local.v2 --out OUT2
+python3 tests/maja/browsers/maja_browser.py chrome scroll OUT2     # and firefox
 ```
 
 The Rust tests need Node (`MAJA_SKIP_NODE=1` skips those parts, and says so)
@@ -129,12 +133,14 @@ and cover:
 * `crates/maja/tests/interactive.rs`: byte-identical repeated builds with
   manifest hashes and no host paths; refusal ranges and `--release`
   rejection; `resolve` vs `goya_lang::layout` at eight viewports including
-  clamping, defaults, wrap, text size and stroke width; `convertField` vs
+  clamping, defaults, wrap, text size and stroke width, and on the scroll
+  fixture, overflowing children and `scrollLimits` vs
+  `Frame::scroll_limits` (three seeded mutations caught); `convertField` vs
   `convert_field` over the GSSH/2 conversion corpus.
 * `crates/maja-semantic/src/interactive.rs`: admission and per-construct
   refusal ranges.
 
-`counter_browser.py` (headless, Linux, 20 November 2026) drives Chrome
+`maja_browser.py` (headless, Linux, 20 November 2026) drives Chrome
 through the DevTools Protocol and Firefox through WebDriver BiDi, with no
 separate driver binary:
 
@@ -150,6 +156,22 @@ separate driver binary:
 | Reload restarts session state | pass | pass |
 | No console errors | pass | pass |
 
+Scroll fixture (`maja_browser.py BROWSER scroll`):
+
+| Check | Chrome 157.0.8103.78 | Firefox 150.0 |
+| --- | --- | --- |
+| DOM geometry equal to `resolve` at offset 0 (9 elements) | pass | pass |
+| Scroll extents equal `Frame::scroll_limits` within 1 px (overflowing and fitting viewports) | pass | pass |
+| Wheel over the viewport scrolls it | pass | pass |
+| At the limit every descendant moves by exactly the offset; the viewport's own text does not | pass | pass |
+| Content scrolled past the edge is clipped from hit testing | pass | pass |
+| No console errors | pass | pass |
+
+Browsers stop scroll offsets at whole pixels, so the maximum offset can be
+up to 1 px short of the reference limit (492 px vs 492.48 px in the run
+above). Keyboard and touch scrolling, and offset reconciliation on resize,
+are not verified.
+
 ## Not qualified
 
 * **The input has no accessible name.** GSSH/2 has no label construct and
@@ -158,4 +180,4 @@ separate driver binary:
 * Other browsers, assistive technology, IME composition, touch, high-DPI
   pixel snapping, font scaling and visual typography (default font, line
   height and colours are the browser's).
-* Durable state, scroll, display bindings, D2 effects.
+* Durable state, nested scroll viewports, display bindings, D2 effects.

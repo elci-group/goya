@@ -52,7 +52,11 @@ does not constitute a Maja build or browser qualification. The smoke check
 does not test keyboard interaction, state, lifecycle, assistive technology,
 or multiple browsers. The sandbox may require permission for loopback sockets.
 
-`counter_browser.py chrome|firefox OUTPUT_DIRECTORY` exercises a
+`maja_browser.py chrome|firefox scroll OUTPUT_DIRECTORY` checks a build of
+`tests/maja/fixtures/scroll.gscene`: geometry, scroll extents against the
+reference limits, wheel scrolling, descendant translation and clipping.
+
+`maja_browser.py chrome|firefox counter OUTPUT_DIRECTORY` exercises a
 `maja.web.local.v2` build of `fixtures/nevada/counter.gscene` in headless
 Chrome (DevTools Protocol) or Firefox (WebDriver BiDi, no geckodriver): geometry
 against the layout mirror, Tab order, Enter/Space/pointer activation,
