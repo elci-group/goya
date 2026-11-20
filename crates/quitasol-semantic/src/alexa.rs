@@ -384,4 +384,3 @@ const TRANSPORT_SCENE: &str = r#"@ontology app {
     }
 }
 }
-}
