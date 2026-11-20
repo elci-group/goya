@@ -497,6 +497,10 @@ impl Artifact {
             Self::NvidiaCuda(a) => a.recipe_version,
             Self::SnapdragonAccelerator(a) => a.recipe_version,
             Self::ExynosAccelerator(a) => a.recipe_version,
+            Self::AmdDesktop(a) => a.recipe_version,
+            Self::AmdApu(a) => a.recipe_version,
+            Self::AmdThreadripper(a) => a.recipe_version,
+            Self::AmdEpyc(a) => a.recipe_version,
             Self::AcceleratorModel(a) => a.recipe_version,
         }
     }
