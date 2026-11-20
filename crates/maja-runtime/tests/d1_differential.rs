@@ -395,7 +395,12 @@ fn differential(source: &str, cases: &[Case]) -> Vec<String> {
     }
     driver.push_str("process.stdout.write(out.join(\"\\n\") + \"\\n\");\n");
 
-    let dir = std::env::temp_dir().join(format!("maja-d1-diff-{}", std::process::id()));
+    static RUN: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let dir = std::env::temp_dir().join(format!(
+        "maja-d1-diff-{}-{}",
+        std::process::id(),
+        RUN.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir(&dir).unwrap();
     fs::write(dir.join("runtime.mjs"), &runtime.javascript).unwrap();
@@ -420,6 +425,86 @@ fn differential(source: &str, cases: &[Case]) -> Vec<String> {
         assert_eq!(a, e, "case {i}: action {}", cases[i].action);
     }
     expected
+}
+
+/// A scene that reaches the D1 byte limits: 17 text state keys, an action
+/// that copies one input into all of them (register budget and next-state
+/// size), and one that copies 17 bound inputs (input and combined snapshot).
+fn limits_source() -> String {
+    const N: usize = 17;
+    let mut src = String::from("@ontology limits {\n    @state {\n");
+    for i in 0..N {
+        src.push_str(&format!("        t{i}: text = \"\" session;\n"));
+    }
+    src.push_str("    }\n    @cell root {\n        id: \"root\";\n        @input v { id: \"field.v\"; }\n");
+    for i in 0..N {
+        src.push_str(&format!("        @input a{i} {{ id: \"field.a{i}\"; }}\n"));
+    }
+    src.push_str("        @button copy { id: \"button.copy\"; }\n        @button many { id: \"button.many\"; }\n    }\n");
+    let writes: String = (0..N).map(|i| format!("write t{i}: text; ")).collect();
+    let copy: String = (0..N).map(|i| format!("set t{i} = input.v; ")).collect();
+    src.push_str(&format!(
+        "    @interaction copy {{ id: \"action.copy\"; trigger: button.copy.activate; class: D1; state {{ {writes}}} input {{ v: text from \"field.v\"; }} {copy}}}\n"
+    ));
+    let inputs: String = (0..N)
+        .map(|i| format!("a{i}: text from \"field.a{i}\"; "))
+        .collect();
+    let many: String = (0..N).map(|i| format!("set t{i} = input.a{i}; ")).collect();
+    src.push_str(&format!(
+        "    @interaction many {{ id: \"action.many\"; trigger: button.many.activate; class: D1; state {{ {writes}}} input {{ {inputs}}} {many}}}\n}}\n"
+    ));
+    src
+}
+
+#[test]
+fn generated_runtime_matches_canonical_d1_at_byte_limits() {
+    if !node_available() {
+        assert!(std::env::var_os("MAJA_SKIP_NODE").is_some(), "node is required");
+        return;
+    }
+    let source = limits_source();
+    let state = |len: usize| -> BTreeMap<String, V> {
+        (0..17)
+            .map(|i| (format!("t{i}"), V::T("s".repeat(len))))
+            .collect()
+    };
+    let copy = |len: usize| Case {
+        action: "action.copy",
+        state: state(0),
+        revision: 0,
+        inputs: vec![("v".into(), V::T("x".repeat(len)))],
+    };
+    let many = |state_len: usize, input_len: usize| Case {
+        action: "action.many",
+        state: state(state_len),
+        revision: 0,
+        inputs: (0..17)
+            .map(|i| (format!("a{i}"), V::T("y".repeat(input_len))))
+            .collect(),
+    };
+    // Registers cost 17 * len + 27 bytes; the next touched snapshot costs
+    // 17 * len + 171. Lengths straddle both 1 MiB boundaries.
+    let cases = vec![
+        copy(10),
+        copy(61_675),
+        copy(61_670),
+        copy(61_679),
+        copy(61_680),
+        copy(65_536),
+        many(0, 10),
+        many(0, 61_000),
+        many(0, 61_681),
+        many(40_000, 30_000),
+        many(30_000, 30_000),
+    ];
+    let expected = differential(&source, &cases);
+    for code in ["REGISTER_LIMIT", "SNAPSHOT_LIMIT"] {
+        assert!(
+            expected.iter().any(|e| e == &format!("err:{code}")),
+            "limits corpus never exercises {code}: {expected:?}"
+        );
+    }
+    assert!(expected[0].starts_with("ok:"));
 }
 
 #[test]
