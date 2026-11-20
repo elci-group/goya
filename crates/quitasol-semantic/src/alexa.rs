@@ -382,4 +382,4 @@ const TRANSPORT_SCENE: &str = r#"@ontology app {
         assert!(json.contains("\"type\":\"AMAZON.SearchQuery\""));
         assert!(json.contains("\"child_directed\":false"));
     }
-}}
+}
