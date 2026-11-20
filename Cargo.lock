@@ -989,6 +989,7 @@ dependencies = [
  "goya-ir",
  "goya-lang",
  "goya-layout",
+ "goya-nevada",
  "goya-runtime",
  "goya-state",
  "goya-vee",

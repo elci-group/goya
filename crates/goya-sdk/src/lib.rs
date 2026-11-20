@@ -31,6 +31,10 @@ pub use android_scene::{
     ANDROID_SCENE_PACKAGE, ANDROID_SCENE_SPEC,
 };
 mod kotlin;
+mod nevada_android;
+mod nevada_project;
+pub mod nevada_scene;
+pub use nevada_project::{compile_nevada_project, NevadaProject, NevadaProjectError};
 pub use android_d1_runtime::{
     emit_android_d1_runtime, emit_android_d1_runtime_mapped, AndroidD1Runtime,
     AndroidD1RuntimeError,

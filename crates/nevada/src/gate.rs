@@ -5,7 +5,6 @@ use std::fmt;
 
 use crate::caprichio;
 use crate::conformance::{self, ConformanceStatus};
-use crate::dcr;
 use crate::diagnostics::{Diagnostic, DiagnosticCode};
 use crate::focus::{self, Direction, FocusElement, FocusSuccessors, Viewport};
 use crate::translate::{self, RemoteInteraction, TouchInteraction, TranslationOutcome};
@@ -148,9 +147,7 @@ pub fn verify(
     let initial_focus =
         focus::next_focus_in_viewport(elements, None, Direction::Down, &viewport)
             .ok_or_else(|| GateError::new(NvPipelineBlocked, "no TV focus entry point"))?;
-    let support = dcr::resolve(factory.census())
-        .map_err(|error| GateError::new(NvMissingRequiredBaseline, error.to_string()))?;
-    let capabilities = conformance::derive_device_capabilities(&support);
+    let capabilities = factory.translation_capabilities();
     let mut routes = Vec::with_capacity(interactions.len());
     for interaction in interactions {
         let implemented = match interaction.kind {

@@ -7,6 +7,7 @@ description = "Rust SDK facade for authoring and running Goya scenes"
 
 [dependencies]
 goya-lang.workspace = true
+goya-nevada = { path = "../nevada" }
 goya-ir.workspace = true
 goya-layout.workspace = true
 goya-runtime.workspace = true

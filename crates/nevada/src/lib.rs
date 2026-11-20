@@ -7,12 +7,15 @@
 //! fail-closed semantics. It produces no artefacts yet and admits no
 //! scenes; see `docs/nevada/roadmap.md`.
 
+pub mod caprichio;
 pub mod conformance;
 pub mod dcr;
 pub mod diagnostics;
 pub mod focus;
+pub mod gate;
 pub mod orchestrate;
 pub mod profiles;
+pub mod runtime;
 pub mod target;
 pub mod translate;
 
