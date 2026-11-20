@@ -862,6 +862,10 @@ pub fn negotiate(
             && *id != crate::kirin_accelerator_caprichio::CONTRACT
             && *id != crate::snapdragon_accelerator_caprichio::CONTRACT
             && *id != crate::exynos_accelerator_caprichio::CONTRACT
+            && *id != crate::amd_desktop_caprichio::CONTRACT
+            && *id != crate::amd_apu_caprichio::CONTRACT
+            && *id != crate::amd_threadripper_caprichio::CONTRACT
+            && *id != crate::amd_epyc_caprichio::CONTRACT
             && *id != crate::nvidia_accelerator_caprichio::CONTRACT
             && *id != crate::metal_caprichio::CONTRACT
             && *id != crate::touch_id_caprichio::CONTRACT
@@ -912,6 +916,10 @@ pub fn negotiate(
     let needs_snapdragon_accelerator =
         ordered.contains(crate::snapdragon_accelerator_caprichio::CONTRACT);
     let needs_exynos_accelerator = ordered.contains(crate::exynos_accelerator_caprichio::CONTRACT);
+    let needs_amd_desktop = ordered.contains(crate::amd_desktop_caprichio::CONTRACT);
+    let needs_amd_apu = ordered.contains(crate::amd_apu_caprichio::CONTRACT);
+    let needs_amd_threadripper = ordered.contains(crate::amd_threadripper_caprichio::CONTRACT);
+    let needs_amd_epyc = ordered.contains(crate::amd_epyc_caprichio::CONTRACT);
     let needs_metal = ordered.contains(crate::metal_caprichio::CONTRACT);
     let needs_touch_id = ordered.contains(crate::touch_id_caprichio::CONTRACT);
     let needs_face_id = ordered.contains(crate::face_id_caprichio::CONTRACT);
@@ -1018,6 +1026,26 @@ pub fn negotiate(
     if request.exynos_neural_accel.is_some() && !needs_exynos_accelerator {
         return Err(NegotiationError::UnexpectedDeclaration {
             kind: "exynos_neural_accel",
+        });
+    }
+    if request.amd_desktop.is_some() && !needs_amd_desktop {
+        return Err(NegotiationError::UnexpectedDeclaration {
+            kind: "amd_desktop",
+        });
+    }
+    if request.amd_apu.is_some() && !needs_amd_apu {
+        return Err(NegotiationError::UnexpectedDeclaration {
+            kind: "amd_apu",
+        });
+    }
+    if request.amd_threadripper.is_some() && !needs_amd_threadripper {
+        return Err(NegotiationError::UnexpectedDeclaration {
+            kind: "amd_threadripper",
+        });
+    }
+    if request.amd_epyc.is_some() && !needs_amd_epyc {
+        return Err(NegotiationError::UnexpectedDeclaration {
+            kind: "amd_epyc",
         });
     }
     if request.metal_compute.is_some() && !needs_metal {
