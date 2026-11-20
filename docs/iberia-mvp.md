@@ -41,7 +41,7 @@ The command prints `[14.0, 15.0]`. Changing the inputs to `0 0` prints `[1.0, -1
 
 ## Verification
 
-The six-package regression run passed 117 tests on Linux with Rust 1.95.0. The Unix socket tests require permission to bind local sockets. The initial MVP's broader `uni` analysis scored 73/100 against a threshold of 80 and reported incomplete analyzer results.
+The six-package regression run passed 117 tests on Linux with Rust 1.95.0. The Unix socket tests require permission to bind local sockets. Formatting and strict Clippy passed for `ie-cpu`. The packaged-model example passed for both input pairs and rejected a wrong digest. The initial MVP's broader `uni` analysis scored 73/100 against a threshold of 80 and reported incomplete analyzer results.
 
 ```sh
 cargo test --locked -p ie-contract -p ie-cpu -p ie-loopback -p ie-uds -p ie-gate -p ie-conformance
