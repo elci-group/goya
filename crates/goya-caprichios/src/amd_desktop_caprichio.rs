@@ -419,6 +419,11 @@ mod tests {
             assert!((2008..=2030).contains(&facts.year));
             assert!(facts.cores_min >= 1 && facts.cores_min <= facts.cores_max);
             assert!(facts.threads_per_core >= 1);
+            assert!(
+                u64::from(facts.cores_max) * u64::from(facts.threads_per_core)
+                    <= u64::from(MAX_WORKER_THREADS),
+                "{name} thread count must fit the supported bound"
+            );
             assert_eq!(
                 facts.thread_tech == "none",
                 facts.threads_per_core == 1,

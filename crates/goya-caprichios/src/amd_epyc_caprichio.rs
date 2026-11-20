@@ -416,6 +416,11 @@ mod tests {
             assert!(facts.cores_min > 0 && facts.cores_min <= facts.cores_max);
             assert_eq!(facts.threads_per_core, 2);
             assert_eq!(facts.thread_tech, "SMT");
+            assert!(
+                u64::from(facts.cores_max) * u64::from(facts.threads_per_core)
+                    <= u64::from(MAX_WORKER_THREADS),
+                "{name} thread count must fit the supported bound"
+            );
             if facts.avx512 {
                 assert!(
                     facts.avx2 && facts.avx,
