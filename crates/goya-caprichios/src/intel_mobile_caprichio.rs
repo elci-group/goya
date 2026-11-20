@@ -656,14 +656,14 @@ mod tests {
             Err(IntelMobileDiagnostic::ThreadsExceedGeneration)
         );
         assert!(declaration("Broadwell-U", 4, 4).normalize().is_ok());
-        // The 32-thread bound exists for the Core i9-14900HX class, so the
-        // full bound must normalize on the catalog's generations.
-        assert!(declaration(cpu, MAX_WORKER_THREADS, MAX_BATCH)
-            .normalize()
-            .is_ok());
-        assert!(declaration("Raptor Lake (mobile)", MAX_WORKER_THREADS, 4)
-            .normalize()
-            .is_ok());
+        // The 32-thread bound exists for the Core i9-14900HX class (48
+        // documented ceiling threads), so the full bound must normalize
+        // there even though most mobile generations top out far lower.
+        assert!(
+            declaration("Raptor Lake (mobile)", MAX_WORKER_THREADS, MAX_BATCH)
+                .normalize()
+                .is_ok()
+        );
         // WorkerOverflow stays unreachable within the catalog bounds: even
         // MAX_WORKER_THREADS * MAX_BATCH fits u32::MAX.
     }

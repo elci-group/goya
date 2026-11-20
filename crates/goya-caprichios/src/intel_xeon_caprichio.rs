@@ -586,13 +586,13 @@ mod tests {
             declaration(cpu, 128, MAX_BATCH + 1).normalize(),
             Err(IntelXeonDiagnostic::BatchTooLarge)
         );
-        let mut zero_workspace = declaration(cpu, 128, 8);
+        let mut zero_workspace = declaration(cpu, 56, 8);
         zero_workspace.workspace_bytes = 0;
         assert_eq!(
             zero_workspace.normalize(),
             Err(IntelXeonDiagnostic::WorkspaceBytesZero)
         );
-        let mut huge_workspace = declaration(cpu, 128, 8);
+        let mut huge_workspace = declaration(cpu, 56, 8);
         huge_workspace.workspace_bytes = MAX_WORKSPACE_BYTES + 1;
         assert_eq!(
             huge_workspace.normalize(),
@@ -629,7 +629,7 @@ mod tests {
     #[test]
     fn negotiation_rejects_other_targets_and_missing_facilities() {
         let cpu = first_avx512_cpu();
-        let ir = declaration(cpu, 128, 8).normalize().unwrap();
+        let ir = declaration(cpu, 56, 8).normalize().unwrap();
         for target in [Target::CrossPlatform, Target::Browser, Target::Node] {
             assert_eq!(
                 ir.lower_checked(target, CAPABILITIES),
@@ -680,7 +680,7 @@ mod tests {
                 IntelXeonDiagnostic::MissingAvx512,
             ),
         ] {
-            let mut isa_declaration = declaration(cpu, 128, 8);
+            let mut isa_declaration = declaration(cpu, 56, 8);
             isa_declaration.isa = isa;
             let isa_ir = isa_declaration.normalize().unwrap();
             assert_eq!(
