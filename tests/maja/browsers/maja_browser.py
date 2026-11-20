@@ -313,6 +313,7 @@ def scroll_scenario(browser, url):
     # text and stroke do not (Frame::scrolled_nodes translates descendants only).
     moved = ev(f"""(() => {{
         const s = {scroller};
+        s.scrollTop = 0; s.scrollLeft = 0;
         const label = document.querySelector('[data-goya-id="list"] > .goya-text').getBoundingClientRect().y;
         const before = Object.fromEntries(['row1', 'row2a', 'wide', 'tap'].map((id) => [id, document.querySelector(`[data-goya-id="${{id}}"]`).getBoundingClientRect().y]));
         s.scrollTop = 1e9; s.scrollLeft = 1e9;
