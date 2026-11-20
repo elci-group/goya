@@ -1,6 +1,6 @@
 use goya_sdk::{
-    compile_android_scene, emit_android_d1_runtime, emit_android_root_button_preview,
-    emit_android_static_text_preview_named, compile_nevada_project,
+    compile_android_scene, compile_nevada_project, emit_android_d1_runtime,
+    emit_android_root_button_preview, emit_android_static_text_preview_named,
 };
 use std::{
     collections::{BTreeMap, HashSet},
@@ -134,7 +134,7 @@ fn main() {
     let args: Vec<_> = env::args_os().skip(1).collect();
     if args.len() == 1 && (args[0] == "--help" || args[0] == "-h") {
         println!("{USAGE}");
-        println!("Generate an Android app project. Use --scene for a GSSH/3 scene or --tv for a Nevada Android TV project.");
+        println!("Generate an Android app project. Use --scene for a GSSH/3 scene, --tv for Nevada Android TV, or --root-button for a D1 preview. The default is a static-text preview.");
         process::exit(0);
     }
     if args.len() < 2 {

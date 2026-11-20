@@ -23,4 +23,6 @@ The scene compiler rejects scroll viewports, D2, unsupported gesture declaration
 
 Gate `GY-NV-GATE-11` owns the Android TV compiler's static verification step at Emperor stage 11. Project generation requires an exact registered OEM profile, reachable essential focus controls inside the viewport, and a wired remote route for each admitted interaction. The gate refuses without creating the output directory on a conformance failure. Existing board- or programme-specific gates keep their original identifiers.
 
+The phase-2 `orchestrate::execute` entry point continues to evaluate caller-supplied plans under its phase-2 contract. Use the SDK compiler or the CLI above for a source-bound gate result and a Gradle project.
+
 `nevada-conformance.txt` records the static verdict, exact profile, initial focus, source SHA-256, and the per-interaction authored binding, source byte range, and wired remote route. `aragon-source-map.json` ties generated scene bytes to the same admitted source. Runtime conformance is recorded as blocked until execution on Android TV. Signing, real hardware census, and OEM input qualification are release follow-up work.
