@@ -80,12 +80,22 @@ pub(crate) fn import(bytes: &[u8], digest: [u8; 32]) -> Result<ModelPackage, Typ
     if graph.output.len() != 1 {
         return Err(invalid("ONNX graph must declare exactly one output"));
     }
+    let source_count = graph
+        .input
+        .len()
+        .checked_add(graph.initializer.len())
+        .filter(|count| (1..=MAX_INPUTS).contains(count))
+        .ok_or_else(|| invalid(format!("ONNX graph must have 1–{MAX_INPUTS} source values")))?;
+    let value_count = source_count
+        .checked_add(graph.node.len())
+        .ok_or_else(|| invalid("ONNX graph value count overflow"))?;
+    if graph.value_info.len() > value_count {
+        return Err(invalid("ONNX graph has too many value_info entries"));
+    }
 
-    let mut source_shapes = Vec::<TensorDesc>::new();
+    let mut descs = Vec::<TensorDesc>::new();
     let mut fixed_inputs = Vec::<Option<TensorData>>::new();
-    let mut values = HashMap::<String, usize>::new();
-    let mut value_shapes = HashMap::<String, TensorDesc>::new();
-    let mut input_shapes = Vec::<Vec<u64>>::new();
+    let mut values = HashMap::<&str, usize>::new();
 
     for value in &graph.input {
         let name = value_name(value)?;
@@ -93,11 +103,9 @@ pub(crate) fn import(bytes: &[u8], digest: [u8; 32]) -> Result<ModelPackage, Typ
             return Err(invalid(format!("duplicate ONNX value name '{name}'")));
         }
         let desc = value_desc(value)?;
-        let index = source_shapes.len();
-        values.insert(name.to_owned(), index);
-        value_shapes.insert(name.to_owned(), desc.clone());
-        input_shapes.push(desc.dims.clone());
-        source_shapes.push(desc);
+        let index = descs.len();
+        values.insert(name, index);
+        descs.push(desc);
         fixed_inputs.push(None);
     }
 
@@ -112,28 +120,15 @@ pub(crate) fn import(bytes: &[u8], digest: [u8; 32]) -> Result<ModelPackage, Typ
                 "initializer '{name}' overlaps an ONNX graph input or value"
             )));
         }
-        if source_shapes.len() >= MAX_INPUTS {
-            return Err(invalid(format!(
-                "ONNX graph exceeds {MAX_INPUTS} source values"
-            )));
-        }
         let fixed = decode_initializer(tensor)?;
         let desc = fixed.desc.clone();
-        let index = source_shapes.len();
-        values.insert(name.to_owned(), index);
-        value_shapes.insert(name.to_owned(), desc.clone());
-        input_shapes.push(desc.dims.clone());
-        source_shapes.push(desc);
+        let index = descs.len();
+        values.insert(name, index);
+        descs.push(desc);
         fixed_inputs.push(Some(fixed));
-    }
-    if !(1..=MAX_INPUTS).contains(&source_shapes.len()) {
-        return Err(invalid(format!(
-            "ONNX graph must have 1–{MAX_INPUTS} runtime and initializer inputs"
-        )));
     }
 
     let mut nodes = Vec::with_capacity(graph.node.len());
-    let mut final_node_output = None::<String>;
     for (node_index, raw_node) in graph.node.iter().enumerate() {
         if !raw_node.attribute.is_empty() {
             return Err(unsupported(format!(
@@ -167,12 +162,12 @@ pub(crate) fn import(bytes: &[u8], digest: [u8; 32]) -> Result<ModelPackage, Typ
         };
         let left_name = &raw_node.input[0];
         let right_name = &raw_node.input[1];
-        let left = *values.get(left_name).ok_or_else(|| {
+        let left = *values.get(left_name.as_str()).ok_or_else(|| {
             invalid(format!(
                 "ONNX node {node_index} has unknown or forward input '{left_name}'"
             ))
         })?;
-        let right = *values.get(right_name).ok_or_else(|| {
+        let right = *values.get(right_name.as_str()).ok_or_else(|| {
             invalid(format!(
                 "ONNX node {node_index} has unknown or forward input '{right_name}'"
             ))
@@ -183,26 +178,29 @@ pub(crate) fn import(bytes: &[u8], digest: [u8; 32]) -> Result<ModelPackage, Typ
                 "ONNX node {node_index} has an empty or duplicate output name"
             )));
         }
-        let (output_desc, _) = plan_pair(op, &source_shapes[left], &source_shapes[right])?;
-        let output_index = source_shapes.len();
-        values.insert(output_name.to_owned(), output_index);
-        value_shapes.insert(output_name.to_owned(), output_desc.clone());
-        source_shapes.push(output_desc);
+        let (output_desc, _) = plan_pair(op, &descs[left], &descs[right])?;
+        let output_index = descs.len();
+        values.insert(output_name, output_index);
+        descs.push(output_desc);
         nodes.push(Node { op, left, right });
-        final_node_output = Some(output_name.to_owned());
     }
 
     let output = &graph.output[0];
     let output_name = value_name(output)?;
-    let final_node_output = final_node_output.expect("graph node list was checked nonempty");
+    let final_node_output = graph
+        .node
+        .last()
+        .and_then(|node| node.output.first())
+        .map(String::as_str)
+        .ok_or_else(|| invalid("ONNX graph has no final node output"))?;
     if output_name != final_node_output {
         return Err(invalid("ONNX graph output must name the final node output"));
     }
     let declared_output = value_desc(output)?;
-    let inferred_output = value_shapes
+    let output_index = *values
         .get(output_name)
         .ok_or_else(|| invalid("ONNX graph output is not produced by the graph"))?;
-    if &declared_output != inferred_output {
+    if declared_output != descs[output_index] {
         return Err(invalid(
             "ONNX graph output shape does not match inferred shape",
         ));
@@ -215,7 +213,12 @@ pub(crate) fn import(bytes: &[u8], digest: [u8; 32]) -> Result<ModelPackage, Typ
             return Err(invalid(format!("duplicate ONNX value_info name '{name}'")));
         }
         let declared = value_desc(info)?;
-        match value_shapes.get(name) {
+        let Some(index) = values.get(name) else {
+            return Err(invalid(format!(
+                "ONNX value_info names unknown value '{name}'"
+            )));
+        };
+        match descs.get(*index) {
             Some(inferred) if inferred == &declared => {}
             Some(_) => {
                 return Err(invalid(format!(
@@ -230,7 +233,10 @@ pub(crate) fn import(bytes: &[u8], digest: [u8; 32]) -> Result<ModelPackage, Typ
         }
     }
 
-    let shape_refs: Vec<&[u64]> = input_shapes.iter().map(Vec::as_slice).collect();
+    let shape_refs: Vec<&[u64]> = descs[..source_count]
+        .iter()
+        .map(|desc| desc.dims.as_slice())
+        .collect();
     let compiled = Graph::compile(&shape_refs, &nodes)?;
     Ok(ModelPackage::from_parts(digest, compiled, fixed_inputs))
 }
