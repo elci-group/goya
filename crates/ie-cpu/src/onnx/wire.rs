@@ -111,15 +111,15 @@ pub(super) mod type_proto {
     #[derive(Clone, PartialEq, Oneof)]
     pub(in crate::onnx) enum Value {
         #[prost(message, tag = "1")]
-        TensorType(TensorTypeProto),
+        Tensor(TensorTypeProto),
         #[prost(bytes = "vec", tag = "4")]
-        SequenceType(Vec<u8>),
+        Sequence(Vec<u8>),
         #[prost(bytes = "vec", tag = "5")]
-        MapType(Vec<u8>),
+        Map(Vec<u8>),
         #[prost(bytes = "vec", tag = "8")]
-        SparseTensorType(Vec<u8>),
+        SparseTensor(Vec<u8>),
         #[prost(bytes = "vec", tag = "9")]
-        OptionalType(Vec<u8>),
+        Optional(Vec<u8>),
     }
 }
 

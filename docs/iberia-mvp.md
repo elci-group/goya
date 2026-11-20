@@ -55,10 +55,10 @@ This model produces the same `[14.0, 15.0]` result as the JSON fixture. The chec
 
 ## Verification
 
-The six-package regression run passed 117 tests on Linux with Rust 1.95.0. The Unix socket tests require permission to bind local sockets. Formatting and strict Clippy passed for `ie-cpu`. The packaged-model example passed for both input pairs and rejected a wrong digest. The initial MVP's broader `uni` analysis scored 73/100 against a threshold of 80 and reported incomplete analyzer results.
+The six-package regression run passed 125 tests on Linux with Rust 1.95.0. The Unix socket tests require permission to bind local sockets. Formatting and strict Clippy passed for `ie-cpu`. Both ONNX inputs matched the official reference evaluator, an incorrect ONNX digest was rejected, and the JSON example still passed. The initial MVP's broader `uni` analysis scored 73/100 against a threshold of 80 and reported incomplete analyzer results.
 
 ```sh
-cargo test --locked -p ie-contract -p ie-cpu -p ie-loopback -p ie-uds -p ie-gate -p ie-conformance
+cargo test --locked --lib --tests -p ie-contract -p ie-cpu -p ie-loopback -p ie-uds -p ie-gate -p ie-conformance
 cargo fmt --check -p ie-cpu
 cargo clippy --no-deps --locked -p ie-cpu --all-targets -- -D warnings
 ```
