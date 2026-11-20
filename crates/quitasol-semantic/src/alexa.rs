@@ -359,34 +359,7 @@ const TRANSPORT_SCENE: &str = r#"@ontology app {
 
 #[test]
     fn alexa_model_includes_certification_metadata() {
-        let scene = parse(
-            "@ontology app {\
-                @button go { id: \"button.go\"; }\
-                @input searchField { id: \"element.searchField\"; }\
-                @cell searchPanel { id: \"element.searchPanel\"; }\
-                @interaction a {\
-                    id: \"action.a\";\
-                    trigger: button.go.activate;\
-                    class: D1;\
-                    state { }\
-                    input { }\
-                }\
-                @intent main {\
-                    id: \"intent.main.v1\";\
-                    action: a;\
-                    category: general;\
-                    slots { query: text; }\
-                    voice {\
-                        utterance: \"Go\";\
-                        confirmation: false;\
-                    }\
-                    fallback {\
-                        remote: searchPanel;\
-                        keyboard: searchField;\
-                    }\
-                }\
-            }",
-        ).unwrap();
+        let scene = parse(CERT_SCENE).unwrap();
         let model = emit_alexa_interaction_model(&scene, "oem.generic.tv/1.0.0", 800.0, 600.0)
             .expect("model emits");
         let cert = &model.certification;
