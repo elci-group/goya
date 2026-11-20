@@ -1,7 +1,9 @@
 //! Small local-only, bounded executor for registered Iberia graphs.
 //!
 //! The runtime deliberately owns scheduling and deadlines locally. It adds no
-//! wire fields or changes to the frozen contract.
+//! wire fields or changes to the frozen contract. The defaults cap the model
+//! registry at 16, pending jobs and retained results at 8 each, estimated
+//! per-job tensor memory at 8 MiB, and scalar work at 16 Mi operations.
 
 use crate::graph::Graph;
 use ie_contract::errors::TypedError;
@@ -23,9 +25,9 @@ impl Default for Limits {
     fn default() -> Self {
         Self {
             max_models: 16,
-            max_pending: 64,
-            max_retained: 128,
-            max_payload_bytes_per_job: 64 * 1024 * 1024,
+            max_pending: 8,
+            max_retained: 8,
+            max_payload_bytes_per_job: 8 * 1024 * 1024,
             max_work_per_job: 16 * 1024 * 1024,
         }
     }
@@ -41,7 +43,7 @@ pub struct Completion {
 
 struct Job {
     id: u64,
-    graph_digest: [u8; 32],
+    graph_index: usize,
     inputs: Vec<TensorData>,
     submitted_at: Instant,
     deadline: Instant,
@@ -55,7 +57,6 @@ pub struct Runtime {
     models: Vec<([u8; 32], Graph)>,
     pending: VecDeque<Job>,
     completed: VecDeque<(u64, Completion)>,
-    evicted: VecDeque<u64>,
     next_id: Option<u64>,
 }
 
@@ -66,7 +67,6 @@ impl Runtime {
             models: Vec::new(),
             pending: VecDeque::new(),
             completed: VecDeque::new(),
-            evicted: VecDeque::new(),
             next_id: Some(1),
         }
     }
@@ -89,7 +89,7 @@ impl Runtime {
         inputs: Vec<TensorData>,
         timeout: Duration,
     ) -> Result<u64, TypedError> {
-        let Some((_, graph)) = self.models.iter().find(|(known, _)| *known == digest) else {
+        let Some(graph_index) = self.models.iter().position(|(known, _)| *known == digest) else {
             return Err(TypedError::ModelMissing { digest: hex(&digest) });
         };
         if self.pending.len() >= self.limits.max_pending {
@@ -107,13 +107,15 @@ impl Runtime {
         if timeout.is_zero() {
             return Err(TypedError::DeadlineExceeded);
         }
+        let submitted_at = Instant::now();
+        let deadline = submitted_at
+            .checked_add(timeout)
+            .ok_or(TypedError::DeadlineExceeded)?;
         let id = self.next_id.ok_or_else(|| exhausted("request id space exhausted"))?;
         self.next_id = id.checked_add(1);
-        let submitted_at = Instant::now();
-        let deadline = submitted_at.checked_add(timeout).unwrap_or(submitted_at);
         self.pending.push_back(Job {
             id,
-            graph_digest: digest,
+            graph_index,
             inputs,
             submitted_at,
             deadline,
@@ -130,20 +132,17 @@ impl Runtime {
         let result = if Instant::now() >= job.deadline {
             Err(TypedError::DeadlineExceeded)
         } else {
-            let graph = self
-                .models
-                .iter()
-                .find(|(digest, _)| *digest == job.graph_digest)
-                .map(|(_, graph)| graph);
-            match graph {
-                Some(graph) => graph.execute(job.inputs, || {
+            match self.models.get(job.graph_index) {
+                Some((_, graph)) => graph.execute(job.inputs, || {
                     if Instant::now() >= job.deadline {
                         Err(TypedError::DeadlineExceeded)
                     } else {
                         Ok(())
                     }
                 }),
-                None => Err(TypedError::ModelMissing { digest: hex(&job.graph_digest) }),
+                None => Err(TypedError::Internal {
+                    reason: "registered model index became invalid".into(),
+                }),
             }
         };
         self.retain(id, Completion {
@@ -161,7 +160,6 @@ impl Runtime {
         }
         if let Some(index) = self.completed.iter().position(|(known, _)| *known == id) {
             let (_, completion) = self.completed.remove(index).expect("index was found");
-            self.remember_evicted(id);
             return Ok(Some(completion));
         }
         Err(TypedError::PeerLost)
@@ -186,23 +184,11 @@ impl Runtime {
 
     fn retain(&mut self, id: u64, completion: Completion) {
         if self.limits.max_retained == 0 {
-            self.remember_evicted(id);
             return;
         }
         self.completed.push_back((id, completion));
         while self.completed.len() > self.limits.max_retained {
-            if let Some((evicted, _)) = self.completed.pop_front() {
-                self.remember_evicted(evicted);
-            }
-        }
-    }
-
-    fn remember_evicted(&mut self, id: u64) {
-        // Keep the unknown-outcome marker bounded independently of results.
-        let marker_limit = self.limits.max_retained.max(1).saturating_mul(2);
-        self.evicted.push_back(id);
-        while self.evicted.len() > marker_limit {
-            self.evicted.pop_front();
+            self.completed.pop_front();
         }
     }
 }
@@ -267,6 +253,32 @@ mod tests {
         let mut runtime = Runtime::new(limits());
         let digest = runtime.register(graph()).unwrap();
         assert_eq!(runtime.submit(digest, inputs(), Duration::ZERO), Err(TypedError::DeadlineExceeded));
+    }
+
+    #[test]
+    fn payload_and_work_budgets_are_enforced_before_admission() {
+        let graph = graph();
+        let mut small_payload = Runtime::new(Limits {
+            max_payload_bytes_per_job: 23,
+            ..Limits::default()
+        });
+        let digest = small_payload.register(graph.clone()).unwrap();
+        assert!(matches!(
+            small_payload.submit(digest, inputs(), Duration::from_secs(1)),
+            Err(TypedError::ResourceExhausted { .. })
+        ));
+        assert_eq!(small_payload.pending.len(), 0);
+
+        let mut small_work = Runtime::new(Limits {
+            max_work_per_job: 1,
+            ..Limits::default()
+        });
+        let digest = small_work.register(graph).unwrap();
+        assert!(matches!(
+            small_work.submit(digest, inputs(), Duration::from_secs(1)),
+            Err(TypedError::ResourceExhausted { .. })
+        ));
+        assert_eq!(small_work.pending.len(), 0);
     }
 
     #[test]

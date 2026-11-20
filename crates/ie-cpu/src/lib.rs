@@ -1,16 +1,18 @@
-//! ie-cpu — CPU reference backend (WP-003 seed, G2 target).
+//! ie-cpu — bounded CPU reference primitives (WP-003 seed, G2 target).
 //!
 //! Executes the contract v0.1 golden-op subset over validated FP32 tensors.
-//! It is the numerical oracle implementation, not a production scheduler:
-//! admission, leases and cancellation live with the runtime (WP-004).
+//! The `graph` and `local` modules provide compiled local graph execution;
+//! `ledger` remains the legacy request-ID compatibility layer and is not the
+//! compiled local runtime. Admission, leases and cancellation policy belong
+//! to the runtime; primitive execution accepts cooperative checkpoints.
 //!
 //! Semantics fixed by the contract (IE-X01):
 //! - deterministic FP32 arithmetic in fixed iteration order, no threading;
 //! - all validation (shapes, payloads, op support) happens before compute;
 //! - typed errors only; no panics on peer input.
 
-pub mod ledger;
 pub mod graph;
+pub mod ledger;
 pub mod local;
 
 use ie_contract::errors::TypedError;
@@ -22,7 +24,9 @@ use ie_contract::tensors::{DType, TensorData, TensorDesc};
 pub const SUPPORTED_OPS: &[&str] = &["add", "matmul"];
 
 fn invalid(reason: &str) -> TypedError {
-    TypedError::InvalidTensor { reason: reason.into() }
+    TypedError::InvalidTensor {
+        reason: reason.into(),
+    }
 }
 
 /// Validate a descriptor and payload even when callers constructed the
@@ -45,7 +49,12 @@ fn f32_desc(dims: &[u64]) -> TensorDesc {
 
 fn read_f32(data: &[u8], index: usize) -> f32 {
     let offset = index * 4;
-    f32::from_le_bytes([data[offset], data[offset + 1], data[offset + 2], data[offset + 3]])
+    f32::from_le_bytes([
+        data[offset],
+        data[offset + 1],
+        data[offset + 2],
+        data[offset + 3],
+    ])
 }
 
 /// Validate an operation and derive its bounded output shape and scalar work.
@@ -65,7 +74,10 @@ pub(crate) fn plan_pair(
             if left.dims != right.dims {
                 return Err(invalid("add shape mismatch"));
             }
-            let count = left.dims.iter().try_fold(1u64, |n, d| n.checked_mul(*d))
+            let count = left
+                .dims
+                .iter()
+                .try_fold(1u64, |n, d| n.checked_mul(*d))
                 .ok_or_else(|| invalid("add work overflow"))?;
             let output = f32_desc(&left.dims);
             output.payload_len()?;
@@ -79,7 +91,9 @@ pub(crate) fn plan_pair(
             if rk != k {
                 return Err(invalid("matmul inner dimension mismatch"));
             }
-            let work = m.checked_mul(k).and_then(|v| v.checked_mul(n))
+            let work = m
+                .checked_mul(k)
+                .and_then(|v| v.checked_mul(n))
                 .ok_or_else(|| invalid("matmul work overflow"))?;
             let output = f32_desc(&[m, n]);
             output.payload_len()?;
@@ -102,30 +116,38 @@ pub(crate) fn execute_pair(
     let output_bytes = usize::try_from(desc.payload_len()?)
         .map_err(|_| invalid("output does not fit address space"))?;
     let mut data = Vec::new();
-    data.try_reserve_exact(output_bytes).map_err(|_| TypedError::ResourceExhausted {
-        reason: "CPU output allocation failed".into(),
-    })?;
+    data.try_reserve_exact(output_bytes)
+        .map_err(|_| TypedError::ResourceExhausted {
+            reason: "CPU output allocation failed".into(),
+        })?;
     let mut since_checkpoint = 0u64;
     match op {
         GoldenOp::Add => {
             let count = usize::try_from(left.desc.payload_len()? / 4)
                 .map_err(|_| invalid("input does not fit address space"))?;
             for i in 0..count {
-                if since_checkpoint == 0 { checkpoint()?; }
+                if since_checkpoint == 0 {
+                    checkpoint()?;
+                }
                 let value = read_f32(&left.data, i) + read_f32(&right.data, i);
                 data.extend_from_slice(&value.to_le_bytes());
                 since_checkpoint = (since_checkpoint + 1) % 1024;
             }
         }
         GoldenOp::MatMul => {
-            let m = usize::try_from(left.desc.dims[0]).map_err(|_| invalid("dimension overflow"))?;
-            let k = usize::try_from(left.desc.dims[1]).map_err(|_| invalid("dimension overflow"))?;
-            let n = usize::try_from(right.desc.dims[1]).map_err(|_| invalid("dimension overflow"))?;
+            let m =
+                usize::try_from(left.desc.dims[0]).map_err(|_| invalid("dimension overflow"))?;
+            let k =
+                usize::try_from(left.desc.dims[1]).map_err(|_| invalid("dimension overflow"))?;
+            let n =
+                usize::try_from(right.desc.dims[1]).map_err(|_| invalid("dimension overflow"))?;
             for i in 0..m {
                 for j in 0..n {
                     let mut acc = 0f32;
                     for t in 0..k {
-                        if since_checkpoint == 0 { checkpoint()?; }
+                        if since_checkpoint == 0 {
+                            checkpoint()?;
+                        }
                         acc += read_f32(&left.data, i * k + t) * read_f32(&right.data, t * n + j);
                         since_checkpoint = (since_checkpoint + 1) % 1024;
                     }
@@ -142,7 +164,9 @@ fn op_from_name(name: &str) -> Result<GoldenOp, TypedError> {
     match name {
         "add" => Ok(GoldenOp::Add),
         "matmul" => Ok(GoldenOp::MatMul),
-        other => Err(TypedError::UnsupportedOp { op: other.to_string() }),
+        other => Err(TypedError::UnsupportedOp {
+            op: other.to_string(),
+        }),
     }
 }
 
@@ -166,8 +190,11 @@ mod tests {
         let a = GoldenFixture::tensor(&[1.0, 2.0, 3.0, 4.0], &[2, 2]);
         let b = GoldenFixture::tensor(&[5.0, 6.0, 7.0, 8.0], &[2, 2]);
         let out = execute("matmul", &[a, b]).unwrap();
-        let got: Vec<f32> =
-            out.data.chunks_exact(4).map(|c| f32::from_le_bytes(c.try_into().unwrap())).collect();
+        let got: Vec<f32> = out
+            .data
+            .chunks_exact(4)
+            .map(|c| f32::from_le_bytes(c.try_into().unwrap()))
+            .collect();
         let _ = TOLERANCE;
         assert_eq!(got, vec![19.0, 22.0, 43.0, 50.0]);
         assert_eq!(out.desc.dims, vec![2, 2]);
@@ -217,7 +244,10 @@ mod tests {
             data: vec![0, 0, 0, 0, 99],
         };
         let valid = GoldenFixture::tensor(&[1.0], &[1]);
-        assert!(matches!(execute("add", &[malformed, valid]), Err(TypedError::InvalidTensor { .. })));
+        assert!(matches!(
+            execute("add", &[malformed, valid]),
+            Err(TypedError::InvalidTensor { .. })
+        ));
     }
 
     #[test]
@@ -238,5 +268,34 @@ mod tests {
             plan_pair(GoldenOp::MatMul, &left, &right),
             Err(TypedError::InvalidTensor { .. })
         ));
+    }
+
+    #[test]
+    fn checkpoint_aborts_inside_long_matmul_dot_product() {
+        let left_desc = ie_contract::TensorDesc {
+            dtype: DType::F32,
+            dims: vec![1, 2048],
+            quant_scale: None,
+            quant_zero_point: None,
+        };
+        let right_desc = ie_contract::TensorDesc {
+            dtype: DType::F32,
+            dims: vec![2048, 1],
+            quant_scale: None,
+            quant_zero_point: None,
+        };
+        let left = TensorData::new(left_desc, vec![0; 2048 * 4]).unwrap();
+        let right = TensorData::new(right_desc, vec![0; 2048 * 4]).unwrap();
+        let mut calls = 0;
+        let result = execute_pair(GoldenOp::MatMul, &left, &right, &mut || {
+            calls += 1;
+            if calls == 2 {
+                Err(TypedError::DeadlineExceeded)
+            } else {
+                Ok(())
+            }
+        });
+        assert_eq!(result, Err(TypedError::DeadlineExceeded));
+        assert_eq!(calls, 2, "deadline must be checked within the dot product");
     }
 }
