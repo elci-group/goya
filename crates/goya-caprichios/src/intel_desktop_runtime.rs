@@ -33,12 +33,10 @@ impl fmt::Display for WorkerError {
 
 impl std::error::Error for WorkerError {}
 
-/// Conservative bound across the catalog's desktop parts: a Raptor Lake
-/// flagship exposes 24 cores with SMT, or 32 hardware threads. The HEDT
-/// Core-X rows document up to 18 cores / 36 hardware threads; the v1 bound
-/// caps planning at 32 worker threads, so those parts plan below their
-/// hardware ceiling and fail closed at this bound first.
-pub const MAX_WORKER_THREADS: u32 = 32;
+/// Conservative bound across the catalog's desktop parts, set by the
+/// Cascade Lake-X HEDT flagship's documented 18C/36T hardware thread
+/// count: the largest `threads_max` in the desktop catalog.
+pub const MAX_WORKER_THREADS: u32 = 36;
 /// Deliberately bounded batch size; the plan type stays within a
 /// conservative worker envelope.
 pub const MAX_BATCH: u32 = 65_536;

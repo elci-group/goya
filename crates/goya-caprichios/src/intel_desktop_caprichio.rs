@@ -486,25 +486,19 @@ mod tests {
             assert!((2008..=2030).contains(&facts.year));
             assert!(facts.cores_min >= 1 && facts.cores_min <= facts.cores_max);
             assert!(facts.threads_per_core >= 1);
-            let hardware_threads = u64::from(facts.cores_max) * u64::from(facts.threads_per_core);
-            match *name {
-                // Raptor Lake's homogeneous 24 * 2 = 48 upper bound exceeds
-                // the v1 cap, but the part really exposes 32 OS threads
-                // (8 Hyper-Threaded P-cores + 16 E-cores), so planning at
-                // the cap stays within hardware.
-                "Raptor Lake" => assert_eq!(hardware_threads, 48),
-                // HEDT rows document 18 cores with SMT (36 hardware
-                // threads), above the 32-thread v1 plan cap; the runtime
-                // bound fails closed there, and the catalog keeps the
-                // hardware fact.
-                "Core-X (Skylake-X)" | "Cascade Lake-X" => {
-                    assert_eq!(hardware_threads, 36, "{name} HEDT hardware threads")
-                }
-                _ => assert!(
-                    hardware_threads <= u64::from(MAX_WORKER_THREADS),
-                    "{name} thread count must fit the supported bound"
-                ),
-            }
+            assert!(
+                u64::from(facts.threads_max) <= u64::from(MAX_WORKER_THREADS),
+                "{name} thread count must fit the supported bound"
+            );
+            assert!(
+                facts.threads_max >= facts.cores_max,
+                "{name} must document at least one thread per core"
+            );
+            assert!(
+                u64::from(facts.threads_max)
+                    <= u64::from(facts.cores_max) * u64::from(facts.threads_per_core),
+                "{name} documented threads cannot exceed the per-core product"
+            );
             assert_eq!(
                 facts.thread_tech == "none",
                 facts.threads_per_core == 1,
@@ -561,6 +555,7 @@ mod tests {
         assert_eq!(first.contract, CONTRACT);
         assert!(first.canonical_ir.contains("target=intel_desktop\n"));
         assert!(first.canonical_ir.contains("arch=Rocket Lake\n"));
+        assert!(first.canonical_ir.contains("threads_max=16\n"));
         assert!(first.canonical_ir.contains("worker_threads=8\n"));
         assert!(first.canonical_ir.contains("total_worker_executions=32\n"));
         assert!(first.canonical_ir.contains("isa=avx512\n"));
@@ -613,9 +608,15 @@ mod tests {
             Err(IntelDesktopDiagnostic::ThreadsExceedGeneration)
         );
         assert!(declaration("Core 2 (Penryn)", 4, 4).normalize().is_ok());
-        assert!(declaration("Raptor Lake", MAX_WORKER_THREADS, MAX_BATCH)
-            .normalize()
-            .is_ok());
+        // Raptor Lake documents 32 OS-visible threads (8 Hyper-Threaded
+        // P-cores + 16 E-cores); planning at its documented total works,
+        // while the 36-thread platform bound (Cascade Lake-X 36T) exceeds
+        // this generation's documented count and fails closed.
+        assert!(declaration("Raptor Lake", 32, MAX_BATCH).normalize().is_ok());
+        assert_eq!(
+            declaration("Raptor Lake", 36, MAX_BATCH).normalize(),
+            Err(IntelDesktopDiagnostic::ThreadsExceedGeneration)
+        );
     }
 
     #[test]
