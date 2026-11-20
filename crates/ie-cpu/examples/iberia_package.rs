@@ -2,6 +2,7 @@
 //!
 //! Example:
 //! `cargo run --locked -p ie-cpu --example iberia_package -- crates/ie-cpu/tests/fixtures/affine.iberia.json SHA256 1 2`
+//! `cargo run --locked -p ie-cpu --example iberia_package -- --onnx crates/ie-cpu/tests/fixtures/affine.onnx SHA256 1 2`
 
 use std::env;
 use std::fs::File;
@@ -13,7 +14,7 @@ use ie_contract::tensors::TensorData;
 use ie_cpu::local::{Limits, Runtime};
 use ie_cpu::package::ModelPackage;
 
-const HELP: &str = "Usage: cargo run --locked -p ie-cpu --example iberia_package -- <package-path> <expected-sha256> <f32> <f32>\n\nLoads the package only if its file SHA-256 matches the supplied 64-digit hex digest, then runs one local CPU request. The checked-in affine fixture with inputs 1 2 produces [14.0, 15.0]. This demo uses synthetic inputs and a local reference CPU; it does not connect to a peer.";
+const HELP: &str = "Usage:\n  cargo run --locked -p ie-cpu --example iberia_package -- <package-path> <expected-sha256> <f32> <f32>\n  cargo run --locked -p ie-cpu --example iberia_package -- --onnx <model.onnx> <expected-sha256> <f32> <f32>\n\nThe first form loads the native Iberia JSON package; the explicit --onnx form loads a supported ONNX model. Both require the exact 64-digit SHA-256 of the file and pack the two supplied FP32 values into one [1,2] input tensor for a local CPU request. The checked-in affine fixtures produce [14.0, 15.0] for values 1 2. This demo uses a local reference CPU and does not connect to a peer.";
 
 fn main() {
     if let Err(message) = run() {
@@ -24,13 +25,20 @@ fn main() {
 
 fn run() -> Result<(), String> {
     let mut args = env::args_os().skip(1);
-    let Some(package_arg) = args.next() else {
+    let Some(first_arg) = args.next() else {
         return Err(format!("missing package path\n\n{HELP}"));
     };
-    if package_arg == "--help" || package_arg == "-h" {
+    if first_arg == "--help" || first_arg == "-h" {
         println!("{HELP}");
         return Ok(());
     }
+    let onnx = first_arg == "--onnx";
+    let package_arg = if onnx {
+        args.next()
+            .ok_or_else(|| format!("missing ONNX model path after --onnx\n\n{HELP}"))?
+    } else {
+        first_arg
+    };
     let package_path = PathBuf::from(package_arg);
     let expected_sha = parse_sha256(args.next(), "expected SHA-256")?;
     let x = parse_f32(args.next(), "first input")?;
@@ -41,8 +49,12 @@ fn run() -> Result<(), String> {
 
     let file = File::open(&package_path)
         .map_err(|error| format!("cannot open package {}: {error}", package_path.display()))?;
-    let package = ModelPackage::load(file, expected_sha)
-        .map_err(|error| format!("package rejected: {} ({error:?})", error.name()))?;
+    let package = if onnx {
+        ModelPackage::load_onnx(file, expected_sha)
+    } else {
+        ModelPackage::load(file, expected_sha)
+    }
+    .map_err(|error| format!("package rejected: {} ({error:?})", error.name()))?;
     let mut runtime = Runtime::new(Limits::default());
     let model = runtime
         .register_package(package)

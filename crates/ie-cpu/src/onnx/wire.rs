@@ -10,26 +10,14 @@ use prost::Message;
 pub(super) struct ModelProto {
     #[prost(int64, optional, tag = "1")]
     pub(super) ir_version: Option<i64>,
-    #[prost(string, optional, tag = "2")]
-    pub(super) producer_name: Option<String>,
-    #[prost(string, optional, tag = "3")]
-    pub(super) producer_version: Option<String>,
-    #[prost(string, optional, tag = "4")]
-    pub(super) domain: Option<String>,
-    #[prost(int64, optional, tag = "5")]
-    pub(super) model_version: Option<i64>,
-    #[prost(string, optional, tag = "6")]
-    pub(super) doc_string: Option<String>,
     #[prost(message, optional, tag = "7")]
     pub(super) graph: Option<GraphProto>,
     #[prost(message, repeated, tag = "8")]
     pub(super) opset_import: Vec<OperatorSetIdProto>,
-    #[prost(message, repeated, tag = "14")]
-    pub(super) metadata_props: Vec<StringStringEntryProto>,
-    #[prost(message, repeated, tag = "20")]
-    pub(super) training_info: Vec<TrainingInfoProto>,
-    #[prost(message, repeated, tag = "25")]
-    pub(super) functions: Vec<FunctionProto>,
+    #[prost(bytes = "vec", repeated, tag = "20")]
+    pub(super) training_info: Vec<Vec<u8>>,
+    #[prost(bytes = "vec", repeated, tag = "25")]
+    pub(super) functions: Vec<Vec<u8>>,
 }
 
 #[derive(Clone, PartialEq, Message)]
@@ -40,20 +28,16 @@ pub(super) struct GraphProto {
     pub(super) name: Option<String>,
     #[prost(message, repeated, tag = "5")]
     pub(super) initializer: Vec<TensorProto>,
-    #[prost(string, optional, tag = "10")]
-    pub(super) doc_string: Option<String>,
     #[prost(message, repeated, tag = "11")]
     pub(super) input: Vec<ValueInfoProto>,
     #[prost(message, repeated, tag = "12")]
     pub(super) output: Vec<ValueInfoProto>,
     #[prost(message, repeated, tag = "13")]
     pub(super) value_info: Vec<ValueInfoProto>,
-    #[prost(message, repeated, tag = "14")]
-    pub(super) quantization_annotation: Vec<TensorAnnotation>,
-    #[prost(message, repeated, tag = "15")]
-    pub(super) sparse_initializer: Vec<SparseTensorProto>,
-    #[prost(message, repeated, tag = "16")]
-    pub(super) metadata_props: Vec<StringStringEntryProto>,
+    #[prost(bytes = "vec", repeated, tag = "14")]
+    pub(super) quantization_annotation: Vec<Vec<u8>>,
+    #[prost(bytes = "vec", repeated, tag = "15")]
+    pub(super) sparse_initializer: Vec<Vec<u8>>,
 }
 
 #[derive(Clone, PartialEq, Message)]
@@ -66,16 +50,12 @@ pub(super) struct NodeProto {
     pub(super) name: Option<String>,
     #[prost(string, optional, tag = "4")]
     pub(super) op_type: Option<String>,
-    #[prost(message, repeated, tag = "5")]
-    pub(super) attribute: Vec<AttributeProto>,
-    #[prost(string, optional, tag = "6")]
-    pub(super) doc_string: Option<String>,
+    #[prost(bytes = "vec", repeated, tag = "5")]
+    pub(super) attribute: Vec<Vec<u8>>,
     #[prost(string, optional, tag = "7")]
     pub(super) domain: Option<String>,
     #[prost(string, optional, tag = "8")]
     pub(super) overload: Option<String>,
-    #[prost(message, repeated, tag = "9")]
-    pub(super) metadata_props: Vec<StringStringEntryProto>,
 }
 
 #[derive(Clone, PartialEq, Message)]
@@ -84,8 +64,8 @@ pub(super) struct TensorProto {
     pub(super) dims: Vec<i64>,
     #[prost(int32, optional, tag = "2")]
     pub(super) data_type: Option<i32>,
-    #[prost(message, optional, tag = "3")]
-    pub(super) segment: Option<TensorSegment>,
+    #[prost(bytes = "vec", optional, tag = "3")]
+    pub(super) segment: Option<Vec<u8>>,
     #[prost(float, repeated, packed = "true", tag = "4")]
     pub(super) float_data: Vec<f32>,
     #[prost(int32, repeated, packed = "true", tag = "5")]
@@ -102,29 +82,12 @@ pub(super) struct TensorProto {
     pub(super) double_data: Vec<f64>,
     #[prost(uint64, repeated, packed = "true", tag = "11")]
     pub(super) uint64_data: Vec<u64>,
-    #[prost(string, optional, tag = "12")]
-    pub(super) doc_string: Option<String>,
-    #[prost(message, repeated, tag = "13")]
-    pub(super) external_data: Vec<StringStringEntryProto>,
+    #[prost(bytes = "vec", repeated, tag = "13")]
+    pub(super) external_data: Vec<Vec<u8>>,
     #[prost(enumeration = "DataLocation", optional, tag = "14")]
     pub(super) data_location: Option<i32>,
-    #[prost(message, repeated, tag = "16")]
-    pub(super) metadata_props: Vec<StringStringEntryProto>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, prost::Enumeration)]
-#[repr(i32)]
-pub(super) enum DataLocation {
-    Default = 0,
-    External = 1,
-}
-
-#[derive(Clone, PartialEq, Message)]
-pub(super) struct TensorSegment {
-    #[prost(int64, optional, tag = "1")]
-    pub(super) begin: Option<i64>,
-    #[prost(int64, optional, tag = "2")]
-    pub(super) end: Option<i64>,
+    #[prost(int32, optional, tag = "14")]
+    pub(super) data_location: Option<i32>,
 }
 
 #[derive(Clone, PartialEq, Message)]
@@ -133,10 +96,6 @@ pub(super) struct ValueInfoProto {
     pub(super) name: Option<String>,
     #[prost(message, optional, tag = "2")]
     pub(super) r#type: Option<TypeProto>,
-    #[prost(string, optional, tag = "3")]
-    pub(super) doc_string: Option<String>,
-    #[prost(message, repeated, tag = "4")]
-    pub(super) metadata_props: Vec<StringStringEntryProto>,
 }
 
 #[derive(Clone, PartialEq, Message)]
@@ -148,23 +107,21 @@ pub(super) struct TypeProto {
 }
 
 pub(super) mod type_proto {
-    use super::{
-        MapTypeProto, OptionalTypeProto, SequenceTypeProto, SparseTensorTypeProto, TensorTypeProto,
-    };
+    use super::TensorTypeProto;
     use prost::Oneof;
 
     #[derive(Clone, PartialEq, Oneof)]
-    pub(super) enum Value {
+    pub(in crate::onnx) enum Value {
         #[prost(message, tag = "1")]
         TensorType(TensorTypeProto),
-        #[prost(message, tag = "4")]
-        SequenceType(SequenceTypeProto),
-        #[prost(message, tag = "5")]
-        MapType(MapTypeProto),
-        #[prost(message, tag = "8")]
-        SparseTensorType(SparseTensorTypeProto),
-        #[prost(message, tag = "9")]
-        OptionalType(OptionalTypeProto),
+        #[prost(bytes = "vec", tag = "4")]
+        SequenceType(Vec<u8>),
+        #[prost(bytes = "vec", tag = "5")]
+        MapType(Vec<u8>),
+        #[prost(bytes = "vec", tag = "8")]
+        SparseTensorType(Vec<u8>),
+        #[prost(bytes = "vec", tag = "9")]
+        OptionalType(Vec<u8>),
     }
 }
 
@@ -194,40 +151,12 @@ pub(super) mod tensor_shape_dimension {
     use prost::Oneof;
 
     #[derive(Clone, PartialEq, Oneof)]
-    pub(super) enum Value {
+    pub(in crate::onnx) enum Value {
         #[prost(int64, tag = "1")]
         DimValue(i64),
         #[prost(string, tag = "2")]
         DimParam(String),
     }
-}
-
-#[derive(Clone, PartialEq, Message)]
-pub(super) struct SequenceTypeProto {
-    #[prost(message, optional, tag = "1")]
-    pub(super) elem_type: Option<TypeProto>,
-}
-
-#[derive(Clone, PartialEq, Message)]
-pub(super) struct MapTypeProto {
-    #[prost(int32, optional, tag = "1")]
-    pub(super) key_type: Option<i32>,
-    #[prost(message, optional, tag = "2")]
-    pub(super) value_type: Option<TypeProto>,
-}
-
-#[derive(Clone, PartialEq, Message)]
-pub(super) struct OptionalTypeProto {
-    #[prost(message, optional, tag = "1")]
-    pub(super) elem_type: Option<TypeProto>,
-}
-
-#[derive(Clone, PartialEq, Message)]
-pub(super) struct SparseTensorTypeProto {
-    #[prost(int32, optional, tag = "1")]
-    pub(super) elem_type: Option<i32>,
-    #[prost(message, optional, tag = "2")]
-    pub(super) shape: Option<TensorShapeProto>,
 }
 
 #[derive(Clone, PartialEq, Message)]
