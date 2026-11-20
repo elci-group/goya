@@ -26,3 +26,12 @@ Gate `GY-NV-GATE-11` owns the Android TV compiler's static verification step at 
 The phase-2 `orchestrate::execute` entry point continues to evaluate caller-supplied plans under its phase-2 contract. Use the SDK compiler or the CLI above for a source-bound gate result and a Gradle project.
 
 `nevada-conformance.txt` records the static verdict, exact profile, initial focus, source SHA-256, and the per-interaction authored binding, source byte range, and wired remote route. `aragon-source-map.json` ties generated scene bytes to the same admitted source. Runtime conformance is recorded as blocked until execution on Android TV. Signing, real hardware census, and OEM input qualification are release follow-up work.
+
+## Fixture build evidence
+
+On 20 November 2026 the locked toolchain emitted both unsigned release archives for `fixtures/nevada/counter.gscene` with strict dependency verification and Gradle offline. ZIP integrity checks passed for both. APK badging confirmed the Leanback launch activity, required Leanback feature, optional touchscreen, launcher icon, and banner.
+
+| Artifact | SHA-256 |
+| --- | --- |
+| APK | `7fa512bfe6a53f71309b7a4399b933d7f8a3785390bb411c33a7a9fb73311304` |
+| AAB | `796241d645b10860cb981ab43965ac5433ecca0303bee8e6a75559dd2862d241` |
