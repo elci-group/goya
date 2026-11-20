@@ -48,6 +48,8 @@ pub struct WebCell {
     pub text_size_p: Option<f64>,
     /// Text after the reference wrap transform.
     pub text: Option<String>,
+    /// A scroll viewport: its direct children may extend past it.
+    pub scroll: bool,
     pub range: SourceRange,
 }
 
@@ -145,12 +147,8 @@ pub fn admit_local_interactive(
                         ))
                     }
                     "text" => true,
-                    "scroll" => {
-                        return Err(refuse(
-                            "`scroll` is refused until Maja mirrors the reference scroll limits",
-                            Some(entry.range),
-                        ))
-                    }
+                    // Checked per element below.
+                    "scroll" => true,
                     "text_anchor" => {
                         return Err(refuse(
                             "`text-anchor` is refused: the reference renderer ignores it",
@@ -217,6 +215,30 @@ pub fn admit_local_interactive(
             };
             return Err(refuse(what, at(&property(name))));
         }
+        if cell.scroll {
+            if cell.kind != CellKind::Cell {
+                return Err(refuse(
+                    "`scroll` on a button or input (they cannot have children)",
+                    at(&property("scroll")),
+                ));
+            }
+            let mut ancestor = parent;
+            while let Some(a) = ancestor {
+                if out_scroll(&out, a) {
+                    return Err(refuse(
+                        "a scroll viewport inside another scroll viewport (the reference counts nested content in the outer limit; browsers do not)",
+                        at(&property("scroll")),
+                    ));
+                }
+                ancestor = out_parent(&out, a);
+            }
+            if frame.nodes.iter().filter(|n| n.name == cell.name).count() > 1 {
+                return Err(refuse(
+                    "a scroll viewport whose structural name is not unique (the reference keys scroll offsets by name)",
+                    at(&property("scroll")),
+                ));
+            }
+        }
         let text = frame.nodes[index].text.clone();
         if let Some(text) = &text {
             if text.len() > MAX_TEXT_BYTES {
@@ -248,6 +270,7 @@ pub fn admit_local_interactive(
             stroke: cell.stroke.zip(cell.stroke_width_p),
             text_size_p: cell.text_size_p,
             text,
+            scroll: cell.scroll,
             range: at(&element).unwrap_or(whole),
         });
     }
@@ -297,6 +320,14 @@ pub fn admit_local_interactive(
         source: source.to_owned(),
         cells: out,
     })
+}
+
+fn out_scroll(cells: &[WebCell], index: usize) -> bool {
+    cells[index].scroll
+}
+
+fn out_parent(cells: &[WebCell], index: usize) -> Option<usize> {
+    cells[index].parent
 }
 
 fn collect<'a>(
@@ -354,7 +385,18 @@ mod tests {
                 "text: \"5\"",
             ),
             (
-                COUNTER.replace("text: \"Counter\";", "text: \"Counter\"; scroll: true;"),
+                COUNTER.replace("text: \"Add\";", "text: \"Add\"; scroll: true;"),
+                "scroll: true",
+            ),
+            (
+                COUNTER.replace(
+                    "id: \"window.root\";",
+                    "id: \"window.root\"; scroll: true;",
+                )
+                .replace(
+                    "text: \"Counter\";",
+                    "text: \"Counter\"; scroll: true;",
+                ),
                 "scroll: true",
             ),
             (
@@ -392,6 +434,18 @@ mod tests {
                 "expected range {expected:?}, got {text:?}"
             );
         }
+    }
+
+    #[test]
+    fn scroll_viewports_are_admitted_when_unambiguous() {
+        let source = COUNTER.replace("text: \"Counter\";", "text: \"Counter\"; scroll: true;");
+        let ir = admit_local_interactive(&source, INTERACTIVE_PROFILE).unwrap();
+        assert!(ir.cells()[1].scroll);
+        assert!(!ir.cells()[0].scroll);
+        let duplicate = r#"@ontology d { @cell root { id: "r"; @cell a { id: "a1"; scroll: true; } @cell b { id: "b"; @cell a { id: "a2"; } } } }"#;
+        let (code, text) = refused(duplicate);
+        assert_eq!(code, "MAJA-E0200");
+        assert!(text.starts_with("scroll: true"), "{text:?}");
     }
 
     #[test]
