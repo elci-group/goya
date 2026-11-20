@@ -483,8 +483,7 @@ mod tests {
             assert!((2008..=2030).contains(&facts.year));
             assert!(facts.cores_min >= 1 && facts.cores_min <= facts.cores_max);
             assert!(facts.threads_per_core >= 1);
-            let hardware_threads =
-                u64::from(facts.cores_max) * u64::from(facts.threads_per_core);
+            let hardware_threads = u64::from(facts.cores_max) * u64::from(facts.threads_per_core);
             match *name {
                 // Raptor Lake's homogeneous 24 * 2 = 48 upper bound exceeds
                 // the v1 cap, but the part really exposes 32 OS threads
@@ -560,9 +559,7 @@ mod tests {
         assert!(first.canonical_ir.contains("target=intel_desktop\n"));
         assert!(first.canonical_ir.contains("arch=Rocket Lake\n"));
         assert!(first.canonical_ir.contains("worker_threads=8\n"));
-        assert!(first
-            .canonical_ir
-            .contains("total_worker_executions=32\n"));
+        assert!(first.canonical_ir.contains("total_worker_executions=32\n"));
         assert!(first.canonical_ir.contains("isa=avx512\n"));
         assert!(first.canonical_ir.contains("execution=none_attempted\n"));
         assert!(first
