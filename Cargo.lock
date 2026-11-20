@@ -1481,6 +1481,7 @@ version = "0.0.1"
 name = "maja-runtime"
 version = "0.0.1"
 dependencies = [
+ "goya-executable",
  "goya-lang",
 ]
 
