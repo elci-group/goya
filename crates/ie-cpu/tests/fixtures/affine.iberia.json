@@ -1,0 +1,1 @@
+{"version":1,"inputs":[{"shape":[1,2]},{"shape":[2,2],"values":[3.0,4.0,5.0,6.0]},{"shape":[1,2],"values":[1.0,-1.0]}],"nodes":[{"op":"matmul","left":0,"right":1},{"op":"add","left":3,"right":2}]}

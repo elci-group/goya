@@ -1,4 +1,4 @@
-//! Small local-only, bounded executor for registered Iberia graphs.
+//! Small local-only, bounded executor for registered Iberia graphs and packages.
 //!
 //! The runtime deliberately owns scheduling and deadlines locally. It adds no
 //! wire fields or changes to the frozen contract. The defaults cap the model
@@ -69,6 +69,13 @@ impl RegisteredModel {
             Self::Package(package) => package.graph(),
         }
     }
+
+    fn same_kind(&self, other: &Self) -> bool {
+        matches!(
+            (self, other),
+            (Self::Graph(_), Self::Graph(_)) | (Self::Package(_), Self::Package(_))
+        )
+    }
 }
 
 /// Bounded FIFO runtime. Calls to `run_one` execute synchronously on the
@@ -94,35 +101,29 @@ impl Runtime {
     }
 
     pub fn register(&mut self, graph: Graph) -> Result<[u8; 32], TypedError> {
-        let digest = graph.digest();
-        if let Some(known) = self.models.iter().find(|model| model.digest() == digest) {
-            return match known {
-                RegisteredModel::Graph(_) => Ok(digest),
-                RegisteredModel::Package(_) => Err(kind_collision()),
-            };
-        }
-        if self.models.len() >= self.limits.max_models {
-            return Err(exhausted("model registry full"));
-        }
-        self.models.push(RegisteredModel::Graph(graph));
-        Ok(digest)
+        self.register_model(RegisteredModel::Graph(graph))
     }
 
     /// Register an immutable package whose digest covers its graph and pinned
     /// inputs. Same-kind registration is idempotent; cross-kind digest reuse
     /// is rejected explicitly.
     pub fn register_package(&mut self, package: ModelPackage) -> Result<[u8; 32], TypedError> {
-        let digest = package.digest();
-        if let Some(known) = self.models.iter().find(|model| model.digest() == digest) {
-            return match known {
-                RegisteredModel::Package(_) => Ok(digest),
-                RegisteredModel::Graph(_) => Err(kind_collision()),
+        self.register_model(RegisteredModel::Package(package))
+    }
+
+    fn register_model(&mut self, model: RegisteredModel) -> Result<[u8; 32], TypedError> {
+        let digest = model.digest();
+        if let Some(known) = self.models.iter().find(|known| known.digest() == digest) {
+            return if known.same_kind(&model) {
+                Ok(digest)
+            } else {
+                Err(kind_collision())
             };
         }
         if self.models.len() >= self.limits.max_models {
             return Err(exhausted("model registry full"));
         }
-        self.models.push(RegisteredModel::Package(package));
+        self.models.push(model);
         Ok(digest)
     }
 
@@ -159,13 +160,6 @@ impl Runtime {
         if timeout.is_zero() {
             return Err(TypedError::DeadlineExceeded);
         }
-        let inputs = match model {
-            RegisteredModel::Graph(graph) => {
-                graph.validate_inputs(&inputs)?;
-                inputs
-            }
-            RegisteredModel::Package(package) => package.bind_inputs(inputs)?,
-        };
         let submitted_at = Instant::now();
         let deadline = submitted_at
             .checked_add(timeout)
@@ -173,6 +167,13 @@ impl Runtime {
         let id = self
             .next_id
             .ok_or_else(|| exhausted("request id space exhausted"))?;
+        let inputs = match model {
+            RegisteredModel::Graph(graph) => {
+                graph.validate_inputs(&inputs)?;
+                inputs
+            }
+            RegisteredModel::Package(package) => package.bind_inputs(inputs)?,
+        };
         self.next_id = id.checked_add(1);
         self.pending.push_back(Job {
             id,
@@ -354,6 +355,22 @@ mod tests {
             Duration::from_secs(1),
         );
         assert!(matches!(result, Err(TypedError::InvalidTensor { .. })));
+        assert!(runtime.pending.is_empty());
+    }
+
+    #[test]
+    fn package_payload_budget_counts_pinned_inputs_before_binding() {
+        let mut runtime = Runtime::new(Limits {
+            max_payload_bytes_per_job: 23,
+            ..Limits::default()
+        });
+        let digest = runtime.register_package(fixed_input_package()).unwrap();
+        let result = runtime.submit(
+            digest,
+            vec![GoldenFixture::tensor(&[1.0, 2.0], &[2])],
+            Duration::from_secs(1),
+        );
+        assert!(matches!(result, Err(TypedError::ResourceExhausted { .. })));
         assert!(runtime.pending.is_empty());
     }
 
