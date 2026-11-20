@@ -491,14 +491,14 @@ mod tests {
         );
         // Inventory-only models ignore dispatch bounds entirely.
         let watch_entry = find_model_contract(apple_watch_series_9::CONTRACT).unwrap();
-        assert!(!AcceleratorDeclaration {
+        assert!(AcceleratorDeclaration {
             model: apple_watch_series_9::MODEL.to_owned(),
             threads_per_group: 0,
             groups: 0,
             max_buffer_bytes: 0,
         }
         .normalize(watch_entry)
-        .is_err());
+        .is_ok());
     }
 
     #[test]
