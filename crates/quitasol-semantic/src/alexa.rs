@@ -384,3 +384,5 @@ const TRANSPORT_SCENE: &str = r#"@ontology app {
         assert!(json.contains("\"child_directed\":false"));
     }
 
+}
+}
