@@ -637,6 +637,10 @@ pub const fn supported_contracts() -> &'static [&'static str] {
         crate::bluetooth_guard_caprichio::CONTRACT,
         crate::bluetooth_profile_caprichio::CONTRACT,
         crate::bluetooth_stream_caprichio::CONTRACT,
+        crate::amd_apu_caprichio::CONTRACT,
+        crate::amd_desktop_caprichio::CONTRACT,
+        crate::amd_epyc_caprichio::CONTRACT,
+        crate::amd_threadripper_caprichio::CONTRACT,
         crate::metal_caprichio::CONTRACT,
         crate::nvidia_accelerator_caprichio::CONTRACT,
         crate::exynos_accelerator_caprichio::CONTRACT,
@@ -1456,6 +1460,62 @@ pub fn negotiate(
                         .map_err(NegotiationError::ExynosAccelerator)?,
                 )
             }
+            crate::amd_desktop_caprichio::CONTRACT => {
+                let declaration = request.amd_desktop.clone().ok_or(
+                    NegotiationError::MissingDeclaration {
+                        capability: crate::amd_desktop_caprichio::CONTRACT,
+                    },
+                )?;
+                let ir = declaration
+                    .normalize()
+                    .map_err(NegotiationError::AmdDesktop)?;
+                Artifact::AmdDesktop(
+                    ir.lower_checked(host.amd_desktop_target, host.amd_desktop_host)
+                        .map_err(NegotiationError::AmdDesktop)?,
+                )
+            }
+            crate::amd_apu_caprichio::CONTRACT => {
+                let declaration =
+                    request
+                        .amd_apu
+                        .clone()
+                        .ok_or(NegotiationError::MissingDeclaration {
+                            capability: crate::amd_apu_caprichio::CONTRACT,
+                        })?;
+                let ir = declaration.normalize().map_err(NegotiationError::AmdApu)?;
+                Artifact::AmdApu(
+                    ir.lower_checked(host.amd_apu_target, host.amd_apu_host)
+                        .map_err(NegotiationError::AmdApu)?,
+                )
+            }
+            crate::amd_threadripper_caprichio::CONTRACT => {
+                let declaration = request.amd_threadripper.clone().ok_or(
+                    NegotiationError::MissingDeclaration {
+                        capability: crate::amd_threadripper_caprichio::CONTRACT,
+                    },
+                )?;
+                let ir = declaration
+                    .normalize()
+                    .map_err(NegotiationError::AmdThreadripper)?;
+                Artifact::AmdThreadripper(
+                    ir.lower_checked(host.amd_threadripper_target, host.amd_threadripper_host)
+                        .map_err(NegotiationError::AmdThreadripper)?,
+                )
+            }
+            crate::amd_epyc_caprichio::CONTRACT => {
+                let declaration =
+                    request
+                        .amd_epyc
+                        .clone()
+                        .ok_or(NegotiationError::MissingDeclaration {
+                            capability: crate::amd_epyc_caprichio::CONTRACT,
+                        })?;
+                let ir = declaration.normalize().map_err(NegotiationError::AmdEpyc)?;
+                Artifact::AmdEpyc(
+                    ir.lower_checked(host.amd_epyc_target, host.amd_epyc_host)
+                        .map_err(NegotiationError::AmdEpyc)?,
+                )
+            }
             crate::metal_caprichio::CONTRACT => {
                 let declaration =
                     request
@@ -1701,6 +1761,10 @@ pub fn negotiate(
             Artifact::NvidiaCuda(_) => crate::nvidia_accelerator_caprichio::CONTRACT,
             Artifact::SnapdragonAccelerator(_) => crate::snapdragon_accelerator_caprichio::CONTRACT,
             Artifact::ExynosAccelerator(_) => crate::exynos_accelerator_caprichio::CONTRACT,
+            Artifact::AmdDesktop(_) => crate::amd_desktop_caprichio::CONTRACT,
+            Artifact::AmdApu(_) => crate::amd_apu_caprichio::CONTRACT,
+            Artifact::AmdThreadripper(_) => crate::amd_threadripper_caprichio::CONTRACT,
+            Artifact::AmdEpyc(_) => crate::amd_epyc_caprichio::CONTRACT,
             Artifact::AcceleratorModel(ref a) => a.contract,
         };
         result.push(NegotiatedCapability { id, artifact });
@@ -1892,6 +1956,39 @@ mod tests {
                 npu_dsp: true,
                 neural_delegate: true,
                 int8_model: true,
+                utf8_strings: true,
+            },
+            amd_desktop_target: AmdDesktopTarget::AmdDesktop,
+            amd_desktop_host: AmdDesktopHost {
+                x86_64_runtime: true,
+                avx: true,
+                avx2: true,
+                avx512: true,
+                utf8_strings: true,
+            },
+            amd_apu_target: AmdApuTarget::AmdApu,
+            amd_apu_host: AmdApuHost {
+                x86_64_runtime: true,
+                avx: true,
+                avx2: true,
+                avx512: true,
+                igpu_present: true,
+                utf8_strings: true,
+            },
+            amd_threadripper_target: AmdThreadripperTarget::AmdThreadripper,
+            amd_threadripper_host: AmdThreadripperHost {
+                x86_64_runtime: true,
+                avx: true,
+                avx2: true,
+                avx512: true,
+                utf8_strings: true,
+            },
+            amd_epyc_target: AmdEpycTarget::AmdEpyc,
+            amd_epyc_host: AmdEpycHost {
+                x86_64_runtime: true,
+                avx: true,
+                avx2: true,
+                avx512: true,
                 utf8_strings: true,
             },
             accelerator_model_target: AcceleratorModelTarget::Device,
@@ -3634,6 +3731,10 @@ mod tests {
                 "goya.hardware.bluetooth.guard.v1",
                 "goya.hardware.bluetooth.profile.v1",
                 "goya.hardware.bluetooth.stream.v1",
+                "goya.hardware.cpu_compute.amd_apu.v1",
+                "goya.hardware.cpu_compute.amd_desktop.v1",
+                "goya.hardware.cpu_compute.amd_epyc.v1",
+                "goya.hardware.cpu_compute.amd_threadripper.v1",
                 "goya.hardware.gpu_compute.apple_silicon_metal.v1",
                 "goya.hardware.gpu_compute.nvidia_cuda.v1",
                 "goya.hardware.neural_accel.exynos.v1",
