@@ -132,6 +132,10 @@ class Firefox:
     def __init__(self, profile):
         self.errors = []
         self.sequence = 0
+        # Headless windows never gain OS focus; Gecko's own test harnesses
+        # set this so focus, and keyboard activation that depends on it,
+        # behave as in a focused window.
+        (Path(profile) / "user.js").write_text('user_pref("focusmanager.testmode", true);\n')
         self.log = open(Path(profile) / "stderr.log", "w+")
         self.process = subprocess.Popen([
             os.environ.get("MAJA_FIREFOX", "firefox"), "--headless", "--no-remote",
