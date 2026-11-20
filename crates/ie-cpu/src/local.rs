@@ -6,6 +6,7 @@
 //! per-job tensor memory at 8 MiB, and scalar work at 16 Mi operations.
 
 use crate::graph::Graph;
+use crate::package::ModelPackage;
 use ie_contract::errors::TypedError;
 use ie_contract::tensors::TensorData;
 use std::collections::VecDeque;
@@ -43,10 +44,31 @@ pub struct Completion {
 
 struct Job {
     id: u64,
-    graph_index: usize,
+    model_index: usize,
     inputs: Vec<TensorData>,
     submitted_at: Instant,
     deadline: Instant,
+}
+
+enum RegisteredModel {
+    Graph(Graph),
+    Package(ModelPackage),
+}
+
+impl RegisteredModel {
+    fn digest(&self) -> [u8; 32] {
+        match self {
+            Self::Graph(graph) => graph.digest(),
+            Self::Package(package) => package.digest(),
+        }
+    }
+
+    fn graph(&self) -> &Graph {
+        match self {
+            Self::Graph(graph) => graph,
+            Self::Package(package) => package.graph(),
+        }
+    }
 }
 
 /// Bounded FIFO runtime. Calls to `run_one` execute synchronously on the
@@ -54,7 +76,7 @@ struct Job {
 /// terminal outcome, while an executing graph checks its deadline checkpoints.
 pub struct Runtime {
     limits: Limits,
-    models: Vec<([u8; 32], Graph)>,
+    models: Vec<RegisteredModel>,
     pending: VecDeque<Job>,
     completed: VecDeque<(u64, Completion)>,
     next_id: Option<u64>,
@@ -73,13 +95,34 @@ impl Runtime {
 
     pub fn register(&mut self, graph: Graph) -> Result<[u8; 32], TypedError> {
         let digest = graph.digest();
-        if self.models.iter().any(|(known, _)| *known == digest) {
-            return Ok(digest);
+        if let Some(known) = self.models.iter().find(|model| model.digest() == digest) {
+            return match known {
+                RegisteredModel::Graph(_) => Ok(digest),
+                RegisteredModel::Package(_) => Err(kind_collision()),
+            };
         }
         if self.models.len() >= self.limits.max_models {
             return Err(exhausted("model registry full"));
         }
-        self.models.push((digest, graph));
+        self.models.push(RegisteredModel::Graph(graph));
+        Ok(digest)
+    }
+
+    /// Register an immutable package whose digest covers its graph and pinned
+    /// inputs. Same-kind registration is idempotent; cross-kind digest reuse
+    /// is rejected explicitly.
+    pub fn register_package(&mut self, package: ModelPackage) -> Result<[u8; 32], TypedError> {
+        let digest = package.digest();
+        if let Some(known) = self.models.iter().find(|model| model.digest() == digest) {
+            return match known {
+                RegisteredModel::Package(_) => Ok(digest),
+                RegisteredModel::Graph(_) => Err(kind_collision()),
+            };
+        }
+        if self.models.len() >= self.limits.max_models {
+            return Err(exhausted("model registry full"));
+        }
+        self.models.push(RegisteredModel::Package(package));
         Ok(digest)
     }
 
@@ -89,16 +132,22 @@ impl Runtime {
         inputs: Vec<TensorData>,
         timeout: Duration,
     ) -> Result<u64, TypedError> {
-        let Some(graph_index) = self.models.iter().position(|(known, _)| *known == digest) else {
+        let Some(model_index) = self
+            .models
+            .iter()
+            .position(|model| model.digest() == digest)
+        else {
             return Err(TypedError::ModelMissing {
                 digest: hex(&digest),
             });
         };
-        let graph = &self.models[graph_index].1;
+        let model = &self.models[model_index];
+        let graph = model.graph();
         if self.pending.len() >= self.limits.max_pending {
             return Err(exhausted("pending queue full"));
         }
-        graph.validate_inputs(&inputs)?;
+        // These estimates include every graph input and intermediate output.
+        // Check them before package binding copies any pinned tensors.
         let payload = graph.payload_bytes();
         if payload > self.limits.max_payload_bytes_per_job {
             return Err(exhausted("job payload limit exceeded"));
@@ -110,6 +159,13 @@ impl Runtime {
         if timeout.is_zero() {
             return Err(TypedError::DeadlineExceeded);
         }
+        let inputs = match model {
+            RegisteredModel::Graph(graph) => {
+                graph.validate_inputs(&inputs)?;
+                inputs
+            }
+            RegisteredModel::Package(package) => package.bind_inputs(inputs)?,
+        };
         let submitted_at = Instant::now();
         let deadline = submitted_at
             .checked_add(timeout)
@@ -120,7 +176,7 @@ impl Runtime {
         self.next_id = id.checked_add(1);
         self.pending.push_back(Job {
             id,
-            graph_index,
+            model_index,
             inputs,
             submitted_at,
             deadline,
@@ -137,8 +193,8 @@ impl Runtime {
         let result = if Instant::now() >= job.deadline {
             Err(TypedError::DeadlineExceeded)
         } else {
-            match self.models.get(job.graph_index) {
-                Some((_, graph)) => graph.execute(job.inputs, || {
+            match self.models.get(job.model_index) {
+                Some(model) => model.graph().execute(job.inputs, || {
                     if Instant::now() >= job.deadline {
                         Err(TypedError::DeadlineExceeded)
                     } else {
@@ -210,6 +266,12 @@ fn exhausted(reason: &str) -> TypedError {
     }
 }
 
+fn kind_collision() -> TypedError {
+    TypedError::InvalidTensor {
+        reason: "model digest is already registered for a different model kind".into(),
+    }
+}
+
 fn hex(digest: &[u8; 32]) -> String {
     digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
@@ -219,6 +281,7 @@ mod tests {
     use super::*;
     use crate::graph::Node;
     use ie_contract::fixture::{GoldenFixture, GoldenOp};
+    use sha2::{Digest, Sha256};
 
     fn graph() -> Graph {
         Graph::compile(
@@ -245,6 +308,53 @@ mod tests {
             max_retained: 2,
             ..Limits::default()
         }
+    }
+
+    fn fixed_input_package() -> ModelPackage {
+        let bytes = br#"{"version":1,"inputs":[{"shape":[2]},{"shape":[2],"values":[3.0,4.0]}],"nodes":[{"op":"add","left":0,"right":1}]}"#;
+        let digest: [u8; 32] = Sha256::digest(bytes).into();
+        ModelPackage::load(&bytes[..], digest).unwrap()
+    }
+
+    #[test]
+    fn package_registration_runs_dynamic_input_with_pinned_weight() {
+        let mut runtime = Runtime::new(limits());
+        let package = fixed_input_package();
+        let expected_digest = package.digest();
+        assert_eq!(runtime.register_package(package), Ok(expected_digest));
+
+        let id = runtime
+            .submit(
+                expected_digest,
+                vec![GoldenFixture::tensor(&[1.0, 2.0], &[2])],
+                Duration::from_secs(1),
+            )
+            .unwrap();
+        assert_eq!(runtime.run_one(), Some(id));
+        let completion = runtime.poll(id).unwrap().unwrap();
+        let output = completion.result.unwrap();
+        let got: Vec<f32> = output
+            .data
+            .chunks_exact(4)
+            .map(|bytes| f32::from_le_bytes(bytes.try_into().unwrap()))
+            .collect();
+        assert_eq!(got, vec![4.0, 6.0]);
+    }
+
+    #[test]
+    fn package_submission_rejects_attempt_to_override_fixed_input() {
+        let mut runtime = Runtime::new(limits());
+        let digest = runtime.register_package(fixed_input_package()).unwrap();
+        let result = runtime.submit(
+            digest,
+            vec![
+                GoldenFixture::tensor(&[1.0, 2.0], &[2]),
+                GoldenFixture::tensor(&[90.0, 90.0], &[2]),
+            ],
+            Duration::from_secs(1),
+        );
+        assert!(matches!(result, Err(TypedError::InvalidTensor { .. })));
+        assert!(runtime.pending.is_empty());
     }
 
     #[test]
