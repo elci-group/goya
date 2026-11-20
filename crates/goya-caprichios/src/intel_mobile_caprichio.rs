@@ -80,54 +80,61 @@ pub struct MobileCpuFacts {
 pub const GENERATIONS: &[(&str, MobileCpuFacts)] = &[
     // Mainstream dual-core lineup; graphics were chipset-based (GM45
     // GMA X4500), so there is no on-package GPU and no family-level EU
-    // figure. The quad-core Core 2 Extreme QX9300 sits outside this row.
-    ("Penryn (mobile)",       MobileCpuFacts { arch: "Penryn",                package: "Socket P/PGA478",              igpu_arch: "GMA X4500",                 eu_min: None,     eu_max: None,     cores_min: 2,  cores_max: 2,  threads_per_core: 1, thread_tech: "none", avx: false, avx2: false, avx512: false, process: "45nm",                     year: 2008 }),
+    // figure. The family spans the dual-core parts through the
+    // quad-core Core 2 Extreme QX9300 (Aug 2008, 4C/4T), so cores_max
+    // and threads_max document four.
+    ("Penryn (mobile)",       MobileCpuFacts { arch: "Penryn",                package: "Socket P/PGA478",              igpu_arch: "GMA X4500",                 eu_min: None,     eu_max: None,     cores_min: 2,  cores_max: 4,  threads_per_core: 1, threads_max: 4,  thread_tech: "none", avx: false, avx2: false, avx512: false, process: "45nm",                     year: 2008 }),
     // First mobile quad-core Core i7 (Extreme) family; discrete-graphics
     // platform with no on-package GPU.
-    ("Clarksfield",           MobileCpuFacts { arch: "Nehalem",               package: "Socket G1 (rPGA988A)",         igpu_arch: "none",                      eu_min: None,     eu_max: None,     cores_min: 4,  cores_max: 4,  threads_per_core: 2, thread_tech: "SMT",  avx: false, avx2: false, avx512: false, process: "45nm",                     year: 2009 }),
+    ("Clarksfield",           MobileCpuFacts { arch: "Nehalem",               package: "Socket G1 (rPGA988A)",         igpu_arch: "none",                      eu_min: None,     eu_max: None,     cores_min: 4,  cores_max: 4,  threads_per_core: 2, threads_max: 8,  thread_tech: "SMT",  avx: false, avx2: false, avx512: false, process: "45nm",                     year: 2009 }),
     // First mobile family with an on-package graphics die.
-    ("Arrandale",             MobileCpuFacts { arch: "Westmere",              package: "Socket G1 (rPGA988A)/BGA1288", igpu_arch: "HD Graphics",               eu_min: None,     eu_max: None,     cores_min: 2,  cores_max: 2,  threads_per_core: 2, thread_tech: "SMT",  avx: false, avx2: false, avx512: false, process: "32nm/45nm",                year: 2010 }),
-    ("Sandy Bridge (mobile)", MobileCpuFacts { arch: "Sandy Bridge",          package: "Socket G2 (rPGA988B)/BGA1023", igpu_arch: "HD Graphics 3000",          eu_min: None,     eu_max: None,     cores_min: 2,  cores_max: 4,  threads_per_core: 2, thread_tech: "SMT",  avx: true,  avx2: false, avx512: false, process: "32nm",                     year: 2011 }),
-    ("Ivy Bridge (mobile)",   MobileCpuFacts { arch: "Ivy Bridge",            package: "Socket G2 (rPGA988B)/BGA1023", igpu_arch: "HD Graphics 4000",          eu_min: None,     eu_max: None,     cores_min: 2,  cores_max: 4,  threads_per_core: 2, thread_tech: "SMT",  avx: true,  avx2: false, avx512: false, process: "22nm",                     year: 2012 }),
+    ("Arrandale",             MobileCpuFacts { arch: "Westmere",              package: "Socket G1 (rPGA988A)/BGA1288", igpu_arch: "HD Graphics",               eu_min: None,     eu_max: None,     cores_min: 2,  cores_max: 2,  threads_per_core: 2, threads_max: 4,  thread_tech: "SMT",  avx: false, avx2: false, avx512: false, process: "32nm/45nm",                year: 2010 }),
+    ("Sandy Bridge (mobile)", MobileCpuFacts { arch: "Sandy Bridge",          package: "Socket G2 (rPGA988B)/BGA1023", igpu_arch: "HD Graphics 3000",          eu_min: None,     eu_max: None,     cores_min: 2,  cores_max: 4,  threads_per_core: 2, threads_max: 8,  thread_tech: "SMT",  avx: true,  avx2: false, avx512: false, process: "32nm",                     year: 2011 }),
+    ("Ivy Bridge (mobile)",   MobileCpuFacts { arch: "Ivy Bridge",            package: "Socket G2 (rPGA988B)/BGA1023", igpu_arch: "HD Graphics 4000",          eu_min: None,     eu_max: None,     cores_min: 2,  cores_max: 4,  threads_per_core: 2, threads_max: 8,  thread_tech: "SMT",  avx: true,  avx2: false, avx512: false, process: "22nm",                     year: 2012 }),
     // First mobile AVX2 family; Iris Pro 5200 (GT3e with eDRAM) optional.
-    ("Haswell (mobile)",      MobileCpuFacts { arch: "Haswell",               package: "Socket G3 (rPGA947)/BGA1364",  igpu_arch: "HD Graphics/Iris Pro 5200", eu_min: None,     eu_max: None,     cores_min: 2,  cores_max: 4,  threads_per_core: 2, thread_tech: "SMT",  avx: true,  avx2: true,  avx512: false, process: "22nm",                     year: 2013 }),
+    ("Haswell (mobile)",      MobileCpuFacts { arch: "Haswell",               package: "Socket G3 (rPGA947)/BGA1364",  igpu_arch: "HD Graphics/Iris Pro 5200", eu_min: None,     eu_max: None,     cores_min: 2,  cores_max: 4,  threads_per_core: 2, threads_max: 8,  thread_tech: "SMT",  avx: true,  avx2: true,  avx512: false, process: "22nm",                     year: 2013 }),
     // Core M shipped late 2014; the U-series (Iris 6100) January 2015.
-    ("Broadwell-U",           MobileCpuFacts { arch: "Broadwell",             package: "BGA1168",                      igpu_arch: "HD Graphics/Iris 6100",     eu_min: None,     eu_max: None,     cores_min: 2,  cores_max: 2,  threads_per_core: 2, thread_tech: "SMT",  avx: true,  avx2: true,  avx512: false, process: "14nm",                     year: 2014 }),
-    ("Skylake (mobile)",      MobileCpuFacts { arch: "Skylake",               package: "BGA1440/BGA1356",              igpu_arch: "HD Graphics 520/530",       eu_min: None,     eu_max: None,     cores_min: 2,  cores_max: 4,  threads_per_core: 2, thread_tech: "SMT",  avx: true,  avx2: true,  avx512: false, process: "14nm",                     year: 2015 }),
+    ("Broadwell-U",           MobileCpuFacts { arch: "Broadwell",             package: "BGA1168",                      igpu_arch: "HD Graphics/Iris 6100",     eu_min: None,     eu_max: None,     cores_min: 2,  cores_max: 2,  threads_per_core: 2, threads_max: 4,  thread_tech: "SMT",  avx: true,  avx2: true,  avx512: false, process: "14nm",                     year: 2014 }),
+    ("Skylake (mobile)",      MobileCpuFacts { arch: "Skylake",               package: "BGA1440/BGA1356",              igpu_arch: "HD Graphics 520/530",       eu_min: None,     eu_max: None,     cores_min: 2,  cores_max: 4,  threads_per_core: 2, threads_max: 8,  thread_tech: "SMT",  avx: true,  avx2: true,  avx512: false, process: "14nm",                     year: 2015 }),
     // U/Y-series shipped August 2016; the H-series January 2017. Skylake-
     // derived core on the 14nm+ refinement.
-    ("Kaby Lake (mobile)",    MobileCpuFacts { arch: "Skylake",               package: "BGA1440/BGA1356",              igpu_arch: "HD Graphics 620/630",       eu_min: None,     eu_max: None,     cores_min: 2,  cores_max: 4,  threads_per_core: 2, thread_tech: "SMT",  avx: true,  avx2: true,  avx512: false, process: "14nm+",                    year: 2016 }),
-    ("Whiskey Lake",          MobileCpuFacts { arch: "Skylake",               package: "BGA1528",                      igpu_arch: "UHD Graphics 620",          eu_min: None,     eu_max: None,     cores_min: 2,  cores_max: 4,  threads_per_core: 2, thread_tech: "SMT",  avx: true,  avx2: true,  avx512: false, process: "14nm+",                    year: 2018 }),
+    ("Kaby Lake (mobile)",    MobileCpuFacts { arch: "Skylake",               package: "BGA1440/BGA1356",              igpu_arch: "HD Graphics 620/630",       eu_min: None,     eu_max: None,     cores_min: 2,  cores_max: 4,  threads_per_core: 2, threads_max: 8,  thread_tech: "SMT",  avx: true,  avx2: true,  avx512: false, process: "14nm+",                    year: 2016 }),
+    ("Whiskey Lake",          MobileCpuFacts { arch: "Skylake",               package: "BGA1528",                      igpu_arch: "UHD Graphics 620",          eu_min: None,     eu_max: None,     cores_min: 2,  cores_max: 4,  threads_per_core: 2, threads_max: 8,  thread_tech: "SMT",  avx: true,  avx2: true,  avx512: false, process: "14nm+",                    year: 2018 }),
     // The 8-core ceiling comes from the 2019 9th-gen H refresh
     // (Core i9-9980HK) on the same package and family core.
-    ("Coffee Lake-H",         MobileCpuFacts { arch: "Skylake",               package: "BGA1440",                      igpu_arch: "UHD Graphics 630",          eu_min: None,     eu_max: None,     cores_min: 4,  cores_max: 8,  threads_per_core: 2, thread_tech: "SMT",  avx: true,  avx2: true,  avx512: false, process: "14nm++",                   year: 2018 }),
+    ("Coffee Lake-H",         MobileCpuFacts { arch: "Skylake",               package: "BGA1440",                      igpu_arch: "UHD Graphics 630",          eu_min: None,     eu_max: None,     cores_min: 4,  cores_max: 8,  threads_per_core: 2, threads_max: 16, thread_tech: "SMT",  avx: true,  avx2: true,  avx512: false, process: "14nm++",                   year: 2018 }),
     // First 10nm client family and the first mobile family to ship
     // AVX-512 enabled. Intel published the Gen11 EU range: 32 (G1)
     // through 64 (G7).
-    ("Ice Lake",              MobileCpuFacts { arch: "Sunny Cove",            package: "BGA1526",                      igpu_arch: "Iris Plus G4/G7",           eu_min: Some(32), eu_max: Some(64), cores_min: 2,  cores_max: 4,  threads_per_core: 2, thread_tech: "SMT",  avx: true,  avx2: true,  avx512: true,  process: "10nm",                     year: 2019 }),
+    ("Ice Lake",              MobileCpuFacts { arch: "Sunny Cove",            package: "BGA1526",                      igpu_arch: "Iris Plus G4/G7",           eu_min: Some(32), eu_max: Some(64), cores_min: 2,  cores_max: 4,  threads_per_core: 2, threads_max: 8,  thread_tech: "SMT",  avx: true,  avx2: true,  avx512: true,  process: "10nm",                     year: 2019 }),
     // U-series shipped August 2019; the 8-core H-series April 2020.
     // Skylake-derived core on the 14nm++ refinement.
-    ("Comet Lake (mobile)",   MobileCpuFacts { arch: "Skylake",               package: "BGA1440/BGA1528",              igpu_arch: "UHD Graphics",              eu_min: None,     eu_max: None,     cores_min: 2,  cores_max: 8,  threads_per_core: 2, thread_tech: "SMT",  avx: true,  avx2: true,  avx512: false, process: "14nm++",                   year: 2019 }),
+    ("Comet Lake (mobile)",   MobileCpuFacts { arch: "Skylake",               package: "BGA1440/BGA1528",              igpu_arch: "UHD Graphics",              eu_min: None,     eu_max: None,     cores_min: 2,  cores_max: 8,  threads_per_core: 2, threads_max: 16, thread_tech: "SMT",  avx: true,  avx2: true,  avx512: false, process: "14nm++",                   year: 2019 }),
     // AVX-512 shipped enabled (Willow Cove). Intel published the Xe-LP
     // EU range: 80 (G4) through 96 (G7).
-    ("Tiger Lake",            MobileCpuFacts { arch: "Willow Cove",           package: "BGA1782",                      igpu_arch: "Iris Xe",                   eu_min: Some(80), eu_max: Some(96), cores_min: 2,  cores_max: 4,  threads_per_core: 2, thread_tech: "SMT",  avx: true,  avx2: true,  avx512: true,  process: "10nm SuperFin",            year: 2020 }),
+    ("Tiger Lake",            MobileCpuFacts { arch: "Willow Cove",           package: "BGA1782",                      igpu_arch: "Iris Xe",                   eu_min: Some(80), eu_max: Some(96), cores_min: 2,  cores_max: 4,  threads_per_core: 2, threads_max: 8,  thread_tech: "SMT",  avx: true,  avx2: true,  avx512: true,  process: "10nm SuperFin",            year: 2020 }),
     // Hybrid P/E parts. AVX-512 was fused off in production silicon
     // (early-2022 and later); only early-engineering parts exposed it.
-    ("Alder Lake (mobile)",   MobileCpuFacts { arch: "Golden Cove/Gracemont", package: "BGA1744",                      igpu_arch: "Iris Xe/UHD Graphics",      eu_min: None,     eu_max: None,     cores_min: 6,  cores_max: 16, threads_per_core: 2, thread_tech: "SMT",  avx: true,  avx2: true,  avx512: false, process: "Intel 7",                  year: 2022 }),
-    // Up to 24C HX (8P+16E, 32 OS threads); AVX-512 stays disabled.
-    ("Raptor Lake (mobile)",  MobileCpuFacts { arch: "Raptor Cove/Gracemont", package: "BGA1744",                      igpu_arch: "Iris Xe/UHD Graphics",      eu_min: None,     eu_max: None,     cores_min: 6,  cores_max: 24, threads_per_core: 2, thread_tech: "SMT",  avx: true,  avx2: true,  avx512: false, process: "Intel 7",                  year: 2023 }),
+    // The 16-core flagship (8P+8E) documents 24 OS-visible threads:
+    // Hyper-Threading exists on P-cores only.
+    ("Alder Lake (mobile)",   MobileCpuFacts { arch: "Golden Cove/Gracemont", package: "BGA1744",                      igpu_arch: "Iris Xe/UHD Graphics",      eu_min: None,     eu_max: None,     cores_min: 6,  cores_max: 16, threads_per_core: 2, threads_max: 24, thread_tech: "SMT",  avx: true,  avx2: true,  avx512: false, process: "Intel 7",                  year: 2022 }),
+    // Up to 24C HX (8P+16E, 32 OS threads); AVX-512 stays disabled. The
+    // homogeneous 24 * 2 = 48 product is only an upper bound: the
+    // documented total (threads_max) is 32.
+    ("Raptor Lake (mobile)",  MobileCpuFacts { arch: "Raptor Cove/Gracemont", package: "BGA1744",                      igpu_arch: "Iris Xe/UHD Graphics",      eu_min: None,     eu_max: None,     cores_min: 6,  cores_max: 24, threads_per_core: 2, threads_max: 32, thread_tech: "SMT",  avx: true,  avx2: true,  avx512: false, process: "Intel 7",                  year: 2023 }),
     // Core Ultra 100 hybrid with LP-E pairs on the SoC die. Launch SKUs
     // published 4-8 Arc Xe-LPG cores (64-128 EU at 16 EU per core);
-    // AVX-512 (Redwood Cove-capable) is disabled in production.
-    ("Meteor Lake (Core Ultra 100)", MobileCpuFacts { arch: "Redwood Cove/Crestmont", package: "FCBGA2049",         igpu_arch: "Arc (Xe LPG)",              eu_min: Some(64), eu_max: Some(128), cores_min: 12, cores_max: 16, threads_per_core: 2, thread_tech: "SMT", avx: true,  avx2: true,  avx512: false, process: "Intel 4",                  year: 2023 }),
+    // AVX-512 (Redwood Cove-capable) is disabled in production. The 16-
+    // core flagship (6P+8E+2LP-E) documents 22 OS-visible threads.
+    ("Meteor Lake (Core Ultra 100)", MobileCpuFacts { arch: "Redwood Cove/Crestmont", package: "FCBGA2049",         igpu_arch: "Arc (Xe LPG)",              eu_min: Some(64), eu_max: Some(128), cores_min: 12, cores_max: 16, threads_per_core: 2, threads_max: 22, thread_tech: "SMT", avx: true,  avx2: true,  avx512: false, process: "Intel 4",                  year: 2023 }),
     // 4P + 4 LP-E: Core Ultra (Series 2) ships without Hyper-Threading
     // (cores equal threads), and Lion Cove's AVX-512 is disabled in this
     // generation. Arc 130V/140V are 7/8 Xe2 cores (56/64 EU).
-    ("Lunar Lake (Core Ultra 200V)", MobileCpuFacts { arch: "Lion Cove/Skymont", package: "FCBGA2833",                 igpu_arch: "Arc 130V/140V (Xe2)",       eu_min: Some(56), eu_max: Some(64), cores_min: 8,  cores_max: 8,  threads_per_core: 1, thread_tech: "none", avx: true,  avx2: true,  avx512: false, process: "TSMC N4B (compute tile)",  year: 2024 }),
+    ("Lunar Lake (Core Ultra 200V)", MobileCpuFacts { arch: "Lion Cove/Skymont", package: "FCBGA2833",                 igpu_arch: "Arc 130V/140V (Xe2)",       eu_min: Some(56), eu_max: Some(64), cores_min: 8,  cores_max: 8,  threads_per_core: 1, threads_max: 8,  thread_tech: "none", avx: true,  avx2: true,  avx512: false, process: "TSMC N4B (compute tile)",  year: 2024 }),
     // H (FCBGA2049, Arc 140T with 8 Xe cores) and HX (FCBGA2114, 4-Xe-
     // core Arc) ship without Hyper-Threading (24C HX is 24 threads);
     // AVX-512 stays disabled.
-    ("Arrow Lake-H/HX (Core Ultra 200H/HX)", MobileCpuFacts { arch: "Lion Cove/Skymont", package: "FCBGA2049/FCBGA2114", igpu_arch: "Arc (Xe LPG)",         eu_min: Some(64), eu_max: Some(128), cores_min: 14, cores_max: 24, threads_per_core: 1, thread_tech: "none", avx: true,  avx2: true,  avx512: false, process: "TSMC N3B (compute tile)",  year: 2025 }),
+    ("Arrow Lake-H/HX (Core Ultra 200H/HX)", MobileCpuFacts { arch: "Lion Cove/Skymont", package: "FCBGA2049/FCBGA2114", igpu_arch: "Arc (Xe LPG)",         eu_min: Some(64), eu_max: Some(128), cores_min: 14, cores_max: 24, threads_per_core: 1, threads_max: 24, thread_tech: "none", avx: true,  avx2: true,  avx512: false, process: "TSMC N3B (compute tile)",  year: 2025 }),
 ];
 
 /// Per-generation lookup. Unknown generations return None; the catalog never
@@ -307,9 +314,7 @@ impl IntelMobileDeclaration {
         })?;
         // Planned worker threads cannot exceed the generation's documented
         // hardware thread count.
-        if u64::from(self.worker_threads)
-            > u64::from(facts.cores_max) * u64::from(facts.threads_per_core)
-        {
+        if u64::from(self.worker_threads) > u64::from(facts.threads_max) {
             return Err(IntelMobileDiagnostic::ThreadsExceedGeneration);
         }
         debug_assert_eq!(plan.worker_threads(), self.worker_threads);
@@ -367,7 +372,7 @@ impl IntelMobileIr {
             .map(|units| units.to_string())
             .unwrap_or_else(|| "unpublished".to_string());
         format!(
-            "contract={CONTRACT}\nrecipe_version={RECIPE_VERSION}\ntarget=intel_mobile\ncpu={}\narch={}\npackage={}\nigpu_arch={}\nigpu_eu_min={eu_min}\nigpu_eu_max={eu_max}\ncores_min={}\ncores_max={}\nthreads_per_core={}\nthread_tech={}\navx={}\navx2={}\navx512={}\nprocess={}\nyear={}\nisa={}\nworker_threads={}\nbatch={}\ntotal_worker_executions={}\nworkspace_bytes={}\nexecution=none_attempted\n",
+            "contract={CONTRACT}\nrecipe_version={RECIPE_VERSION}\ntarget=intel_mobile\ncpu={}\narch={}\npackage={}\nigpu_arch={}\nigpu_eu_min={eu_min}\nigpu_eu_max={eu_max}\ncores_min={}\ncores_max={}\nthreads_per_core={}\nthreads_max={}\nthread_tech={}\navx={}\navx2={}\navx512={}\nprocess={}\nyear={}\nisa={}\nworker_threads={}\nbatch={}\ntotal_worker_executions={}\nworkspace_bytes={}\nexecution=none_attempted\n",
             self.cpu,
             self.facts.arch,
             self.facts.package,
@@ -375,6 +380,7 @@ impl IntelMobileIr {
             self.facts.cores_min,
             self.facts.cores_max,
             self.facts.threads_per_core,
+            self.facts.threads_max,
             self.facts.thread_tech,
             self.facts.avx,
             self.facts.avx2,
@@ -549,26 +555,22 @@ mod tests {
                 }
                 _ => panic!("EU range must be fully published or fully unpublished"),
             }
-            // The supported worker bound must cover the generation's
-            // documented OS-visible hardware thread count, widened to u64
-            // before multiplying. SMT hybrid families mix two-thread P-cores
-            // with single-threaded E/LP-E cores, so cores_max *
-            // threads_per_core is only a conservative ceiling; the largest
-            // published SKU totals are asserted directly for those rows.
-            let ceiling = u64::from(facts.cores_max) * u64::from(facts.threads_per_core);
-            let os_threads = match *name {
-                "Alder Lake (mobile)" => 24,          // Core i9-12900HX: 8P+8E
-                "Raptor Lake (mobile)" => 32,         // Core i9-14900HX: 8P+16E
-                "Meteor Lake (Core Ultra 100)" => 22, // Core Ultra 9 185H: 6P+8E+2LP-E
-                _ => ceiling,
-            };
+            // The documented OS-visible hardware thread total must fit the
+            // supported worker bound, cover every core at least once, and
+            // stay within the homogeneous cores_max * threads_per_core
+            // upper bound, widened to u64 before multiplying.
             assert!(
-                os_threads <= u64::from(MAX_WORKER_THREADS),
+                u64::from(facts.threads_max) <= u64::from(MAX_WORKER_THREADS),
                 "{name} thread count must fit the supported bound"
             );
             assert!(
-                ceiling >= os_threads,
-                "{name} ceiling must cover its published thread count"
+                facts.threads_max >= facts.cores_max,
+                "{name} must document at least one thread per core"
+            );
+            assert!(
+                u64::from(facts.threads_max)
+                    <= u64::from(facts.cores_max) * u64::from(facts.threads_per_core),
+                "{name} documented threads cannot exceed the per-core product"
             );
         }
         let years: Vec<u16> = GENERATIONS.iter().map(|(_, facts)| facts.year).collect();
@@ -609,6 +611,7 @@ mod tests {
         assert!(first.canonical_ir.contains("igpu_arch=Iris Plus G4/G7\n"));
         assert!(first.canonical_ir.contains("igpu_eu_min=32\n"));
         assert!(first.canonical_ir.contains("igpu_eu_max=64\n"));
+        assert!(first.canonical_ir.contains("threads_max=8\n"));
         assert!(first.canonical_ir.contains("worker_threads=8\n"));
         assert!(first.canonical_ir.contains("total_worker_executions=32\n"));
         assert!(first.canonical_ir.contains("isa=avx512\n"));
