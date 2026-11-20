@@ -28,7 +28,8 @@ pub struct NevadaInteraction {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NevadaScene {
     pub source_digest: [u8; 32],
-    /// Stable authored cell IDs in Aragon's depth-first order.
+    /// Authored cell IDs in Aragon's depth-first order. An implicit root has
+    /// an empty ID and is never focusable.
     pub cell_ids: Vec<String>,
     /// Geometry for every cell, in millipoints at [`TV_VIEWPORT`].
     pub elements: Vec<FocusElement>,
@@ -70,7 +71,14 @@ impl fmt::Display for NevadaSceneError {
     }
 }
 
-impl std::error::Error for NevadaSceneError {}
+impl std::error::Error for NevadaSceneError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match &self.reason {
+            NevadaSceneReason::Admission(error) => Some(error),
+            NevadaSceneReason::Unsupported(_) => None,
+        }
+    }
+}
 
 /// Strictly admit a scene and lower the interactions supported by the TV runtime.
 pub fn lower_nevada_scene(source: &str) -> Result<NevadaScene, NevadaSceneError> {
@@ -286,6 +294,32 @@ mod tests {
         ] {
             let error = lower_nevada_scene(source).unwrap_err();
             assert!(matches!(error.reason, NevadaSceneReason::Unsupported(_)));
+            assert!(source[error.range.start..error.range.end].starts_with(expected_range));
+        }
+    }
+
+    #[test]
+    fn refuses_supported_language_constructs_without_tv_runtime_handlers() {
+        let clipboard = r#"@ontology app {
+            @cell root { id: "root"; gestures { copy: allow; } }
+        }"#;
+        let d2 = r#"@ontology app {
+            @state { count: int = 0 session; }
+            @button fetch { id: "button.fetch"; }
+            @interaction fetch { id: "action.fetch"; trigger: button.fetch.activate; class: D2;
+                effects { network; }
+                requests { lookup: effect network capability "network" request "static" result int64; }
+                state { write count: int; }
+                input { }
+                set count = effect.lookup;
+            }
+        }"#;
+        for (source, expected_range) in [(clipboard, "gestures"), (d2, "@interaction fetch")] {
+            let error = lower_nevada_scene(source).unwrap_err();
+            assert!(
+                matches!(error.reason, NevadaSceneReason::Unsupported(_)),
+                "{error}"
+            );
             assert!(source[error.range.start..error.range.end].starts_with(expected_range));
         }
     }
