@@ -138,9 +138,11 @@ impl Graph {
         mut checkpoint: impl FnMut() -> Result<(), TypedError>,
     ) -> Result<TensorData, TypedError> {
         checkpoint()?;
-        inputs.try_reserve_exact(self.nodes.len()).map_err(|_| TypedError::ResourceExhausted {
-            reason: "graph value allocation failed".into(),
-        })?;
+        inputs
+            .try_reserve_exact(self.nodes.len())
+            .map_err(|_| TypedError::ResourceExhausted {
+                reason: "graph value allocation failed".into(),
+            })?;
         for node in &self.nodes {
             checkpoint()?;
             // Compilation guarantees that both values already exist.

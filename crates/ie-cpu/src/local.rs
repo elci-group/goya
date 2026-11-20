@@ -295,6 +295,23 @@ mod tests {
     }
 
     #[test]
+    fn queued_job_expiring_before_dispatch_records_terminal_deadline() {
+        let mut runtime = Runtime::new(limits());
+        let digest = runtime.register(graph()).unwrap();
+        let id = runtime
+            .submit(digest, inputs(), Duration::from_secs(1))
+            .unwrap();
+        let job = runtime.pending.front_mut().unwrap();
+        job.deadline = job.submitted_at;
+
+        assert_eq!(runtime.run_one(), Some(id));
+        assert_eq!(
+            runtime.poll(id).unwrap().unwrap().result,
+            Err(TypedError::DeadlineExceeded)
+        );
+    }
+
+    #[test]
     fn payload_and_work_budgets_are_enforced_before_admission() {
         let graph = graph();
         let mut small_payload = Runtime::new(Limits {

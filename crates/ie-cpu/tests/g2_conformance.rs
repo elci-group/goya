@@ -44,10 +44,18 @@ fn t01_cpu_backend_matches_frozen_golden() {
     };
 
     let out: TensorData = execute("matmul", &fixture.inputs).expect("matmul must execute");
-    let got: Vec<f32> =
-        out.data.chunks_exact(4).map(|c| f32::from_le_bytes(c.try_into().unwrap())).collect();
-    fixture.check(&got).expect("CPU reference must match frozen golden within tolerance");
-    assert_eq!(got, expected, "deterministic oracle: exact equality on this fixture");
+    let got: Vec<f32> = out
+        .data
+        .chunks_exact(4)
+        .map(|c| f32::from_le_bytes(c.try_into().unwrap()))
+        .collect();
+    fixture
+        .check(&got)
+        .expect("CPU reference must match frozen golden within tolerance");
+    assert_eq!(
+        got, expected,
+        "deterministic oracle: exact equality on this fixture"
+    );
 }
 
 #[test]

@@ -76,10 +76,14 @@ impl Ledger {
             t.desc.validate(t.data.len())?;
         }
         if !self.models.contains(&req.model_sha256) {
-            return Err(TypedError::ModelMissing { digest: hex(&req.model_sha256) });
+            return Err(TypedError::ModelMissing {
+                digest: hex(&req.model_sha256),
+            });
         }
         if self.queue_depth() >= self.queue_limit {
-            return Err(TypedError::ResourceExhausted { reason: "queue full".into() });
+            return Err(TypedError::ResourceExhausted {
+                reason: "queue full".into(),
+            });
         }
         self.entries.push((req.request_id, Entry::Queued(req)));
         Ok(Status::Pending)
@@ -89,9 +93,14 @@ impl Ledger {
     /// positive. Returns the request id worked on, if any.
     /// Cancellation (via `cancel`) removes it before this gets to it.
     pub fn run_one(&mut self, now_elapsed_ms: u64) -> Option<u64> {
-        let idx = self.entries.iter().position(|(_, e)| matches!(e, Entry::Queued(_)))?;
+        let idx = self
+            .entries
+            .iter()
+            .position(|(_, e)| matches!(e, Entry::Queued(_)))?;
         let (id, entry) = self.entries.remove(idx);
-        let Entry::Queued(req) = entry else { unreachable!() };
+        let Entry::Queued(req) = entry else {
+            unreachable!()
+        };
         if req.deadline_ms <= now_elapsed_ms {
             self.finish(id, Status::Failed(TypedError::DeadlineExceeded), Vec::new());
             return Some(id);
@@ -173,13 +182,18 @@ impl Ledger {
                 }
             }
         } else {
-            Err(TypedError::InvalidTensor { reason: format!("unknown request id {request_id}") })
+            Err(TypedError::InvalidTensor {
+                reason: format!("unknown request id {request_id}"),
+            })
         }
     }
 
     /// Number of queue slots currently reserved (admission budget view).
     pub fn queue_depth(&self) -> usize {
-        self.entries.iter().filter(|(_, e)| matches!(e, Entry::Queued(_))).count()
+        self.entries
+            .iter()
+            .filter(|(_, e)| matches!(e, Entry::Queued(_)))
+            .count()
     }
 }
 
@@ -220,7 +234,9 @@ mod tests {
         assert_eq!(l.submit(request(2, 9, 100)), Ok(Status::Pending));
         assert_eq!(
             l.submit(request(3, 9, 100)),
-            Err(TypedError::ResourceExhausted { reason: "queue full".into() })
+            Err(TypedError::ResourceExhausted {
+                reason: "queue full".into()
+            })
         );
         assert_eq!(l.queue_depth(), 2);
         // Recovery: completion releases the slot.
@@ -306,8 +322,11 @@ mod tests {
         l.run_one(0);
         l.run_one(0);
         let (_, out) = l.poll(2).unwrap();
-        let got: Vec<f32> =
-            out[0].data.chunks_exact(4).map(|c| f32::from_le_bytes(c.try_into().unwrap())).collect();
+        let got: Vec<f32> = out[0]
+            .data
+            .chunks_exact(4)
+            .map(|c| f32::from_le_bytes(c.try_into().unwrap()))
+            .collect();
         assert_eq!(got, vec![19.0, 22.0, 43.0, 50.0]);
     }
 }
