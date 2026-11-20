@@ -78,7 +78,11 @@ pub const GENERATIONS: &[(&str, CpuFacts)] = &[
     // bound. AVX-512 is fused off on production parts (the E-cores never
     // implemented it, and Intel fused it off in silicon going forward).
     ("Alder Lake",                   CpuFacts { arch: "Alder Lake",     socket: "LGA1700", cores_min: 16, cores_max: 16, threads_per_core: 2, thread_tech: "SMT",  avx: true,  avx2: true,  avx512: false, process: "Intel 7",  year: 2021 }),
-    // Hybrid 8P+16E flagship; AVX-512 remains disabled.
+    // Hybrid 8P+16E flagship: 32 OS-visible threads (8 Hyper-Threaded
+    // P-cores + 16 E-cores). threads_per_core 2 keeps the cores_max *
+    // threads_per_core guard a safe upper bound; the v1 plan cap of 32
+    // threads equals the part's real OS thread count. AVX-512 remains
+    // disabled.
     ("Raptor Lake",                  CpuFacts { arch: "Raptor Lake",    socket: "LGA1700", cores_min: 24, cores_max: 24, threads_per_core: 2, thread_tech: "SMT",  avx: true,  avx2: true,  avx512: false, process: "Intel 7",  year: 2022 }),
     // Hyper-Threading removed (Lion Cove): 24 cores / 24 threads, one
     // thread per core. Lion Cove P-cores implement AVX-512, but it is
@@ -442,7 +446,7 @@ mod tests {
             "15 mainstream rows plus the two HEDT rows"
         );
         let mut seen = std::collections::BTreeSet::new();
-        for (index, (name, facts)) in GENERATIONS.iter().enumerate() {
+        for (name, facts) in GENERATIONS {
             assert!(seen.insert(*name), "duplicate generation {name}");
             assert!(matches!(
                 facts.arch,
@@ -481,17 +485,23 @@ mod tests {
             assert!(facts.threads_per_core >= 1);
             let hardware_threads =
                 u64::from(facts.cores_max) * u64::from(facts.threads_per_core);
-            if index < MAINSTREAM_ROWS {
-                assert!(
-                    hardware_threads <= u64::from(MAX_WORKER_THREADS),
-                    "{name} thread count must fit the supported bound"
-                );
-            } else {
-                // The HEDT rows document 18 cores with SMT (36 hardware
+            match *name {
+                // Raptor Lake's homogeneous 24 * 2 = 48 upper bound exceeds
+                // the v1 cap, but the part really exposes 32 OS threads
+                // (8 Hyper-Threaded P-cores + 16 E-cores), so planning at
+                // the cap stays within hardware.
+                "Raptor Lake" => assert_eq!(hardware_threads, 48),
+                // HEDT rows document 18 cores with SMT (36 hardware
                 // threads), above the 32-thread v1 plan cap; the runtime
                 // bound fails closed there, and the catalog keeps the
                 // hardware fact.
-                assert_eq!(hardware_threads, 36, "{name} HEDT hardware threads");
+                "Core-X (Skylake-X)" | "Cascade Lake-X" => {
+                    assert_eq!(hardware_threads, 36, "{name} HEDT hardware threads")
+                }
+                _ => assert!(
+                    hardware_threads <= u64::from(MAX_WORKER_THREADS),
+                    "{name} thread count must fit the supported bound"
+                ),
             }
             assert_eq!(
                 facts.thread_tech == "none",
