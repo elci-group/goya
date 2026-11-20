@@ -22,12 +22,8 @@ impl fmt::Display for CudaError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::ZeroThreadsPerBlock => "threads per block must be positive",
-            Self::ThreadsPerBlockNotPowerOfTwo => {
-                "threads per block must be a power of two"
-            }
-            Self::ThreadsPerBlockTooLarge => {
-                "threads per block exceeds the CUDA limit of 1024"
-            }
+            Self::ThreadsPerBlockNotPowerOfTwo => "threads per block must be a power of two",
+            Self::ThreadsPerBlockTooLarge => "threads per block exceeds the CUDA limit of 1024",
             Self::ZeroBlocks => "block count must be positive",
             Self::BlocksTooLarge => "block count exceeds the supported bound",
             Self::ZeroSharedMemBytes => "shared memory bound must be positive",
@@ -120,12 +116,8 @@ mod tests {
 
     #[test]
     fn plan_accepts_full_bounds_and_rejects_violations() {
-        let plan = CudaLaunchPlan::new(
-            MAX_THREADS_PER_BLOCK,
-            MAX_BLOCKS,
-            MAX_SHARED_MEM_BYTES,
-        )
-        .unwrap();
+        let plan =
+            CudaLaunchPlan::new(MAX_THREADS_PER_BLOCK, MAX_BLOCKS, MAX_SHARED_MEM_BYTES).unwrap();
         assert_eq!(plan.threads_per_block(), MAX_THREADS_PER_BLOCK);
         assert_eq!(
             plan.total_threads(),
@@ -143,10 +135,7 @@ mod tests {
             CudaLaunchPlan::new(MAX_THREADS_PER_BLOCK * 2, 1, 1024),
             Err(CudaError::ThreadsPerBlockTooLarge)
         );
-        assert_eq!(
-            CudaLaunchPlan::new(1, 0, 1024),
-            Err(CudaError::ZeroBlocks)
-        );
+        assert_eq!(CudaLaunchPlan::new(1, 0, 1024), Err(CudaError::ZeroBlocks));
         assert_eq!(
             CudaLaunchPlan::new(1, MAX_BLOCKS + 1, 1024),
             Err(CudaError::BlocksTooLarge)

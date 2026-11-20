@@ -146,7 +146,9 @@ impl fmt::Display for MetalError {
         f.write_str(match self {
             Self::ZeroThreadsPerGroup => "threads per threadgroup must be positive",
             Self::ThreadsPerGroupNotPowerOfTwo => "threads per threadgroup must be a power of two",
-            Self::ThreadsPerGroupTooLarge => "threads per threadgroup exceeds the Metal limit of 1024",
+            Self::ThreadsPerGroupTooLarge => {
+                "threads per threadgroup exceeds the Metal limit of 1024"
+            }
             Self::ZeroGroups => "threadgroup count must be positive",
             Self::GroupsTooLarge => "threadgroup count exceeds the supported bound",
             Self::ZeroBufferBytes => "buffer bound must be positive",
@@ -523,7 +525,10 @@ mod tests {
         assert_eq!(exhausted.attempt(false), Ok(AuthOutcome::Retry));
         assert_eq!(exhausted.attempt(false), Err(AuthError::AttemptsExhausted));
 
-        assert_eq!(BiometricGate::new(0, 30_000).err(), Some(AuthError::ZeroAttempts));
+        assert_eq!(
+            BiometricGate::new(0, 30_000).err(),
+            Some(AuthError::ZeroAttempts)
+        );
         assert_eq!(
             BiometricGate::new(9, 30_000).err(),
             Some(AuthError::AttemptsTooLarge)
@@ -532,16 +537,12 @@ mod tests {
             BiometricGate::new(3, MAX_AUTH_TIMEOUT_MS + 1).err(),
             Some(AuthError::TimeoutTooLarge)
         );
-        assert_eq!(
-            BiometricGate::new(3, 0).err(),
-            Some(AuthError::ZeroTimeout)
-        );
+        assert_eq!(BiometricGate::new(3, 0).err(), Some(AuthError::ZeroTimeout));
     }
 
     #[test]
     fn payment_request_validates_currency_amount_and_networks() {
-        let request =
-            PaymentRequest::new("com.goya.merchant".into(), "USD", 100_000).unwrap();
+        let request = PaymentRequest::new("com.goya.merchant".into(), "USD", 100_000).unwrap();
         assert_eq!(request.currency_code(), "USD");
         assert_eq!(request.max_minor_units(), 100_000);
         assert_eq!(request.authorize(PaymentNetwork::Visa, 42_500), Ok(()));

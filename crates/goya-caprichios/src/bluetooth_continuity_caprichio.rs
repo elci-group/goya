@@ -87,9 +87,7 @@ impl fmt::Display for Diagnostic {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::ZeroAssociationBound => "association bound must be positive",
-            Self::AssociationBoundTooLarge => {
-                "association bound exceeds the supported bound"
-            }
+            Self::AssociationBoundTooLarge => "association bound exceeds the supported bound",
             Self::SubscriptionBoundTooLarge => {
                 "per-association subscription bound exceeds the supported bound"
             }
@@ -246,7 +244,9 @@ mod tests {
         assert!(first
             .canonical_ir
             .contains("max_subscriptions_per_association=2\n"));
-        assert!(first.canonical_ir.contains("persist_across_launches=true\n"));
+        assert!(first
+            .canonical_ir
+            .contains("persist_across_launches=true\n"));
         assert!(first.canonical_ir.contains("associations_recorded=none\n"));
         assert!(first.canonical_ir.contains("restoration_planned=none\n"));
         assert!(first.canonical_ir.contains("relaunch_promised=none\n"));

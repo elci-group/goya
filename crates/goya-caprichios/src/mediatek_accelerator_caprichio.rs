@@ -140,12 +140,8 @@ impl fmt::Display for MediaTekAcceleratorDiagnostic {
             Self::WeightBytesZero => "weight bound must be positive",
             Self::WeightBytesTooLarge => "weight bound exceeds the supported bound",
             Self::ExecutionsOverflow => "total executions do not fit the supported bound",
-            Self::UnsupportedTarget => {
-                "MediaTek accelerator supports only MediaTek targets"
-            }
-            Self::UnsupportedAccelerator => {
-                "generation has no documented NPU or NPU"
-            }
+            Self::UnsupportedTarget => "MediaTek accelerator supports only MediaTek targets",
+            Self::UnsupportedAccelerator => "generation has no documented NPU or NPU",
             Self::MissingnpuDsp => "target runtime must report an NPU",
             Self::MissingNeuralDelegate => "target runtime must provide a neural delegate",
             Self::MissingInt8Model => "model graph must be Int8 quantized for delegation",
@@ -344,7 +340,10 @@ mod tests {
         let series_order: Vec<&str> = GENERATIONS.iter().map(|(_, f)| f.series).collect();
         let mut compact: Vec<&str> = series_order.clone();
         compact.dedup();
-        assert!(compact.iter().all(|s| ["9", "8", "7"].contains(s)), "unknown series tag");
+        assert!(
+            compact.iter().all(|s| ["9", "8", "7"].contains(s)),
+            "unknown series tag"
+        );
         // Published TOPS figures, when present, are positive tenths.
         for (_, facts) in GENERATIONS {
             if let Some(tenths) = facts.npu_tops_tenths {
@@ -415,11 +414,7 @@ mod tests {
     fn negotiation_rejects_other_targets_and_missing_facilities() {
         let soc = first_generation();
         let ir = declaration(soc, 32, 8).normalize().unwrap();
-        for target in [
-            Target::CrossPlatform,
-            Target::Browser,
-            Target::Node,
-        ] {
+        for target in [Target::CrossPlatform, Target::Browser, Target::Node] {
             assert_eq!(
                 ir.lower_checked(target, CAPABILITIES),
                 Err(MediaTekAcceleratorDiagnostic::UnsupportedTarget)
@@ -455,10 +450,7 @@ mod tests {
                 MediaTekAcceleratorDiagnostic::MissingUtf8Strings,
             ),
         ] {
-            assert_eq!(
-                ir.lower_checked(Target::MediaTek, missing),
-                Err(expected)
-            );
+            assert_eq!(ir.lower_checked(Target::MediaTek, missing), Err(expected));
         }
     }
 

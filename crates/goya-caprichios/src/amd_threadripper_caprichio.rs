@@ -171,18 +171,12 @@ impl fmt::Display for AmdThreadripperDiagnostic {
         f.write_str(match self {
             Self::BadCpu => "generation is not in the AMD Threadripper catalog",
             Self::ZeroWorkerThreads => "worker thread count must be positive",
-            Self::WorkerThreadsTooLarge => {
-                "worker thread count exceeds the supported bound of 192"
-            }
+            Self::WorkerThreadsTooLarge => "worker thread count exceeds the supported bound of 192",
             Self::ZeroBatch => "batch size must be positive",
             Self::BatchTooLarge => "batch size exceeds the supported bound",
             Self::ZeroWorkspaceBytes => "workspace bound must be positive",
-            Self::WorkspaceBytesTooLarge => {
-                "workspace bound exceeds the supported bound"
-            }
-            Self::WorkerOverflow => {
-                "total worker executions do not fit the supported bound"
-            }
+            Self::WorkspaceBytesTooLarge => "workspace bound exceeds the supported bound",
+            Self::WorkerOverflow => "total worker executions do not fit the supported bound",
             Self::ThreadsExceedGeneration => {
                 "worker threads exceed the generation's cores times threads per core"
             }
@@ -454,7 +448,9 @@ mod tests {
         assert_eq!(ir.worker_threads(), 64);
         assert_eq!(ir.batch(), 4);
         assert_eq!(ir.total_worker_executions(), 256);
-        let first = ir.lower_checked(Target::AmdThreadripper, CAPABILITIES).unwrap();
+        let first = ir
+            .lower_checked(Target::AmdThreadripper, CAPABILITIES)
+            .unwrap();
         let second = ir
             .lower_checked(Target::AmdThreadripper, CAPABILITIES)
             .unwrap();
@@ -510,16 +506,18 @@ mod tests {
             declaration("Threadripper 1000", 16 * 2 + 1, 8).normalize(),
             Err(AmdThreadripperDiagnostic::ThreadsExceedGeneration)
         );
-        assert!(declaration(cpu, MAX_WORKER_THREADS, MAX_BATCH).normalize().is_err());
-        assert!(declaration("Threadripper 1000", 16 * 2, 8).normalize().is_ok());
-        assert!(
-            AmdThreadripperDeclaration {
-                isa: Isa::Avx512,
-                ..declaration("Threadripper Pro 9000WX", MAX_WORKER_THREADS, 1)
-            }
+        assert!(declaration(cpu, MAX_WORKER_THREADS, MAX_BATCH)
             .normalize()
-            .is_ok()
-        );
+            .is_err());
+        assert!(declaration("Threadripper 1000", 16 * 2, 8)
+            .normalize()
+            .is_ok());
+        assert!(AmdThreadripperDeclaration {
+            isa: Isa::Avx512,
+            ..declaration("Threadripper Pro 9000WX", MAX_WORKER_THREADS, 1)
+        }
+        .normalize()
+        .is_ok());
     }
 
     #[test]
@@ -614,7 +612,8 @@ mod tests {
         let mut lowered_avx512 = 0;
         for (name, facts) in GENERATIONS {
             let ir = declaration(name, 2, 2).normalize().unwrap();
-            ir.lower_checked(Target::AmdThreadripper, CAPABILITIES).unwrap();
+            ir.lower_checked(Target::AmdThreadripper, CAPABILITIES)
+                .unwrap();
             lowered_sse3 += 1;
             let ir512 = AmdThreadripperDeclaration {
                 isa: Isa::Avx512,
@@ -623,7 +622,9 @@ mod tests {
             .normalize()
             .unwrap();
             if facts.avx512 {
-                ir512.lower_checked(Target::AmdThreadripper, CAPABILITIES).unwrap();
+                ir512
+                    .lower_checked(Target::AmdThreadripper, CAPABILITIES)
+                    .unwrap();
                 lowered_avx512 += 1;
             } else {
                 assert_eq!(
@@ -632,8 +633,14 @@ mod tests {
                 );
             }
         }
-        assert!(lowered_sse3 > 0, "catalog must lower at least one generation");
-        assert!(lowered_avx512 > 0, "catalog must lower one AVX-512 generation");
+        assert!(
+            lowered_sse3 > 0,
+            "catalog must lower at least one generation"
+        );
+        assert!(
+            lowered_avx512 > 0,
+            "catalog must lower one AVX-512 generation"
+        );
     }
 
     #[test]
@@ -648,8 +655,8 @@ mod tests {
             .unwrap()
             .lower_checked(Target::AmdThreadripper, CAPABILITIES)
             .unwrap();
-        let runtime_path =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/amd_threadripper_runtime.rs");
+        let runtime_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/amd_threadripper_runtime.rs");
         assert!(runtime_path.is_file());
         let harness = format!(
             "#[path = {runtime_path:?}]\nmod amd_threadripper_runtime;\n{}\nfn main() {{\n    let plan = make_worker_plan().expect(\"factory should construct plan\");\n    assert_eq!(plan.worker_threads(), 96);\n    assert_eq!(plan.batch(), 3);\n    assert_eq!(plan.total_worker_executions(), 288);\n    assert_eq!(plan.workspace_bytes(), 4096);\n}}\n",

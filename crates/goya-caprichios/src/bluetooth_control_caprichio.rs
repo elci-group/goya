@@ -83,19 +83,13 @@ impl fmt::Display for Diagnostic {
             Self::TooManyCharacteristics => {
                 "characteristic policy count exceeds the supported bound"
             }
-            Self::DuplicateCharacteristic => {
-                "a characteristic UUID was declared more than once"
-            }
+            Self::DuplicateCharacteristic => "a characteristic UUID was declared more than once",
             Self::ZeroCommandTimeout => "command timeout bound must be positive",
-            Self::CommandTimeoutTooLarge => {
-                "command timeout bound exceeds the supported bound"
-            }
+            Self::CommandTimeoutTooLarge => "command timeout bound exceeds the supported bound",
             Self::UnsupportedTarget => {
                 "the GATT command factory supports only iOS and Apple Silicon Mac targets"
             }
-            Self::MissingCoreBluetoothGatt => {
-                "target runtime must provide a GATT client surface"
-            }
+            Self::MissingCoreBluetoothGatt => "target runtime must provide a GATT client surface",
             Self::MissingBluetoothPower => "target Bluetooth adapter must be powered",
             Self::MissingBluetoothPermission => {
                 "the application-level Bluetooth permission must be granted"
@@ -272,7 +266,9 @@ mod tests {
         assert_eq!(first, second);
         assert_eq!(first.contract, CONTRACT);
         assert!(first.canonical_ir.contains("target=ios\n"));
-        assert!(first.canonical_ir.contains("session=ble_gatt_bounded_commands\n"));
+        assert!(first
+            .canonical_ir
+            .contains("session=ble_gatt_bounded_commands\n"));
         assert!(first
             .canonical_ir
             .contains("characteristics=2A6E:read_write:512,2A37:write:64\n"));

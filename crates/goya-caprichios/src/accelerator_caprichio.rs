@@ -141,9 +141,7 @@ impl fmt::Display for AcceleratorDiagnostic {
         f.write_str(match self {
             Self::BadModel => "model must name the same device as the negotiated contract",
             Self::ThreadsPerGroupZero => "threads per threadgroup must be positive",
-            Self::ThreadsPerGroupNotPowerOfTwo => {
-                "threads per threadgroup must be a power of two"
-            }
+            Self::ThreadsPerGroupNotPowerOfTwo => "threads per threadgroup must be a power of two",
             Self::ThreadsPerGroupTooLarge => {
                 "threads per threadgroup exceeds the Metal limit of 1024"
             }
@@ -208,9 +206,7 @@ impl AcceleratorDeclaration {
     }
 }
 
-fn map_dispatch_error(
-    error: crate::apple_runtime::MetalError,
-) -> AcceleratorDiagnostic {
+fn map_dispatch_error(error: crate::apple_runtime::MetalError) -> AcceleratorDiagnostic {
     use crate::apple_runtime::MetalError;
     match error {
         MetalError::ZeroThreadsPerGroup => AcceleratorDiagnostic::ThreadsPerGroupZero,
@@ -399,18 +395,24 @@ pub fn assert_model_contract(
         .clone()
         .normalize(entry)
         .unwrap()
-        .lower_checked(AcceleratorTarget::Device, AcceleratorRuntimeCapabilities {
-            gpu_driver: true,
-            utf8_strings: true,
-        })
+        .lower_checked(
+            AcceleratorTarget::Device,
+            AcceleratorRuntimeCapabilities {
+                gpu_driver: true,
+                utf8_strings: true,
+            },
+        )
         .unwrap();
     let second = declaration
         .normalize(entry)
         .unwrap()
-        .lower_checked(AcceleratorTarget::Device, AcceleratorRuntimeCapabilities {
-            gpu_driver: true,
-            utf8_strings: true,
-        })
+        .lower_checked(
+            AcceleratorTarget::Device,
+            AcceleratorRuntimeCapabilities {
+                gpu_driver: true,
+                utf8_strings: true,
+            },
+        )
         .unwrap();
     assert_eq!(first, second);
     assert_eq!(first.contract, contract);
@@ -421,8 +423,8 @@ pub fn assert_model_contract(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::iphone_accelerator_models::iphone_15_pro;
     use crate::apple_watch_accelerator_models::apple_watch_series_9;
+    use crate::iphone_accelerator_models::iphone_15_pro;
 
     #[test]
     fn every_model_contract_is_registered_unique_and_well_named() {
@@ -437,10 +439,9 @@ mod tests {
             if entry.accelerator.metal_family.is_some() {
                 assert!(entry.accelerator.gpu_cores.is_some());
             }
-            assert!(entry.contract.starts_with(&format!(
-                "goya.hardware.accelerator.{}.",
-                entry.category
-            )));
+            assert!(entry
+                .contract
+                .starts_with(&format!("goya.hardware.accelerator.{}.", entry.category)));
             assert!(entry.contract.ends_with(".v1"));
             assert!(seen.insert(entry.contract), "duplicate {}", entry.contract);
         }
@@ -450,7 +451,10 @@ mod tests {
     #[test]
     fn find_model_contract_resolves_every_entry_and_rejects_unknown() {
         for entry in all_models() {
-            assert_eq!(find_model_contract(entry.contract).map(|found| found.model), Some(entry.model));
+            assert_eq!(
+                find_model_contract(entry.contract).map(|found| found.model),
+                Some(entry.model)
+            );
         }
         assert!(find_model_contract("goya.hardware.accelerator.iphone.unknown_model.v1").is_none());
         assert!(find_model_contract("goya.network.fetch.v1").is_none());
@@ -548,7 +552,10 @@ mod tests {
             );
         }
         assert_eq!(
-            ir.lower_checked(AcceleratorTarget::Device, AcceleratorRuntimeCapabilities::default()),
+            ir.lower_checked(
+                AcceleratorTarget::Device,
+                AcceleratorRuntimeCapabilities::default()
+            ),
             Err(AcceleratorDiagnostic::MissingGpuDriver)
         );
         assert_eq!(
@@ -572,10 +579,13 @@ mod tests {
         .normalize(watch_entry)
         .unwrap();
         assert!(watch_ir
-            .lower_checked(AcceleratorTarget::Device, AcceleratorRuntimeCapabilities {
-                gpu_driver: false,
-                utf8_strings: true
-            })
+            .lower_checked(
+                AcceleratorTarget::Device,
+                AcceleratorRuntimeCapabilities {
+                    gpu_driver: false,
+                    utf8_strings: true
+                }
+            )
             .is_ok());
     }
 
@@ -590,18 +600,25 @@ mod tests {
         }
         .normalize(iphone_entry)
         .unwrap()
-        .lower_checked(AcceleratorTarget::Device, AcceleratorRuntimeCapabilities {
-            gpu_driver: true,
-            utf8_strings: true,
-        })
+        .lower_checked(
+            AcceleratorTarget::Device,
+            AcceleratorRuntimeCapabilities {
+                gpu_driver: true,
+                utf8_strings: true,
+            },
+        )
         .unwrap();
         assert_eq!(iphone.recipe_version, RECIPE_VERSION);
         assert!(iphone.canonical_ir.contains("metal_family=9\n"));
         assert!(iphone.canonical_ir.contains("gpu_cores=6\n"));
         assert!(iphone.canonical_ir.contains("threads_per_group=256\n"));
         assert!(iphone.canonical_ir.contains("total_threads=2048\n"));
-        assert!(iphone.source.contains("MetalDispatchPlan::new(256u32, 8u32, 8192u64)"));
-        assert!(iphone.source.contains("AcceleratorProfile::new(\"A17 Pro\", Some(6u16), Some(9u8))"));
+        assert!(iphone
+            .source
+            .contains("MetalDispatchPlan::new(256u32, 8u32, 8192u64)"));
+        assert!(iphone
+            .source
+            .contains("AcceleratorProfile::new(\"A17 Pro\", Some(6u16), Some(9u8))"));
 
         let watch_entry = find_model_contract(apple_watch_series_9::CONTRACT).unwrap();
         let watch = AcceleratorDeclaration {
@@ -612,10 +629,13 @@ mod tests {
         }
         .normalize(watch_entry)
         .unwrap()
-        .lower_checked(AcceleratorTarget::Device, AcceleratorRuntimeCapabilities {
-            gpu_driver: false,
-            utf8_strings: true,
-        })
+        .lower_checked(
+            AcceleratorTarget::Device,
+            AcceleratorRuntimeCapabilities {
+                gpu_driver: false,
+                utf8_strings: true,
+            },
+        )
         .unwrap();
         assert!(watch.canonical_ir.contains("gpu_cores=unpublished\n"));
         assert!(watch.canonical_ir.contains("metal_family=none\n"));
@@ -644,10 +664,13 @@ mod tests {
         }
         .normalize(iphone_entry)
         .unwrap()
-        .lower_checked(AcceleratorTarget::Device, AcceleratorRuntimeCapabilities {
-            gpu_driver: true,
-            utf8_strings: true,
-        })
+        .lower_checked(
+            AcceleratorTarget::Device,
+            AcceleratorRuntimeCapabilities {
+                gpu_driver: true,
+                utf8_strings: true,
+            },
+        )
         .unwrap();
         let watch_entry = find_model_contract(apple_watch_series_9::CONTRACT).unwrap();
         let watch = AcceleratorDeclaration {
@@ -658,10 +681,13 @@ mod tests {
         }
         .normalize(watch_entry)
         .unwrap()
-        .lower_checked(AcceleratorTarget::Device, AcceleratorRuntimeCapabilities {
-            gpu_driver: false,
-            utf8_strings: true,
-        })
+        .lower_checked(
+            AcceleratorTarget::Device,
+            AcceleratorRuntimeCapabilities {
+                gpu_driver: false,
+                utf8_strings: true,
+            },
+        )
         .unwrap();
 
         let harness = format!(

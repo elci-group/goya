@@ -94,12 +94,8 @@ impl fmt::Display for Diagnostic {
             Self::UnsupportedTarget => {
                 "keychain factory supports only iOS and Apple Silicon Mac targets"
             }
-            Self::MissingKeychainServices => {
-                "target runtime must provide Keychain Services"
-            }
-            Self::MissingHardwareBackedKeys => {
-                "target must report hardware-backed key material"
-            }
+            Self::MissingKeychainServices => "target runtime must provide Keychain Services",
+            Self::MissingHardwareBackedKeys => "target must report hardware-backed key material",
             Self::MissingUtf8Strings => "target runtime must provide UTF-8 strings",
         })
     }
@@ -225,7 +221,10 @@ mod tests {
         let ir = declaration("com.goya.ios.test").normalize().unwrap();
         assert_eq!(ir.namespace(), "com.goya.ios.test");
         assert_eq!(ir.max_value_bytes(), 4096);
-        assert_eq!(ir.accessibility(), Accessibility::WhenUnlockedThisDeviceOnly);
+        assert_eq!(
+            ir.accessibility(),
+            Accessibility::WhenUnlockedThisDeviceOnly
+        );
         let first = ir.lower_checked(Target::Ios, IOS).unwrap();
         let second = ir.lower_checked(Target::Ios, IOS).unwrap();
         assert_eq!(first, second);
@@ -246,19 +245,14 @@ mod tests {
     #[test]
     fn apple_silicon_mac_lowers_with_its_own_target_label() {
         let ir = declaration("com.goya.macos.test").normalize().unwrap();
-        let artifact = ir
-            .lower_checked(Target::AppleSiliconMac, IOS)
-            .unwrap();
+        let artifact = ir.lower_checked(Target::AppleSiliconMac, IOS).unwrap();
         assert!(artifact.canonical_ir.contains("target=apple_silicon_mac\n"));
         assert!(artifact.source.contains("apple_silicon_mac Keychain"));
     }
 
     #[test]
     fn rejects_empty_long_namespace_and_bad_value_bounds() {
-        assert_eq!(
-            declaration("").normalize(),
-            Err(Diagnostic::EmptyNamespace)
-        );
+        assert_eq!(declaration("").normalize(), Err(Diagnostic::EmptyNamespace));
         let long = "n".repeat(MAX_NAMESPACE_BYTES + 1);
         assert_eq!(
             declaration(&long).normalize(),
@@ -266,10 +260,7 @@ mod tests {
         );
         let mut oversized = declaration("ns");
         oversized.max_value_bytes = MAX_VALUE_BYTES + 1;
-        assert_eq!(
-            oversized.normalize(),
-            Err(Diagnostic::ValueBytesTooLarge)
-        );
+        assert_eq!(oversized.normalize(), Err(Diagnostic::ValueBytesTooLarge));
         let mut zero = declaration("ns");
         zero.max_value_bytes = 0;
         assert_eq!(zero.normalize(), Err(Diagnostic::ValueBytesZero));
@@ -307,10 +298,7 @@ mod tests {
                 Diagnostic::MissingUtf8Strings,
             ),
         ] {
-            assert_eq!(
-                ir.lower_checked(Target::Ios, missing),
-                Err(expected)
-            );
+            assert_eq!(ir.lower_checked(Target::Ios, missing), Err(expected));
         }
     }
 

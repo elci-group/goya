@@ -1,19 +1,20 @@
 //! Deterministic negotiation for implemented recipe contracts.
 
+use crate::accelerator_caprichio::{
+    AcceleratorArtifact, AcceleratorDeclaration,
+    AcceleratorRuntimeCapabilities as AcceleratorModelHost,
+    AcceleratorTarget as AcceleratorModelTarget,
+};
 use crate::apple_pay_caprichio::{
     ApplePayArtifact, ApplePayDeclaration, RuntimeCapabilities as ApplePayHost,
     Target as ApplePayTarget,
-};
-use crate::accelerator_caprichio::{
-    AcceleratorArtifact, AcceleratorDeclaration, AcceleratorRuntimeCapabilities as AcceleratorModelHost,
-    AcceleratorTarget as AcceleratorModelTarget,
 };
 use crate::batching_caprichio::{
     BatchArtifact, BatchDeclaration, RuntimeCapabilities as BatchRuntime, Target as BatchTarget,
 };
 use crate::bluetooth_access_caprichio::{
-    BluetoothAccessArtifact, BluetoothAccessDeclaration, RuntimeCapabilities as BluetoothAccessHost,
-    Target as BluetoothAccessTarget,
+    BluetoothAccessArtifact, BluetoothAccessDeclaration,
+    RuntimeCapabilities as BluetoothAccessHost, Target as BluetoothAccessTarget,
 };
 use crate::bluetooth_caprichio::{
     BluetoothCentralArtifact, BluetoothCentralDeclaration, RuntimeCapabilities as BluetoothHost,
@@ -32,24 +33,12 @@ use crate::bluetooth_guard_caprichio::{
     Target as BluetoothGuardTarget,
 };
 use crate::bluetooth_profile_caprichio::{
-    BluetoothProfileArtifact, BluetoothProfileDeclaration, RuntimeCapabilities as BluetoothProfileHost,
-    Target as BluetoothProfileTarget,
+    BluetoothProfileArtifact, BluetoothProfileDeclaration,
+    RuntimeCapabilities as BluetoothProfileHost, Target as BluetoothProfileTarget,
 };
 use crate::bluetooth_stream_caprichio::{
-    BluetoothStreamArtifact, BluetoothStreamDeclaration, RuntimeCapabilities as BluetoothStreamHost,
-    Target as BluetoothStreamTarget,
-};
-use crate::google_pay_caprichio::{
-    GooglePayArtifact, GooglePayDeclaration, RuntimeCapabilities as GooglePayHost,
-    Target as GooglePayTarget,
-};
-use crate::samsung_pay_caprichio::{
-    RuntimeCapabilities as SamsungPayHost, SamsungPayArtifact, SamsungPayDeclaration,
-    Target as SamsungPayTarget,
-};
-use crate::windows_hello_caprichio::{
-    RuntimeCapabilities as WindowsHelloHost, Target as WindowsHelloTarget,
-    WindowsHelloArtifact, WindowsHelloDeclaration,
+    BluetoothStreamArtifact, BluetoothStreamDeclaration,
+    RuntimeCapabilities as BluetoothStreamHost, Target as BluetoothStreamTarget,
 };
 use crate::catalog;
 use crate::checksum_caprichio::{
@@ -73,15 +62,19 @@ use crate::deadline_caprichio::{
     DeadlineArtifact, DeadlineDeclaration, RuntimeCapabilities as DeadlineRuntime,
     Target as DeadlineTarget,
 };
-use crate::filesystem_caprichio::{
-    FileReadArtifact, HostProfile as FileHost, ReadDeclaration, Target as FileTarget,
+use crate::exynos_accelerator_caprichio::{
+    ExynosAcceleratorArtifact, ExynosAcceleratorDeclaration,
+    RuntimeCapabilities as ExynosAcceleratorHost, Target as ExynosAcceleratorTarget,
 };
 use crate::face_id_caprichio::{
     FaceIdArtifact, FaceIdDeclaration, RuntimeCapabilities as FaceIdHost, Target as FaceIdTarget,
 };
-use crate::touch_id_caprichio::{
-    RuntimeCapabilities as TouchIdHost, Target as TouchIdTarget, TouchIdArtifact,
-    TouchIdDeclaration,
+use crate::filesystem_caprichio::{
+    FileReadArtifact, HostProfile as FileHost, ReadDeclaration, Target as FileTarget,
+};
+use crate::google_pay_caprichio::{
+    GooglePayArtifact, GooglePayDeclaration, RuntimeCapabilities as GooglePayHost,
+    Target as GooglePayTarget,
 };
 use crate::http_caprichio::{
     HttpArtifact, HttpDeclaration, RuntimeCapabilities as HttpRuntime, Target as HttpTarget,
@@ -94,6 +87,14 @@ use crate::keychain_caprichio::{
     KeychainArtifact, KeychainDeclaration, RuntimeCapabilities as KeychainHost,
     Target as KeychainTarget,
 };
+use crate::kirin_accelerator_caprichio::{
+    KirinAcceleratorArtifact, KirinAcceleratorDeclaration,
+    RuntimeCapabilities as KirinAcceleratorHost, Target as KirinAcceleratorTarget,
+};
+use crate::mediatek_accelerator_caprichio::{
+    MediaTekAcceleratorArtifact, MediaTekAcceleratorDeclaration,
+    RuntimeCapabilities as MediaTekAcceleratorHost, Target as MediaTekAcceleratorTarget,
+};
 use crate::memory_caprichio::{
     MemoryArtifact, MemoryDeclaration, RuntimeCapabilities as MemoryRuntime, Target as MemoryTarget,
 };
@@ -101,29 +102,9 @@ use crate::metal_caprichio::{
     DispatchArtifact as MetalArtifact, DispatchDeclaration as MetalDeclaration,
     RuntimeCapabilities as MetalRuntime, Target as MetalTarget,
 };
-use crate::snapdragon_accelerator_caprichio::{
-    SnapdragonAcceleratorArtifact, SnapdragonAcceleratorDeclaration,
-    RuntimeCapabilities as SnapdragonAcceleratorHost, Target as SnapdragonAcceleratorTarget,
-};
-use crate::exynos_accelerator_caprichio::{
-    ExynosAcceleratorArtifact, ExynosAcceleratorDeclaration,
-    RuntimeCapabilities as ExynosAcceleratorHost, Target as ExynosAcceleratorTarget,
-};
-use crate::mediatek_accelerator_caprichio::{
-    MediaTekAcceleratorArtifact, MediaTekAcceleratorDeclaration,
-    RuntimeCapabilities as MediaTekAcceleratorHost, Target as MediaTekAcceleratorTarget,
-};
-use crate::tensor_accelerator_caprichio::{
-    TensorAcceleratorArtifact, TensorAcceleratorDeclaration,
-    RuntimeCapabilities as TensorAcceleratorHost, Target as TensorAcceleratorTarget,
-};
-use crate::kirin_accelerator_caprichio::{
-    KirinAcceleratorArtifact, KirinAcceleratorDeclaration,
-    RuntimeCapabilities as KirinAcceleratorHost, Target as KirinAcceleratorTarget,
-};
 use crate::nvidia_accelerator_caprichio::{
-    NvidiaCudaArtifact, NvidiaCudaDeclaration,
-    RuntimeCapabilities as NvidiaCudaHost, Target as NvidiaCudaTarget,
+    NvidiaCudaArtifact, NvidiaCudaDeclaration, RuntimeCapabilities as NvidiaCudaHost,
+    Target as NvidiaCudaTarget,
 };
 use crate::parallelism_caprichio::{
     ParallelismArtifact, ParallelismDeclaration, RuntimeCapabilities as ParallelismRuntime,
@@ -140,12 +121,32 @@ use crate::progress_caprichio::{
 use crate::retry_caprichio::{
     RetryArtifact, RetryDeclaration, RuntimeCapabilities as RetryRuntime, Target as RetryTarget,
 };
+use crate::samsung_pay_caprichio::{
+    RuntimeCapabilities as SamsungPayHost, SamsungPayArtifact, SamsungPayDeclaration,
+    Target as SamsungPayTarget,
+};
+use crate::snapdragon_accelerator_caprichio::{
+    RuntimeCapabilities as SnapdragonAcceleratorHost, SnapdragonAcceleratorArtifact,
+    SnapdragonAcceleratorDeclaration, Target as SnapdragonAcceleratorTarget,
+};
 use crate::storage::{
     RuntimeCapabilities as StorageRuntime, StorageArtifact, StorageDeclaration,
     Target as StorageTarget,
 };
 use crate::stream_caprichio::{
     RuntimeCapabilities as StreamRuntime, StreamArtifact, StreamDeclaration, Target as StreamTarget,
+};
+use crate::tensor_accelerator_caprichio::{
+    RuntimeCapabilities as TensorAcceleratorHost, Target as TensorAcceleratorTarget,
+    TensorAcceleratorArtifact, TensorAcceleratorDeclaration,
+};
+use crate::touch_id_caprichio::{
+    RuntimeCapabilities as TouchIdHost, Target as TouchIdTarget, TouchIdArtifact,
+    TouchIdDeclaration,
+};
+use crate::windows_hello_caprichio::{
+    RuntimeCapabilities as WindowsHelloHost, Target as WindowsHelloTarget, WindowsHelloArtifact,
+    WindowsHelloDeclaration,
 };
 use crate::{NetworkDeclaration, RuntimeCapabilities as NetworkRuntime, Target as NetworkTarget};
 use std::collections::BTreeSet;
@@ -713,11 +714,7 @@ impl fmt::Display for NegotiationError {
                 )
             }
             Self::NvidiaCuda(error) => {
-                write!(
-                    f,
-                    "NVIDIA CUDA negotiation failed: {e}",
-                    e = error
-                )
+                write!(f, "NVIDIA CUDA negotiation failed: {e}", e = error)
             }
             Self::SnapdragonAccelerator(error) => {
                 write!(
@@ -751,7 +748,9 @@ impl fmt::Display for NegotiationError {
             Self::BluetoothContinuity(error) => {
                 write!(f, "Bluetooth continuity negotiation failed: {error}")
             }
-            Self::BluetoothAccess(error) => write!(f, "Bluetooth access negotiation failed: {error}"),
+            Self::BluetoothAccess(error) => {
+                write!(f, "Bluetooth access negotiation failed: {error}")
+            }
             Self::BluetoothProfile(error) => {
                 write!(f, "Bluetooth profile negotiation failed: {error}")
             }
@@ -843,11 +842,13 @@ pub fn negotiate(
     let needs_parallelism = ordered.contains(crate::parallelism_caprichio::CONTRACT);
     let needs_input_validation = ordered.contains(crate::input_validation_caprichio::CONTRACT);
     let needs_keychain = ordered.contains(crate::keychain_caprichio::CONTRACT);
-    let needs_mediatek_neural_accel = ordered.contains(crate::mediatek_accelerator_caprichio::CONTRACT);
+    let needs_mediatek_neural_accel =
+        ordered.contains(crate::mediatek_accelerator_caprichio::CONTRACT);
     let needs_tensor_neural_accel = ordered.contains(crate::tensor_accelerator_caprichio::CONTRACT);
     let needs_kirin_neural_accel = ordered.contains(crate::kirin_accelerator_caprichio::CONTRACT);
     let needs_nvidia_cuda = ordered.contains(crate::nvidia_accelerator_caprichio::CONTRACT);
-    let needs_snapdragon_accelerator = ordered.contains(crate::snapdragon_accelerator_caprichio::CONTRACT);
+    let needs_snapdragon_accelerator =
+        ordered.contains(crate::snapdragon_accelerator_caprichio::CONTRACT);
     let needs_exynos_accelerator = ordered.contains(crate::exynos_accelerator_caprichio::CONTRACT);
     let needs_metal = ordered.contains(crate::metal_caprichio::CONTRACT);
     let needs_touch_id = ordered.contains(crate::touch_id_caprichio::CONTRACT);
@@ -969,9 +970,7 @@ pub fn negotiate(
         return Err(NegotiationError::UnexpectedDeclaration { kind: "face_id" });
     }
     if request.apple_pay.is_some() && !needs_apple_pay {
-        return Err(NegotiationError::UnexpectedDeclaration {
-            kind: "apple_pay",
-        });
+        return Err(NegotiationError::UnexpectedDeclaration { kind: "apple_pay" });
     }
     if request.windows_hello.is_some() && !needs_windows_hello {
         return Err(NegotiationError::UnexpectedDeclaration {
@@ -979,9 +978,7 @@ pub fn negotiate(
         });
     }
     if request.google_pay.is_some() && !needs_google_pay {
-        return Err(NegotiationError::UnexpectedDeclaration {
-            kind: "google_pay",
-        });
+        return Err(NegotiationError::UnexpectedDeclaration { kind: "google_pay" });
     }
     if request.samsung_pay.is_some() && !needs_samsung_pay {
         return Err(NegotiationError::UnexpectedDeclaration {
@@ -1259,11 +1256,13 @@ pub fn negotiate(
                 )
             }
             crate::keychain_caprichio::CONTRACT => {
-                let declaration = request.keychain.clone().ok_or(
-                    NegotiationError::MissingDeclaration {
-                        capability: crate::keychain_caprichio::CONTRACT,
-                    },
-                )?;
+                let declaration =
+                    request
+                        .keychain
+                        .clone()
+                        .ok_or(NegotiationError::MissingDeclaration {
+                            capability: crate::keychain_caprichio::CONTRACT,
+                        })?;
                 let ir = declaration
                     .normalize()
                     .map_err(NegotiationError::Keychain)?;
@@ -1273,42 +1272,45 @@ pub fn negotiate(
                 )
             }
             crate::mediatek_accelerator_caprichio::CONTRACT => {
-                let declaration = request
-                    .mediatek_neural_accel
-                    .clone()
-                    .ok_or(NegotiationError::MissingDeclaration {
+                let declaration = request.mediatek_neural_accel.clone().ok_or(
+                    NegotiationError::MissingDeclaration {
                         capability: crate::mediatek_accelerator_caprichio::CONTRACT,
-                    })?;
+                    },
+                )?;
                 let ir = declaration
                     .normalize()
                     .map_err(NegotiationError::MediaTekAccelerator)?;
                 Artifact::MediaTekAccelerator(
-                    ir.lower_checked(host.mediatek_neural_accel_target, host.mediatek_neural_accel_host)
-                        .map_err(NegotiationError::MediaTekAccelerator)?,
+                    ir.lower_checked(
+                        host.mediatek_neural_accel_target,
+                        host.mediatek_neural_accel_host,
+                    )
+                    .map_err(NegotiationError::MediaTekAccelerator)?,
                 )
             }
             crate::tensor_accelerator_caprichio::CONTRACT => {
-                let declaration = request
-                    .tensor_neural_accel
-                    .clone()
-                    .ok_or(NegotiationError::MissingDeclaration {
+                let declaration = request.tensor_neural_accel.clone().ok_or(
+                    NegotiationError::MissingDeclaration {
                         capability: crate::tensor_accelerator_caprichio::CONTRACT,
-                    })?;
+                    },
+                )?;
                 let ir = declaration
                     .normalize()
                     .map_err(NegotiationError::TensorAccelerator)?;
                 Artifact::TensorAccelerator(
-                    ir.lower_checked(host.tensor_neural_accel_target, host.tensor_neural_accel_host)
-                        .map_err(NegotiationError::TensorAccelerator)?,
+                    ir.lower_checked(
+                        host.tensor_neural_accel_target,
+                        host.tensor_neural_accel_host,
+                    )
+                    .map_err(NegotiationError::TensorAccelerator)?,
                 )
             }
             crate::kirin_accelerator_caprichio::CONTRACT => {
-                let declaration = request
-                    .kirin_neural_accel
-                    .clone()
-                    .ok_or(NegotiationError::MissingDeclaration {
+                let declaration = request.kirin_neural_accel.clone().ok_or(
+                    NegotiationError::MissingDeclaration {
                         capability: crate::kirin_accelerator_caprichio::CONTRACT,
-                    })?;
+                    },
+                )?;
                 let ir = declaration
                     .normalize()
                     .map_err(NegotiationError::KirinAccelerator)?;
@@ -1318,12 +1320,13 @@ pub fn negotiate(
                 )
             }
             crate::nvidia_accelerator_caprichio::CONTRACT => {
-                let declaration = request
-                    .nvidia_cuda
-                    .clone()
-                    .ok_or(NegotiationError::MissingDeclaration {
-                        capability: crate::nvidia_accelerator_caprichio::CONTRACT,
-                    })?;
+                let declaration =
+                    request
+                        .nvidia_cuda
+                        .clone()
+                        .ok_or(NegotiationError::MissingDeclaration {
+                            capability: crate::nvidia_accelerator_caprichio::CONTRACT,
+                        })?;
                 let ir = declaration
                     .normalize()
                     .map_err(NegotiationError::NvidiaCuda)?;
@@ -1333,12 +1336,11 @@ pub fn negotiate(
                 )
             }
             crate::snapdragon_accelerator_caprichio::CONTRACT => {
-                let declaration = request
-                    .snapdragon_neural_accel
-                    .clone()
-                    .ok_or(NegotiationError::MissingDeclaration {
+                let declaration = request.snapdragon_neural_accel.clone().ok_or(
+                    NegotiationError::MissingDeclaration {
                         capability: crate::snapdragon_accelerator_caprichio::CONTRACT,
-                    })?;
+                    },
+                )?;
                 let ir = declaration
                     .normalize()
                     .map_err(NegotiationError::SnapdragonAccelerator)?;
@@ -1351,29 +1353,26 @@ pub fn negotiate(
                 )
             }
             crate::exynos_accelerator_caprichio::CONTRACT => {
-                let declaration = request
-                    .exynos_neural_accel
-                    .clone()
-                    .ok_or(NegotiationError::MissingDeclaration {
+                let declaration = request.exynos_neural_accel.clone().ok_or(
+                    NegotiationError::MissingDeclaration {
                         capability: crate::exynos_accelerator_caprichio::CONTRACT,
-                    })?;
+                    },
+                )?;
                 let ir = declaration
                     .normalize()
                     .map_err(NegotiationError::ExynosAccelerator)?;
                 Artifact::ExynosAccelerator(
-                    ir.lower_checked(
-                        host.exynos_accelerator_target,
-                        host.exynos_accelerator_host,
-                    )
-                    .map_err(NegotiationError::ExynosAccelerator)?,
+                    ir.lower_checked(host.exynos_accelerator_target, host.exynos_accelerator_host)
+                        .map_err(NegotiationError::ExynosAccelerator)?,
                 )
             }
             crate::metal_caprichio::CONTRACT => {
-                let declaration = request
-                    .metal_compute
-                    .ok_or(NegotiationError::MissingDeclaration {
-                        capability: crate::metal_caprichio::CONTRACT,
-                    })?;
+                let declaration =
+                    request
+                        .metal_compute
+                        .ok_or(NegotiationError::MissingDeclaration {
+                            capability: crate::metal_caprichio::CONTRACT,
+                        })?;
                 let ir = declaration.normalize().map_err(NegotiationError::Metal)?;
                 Artifact::Metal(
                     ir.lower_checked(host.metal_target, host.metal_runtime)
@@ -1393,12 +1392,11 @@ pub fn negotiate(
                 )
             }
             crate::face_id_caprichio::CONTRACT => {
-                let declaration =
-                    request
-                        .face_id
-                        .ok_or(NegotiationError::MissingDeclaration {
-                            capability: crate::face_id_caprichio::CONTRACT,
-                        })?;
+                let declaration = request
+                    .face_id
+                    .ok_or(NegotiationError::MissingDeclaration {
+                        capability: crate::face_id_caprichio::CONTRACT,
+                    })?;
                 let ir = declaration.normalize().map_err(NegotiationError::FaceId)?;
                 Artifact::FaceId(
                     ir.lower_checked(host.face_id_target, host.face_id_host)
@@ -1406,23 +1404,28 @@ pub fn negotiate(
                 )
             }
             crate::apple_pay_caprichio::CONTRACT => {
-                let declaration = request.apple_pay.clone().ok_or(
-                    NegotiationError::MissingDeclaration {
-                        capability: crate::apple_pay_caprichio::CONTRACT,
-                    },
-                )?;
-                let ir = declaration.normalize().map_err(NegotiationError::ApplePay)?;
+                let declaration =
+                    request
+                        .apple_pay
+                        .clone()
+                        .ok_or(NegotiationError::MissingDeclaration {
+                            capability: crate::apple_pay_caprichio::CONTRACT,
+                        })?;
+                let ir = declaration
+                    .normalize()
+                    .map_err(NegotiationError::ApplePay)?;
                 Artifact::ApplePay(
                     ir.lower_checked(host.apple_pay_target, host.apple_pay_host)
                         .map_err(NegotiationError::ApplePay)?,
                 )
             }
             crate::windows_hello_caprichio::CONTRACT => {
-                let declaration = request
-                    .windows_hello
-                    .ok_or(NegotiationError::MissingDeclaration {
-                        capability: crate::windows_hello_caprichio::CONTRACT,
-                    })?;
+                let declaration =
+                    request
+                        .windows_hello
+                        .ok_or(NegotiationError::MissingDeclaration {
+                            capability: crate::windows_hello_caprichio::CONTRACT,
+                        })?;
                 let ir = declaration
                     .normalize()
                     .map_err(NegotiationError::WindowsHello)?;
@@ -1432,11 +1435,13 @@ pub fn negotiate(
                 )
             }
             crate::google_pay_caprichio::CONTRACT => {
-                let declaration = request.google_pay.clone().ok_or(
-                    NegotiationError::MissingDeclaration {
-                        capability: crate::google_pay_caprichio::CONTRACT,
-                    },
-                )?;
+                let declaration =
+                    request
+                        .google_pay
+                        .clone()
+                        .ok_or(NegotiationError::MissingDeclaration {
+                            capability: crate::google_pay_caprichio::CONTRACT,
+                        })?;
                 let ir = declaration
                     .normalize()
                     .map_err(NegotiationError::GooglePay)?;
@@ -1446,11 +1451,13 @@ pub fn negotiate(
                 )
             }
             crate::samsung_pay_caprichio::CONTRACT => {
-                let declaration = request.samsung_pay.clone().ok_or(
-                    NegotiationError::MissingDeclaration {
-                        capability: crate::samsung_pay_caprichio::CONTRACT,
-                    },
-                )?;
+                let declaration =
+                    request
+                        .samsung_pay
+                        .clone()
+                        .ok_or(NegotiationError::MissingDeclaration {
+                            capability: crate::samsung_pay_caprichio::CONTRACT,
+                        })?;
                 let ir = declaration
                     .normalize()
                     .map_err(NegotiationError::SamsungPay)?;
@@ -1465,18 +1472,22 @@ pub fn negotiate(
                         capability: crate::bluetooth_caprichio::CONTRACT,
                     },
                 )?;
-                let ir = declaration.normalize().map_err(NegotiationError::Bluetooth)?;
+                let ir = declaration
+                    .normalize()
+                    .map_err(NegotiationError::Bluetooth)?;
                 Artifact::Bluetooth(
                     ir.lower_checked(host.bluetooth_central_target, host.bluetooth_central_host)
                         .map_err(NegotiationError::Bluetooth)?,
                 )
             }
             crate::bluetooth_control_caprichio::CONTRACT => {
-                let declaration = request.bluetooth_gatt.clone().ok_or(
-                    NegotiationError::MissingDeclaration {
-                        capability: crate::bluetooth_control_caprichio::CONTRACT,
-                    },
-                )?;
+                let declaration =
+                    request
+                        .bluetooth_gatt
+                        .clone()
+                        .ok_or(NegotiationError::MissingDeclaration {
+                            capability: crate::bluetooth_control_caprichio::CONTRACT,
+                        })?;
                 let ir = declaration
                     .normalize()
                     .map_err(NegotiationError::BluetoothGatt)?;
@@ -1863,9 +1874,7 @@ mod tests {
                 utf8_strings: true,
             },
             bluetooth_profile_target: BluetoothProfileTarget::Ios,
-            bluetooth_profile_host: BluetoothProfileHost {
-                utf8_strings: true,
-            },
+            bluetooth_profile_host: BluetoothProfileHost { utf8_strings: true },
         }
     }
 
@@ -2113,8 +2122,7 @@ mod tests {
 
     fn bluetooth_guard() -> BluetoothGuardDeclaration {
         BluetoothGuardDeclaration {
-            usage_description: "Connects to your temperature sensor to show readings."
-                .to_owned(),
+            usage_description: "Connects to your temperature sensor to show readings.".to_owned(),
             max_authorised_peripherals: 4,
             enforce_explicit_selection: true,
         }
@@ -2175,12 +2183,6 @@ mod tests {
         }
     }
 
-
-
-
-
-
-
     #[test]
     fn touch_id_contract_registers_exactly_and_fails_closed() {
         let contract = crate::touch_id_caprichio::CONTRACT;
@@ -2190,12 +2192,12 @@ mod tests {
         assert!(!supported_contracts().contains(&"goya.hardware.biometry.v1"));
 
         let request = Request {
-        nvidia_cuda: None,
-        kirin_neural_accel: None,
-        mediatek_neural_accel: None,
-        tensor_neural_accel: None,
-        snapdragon_neural_accel: None,
-        exynos_neural_accel: None,
+            nvidia_cuda: None,
+            kirin_neural_accel: None,
+            mediatek_neural_accel: None,
+            tensor_neural_accel: None,
+            snapdragon_neural_accel: None,
+            exynos_neural_accel: None,
             capabilities: vec![contract.into()],
             touch_id: Some(touch_id()),
             ..Request::default()
@@ -2204,10 +2206,22 @@ mod tests {
         assert_eq!(negotiated.len(), 1);
         assert_eq!(negotiated[0].id, contract);
         assert_eq!(negotiated[0].artifact.contract(), contract);
-        assert_eq!(negotiated[0].artifact.recipe(), "apple-touch-id-bounded-attempt-gate");
-        assert!(negotiated[0].artifact.canonical_ir().contains("sensor=touch_id\n"));
-        assert!(negotiated[0].artifact.canonical_ir().contains("fallback=device_passcode\n"));
-        assert!(negotiated[0].artifact.canonical_ir().contains("data_access=none\n"));
+        assert_eq!(
+            negotiated[0].artifact.recipe(),
+            "apple-touch-id-bounded-attempt-gate"
+        );
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("sensor=touch_id\n"));
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("fallback=device_passcode\n"));
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("data_access=none\n"));
         assert_eq!(negotiated, negotiate(&request, host()).unwrap());
 
         let mut mac_host = host();
@@ -2275,12 +2289,12 @@ mod tests {
         assert!(!supported_contracts().contains(&"goya.hardware.biometry.face_id.v2"));
 
         let request = Request {
-        nvidia_cuda: None,
-        kirin_neural_accel: None,
-        mediatek_neural_accel: None,
-        tensor_neural_accel: None,
-        snapdragon_neural_accel: None,
-        exynos_neural_accel: None,
+            nvidia_cuda: None,
+            kirin_neural_accel: None,
+            mediatek_neural_accel: None,
+            tensor_neural_accel: None,
+            snapdragon_neural_accel: None,
+            exynos_neural_accel: None,
             capabilities: vec![contract.into()],
             face_id: Some(face_id()),
             ..Request::default()
@@ -2289,10 +2303,22 @@ mod tests {
         assert_eq!(negotiated.len(), 1);
         assert_eq!(negotiated[0].id, contract);
         assert_eq!(negotiated[0].artifact.contract(), contract);
-        assert_eq!(negotiated[0].artifact.recipe(), "apple-face-id-bounded-attempt-gate");
-        assert!(negotiated[0].artifact.canonical_ir().contains("sensor=face_id\n"));
-        assert!(negotiated[0].artifact.canonical_ir().contains("attention=required\n"));
-        assert!(negotiated[0].artifact.canonical_ir().contains("data_access=none\n"));
+        assert_eq!(
+            negotiated[0].artifact.recipe(),
+            "apple-face-id-bounded-attempt-gate"
+        );
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("sensor=face_id\n"));
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("attention=required\n"));
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("data_access=none\n"));
         assert_eq!(negotiated, negotiate(&request, host()).unwrap());
 
         // Face ID hardware is not part of any Mac configuration.
@@ -2343,12 +2369,12 @@ mod tests {
         assert!(!supported_contracts().contains(&"goya.hardware.payments.v1"));
 
         let request = Request {
-        nvidia_cuda: None,
-        kirin_neural_accel: None,
-        mediatek_neural_accel: None,
-        tensor_neural_accel: None,
-        snapdragon_neural_accel: None,
-        exynos_neural_accel: None,
+            nvidia_cuda: None,
+            kirin_neural_accel: None,
+            mediatek_neural_accel: None,
+            tensor_neural_accel: None,
+            snapdragon_neural_accel: None,
+            exynos_neural_accel: None,
             capabilities: vec![contract.into()],
             apple_pay: Some(apple_pay()),
             ..Request::default()
@@ -2357,7 +2383,10 @@ mod tests {
         assert_eq!(negotiated.len(), 1);
         assert_eq!(negotiated[0].id, contract);
         assert_eq!(negotiated[0].artifact.contract(), contract);
-        assert_eq!(negotiated[0].artifact.recipe(), "apple-pay-bounded-payment-request");
+        assert_eq!(
+            negotiated[0].artifact.recipe(),
+            "apple-pay-bounded-payment-request"
+        );
         assert!(negotiated[0]
             .artifact
             .canonical_ir()
@@ -2418,7 +2447,10 @@ mod tests {
             negotiated[0].artifact.recipe(),
             "windows-hello-bounded-attempt-gate"
         );
-        assert_eq!(negotiated, negotiate(&windows_hello_request, host()).unwrap());
+        assert_eq!(
+            negotiated,
+            negotiate(&windows_hello_request, host()).unwrap()
+        );
 
         let google_pay_request = Request {
             capabilities: vec![crate::google_pay_caprichio::CONTRACT.into()],
@@ -2447,10 +2479,7 @@ mod tests {
         assert_eq!(negotiated, negotiate(&samsung_pay_request, host()).unwrap());
 
         for (contract, kind) in [
-            (
-                crate::windows_hello_caprichio::CONTRACT,
-                "windows_hello",
-            ),
+            (crate::windows_hello_caprichio::CONTRACT, "windows_hello"),
             (crate::google_pay_caprichio::CONTRACT, "google_pay"),
             (crate::samsung_pay_caprichio::CONTRACT, "samsung_pay"),
         ] {
@@ -2494,12 +2523,12 @@ mod tests {
         assert!(!supported_contracts().contains(&"goya.hardware.bluetooth.v1"));
 
         let request = Request {
-        nvidia_cuda: None,
-        kirin_neural_accel: None,
-        mediatek_neural_accel: None,
-        tensor_neural_accel: None,
-        snapdragon_neural_accel: None,
-        exynos_neural_accel: None,
+            nvidia_cuda: None,
+            kirin_neural_accel: None,
+            mediatek_neural_accel: None,
+            tensor_neural_accel: None,
+            snapdragon_neural_accel: None,
+            exynos_neural_accel: None,
             capabilities: vec![contract.into()],
             bluetooth_central: Some(bluetooth_central()),
             ..Request::default()
@@ -2580,12 +2609,12 @@ mod tests {
         assert!(supported_contracts().contains(&contract));
 
         let request = Request {
-        nvidia_cuda: None,
-        kirin_neural_accel: None,
-        mediatek_neural_accel: None,
-        tensor_neural_accel: None,
-        snapdragon_neural_accel: None,
-        exynos_neural_accel: None,
+            nvidia_cuda: None,
+            kirin_neural_accel: None,
+            mediatek_neural_accel: None,
+            tensor_neural_accel: None,
+            snapdragon_neural_accel: None,
+            exynos_neural_accel: None,
             capabilities: vec![contract.into()],
             bluetooth_gatt: Some(bluetooth_gatt()),
             ..Request::default()
@@ -2658,12 +2687,12 @@ mod tests {
         assert!(supported_contracts().contains(&contract));
 
         let request = Request {
-        nvidia_cuda: None,
-        kirin_neural_accel: None,
-        mediatek_neural_accel: None,
-        tensor_neural_accel: None,
-        snapdragon_neural_accel: None,
-        exynos_neural_accel: None,
+            nvidia_cuda: None,
+            kirin_neural_accel: None,
+            mediatek_neural_accel: None,
+            tensor_neural_accel: None,
+            snapdragon_neural_accel: None,
+            exynos_neural_accel: None,
             capabilities: vec![contract.into()],
             bluetooth_stream: Some(bluetooth_stream()),
             ..Request::default()
@@ -2770,12 +2799,12 @@ mod tests {
         assert!(!supported_contracts().contains(&"goya.hardware.bluetooth.guard"));
 
         let request = Request {
-        nvidia_cuda: None,
-        kirin_neural_accel: None,
-        mediatek_neural_accel: None,
-        tensor_neural_accel: None,
-        snapdragon_neural_accel: None,
-        exynos_neural_accel: None,
+            nvidia_cuda: None,
+            kirin_neural_accel: None,
+            mediatek_neural_accel: None,
+            tensor_neural_accel: None,
+            snapdragon_neural_accel: None,
+            exynos_neural_accel: None,
             capabilities: vec![contract.into()],
             bluetooth_guard: Some(bluetooth_guard()),
             ..Request::default()
@@ -2836,7 +2865,9 @@ mod tests {
             ))
         );
         let mut without_query = host();
-        without_query.bluetooth_guard_host.bluetooth_permission_query = false;
+        without_query
+            .bluetooth_guard_host
+            .bluetooth_permission_query = false;
         assert_eq!(
             negotiate(&request, without_query),
             Err(NegotiationError::BluetoothGuard(
@@ -2844,7 +2875,9 @@ mod tests {
             ))
         );
         let mut without_store = host();
-        without_store.bluetooth_guard_host.bluetooth_authorisation_store = false;
+        without_store
+            .bluetooth_guard_host
+            .bluetooth_authorisation_store = false;
         assert_eq!(
             negotiate(&request, without_store),
             Err(NegotiationError::BluetoothGuard(
@@ -2861,12 +2894,12 @@ mod tests {
         assert!(!supported_contracts().contains(&"goya.hardware.bluetooth.continuity"));
 
         let request = Request {
-        nvidia_cuda: None,
-        kirin_neural_accel: None,
-        mediatek_neural_accel: None,
-        tensor_neural_accel: None,
-        snapdragon_neural_accel: None,
-        exynos_neural_accel: None,
+            nvidia_cuda: None,
+            kirin_neural_accel: None,
+            mediatek_neural_accel: None,
+            tensor_neural_accel: None,
+            snapdragon_neural_accel: None,
+            exynos_neural_accel: None,
             capabilities: vec![contract.into()],
             bluetooth_continuity: Some(bluetooth_continuity()),
             ..Request::default()
@@ -2961,12 +2994,12 @@ mod tests {
         assert!(supported_contracts().contains(&contract));
 
         let request = Request {
-        nvidia_cuda: None,
-        kirin_neural_accel: None,
-        mediatek_neural_accel: None,
-        tensor_neural_accel: None,
-        snapdragon_neural_accel: None,
-        exynos_neural_accel: None,
+            nvidia_cuda: None,
+            kirin_neural_accel: None,
+            mediatek_neural_accel: None,
+            tensor_neural_accel: None,
+            snapdragon_neural_accel: None,
+            exynos_neural_accel: None,
             capabilities: vec![contract.into()],
             bluetooth_access: Some(bluetooth_access()),
             ..Request::default()
@@ -3066,12 +3099,12 @@ mod tests {
         assert!(supported_contracts().contains(&contract));
 
         let request = Request {
-        nvidia_cuda: None,
-        kirin_neural_accel: None,
-        mediatek_neural_accel: None,
-        tensor_neural_accel: None,
-        snapdragon_neural_accel: None,
-        exynos_neural_accel: None,
+            nvidia_cuda: None,
+            kirin_neural_accel: None,
+            mediatek_neural_accel: None,
+            tensor_neural_accel: None,
+            snapdragon_neural_accel: None,
+            exynos_neural_accel: None,
             capabilities: vec![contract.into()],
             bluetooth_profile: Some(bluetooth_profile()),
             ..Request::default()
@@ -3158,12 +3191,12 @@ mod tests {
         assert!(!supported_contracts().contains(&"goya.hardware.keychain.v1"));
 
         let request = Request {
-        nvidia_cuda: None,
-        kirin_neural_accel: None,
-        mediatek_neural_accel: None,
-        tensor_neural_accel: None,
-        snapdragon_neural_accel: None,
-        exynos_neural_accel: None,
+            nvidia_cuda: None,
+            kirin_neural_accel: None,
+            mediatek_neural_accel: None,
+            tensor_neural_accel: None,
+            snapdragon_neural_accel: None,
+            exynos_neural_accel: None,
             capabilities: vec![contract.into()],
             keychain: Some(keychain()),
             ..Request::default()
@@ -3251,12 +3284,12 @@ mod tests {
         assert!(!supported_contracts().contains(&"goya.hardware.gpu_compute.v1"));
 
         let request = Request {
-        nvidia_cuda: None,
-        kirin_neural_accel: None,
-        mediatek_neural_accel: None,
-        tensor_neural_accel: None,
-        snapdragon_neural_accel: None,
-        exynos_neural_accel: None,
+            nvidia_cuda: None,
+            kirin_neural_accel: None,
+            mediatek_neural_accel: None,
+            tensor_neural_accel: None,
+            snapdragon_neural_accel: None,
+            exynos_neural_accel: None,
             capabilities: vec![contract.into()],
             metal_compute: Some(metal_dispatch()),
             ..Request::default()
@@ -3332,12 +3365,12 @@ mod tests {
     #[test]
     fn mixed_request_is_sorted_and_artifacts_keep_contract_identity() {
         let request = Request {
-        nvidia_cuda: None,
-        kirin_neural_accel: None,
-        mediatek_neural_accel: None,
-        tensor_neural_accel: None,
-        snapdragon_neural_accel: None,
-        exynos_neural_accel: None,
+            nvidia_cuda: None,
+            kirin_neural_accel: None,
+            mediatek_neural_accel: None,
+            tensor_neural_accel: None,
+            snapdragon_neural_accel: None,
+            exynos_neural_accel: None,
             capabilities: vec![
                 crate::storage::CONTRACT.into(),
                 crate::memory_caprichio::CONTRACT.into(),
@@ -3548,12 +3581,12 @@ mod tests {
         assert!(!supported_contracts().contains(&"goya.compute.batching.v1"));
 
         let request = Request {
-        nvidia_cuda: None,
-        kirin_neural_accel: None,
-        mediatek_neural_accel: None,
-        tensor_neural_accel: None,
-        snapdragon_neural_accel: None,
-        exynos_neural_accel: None,
+            nvidia_cuda: None,
+            kirin_neural_accel: None,
+            mediatek_neural_accel: None,
+            tensor_neural_accel: None,
+            snapdragon_neural_accel: None,
+            exynos_neural_accel: None,
             capabilities: vec![contract.into()],
             batching: Some(batching()),
             ..Request::default()
@@ -3624,12 +3657,12 @@ mod tests {
         assert!(!supported_contracts().contains(&"goya.compute.deadline.v1"));
 
         let request = Request {
-        nvidia_cuda: None,
-        kirin_neural_accel: None,
-        mediatek_neural_accel: None,
-        tensor_neural_accel: None,
-        snapdragon_neural_accel: None,
-        exynos_neural_accel: None,
+            nvidia_cuda: None,
+            kirin_neural_accel: None,
+            mediatek_neural_accel: None,
+            tensor_neural_accel: None,
+            snapdragon_neural_accel: None,
+            exynos_neural_accel: None,
             capabilities: vec![contract.into()],
             deadline: Some(deadline()),
             ..Request::default()
@@ -3695,12 +3728,12 @@ mod tests {
         assert!(!supported_contracts().contains(&"goya.network.http.v1"));
 
         let request = Request {
-        nvidia_cuda: None,
-        kirin_neural_accel: None,
-        mediatek_neural_accel: None,
-        tensor_neural_accel: None,
-        snapdragon_neural_accel: None,
-        exynos_neural_accel: None,
+            nvidia_cuda: None,
+            kirin_neural_accel: None,
+            mediatek_neural_accel: None,
+            tensor_neural_accel: None,
+            snapdragon_neural_accel: None,
+            exynos_neural_accel: None,
             capabilities: vec![contract.into()],
             http: Some(http()),
             ..Request::default()
@@ -3778,12 +3811,12 @@ mod tests {
         assert!(!supported_contracts().contains(&"goya.data.compression.v1"));
 
         let request = Request {
-        nvidia_cuda: None,
-        kirin_neural_accel: None,
-        mediatek_neural_accel: None,
-        tensor_neural_accel: None,
-        snapdragon_neural_accel: None,
-        exynos_neural_accel: None,
+            nvidia_cuda: None,
+            kirin_neural_accel: None,
+            mediatek_neural_accel: None,
+            tensor_neural_accel: None,
+            snapdragon_neural_accel: None,
+            exynos_neural_accel: None,
             capabilities: vec![stream_id.into(), compression_id.into()],
             stream: Some(stream()),
             compression: Some(compression()),
@@ -3904,12 +3937,12 @@ mod tests {
         assert!(!supported_contracts().contains(&"goya.data.csv.v1"));
 
         let request = Request {
-        nvidia_cuda: None,
-        kirin_neural_accel: None,
-        mediatek_neural_accel: None,
-        tensor_neural_accel: None,
-        snapdragon_neural_accel: None,
-        exynos_neural_accel: None,
+            nvidia_cuda: None,
+            kirin_neural_accel: None,
+            mediatek_neural_accel: None,
+            tensor_neural_accel: None,
+            snapdragon_neural_accel: None,
+            exynos_neural_accel: None,
             capabilities: vec![crate::compression_caprichio::CONTRACT.into(), csv_id.into()],
             compression: Some(compression()),
             csv: Some(csv()),
@@ -3998,12 +4031,12 @@ mod tests {
         assert!(!supported_contracts().contains(&"compute.priorities"));
         assert!(!supported_contracts().contains(&"goya.compute.priority.v1"));
         let request = Request {
-        nvidia_cuda: None,
-        kirin_neural_accel: None,
-        mediatek_neural_accel: None,
-        tensor_neural_accel: None,
-        snapdragon_neural_accel: None,
-        exynos_neural_accel: None,
+            nvidia_cuda: None,
+            kirin_neural_accel: None,
+            mediatek_neural_accel: None,
+            tensor_neural_accel: None,
+            snapdragon_neural_accel: None,
+            exynos_neural_accel: None,
             capabilities: vec![crate::deadline_caprichio::CONTRACT.into(), contract.into()],
             deadline: Some(deadline()),
             priority: Some(priority()),
@@ -4081,12 +4114,12 @@ mod tests {
         assert!(!supported_contracts().contains(&"security.input_validation"));
         assert!(!supported_contracts().contains(&"goya.security.input_validation.v1"));
         let request = Request {
-        nvidia_cuda: None,
-        kirin_neural_accel: None,
-        mediatek_neural_accel: None,
-        tensor_neural_accel: None,
-        snapdragon_neural_accel: None,
-        exynos_neural_accel: None,
+            nvidia_cuda: None,
+            kirin_neural_accel: None,
+            mediatek_neural_accel: None,
+            tensor_neural_accel: None,
+            snapdragon_neural_accel: None,
+            exynos_neural_accel: None,
             capabilities: vec![
                 crate::filesystem_caprichio::CONTRACT.into(),
                 contract.into(),
@@ -4428,12 +4461,12 @@ mod tests {
     #[test]
     fn filesystem_negotiation_maps_only_the_narrow_contract_and_checks_host() {
         let request = Request {
-        nvidia_cuda: None,
-        kirin_neural_accel: None,
-        mediatek_neural_accel: None,
-        tensor_neural_accel: None,
-        snapdragon_neural_accel: None,
-        exynos_neural_accel: None,
+            nvidia_cuda: None,
+            kirin_neural_accel: None,
+            mediatek_neural_accel: None,
+            tensor_neural_accel: None,
+            snapdragon_neural_accel: None,
+            exynos_neural_accel: None,
             capabilities: vec![crate::filesystem_caprichio::CONTRACT.into()],
             filesystem: Some(filesystem()),
             ..Request::default()
@@ -4475,12 +4508,12 @@ mod tests {
     #[test]
     fn memory_is_the_only_supported_memory_contract_and_requires_a_matching_host() {
         let request = Request {
-        nvidia_cuda: None,
-        kirin_neural_accel: None,
-        mediatek_neural_accel: None,
-        tensor_neural_accel: None,
-        snapdragon_neural_accel: None,
-        exynos_neural_accel: None,
+            nvidia_cuda: None,
+            kirin_neural_accel: None,
+            mediatek_neural_accel: None,
+            tensor_neural_accel: None,
+            snapdragon_neural_accel: None,
+            exynos_neural_accel: None,
             capabilities: vec![crate::memory_caprichio::CONTRACT.into()],
             memory: Some(memory()),
             ..Request::default()
@@ -4515,12 +4548,12 @@ mod tests {
     #[test]
     fn missing_host_facilities_are_propagated_as_lowering_errors() {
         let request = Request {
-        nvidia_cuda: None,
-        kirin_neural_accel: None,
-        mediatek_neural_accel: None,
-        tensor_neural_accel: None,
-        snapdragon_neural_accel: None,
-        exynos_neural_accel: None,
+            nvidia_cuda: None,
+            kirin_neural_accel: None,
+            mediatek_neural_accel: None,
+            tensor_neural_accel: None,
+            snapdragon_neural_accel: None,
+            exynos_neural_accel: None,
             capabilities: vec![crate::CONTRACT.into()],
             network: Some(network()),
             ..Request::default()
@@ -4541,12 +4574,12 @@ mod tests {
     fn benchmark_negotiation() {
         use std::time::Instant;
         let request = Request {
-        nvidia_cuda: None,
-        kirin_neural_accel: None,
-        mediatek_neural_accel: None,
-        tensor_neural_accel: None,
-        snapdragon_neural_accel: None,
-        exynos_neural_accel: None,
+            nvidia_cuda: None,
+            kirin_neural_accel: None,
+            mediatek_neural_accel: None,
+            tensor_neural_accel: None,
+            snapdragon_neural_accel: None,
+            exynos_neural_accel: None,
             capabilities: vec![
                 crate::CONTRACT.into(),
                 crate::storage::CONTRACT.into(),

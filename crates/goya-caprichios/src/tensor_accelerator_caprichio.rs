@@ -129,12 +129,8 @@ impl fmt::Display for TensorAcceleratorDiagnostic {
             Self::WeightBytesZero => "weight bound must be positive",
             Self::WeightBytesTooLarge => "weight bound exceeds the supported bound",
             Self::ExecutionsOverflow => "total executions do not fit the supported bound",
-            Self::UnsupportedTarget => {
-                "Tensor accelerator supports only Tensor targets"
-            }
-            Self::UnsupportedAccelerator => {
-                "generation has no documented NPU or NPU"
-            }
+            Self::UnsupportedTarget => "Tensor accelerator supports only Tensor targets",
+            Self::UnsupportedAccelerator => "generation has no documented NPU or NPU",
             Self::MissingnpuDsp => "target runtime must report an NPU",
             Self::MissingNeuralDelegate => "target runtime must provide a neural delegate",
             Self::MissingInt8Model => "model graph must be Int8 quantized for delegation",
@@ -159,34 +155,31 @@ pub struct TensorAcceleratorArtifact {
 impl TensorAcceleratorDeclaration {
     pub fn normalize(self) -> Result<TensorAcceleratorIr, TensorAcceleratorDiagnostic> {
         let facts = facts_for(&self.soc).ok_or(TensorAcceleratorDiagnostic::BadSoc)?;
-        let plan = crate::tensor_runtime::EdgeTpuPlan::new(
-            self.layers,
-            self.batch,
-            self.max_weight_bytes,
-        )
-        .map_err(|error| match error {
-            crate::tensor_runtime::EdgeTpuError::ZeroLayers => {
-                TensorAcceleratorDiagnostic::LayersZero
-            }
-            crate::tensor_runtime::EdgeTpuError::LayersTooLarge => {
-                TensorAcceleratorDiagnostic::LayersTooLarge
-            }
-            crate::tensor_runtime::EdgeTpuError::ZeroBatch => {
-                TensorAcceleratorDiagnostic::BatchZero
-            }
-            crate::tensor_runtime::EdgeTpuError::BatchTooLarge => {
-                TensorAcceleratorDiagnostic::BatchTooLarge
-            }
-            crate::tensor_runtime::EdgeTpuError::ZeroWeightBytes => {
-                TensorAcceleratorDiagnostic::WeightBytesZero
-            }
-            crate::tensor_runtime::EdgeTpuError::WeightBytesTooLarge => {
-                TensorAcceleratorDiagnostic::WeightBytesTooLarge
-            }
-            crate::tensor_runtime::EdgeTpuError::LayerBatchOverflow => {
-                TensorAcceleratorDiagnostic::ExecutionsOverflow
-            }
-        })?;
+        let plan =
+            crate::tensor_runtime::EdgeTpuPlan::new(self.layers, self.batch, self.max_weight_bytes)
+                .map_err(|error| match error {
+                    crate::tensor_runtime::EdgeTpuError::ZeroLayers => {
+                        TensorAcceleratorDiagnostic::LayersZero
+                    }
+                    crate::tensor_runtime::EdgeTpuError::LayersTooLarge => {
+                        TensorAcceleratorDiagnostic::LayersTooLarge
+                    }
+                    crate::tensor_runtime::EdgeTpuError::ZeroBatch => {
+                        TensorAcceleratorDiagnostic::BatchZero
+                    }
+                    crate::tensor_runtime::EdgeTpuError::BatchTooLarge => {
+                        TensorAcceleratorDiagnostic::BatchTooLarge
+                    }
+                    crate::tensor_runtime::EdgeTpuError::ZeroWeightBytes => {
+                        TensorAcceleratorDiagnostic::WeightBytesZero
+                    }
+                    crate::tensor_runtime::EdgeTpuError::WeightBytesTooLarge => {
+                        TensorAcceleratorDiagnostic::WeightBytesTooLarge
+                    }
+                    crate::tensor_runtime::EdgeTpuError::LayerBatchOverflow => {
+                        TensorAcceleratorDiagnostic::ExecutionsOverflow
+                    }
+                })?;
         debug_assert_eq!(plan.layers(), self.layers);
         debug_assert_eq!(plan.batch(), self.batch);
         debug_assert_eq!(plan.max_weight_bytes(), self.max_weight_bytes);
@@ -335,7 +328,10 @@ mod tests {
         let series_order: Vec<&str> = GENERATIONS.iter().map(|(_, f)| f.series).collect();
         let mut compact: Vec<&str> = series_order.clone();
         compact.dedup();
-        assert!(compact.iter().all(|s| ["G"].contains(s)), "unknown series tag");
+        assert!(
+            compact.iter().all(|s| ["G"].contains(s)),
+            "unknown series tag"
+        );
         // Published TOPS figures, when present, are positive tenths.
         for (_, facts) in GENERATIONS {
             if let Some(tenths) = facts.npu_tops_tenths {
@@ -406,11 +402,7 @@ mod tests {
     fn negotiation_rejects_other_targets_and_missing_facilities() {
         let soc = first_generation();
         let ir = declaration(soc, 32, 8).normalize().unwrap();
-        for target in [
-            Target::CrossPlatform,
-            Target::Browser,
-            Target::Node,
-        ] {
+        for target in [Target::CrossPlatform, Target::Browser, Target::Node] {
             assert_eq!(
                 ir.lower_checked(target, CAPABILITIES),
                 Err(TensorAcceleratorDiagnostic::UnsupportedTarget)
@@ -446,10 +438,7 @@ mod tests {
                 TensorAcceleratorDiagnostic::MissingUtf8Strings,
             ),
         ] {
-            assert_eq!(
-                ir.lower_checked(Target::Tensor, missing),
-                Err(expected)
-            );
+            assert_eq!(ir.lower_checked(Target::Tensor, missing), Err(expected));
         }
     }
 

@@ -215,8 +215,7 @@ mod tests {
 
     fn declaration() -> BluetoothGuardDeclaration {
         BluetoothGuardDeclaration {
-            usage_description: "Connects to your temperature sensor to show readings."
-                .to_owned(),
+            usage_description: "Connects to your temperature sensor to show readings.".to_owned(),
             max_authorised_peripherals: 4,
             enforce_explicit_selection: true,
         }
@@ -235,15 +234,17 @@ mod tests {
         assert_eq!(first, second);
         assert_eq!(first.contract, CONTRACT);
         assert!(first.canonical_ir.contains("target=ios\n"));
-        assert!(first.canonical_ir.contains("session=ble_guard_bounded_authorisation\n"));
+        assert!(first
+            .canonical_ir
+            .contains("session=ble_guard_bounded_authorisation\n"));
         assert!(first.canonical_ir.contains("usage_description_bytes=53\n"));
-        assert!(first.canonical_ir.contains("max_authorised_peripherals=4\n"));
+        assert!(first
+            .canonical_ir
+            .contains("max_authorised_peripherals=4\n"));
         assert!(first.canonical_ir.contains("explicit_selection=required\n"));
         assert!(first.canonical_ir.contains("usage_keys_generated=none\n"));
         assert!(first.canonical_ir.contains("authorisations_granted=none\n"));
-        assert!(first
-            .source
-            .contains("GuardSession::new(4u16)"));
+        assert!(first.source.contains("GuardSession::new(4u16)"));
     }
 
     #[test]

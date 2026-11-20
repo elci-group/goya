@@ -103,24 +103,18 @@ impl fmt::Display for BluetoothError {
             Self::NoServiceUuids => "at least one service UUID filter is required",
             Self::EmptyServiceUuid => "service UUID filter must not be empty",
             Self::ServiceUuidTooLong => "service UUID filter exceeds the supported bound",
-            Self::TooManyServiceUuids => {
-                "service UUID filter count exceeds the supported bound"
-            }
+            Self::TooManyServiceUuids => "service UUID filter count exceeds the supported bound",
             Self::ZeroScanBound => "scan bound must be positive",
             Self::ScanBoundTooLarge => "scan bound exceeds the supported bound",
             Self::ZeroPeripheralBound => "peripheral bound must be positive",
             Self::PeripheralBoundTooLarge => "peripheral bound exceeds the supported bound",
             Self::ZeroConnectionTimeout => "connection timeout must be positive",
-            Self::ConnectionTimeoutTooLarge => {
-                "connection timeout exceeds the supported bound"
-            }
+            Self::ConnectionTimeoutTooLarge => "connection timeout exceeds the supported bound",
             Self::ReconnectBoundTooLarge => "reconnect attempt bound exceeds the supported bound",
             Self::EmptyPeripheralId => "peripheral identifier must not be empty",
             Self::PeripheralIdTooLong => "peripheral identifier exceeds the supported bound",
             Self::InvalidRssi => "RSSI must be within the Bluetooth range of -127 to 0 dBm",
-            Self::PeripheralBoundReached => {
-                "session holds the negotiated maximum peripheral count"
-            }
+            Self::PeripheralBoundReached => "session holds the negotiated maximum peripheral count",
             Self::UnknownPeripheral => "no peripheral exists under that identifier",
             Self::WrongState => {
                 "the resource is not in the state the operation requires; detection, \
@@ -132,17 +126,13 @@ impl fmt::Display for BluetoothError {
             Self::TooManyCharacteristics => {
                 "declared characteristic count exceeds the supported bound"
             }
-            Self::DuplicateCharacteristic => {
-                "a characteristic UUID was declared more than once"
-            }
+            Self::DuplicateCharacteristic => "a characteristic UUID was declared more than once",
             Self::ZeroValueBound => "characteristic value bound must be positive",
             Self::ValueTooLarge => "value exceeds the characteristic's negotiated bound",
             Self::ZeroCommandTimeout => "command timeout must be positive",
             Self::CommandTimeoutTooLarge => "command timeout exceeds the supported bound",
             Self::UnknownCommand => "no such command is pending",
-            Self::CommandBoundReached => {
-                "session holds the negotiated maximum pending commands"
-            }
+            Self::CommandBoundReached => "session holds the negotiated maximum pending commands",
             Self::UnsupportedOperation => {
                 "the characteristic's negotiated policy does not permit the operation"
             }
@@ -175,9 +165,7 @@ impl fmt::Display for BluetoothError {
             Self::PermissionDenied => {
                 "the Bluetooth permission was denied; the decision fails closed"
             }
-            Self::NotAuthorised => {
-                "peripheral was not explicitly selected by the application"
-            }
+            Self::NotAuthorised => "peripheral was not explicitly selected by the application",
             Self::GenericUsageDescription => {
                 "privacy usage description is empty, generic or a placeholder"
             }
@@ -188,12 +176,8 @@ impl fmt::Display for BluetoothError {
                 "advertisement payload exceeds the legacy BLE advertisement bound"
             }
             Self::ZeroAssociationBound => "association bound must be positive",
-            Self::AssociationBoundTooLarge => {
-                "association bound exceeds the supported bound"
-            }
-            Self::AssociationBoundReached => {
-                "ledger holds the negotiated maximum associations"
-            }
+            Self::AssociationBoundTooLarge => "association bound exceeds the supported bound",
+            Self::AssociationBoundReached => "ledger holds the negotiated maximum associations",
             Self::ZeroSubscriptionBound => "per-association subscription bound must be positive",
             Self::SubscriptionBoundTooLarge => {
                 "per-association subscription bound exceeds the supported bound"
@@ -206,18 +190,12 @@ impl fmt::Display for BluetoothError {
                  to declared application requirements"
             }
             Self::TooManyBindings => "input binding count exceeds the supported bound",
-            Self::DuplicateBinding => {
-                "an input source and event kind was bound more than once"
-            }
+            Self::DuplicateBinding => "an input source and event kind was bound more than once",
             Self::DebounceBoundTooLarge => "debounce bound exceeds the supported bound",
             Self::ZeroLongPressBound => "long-press threshold must be positive",
-            Self::LongPressBoundTooLarge => {
-                "long-press threshold exceeds the supported bound"
-            }
+            Self::LongPressBoundTooLarge => "long-press threshold exceeds the supported bound",
             Self::ZeroDoublePressBound => "double-press window must be positive",
-            Self::DoublePressBoundTooLarge => {
-                "double-press window exceeds the supported bound"
-            }
+            Self::DoublePressBoundTooLarge => "double-press window exceeds the supported bound",
             Self::InvalidTimestamp => {
                 "release timestamp precedes the press timestamp; timestamps must be monotonic"
             }
@@ -225,9 +203,7 @@ impl fmt::Display for BluetoothError {
                 "no binding maps that input source and event kind; unsupported \
                  capabilities are reported, never silently ignored"
             }
-            Self::EmptyLabel => {
-                "accessible label must not be empty and must contain readable text"
-            }
+            Self::EmptyLabel => "accessible label must not be empty and must contain readable text",
             Self::LabelTooLong => "accessible label exceeds the supported bound",
             Self::ZeroProfileBound => "profile bound must be positive",
             Self::ProfileBoundTooLarge => "profile bound exceeds the supported bound",
@@ -437,8 +413,7 @@ impl CentralSession {
     }
 
     pub fn peripheral_state(&self, peripheral_id: &str) -> Result<PeripheralState, BluetoothError> {
-        self.entry(peripheral_id)
-            .map(|entry| entry.state)
+        self.entry(peripheral_id).map(|entry| entry.state)
     }
 
     fn entry(&self, peripheral_id: &str) -> Result<&PeripheralEntry, BluetoothError> {
@@ -1162,8 +1137,7 @@ impl StreamSession {
             payload: payload.to_vec(),
         });
         if entry.transport == NotificationTransport::Indication {
-            self.pending_confirmations
-                .insert(ordinal, uuid.to_owned());
+            self.pending_confirmations.insert(ordinal, uuid.to_owned());
         }
         entry.received += 1;
         self.received_total += 1;
@@ -1573,10 +1547,7 @@ pub struct ContinuityLedger {
 }
 
 impl ContinuityLedger {
-    pub fn new(
-        max_associations: u16,
-        max_subscriptions: u16,
-    ) -> Result<Self, BluetoothError> {
+    pub fn new(max_associations: u16, max_subscriptions: u16) -> Result<Self, BluetoothError> {
         if max_associations == 0 {
             return Err(BluetoothError::ZeroAssociationBound);
         }
@@ -1654,7 +1625,10 @@ impl ContinuityLedger {
         Ok(())
     }
 
-    pub fn association_state(&self, peripheral_id: &str) -> Result<AssociationState, BluetoothError> {
+    pub fn association_state(
+        &self,
+        peripheral_id: &str,
+    ) -> Result<AssociationState, BluetoothError> {
         Ok(self
             .associations
             .get(peripheral_id)
@@ -1662,7 +1636,10 @@ impl ContinuityLedger {
             .state)
     }
 
-    pub fn association_intent(&self, peripheral_id: &str) -> Result<AssociationIntent, BluetoothError> {
+    pub fn association_intent(
+        &self,
+        peripheral_id: &str,
+    ) -> Result<AssociationIntent, BluetoothError> {
         Ok(self
             .associations
             .get(peripheral_id)
@@ -1695,7 +1672,8 @@ impl ContinuityLedger {
     pub fn observe_bluetooth_disabled(&mut self) {
         for association in self.associations.values_mut() {
             if association.state == AssociationState::Active {
-                association.state = AssociationState::Suspended(SuspensionReason::BluetoothDisabled);
+                association.state =
+                    AssociationState::Suspended(SuspensionReason::BluetoothDisabled);
             }
         }
     }
@@ -2044,11 +2022,7 @@ impl InputMappingSession {
     }
 
     /// The mapped action and accessible label for one source and event kind.
-    pub fn binding(
-        &self,
-        source: InputSource,
-        event: InputEventKind,
-    ) -> Option<&InputBinding> {
+    pub fn binding(&self, source: InputSource, event: InputEventKind) -> Option<&InputBinding> {
         self.bindings.get(&(source, event))
     }
 
@@ -2084,12 +2058,9 @@ impl InputMappingSession {
         let event = if duration >= u64::from(self.long_press_ms) {
             state.last_single = None;
             InputEventKind::LongPress
-        } else if state
-            .last_single
-            .is_some_and(|previous| {
-                timestamp_ms.saturating_sub(previous)
-                    <= u64::from(self.double_press_window_ms)
-            }) {
+        } else if state.last_single.is_some_and(|previous| {
+            timestamp_ms.saturating_sub(previous) <= u64::from(self.double_press_window_ms)
+        }) {
             state.last_single = None;
             InputEventKind::DoublePress
         } else {
@@ -2101,8 +2072,7 @@ impl InputMappingSession {
             if let Some((last_source, last_event, last_timestamp)) = self.last_dispatch {
                 if last_source == source
                     && last_event == event
-                    && timestamp_ms.saturating_sub(last_timestamp)
-                        <= u64::from(self.debounce_ms)
+                    && timestamp_ms.saturating_sub(last_timestamp) <= u64::from(self.debounce_ms)
                 {
                     self.suppressed += 1;
                     return Ok(EventOutcome::Suppressed);
@@ -2337,9 +2307,9 @@ impl DeviceProfileRecord {
     /// Whether a required characteristic with the given UUID and read
     /// property exists.
     fn requires_read(&self, uuid: &str) -> bool {
-        self.required.iter().any(|characteristic| {
-            characteristic.uuid() == uuid && characteristic.properties().read
-        })
+        self.required
+            .iter()
+            .any(|characteristic| characteristic.uuid() == uuid && characteristic.properties().read)
     }
 
     /// Whether a required characteristic with the given UUID and notify
@@ -2443,9 +2413,7 @@ impl ProfileRegistry {
 
     /// Look up one registered profile by exact identifier.
     pub fn profile(&self, id: &str) -> Result<&DeviceProfileRecord, BluetoothError> {
-        self.profiles
-            .get(id)
-            .ok_or(BluetoothError::UnknownProfile)
+        self.profiles.get(id).ok_or(BluetoothError::UnknownProfile)
     }
 }
 
@@ -2475,11 +2443,23 @@ mod tests {
             Err(BluetoothError::EmptyServiceUuid)
         );
         assert_eq!(
-            CentralSession::new(vec!["u".repeat(MAX_SERVICE_UUID_BYTES + 1)], 10_000, 4, 10_000, 3),
+            CentralSession::new(
+                vec!["u".repeat(MAX_SERVICE_UUID_BYTES + 1)],
+                10_000,
+                4,
+                10_000,
+                3
+            ),
             Err(BluetoothError::ServiceUuidTooLong)
         );
         assert_eq!(
-            CentralSession::new(vec!["a".to_owned(); MAX_SERVICE_UUIDS + 1], 10_000, 4, 10_000, 3),
+            CentralSession::new(
+                vec!["a".to_owned(); MAX_SERVICE_UUIDS + 1],
+                10_000,
+                4,
+                10_000,
+                3
+            ),
             Err(BluetoothError::TooManyServiceUuids)
         );
         assert_eq!(
@@ -2495,7 +2475,13 @@ mod tests {
             Err(BluetoothError::ZeroPeripheralBound)
         );
         assert_eq!(
-            CentralSession::new(vec!["181A".to_owned()], 10_000, MAX_PERIPHERALS + 1, 10_000, 3),
+            CentralSession::new(
+                vec!["181A".to_owned()],
+                10_000,
+                MAX_PERIPHERALS + 1,
+                10_000,
+                3
+            ),
             Err(BluetoothError::PeripheralBoundTooLarge)
         );
         assert_eq!(
@@ -2503,11 +2489,23 @@ mod tests {
             Err(BluetoothError::ZeroConnectionTimeout)
         );
         assert_eq!(
-            CentralSession::new(vec!["181A".to_owned()], 10_000, 4, MAX_CONNECTION_TIMEOUT_MS + 1, 3),
+            CentralSession::new(
+                vec!["181A".to_owned()],
+                10_000,
+                4,
+                MAX_CONNECTION_TIMEOUT_MS + 1,
+                3
+            ),
             Err(BluetoothError::ConnectionTimeoutTooLarge)
         );
         assert_eq!(
-            CentralSession::new(vec!["181A".to_owned()], 10_000, 4, 10_000, MAX_RECONNECT_ATTEMPTS + 1),
+            CentralSession::new(
+                vec!["181A".to_owned()],
+                10_000,
+                4,
+                10_000,
+                MAX_RECONNECT_ATTEMPTS + 1
+            ),
             Err(BluetoothError::ReconnectBoundTooLarge)
         );
     }
@@ -2563,14 +2561,8 @@ mod tests {
 
     #[test]
     fn the_peripheral_set_is_bounded() {
-        let mut session = CentralSession::new(
-            vec!["181A".to_owned()],
-            10_000,
-            2,
-            10_000,
-            0,
-        )
-        .unwrap();
+        let mut session =
+            CentralSession::new(vec!["181A".to_owned()], 10_000, 2, 10_000, 0).unwrap();
         session.report_advertisement("AA:BB", -59, &[]).unwrap();
         session.report_advertisement("CC:DD", -60, &[]).unwrap();
         assert_eq!(
@@ -2616,9 +2608,18 @@ mod tests {
             .report_advertisement("CC:DD", -70, &["FF00"])
             .unwrap();
         assert_eq!(session.connect("CC:DD"), Err(BluetoothError::WrongState));
-        assert_eq!(session.connect("ZZ:ZZ"), Err(BluetoothError::UnknownPeripheral));
-        assert_eq!(session.mark_operational("AA:BB"), Err(BluetoothError::WrongState));
-        assert_eq!(session.observe_disconnect("AA:BB"), Err(BluetoothError::WrongState));
+        assert_eq!(
+            session.connect("ZZ:ZZ"),
+            Err(BluetoothError::UnknownPeripheral)
+        );
+        assert_eq!(
+            session.mark_operational("AA:BB"),
+            Err(BluetoothError::WrongState)
+        );
+        assert_eq!(
+            session.observe_disconnect("AA:BB"),
+            Err(BluetoothError::WrongState)
+        );
 
         let first = session.connect("AA:BB").unwrap();
         assert_eq!(first, "conn-AA:BB-1");
@@ -2633,7 +2634,10 @@ mod tests {
             session.peripheral_state("AA:BB"),
             Ok(PeripheralState::Operational)
         );
-        assert_eq!(session.mark_operational("AA:BB"), Err(BluetoothError::WrongState));
+        assert_eq!(
+            session.mark_operational("AA:BB"),
+            Err(BluetoothError::WrongState)
+        );
 
         session.observe_disconnect("AA:BB").unwrap();
         assert_eq!(
@@ -2677,7 +2681,10 @@ mod tests {
             })
         );
         session.observe_disconnect("AA:BB").unwrap();
-        assert_eq!(session.reconnect("AA:BB"), Err(BluetoothError::NoRetryRemaining));
+        assert_eq!(
+            session.reconnect("AA:BB"),
+            Err(BluetoothError::NoRetryRemaining)
+        );
     }
 
     #[test]
@@ -2780,8 +2787,14 @@ mod tests {
         assert_eq!(session.max_value_bytes("2A6E"), Ok(512));
         assert_eq!(session.characteristics(), 2);
         // Read-only path: a write-only characteristic rejects reads.
-        assert_eq!(session.read("2A37"), Err(BluetoothError::UnsupportedOperation));
-        assert_eq!(session.read("FFFF"), Err(BluetoothError::UnknownSubscription));
+        assert_eq!(
+            session.read("2A37"),
+            Err(BluetoothError::UnsupportedOperation)
+        );
+        assert_eq!(
+            session.read("FFFF"),
+            Err(BluetoothError::UnknownSubscription)
+        );
         let receipt = session.read("2A6E").unwrap();
         assert_eq!(receipt.uuid(), "2A6E");
         assert_eq!(receipt.max_value_bytes(), 512);
@@ -2806,8 +2819,12 @@ mod tests {
         )
         .unwrap();
         assert_eq!(session.pending_acknowledgements(), 0);
-        let first = session.write("2A6E", WriteMode::Acknowledged, &[1]).unwrap();
-        let second = session.write("2A6E", WriteMode::Acknowledged, &[2]).unwrap();
+        let first = session
+            .write("2A6E", WriteMode::Acknowledged, &[1])
+            .unwrap();
+        let second = session
+            .write("2A6E", WriteMode::Acknowledged, &[2])
+            .unwrap();
         assert_eq!(session.pending_acknowledgements(), 2);
         // Values over the characteristic bound fail closed.
         assert_eq!(
@@ -2817,7 +2834,10 @@ mod tests {
         assert_eq!(session.pending_acknowledgements(), 2);
         session.cancel(first.command_id()).unwrap();
         assert_eq!(session.pending_acknowledgements(), 1);
-        assert_eq!(session.cancel(first.command_id()), Err(BluetoothError::UnknownCommand));
+        assert_eq!(
+            session.cancel(first.command_id()),
+            Err(BluetoothError::UnknownCommand)
+        );
         session.acknowledge(second.command_id()).unwrap();
         assert_eq!(session.pending_acknowledgements(), 0);
         assert_eq!(
@@ -2853,7 +2873,10 @@ mod tests {
     #[test]
     fn decode_i16_le_rejects_malformed_payloads() {
         assert_eq!(decode_i16_le(&[0x22, 0x0B]), Ok(2850));
-        assert_eq!(decode_i16_le(&[0x22]), Err(BluetoothError::MalformedPayload));
+        assert_eq!(
+            decode_i16_le(&[0x22]),
+            Err(BluetoothError::MalformedPayload)
+        );
         assert_eq!(
             decode_i16_le(&[0x22, 0x0B, 0x00]),
             Err(BluetoothError::MalformedPayload)
@@ -2897,8 +2920,11 @@ mod tests {
         assert_eq!(
             StreamSession::new(
                 vec![
-                    StreamCharacteristic::new("2A6E".to_owned(), NotificationTransport::Notification)
-                        .unwrap(),
+                    StreamCharacteristic::new(
+                        "2A6E".to_owned(),
+                        NotificationTransport::Notification
+                    )
+                    .unwrap(),
                     StreamCharacteristic::new("2A6E".to_owned(), NotificationTransport::Indication)
                         .unwrap(),
                 ],
@@ -2965,8 +2991,14 @@ mod tests {
     fn intake_is_bounded_ordered_and_fail_closed_under_backpressure() {
         let mut session = stream_session();
         assert_eq!(session.characteristics(), 2);
-        assert_eq!(session.transport("2A6E"), Ok(NotificationTransport::Notification));
-        assert_eq!(session.receive("2A6E", &[1]), Err(BluetoothError::WrongState));
+        assert_eq!(
+            session.transport("2A6E"),
+            Ok(NotificationTransport::Notification)
+        );
+        assert_eq!(
+            session.receive("2A6E", &[1]),
+            Err(BluetoothError::WrongState)
+        );
         session.subscribe("2A6E").unwrap();
         assert_eq!(session.subscribe("2A6E"), Err(BluetoothError::WrongState));
         assert_eq!(
@@ -3018,7 +3050,10 @@ mod tests {
         );
         session.confirm(indication.ordinal()).unwrap();
         assert_eq!(session.pending_confirmations(), 0);
-        assert_eq!(session.confirm(indication.ordinal()), Err(BluetoothError::UnknownOrdinal));
+        assert_eq!(
+            session.confirm(indication.ordinal()),
+            Err(BluetoothError::UnknownOrdinal)
+        );
 
         // Drain the buffer so later intakes fit the bound of two.
         assert!(session.take().is_some());
@@ -3037,7 +3072,10 @@ mod tests {
             session.confirm(pending.ordinal()),
             Err(BluetoothError::UnknownOrdinal)
         );
-        assert_eq!(session.receive("2A37", &[4]), Err(BluetoothError::WrongState));
+        assert_eq!(
+            session.receive("2A37", &[4]),
+            Err(BluetoothError::WrongState)
+        );
         // An inactive subscription can be re-subscribed.
         session.subscribe("2A37").unwrap();
         assert!(session.receive("2A37", &[4]).is_ok());
@@ -3084,10 +3122,7 @@ mod tests {
         );
         let mut guard = GuardSession::new(2).unwrap();
         assert_eq!(guard.max_authorised_peripherals(), 2);
-        assert_eq!(
-            guard.authorise(""),
-            Err(BluetoothError::EmptyPeripheralId)
-        );
+        assert_eq!(guard.authorise(""), Err(BluetoothError::EmptyPeripheralId));
         assert_eq!(
             guard.authorise(&"p".repeat(MAX_PERIPHERAL_ID_BYTES + 1)),
             Err(BluetoothError::PeripheralIdTooLong)
@@ -3105,7 +3140,10 @@ mod tests {
         );
         guard.revoke("CC:DD").unwrap();
         assert!(!guard.is_authorised("CC:DD"));
-        assert_eq!(guard.revoke("CC:DD"), Err(BluetoothError::UnknownPeripheral));
+        assert_eq!(
+            guard.revoke("CC:DD"),
+            Err(BluetoothError::UnknownPeripheral)
+        );
     }
 
     #[test]
@@ -3142,7 +3180,9 @@ mod tests {
     #[test]
     fn advertisement_payloads_are_bounded_and_counted() {
         let mut guard = GuardSession::new(1).unwrap();
-        guard.validate_advertisement_payload(&[0u8; MAX_ADVERTISEMENT_BYTES]).unwrap();
+        guard
+            .validate_advertisement_payload(&[0u8; MAX_ADVERTISEMENT_BYTES])
+            .unwrap();
         assert_eq!(
             guard.validate_advertisement_payload(&[0u8; MAX_ADVERTISEMENT_BYTES + 1]),
             Err(BluetoothError::AdvertisementTooLarge)
@@ -3192,20 +3232,30 @@ mod tests {
     fn associations_record_suspend_and_reconcile() {
         let mut ledger = ContinuityLedger::new(2, 2).unwrap();
         ledger
-            .record("AA:BB", AssociationIntent::AutoReconnect, &["181A".to_owned()])
+            .record(
+                "AA:BB",
+                AssociationIntent::AutoReconnect,
+                &["181A".to_owned()],
+            )
             .unwrap();
         assert_eq!(
             ledger.association_state("AA:BB"),
             Ok(AssociationState::Active)
         );
-        assert_eq!(ledger.association_intent("AA:BB"), Ok(AssociationIntent::AutoReconnect));
+        assert_eq!(
+            ledger.association_intent("AA:BB"),
+            Ok(AssociationIntent::AutoReconnect)
+        );
         assert_eq!(ledger.subscriptions("AA:BB"), Ok(&["181A".to_owned()][..]));
         assert_eq!(ledger.revision("AA:BB"), Ok(1));
         // Updates keep state and bump the revision.
         ledger
             .record("AA:BB", AssociationIntent::OnDemand, &[])
             .unwrap();
-        assert_eq!(ledger.association_intent("AA:BB"), Ok(AssociationIntent::OnDemand));
+        assert_eq!(
+            ledger.association_intent("AA:BB"),
+            Ok(AssociationIntent::OnDemand)
+        );
         assert_eq!(ledger.subscriptions("AA:BB"), Ok(&[][..]));
         assert_eq!(ledger.revision("AA:BB"), Ok(2));
 
@@ -3213,12 +3263,16 @@ mod tests {
         ledger.observe_bluetooth_disabled();
         assert_eq!(
             ledger.association_state("AA:BB"),
-            Ok(AssociationState::Suspended(SuspensionReason::BluetoothDisabled))
+            Ok(AssociationState::Suspended(
+                SuspensionReason::BluetoothDisabled
+            ))
         );
         ledger.observe_app_suspended();
         assert_eq!(
             ledger.association_state("AA:BB"),
-            Ok(AssociationState::Suspended(SuspensionReason::BluetoothDisabled))
+            Ok(AssociationState::Suspended(
+                SuspensionReason::BluetoothDisabled
+            ))
         );
 
         // Planning restoration reads the persisted intent; it is a plan,
@@ -3227,7 +3281,10 @@ mod tests {
         assert_eq!(plan.peripheral_id(), "AA:BB");
         assert_eq!(plan.intent(), AssociationIntent::OnDemand);
         assert_eq!(ledger.restorations_planned(), 1);
-        assert_eq!(ledger.restore_intent("CC:DD"), Err(BluetoothError::UnknownPeripheral));
+        assert_eq!(
+            ledger.restore_intent("CC:DD"),
+            Err(BluetoothError::UnknownPeripheral)
+        );
 
         // Reconciliation restores only observed devices.
         assert_eq!(
@@ -3236,14 +3293,28 @@ mod tests {
         );
         assert_eq!(
             ledger.association_state("AA:BB"),
-            Ok(AssociationState::Suspended(SuspensionReason::BluetoothDisabled))
+            Ok(AssociationState::Suspended(
+                SuspensionReason::BluetoothDisabled
+            ))
         );
-        assert_eq!(ledger.reconcile("AA:BB", true), Ok(Reconciliation::Restored));
-        assert_eq!(ledger.association_state("AA:BB"), Ok(AssociationState::Active));
+        assert_eq!(
+            ledger.reconcile("AA:BB", true),
+            Ok(Reconciliation::Restored)
+        );
+        assert_eq!(
+            ledger.association_state("AA:BB"),
+            Ok(AssociationState::Active)
+        );
         assert_eq!(ledger.revision("AA:BB"), Ok(3));
-        assert_eq!(ledger.reconcile("AA:BB", true), Ok(Reconciliation::Unchanged));
+        assert_eq!(
+            ledger.reconcile("AA:BB", true),
+            Ok(Reconciliation::Unchanged)
+        );
         assert_eq!(ledger.reconciliations(), 1);
-        assert_eq!(ledger.reconcile("ZZ:ZZ", true), Err(BluetoothError::UnknownPeripheral));
+        assert_eq!(
+            ledger.reconcile("ZZ:ZZ", true),
+            Err(BluetoothError::UnknownPeripheral)
+        );
 
         // The association set is bounded and forget is destructive.
         ledger
@@ -3255,7 +3326,10 @@ mod tests {
         );
         assert_eq!(ledger.len(), 2);
         ledger.forget("CC:DD").unwrap();
-        assert_eq!(ledger.forget("CC:DD"), Err(BluetoothError::UnknownPeripheral));
+        assert_eq!(
+            ledger.forget("CC:DD"),
+            Err(BluetoothError::UnknownPeripheral)
+        );
         assert_eq!(ledger.len(), 1);
     }
 
@@ -3462,7 +3536,16 @@ mod tests {
     fn press_events_recognize_single_double_and_long_presses() {
         let mut session = access_session();
         assert_eq!(session.bindings(), 4);
-        assert_eq!(session.binding(InputSource::AccessibilitySwitch, InputEventKind::SinglePress).unwrap().action(), &SemanticAction::Select);
+        assert_eq!(
+            session
+                .binding(
+                    InputSource::AccessibilitySwitch,
+                    InputEventKind::SinglePress
+                )
+                .unwrap()
+                .action(),
+            &SemanticAction::Select
+        );
         // Release without a press, press without a release, non-monotonic.
         assert_eq!(
             session.release(InputSource::AccessibilitySwitch, 10),
@@ -3479,7 +3562,9 @@ mod tests {
         );
 
         // Short hold → single press → Select, labelled.
-        let outcome = session.release(InputSource::AccessibilitySwitch, 50).unwrap();
+        let outcome = session
+            .release(InputSource::AccessibilitySwitch, 50)
+            .unwrap();
         let dispatch = match outcome {
             EventOutcome::Dispatched(dispatch) => dispatch,
             EventOutcome::Suppressed => panic!("first event must dispatch"),
@@ -3490,8 +3575,12 @@ mod tests {
         assert_eq!(dispatch.label(), "Primary select");
 
         // Second release within the double-press window → double press.
-        session.press(InputSource::AccessibilitySwitch, 100).unwrap();
-        let outcome = session.release(InputSource::AccessibilitySwitch, 150).unwrap();
+        session
+            .press(InputSource::AccessibilitySwitch, 100)
+            .unwrap();
+        let outcome = session
+            .release(InputSource::AccessibilitySwitch, 150)
+            .unwrap();
         let dispatch = match outcome {
             EventOutcome::Dispatched(dispatch) => dispatch,
             EventOutcome::Suppressed => panic!("double press must dispatch"),
@@ -3500,8 +3589,12 @@ mod tests {
         assert_eq!(dispatch.action(), &SemanticAction::NavigateNext);
 
         // A hold beyond the long-press threshold → long press.
-        session.press(InputSource::AccessibilitySwitch, 1_000).unwrap();
-        let outcome = session.release(InputSource::AccessibilitySwitch, 1_600).unwrap();
+        session
+            .press(InputSource::AccessibilitySwitch, 1_000)
+            .unwrap();
+        let outcome = session
+            .release(InputSource::AccessibilitySwitch, 1_600)
+            .unwrap();
         let dispatch = match outcome {
             EventOutcome::Dispatched(dispatch) => dispatch,
             EventOutcome::Suppressed => panic!("long press must dispatch"),
@@ -3541,28 +3634,62 @@ mod tests {
         assert_eq!(session.dispatched(), 2);
     }
 
-    fn profile_char(uuid: &str, read: bool, write: bool, notify: bool, bound: usize) -> ProfileCharacteristic {
-        ProfileCharacteristic::new(uuid.to_owned(), ProfileProperties::new(read, write, notify, false), bound)
-            .unwrap()
+    fn profile_char(
+        uuid: &str,
+        read: bool,
+        write: bool,
+        notify: bool,
+        bound: usize,
+    ) -> ProfileCharacteristic {
+        ProfileCharacteristic::new(
+            uuid.to_owned(),
+            ProfileProperties::new(read, write, notify, false),
+            bound,
+        )
+        .unwrap()
     }
 
     #[test]
     fn profile_records_validate_ids_versions_and_duplicates() {
         assert_eq!(
-            DeviceProfileRecord::new(String::new(), ProfileCategory::Battery, "1.0.0".to_owned(), vec![], vec![]),
+            DeviceProfileRecord::new(
+                String::new(),
+                ProfileCategory::Battery,
+                "1.0.0".to_owned(),
+                vec![],
+                vec![]
+            ),
             Err(BluetoothError::BadProfileId)
         );
         assert_eq!(
-            DeviceProfileRecord::new("bad id!".to_owned(), ProfileCategory::Battery, "1.0.0".to_owned(), vec![], vec![]),
+            DeviceProfileRecord::new(
+                "bad id!".to_owned(),
+                ProfileCategory::Battery,
+                "1.0.0".to_owned(),
+                vec![],
+                vec![]
+            ),
             Err(BluetoothError::BadProfileId)
         );
         assert_eq!(
-            DeviceProfileRecord::new("p".repeat(MAX_PROFILE_ID_BYTES + 1), ProfileCategory::Battery, "1.0.0".to_owned(), vec![], vec![]),
+            DeviceProfileRecord::new(
+                "p".repeat(MAX_PROFILE_ID_BYTES + 1),
+                ProfileCategory::Battery,
+                "1.0.0".to_owned(),
+                vec![],
+                vec![]
+            ),
             Err(BluetoothError::ProfileIdTooLong)
         );
         for version in ["", "1", "1.0", "1.0.0.0", "01.a.0", "1.0.x"] {
             assert_eq!(
-                DeviceProfileRecord::new("com.goya.profile.test".to_owned(), ProfileCategory::Battery, version.to_owned(), vec![], vec![]),
+                DeviceProfileRecord::new(
+                    "com.goya.profile.test".to_owned(),
+                    ProfileCategory::Battery,
+                    version.to_owned(),
+                    vec![],
+                    vec![]
+                ),
                 Err(BluetoothError::BadProfileVersion),
                 "version {version} must be rejected"
             );
@@ -3704,7 +3831,10 @@ mod tests {
         registry.register(battery).unwrap();
         assert_eq!(registry.len(), 1);
         assert_eq!(
-            registry.profile("com.goya.battery.test").unwrap().category(),
+            registry
+                .profile("com.goya.battery.test")
+                .unwrap()
+                .category(),
             ProfileCategory::Battery
         );
         assert_eq!(

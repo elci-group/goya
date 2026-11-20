@@ -88,9 +88,7 @@ impl fmt::Display for Diagnostic {
             Self::TooManyCharacteristics => {
                 "profile characteristic count exceeds the supported bound"
             }
-            Self::DuplicateCharacteristic => {
-                "a characteristic UUID was declared more than once"
-            }
+            Self::DuplicateCharacteristic => "a characteristic UUID was declared more than once",
             Self::CategoryInvariantViolated => {
                 "profile does not satisfy its category's documented invariants"
             }
@@ -149,8 +147,14 @@ pub fn reference_profiles() -> Vec<DeviceProfileRecord> {
         required: Vec<ProfileCharacteristic>,
         optional: Vec<ProfileCharacteristic>,
     ) -> DeviceProfileRecord {
-        DeviceProfileRecord::new(id.to_owned(), category, "1.0.0".to_owned(), required, optional)
-            .unwrap()
+        DeviceProfileRecord::new(
+            id.to_owned(),
+            category,
+            "1.0.0".to_owned(),
+            required,
+            optional,
+        )
+        .unwrap()
     }
     vec![
         record(
@@ -207,12 +211,7 @@ pub fn reference_profiles() -> Vec<DeviceProfileRecord> {
             ],
             vec![],
         ),
-        record(
-            "bluetooth.audio",
-            ProfileCategory::Audio,
-            vec![],
-            vec![],
-        ),
+        record("bluetooth.audio", ProfileCategory::Audio, vec![], vec![]),
         record(
             "bluetooth.custom",
             ProfileCategory::Custom,
@@ -403,7 +402,9 @@ mod tests {
         assert!(first
             .canonical_ir
             .contains("session=ble_profile_bounded_classification\n"));
-        assert!(first.canonical_ir.contains("profile_id=com.goya.profile.test\n"));
+        assert!(first
+            .canonical_ir
+            .contains("profile_id=com.goya.profile.test\n"));
         assert!(first.canonical_ir.contains("category=battery\n"));
         assert!(first.canonical_ir.contains("version=1.0.0\n"));
         assert!(first.canonical_ir.contains("required=1\n"));
@@ -439,11 +440,17 @@ mod tests {
         assert_eq!(reference_profiles().len(), 10);
         assert_eq!(registry.len(), 10);
         assert_eq!(
-            registry.profile("bluetooth.environmental").unwrap().category(),
+            registry
+                .profile("bluetooth.environmental")
+                .unwrap()
+                .category(),
             ProfileCategory::Environmental
         );
         assert_eq!(
-            registry.profile("bluetooth.accessibility-switch").unwrap().category(),
+            registry
+                .profile("bluetooth.accessibility-switch")
+                .unwrap()
+                .category(),
             ProfileCategory::AccessibilitySwitch
         );
     }

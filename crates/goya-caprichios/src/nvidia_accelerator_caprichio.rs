@@ -99,7 +99,9 @@ pub const GPUS: &[(&str, GpuFacts)] = &[
 
 /// Per-GPU lookup. Unknown SKUs return None; the catalog never guesses.
 pub fn facts_for(gpu: &str) -> Option<&'static GpuFacts> {
-    GPUS.iter().find(|(name, _)| *name == gpu).map(|(_, facts)| facts)
+    GPUS.iter()
+        .find(|(name, _)| *name == gpu)
+        .map(|(_, facts)| facts)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -171,21 +173,15 @@ impl fmt::Display for NvidiaCudaDiagnostic {
         f.write_str(match self {
             Self::BadGpu => "GPU is not in the NVIDIA CUDA catalog",
             Self::ThreadsPerBlockZero => "threads per block must be positive",
-            Self::ThreadsPerBlockNotPowerOfTwo => {
-                "threads per block must be a power of two"
-            }
-            Self::ThreadsPerBlockTooLarge => {
-                "threads per block exceeds the CUDA limit of 1024"
-            }
+            Self::ThreadsPerBlockNotPowerOfTwo => "threads per block must be a power of two",
+            Self::ThreadsPerBlockTooLarge => "threads per block exceeds the CUDA limit of 1024",
             Self::BlocksZero => "block count must be positive",
             Self::BlocksTooLarge => "block count exceeds the supported bound",
             Self::SharedMemBytesZero => "shared memory bound must be positive",
             Self::SharedMemTooLarge => "shared memory bound exceeds the supported bound",
             Self::ThreadCountOverflow => "total thread count does not fit the supported bound",
             Self::UnsupportedTarget => "NVIDIA CUDA accelerator supports only CUDA targets",
-            Self::UnsupportedAccelerator => {
-                "GPU has no Tensor Cores for Int8-delegated workloads"
-            }
+            Self::UnsupportedAccelerator => "GPU has no Tensor Cores for Int8-delegated workloads",
             Self::MissingCudaDevice => "target runtime must report a CUDA device",
             Self::MissingCudaRuntimeApi => "target runtime must provide the CUDA runtime API",
             Self::MissingInt8Model => "kernel graph must be Int8 quantized for delegation",
@@ -225,9 +221,7 @@ impl NvidiaCudaDeclaration {
             crate::nvidia_runtime::CudaError::ThreadsPerBlockTooLarge => {
                 NvidiaCudaDiagnostic::ThreadsPerBlockTooLarge
             }
-            crate::nvidia_runtime::CudaError::ZeroBlocks => {
-                NvidiaCudaDiagnostic::BlocksZero
-            }
+            crate::nvidia_runtime::CudaError::ZeroBlocks => NvidiaCudaDiagnostic::BlocksZero,
             crate::nvidia_runtime::CudaError::BlocksTooLarge => {
                 NvidiaCudaDiagnostic::BlocksTooLarge
             }
@@ -369,8 +363,7 @@ mod tests {
     fn first_tensor_gpu() -> &'static str {
         // Tests lower launch plans for Int8-delegated work, so start from the
         // first catalog entry with Tensor Cores.
-        GPUS
-            .iter()
+        GPUS.iter()
             .find(|(_, facts)| facts.int8_tensor)
             .map(|(name, _)| *name)
             .expect("catalog must contain a Tensor Core GPU")
@@ -382,8 +375,14 @@ mod tests {
         let mut seen = std::collections::BTreeSet::new();
         for (name, facts) in GPUS {
             assert!(seen.insert(*name), "duplicate GPU {name}");
-            assert!(matches!(facts.series, "10" | "16" | "20" | "30" | "40" | "iGPU"));
-            assert!(facts.cc.contains('.'), "compute capability must look like n.m");
+            assert!(matches!(
+                facts.series,
+                "10" | "16" | "20" | "30" | "40" | "iGPU"
+            ));
+            assert!(
+                facts.cc.contains('.'),
+                "compute capability must look like n.m"
+            );
             assert!((2013..=2030).contains(&facts.year));
             assert!(!facts.chip.is_empty());
             if facts.tensor_cores.is_none() {
@@ -463,18 +462,16 @@ mod tests {
             huge_shared.normalize(),
             Err(NvidiaCudaDiagnostic::SharedMemTooLarge)
         );
-        assert!(declaration(gpu, MAX_THREADS_PER_BLOCK, MAX_BLOCKS).normalize().is_ok());
+        assert!(declaration(gpu, MAX_THREADS_PER_BLOCK, MAX_BLOCKS)
+            .normalize()
+            .is_ok());
     }
 
     #[test]
     fn negotiation_rejects_other_targets_and_missing_facilities() {
         let gpu = first_tensor_gpu();
         let ir = declaration(gpu, 256, 8).normalize().unwrap();
-        for target in [
-            Target::CrossPlatform,
-            Target::Browser,
-            Target::Node,
-        ] {
+        for target in [Target::CrossPlatform, Target::Browser, Target::Node] {
             assert_eq!(
                 ir.lower_checked(target, CAPABILITIES),
                 Err(NvidiaCudaDiagnostic::UnsupportedTarget)
@@ -510,10 +507,7 @@ mod tests {
                 NvidiaCudaDiagnostic::MissingUtf8Strings,
             ),
         ] {
-            assert_eq!(
-                ir.lower_checked(Target::NvidiaCuda, missing),
-                Err(expected)
-            );
+            assert_eq!(ir.lower_checked(Target::NvidiaCuda, missing), Err(expected));
         }
     }
 

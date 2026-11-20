@@ -142,9 +142,7 @@ impl fmt::Display for Diagnostic {
             Self::PeripheralBoundTooLarge => {
                 f.write_str("peripheral bound exceeds the supported bound")
             }
-            Self::ZeroConnectionTimeout => {
-                f.write_str("connection timeout bound must be positive")
-            }
+            Self::ZeroConnectionTimeout => f.write_str("connection timeout bound must be positive"),
             Self::ConnectionTimeoutTooLarge => {
                 f.write_str("connection timeout bound exceeds the supported bound")
             }
@@ -164,9 +162,9 @@ impl fmt::Display for Diagnostic {
                 f.write_str("target runtime must provide a BLE central role")
             }
             Self::MissingBluetoothPower => f.write_str("target Bluetooth adapter must be powered"),
-            Self::MissingBluetoothPermission => f.write_str(
-                "the application-level Bluetooth permission must be granted",
-            ),
+            Self::MissingBluetoothPermission => {
+                f.write_str("the application-level Bluetooth permission must be granted")
+            }
             Self::MissingUtf8Strings => f.write_str("target runtime must provide UTF-8 strings"),
         }
     }
@@ -352,8 +350,7 @@ mod tests {
 
     fn guard_declaration() -> BluetoothGuardDeclaration {
         BluetoothGuardDeclaration {
-            usage_description: "Connects to your temperature sensor to show readings."
-                .to_owned(),
+            usage_description: "Connects to your temperature sensor to show readings.".to_owned(),
             max_authorised_peripherals: 4,
             enforce_explicit_selection: true,
         }
@@ -389,10 +386,10 @@ mod tests {
         assert_eq!(first.contract, CONTRACT);
         assert_eq!(first.recipe_version, RECIPE_VERSION);
         assert!(first.canonical_ir.contains("target=ios\n"));
-        assert!(first.canonical_ir.contains("session=bluemoon_bounded_session\n"));
         assert!(first
             .canonical_ir
-            .contains("usage_description_bytes=53\n"));
+            .contains("session=bluemoon_bounded_session\n"));
+        assert!(first.canonical_ir.contains("usage_description_bytes=53\n"));
         assert!(first
             .canonical_ir
             .contains("max_authorised_peripherals=4\n"));
@@ -400,22 +397,16 @@ mod tests {
         assert!(first.canonical_ir.contains("max_scan_ms=10000\n"));
         assert!(first.canonical_ir.contains("service_uuids=181A\n"));
         assert!(first.canonical_ir.contains("max_peripherals=2\n"));
-        assert!(first
-            .canonical_ir
-            .contains("connection_timeout_ms=10000\n"));
+        assert!(first.canonical_ir.contains("connection_timeout_ms=10000\n"));
         assert!(first.canonical_ir.contains("max_reconnect_attempts=2\n"));
         assert!(first.canonical_ir.contains("authorisations_granted=none\n"));
-        assert!(
-            first
-                .canonical_ir
-                .ends_with("authorisations_granted=none\nperipherals_connected=none\n")
-        );
+        assert!(first
+            .canonical_ir
+            .ends_with("authorisations_granted=none\nperipherals_connected=none\n"));
         assert!(first.source.contains("pub fn make_bluemoon_session()"));
-        assert!(
-            first
-                .source
-                .contains("let guard = crate::bluetooth_runtime::GuardSession::new(4u16)?;")
-        );
+        assert!(first
+            .source
+            .contains("let guard = crate::bluetooth_runtime::GuardSession::new(4u16)?;"));
         assert!(first.source.contains(
             "let central = crate::bluetooth_runtime::CentralSession::new(vec![\"181A\".to_owned()], 10000u32, 2u16, 10000u32, 2u8)?;"
         ));
@@ -433,9 +424,7 @@ mod tests {
             .unwrap()
             .lower_checked(Target::AppleSiliconMac, IOS)
             .unwrap();
-        assert!(artifact
-            .canonical_ir
-            .contains("target=apple_silicon_mac\n"));
+        assert!(artifact.canonical_ir.contains("target=apple_silicon_mac\n"));
         assert!(artifact.canonical_ir.contains("service_uuids=181A,180F\n"));
         assert!(artifact
             .source

@@ -21,15 +21,11 @@ impl fmt::Display for WorkerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::ZeroWorkerThreads => "worker thread count must be positive",
-            Self::WorkerThreadsTooLarge => {
-                "worker thread count exceeds the supported bound"
-            }
+            Self::WorkerThreadsTooLarge => "worker thread count exceeds the supported bound",
             Self::ZeroBatch => "batch size must be positive",
             Self::BatchTooLarge => "batch size exceeds the supported bound",
             Self::ZeroWorkspaceBytes => "workspace bound must be positive",
-            Self::WorkspaceBytesTooLarge => {
-                "workspace bound exceeds the supported bound"
-            }
+            Self::WorkspaceBytesTooLarge => "workspace bound exceeds the supported bound",
             Self::WorkerOverflow => "total worker executions do not fit the supported bound",
         })
     }
@@ -108,12 +104,7 @@ mod tests {
 
     #[test]
     fn plan_accepts_full_bounds_and_rejects_violations() {
-        let plan = WorkerPlan::new(
-            MAX_WORKER_THREADS,
-            MAX_BATCH,
-            MAX_WORKSPACE_BYTES,
-        )
-        .unwrap();
+        let plan = WorkerPlan::new(MAX_WORKER_THREADS, MAX_BATCH, MAX_WORKSPACE_BYTES).unwrap();
         assert_eq!(plan.worker_threads(), MAX_WORKER_THREADS);
         assert_eq!(
             plan.total_worker_executions(),
@@ -127,10 +118,7 @@ mod tests {
             WorkerPlan::new(MAX_WORKER_THREADS + 1, 1, 1024),
             Err(WorkerError::WorkerThreadsTooLarge)
         );
-        assert_eq!(
-            WorkerPlan::new(1, 0, 1024),
-            Err(WorkerError::ZeroBatch)
-        );
+        assert_eq!(WorkerPlan::new(1, 0, 1024), Err(WorkerError::ZeroBatch));
         assert_eq!(
             WorkerPlan::new(1, MAX_BATCH + 1, 1024),
             Err(WorkerError::BatchTooLarge)

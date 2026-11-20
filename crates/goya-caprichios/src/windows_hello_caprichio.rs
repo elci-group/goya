@@ -73,18 +73,14 @@ impl fmt::Display for Diagnostic {
             Self::AttemptsTooLarge => "attempt bound exceeds the supported bound",
             Self::ZeroTimeout => "prompt timeout must be positive",
             Self::TimeoutTooLarge => "prompt timeout exceeds the supported bound",
-            Self::UnsupportedTarget => {
-                "Windows Hello factory supports only Windows targets"
-            }
+            Self::UnsupportedTarget => "Windows Hello factory supports only Windows targets",
             Self::MissingHelloSensor => {
                 "target must report a depth or infrared Windows Hello sensor"
             }
             Self::MissingHelloProvider => {
                 "target runtime must provide the Windows Hello authentication provider"
             }
-            Self::MissingTpmBackedMatch => {
-                "target must report TPM-backed match verification"
-            }
+            Self::MissingTpmBackedMatch => "target must report TPM-backed match verification",
             Self::MissingUtf8Strings => "target runtime must provide UTF-8 strings",
         })
     }
@@ -267,11 +263,7 @@ mod tests {
     #[test]
     fn negotiation_rejects_other_targets_and_missing_facilities() {
         let ir = declaration().normalize().unwrap();
-        for target in [
-            Target::CrossPlatform,
-            Target::Browser,
-            Target::Node,
-        ] {
+        for target in [Target::CrossPlatform, Target::Browser, Target::Node] {
             assert_eq!(
                 ir.lower_checked(target, WINDOWS),
                 Err(Diagnostic::UnsupportedTarget)

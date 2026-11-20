@@ -102,7 +102,10 @@ mod tests {
     fn plan_accepts_full_bounds_and_rejects_violations() {
         let plan = HexagonDelegatePlan::new(MAX_LAYERS, MAX_BATCH, MAX_WEIGHT_BYTES).unwrap();
         assert_eq!(plan.layers(), MAX_LAYERS);
-        assert_eq!(plan.total_executions(), u64::from(MAX_LAYERS) * u64::from(MAX_BATCH));
+        assert_eq!(
+            plan.total_executions(),
+            u64::from(MAX_LAYERS) * u64::from(MAX_BATCH)
+        );
         assert_eq!(
             HexagonDelegatePlan::new(0, 1, 1024),
             Err(HexagonError::ZeroLayers)

@@ -1,5 +1,6 @@
 # Nevada requirement gap ledger
 
+This ledger records the phase-0 baseline. See [NEVADA-3](NEVADA-3.md) and the [current roadmap](roadmap.md) for the implemented surface and remaining work.
 Programme: Nevada (Android TV compiler target), contract
 `nevada.androidtv/0.0.1`. Inspection date: 18 November 2026, against
 branch `nevada/phase0`. Ledger IDs are local to this file (N0-…). The

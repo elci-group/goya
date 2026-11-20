@@ -97,9 +97,7 @@ impl fmt::Display for Diagnostic {
             }
             Self::EmptyServiceUuid => "service UUID filter must not be empty",
             Self::ServiceUuidTooLong => "service UUID filter exceeds the supported bound",
-            Self::TooManyServiceUuids => {
-                "service UUID filter count exceeds the supported bound"
-            }
+            Self::TooManyServiceUuids => "service UUID filter count exceeds the supported bound",
             Self::ZeroScanBound => "discovery timeout bound must be positive",
             Self::ScanBoundTooLarge => "discovery timeout bound exceeds the supported bound",
             Self::ZeroPeripheralBound => "peripheral bound must be positive",
@@ -108,15 +106,11 @@ impl fmt::Display for Diagnostic {
             Self::ConnectionTimeoutTooLarge => {
                 "connection timeout bound exceeds the supported bound"
             }
-            Self::ReconnectBoundTooLarge => {
-                "reconnect attempt bound exceeds the supported bound"
-            }
+            Self::ReconnectBoundTooLarge => "reconnect attempt bound exceeds the supported bound",
             Self::UnsupportedTarget => {
                 "the BLE central factory supports only iOS and Apple Silicon Mac targets"
             }
-            Self::MissingCoreBluetoothCentral => {
-                "target runtime must provide a BLE central role"
-            }
+            Self::MissingCoreBluetoothCentral => "target runtime must provide a BLE central role",
             Self::MissingBluetoothPower => "target Bluetooth adapter must be powered",
             Self::MissingBluetoothPermission => {
                 "the application-level Bluetooth permission must be granted"
@@ -147,11 +141,7 @@ impl BluetoothCentralDeclaration {
         if self.service_uuids.len() > MAX_SERVICE_UUIDS {
             return Err(Diagnostic::TooManyServiceUuids);
         }
-        if self
-            .service_uuids
-            .iter()
-            .any(|uuid| uuid.is_empty())
-        {
+        if self.service_uuids.iter().any(|uuid| uuid.is_empty()) {
             return Err(Diagnostic::EmptyServiceUuid);
         }
         if self
@@ -334,11 +324,11 @@ mod tests {
             .unwrap()
             .lower_checked(Target::AppleSiliconMac, IOS)
             .unwrap();
-        assert!(artifact
-            .canonical_ir
-            .contains("target=apple_silicon_mac\n"));
+        assert!(artifact.canonical_ir.contains("target=apple_silicon_mac\n"));
         assert!(artifact.canonical_ir.contains("service_uuids=181A,180F\n"));
-        assert!(artifact.source.contains("apple_silicon_mac BLE central scan"));
+        assert!(artifact
+            .source
+            .contains("apple_silicon_mac BLE central scan"));
         assert!(artifact.source.contains("\"180F\".to_owned()"));
     }
 

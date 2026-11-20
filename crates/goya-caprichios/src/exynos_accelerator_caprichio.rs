@@ -137,12 +137,8 @@ impl fmt::Display for ExynosAcceleratorDiagnostic {
             Self::WeightBytesZero => "weight bound must be positive",
             Self::WeightBytesTooLarge => "weight bound exceeds the supported bound",
             Self::ExecutionsOverflow => "total executions do not fit the supported bound",
-            Self::UnsupportedTarget => {
-                "Exynos accelerator supports only Exynos targets"
-            }
-            Self::UnsupportedAccelerator => {
-                "generation has no documented NPU or NPU"
-            }
+            Self::UnsupportedTarget => "Exynos accelerator supports only Exynos targets",
+            Self::UnsupportedAccelerator => "generation has no documented NPU or NPU",
             Self::MissingnpuDsp => "target runtime must report an NPU",
             Self::MissingNeuralDelegate => "target runtime must provide a neural delegate",
             Self::MissingInt8Model => "model graph must be Int8 quantized for delegation",
@@ -173,15 +169,11 @@ impl ExynosAcceleratorDeclaration {
             self.max_weight_bytes,
         )
         .map_err(|error| match error {
-            crate::exynos_runtime::NpuError::ZeroLayers => {
-                ExynosAcceleratorDiagnostic::LayersZero
-            }
+            crate::exynos_runtime::NpuError::ZeroLayers => ExynosAcceleratorDiagnostic::LayersZero,
             crate::exynos_runtime::NpuError::LayersTooLarge => {
                 ExynosAcceleratorDiagnostic::LayersTooLarge
             }
-            crate::exynos_runtime::NpuError::ZeroBatch => {
-                ExynosAcceleratorDiagnostic::BatchZero
-            }
+            crate::exynos_runtime::NpuError::ZeroBatch => ExynosAcceleratorDiagnostic::BatchZero,
             crate::exynos_runtime::NpuError::BatchTooLarge => {
                 ExynosAcceleratorDiagnostic::BatchTooLarge
             }
@@ -412,11 +404,7 @@ mod tests {
     fn negotiation_rejects_other_targets_and_missing_facilities() {
         let soc = first_generation();
         let ir = declaration(soc, 32, 8).normalize().unwrap();
-        for target in [
-            Target::CrossPlatform,
-            Target::Browser,
-            Target::Node,
-        ] {
+        for target in [Target::CrossPlatform, Target::Browser, Target::Node] {
             assert_eq!(
                 ir.lower_checked(target, CAPABILITIES),
                 Err(ExynosAcceleratorDiagnostic::UnsupportedTarget)
@@ -452,10 +440,7 @@ mod tests {
                 ExynosAcceleratorDiagnostic::MissingUtf8Strings,
             ),
         ] {
-            assert_eq!(
-                ir.lower_checked(Target::Exynos, missing),
-                Err(expected)
-            );
+            assert_eq!(ir.lower_checked(Target::Exynos, missing), Err(expected));
         }
     }
 

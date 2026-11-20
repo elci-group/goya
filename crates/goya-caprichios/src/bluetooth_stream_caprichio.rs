@@ -101,25 +101,19 @@ impl fmt::Display for Diagnostic {
             Self::TooManyCharacteristics => {
                 "subscribed characteristic count exceeds the supported bound"
             }
-            Self::DuplicateCharacteristic => {
-                "a characteristic UUID was declared more than once"
-            }
+            Self::DuplicateCharacteristic => "a characteristic UUID was declared more than once",
             Self::ZeroNotificationBytes => "notification payload bound must be positive",
             Self::NotificationBytesTooLarge => {
                 "notification payload bound exceeds the supported bound"
             }
-            Self::ZeroBufferedNotifications => {
-                "buffered notification bound must be positive"
-            }
+            Self::ZeroBufferedNotifications => "buffered notification bound must be positive",
             Self::BufferedNotificationsTooLarge => {
                 "buffered notification bound exceeds the supported bound"
             }
             Self::UnsupportedTarget => {
                 "the notification stream factory supports only iOS and Apple Silicon Mac targets"
             }
-            Self::MissingCoreBluetoothGatt => {
-                "target runtime must provide a GATT client surface"
-            }
+            Self::MissingCoreBluetoothGatt => "target runtime must provide a GATT client surface",
             Self::MissingCharacteristicNotifications => {
                 "the declaration uses notifications and the target runtime must support them"
             }
@@ -158,7 +152,10 @@ impl BluetoothStreamDeclaration {
         }
         let mut seen = Vec::with_capacity(self.characteristics.len());
         for characteristic in &self.characteristics {
-            if seen.iter().any(|uuid: &String| uuid == characteristic.uuid()) {
+            if seen
+                .iter()
+                .any(|uuid: &String| uuid == characteristic.uuid())
+            {
                 return Err(Diagnostic::DuplicateCharacteristic);
             }
             seen.push(characteristic.uuid().to_owned());
@@ -364,8 +361,11 @@ mod tests {
         assert_eq!(
             BluetoothStreamDeclaration {
                 characteristics: vec![
-                    StreamCharacteristic::new("2A6E".to_owned(), NotificationTransport::Notification)
-                        .unwrap(),
+                    StreamCharacteristic::new(
+                        "2A6E".to_owned(),
+                        NotificationTransport::Notification
+                    )
+                    .unwrap(),
                     StreamCharacteristic::new("2A6E".to_owned(), NotificationTransport::Indication)
                         .unwrap(),
                 ],

@@ -79,9 +79,7 @@ impl fmt::Display for Diagnostic {
             Self::UnsupportedTarget => {
                 "Google Pay factory supports only Android and Chrome targets"
             }
-            Self::MissingGooglePayServices => {
-                "target runtime must provide Google Pay services"
-            }
+            Self::MissingGooglePayServices => "target runtime must provide Google Pay services",
             Self::MissingSecureElementCredential => {
                 "device must report a Secure Element payment credential"
             }

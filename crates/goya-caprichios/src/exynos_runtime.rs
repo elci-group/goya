@@ -102,19 +102,16 @@ mod tests {
     fn plan_accepts_full_bounds_and_rejects_violations() {
         let plan = NpuDelegatePlan::new(MAX_LAYERS, MAX_BATCH, MAX_WEIGHT_BYTES).unwrap();
         assert_eq!(plan.layers(), MAX_LAYERS);
-        assert_eq!(plan.total_executions(), u64::from(MAX_LAYERS) * u64::from(MAX_BATCH));
         assert_eq!(
-            NpuDelegatePlan::new(0, 1, 1024),
-            Err(NpuError::ZeroLayers)
+            plan.total_executions(),
+            u64::from(MAX_LAYERS) * u64::from(MAX_BATCH)
         );
+        assert_eq!(NpuDelegatePlan::new(0, 1, 1024), Err(NpuError::ZeroLayers));
         assert_eq!(
             NpuDelegatePlan::new(MAX_LAYERS + 1, 1, 1024),
             Err(NpuError::LayersTooLarge)
         );
-        assert_eq!(
-            NpuDelegatePlan::new(1, 0, 1024),
-            Err(NpuError::ZeroBatch)
-        );
+        assert_eq!(NpuDelegatePlan::new(1, 0, 1024), Err(NpuError::ZeroBatch));
         assert_eq!(
             NpuDelegatePlan::new(1, MAX_BATCH + 1, 1024),
             Err(NpuError::BatchTooLarge)

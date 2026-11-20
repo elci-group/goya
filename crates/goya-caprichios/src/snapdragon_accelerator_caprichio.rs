@@ -184,12 +184,8 @@ impl fmt::Display for SnapdragonAcceleratorDiagnostic {
             Self::WeightBytesZero => "weight bound must be positive",
             Self::WeightBytesTooLarge => "weight bound exceeds the supported bound",
             Self::ExecutionsOverflow => "total executions do not fit the supported bound",
-            Self::UnsupportedTarget => {
-                "Snapdragon accelerator supports only Snapdragon targets"
-            }
-            Self::UnsupportedAccelerator => {
-                "generation has no documented Hexagon DSP or NPU"
-            }
+            Self::UnsupportedTarget => "Snapdragon accelerator supports only Snapdragon targets",
+            Self::UnsupportedAccelerator => "generation has no documented Hexagon DSP or NPU",
             Self::MissingHexagonDsp => "target runtime must report a Hexagon DSP",
             Self::MissingNeuralDelegate => "target runtime must provide a neural delegate",
             Self::MissingInt8Model => "model graph must be Int8 quantized for delegation",
@@ -459,11 +455,7 @@ mod tests {
     fn negotiation_rejects_other_targets_and_missing_facilities() {
         let soc = first_generation();
         let ir = declaration(soc, 32, 8).normalize().unwrap();
-        for target in [
-            Target::CrossPlatform,
-            Target::Browser,
-            Target::Node,
-        ] {
+        for target in [Target::CrossPlatform, Target::Browser, Target::Node] {
             assert_eq!(
                 ir.lower_checked(target, CAPABILITIES),
                 Err(SnapdragonAcceleratorDiagnostic::UnsupportedTarget)
@@ -499,10 +491,7 @@ mod tests {
                 SnapdragonAcceleratorDiagnostic::MissingUtf8Strings,
             ),
         ] {
-            assert_eq!(
-                ir.lower_checked(Target::Snapdragon, missing),
-                Err(expected)
-            );
+            assert_eq!(ir.lower_checked(Target::Snapdragon, missing), Err(expected));
         }
     }
 

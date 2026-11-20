@@ -18,8 +18,7 @@ pub const RECIPE_VERSION: &str = "0.0.1";
 pub const MAX_BINDINGS: usize = crate::bluetooth_runtime::MAX_BINDINGS;
 pub const MAX_DEBOUNCE_MS: u32 = crate::bluetooth_runtime::MAX_DEBOUNCE_MS;
 pub const MAX_LONG_PRESS_MS: u32 = crate::bluetooth_runtime::MAX_LONG_PRESS_MS;
-pub const MAX_DOUBLE_PRESS_WINDOW_MS: u32 =
-    crate::bluetooth_runtime::MAX_DOUBLE_PRESS_WINDOW_MS;
+pub const MAX_DOUBLE_PRESS_WINDOW_MS: u32 = crate::bluetooth_runtime::MAX_DOUBLE_PRESS_WINDOW_MS;
 
 pub use crate::bluetooth_runtime::{
     EventOutcome, InputBinding, InputDispatch, InputEventKind, InputMappingSession, InputSource,
@@ -102,18 +101,12 @@ impl fmt::Display for Diagnostic {
                  to declared application requirements"
             }
             Self::TooManyBindings => "input binding count exceeds the supported bound",
-            Self::DuplicateBinding => {
-                "an input source and event kind was bound more than once"
-            }
+            Self::DuplicateBinding => "an input source and event kind was bound more than once",
             Self::DebounceBoundTooLarge => "debounce bound exceeds the supported bound",
             Self::ZeroLongPressBound => "long-press threshold must be positive",
-            Self::LongPressBoundTooLarge => {
-                "long-press threshold exceeds the supported bound"
-            }
+            Self::LongPressBoundTooLarge => "long-press threshold exceeds the supported bound",
             Self::ZeroDoublePressBound => "double-press window must be positive",
-            Self::DoublePressBoundTooLarge => {
-                "double-press window exceeds the supported bound"
-            }
+            Self::DoublePressBoundTooLarge => "double-press window exceeds the supported bound",
             Self::SystemManagedDevicesProtected => {
                 "system-managed accessibility devices remain system-managed; \
                  protected input streams cannot be intercepted"
@@ -352,12 +345,16 @@ mod tests {
         assert_eq!(first, second);
         assert_eq!(first.contract, CONTRACT);
         assert!(first.canonical_ir.contains("target=ios\n"));
-        assert!(first.canonical_ir.contains("session=ble_access_bounded_mapping\n"));
+        assert!(first
+            .canonical_ir
+            .contains("session=ble_access_bounded_mapping\n"));
         assert!(first.canonical_ir.contains("bindings=4\n"));
         assert!(first.canonical_ir.contains("debounce_ms=500\n"));
         assert!(first.canonical_ir.contains("long_press_threshold_ms=400\n"));
         assert!(first.canonical_ir.contains("double_press_window_ms=300\n"));
-        assert!(first.canonical_ir.contains("system_managed_devices=untouched\n"));
+        assert!(first
+            .canonical_ir
+            .contains("system_managed_devices=untouched\n"));
         assert!(first
             .canonical_ir
             .contains("protected_streams_intercepted=none\n"));

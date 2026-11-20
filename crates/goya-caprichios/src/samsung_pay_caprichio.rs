@@ -80,12 +80,8 @@ impl fmt::Display for Diagnostic {
             Self::BadCurrencyCode => "currency code must be three uppercase ASCII letters",
             Self::ZeroAmountBound => "payment amount bound must be positive",
             Self::AmountBoundTooLarge => "payment amount bound exceeds the supported bound",
-            Self::UnsupportedTarget => {
-                "Samsung Pay factory supports only Samsung Android devices"
-            }
-            Self::MissingSamsungPayServices => {
-                "target runtime must provide Samsung Pay services"
-            }
+            Self::UnsupportedTarget => "Samsung Pay factory supports only Samsung Android devices",
+            Self::MissingSamsungPayServices => "target runtime must provide Samsung Pay services",
             Self::MissingSamsungDevice => "target must be a Samsung device",
             Self::MissingSecureElementCredential => {
                 "device must report a Secure Element payment credential"
@@ -233,12 +229,8 @@ mod tests {
         assert_eq!(ir.merchant_id(), "com.goya.pay");
         assert_eq!(ir.currency_code(), "EUR");
         assert_eq!(ir.max_minor_units(), 50_000);
-        let first = ir
-            .lower_checked(Target::SamsungAndroid, SAMSUNG)
-            .unwrap();
-        let second = ir
-            .lower_checked(Target::SamsungAndroid, SAMSUNG)
-            .unwrap();
+        let first = ir.lower_checked(Target::SamsungAndroid, SAMSUNG).unwrap();
+        let second = ir.lower_checked(Target::SamsungAndroid, SAMSUNG).unwrap();
         assert_eq!(first, second);
         assert_eq!(first.contract, CONTRACT);
         assert!(first.canonical_ir.contains("target=samsung_android\n"));

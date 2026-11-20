@@ -75,9 +75,7 @@ impl fmt::Display for Diagnostic {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::ThreadsPerGroupZero => "threads per threadgroup must be positive",
-            Self::ThreadsPerGroupNotPowerOfTwo => {
-                "threads per threadgroup must be a power of two"
-            }
+            Self::ThreadsPerGroupNotPowerOfTwo => "threads per threadgroup must be a power of two",
             Self::ThreadsPerGroupTooLarge => {
                 "threads per threadgroup exceeds the Metal limit of 1024"
             }
@@ -228,8 +226,12 @@ mod tests {
         assert_eq!(ir.threads_per_group(), 64);
         assert_eq!(ir.groups(), 32);
         assert_eq!(ir.total_threads(), 2048);
-        let first = ir.lower_checked(Target::AppleSilicon, APPLE_SILICON).unwrap();
-        let second = ir.lower_checked(Target::AppleSilicon, APPLE_SILICON).unwrap();
+        let first = ir
+            .lower_checked(Target::AppleSilicon, APPLE_SILICON)
+            .unwrap();
+        let second = ir
+            .lower_checked(Target::AppleSilicon, APPLE_SILICON)
+            .unwrap();
         assert_eq!(first, second);
         assert_eq!(first.contract, CONTRACT);
         assert_eq!(first.total_threads, 2048);
@@ -237,9 +239,7 @@ mod tests {
         assert!(first.canonical_ir.contains("threads_per_group=64\n"));
         assert!(first.canonical_ir.contains("total_threads=2048\n"));
         assert!(first.canonical_ir.contains("memory=unified\n"));
-        assert!(first
-            .canonical_ir
-            .contains("scheduling=none_guaranteed\n"));
+        assert!(first.canonical_ir.contains("scheduling=none_guaranteed\n"));
         assert!(first
             .source
             .contains("MetalDispatchPlan::new(64u32, 32u32, 4096u64)"));
@@ -259,10 +259,7 @@ mod tests {
             declaration(MAX_THREADS_PER_GROUP * 2, 32).normalize(),
             Err(Diagnostic::ThreadsPerGroupTooLarge)
         );
-        assert_eq!(
-            declaration(64, 0).normalize(),
-            Err(Diagnostic::GroupsZero)
-        );
+        assert_eq!(declaration(64, 0).normalize(), Err(Diagnostic::GroupsZero));
         assert_eq!(
             declaration(64, MAX_GROUPS + 1).normalize(),
             Err(Diagnostic::GroupsTooLarge)
@@ -278,17 +275,15 @@ mod tests {
         );
         // `MAX_GROUPS * MAX_THREADS_PER_GROUP` fits a `u32`, so the overflow
         // guard stays defensive; the full valid bound is accepted.
-        assert!(declaration(MAX_THREADS_PER_GROUP, MAX_GROUPS).normalize().is_ok());
+        assert!(declaration(MAX_THREADS_PER_GROUP, MAX_GROUPS)
+            .normalize()
+            .is_ok());
     }
 
     #[test]
     fn negotiation_rejects_other_targets_and_missing_facilities() {
         let ir = declaration(64, 32).normalize().unwrap();
-        for target in [
-            Target::CrossPlatform,
-            Target::Browser,
-            Target::Node,
-        ] {
+        for target in [Target::CrossPlatform, Target::Browser, Target::Node] {
             assert_eq!(
                 ir.lower_checked(target, APPLE_SILICON),
                 Err(Diagnostic::UnsupportedTarget)
@@ -340,7 +335,9 @@ mod tests {
             .unwrap();
         let plan = crate::apple_runtime::MetalDispatchPlan::new(256, 4, 4096).unwrap();
         assert_eq!(plan.total_threads(), 1024);
-        assert!(artifact.source.contains("MetalDispatchPlan::new(256u32, 4u32, 4096u64)"));
+        assert!(artifact
+            .source
+            .contains("MetalDispatchPlan::new(256u32, 4u32, 4096u64)"));
     }
 
     #[test]
