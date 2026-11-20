@@ -301,7 +301,7 @@ mod tests {
     #[test]
     fn alexa_model_maps_transport_to_builtin() {
         let scene = parse(
-            "@ontology app { @button go { } @interaction p { trigger: button.go.activate; class: D1; state { } input { } } @intent play { action: p; transport: play_pause; category: playback; voice { utterance: \"Play\"; } fallback { remote: go; } }",
+            "@ontology app { @button go { id: \"button.go\"; } @interaction p { trigger: button.go.activate; class: D1; state { } input { } } @intent play { action: p; transport: play_pause; category: playback; voice { utterance: \"Play\"; } fallback { remote: go; } }",
         ).unwrap();
         let model = emit_alexa_interaction_model(&scene, "oem.generic.tv/1.0.0", 800.0, 600.0)
             .expect("model emits");
