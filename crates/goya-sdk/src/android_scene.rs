@@ -129,6 +129,18 @@ pub fn compile_android_scene_with(
     source: &str,
     options: &AndroidSceneOptions,
 ) -> Result<AndroidScene, AndroidSceneError> {
+    compile_scene(source, options, false)
+}
+
+pub(crate) fn compile_tv_scene(source: &str) -> Result<AndroidScene, AndroidSceneError> {
+    compile_scene(source, &AndroidSceneOptions::default(), true)
+}
+
+fn compile_scene(
+    source: &str,
+    options: &AndroidSceneOptions,
+    tv: bool,
+) -> Result<AndroidScene, AndroidSceneError> {
     let whole = SourceRange {
         start: 0,
         end: source.len(),
@@ -288,7 +300,7 @@ pub fn compile_android_scene_with(
     let (file, mapped) = emit_spec(&handoff, &plans, package, spec);
     files.push(file);
     entries.extend(mapped);
-    let (file, mapped) = emit_view(&handoff, &plans, package, spec);
+    let (file, mapped) = emit_view(&handoff, &plans, package, spec, tv);
     files.push(file);
     entries.extend(mapped);
     if !scene.interactions.is_empty() {
@@ -700,6 +712,7 @@ fn emit_view(
     plans: &[Plan<'_>],
     package: &str,
     spec: &str,
+    tv: bool,
 ) -> (KotlinFile, Vec<SourceMapEntry>) {
     let scene = &handoff.parsed().scene;
     let has_actions = !scene.interactions.is_empty();
@@ -715,9 +728,18 @@ fn emit_view(
         .ident(spec)
         .code(".CELL_COUNT)\n    private val limits = IntArray(2 * ")
         .ident(spec)
-        .code(".CELL_COUNT)\n\n    init {\n");
+        .code(".CELL_COUNT)\n");
+    if tv {
+        w.code(
+            "    private val remote = NevadaRemote(context, report) { cells[it]?.focusTarget() }\n",
+        );
+    }
+    w.code("\n    init {\n");
     for index in 0..plans.len() {
         w.code("        cell").int(index).code("()\n");
+    }
+    if tv {
+        w.code("        remote.attach()\n");
     }
     w.code("    }\n");
 
@@ -821,10 +843,19 @@ fn emit_view(
         .code("        setMeasuredDimension(MeasureSpec.getSize(widthSpec), MeasureSpec.getSize(heightSpec))\n")
         .code("        // The GSSH viewport is the area inside the system bars and cutouts.\n")
         .code("        val width = maxOf(measuredWidth - paddingLeft - paddingRight, 0)\n")
-        .code("        val height = maxOf(measuredHeight - paddingTop - paddingBottom, 0)\n")
+        .code("        val height = maxOf(measuredHeight - paddingTop - paddingBottom, 0)\n");
+    if tv {
+        w.code("        remote.resize(width, height)\n");
+    }
+    w
         .code("        val rects = ")
         .ident(spec)
-        .code(".resolve(width / density, height / density)\n        for (i in 0 until ")
+        .code(if tv {
+            ".resolve(NevadaRemote.WIDTH_DP, NevadaRemote.HEIGHT_DP)"
+        } else {
+            ".resolve(width / density, height / density)"
+        })
+        .code("\n        for (i in 0 until ")
         .ident(spec)
         .code(".CELL_COUNT) {\n")
         .code("            val right = ")
@@ -847,9 +878,32 @@ fn emit_view(
         .code(".textSizeMp(rects, i)\n            val strokeMp = ")
         .ident(spec)
         .code(".strokeWidthMp(rects, i)\n")
-        .code("            cells[i]!!.applyLengths(if (textMp < 0) -1f else (textMp.toDouble() * density / 1000.0).toFloat(), if (strokeMp < 0) -1 else px(strokeMp))\n")
+        .code(if tv {
+            "            cells[i]!!.applyLengths(if (textMp < 0) -1f else remote.scale(textMp).toFloat(), if (strokeMp < 0) -1 else px(strokeMp))\n"
+        } else {
+            "            cells[i]!!.applyLengths(if (textMp < 0) -1f else (textMp.toDouble() * density / 1000.0).toFloat(), if (strokeMp < 0) -1 else px(strokeMp))\n"
+        })
         .code("        }\n        measureCell(cells[0]!!)\n    }\n");
+    w.code("\n    override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {\n");
+    if tv {
+        w.code("        layoutCell(cells[0]!!, -paddingLeft - remote.offsetX, -paddingTop - remote.offsetY)\n")
+            .code("        remote.restoreFocus(findFocus())\n");
+    } else {
+        w.code("        layoutCell(cells[0]!!, -paddingLeft, -paddingTop)\n");
+    }
+    w.code("    }\n");
+    if tv {
+        w.code(
+            "\n    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean =\n        remote.dispatch(event, findFocus()) || super.dispatchKeyEvent(event)\n",
+        );
+    }
     w.code(VIEW_LAYOUT);
+    w.code(if tv {
+        "        Math.round(remote.scale(mp)).coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong()).toInt()\n"
+    } else {
+        "        Math.round(mp.toDouble() * density / 1000.0).coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong()).toInt()\n"
+    });
+    w.code(VIEW_CONTENT);
 
     if has_actions {
         w.code("\n    private fun activate(actionId: String) {\n")
@@ -922,6 +976,10 @@ fn emit_view(
             .code("    private fun rejectField(field: EditText, message: String) {\n        field.error = message\n    }\n");
     }
     w.code("}\n");
+    w.code(VIEW_CELL);
+    if tv {
+        w.code("\n    internal fun focusTarget(): View? = content\n");
+    }
     w.code(VIEW_CLASSES);
 
     if has_actions {
@@ -978,10 +1036,6 @@ import android.widget.TextView
 ";
 
 const VIEW_LAYOUT: &str = r#"
-    override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
-        layoutCell(cells[0]!!, -paddingLeft, -paddingTop)
-    }
-
     override fun onApplyWindowInsets(insets: WindowInsets): WindowInsets {
         if (Build.VERSION.SDK_INT >= 30) {
             val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
@@ -1012,8 +1066,9 @@ const VIEW_LAYOUT: &str = r#"
 
     /** Millipoints to pixels: each edge rounds half up on its own. */
     private fun px(mp: Long): Int =
-        Math.round(mp.toDouble() * density / 1000.0).coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong()).toInt()
+"#;
 
+const VIEW_CONTENT: &str = r#"
     private fun label(text: String): TextView = TextView(context).apply {
         this.text = text
         setHorizontallyScrolling(true)
@@ -1045,12 +1100,14 @@ const VIEW_LAYOUT: &str = r#"
     }
 "#;
 
-const VIEW_CLASSES: &str = r#"
+const VIEW_CELL: &str = r#"
 /** One scene element. Its own content fills it; child cells use scene edges. */
 class GoyaCell(context: Context, private val scene: GoyaSceneView, val index: Int) : ViewGroup(context) {
     private var content: View? = null
     private var layer: GoyaScrollLayer? = null
+"#;
 
+const VIEW_CLASSES: &str = r#"
     fun setContent(view: View) {
         content = view
         addView(view, 0)
