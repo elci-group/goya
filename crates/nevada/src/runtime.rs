@@ -71,7 +71,10 @@ impl fmt::Display for RuntimeError {
                 f.write_str("voice text entry has no usable non-voice fallback")
             }
             Self::UnsupportedEmittedRoute(route) => {
-                write!(f, "no runtime capability check exists for emitted route {route:?}")
+                write!(
+                    f,
+                    "no runtime capability check exists for emitted route {route:?}"
+                )
             }
         }
     }
@@ -177,6 +180,8 @@ mod tests {
     use super::*;
     use crate::caprichio::{compile_registered, Declaration, Ir};
     use crate::dcr::{HardwareCapability, MotionOutput};
+    use crate::focus::{FocusElement, Viewport};
+    use crate::gate::{verify, SceneInteraction};
 
     fn observations(
         present: Vec<HardwareCapability>,
@@ -308,5 +313,44 @@ mod tests {
             recheck(&factory, &device, &[TouchInteraction::MouseScroll]),
             Err(RuntimeError::MissingRequiredPath(InputPath::SpatialPointer))
         );
+    }
+
+    #[test]
+    fn verified_tv_keyboard_route_cannot_be_replaced_by_oem_voice() {
+        let scene = verify(
+            "oem.acme.voice-remote/1.0.0",
+            Viewport {
+                x: 0,
+                y: 0,
+                w: 20,
+                h: 20,
+            },
+            &[FocusElement {
+                id: 1,
+                x: 0,
+                y: 0,
+                w: 10,
+                h: 10,
+                focusable: true,
+                essential: true,
+            }],
+            &[SceneInteraction {
+                element_id: 1,
+                authored_id: "search",
+                kind: TouchInteraction::TextInput,
+            }],
+        )
+        .unwrap();
+        let mut device = observations(
+            vec![HardwareCapability::Dpad, HardwareCapability::Microphone],
+            MotionOutput::None,
+            vec![InputPath::Dpad, InputPath::Voice],
+        );
+        assert_eq!(
+            recheck_verified(&scene, &device),
+            Err(RuntimeError::MissingRequiredPath(InputPath::TvKeyboard))
+        );
+        device.usable_paths.push(InputPath::TvKeyboard);
+        assert_eq!(recheck_verified(&scene, &device), Ok(()));
     }
 }
