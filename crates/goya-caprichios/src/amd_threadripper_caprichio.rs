@@ -417,7 +417,8 @@ mod tests {
             assert_eq!(facts.threads_per_core, 2, "SMT is two threads per core");
             assert_eq!(facts.thread_tech, "SMT");
             assert!(
-                facts.cores_max * facts.threads_per_core <= MAX_WORKER_THREADS,
+                u64::from(facts.cores_max) * u64::from(facts.threads_per_core)
+                    <= u64::from(MAX_WORKER_THREADS),
                 "{name} thread count must fit the supported bound"
             );
             assert!(matches!(facts.mem_channels, 4 | 8), "{name} channels");
