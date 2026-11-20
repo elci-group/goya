@@ -1590,6 +1590,48 @@ pub fn negotiate(
                         .map_err(NegotiationError::AmdEpyc)?,
                 )
             }
+            crate::intel_desktop_caprichio::CONTRACT => {
+                let declaration = request.intel_desktop.clone().ok_or(
+                    NegotiationError::MissingDeclaration {
+                        capability: crate::intel_desktop_caprichio::CONTRACT,
+                    },
+                )?;
+                let ir = declaration
+                    .normalize()
+                    .map_err(NegotiationError::IntelDesktop)?;
+                Artifact::IntelDesktop(
+                    ir.lower_checked(host.intel_desktop_target, host.intel_desktop_host)
+                        .map_err(NegotiationError::IntelDesktop)?,
+                )
+            }
+            crate::intel_mobile_caprichio::CONTRACT => {
+                let declaration = request.intel_mobile.clone().ok_or(
+                    NegotiationError::MissingDeclaration {
+                        capability: crate::intel_mobile_caprichio::CONTRACT,
+                    },
+                )?;
+                let ir = declaration
+                    .normalize()
+                    .map_err(NegotiationError::IntelMobile)?;
+                Artifact::IntelMobile(
+                    ir.lower_checked(host.intel_mobile_target, host.intel_mobile_host)
+                        .map_err(NegotiationError::IntelMobile)?,
+                )
+            }
+            crate::intel_xeon_caprichio::CONTRACT => {
+                let declaration = request.intel_xeon.clone().ok_or(
+                    NegotiationError::MissingDeclaration {
+                        capability: crate::intel_xeon_caprichio::CONTRACT,
+                    },
+                )?;
+                let ir = declaration
+                    .normalize()
+                    .map_err(NegotiationError::IntelXeon)?;
+                Artifact::IntelXeon(
+                    ir.lower_checked(host.intel_xeon_target, host.intel_xeon_host)
+                        .map_err(NegotiationError::IntelXeon)?,
+                )
+            }
             crate::metal_caprichio::CONTRACT => {
                 let declaration =
                     request
@@ -1839,6 +1881,9 @@ pub fn negotiate(
             Artifact::AmdApu(_) => crate::amd_apu_caprichio::CONTRACT,
             Artifact::AmdThreadripper(_) => crate::amd_threadripper_caprichio::CONTRACT,
             Artifact::AmdEpyc(_) => crate::amd_epyc_caprichio::CONTRACT,
+            Artifact::IntelDesktop(_) => crate::intel_desktop_caprichio::CONTRACT,
+            Artifact::IntelMobile(_) => crate::intel_mobile_caprichio::CONTRACT,
+            Artifact::IntelXeon(_) => crate::intel_xeon_caprichio::CONTRACT,
             Artifact::AcceleratorModel(ref a) => a.contract,
         };
         result.push(NegotiatedCapability { id, artifact });
@@ -2058,6 +2103,30 @@ mod tests {
             },
             amd_epyc_target: AmdEpycTarget::AmdEpyc,
             amd_epyc_host: AmdEpycHost {
+                x86_64_runtime: true,
+                avx: true,
+                avx2: true,
+                avx512: true,
+                utf8_strings: true,
+            },
+            intel_desktop_target: IntelDesktopTarget::IntelDesktop,
+            intel_desktop_host: IntelDesktopHost {
+                x86_64_runtime: true,
+                avx: true,
+                avx2: true,
+                avx512: true,
+                utf8_strings: true,
+            },
+            intel_mobile_target: IntelMobileTarget::IntelMobile,
+            intel_mobile_host: IntelMobileHost {
+                x86_64_runtime: true,
+                avx: true,
+                avx2: true,
+                avx512: true,
+                utf8_strings: true,
+            },
+            intel_xeon_target: IntelXeonTarget::IntelXeon,
+            intel_xeon_host: IntelXeonHost {
                 x86_64_runtime: true,
                 avx: true,
                 avx2: true,
@@ -2320,6 +2389,36 @@ mod tests {
             batch: 8,
             workspace_bytes: 65_536,
             isa: crate::amd_epyc_caprichio::Isa::Avx512,
+        }
+    }
+
+    fn intel_desktop_declaration() -> IntelDesktopDeclaration {
+        IntelDesktopDeclaration {
+            cpu: "Core 2 (Penryn)".into(),
+            worker_threads: 4,
+            batch: 8,
+            workspace_bytes: 65_536,
+            isa: crate::intel_desktop_caprichio::Isa::Sse3,
+        }
+    }
+
+    fn intel_mobile_declaration() -> IntelMobileDeclaration {
+        IntelMobileDeclaration {
+            cpu: "Tiger Lake".into(),
+            worker_threads: 8,
+            batch: 8,
+            workspace_bytes: 65_536,
+            isa: crate::intel_mobile_caprichio::Isa::Avx512,
+        }
+    }
+
+    fn intel_xeon_declaration() -> IntelXeonDeclaration {
+        IntelXeonDeclaration {
+            cpu: "Xeon 5500 (Nehalem-EP)".into(),
+            worker_threads: 8,
+            batch: 8,
+            workspace_bytes: 65_536,
+            isa: crate::intel_xeon_caprichio::Isa::Sse3,
         }
     }
 
@@ -4011,6 +4110,9 @@ mod tests {
             amd_apu: None,
             amd_threadripper: None,
             amd_epyc: None,
+            intel_desktop: None,
+            intel_mobile: None,
+            intel_xeon: None,
             capabilities: vec![
                 crate::storage::CONTRACT.into(),
                 crate::memory_caprichio::CONTRACT.into(),
@@ -4188,6 +4290,9 @@ mod tests {
                 "goya.hardware.cpu_compute.amd_desktop.v1",
                 "goya.hardware.cpu_compute.amd_epyc.v1",
                 "goya.hardware.cpu_compute.amd_threadripper.v1",
+                "goya.hardware.cpu_compute.intel_desktop.v1",
+                "goya.hardware.cpu_compute.intel_mobile.v1",
+                "goya.hardware.cpu_compute.intel_xeon.v1",
                 "goya.hardware.gpu_compute.apple_silicon_metal.v1",
                 "goya.hardware.gpu_compute.nvidia_cuda.v1",
                 "goya.hardware.neural_accel.exynos.v1",
@@ -5228,6 +5333,9 @@ mod tests {
             amd_apu: None,
             amd_threadripper: None,
             amd_epyc: None,
+            intel_desktop: None,
+            intel_mobile: None,
+            intel_xeon: None,
             capabilities: vec![
                 crate::CONTRACT.into(),
                 crate::storage::CONTRACT.into(),
