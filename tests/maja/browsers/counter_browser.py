@@ -193,7 +193,7 @@ class Firefox:
         self.call("browsingContext.navigate", {"context": self.context, "url": url, "wait": "complete"})
 
     def reload(self):
-        self.call("browsingContext.reload", {"context": self.context, "ignoreCache": True, "wait": "complete"})
+        self.call("browsingContext.reload", {"context": self.context, "wait": "complete"})
 
     def keys(self, values):
         actions = []
