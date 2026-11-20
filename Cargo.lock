@@ -725,6 +725,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "goya-arachnid"
+version = "0.1.8"
+dependencies = [
+ "goya-caprichios",
+ "goya-lang",
+ "sha2",
+]
+
+[[package]]
 name = "goya-artifact"
 version = "0.1.8"
 

@@ -38,6 +38,8 @@ pub mod samsung_pay_caprichio;
 pub mod snapdragon_accelerator_caprichio;
 pub mod snapdragon_runtime;
 pub mod touch_id_caprichio;
+pub mod webos_engine_caprichio;
+pub mod webos_tv_models;
 pub mod windows_hello_caprichio;
 pub mod parallelism_caprichio;
 pub mod priority_caprichio;
