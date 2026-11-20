@@ -5,6 +5,20 @@ use crate::accelerator_caprichio::{
     AcceleratorRuntimeCapabilities as AcceleratorModelHost,
     AcceleratorTarget as AcceleratorModelTarget,
 };
+use crate::amd_apu_caprichio::{
+    AmdApuArtifact, AmdApuDeclaration, RuntimeCapabilities as AmdApuHost, Target as AmdApuTarget,
+};
+use crate::amd_desktop_caprichio::{
+    AmdDesktopArtifact, AmdDesktopDeclaration, RuntimeCapabilities as AmdDesktopHost,
+    Target as AmdDesktopTarget,
+};
+use crate::amd_epyc_caprichio::{
+    AmdEpycArtifact, AmdEpycDeclaration, RuntimeCapabilities as AmdEpycHost, Target as AmdEpycTarget,
+};
+use crate::amd_threadripper_caprichio::{
+    AmdThreadripperArtifact, AmdThreadripperDeclaration, RuntimeCapabilities as AmdThreadripperHost,
+    Target as AmdThreadripperTarget,
+};
 use crate::apple_pay_caprichio::{
     ApplePayArtifact, ApplePayDeclaration, RuntimeCapabilities as ApplePayHost,
     Target as ApplePayTarget,
@@ -196,6 +210,10 @@ pub struct Request {
     pub nvidia_cuda: Option<NvidiaCudaDeclaration>,
     pub snapdragon_neural_accel: Option<SnapdragonAcceleratorDeclaration>,
     pub exynos_neural_accel: Option<ExynosAcceleratorDeclaration>,
+    pub amd_desktop: Option<AmdDesktopDeclaration>,
+    pub amd_apu: Option<AmdApuDeclaration>,
+    pub amd_threadripper: Option<AmdThreadripperDeclaration>,
+    pub amd_epyc: Option<AmdEpycDeclaration>,
     pub accelerator_model: Option<AcceleratorDeclaration>,
 }
 
@@ -279,6 +297,14 @@ pub struct HostProfile {
     pub snapdragon_accelerator_host: SnapdragonAcceleratorHost,
     pub exynos_accelerator_target: ExynosAcceleratorTarget,
     pub exynos_accelerator_host: ExynosAcceleratorHost,
+    pub amd_desktop_target: AmdDesktopTarget,
+    pub amd_desktop_host: AmdDesktopHost,
+    pub amd_apu_target: AmdApuTarget,
+    pub amd_apu_host: AmdApuHost,
+    pub amd_threadripper_target: AmdThreadripperTarget,
+    pub amd_threadripper_host: AmdThreadripperHost,
+    pub amd_epyc_target: AmdEpycTarget,
+    pub amd_epyc_host: AmdEpycHost,
     pub accelerator_model_target: AcceleratorModelTarget,
     pub accelerator_model_host: AcceleratorModelHost,
 }
@@ -325,6 +351,10 @@ pub enum Artifact {
     NvidiaCuda(NvidiaCudaArtifact),
     SnapdragonAccelerator(SnapdragonAcceleratorArtifact),
     ExynosAccelerator(ExynosAcceleratorArtifact),
+    AmdDesktop(AmdDesktopArtifact),
+    AmdApu(AmdApuArtifact),
+    AmdThreadripper(AmdThreadripperArtifact),
+    AmdEpyc(AmdEpycArtifact),
 }
 
 impl Artifact {
@@ -369,6 +399,10 @@ impl Artifact {
             Self::NvidiaCuda(_) => crate::nvidia_accelerator_caprichio::CONTRACT,
             Self::SnapdragonAccelerator(_) => crate::snapdragon_accelerator_caprichio::CONTRACT,
             Self::ExynosAccelerator(_) => crate::exynos_accelerator_caprichio::CONTRACT,
+            Self::AmdDesktop(_) => crate::amd_desktop_caprichio::CONTRACT,
+            Self::AmdApu(_) => crate::amd_apu_caprichio::CONTRACT,
+            Self::AmdThreadripper(_) => crate::amd_threadripper_caprichio::CONTRACT,
+            Self::AmdEpyc(_) => crate::amd_epyc_caprichio::CONTRACT,
             Self::AcceleratorModel(a) => a.contract,
         }
     }
@@ -414,6 +448,10 @@ impl Artifact {
             Self::NvidiaCuda(_) => "nvidia-cuda-checked-launch-plan",
             Self::SnapdragonAccelerator(_) => "snapdragon-hexagon-bounded-delegate-plan",
             Self::ExynosAccelerator(_) => "exynos-npu-bounded-delegate-plan",
+            Self::AmdDesktop(_) => "amd-desktop-bounded-worker-plan",
+            Self::AmdApu(_) => "amd-apu-bounded-worker-plan",
+            Self::AmdThreadripper(_) => "amd-threadripper-bounded-worker-plan",
+            Self::AmdEpyc(_) => "amd-epyc-bounded-worker-plan",
             Self::AcceleratorModel(_) => "per-model-device-accelerator",
         }
     }
