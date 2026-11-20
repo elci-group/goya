@@ -99,7 +99,7 @@ pub struct AlexaInteractionModel {
     pub builtins_used: Vec<String>,
     pub certification: CertificationInfo,
 }
-}
+
 
 impl AlexaInteractionModel {
     pub fn contract(&self) -> &'static str {
