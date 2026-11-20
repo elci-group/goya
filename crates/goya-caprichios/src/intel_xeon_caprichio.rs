@@ -80,60 +80,60 @@ pub struct XeonFacts {
 #[rustfmt::skip]
 pub const GENERATIONS: &[(&str, XeonFacts)] = &[
     // LGA1366 platform generations (DDR3)
-    ("Xeon 5500 (Nehalem-EP)",   XeonFacts { arch: "Nehalem",                    socket: "LGA1366",  generation: "Xeon 5500 (Nehalem-EP)",   cores_min: 2,  cores_max: 4,   threads_per_core: 2, thread_tech: "SMT", mem_channels: 3,  amx: false, avx: false, avx2: false, avx512: false, process: "45 nm", year: 2009 }),
-    ("Xeon 5600 (Westmere-EP)",  XeonFacts { arch: "Westmere",                   socket: "LGA1366",  generation: "Xeon 5600 (Westmere-EP)",  cores_min: 4,  cores_max: 6,   threads_per_core: 2, thread_tech: "SMT", mem_channels: 3,  amx: false, avx: false, avx2: false, avx512: false, process: "32 nm", year: 2010 }),
+    ("Xeon 5500 (Nehalem-EP)",   XeonFacts { arch: "Nehalem",                    socket: "LGA1366",  generation: "Xeon 5500 (Nehalem-EP)",   cores_min: 2,  cores_max: 4,   threads_per_core: 2, threads_max: 8,   thread_tech: "SMT", mem_channels: 3,  amx: false, avx: false, avx2: false, avx512: false, process: "45 nm", year: 2009 }),
+    ("Xeon 5600 (Westmere-EP)",  XeonFacts { arch: "Westmere",                   socket: "LGA1366",  generation: "Xeon 5600 (Westmere-EP)",  cores_min: 4,  cores_max: 6,   threads_per_core: 2, threads_max: 12,  thread_tech: "SMT", mem_channels: 3,  amx: false, avx: false, avx2: false, avx512: false, process: "32 nm", year: 2010 }),
     // Westmere adds AES-NI, but both pre-Sandy-Bridge EP generations stop at SSE4.2.
     // LGA1567 multi-socket generation (DDR3); Nehalem-EX launched 2010 and the
     // Westmere-EX E7 refresh (10-core) followed on the same socket in 2011.
-    ("Xeon 7500/E7 (Nehalem-EX → Westmere-EX)", XeonFacts { arch: "Nehalem-EX / Westmere-EX", socket: "LGA1567", generation: "Xeon 7500/E7 (Nehalem-EX → Westmere-EX)", cores_min: 4, cores_max: 10, threads_per_core: 2, thread_tech: "SMT", mem_channels: 4, amx: false, avx: false, avx2: false, avx512: false, process: "45 nm / 32 nm", year: 2010 }),
+    ("Xeon 7500/E7 (Nehalem-EX → Westmere-EX)", XeonFacts { arch: "Nehalem-EX / Westmere-EX", socket: "LGA1567", generation: "Xeon 7500/E7 (Nehalem-EX → Westmere-EX)", cores_min: 4, cores_max: 10, threads_per_core: 2, threads_max: 20, thread_tech: "SMT", mem_channels: 4, amx: false, avx: false, avx2: false, avx512: false, process: "45 nm / 32 nm", year: 2010 }),
     // LGA2011 EP generations (DDR3)
-    ("Xeon E5 v1 (Sandy Bridge-EP)", XeonFacts { arch: "Sandy Bridge",          socket: "LGA2011",  generation: "Xeon E5 v1 (Sandy Bridge-EP)", cores_min: 4,  cores_max: 8,   threads_per_core: 2, thread_tech: "SMT", mem_channels: 4,  amx: false, avx: true,  avx2: false, avx512: false, process: "32 nm", year: 2012 }),
-    ("Xeon E5 v2 (Ivy Bridge-EP)",   XeonFacts { arch: "Ivy Bridge",            socket: "LGA2011",  generation: "Xeon E5 v2 (Ivy Bridge-EP)",   cores_min: 4,  cores_max: 12,  threads_per_core: 2, thread_tech: "SMT", mem_channels: 4,  amx: false, avx: true,  avx2: false, avx512: false, process: "22 nm", year: 2013 }),
+    ("Xeon E5 v1 (Sandy Bridge-EP)", XeonFacts { arch: "Sandy Bridge",          socket: "LGA2011",  generation: "Xeon E5 v1 (Sandy Bridge-EP)", cores_min: 4,  cores_max: 8,   threads_per_core: 2, threads_max: 16,  thread_tech: "SMT", mem_channels: 4,  amx: false, avx: true,  avx2: false, avx512: false, process: "32 nm", year: 2012 }),
+    ("Xeon E5 v2 (Ivy Bridge-EP)",   XeonFacts { arch: "Ivy Bridge",            socket: "LGA2011",  generation: "Xeon E5 v2 (Ivy Bridge-EP)",   cores_min: 4,  cores_max: 12,  threads_per_core: 2, threads_max: 24,  thread_tech: "SMT", mem_channels: 4,  amx: false, avx: true,  avx2: false, avx512: false, process: "22 nm", year: 2013 }),
     // LGA2011-3 EP generations (DDR4); AVX2 starts with Haswell.
-    ("Xeon E5 v3 (Haswell-EP)",      XeonFacts { arch: "Haswell",               socket: "LGA2011-3", generation: "Xeon E5 v3 (Haswell-EP)",     cores_min: 4,  cores_max: 18,  threads_per_core: 2, thread_tech: "SMT", mem_channels: 4,  amx: false, avx: true,  avx2: true,  avx512: false, process: "22 nm", year: 2014 }),
+    ("Xeon E5 v3 (Haswell-EP)",      XeonFacts { arch: "Haswell",               socket: "LGA2011-3", generation: "Xeon E5 v3 (Haswell-EP)",     cores_min: 4,  cores_max: 18,  threads_per_core: 2, threads_max: 36,  thread_tech: "SMT", mem_channels: 4,  amx: false, avx: true,  avx2: true,  avx512: false, process: "22 nm", year: 2014 }),
     // Broadwell-EP tops out at the 22-core E5-2699 v4; the Broadwell-EX E7
     // refresh reached 24 cores on the same socket but the EP family label
     // records the E5 line's published range.
-    ("Xeon E5 v4 (Broadwell-EP)",    XeonFacts { arch: "Broadwell",             socket: "LGA2011-3", generation: "Xeon E5 v4 (Broadwell-EP)",   cores_min: 4,  cores_max: 22,  threads_per_core: 2, thread_tech: "SMT", mem_channels: 4,  amx: false, avx: true,  avx2: true,  avx512: false, process: "14 nm", year: 2016 }),
+    ("Xeon E5 v4 (Broadwell-EP)",    XeonFacts { arch: "Broadwell",             socket: "LGA2011-3", generation: "Xeon E5 v4 (Broadwell-EP)",   cores_min: 4,  cores_max: 22,  threads_per_core: 2, threads_max: 44,  thread_tech: "SMT", mem_channels: 4,  amx: false, avx: true,  avx2: true,  avx512: false, process: "14 nm", year: 2016 }),
     // LGA3647 server generations (six-channel DDR4); server AVX-512 starts here.
-    ("Xeon Scalable 1st gen (Skylake-SP)", XeonFacts { arch: "Skylake",         socket: "LGA3647",  generation: "Xeon Scalable 1st gen (Skylake-SP)", cores_min: 6,  cores_max: 28,  threads_per_core: 2, thread_tech: "SMT", mem_channels: 6,  amx: false, avx: true,  avx2: true,  avx512: true,  process: "14 nm", year: 2017 }),
+    ("Xeon Scalable 1st gen (Skylake-SP)", XeonFacts { arch: "Skylake",         socket: "LGA3647",  generation: "Xeon Scalable 1st gen (Skylake-SP)", cores_min: 6,  cores_max: 28,  threads_per_core: 2, threads_max: 56,  thread_tech: "SMT", mem_channels: 6,  amx: false, avx: true,  avx2: true,  avx512: true,  process: "14 nm", year: 2017 }),
     // LGA2066 workstation generation (quad-channel DDR4); entry W-2100/W-2104
     // SKUs ship with Hyper-Threading disabled while the family records two.
-    ("Xeon W-2100 (Skylake-W)",      XeonFacts { arch: "Skylake",               socket: "LGA2066",  generation: "Xeon W-2100 (Skylake-W)",     cores_min: 2,  cores_max: 18,  threads_per_core: 2, thread_tech: "SMT", mem_channels: 4,  amx: false, avx: true,  avx2: true,  avx512: true,  process: "14 nm", year: 2017 }),
+    ("Xeon W-2100 (Skylake-W)",      XeonFacts { arch: "Skylake",               socket: "LGA2066",  generation: "Xeon W-2100 (Skylake-W)",     cores_min: 2,  cores_max: 18,  threads_per_core: 2, threads_max: 36,  thread_tech: "SMT", mem_channels: 4,  amx: false, avx: true,  avx2: true,  avx512: true,  process: "14 nm", year: 2017 }),
     // AVX-512 VNNI (DL Boost) starts with Cascade Lake.
-    ("Xeon Scalable 2nd gen (Cascade Lake)", XeonFacts { arch: "Cascade Lake",  socket: "LGA3647",  generation: "Xeon Scalable 2nd gen (Cascade Lake)", cores_min: 6,  cores_max: 28,  threads_per_core: 2, thread_tech: "SMT", mem_channels: 6,  amx: false, avx: true,  avx2: true,  avx512: true,  process: "14 nm", year: 2019 }),
-    ("Xeon W-2200 (Cascade Lake-W)", XeonFacts { arch: "Cascade Lake",          socket: "LGA2066",  generation: "Xeon W-2200 (Cascade Lake-W)", cores_min: 6,  cores_max: 18,  threads_per_core: 2, thread_tech: "SMT", mem_channels: 4,  amx: false, avx: true,  avx2: true,  avx512: true,  process: "14 nm", year: 2019 }),
+    ("Xeon Scalable 2nd gen (Cascade Lake)", XeonFacts { arch: "Cascade Lake",  socket: "LGA3647",  generation: "Xeon Scalable 2nd gen (Cascade Lake)", cores_min: 6,  cores_max: 28,  threads_per_core: 2, threads_max: 56,  thread_tech: "SMT", mem_channels: 6,  amx: false, avx: true,  avx2: true,  avx512: true,  process: "14 nm", year: 2019 }),
+    ("Xeon W-2200 (Cascade Lake-W)", XeonFacts { arch: "Cascade Lake",          socket: "LGA2066",  generation: "Xeon W-2200 (Cascade Lake-W)", cores_min: 6,  cores_max: 18,  threads_per_core: 2, threads_max: 36,  thread_tech: "SMT", mem_channels: 4,  amx: false, avx: true,  avx2: true,  avx512: true,  process: "14 nm", year: 2019 }),
     // LGA4189 Cooper Lake generation (six-channel DDR4): the 4P/8P half of
     // "3rd gen" Xeon Scalable, adding bfloat16 DL Boost on the same AVX-512
     // ISA as Cascade Lake.
-    ("Xeon Scalable 3rd gen 4P/8P (Cooper Lake)", XeonFacts { arch: "Cooper Lake", socket: "LGA4189", generation: "Xeon Scalable 3rd gen 4P/8P (Cooper Lake)", cores_min: 24, cores_max: 28, threads_per_core: 2, thread_tech: "SMT", mem_channels: 6, amx: false, avx: true, avx2: true, avx512: true, process: "14 nm", year: 2020 }),
+    ("Xeon Scalable 3rd gen 4P/8P (Cooper Lake)", XeonFacts { arch: "Cooper Lake", socket: "LGA4189", generation: "Xeon Scalable 3rd gen 4P/8P (Cooper Lake)", cores_min: 24, cores_max: 28, threads_per_core: 2, threads_max: 56, thread_tech: "SMT", mem_channels: 6, amx: false, avx: true, avx2: true, avx512: true, process: "14 nm", year: 2020 }),
     // LGA4189 Whitley generation (eight-channel DDR4); the mainstream half
     // of "3rd gen" Xeon Scalable.
-    ("Xeon Scalable 3rd gen (Ice Lake-SP)", XeonFacts { arch: "Ice Lake",        socket: "LGA4189",  generation: "Xeon Scalable 3rd gen (Ice Lake-SP)", cores_min: 8,  cores_max: 40,  threads_per_core: 2, thread_tech: "SMT", mem_channels: 8,  amx: false, avx: true,  avx2: true,  avx512: true,  process: "10 nm", year: 2021 }),
-    ("Xeon W-3300 (Ice Lake-W)",     XeonFacts { arch: "Ice Lake",              socket: "LGA4189",  generation: "Xeon W-3300 (Ice Lake-W)",    cores_min: 12, cores_max: 38,  threads_per_core: 2, thread_tech: "SMT", mem_channels: 8,  amx: false, avx: true,  avx2: true,  avx512: true,  process: "10 nm", year: 2021 }),
+    ("Xeon Scalable 3rd gen (Ice Lake-SP)", XeonFacts { arch: "Ice Lake",        socket: "LGA4189",  generation: "Xeon Scalable 3rd gen (Ice Lake-SP)", cores_min: 8,  cores_max: 40,  threads_per_core: 2, threads_max: 80,  thread_tech: "SMT", mem_channels: 8,  amx: false, avx: true,  avx2: true,  avx512: true,  process: "10 nm", year: 2021 }),
+    ("Xeon W-3300 (Ice Lake-W)",     XeonFacts { arch: "Ice Lake",              socket: "LGA4189",  generation: "Xeon W-3300 (Ice Lake-W)",    cores_min: 12, cores_max: 38,  threads_per_core: 2, threads_max: 76,  thread_tech: "SMT", mem_channels: 8,  amx: false, avx: true,  avx2: true,  avx512: true,  process: "10 nm", year: 2021 }),
     // LGA4677 generations (DDR5); AMX matrix extensions start with
     // Sapphire Rapids together with AVX-512 FP16.
-    ("Xeon Scalable 4th gen (Sapphire Rapids)", XeonFacts { arch: "Sapphire Rapids", socket: "LGA4677", generation: "Xeon Scalable 4th gen (Sapphire Rapids)", cores_min: 8,  cores_max: 60,  threads_per_core: 2, thread_tech: "SMT", mem_channels: 8,  amx: true,  avx: true,  avx2: true,  avx512: true,  process: "Intel 7", year: 2023 }),
-    ("Xeon W-3400 (Sapphire Rapids W)", XeonFacts { arch: "Sapphire Rapids",     socket: "LGA4677",  generation: "Xeon W-3400 (Sapphire Rapids W)", cores_min: 12, cores_max: 56,  threads_per_core: 2, thread_tech: "SMT", mem_channels: 8,  amx: true,  avx: true,  avx2: true,  avx512: true,  process: "Intel 7", year: 2023 }),
+    ("Xeon Scalable 4th gen (Sapphire Rapids)", XeonFacts { arch: "Sapphire Rapids", socket: "LGA4677", generation: "Xeon Scalable 4th gen (Sapphire Rapids)", cores_min: 8,  cores_max: 60,  threads_per_core: 2, threads_max: 120, thread_tech: "SMT", mem_channels: 8,  amx: true,  avx: true,  avx2: true,  avx512: true,  process: "Intel 7", year: 2023 }),
+    ("Xeon W-3400 (Sapphire Rapids W)", XeonFacts { arch: "Sapphire Rapids",     socket: "LGA4677",  generation: "Xeon W-3400 (Sapphire Rapids W)", cores_min: 12, cores_max: 56,  threads_per_core: 2, threads_max: 112, thread_tech: "SMT", mem_channels: 8,  amx: true,  avx: true,  avx2: true,  avx512: true,  process: "Intel 7", year: 2023 }),
     // The W-2400 mainstream workstation platform exposes four DDR5 channels
     // where the W-3400 exposes eight.
-    ("Xeon W-2400 (Sapphire Rapids W)", XeonFacts { arch: "Sapphire Rapids",     socket: "LGA4677",  generation: "Xeon W-2400 (Sapphire Rapids W)", cores_min: 8,  cores_max: 24,  threads_per_core: 2, thread_tech: "SMT", mem_channels: 4,  amx: true,  avx: true,  avx2: true,  avx512: true,  process: "Intel 7", year: 2023 }),
-    ("Xeon Scalable 5th gen (Emerald Rapids)", XeonFacts { arch: "Emerald Rapids", socket: "LGA4677", generation: "Xeon Scalable 5th gen (Emerald Rapids)", cores_min: 8, cores_max: 64,  threads_per_core: 2, thread_tech: "SMT", mem_channels: 8,  amx: true,  avx: true,  avx2: true,  avx512: true,  process: "Intel 7", year: 2023 }),
+    ("Xeon W-2400 (Sapphire Rapids W)", XeonFacts { arch: "Sapphire Rapids",     socket: "LGA4677",  generation: "Xeon W-2400 (Sapphire Rapids W)", cores_min: 8,  cores_max: 24,  threads_per_core: 2, threads_max: 48,  thread_tech: "SMT", mem_channels: 4,  amx: true,  avx: true,  avx2: true,  avx512: true,  process: "Intel 7", year: 2023 }),
+    ("Xeon Scalable 5th gen (Emerald Rapids)", XeonFacts { arch: "Emerald Rapids", socket: "LGA4677", generation: "Xeon Scalable 5th gen (Emerald Rapids)", cores_min: 8, cores_max: 64,  threads_per_core: 2, threads_max: 128, thread_tech: "SMT", mem_channels: 8,  amx: true,  avx: true,  avx2: true,  avx512: true,  process: "Intel 7", year: 2023 }),
     // First E-core-only Xeon generation (Xeon 6 6700E, June 2024): Crestmont
     // E-cores run one thread per core (no Hyper-Threading) and stop at
     // AVX2/AVX-VNNI, so AVX-512 and AMX stay false. The announced but never
     // launched 288-core Sierra Forest-AP (6900E) is excluded.
-    ("Xeon 6 6700E (Sierra Forest-SP)", XeonFacts { arch: "Crestmont (E-core)",  socket: "LGA4710",  generation: "Xeon 6 6700E (Sierra Forest-SP)", cores_min: 64, cores_max: 144, threads_per_core: 1, thread_tech: "none", mem_channels: 8,  amx: false, avx: true,  avx2: true,  avx512: false, process: "Intel 3", year: 2024 }),
+    ("Xeon 6 6700E (Sierra Forest-SP)", XeonFacts { arch: "Crestmont (E-core)",  socket: "LGA4710",  generation: "Xeon 6 6700E (Sierra Forest-SP)", cores_min: 64, cores_max: 144, threads_per_core: 1, threads_max: 144, thread_tech: "none", mem_channels: 8,  amx: false, avx: true,  avx2: true,  avx512: false, process: "Intel 3", year: 2024 }),
     // August 2024 Sapphire Rapids refresh for workstations: Intel shipped
     // no Emerald Rapids workstation line, so this family label records the
     // refresh; W-3500 exposes eight DDR5 channels and W-2500 four.
-    ("Xeon W-3500/2500 (Sapphire Rapids W refresh)", XeonFacts { arch: "Sapphire Rapids", socket: "LGA4677", generation: "Xeon W-3500/2500 (Sapphire Rapids W refresh)", cores_min: 8, cores_max: 60, threads_per_core: 2, thread_tech: "SMT", mem_channels: 8, amx: true, avx: true, avx2: true, avx512: true, process: "Intel 7", year: 2024 }),
+    ("Xeon W-3500/2500 (Sapphire Rapids W refresh)", XeonFacts { arch: "Sapphire Rapids", socket: "LGA4677", generation: "Xeon W-3500/2500 (Sapphire Rapids W refresh)", cores_min: 8, cores_max: 60, threads_per_core: 2, threads_max: 120, thread_tech: "SMT", mem_channels: 8, amx: true, avx: true, avx2: true, avx512: true, process: "Intel 7", year: 2024 }),
     // LGA7529 Granite Rapids-AP generation: twelve DDR5 channels with
     // MRDIMM support (up to DDR5-8800) on the 6900P SKUs.
-    ("Xeon 6 6900P (Granite Rapids-AP)", XeonFacts { arch: "Redwood Cove (P-core)", socket: "LGA7529", generation: "Xeon 6 6900P (Granite Rapids-AP)", cores_min: 72, cores_max: 128, threads_per_core: 2, thread_tech: "SMT", mem_channels: 12, amx: true, avx: true, avx2: true, avx512: true, process: "Intel 3 / Intel 7", year: 2024 }),
+    ("Xeon 6 6900P (Granite Rapids-AP)", XeonFacts { arch: "Redwood Cove (P-core)", socket: "LGA7529", generation: "Xeon 6 6900P (Granite Rapids-AP)", cores_min: 72, cores_max: 128, threads_per_core: 2, threads_max: 256, thread_tech: "SMT", mem_channels: 12, amx: true, avx: true, avx2: true, avx512: true, process: "Intel 3 / Intel 7", year: 2024 }),
     // LGA4710 Granite Rapids-SP generation (February 2025): eight DDR5
     // channels on the 6700P/6500P SKUs, up to 86 cores.
-    ("Xeon 6 6700P/6500P (Granite Rapids-SP)", XeonFacts { arch: "Redwood Cove (P-core)", socket: "LGA4710", generation: "Xeon 6 6700P/6500P (Granite Rapids-SP)", cores_min: 8, cores_max: 86, threads_per_core: 2, thread_tech: "SMT", mem_channels: 8, amx: true, avx: true, avx2: true, avx512: true, process: "Intel 3 / Intel 7", year: 2025 }),
+    ("Xeon 6 6700P/6500P (Granite Rapids-SP)", XeonFacts { arch: "Redwood Cove (P-core)", socket: "LGA4710", generation: "Xeon 6 6700P/6500P (Granite Rapids-SP)", cores_min: 8, cores_max: 86, threads_per_core: 2, threads_max: 172, thread_tech: "SMT", mem_channels: 8, amx: true, avx: true, avx2: true, avx512: true, process: "Intel 3 / Intel 7", year: 2025 }),
 ];
 
 /// Per-generation lookup. Unknown names return None; the catalog never
@@ -304,9 +304,9 @@ impl IntelXeonDeclaration {
         debug_assert_eq!(plan.worker_threads(), self.worker_threads);
         debug_assert_eq!(plan.batch(), self.batch);
         debug_assert_eq!(plan.workspace_bytes(), self.workspace_bytes);
-        if u64::from(self.worker_threads)
-            > u64::from(facts.cores_max) * u64::from(facts.threads_per_core)
-        {
+        // Planned worker threads cannot exceed the generation's documented
+        // hardware thread count.
+        if u64::from(self.worker_threads) > u64::from(facts.threads_max) {
             return Err(IntelXeonDiagnostic::ThreadsExceedGeneration);
         }
         Ok(IntelXeonIr {
@@ -351,7 +351,7 @@ impl IntelXeonIr {
 
     fn canonical(&self) -> String {
         format!(
-            "contract={CONTRACT}\nrecipe_version={RECIPE_VERSION}\ntarget=intel_xeon\ncpu={}\ngeneration={}\narch={}\nsocket={}\ncores_min={}\ncores_max={}\nthreads_per_core={}\nthread_tech={}\nmem_channels={}\namx={}\navx={}\navx2={}\navx512={}\nprocess={}\nyear={}\nisa={}\nworker_threads={}\nbatch={}\ntotal_worker_executions={}\nworkspace_bytes={}\nexecution=none_attempted\n",
+            "contract={CONTRACT}\nrecipe_version={RECIPE_VERSION}\ntarget=intel_xeon\ncpu={}\ngeneration={}\narch={}\nsocket={}\ncores_min={}\ncores_max={}\nthreads_per_core={}\nthreads_max={}\nthread_tech={}\nmem_channels={}\namx={}\navx={}\navx2={}\navx512={}\nprocess={}\nyear={}\nisa={}\nworker_threads={}\nbatch={}\ntotal_worker_executions={}\nworkspace_bytes={}\nexecution=none_attempted\n",
             self.cpu,
             self.facts.generation,
             self.facts.arch,
@@ -359,6 +359,7 @@ impl IntelXeonIr {
             self.facts.cores_min,
             self.facts.cores_max,
             self.facts.threads_per_core,
+            self.facts.threads_max,
             self.facts.thread_tech,
             self.facts.mem_channels,
             self.facts.amx,
@@ -516,9 +517,17 @@ mod tests {
                 other => panic!("unexpected threads_per_core {other} on {name}"),
             }
             assert!(
-                u64::from(facts.cores_max) * u64::from(facts.threads_per_core)
-                    <= u64::from(MAX_WORKER_THREADS),
+                u64::from(facts.threads_max) <= u64::from(MAX_WORKER_THREADS),
                 "{name} thread count must fit the supported bound"
+            );
+            assert!(
+                facts.threads_max >= facts.cores_max,
+                "{name} must document at least one thread per core"
+            );
+            assert!(
+                u64::from(facts.threads_max)
+                    <= u64::from(facts.cores_max) * u64::from(facts.threads_per_core),
+                "{name} documented threads cannot exceed the per-core product"
             );
             if facts.avx512 {
                 assert!(
@@ -561,6 +570,7 @@ mod tests {
         assert_eq!(first.contract, CONTRACT);
         assert!(first.canonical_ir.contains("target=intel_xeon\n"));
         assert!(first.canonical_ir.contains("worker_threads=120\n"));
+        assert!(first.canonical_ir.contains("threads_max=120\n"));
         assert!(first.canonical_ir.contains("total_worker_executions=480\n"));
         assert!(first.canonical_ir.contains("execution=none_attempted\n"));
         assert!(first
@@ -622,8 +632,8 @@ mod tests {
                 .normalize()
                 .is_ok()
         );
-        // The Granite Rapids-AP top SKU bound (128 cores times 2 threads)
-        // is representable at the full plan and batch bounds.
+        // The Granite Rapids-AP documented 256-thread maximum is
+        // representable at the full plan and batch bounds.
         assert!(
             declaration("Xeon 6 6900P (Granite Rapids-AP)", 256, MAX_BATCH)
                 .normalize()
