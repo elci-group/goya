@@ -1,6 +1,11 @@
 //! Experimental fail-closed semantic boundary for the Maja web target.
 //! Inspection preserves the canonical scene and does not establish support.
 
+mod interactive;
+pub use interactive::{
+    admit_local_interactive, InteractiveWebIr, WebCell, WebCellKind, INTERACTIVE_PROFILE,
+};
+
 use goya_lang::{handoff, SemanticHandoff, SourceRange, StrictParseError};
 use sha2::{Digest, Sha256};
 use std::fmt;
