@@ -25,10 +25,15 @@ pub struct CpuFacts {
     /// Highest marketed core count in the desktop lineup.
     pub cores_max: u32,
     /// OS-visible hardware threads per documented core (`1` or `2`).
-    /// Hyper-Threading is never counted twice against a core that does
-    /// not expose it: hybrid generations expose it on P-cores only, so
-    /// `cores_max * threads_per_core` stays a safe upper bound.
+    /// The `cores_max * threads_per_core` product is an upper bound
+    /// only: hybrid generations expose Hyper-Threading on P-cores
+    /// alone, so the documented total (`threads_max`) sits below it.
     pub threads_per_core: u32,
+    /// Vendor-documented maximum OS-visible hardware threads for the
+    /// family (Intel publishes Total Threads per SKU); equals cores_max
+    /// × threads_per_core on homogeneous generations, and hybrid P+E
+    /// generations sit below that product.
+    pub threads_max: u32,
     /// Threading technology: `none` or `SMT`. Intel brands its SMT as
     /// Hyper-Threading; the house string is `SMT`.
     pub thread_tech: &'static str,
