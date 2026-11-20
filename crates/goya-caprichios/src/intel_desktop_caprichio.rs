@@ -430,6 +430,9 @@ mod tests {
             .expect("catalog must contain an AVX-512 generation")
     }
 
+    /// Number of leading mainstream rows before the HEDT Core-X block.
+    const MAINSTREAM_ROWS: usize = 15;
+
     #[test]
     fn catalog_entries_have_consistent_facts() {
         assert!(!GENERATIONS.is_empty(), "catalog must not be empty");
