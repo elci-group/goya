@@ -51,7 +51,11 @@ pub(crate) fn import(bytes: &[u8], digest: [u8; 32]) -> Result<ModelPackage, Typ
         ));
     }
     let opset = &model.opset_import[0];
-    if opset.domain.as_deref().unwrap_or("") != "" {
+    if opset
+        .domain
+        .as_deref()
+        .is_some_and(|domain| !domain.is_empty())
+    {
         return Err(unsupported("custom ONNX operator domains are unsupported"));
     }
     if opset.version != Some(13) {
@@ -135,7 +139,11 @@ pub(crate) fn import(bytes: &[u8], digest: [u8; 32]) -> Result<ModelPackage, Typ
                 "ONNX node {node_index} attributes are unsupported"
             )));
         }
-        if raw_node.domain.as_deref().unwrap_or("") != "" {
+        if raw_node
+            .domain
+            .as_deref()
+            .is_some_and(|domain| !domain.is_empty())
+        {
             return Err(unsupported(format!(
                 "ONNX node {node_index} uses a custom domain"
             )));
@@ -369,4 +377,170 @@ fn decode_initializer(tensor: &wire::TensorProto) -> Result<TensorData, TypedErr
         )));
     }
     TensorData::new(desc, data)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::onnx::wire::{
+        tensor_shape_dimension, type_proto, GraphProto, ModelProto, NodeProto, OperatorSetIdProto,
+        TensorProto, TensorShapeDimension, TensorShapeProto, TensorTypeProto, TypeProto,
+        ValueInfoProto,
+    };
+    use ie_contract::fixture::GoldenFixture;
+
+    fn value(name: &str, dims: &[i64]) -> ValueInfoProto {
+        ValueInfoProto {
+            name: Some(name.into()),
+            r#type: Some(TypeProto {
+                value: Some(type_proto::Value::TensorType(TensorTypeProto {
+                    elem_type: Some(ONNX_FLOAT),
+                    shape: Some(TensorShapeProto {
+                        dim: dims
+                            .iter()
+                            .map(|dim| TensorShapeDimension {
+                                value: Some(tensor_shape_dimension::Value::DimValue(*dim)),
+                                denotation: None,
+                            })
+                            .collect(),
+                    }),
+                })),
+                denotation: None,
+            }),
+        }
+    }
+
+    fn valid_model() -> ModelProto {
+        ModelProto {
+            ir_version: Some(10),
+            graph: Some(GraphProto {
+                node: vec![NodeProto {
+                    input: vec!["x".into(), "weight".into()],
+                    output: vec!["y".into()],
+                    name: Some("add".into()),
+                    op_type: Some("Add".into()),
+                    attribute: Vec::new(),
+                    domain: None,
+                    overload: None,
+                }],
+                name: Some("fixed-weight-add".into()),
+                initializer: vec![TensorProto {
+                    dims: vec![2],
+                    data_type: Some(ONNX_FLOAT),
+                    segment: None,
+                    float_data: vec![3.0, 4.0],
+                    int32_data: Vec::new(),
+                    string_data: Vec::new(),
+                    int64_data: Vec::new(),
+                    name: Some("weight".into()),
+                    raw_data: None,
+                    double_data: Vec::new(),
+                    uint64_data: Vec::new(),
+                    external_data: Vec::new(),
+                    data_location: None,
+                }],
+                input: vec![value("x", &[2])],
+                output: vec![value("y", &[2])],
+                value_info: Vec::new(),
+                quantization_annotation: Vec::new(),
+                sparse_initializer: Vec::new(),
+            }),
+            opset_import: vec![OperatorSetIdProto {
+                domain: None,
+                version: Some(13),
+            }],
+            training_info: Vec::new(),
+            functions: Vec::new(),
+        }
+    }
+
+    fn import_model(model: &ModelProto) -> Result<ModelPackage, TypedError> {
+        import(&model.encode_to_vec(), [0x5a; 32])
+    }
+
+    #[test]
+    fn imports_pinned_embedded_initializer_and_executes_graph() {
+        let package = import_model(&valid_model()).unwrap();
+        assert_eq!(package.digest(), [0x5a; 32]);
+        let inputs = package
+            .bind_inputs(vec![GoldenFixture::tensor(&[1.0, 2.0], &[2])])
+            .unwrap();
+        let output = package.graph().execute(inputs, || Ok(())).unwrap();
+        let got: Vec<f32> = output
+            .data
+            .chunks_exact(4)
+            .map(|bytes| f32::from_le_bytes(bytes.try_into().unwrap()))
+            .collect();
+        assert_eq!(got, vec![4.0, 6.0]);
+    }
+
+    #[test]
+    fn rejects_forward_names_attributes_and_wrong_output_shape() {
+        let mut model = valid_model();
+        model.graph.as_mut().unwrap().node[0].input[0] = "later".into();
+        assert!(matches!(
+            import_model(&model),
+            Err(TypedError::InvalidTensor { .. })
+        ));
+
+        let mut model = valid_model();
+        model.graph.as_mut().unwrap().node[0]
+            .attribute
+            .push(vec![1]);
+        assert!(matches!(
+            import_model(&model),
+            Err(TypedError::UnsupportedOp { .. })
+        ));
+
+        let mut model = valid_model();
+        model.graph.as_mut().unwrap().output[0] = value("y", &[3]);
+        assert!(matches!(
+            import_model(&model),
+            Err(TypedError::InvalidTensor { .. })
+        ));
+    }
+
+    #[test]
+    fn rejects_initializer_input_overlap_and_external_payloads() {
+        let mut model = valid_model();
+        model.graph.as_mut().unwrap().initializer[0].name = Some("x".into());
+        assert!(matches!(
+            import_model(&model),
+            Err(TypedError::InvalidTensor { .. })
+        ));
+
+        let mut model = valid_model();
+        model.graph.as_mut().unwrap().initializer[0]
+            .external_data
+            .push(vec![1]);
+        model.graph.as_mut().unwrap().initializer[0].data_location = Some(1);
+        assert!(matches!(
+            import_model(&model),
+            Err(TypedError::UnsupportedOp { .. })
+        ));
+    }
+
+    #[test]
+    fn rejects_custom_domains_and_dynamic_shapes() {
+        let mut model = valid_model();
+        model.graph.as_mut().unwrap().node[0].domain = Some("custom".into());
+        assert!(matches!(
+            import_model(&model),
+            Err(TypedError::UnsupportedOp { .. })
+        ));
+
+        let mut model = valid_model();
+        let x = &mut model.graph.as_mut().unwrap().input[0];
+        let ty = x.r#type.as_mut().unwrap();
+        let tensor = match ty.value.as_mut().unwrap() {
+            type_proto::Value::TensorType(tensor) => tensor,
+            _ => unreachable!(),
+        };
+        tensor.shape.as_mut().unwrap().dim[0].value =
+            Some(tensor_shape_dimension::Value::DimParam("n".into()));
+        assert!(matches!(
+            import_model(&model),
+            Err(TypedError::InvalidTensor { .. })
+        ));
+    }
 }
