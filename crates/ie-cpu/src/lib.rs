@@ -14,6 +14,7 @@
 pub mod graph;
 pub mod ledger;
 pub mod local;
+mod onnx;
 pub mod package;
 
 use ie_contract::errors::TypedError;

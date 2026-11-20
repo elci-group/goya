@@ -60,24 +60,7 @@ impl ModelPackage {
     /// The expected digest must come from a caller-trusted policy or
     /// configuration source. It is compared before JSON parsing.
     pub fn load(reader: impl Read, expected_sha256: [u8; 32]) -> Result<Self, TypedError> {
-        let mut bytes = Vec::new();
-        let mut limited = reader.take(MAX_PACKAGE_BYTES + 1);
-        limited
-            .read_to_end(&mut bytes)
-            .map_err(|error| TypedError::Internal {
-                reason: format!("package read failed: {error}"),
-            })?;
-        if bytes.len() as u64 > MAX_PACKAGE_BYTES {
-            return Err(TypedError::ResourceExhausted {
-                reason: "model package exceeds 1 MiB".into(),
-            });
-        }
-        let digest: [u8; 32] = Sha256::digest(&bytes).into();
-        if digest != expected_sha256 {
-            return Err(TypedError::PolicyDenied {
-                reason: "model package SHA-256 does not match trusted pin".into(),
-            });
-        }
+        let bytes = read_pinned(reader, expected_sha256)?;
 
         let header: VersionHeader =
             serde_json::from_slice(&bytes).map_err(|error| TypedError::InvalidTensor {
@@ -146,11 +129,29 @@ impl ModelPackage {
         let shape_refs: Vec<&[u64]> = shapes.iter().map(Vec::as_slice).collect();
         let graph = Graph::compile(&shape_refs, &nodes)?;
 
-        Ok(Self {
+        Ok(Self::from_parts(expected_sha256, graph, fixed_inputs))
+    }
+
+    /// Load a pinned ONNX model no larger than 1 MiB.
+    ///
+    /// The local profile supports FP32 tensors with static shapes, equal-shape
+    /// Add, rank-2 MatMul, and embedded fixed tensors. The source artifact's
+    /// digest is used as the runtime model identifier.
+    pub fn load_onnx(reader: impl Read, expected_sha256: [u8; 32]) -> Result<Self, TypedError> {
+        let bytes = read_pinned(reader, expected_sha256)?;
+        crate::onnx::import(&bytes, expected_sha256)
+    }
+
+    pub(crate) fn from_parts(
+        digest: [u8; 32],
+        graph: Graph,
+        fixed_inputs: Vec<Option<TensorData>>,
+    ) -> Self {
+        Self {
             digest,
             graph,
             fixed_inputs,
-        })
+        }
     }
 
     pub fn digest(&self) -> [u8; 32] {
@@ -192,6 +193,28 @@ impl ModelPackage {
         self.graph.validate_inputs(&bound)?;
         Ok(bound)
     }
+}
+
+fn read_pinned(reader: impl Read, expected_sha256: [u8; 32]) -> Result<Vec<u8>, TypedError> {
+    let mut bytes = Vec::new();
+    reader
+        .take(MAX_PACKAGE_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| TypedError::Internal {
+            reason: format!("package read failed: {error}"),
+        })?;
+    if bytes.len() as u64 > MAX_PACKAGE_BYTES {
+        return Err(TypedError::ResourceExhausted {
+            reason: "model package exceeds 1 MiB".into(),
+        });
+    }
+    let digest: [u8; 32] = Sha256::digest(&bytes).into();
+    if digest != expected_sha256 {
+        return Err(TypedError::PolicyDenied {
+            reason: "model package SHA-256 does not match trusted pin".into(),
+        });
+    }
+    Ok(bytes)
 }
 
 #[cfg(test)]
