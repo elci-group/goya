@@ -170,22 +170,16 @@ impl fmt::Display for AmdDesktopDiagnostic {
         f.write_str(match self {
             Self::BadCpu => "generation is not in the AMD desktop CPU catalog",
             Self::WorkerThreadsZero => "worker thread count must be positive",
-            Self::WorkerThreadsTooLarge => {
-                "worker thread count exceeds the supported bound"
-            }
+            Self::WorkerThreadsTooLarge => "worker thread count exceeds the supported bound",
             Self::BatchZero => "batch size must be positive",
             Self::BatchTooLarge => "batch size exceeds the supported bound",
             Self::WorkspaceBytesZero => "workspace byte bound must be positive",
-            Self::WorkspaceBytesTooLarge => {
-                "workspace byte bound exceeds the supported bound"
-            }
+            Self::WorkspaceBytesTooLarge => "workspace byte bound exceeds the supported bound",
             Self::WorkerOverflow => "total worker executions do not fit the supported bound",
             Self::ThreadsExceedGeneration => {
                 "planned worker threads exceed the generation's documented hardware thread count"
             }
-            Self::UnsupportedTarget => {
-                "AMD desktop CPU compute supports only AMD desktop targets"
-            }
+            Self::UnsupportedTarget => "AMD desktop CPU compute supports only AMD desktop targets",
             Self::UnsupportedAccelerator => {
                 "generation does not document the required ISA extension"
             }
@@ -228,9 +222,7 @@ impl AmdDesktopDeclaration {
             crate::amd_desktop_runtime::WorkerError::WorkerThreadsTooLarge => {
                 AmdDesktopDiagnostic::WorkerThreadsTooLarge
             }
-            crate::amd_desktop_runtime::WorkerError::ZeroBatch => {
-                AmdDesktopDiagnostic::BatchZero
-            }
+            crate::amd_desktop_runtime::WorkerError::ZeroBatch => AmdDesktopDiagnostic::BatchZero,
             crate::amd_desktop_runtime::WorkerError::BatchTooLarge => {
                 AmdDesktopDiagnostic::BatchTooLarge
             }
@@ -246,8 +238,7 @@ impl AmdDesktopDeclaration {
         })?;
         // Planned worker threads cannot exceed the generation's documented
         // hardware thread count.
-        let hardware_threads =
-            u64::from(facts.cores_max) * u64::from(facts.threads_per_core);
+        let hardware_threads = u64::from(facts.cores_max) * u64::from(facts.threads_per_core);
         if u64::from(self.worker_threads) > hardware_threads {
             return Err(AmdDesktopDiagnostic::ThreadsExceedGeneration);
         }
@@ -410,8 +401,16 @@ mod tests {
             assert!(seen.insert(*name), "duplicate generation {name}");
             assert!(matches!(
                 facts.arch,
-                "K10" | "Bulldozer" | "Piledriver" | "Excavator" | "Zen" | "Zen+"
-                    | "Zen 2" | "Zen 3" | "Zen 4" | "Zen 5"
+                "K10"
+                    | "Bulldozer"
+                    | "Piledriver"
+                    | "Excavator"
+                    | "Zen"
+                    | "Zen+"
+                    | "Zen 2"
+                    | "Zen 3"
+                    | "Zen 4"
+                    | "Zen 5"
             ));
             assert!(matches!(facts.socket, "AM2+/AM3" | "AM3+" | "AM4" | "AM5"));
             assert!((2008..=2030).contains(&facts.year));
@@ -538,10 +537,7 @@ mod tests {
                 AmdDesktopDiagnostic::MissingUtf8Strings,
             ),
         ] {
-            assert_eq!(
-                ir.lower_checked(Target::AmdDesktop, missing),
-                Err(expected)
-            );
+            assert_eq!(ir.lower_checked(Target::AmdDesktop, missing), Err(expected));
         }
         // Each ISA diagnostic is exercised on its own negotiated IR.
         let mut avx_decl = declaration(cpu, 8, 4);
@@ -616,7 +612,10 @@ mod tests {
             lowered_avx512 += 1;
         }
         assert_eq!(lowered_sse3, GENERATIONS.len(), "SSE3 lowers everywhere");
-        assert!(lowered_avx512 >= 2, "Zen 4 and Zen 5 must lower AVX-512 plans");
+        assert!(
+            lowered_avx512 >= 2,
+            "Zen 4 and Zen 5 must lower AVX-512 plans"
+        );
     }
 
     #[test]
