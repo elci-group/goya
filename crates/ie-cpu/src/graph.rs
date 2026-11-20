@@ -7,8 +7,8 @@ use sha2::{Digest, Sha256};
 
 use crate::{execute_pair, plan_pair};
 
-const MAX_INPUTS: usize = 16;
-const MAX_NODES: usize = 32;
+pub(crate) const MAX_INPUTS: usize = 16;
+pub(crate) const MAX_NODES: usize = 32;
 
 /// An instruction referring to earlier values. Inputs occupy the first
 /// indices, followed by node outputs in execution order.
@@ -36,11 +36,11 @@ impl Graph {
     /// references. Tensor values, including weights supplied as inputs,
     /// belong to a request and are outside this digest.
     pub fn compile(input_shapes: &[&[u64]], nodes: &[Node]) -> Result<Self, TypedError> {
-        if !(2..=MAX_INPUTS).contains(&input_shapes.len())
+        if !(1..=MAX_INPUTS).contains(&input_shapes.len())
             || !(1..=MAX_NODES).contains(&nodes.len())
         {
             return Err(TypedError::ResourceExhausted {
-                reason: format!("a graph requires 2–{MAX_INPUTS} inputs and 1–{MAX_NODES} nodes"),
+                reason: format!("a graph requires 1–{MAX_INPUTS} inputs and 1–{MAX_NODES} nodes"),
             });
         }
 
