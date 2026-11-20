@@ -220,14 +220,44 @@ fn read_pinned(reader: impl Read, expected_sha256: [u8; 32]) -> Result<Vec<u8>, 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::local::{Limits, Runtime};
     use ie_contract::fixture::GoldenFixture;
     use std::io::Cursor;
+    use std::time::Duration;
 
     fn load(bytes: &[u8]) -> Result<ModelPackage, TypedError> {
         ModelPackage::load(Cursor::new(bytes), Sha256::digest(bytes).into())
     }
 
     const VALID: &[u8] = br#"{"version":1,"inputs":[{"shape":[1,2]},{"shape":[2,2],"values":[3.0,4.0,5.0,6.0]}],"nodes":[{"op":"matmul","left":0,"right":1}]}"#;
+
+    #[test]
+    fn runs_pinned_onnx_fixture_with_embedded_weights() {
+        let bytes: &[u8] = include_bytes!("../tests/fixtures/affine.onnx");
+        let expected: [u8; 32] = Sha256::digest(bytes).into();
+        let mut runtime = Runtime::new(Limits::default());
+        let package = ModelPackage::load_onnx(bytes, expected).unwrap();
+        assert_eq!(runtime.register_package(package), Ok(expected));
+        let id = runtime
+            .submit(
+                expected,
+                vec![GoldenFixture::tensor(&[1.0, 2.0], &[1, 2])],
+                Duration::from_secs(2),
+            )
+            .unwrap();
+        assert_eq!(runtime.run_one(), Some(id));
+        let output = runtime.poll(id).unwrap().unwrap().result.unwrap();
+        assert_eq!(output, GoldenFixture::tensor(&[14.0, 15.0], &[1, 2]));
+    }
+
+    #[test]
+    fn rejects_unpinned_onnx_before_protobuf_parsing() {
+        let invalid_protobuf = &[0xff][..];
+        assert!(matches!(
+            ModelPackage::load_onnx(invalid_protobuf, [0; 32]),
+            Err(TypedError::PolicyDenied { .. })
+        ));
+    }
 
     #[test]
     fn loads_pinned_package_and_binds_fixed_input_slots() {
