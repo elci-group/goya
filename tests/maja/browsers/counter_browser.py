@@ -147,7 +147,7 @@ class Firefox:
             match = re.search(r"WebDriver BiDi listening on (ws://\S+)", self.log.read())
             url = match.group(1) if match else None
             time.sleep(0.05)
-        self.sock = websocket.create_connection(url.rstrip("/") + "/session", timeout=15, http_proxy_host=None)
+        self.sock = websocket.create_connection(url.rstrip("/") + "/session", timeout=15, http_proxy_host=None, suppress_origin=True)
         self.session = self.call("session.new", {"capabilities": {}})
         self.call("session.subscribe", {"events": ["log.entryAdded"]})
         self.context = self.call("browsingContext.getTree", {})["contexts"][0]["context"]
