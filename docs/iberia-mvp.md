@@ -9,7 +9,7 @@ The MVP gives a Rust application an in-process CPU endpoint for a small, statica
 3. **Demonstrate integration.** Provide a runnable Rust example that executes an affine layer through the public API and preserves its baseline output when a requested model is unavailable. Exercise the same API in regression tests.
 4. **Verify the MVP.** Run the six Iberia/España regression packages and require clean formatting and strict Clippy on the local Iberia crate. Record the commands and results below.
 
-The local API is independent of leases, discovery, and transport. The frozen `ie-contract` codec stays intact. Versioned local model artifacts are available in the next section. ONNX import, package signing, quantized execution, accelerators, España delegation, and Goya compiler integration are follow-on work.
+The local API is independent of leases, discovery, and transport. The frozen `ie-contract` codec stays intact. Iberia accepts pinned local JSON packages and a restricted ONNX profile. Package signing, quantized execution, accelerators, España delegation, and Goya compiler integration are follow-on work.
 
 ## Run the reference app
 
@@ -38,6 +38,12 @@ cargo run --locked -p ie-cpu --example iberia_package -- \
 ```
 
 The command prints `[14.0, 15.0]`. Changing the inputs to `0 0` prints `[1.0, -1.0]`. An incorrect digest fails with `POLICY_DENIED`.
+
+## Import ONNX
+
+Use `ModelPackage::load_onnx` with the expected SHA-256 digest of the original `.onnx` artifact. Iberia applies the same 1 MiB limit and verifies the digest before decoding. The resulting package registers with the same local runtime, and embedded initializers fill fixed slots.
+
+The importer targets ONNX IR 8–10 and the standard domain at opset 13. It supports statically shaped FP32 values, embedded dense FP32 initializers, equal-shape `Add`, and rank-2 `MatMul`. A graph has one declared output supplied by its last node. Broadcasting, symbolic dimensions, external or sparse tensors, and custom operators are outside this profile. [ONNX schema](https://github.com/onnx/onnx/blob/v1.16.2/onnx/onnx.proto) · [Add](https://onnx.ai/onnx/operators/onnx__Add.html) · [MatMul](https://onnx.ai/onnx/operators/onnx__MatMul.html)
 
 ## Verification
 
