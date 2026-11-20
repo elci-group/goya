@@ -9,7 +9,7 @@ The MVP gives a Rust application an in-process CPU endpoint for a small, statica
 3. **Demonstrate integration.** Provide a runnable Rust example that executes an affine layer through the public API and preserves its baseline output when a requested model is unavailable. Exercise the same API in regression tests.
 4. **Verify the MVP.** Run the six Iberia/España regression packages and require clean formatting and strict Clippy on the local Iberia crate. Record the commands and results below.
 
-The local API is independent of leases, discovery, and transport. The frozen `ie-contract` codec stays intact. The next local milestone is loading versioned model artifacts pinned by an expected digest. ONNX import, package signing, quantized execution, accelerators, España delegation, and Goya compiler integration are follow-on work.
+The local API is independent of leases, discovery, and transport. The frozen `ie-contract` codec stays intact. Versioned local model artifacts are available in the next section. ONNX import, package signing, quantized execution, accelerators, España delegation, and Goya compiler integration are follow-on work.
 
 ## Run the reference app
 
@@ -29,9 +29,19 @@ A v1 Iberia package is a JSON file up to 1 MiB. It names the input shapes and gr
 
 Give `ModelPackage::load` the artifact and an expected SHA-256 digest from trusted application configuration. The loader checks the exact file bytes before parsing. For example, reformatting the JSON produces a different digest. Register the verified package with `Runtime::register_package`, then submit its digest with the unbound input tensors in slot order. The runtime supplies the package's fixed tensors and applies the existing job budgets.
 
+Run the checked-in affine package with its pinned digest.
+
+```sh
+cargo run --locked -p ie-cpu --example iberia_package -- \
+  crates/ie-cpu/tests/fixtures/affine.iberia.json \
+  98ed1c2233a350010a51ca86139247f793a9f251845f559c5a49816327cde191 1 2
+```
+
+The command prints `[14.0, 15.0]`. Changing the inputs to `0 0` prints `[1.0, -1.0]`. An incorrect digest fails with `POLICY_DENIED`.
+
 ## Verification
 
-The six-package regression run passed 109 tests on Linux with Rust 1.95.0. The Unix socket tests require permission to bind local sockets. Package formatting, strict Clippy for `ie-cpu`, and the reference-app output check passed. The broader `uni` analysis scored 73/100 against a threshold of 80 and reported incomplete analyzer results.
+The six-package regression run passed 117 tests on Linux with Rust 1.95.0. The Unix socket tests require permission to bind local sockets. The initial MVP's broader `uni` analysis scored 73/100 against a threshold of 80 and reported incomplete analyzer results.
 
 ```sh
 cargo test --locked -p ie-contract -p ie-cpu -p ie-loopback -p ie-uds -p ie-gate -p ie-conformance
