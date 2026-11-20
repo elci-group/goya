@@ -52,8 +52,8 @@ pub struct CpuFacts {
 pub const GENERATIONS: &[(&str, CpuFacts)] = &[
     ("Phenom II",       CpuFacts { arch: "K10",        socket: "AM2+/AM3", cores_min: 2, cores_max: 6,  threads_per_core: 1, thread_tech: "none", avx: false, avx2: false, avx512: false, process: "45nm SOI", year: 2008 }),
     ("Athlon II",       CpuFacts { arch: "K10",        socket: "AM2+/AM3", cores_min: 2, cores_max: 4,  threads_per_core: 1, thread_tech: "none", avx: false, avx2: false, avx512: false, process: "45nm SOI", year: 2009 }),
-    ("FX (Bulldozer)",  CpuFacts { arch: "Bulldozer",  socket: "AM3+",     cores_min: 4, cores_max: 8,  threads_per_core: 2, thread_tech: "CMT",  avx: true,  avx2: false, avx512: false, process: "32nm SOI", year: 2011 }),
-    ("FX (Piledriver)", CpuFacts { arch: "Piledriver", socket: "AM3+",     cores_min: 4, cores_max: 8,  threads_per_core: 2, thread_tech: "CMT",  avx: true,  avx2: false, avx512: false, process: "32nm SOI", year: 2012 }),
+    ("FX (Bulldozer)",  CpuFacts { arch: "Bulldozer",  socket: "AM3+",     cores_min: 4, cores_max: 8,  threads_per_core: 1, thread_tech: "none", avx: true,  avx2: false, avx512: false, process: "32nm SOI", year: 2011 }),
+    ("FX (Piledriver)", CpuFacts { arch: "Piledriver", socket: "AM3+",     cores_min: 4, cores_max: 8,  threads_per_core: 1, thread_tech: "none", avx: true,  avx2: false, avx512: false, process: "32nm SOI", year: 2012 }),
     ("Athlon X4",       CpuFacts { arch: "Excavator",  socket: "FM2+/AM4", cores_min: 4, cores_max: 4,  threads_per_core: 1, thread_tech: "none", avx: true,  avx2: true,  avx512: false, process: "GF 28nm",  year: 2016 }),
     ("Ryzen 1000",      CpuFacts { arch: "Zen",        socket: "AM4",      cores_min: 4, cores_max: 8,  threads_per_core: 2, thread_tech: "SMT",  avx: true,  avx2: true,  avx512: false, process: "GF 14nm",  year: 2017 }),
     ("Ryzen 2000",      CpuFacts { arch: "Zen+",       socket: "AM4",      cores_min: 4, cores_max: 8,  threads_per_core: 2, thread_tech: "SMT",  avx: true,  avx2: true,  avx512: false, process: "GF 12nm",  year: 2018 }),
