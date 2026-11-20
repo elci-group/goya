@@ -209,12 +209,56 @@ fn cli_refuses_with_source_ranges_and_rejects_release() {
     fs::remove_file(src).unwrap();
 }
 
+/// A scene with two sibling scroll viewports whose direct children
+/// overflow, grandchildren clamped inside them, negative fractions and
+/// content that does not overflow.
+const SCROLL: &str = r#"@ontology scr {
+    @cell root {
+        id: "root";
+        @cell list {
+            id: "list";
+            position_p: (0.05, 0.1, 0); extent_p: (0.5, 0.6, 0);
+            scroll: true; fill: #eeeeee; text: "List"; stroke: #000; stroke_width_p: 0.02;
+            @cell row1 { id: "row1"; position_p: (0, 0, 0); extent_p: (1.0, 0.4, 0); text: "one"; }
+            @cell row2 { id: "row2"; position_p: (0, 0.9, 0); extent_p: (1.0, 0.4, 0);
+                @cell row2a { id: "row2a"; position_p: (0.5, 0.5, 0); extent_p: (2.0, 2.0, 0); }
+            }
+            @cell wide { id: "wide"; position_p: (-0.5, 2.5, 0); extent_p: (3.25, 0.1, 0); }
+            @button tap { id: "tap"; position_p: (1.5, 0.1, 0); extent_p: (0.3, 0.2, 0); text: "Tap"; }
+        }
+        @cell fits {
+            id: "fits";
+            position_p: (0.6, 0.1, 0); extent_p: (0.3, 0.3, 0); scroll: true;
+            @cell small { id: "small"; extent_p: (0.5, 0.5, 0); }
+        }
+    }
+}"#;
+
 #[test]
 fn layout_mirror_matches_reference_layout() {
     if !node_available() {
         return;
     }
-    let dir = build(LAYOUT, "layout");
+    let scene_js = layout_differential(LAYOUT, "layout");
+    assert!(
+        scene_js.contains("text: \"one two\\u000athree\\u000afour\\u000afive\\u000asix\""),
+        "wrap must come from the reference frame: {scene_js}"
+    );
+}
+
+#[test]
+fn layout_mirror_matches_reference_scroll_layout_and_limits() {
+    if !node_available() {
+        return;
+    }
+    let scene_js = layout_differential(SCROLL, "scroll");
+    assert!(scene_js.contains("scroll: true"));
+}
+
+/// Compare `resolve` and `scrollLimits` with `goya_lang::layout` and
+/// `Frame::scroll_limits` at several viewports. Returns `scene.js`.
+fn layout_differential(source: &str, name: &str) -> String {
+    let dir = build(source, name);
     let viewports: [(f64, f64); 8] = [
         (0.0, 0.0),
         (1.0, 1.0),
@@ -226,22 +270,29 @@ fn layout_mirror_matches_reference_layout() {
         (100000.0, 1.0),
     ];
     let mut driver = String::from(
-        "import { CELLS } from \"./scene.js\";\nimport { resolve } from \"./layout.js\";\nconst out = [];\n",
+        "import { CELLS } from \"./scene.js\";\nimport { resolve, scrollLimits } from \"./layout.js\";\nconst out = [];\n",
     );
     for (w, h) in viewports {
         driver.push_str(&format!(
-            "for (const n of resolve(CELLS, {w:?}, {h:?})) out.push(`${{n.rect.x}},${{n.rect.y}},${{n.rect.width}},${{n.rect.height}},${{n.textSize}},${{n.strokeWidth}}`);\n"
+            "{{ const r = resolve(CELLS, {w:?}, {h:?}); const l = scrollLimits(CELLS, r); r.forEach((n, i) => out.push(`${{n.rect.x}},${{n.rect.y}},${{n.rect.width}},${{n.rect.height}},${{n.textSize}},${{n.strokeWidth}},${{l[i] === null ? \"-\" : l[i].join(\":\")}}`)); }}\n"
         ));
     }
     driver.push_str("process.stdout.write(out.join(\"\\n\") + \"\\n\");\n");
     let actual = run_node(&dir, &driver);
-    let scene = &admit_v3(LAYOUT).unwrap().parsed().scene.clone();
+    let scene = &admit_v3(source).unwrap().parsed().scene.clone();
     let mut expected = String::new();
     for (w, h) in viewports {
-        for node in goya_lang::layout(scene, w, h).nodes {
+        let frame = goya_lang::layout(scene, w, h);
+        for node in &frame.nodes {
             let opt = |v: Option<i64>| v.map_or("null".to_owned(), |v| v.to_string());
+            let limits = if node.scroll {
+                let (x, y) = frame.scroll_limits(&node.name);
+                format!("{x}:{y}")
+            } else {
+                "-".to_owned()
+            };
             expected.push_str(&format!(
-                "{},{},{},{},{},{}\n",
+                "{},{},{},{},{},{},{limits}\n",
                 node.rect.x,
                 node.rect.y,
                 node.rect.width,
@@ -252,12 +303,15 @@ fn layout_mirror_matches_reference_layout() {
         }
     }
     assert_eq!(actual, expected);
+    if name == "scroll" {
+        assert!(
+            expected.lines().any(|l| !l.ends_with(",-") && !l.ends_with(",0:0")),
+            "scroll corpus never overflows"
+        );
+    }
     let scene_js = fs::read_to_string(dir.join("scene.js")).unwrap();
-    assert!(
-        scene_js.contains("text: \"one two\\u000athree\\u000afour\\u000afive\\u000asix\""),
-        "wrap must come from the reference frame: {scene_js}"
-    );
     fs::remove_dir_all(dir).unwrap();
+    scene_js
 }
 
 #[test]
