@@ -90,7 +90,9 @@ impl Runtime {
         timeout: Duration,
     ) -> Result<u64, TypedError> {
         let Some(graph_index) = self.models.iter().position(|(known, _)| *known == digest) else {
-            return Err(TypedError::ModelMissing { digest: hex(&digest) });
+            return Err(TypedError::ModelMissing {
+                digest: hex(&digest),
+            });
         };
         if self.pending.len() >= self.limits.max_pending {
             return Err(exhausted("pending queue full"));
@@ -111,7 +113,9 @@ impl Runtime {
         let deadline = submitted_at
             .checked_add(timeout)
             .ok_or(TypedError::DeadlineExceeded)?;
-        let id = self.next_id.ok_or_else(|| exhausted("request id space exhausted"))?;
+        let id = self
+            .next_id
+            .ok_or_else(|| exhausted("request id space exhausted"))?;
         self.next_id = id.checked_add(1);
         self.pending.push_back(Job {
             id,
@@ -145,11 +149,14 @@ impl Runtime {
                 }),
             }
         };
-        self.retain(id, Completion {
-            result,
-            queue_time,
-            execution_time: execution_started.elapsed(),
-        });
+        self.retain(
+            id,
+            Completion {
+                result,
+                queue_time,
+                execution_time: execution_started.elapsed(),
+            },
+        );
         Some(id)
     }
 
@@ -169,11 +176,14 @@ impl Runtime {
     pub fn cancel(&mut self, id: u64) -> Result<(), TypedError> {
         if let Some(index) = self.pending.iter().position(|job| job.id == id) {
             let job = self.pending.remove(index).expect("index was found");
-            self.retain(id, Completion {
-                result: Err(TypedError::Cancelled),
-                queue_time: job.submitted_at.elapsed(),
-                execution_time: Duration::ZERO,
-            });
+            self.retain(
+                id,
+                Completion {
+                    result: Err(TypedError::Cancelled),
+                    queue_time: job.submitted_at.elapsed(),
+                    execution_time: Duration::ZERO,
+                },
+            );
             return Ok(());
         }
         if self.completed.iter().any(|(known, _)| *known == id) {
@@ -194,7 +204,9 @@ impl Runtime {
 }
 
 fn exhausted(reason: &str) -> TypedError {
-    TypedError::ResourceExhausted { reason: reason.into() }
+    TypedError::ResourceExhausted {
+        reason: reason.into(),
+    }
 }
 
 fn hex(digest: &[u8; 32]) -> String {
@@ -210,8 +222,13 @@ mod tests {
     fn graph() -> Graph {
         Graph::compile(
             &[&[2], &[2]],
-            &[Node { op: GoldenOp::Add, left: 0, right: 1 }],
-        ).unwrap()
+            &[Node {
+                op: GoldenOp::Add,
+                left: 0,
+                right: 1,
+            }],
+        )
+        .unwrap()
     }
 
     fn inputs() -> Vec<TensorData> {
@@ -222,37 +239,58 @@ mod tests {
     }
 
     fn limits() -> Limits {
-        Limits { max_pending: 1, max_retained: 2, ..Limits::default() }
+        Limits {
+            max_pending: 1,
+            max_retained: 2,
+            ..Limits::default()
+        }
     }
 
     #[test]
     fn pending_cap_and_completion_release_capacity() {
         let mut runtime = Runtime::new(limits());
         let digest = runtime.register(graph()).unwrap();
-        assert_eq!(runtime.submit(digest, inputs(), Duration::from_secs(1)), Ok(1));
+        assert_eq!(
+            runtime.submit(digest, inputs(), Duration::from_secs(1)),
+            Ok(1)
+        );
         assert!(matches!(
             runtime.submit(digest, inputs(), Duration::from_secs(1)),
             Err(TypedError::ResourceExhausted { .. })
         ));
         assert_eq!(runtime.run_one(), Some(1));
-        assert_eq!(runtime.submit(digest, inputs(), Duration::from_secs(1)), Ok(2));
+        assert_eq!(
+            runtime.submit(digest, inputs(), Duration::from_secs(1)),
+            Ok(2)
+        );
     }
 
     #[test]
     fn cancellation_is_terminal_and_releases_pending_slot() {
         let mut runtime = Runtime::new(limits());
         let digest = runtime.register(graph()).unwrap();
-        let id = runtime.submit(digest, inputs(), Duration::from_secs(1)).unwrap();
+        let id = runtime
+            .submit(digest, inputs(), Duration::from_secs(1))
+            .unwrap();
         runtime.cancel(id).unwrap();
-        assert_eq!(runtime.poll(id).unwrap().unwrap().result, Err(TypedError::Cancelled));
-        assert_eq!(runtime.submit(digest, inputs(), Duration::from_secs(1)), Ok(2));
+        assert_eq!(
+            runtime.poll(id).unwrap().unwrap().result,
+            Err(TypedError::Cancelled)
+        );
+        assert_eq!(
+            runtime.submit(digest, inputs(), Duration::from_secs(1)),
+            Ok(2)
+        );
     }
 
     #[test]
     fn zero_timeout_is_rejected_as_expired() {
         let mut runtime = Runtime::new(limits());
         let digest = runtime.register(graph()).unwrap();
-        assert_eq!(runtime.submit(digest, inputs(), Duration::ZERO), Err(TypedError::DeadlineExceeded));
+        assert_eq!(
+            runtime.submit(digest, inputs(), Duration::ZERO),
+            Err(TypedError::DeadlineExceeded)
+        );
     }
 
     #[test]
@@ -286,7 +324,9 @@ mod tests {
         let mut runtime = Runtime::new(limits());
         let digest = runtime.register(graph()).unwrap();
         for expected in 1..=3 {
-            let id = runtime.submit(digest, inputs(), Duration::from_secs(1)).unwrap();
+            let id = runtime
+                .submit(digest, inputs(), Duration::from_secs(1))
+                .unwrap();
             assert_eq!(id, expected);
             runtime.run_one();
         }

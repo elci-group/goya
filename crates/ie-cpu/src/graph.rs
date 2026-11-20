@@ -137,7 +137,10 @@ impl Graph {
         mut inputs: Vec<TensorData>,
         mut checkpoint: impl FnMut() -> Result<(), TypedError>,
     ) -> Result<TensorData, TypedError> {
-        inputs.reserve_exact(self.nodes.len());
+        checkpoint()?;
+        inputs.try_reserve_exact(self.nodes.len()).map_err(|_| TypedError::ResourceExhausted {
+            reason: "graph value allocation failed".into(),
+        })?;
         for node in &self.nodes {
             checkpoint()?;
             // Compilation guarantees that both values already exist.
@@ -170,6 +173,14 @@ mod tests {
         };
         let shapes: &[&[u64]] = &[&[2, 2], &[2, 2]];
         let digest = Graph::compile(shapes, &[node]).unwrap().digest();
+        assert_eq!(
+            digest,
+            [
+                0xd0, 0x53, 0xc0, 0x4e, 0x79, 0x52, 0x64, 0xd3, 0xa8, 0x39, 0x87, 0x33, 0xf4, 0xcb,
+                0x02, 0xdc, 0x76, 0xe6, 0xcb, 0x75, 0xdb, 0xaf, 0xee, 0x10, 0x8b, 0xc3, 0xe7, 0x1e,
+                0x0f, 0x96, 0xc4, 0x71,
+            ]
+        );
         assert_eq!(Graph::compile(shapes, &[node]).unwrap().digest(), digest);
         assert_ne!(
             Graph::compile(&[&[4], &[4]], &[node]).unwrap().digest(),
