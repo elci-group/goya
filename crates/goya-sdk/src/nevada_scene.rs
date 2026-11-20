@@ -97,7 +97,10 @@ pub fn lower_nevada_scene(source: &str) -> Result<NevadaScene, NevadaSceneError>
     for action in &scene.interactions {
         let id = action.authored_id.as_deref().unwrap_or_default();
         if action.class != InteractionClass::D1 {
-            return Err(refuse(Origin::Interaction(id.to_owned()), "D2 interactions"));
+            return Err(refuse(
+                Origin::Interaction(id.to_owned()),
+                "D2 interactions",
+            ));
         }
         actions.insert(action.trigger_button.as_str(), id);
     }
@@ -114,7 +117,11 @@ pub fn lower_nevada_scene(source: &str) -> Result<NevadaScene, NevadaSceneError>
         }
         for (unsupported, property, detail) in [
             (cell.scroll, "scroll", "scroll viewports on the D-pad path"),
-            (cell.gestures.is_some(), "gestures", "clipboard gesture policies"),
+            (
+                cell.gestures.is_some(),
+                "gestures",
+                "clipboard gesture policies",
+            ),
         ] {
             if unsupported {
                 return Err(refuse(
@@ -146,7 +153,11 @@ pub fn lower_nevada_scene(source: &str) -> Result<NevadaScene, NevadaSceneError>
                 let Some(&action) = actions.get(cell.name.as_str()) else {
                     return Err(refuse(element, "buttons without a D1 activation"));
                 };
-                Some((action, TouchInteraction::TouchTap, Origin::Interaction(action.to_owned())))
+                Some((
+                    action,
+                    TouchInteraction::TouchTap,
+                    Origin::Interaction(action.to_owned()),
+                ))
             }
             CellKind::Input => Some((id, TouchInteraction::TextInput, element.clone())),
             CellKind::Cell => None,
@@ -156,7 +167,10 @@ pub fn lower_nevada_scene(source: &str) -> Result<NevadaScene, NevadaSceneError>
         let focusable = interaction.is_some();
         if let Some((authored_id, kind, origin)) = interaction {
             if rect.width == 0 || rect.height == 0 {
-                return Err(refuse(element, "controls with no visible area in the TV viewport"));
+                return Err(refuse(
+                    element,
+                    "controls with no visible area in the TV viewport",
+                ));
             }
             result.interactions.push(NevadaInteraction {
                 element_id,
@@ -177,4 +191,113 @@ pub fn lower_nevada_scene(source: &str) -> Result<NevadaScene, NevadaSceneError>
         });
     }
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use goya_nevada::focus::{next_focus, unreachable_essential, Direction};
+
+    const COUNTER: &str = r#"@ontology counter {
+        @state { count: int = 0 session; }
+        @cell root { id: "window.root";
+            @cell panel { id: "window.panel";
+                position_p: (0.1, 0.2, 0); extent_p: (0.8, 0.6, 0);
+                @input amount { id: "window.amount"; extent_p: (0.4, 0.3, 0); }
+                @button add { id: "window.add"; position_p: (0.5, 0, 0);
+                    extent_p: (0.4, 0.3, 0); text: "Add"; }
+            }
+        }
+        @interaction add { id: "action.add"; trigger: button.add.activate; class: D1;
+            state { read count: int; write count: int; }
+            input { amount: int from "window.amount"; }
+            set count = state.count + input.amount;
+        }
+    }"#;
+
+    #[test]
+    fn produces_aragon_aligned_geometry_and_source_bound_interactions() {
+        let lowered = lower_nevada_scene(COUNTER).unwrap();
+        let android = crate::compile_android_scene(COUNTER).unwrap();
+        assert_eq!(lowered.cell_ids, android.cell_ids);
+        assert_eq!(lowered.source_digest, android.source_map.source_digest);
+        assert_eq!(lowered, lower_nevada_scene(COUNTER).unwrap());
+        assert_eq!(
+            lowered.elements[2],
+            FocusElement {
+                id: 2,
+                x: 96_000,
+                y: 108_000,
+                w: 307_200,
+                h: 97_200,
+                focusable: true,
+                essential: true,
+            }
+        );
+        assert!(!lowered.elements[1].focusable);
+        assert_eq!(
+            next_focus(&lowered.elements, None, Direction::Right),
+            Some(2)
+        );
+        assert_eq!(
+            next_focus(&lowered.elements, Some(2), Direction::Right),
+            Some(3)
+        );
+        assert!(unreachable_essential(&lowered.elements, None).is_empty());
+
+        let [field, action] = lowered.interactions.as_slice() else {
+            panic!("expected one field and one action");
+        };
+        assert_eq!(field.element_id, 2);
+        assert_eq!(field.kind, TouchInteraction::TextInput);
+        assert_eq!(field.authored_id, "window.amount");
+        assert!(COUNTER[field.range.start..field.range.end].starts_with("@input amount"));
+        assert_eq!(action.element_id, 3);
+        assert_eq!(action.kind, TouchInteraction::TouchTap);
+        assert_eq!(action.authored_id, "action.add");
+        assert!(COUNTER[action.range.start..action.range.end].starts_with("@interaction add"));
+        assert_eq!(
+            lowered.plan_input("oem.generic.tv/1.0.0").interactions(),
+            [TouchInteraction::TextInput, TouchInteraction::TouchTap]
+        );
+    }
+
+    #[test]
+    fn keeps_an_off_axis_control_essential_for_the_gate() {
+        let source = COUNTER.replace("(0.5, 0, 0)", "(0.5, 0.5, 0)");
+        let scene = lower_nevada_scene(&source).unwrap();
+        assert_eq!(unreachable_essential(&scene.elements, None), [3]);
+    }
+
+    #[test]
+    fn refuses_scroll_unbound_buttons_and_collapsed_controls_at_their_source() {
+        let scroll = COUNTER.replace(
+            "id: \"window.panel\";",
+            "id: \"window.panel\"; scroll: true;",
+        );
+        let collapse = COUNTER.replace("(0.4, 0.3, 0)", "(0, 0.3, 0)");
+        for (source, expected_range) in [
+            (&scroll[..], "scroll: true"),
+            (&collapse[..], "@input amount"),
+            (
+                r#"@ontology app { @button go { id: "go"; } }"#,
+                "@button go",
+            ),
+        ] {
+            let error = lower_nevada_scene(source).unwrap_err();
+            assert!(matches!(error.reason, NevadaSceneReason::Unsupported(_)));
+            assert!(source[error.range.start..error.range.end].starts_with(expected_range));
+        }
+    }
+
+    #[test]
+    fn preserves_strict_grammar_refusals() {
+        let source = r#"@ontology app { @cell root { id: "root"; position: (0, 0, 0); } }"#;
+        let error = lower_nevada_scene(source).unwrap_err();
+        let NevadaSceneReason::Admission(inner) = error.reason else {
+            panic!("expected strict admission failure");
+        };
+        assert_eq!(inner.code, "GY-E1009");
+        assert_eq!(error.range, inner.range);
+    }
 }

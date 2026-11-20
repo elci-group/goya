@@ -146,7 +146,7 @@ pub fn verify(
     }
 
     let initial_focus =
-        focus::next_focus_in_viewport(elements, None, Direction::Down, Some(&viewport))
+        focus::next_focus_in_viewport(elements, None, Direction::Down, &viewport)
             .ok_or_else(|| GateError::new(NvPipelineBlocked, "no TV focus entry point"))?;
     let support = dcr::resolve(factory.census())
         .map_err(|error| GateError::new(NvMissingRequiredBaseline, error.to_string()))?;
@@ -192,7 +192,7 @@ pub fn verify(
 mod tests {
     use super::*;
 
-    const PROFILE: &str = "oem.generic.tv";
+    const PROFILE: &str = "oem.generic.tv/1.0.0";
     const VIEWPORT: Viewport = Viewport { x: 0, y: 0, w: 100, h: 100 };
     const BUTTON: FocusElement = FocusElement {
         id: 1, x: 0, y: 0, w: 10, h: 10, focusable: true, essential: true,
