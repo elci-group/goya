@@ -9,7 +9,8 @@
 use std::fmt;
 
 use crate::caprichio::{translation_capabilities, HardwareFactory, InputPath};
-use crate::dcr::{self, DeviceProfile};
+use crate::dcr::{self, DeviceProfile, InteractionSupport};
+use crate::gate::VerifiedScene;
 use crate::translate::{self, RemoteInteraction, TouchInteraction, TranslationOutcome};
 
 pub const CONTRACT: &str = "nevada.runtime-capabilities/0.1.0";
@@ -19,6 +20,12 @@ pub const CONTRACT: &str = "nevada.runtime-capabilities/0.1.0";
 pub struct RuntimeObservations {
     pub census: DeviceProfile,
     pub usable_paths: Vec<InputPath>,
+}
+
+impl RuntimeObservations {
+    fn can_use(&self, path: InputPath, support: &InteractionSupport) -> bool {
+        path.supported_by(support) && self.usable_paths.contains(&path)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -43,6 +50,7 @@ pub enum RuntimeError {
     UncompiledInteraction(TouchInteraction),
     NoUsableRoute(TouchInteraction),
     VoiceWithoutNonVoiceFallback,
+    UnsupportedEmittedRoute(RemoteInteraction),
 }
 
 impl fmt::Display for RuntimeError {
@@ -62,11 +70,38 @@ impl fmt::Display for RuntimeError {
             Self::VoiceWithoutNonVoiceFallback => {
                 f.write_str("voice text entry has no usable non-voice fallback")
             }
+            Self::UnsupportedEmittedRoute(route) => {
+                write!(f, "no runtime capability check exists for emitted route {route:?}")
+            }
         }
     }
 }
 
 impl std::error::Error for RuntimeError {}
+
+/// Recheck the exact routes selected for Android TV emission. Optional
+/// OEM routes outside the receipt cannot replace a missing emitted path.
+pub fn recheck_verified(
+    scene: &VerifiedScene,
+    observations: &RuntimeObservations,
+) -> Result<(), RuntimeError> {
+    let support = dcr::resolve(&observations.census).map_err(RuntimeError::Census)?;
+    if !observations.can_use(InputPath::Dpad, &support) {
+        return Err(RuntimeError::MissingRequiredPath(InputPath::Dpad));
+    }
+    for route in scene.routes() {
+        match route.remote {
+            RemoteInteraction::FocusAndSelect => {}
+            RemoteInteraction::TvKeyboard => {
+                if !observations.can_use(InputPath::TvKeyboard, &support) {
+                    return Err(RuntimeError::MissingRequiredPath(InputPath::TvKeyboard));
+                }
+            }
+            unsupported => return Err(RuntimeError::UnsupportedEmittedRoute(unsupported)),
+        }
+    }
+    Ok(())
+}
 
 /// Recheck the factory's declared paths before dispatch. The result follows
 /// canonical path order and preserves the caller's interaction order. Extra
@@ -79,10 +114,11 @@ pub fn recheck(
     interactions: &[TouchInteraction],
 ) -> Result<RuntimeReport, RuntimeError> {
     let support = dcr::resolve(&observations.census).map_err(RuntimeError::Census)?;
-    let (active_paths, unavailable_paths): (Vec<_>, Vec<_>) =
-        factory.allowed_paths().iter().copied().partition(|path| {
-            path.supported_by(&support) && observations.usable_paths.contains(path)
-        });
+    let (active_paths, unavailable_paths): (Vec<_>, Vec<_>) = factory
+        .allowed_paths()
+        .iter()
+        .copied()
+        .partition(|path| observations.can_use(*path, &support));
     if let Some(path) = factory
         .required_paths()
         .iter()
