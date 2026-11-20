@@ -13,7 +13,7 @@ const MAX_PACKAGE_BYTES: u64 = 1024 * 1024;
 #[serde(deny_unknown_fields)]
 struct RawPackage {
     #[serde(rename = "version")]
-    _version: u64,
+    _version: u32,
     inputs: Vec<RawInput>,
     nodes: Vec<RawNode>,
 }
@@ -124,7 +124,7 @@ impl ModelPackage {
                     }
                     data.extend_from_slice(&narrowed.to_le_bytes());
                 }
-                Some(TensorData::new(desc.clone(), data)?)
+                Some(TensorData::new(desc, data)?)
             } else {
                 None
             };
@@ -136,13 +136,8 @@ impl ModelPackage {
             .nodes
             .into_iter()
             .map(|node| {
-                let op = match node.op.as_str() {
-                    "add" => crate::GoldenOp::Add,
-                    "matmul" => crate::GoldenOp::MatMul,
-                    other => return Err(TypedError::UnsupportedOp { op: other.into() }),
-                };
                 Ok(Node {
-                    op,
+                    op: crate::op_from_name(&node.op)?,
                     left: node.left,
                     right: node.right,
                 })
@@ -221,8 +216,10 @@ mod tests {
             .unwrap();
         assert_eq!(bound.len(), 2);
         assert_eq!(bound[1].desc.dims, vec![2, 2]);
-        assert_eq!(bound[1].data.len(), 16);
-        assert_eq!(package.graph().digest(), package.graph.digest());
+        assert_eq!(
+            bound[1],
+            GoldenFixture::tensor(&[3.0, 4.0, 5.0, 6.0], &[2, 2])
+        );
         assert!(package.bind_inputs(Vec::new()).is_err());
     }
 
@@ -230,6 +227,17 @@ mod tests {
     fn digest_mismatch_is_rejected_before_parsing() {
         let error = ModelPackage::load(Cursor::new(b"not json"), [0; 32]).unwrap_err();
         assert!(matches!(error, TypedError::PolicyDenied { .. }));
+    }
+
+    #[test]
+    fn editing_weights_requires_a_new_trusted_pin() {
+        let edited = String::from_utf8_lossy(VALID).replacen("3.0", "9.0", 1);
+        let original_pin = Sha256::digest(VALID).into();
+        assert!(matches!(
+            ModelPackage::load(edited.as_bytes(), original_pin),
+            Err(TypedError::PolicyDenied { .. })
+        ));
+        assert_ne!(load(edited.as_bytes()).unwrap().digest(), original_pin);
     }
 
     #[test]
