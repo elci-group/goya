@@ -263,7 +263,7 @@ fn value_desc(value: &wire::ValueInfoProto) -> Result<TensorDesc, TypedError> {
         .as_ref()
         .ok_or_else(|| invalid("ONNX value has no type"))?;
     let tensor = match ty.value.as_ref() {
-        Some(wire::type_proto::Value::TensorType(tensor)) => tensor,
+        Some(wire::type_proto::Value::Tensor(tensor)) => tensor,
         _ => return Err(unsupported("only ONNX tensor values are supported")),
     };
     if tensor.elem_type != Some(ONNX_FLOAT) {
@@ -321,6 +321,9 @@ fn decode_initializer(tensor: &wire::TensorProto) -> Result<TensorData, TypedErr
             "initializer '{name}' contains non-FP32 payload fields"
         )));
     }
+    if tensor.dims.len() > ie_contract::tensors::MAX_RANK {
+        return Err(invalid("ONNX initializer rank exceeds the contract limit"));
+    }
     let dims = tensor
         .dims
         .iter()
@@ -353,11 +356,6 @@ fn decode_initializer(tensor: &wire::TensorProto) -> Result<TensorData, TypedErr
             }
             let mut data = Vec::with_capacity(byte_len);
             for value in &tensor.float_data {
-                if !value.is_finite() {
-                    return Err(invalid(format!(
-                        "initializer '{name}' contains non-finite data"
-                    )));
-                }
                 data.extend_from_slice(&value.to_le_bytes());
             }
             data
@@ -393,7 +391,7 @@ mod tests {
         ValueInfoProto {
             name: Some(name.into()),
             r#type: Some(TypeProto {
-                value: Some(type_proto::Value::TensorType(TensorTypeProto {
+                value: Some(type_proto::Value::Tensor(TensorTypeProto {
                     elem_type: Some(ONNX_FLOAT),
                     shape: Some(TensorShapeProto {
                         dim: dims
@@ -459,6 +457,36 @@ mod tests {
     }
 
     #[test]
+    fn rejects_other_ir_versions_opsets_and_operators() {
+        let mut model = valid_model();
+        model.ir_version = Some(11);
+        assert!(matches!(
+            import_model(&model),
+            Err(TypedError::VersionMismatch {
+                local: 10,
+                remote: 11
+            })
+        ));
+
+        model.ir_version = Some(10);
+        model.opset_import[0].version = Some(12);
+        assert!(matches!(
+            import_model(&model),
+            Err(TypedError::VersionMismatch {
+                local: 13,
+                remote: 12
+            })
+        ));
+
+        model.opset_import[0].version = Some(13);
+        model.graph.as_mut().unwrap().node[0].op_type = Some("Relu".into());
+        assert!(matches!(
+            import_model(&model),
+            Err(TypedError::UnsupportedOp { op }) if op == "Relu"
+        ));
+    }
+
+    #[test]
     fn imports_pinned_embedded_initializer_and_executes_graph() {
         let package = import_model(&valid_model()).unwrap();
         assert_eq!(package.digest(), [0x5a; 32]);
@@ -472,6 +500,33 @@ mod tests {
             .map(|bytes| f32::from_le_bytes(bytes.try_into().unwrap()))
             .collect();
         assert_eq!(got, vec![4.0, 6.0]);
+    }
+
+    #[test]
+    fn imports_raw_data_and_allows_one_source_used_twice() {
+        let mut model = valid_model();
+        let graph = model.graph.as_mut().unwrap();
+        graph.input[0] = value("x", &[2]);
+        graph.initializer.clear();
+        graph.node[0].input = vec!["x".into(), "x".into()];
+        graph.output[0] = value("y", &[2]);
+        let package = import_model(&model).unwrap();
+        let inputs = package
+            .bind_inputs(vec![GoldenFixture::tensor(&[2.0, 3.0], &[2])])
+            .unwrap();
+        let output = package.graph().execute(inputs, || Ok(())).unwrap();
+        let got: Vec<f32> = output
+            .data
+            .chunks_exact(4)
+            .map(|bytes| f32::from_le_bytes(bytes.try_into().unwrap()))
+            .collect();
+        assert_eq!(got, vec![4.0, 6.0]);
+
+        let mut model = valid_model();
+        let initializer = &mut model.graph.as_mut().unwrap().initializer[0];
+        initializer.float_data.clear();
+        initializer.raw_data = Some([3.0f32.to_le_bytes(), 4.0f32.to_le_bytes()].concat());
+        assert!(import_model(&model).is_ok());
     }
 
     #[test]
@@ -533,7 +588,7 @@ mod tests {
         let x = &mut model.graph.as_mut().unwrap().input[0];
         let ty = x.r#type.as_mut().unwrap();
         let tensor = match ty.value.as_mut().unwrap() {
-            type_proto::Value::TensorType(tensor) => tensor,
+            type_proto::Value::Tensor(tensor) => tensor,
             _ => unreachable!(),
         };
         tensor.shape.as_mut().unwrap().dim[0].value =
