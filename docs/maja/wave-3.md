@@ -21,9 +21,10 @@ What changed:
   package. Its layout and field-conversion mirrors are differentially
   tested against `goya_lang::layout` and `convert_field`.
 * A generated counter (`fixtures/nevada/counter.gscene`) ran in headless
-  Chrome 157, with keyboard and pointer activation, conversion and overflow
-  rejection with state unchanged, reload, and no console errors
-  (`tests/maja/browsers/chrome_counter.py`).
+  Chrome 157 and Firefox 150, with pointer activation (and keyboard
+  activation in Chrome), conversion and overflow rejection with state
+  unchanged, reload, and no console errors
+  (`tests/maja/browsers/counter_browser.py`).
 
 What still blocks M2 and later gates:
 
@@ -38,15 +39,16 @@ What still blocks M2 and later gates:
 * **Independence.** The differential tests and the Chrome harness were
   written alongside the implementation. G1 requires independent
   qualification; none has been done.
-* Only Chrome on Linux was exercised. No assistive technology, IME, touch
-  or second browser.
+* Only Chrome and Firefox on Linux, headless. Keyboard activation is not
+  verified in Firefox (see the [profile document](interactive-profile.md#verification)).
+  No assistive technology, IME, touch, Safari or Windows/macOS.
 
 The v1 static profile and the reserved production profile `maja.web.v1`
 are unchanged; `maja.web.v1` still refuses every build.
 
 Verification run for this wave: `cargo test --offline -p maja -p
-maja-semantic -p maja-runtime -p maja-frampton` (33 tests) and clippy with
+maja-semantic -p maja-runtime -p maja-frampton` (34 tests) and clippy with
 `-D warnings` passed; the `tests/maja` and `tests/maja/browsers` Python
 suites and the host differential in `tests/maja/differential` passed;
-`chrome_counter.py` passed as described in the
+`counter_browser.py` passed in both browsers as described in the
 [profile document](interactive-profile.md#verification).

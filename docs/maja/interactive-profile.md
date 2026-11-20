@@ -111,7 +111,8 @@ failures as one error, so the differential compares them as one class.
 cargo test --offline -p maja -p maja-semantic -p maja-runtime -p maja-frampton
 cargo clippy --offline -p maja -p maja-semantic -p maja-runtime -p maja-frampton --all-targets --no-deps -- -D warnings
 cargo run --offline -p maja -- build fixtures/nevada/counter.gscene --profile maja.web.local.v2 --out OUT
-python3 tests/maja/browsers/chrome_counter.py OUT
+python3 tests/maja/browsers/counter_browser.py chrome OUT
+python3 tests/maja/browsers/counter_browser.py firefox OUT
 ```
 
 The Rust tests need Node (`MAJA_SKIP_NODE=1` skips those parts, and says so)
@@ -122,8 +123,9 @@ and cover:
   multi-assignment, i64 and u64 boundaries, the 64 KiB text limit with
   multibyte text, and schema/type failures; failures must leave state and
   revision unchanged. Four seeded mutations of the emitter were each caught.
-  `REGISTER_LIMIT` and `SNAPSHOT_LIMIT` are emitted but not reached by this
-  corpus.
+  A generated 17-key scene straddles the 1 MiB boundaries and reaches
+  `REGISTER_LIMIT` and `SNAPSHOT_LIMIT` at the input, combined and
+  next-state checks, matching the canonical executor at each boundary.
 * `crates/maja/tests/interactive.rs`: byte-identical repeated builds with
   manifest hashes and no host paths; refusal ranges and `--release`
   rejection; `resolve` vs `goya_lang::layout` at eight viewports including
@@ -132,13 +134,21 @@ and cover:
 * `crates/maja-semantic/src/interactive.rs`: admission and per-construct
   refusal ranges.
 
-`chrome_counter.py` passed on Chrome 157.0.8103.78 (headless, Linux,
-20 November 2026): DOM geometry equal to `resolve` within 1/64 px; Tab order
-field → button; Enter, Space and pointer activation; non-canonical field
-text refused before dispatch; `3 + i64::MAX` refused with
-`ARITHMETIC_OVERFLOW` and state unchanged; a button named "Add" and the title
-text in Chrome's accessibility tree; reload restarting session state; no
-console errors.
+`counter_browser.py` (headless, Linux, 20 November 2026) drives Chrome
+through the DevTools Protocol and Firefox through WebDriver BiDi, with no
+separate driver binary:
+
+| Check | Chrome 157.0.8103.78 | Firefox 150.0 |
+| --- | --- | --- |
+| DOM geometry equal to `resolve` (within 1/30 px) | pass | pass |
+| Tab order field → button | pass | pass |
+| Enter and Space activation | pass | **not verified**: keys reach the focused native button but headless Firefox synthesizes no click (`document.hasFocus()` stays false, even with `focusmanager.testmode`) |
+| Pointer activation | pass | pass |
+| Non-canonical field text refused before dispatch | pass | pass |
+| `3 + i64::MAX` refused with `ARITHMETIC_OVERFLOW`, state unchanged, reported in `role=status` | pass | pass |
+| Accessibility tree: button "Add", title text, one textbox | pass (textbox has no name) | not exposed by BiDi |
+| Reload restarts session state | pass | pass |
+| No console errors | pass | pass |
 
 ## Not qualified
 

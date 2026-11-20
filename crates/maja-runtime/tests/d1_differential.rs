@@ -436,7 +436,9 @@ fn limits_source() -> String {
     for i in 0..N {
         src.push_str(&format!("        t{i}: text = \"\" session;\n"));
     }
-    src.push_str("    }\n    @cell root {\n        id: \"root\";\n        @input v { id: \"field.v\"; }\n");
+    src.push_str(
+        "    }\n    @cell root {\n        id: \"root\";\n        @input v { id: \"field.v\"; }\n",
+    );
     for i in 0..N {
         src.push_str(&format!("        @input a{i} {{ id: \"field.a{i}\"; }}\n"));
     }
@@ -459,7 +461,10 @@ fn limits_source() -> String {
 #[test]
 fn generated_runtime_matches_canonical_d1_at_byte_limits() {
     if !node_available() {
-        assert!(std::env::var_os("MAJA_SKIP_NODE").is_some(), "node is required");
+        assert!(
+            std::env::var_os("MAJA_SKIP_NODE").is_some(),
+            "node is required"
+        );
         return;
     }
     let source = limits_source();

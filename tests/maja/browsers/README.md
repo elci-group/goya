@@ -52,8 +52,9 @@ does not constitute a Maja build or browser qualification. The smoke check
 does not test keyboard interaction, state, lifecycle, assistive technology,
 or multiple browsers. The sandbox may require permission for loopback sockets.
 
-`chrome_counter.py OUTPUT_DIRECTORY` exercises a `maja.web.local.v2` build of
-`fixtures/nevada/counter.gscene` in headless Chrome through CDP: geometry
+`counter_browser.py chrome|firefox OUTPUT_DIRECTORY` exercises a
+`maja.web.local.v2` build of `fixtures/nevada/counter.gscene` in headless
+Chrome (DevTools Protocol) or Firefox (WebDriver BiDi, no geckodriver): geometry
 against the layout mirror, Tab order, Enter/Space/pointer activation,
 field-conversion and overflow rejection with state unchanged, the
 accessibility tree, reload and console errors. Outcomes are read from the
