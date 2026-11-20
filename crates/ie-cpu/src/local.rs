@@ -52,7 +52,7 @@ struct Job {
 /// terminal outcome, while an executing graph checks its deadline checkpoints.
 pub struct Runtime {
     limits: Limits,
-    models: Vec<( [u8; 32], Graph)>,
+    models: Vec<([u8; 32], Graph)>,
     pending: VecDeque<Job>,
     completed: VecDeque<(u64, Completion)>,
     evicted: VecDeque<u64>,
@@ -213,4 +213,74 @@ fn exhausted(reason: &str) -> TypedError {
 
 fn hex(digest: &[u8; 32]) -> String {
     digest.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::Node;
+    use ie_contract::fixture::{GoldenFixture, GoldenOp};
+
+    fn graph() -> Graph {
+        Graph::compile(
+            &[&[2], &[2]],
+            &[Node { op: GoldenOp::Add, left: 0, right: 1 }],
+        ).unwrap()
+    }
+
+    fn inputs() -> Vec<TensorData> {
+        vec![
+            GoldenFixture::tensor(&[1.0, 2.0], &[2]),
+            GoldenFixture::tensor(&[3.0, 4.0], &[2]),
+        ]
+    }
+
+    fn limits() -> Limits {
+        Limits { max_pending: 1, max_retained: 2, ..Limits::default() }
+    }
+
+    #[test]
+    fn pending_cap_and_completion_release_capacity() {
+        let mut runtime = Runtime::new(limits());
+        let digest = runtime.register(graph()).unwrap();
+        assert_eq!(runtime.submit(digest, inputs(), Duration::from_secs(1)), Ok(1));
+        assert!(matches!(
+            runtime.submit(digest, inputs(), Duration::from_secs(1)),
+            Err(TypedError::ResourceExhausted { .. })
+        ));
+        assert_eq!(runtime.run_one(), Some(1));
+        assert_eq!(runtime.submit(digest, inputs(), Duration::from_secs(1)), Ok(2));
+    }
+
+    #[test]
+    fn cancellation_is_terminal_and_releases_pending_slot() {
+        let mut runtime = Runtime::new(limits());
+        let digest = runtime.register(graph()).unwrap();
+        let id = runtime.submit(digest, inputs(), Duration::from_secs(1)).unwrap();
+        runtime.cancel(id).unwrap();
+        assert_eq!(runtime.poll(id).unwrap().unwrap().result, Err(TypedError::Cancelled));
+        assert_eq!(runtime.submit(digest, inputs(), Duration::from_secs(1)), Ok(2));
+    }
+
+    #[test]
+    fn zero_timeout_is_rejected_as_expired() {
+        let mut runtime = Runtime::new(limits());
+        let digest = runtime.register(graph()).unwrap();
+        assert_eq!(runtime.submit(digest, inputs(), Duration::ZERO), Err(TypedError::DeadlineExceeded));
+    }
+
+    #[test]
+    fn retained_results_are_bounded_and_consumed_once() {
+        let mut runtime = Runtime::new(limits());
+        let digest = runtime.register(graph()).unwrap();
+        for expected in 1..=3 {
+            let id = runtime.submit(digest, inputs(), Duration::from_secs(1)).unwrap();
+            assert_eq!(id, expected);
+            runtime.run_one();
+        }
+        assert_eq!(runtime.poll(1), Err(TypedError::PeerLost));
+        assert!(runtime.poll(2).unwrap().is_some());
+        assert_eq!(runtime.poll(2), Err(TypedError::PeerLost));
+        assert!(runtime.poll(3).unwrap().is_some());
+    }
 }
