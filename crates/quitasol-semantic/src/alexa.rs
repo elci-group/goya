@@ -310,10 +310,10 @@ mod tests {
         assert!(model.builtins_used.contains(&"AMAZON.PauseIntent".to_owned()));
     }
 
-    #[test]
+#[test]
     fn alexa_model_includes_certification_metadata() {
         let scene = parse(
-            "@ontology app { @button go { } @interaction a { trigger: button.go.activate; class: D1; state { } input { } } @intent main { action: a; category: general; voice { utterance: \"Go\"; } fallback { remote: go; } }",
+            "@ontology app { @button go { id: \"button.go\"; } @interaction a { id: \"action.a\"; trigger: button.go.activate; class: D1; state { } input { } } @intent main { id: \"intent.main.v1\"; action: a; category: general; voice { utterance: \"Go\"; } fallback { remote: go; } }",
         ).unwrap();
         let model = emit_alexa_interaction_model(&scene, "oem.generic.tv/1.0.0", 800.0, 600.0)
             .expect("model emits");
