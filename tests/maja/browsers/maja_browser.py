@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Exercise a `maja.web.local.v2` counter build in a real headless browser.
+"""Exercise a `maja.web.local.v2` build in a real headless browser.
 
-Usage: python3 tests/maja/browsers/counter_browser.py chrome|firefox OUTPUT_DIRECTORY
+Usage: python3 tests/maja/browsers/maja_browser.py chrome|firefox counter|scroll OUTPUT_DIRECTORY
 
-OUTPUT_DIRECTORY is `maja build fixtures/nevada/counter.gscene --profile
-maja.web.local.v2 --out ...`. Requires websocket-client and the browser.
+`counter`: OUTPUT_DIRECTORY is `maja build fixtures/nevada/counter.gscene
+--profile maja.web.local.v2 --out ...`. `scroll`: a build of
+`tests/maja/fixtures/scroll.gscene`. Requires websocket-client and the browser.
 Chrome is driven through the DevTools Protocol, Firefox through WebDriver
 BiDi; neither needs a separate driver binary. `MAJA_CHROME` and
 `MAJA_FIREFOX` override the executables.
@@ -114,6 +115,9 @@ class Chrome:
         for kind in ("mousePressed", "mouseReleased"):
             self.call("Input.dispatchMouseEvent", {"type": kind, "x": x, "y": y, "button": "left", "clickCount": 1})
 
+    def wheel(self, x, y, dy):
+        self.call("Input.dispatchMouseEvent", {"type": "mouseWheel", "x": x, "y": y, "deltaX": 0, "deltaY": dy})
+
     def accessibility(self):
         nodes = self.call("Accessibility.getFullAXTree")["nodes"]
         return [(n.get("role", {}).get("value"), n.get("name", {}).get("value")) for n in nodes if not n.get("ignored")]
@@ -217,6 +221,12 @@ class Firefox:
             ],
         }]})
 
+    def wheel(self, x, y, dy):
+        self.call("input.performActions", {"context": self.context, "actions": [{
+            "type": "wheel", "id": "wheel",
+            "actions": [{"type": "scroll", "x": int(x), "y": int(y), "deltaX": 0, "deltaY": int(dy)}],
+        }]})
+
     def accessibility(self):
         return None  # WebDriver BiDi exposes no accessibility tree.
 
@@ -231,6 +241,100 @@ class Firefox:
             pass
         self.sock.close()
         self.log.close()
+
+
+GEOMETRY = """(async () => {
+    const { CELLS } = await import('./scene.js');
+    const { resolve } = await import('./layout.js');
+    const vw = document.documentElement.clientWidth, vh = document.documentElement.clientHeight;
+    const out = [];
+    resolve(CELLS, vw, vh).forEach(({ rect }, i) => {
+      const r = document.querySelector(`[data-goya-id="${CELLS[i].id}"]`).getBoundingClientRect();
+      const want = [rect.x, rect.y, rect.width, rect.height].map((v) => v / 1000);
+      const got = [r.x, r.y, r.width, r.height];
+      if (want.some((v, j) => Math.abs(v - got[j]) > 1 / 30)) out.push({ id: CELLS[i].id, want, got });
+    });
+    return { vw, vh, n: CELLS.length, out };
+})()"""
+
+
+def check_geometry(browser, passed, label=""):
+    geometry = browser.evaluate(GEOMETRY, await_promise=True)
+    if geometry["out"] or geometry["vw"] <= 0 or geometry["vh"] <= 0:
+        raise AssertionError(f"geometry mismatch: {geometry!r}")
+    passed.append(f"geometry of {geometry['n']} elements at {geometry['vw']}x{geometry['vh']} CSS px{label}")
+
+
+def wait_for_scene(browser, selector):
+    deadline = time.monotonic() + 10
+    while not browser.evaluate(f"document.readyState === 'complete' && !!document.querySelector({json.dumps(selector)})"):
+        if time.monotonic() >= deadline:
+            raise RuntimeError("page did not build the scene")
+        time.sleep(0.05)
+
+
+def scroll_scenario(browser, url):
+    """Scroll viewports against Frame::scroll_limits and scrolled_nodes."""
+    passed, not_verified = [], []
+    ev = browser.evaluate
+    browser.navigate(url)
+    wait_for_scene(browser, '[data-goya-id="list"] .goya-scroller')
+    check_geometry(browser, passed, " (scroll offsets 0)")
+    # Browsers round scrollWidth/scrollHeight to whole pixels.
+    limits = ev("""(async () => {
+        const { CELLS } = await import('./scene.js');
+        const { resolve, scrollLimits } = await import('./layout.js');
+        const r = resolve(CELLS, document.documentElement.clientWidth, document.documentElement.clientHeight);
+        return scrollLimits(CELLS, r).map((l, i) => {
+          if (l === null) return null;
+          const s = document.querySelector(`[data-goya-id="${CELLS[i].id}"] > .goya-scroller`);
+          return { id: CELLS[i].id, want: l.map((v) => v / 1000), got: [s.scrollWidth - s.clientWidth, s.scrollHeight - s.clientHeight] };
+        }).filter((x) => x !== null);
+    })()""", await_promise=True)
+    for item in limits:
+        if any(abs(w - g) > 1 for w, g in zip(item["want"], item["got"])):
+            raise AssertionError(f"scroll limits differ: {limits!r}")
+    if not any(item["want"][1] > 0 for item in limits) or not any(item["want"] == [0, 0] for item in limits):
+        raise AssertionError(f"fixture must have an overflowing and a fitting viewport: {limits!r}")
+    passed.append("scroll extents equal Frame::scroll_limits within 1 px: " + ", ".join(f"{i['id']} {i['want'][0]:g}x{i['want'][1]:g} px" for i in limits))
+
+    scroller = "document.querySelector('[data-goya-id=\"list\"] > .goya-scroller')"
+    box = ev(f"(() => {{ const r = {scroller}.getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; }})()")
+    browser.wheel(box[0], box[1], 120)
+    deadline = time.monotonic() + 3
+    while ev(f"{scroller}.scrollTop") == 0 and time.monotonic() < deadline:
+        time.sleep(0.05)
+    top = ev(f"{scroller}.scrollTop")
+    if not 0 < top:
+        raise AssertionError("wheel did not scroll the viewport")
+    passed.append(f"wheel over the viewport scrolls it (scrollTop {top:g} px)")
+
+    # Scroll fully: content moves by exactly the offset, the viewport's own
+    # text and stroke do not (Frame::scrolled_nodes translates descendants only).
+    moved = ev(f"""(() => {{
+        const s = {scroller};
+        const label = document.querySelector('[data-goya-id="list"] > .goya-text').getBoundingClientRect().y;
+        const before = Object.fromEntries(['row1', 'row2a', 'wide', 'tap'].map((id) => [id, document.querySelector(`[data-goya-id="${{id}}"]`).getBoundingClientRect().y]));
+        s.scrollTop = 1e9; s.scrollLeft = 1e9;
+        const dy = s.scrollTop;
+        const after = Object.fromEntries(Object.keys(before).map((id) => [id, document.querySelector(`[data-goya-id="${{id}}"]`).getBoundingClientRect().y]));
+        return {{ dy, max: s.scrollHeight - s.clientHeight, label, labelAfter: document.querySelector('[data-goya-id="list"] > .goya-text').getBoundingClientRect().y,
+                 shifts: Object.keys(before).map((id) => before[id] - after[id]) }};
+    }})()""")
+    if moved["dy"] <= 0 or abs(moved["dy"] - moved["max"]) > 1 or any(abs(d - moved["dy"]) > 1 / 30 for d in moved["shifts"]) or moved["label"] != moved["labelAfter"]:
+        raise AssertionError(f"scrolled positions: {moved!r}")
+    passed.append(f"at the limit every descendant moved by the offset ({moved['dy']:g} px); the viewport's own text stayed put")
+    hidden = ev("""(() => { const r = document.querySelector('[data-goya-id="row1"]').getBoundingClientRect(); const v = document.querySelector('[data-goya-id="list"]').getBoundingClientRect();
+        const e = document.elementFromPoint(v.x + 2, v.y + 2); return e && e.closest('[data-goya-id]') ? e.closest('[data-goya-id]').dataset.goyaId : null; })()""")
+    if hidden == "row1":
+        raise AssertionError("content scrolled out of the viewport is still hit")
+    passed.append("content scrolled past the viewport edge is clipped (not hit-testable)")
+    ev("0")
+    if browser.errors:
+        raise AssertionError(f"browser errors: {browser.errors!r}")
+    passed.append("no console errors or uncaught exceptions")
+    not_verified.append("keyboard and touch scrolling; scroll offsets across resize (Frame reconcile)")
+    return passed, not_verified
 
 
 def scenario(browser, url):
@@ -379,11 +483,12 @@ def scenario(browser, url):
     return passed, not_verified
 
 
-def main(kind, output):
+def main(kind, name, output):
     output = Path(output).resolve(strict=True)
-    for name in ("index.html", "app.js", "d1.js", "scene.js", "layout.js"):
-        if not (output / name).is_file():
-            raise RuntimeError(f"output does not contain {name}")
+    required = ("index.html", "app.js", "scene.js", "layout.js") + (("d1.js",) if name == "counter" else ())
+    for file in required:
+        if not (output / file).is_file():
+            raise RuntimeError(f"output does not contain {file}")
 
     class Quiet(http.server.SimpleHTTPRequestHandler):
         def log_message(self, *args):
@@ -397,7 +502,7 @@ def main(kind, output):
         with tempfile.TemporaryDirectory(prefix=f"maja-{kind}-") as profile:
             browser = {"chrome": Chrome, "firefox": Firefox}[kind](profile)
             try:
-                passed, not_verified = scenario(browser, f"http://127.0.0.1:{server.server_port}/index.html")
+                passed, not_verified = {"counter": scenario, "scroll": scroll_scenario}[name](browser, f"http://127.0.0.1:{server.server_port}/index.html")
                 version = browser.version()
             finally:
                 browser.close()
@@ -420,6 +525,6 @@ def main(kind, output):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3 or sys.argv[1] not in ("chrome", "firefox"):
-        raise SystemExit("usage: counter_browser.py chrome|firefox OUTPUT_DIRECTORY")
-    main(sys.argv[1], sys.argv[2])
+    if len(sys.argv) != 4 or sys.argv[1] not in ("chrome", "firefox") or sys.argv[2] not in ("counter", "scroll"):
+        raise SystemExit("usage: maja_browser.py chrome|firefox counter|scroll OUTPUT_DIRECTORY")
+    main(sys.argv[1], sys.argv[2], sys.argv[3])
