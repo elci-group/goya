@@ -389,14 +389,9 @@ mod tests {
                 "scroll: true",
             ),
             (
-                COUNTER.replace(
-                    "id: \"window.root\";",
-                    "id: \"window.root\"; scroll: true;",
-                )
-                .replace(
-                    "text: \"Counter\";",
-                    "text: \"Counter\"; scroll: true;",
-                ),
+                COUNTER
+                    .replace("id: \"window.root\";", "id: \"window.root\"; scroll: true;")
+                    .replace("text: \"Counter\";", "text: \"Counter\"; scroll: true;"),
                 "scroll: true",
             ),
             (

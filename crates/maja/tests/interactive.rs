@@ -285,7 +285,9 @@ fn layout_differential(source: &str, name: &str) -> String {
     assert_eq!(actual, expected);
     if name == "scroll" {
         assert!(
-            expected.lines().any(|l| !l.ends_with(",-") && !l.ends_with(",0:0")),
+            expected
+                .lines()
+                .any(|l| !l.ends_with(",-") && !l.ends_with(",0:0")),
             "scroll corpus never overflows"
         );
     }
