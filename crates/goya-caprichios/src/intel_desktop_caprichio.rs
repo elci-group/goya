@@ -612,7 +612,9 @@ mod tests {
         // P-cores + 16 E-cores); planning at its documented total works,
         // while the 36-thread platform bound (Cascade Lake-X 36T) exceeds
         // this generation's documented count and fails closed.
-        assert!(declaration("Raptor Lake", 32, MAX_BATCH).normalize().is_ok());
+        assert!(declaration("Raptor Lake", 32, MAX_BATCH)
+            .normalize()
+            .is_ok());
         assert_eq!(
             declaration("Raptor Lake", 36, MAX_BATCH).normalize(),
             Err(IntelDesktopDiagnostic::ThreadsExceedGeneration)
