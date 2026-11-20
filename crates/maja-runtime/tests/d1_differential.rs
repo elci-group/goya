@@ -304,7 +304,25 @@ fn generated_runtime_matches_canonical_d1_case_by_case() {
         eprintln!("SKIPPED: node unavailable and MAJA_SKIP_NODE set");
         return;
     }
-    let handoff = handoff::admit_v2(SOURCE).unwrap();
+    let expected = differential(SOURCE, &cases());
+    assert!(expected.iter().any(|e| e.starts_with("ok:")));
+    for code in [
+        "ARITHMETIC_OVERFLOW",
+        "REVISION_OVERFLOW",
+        "TEXT_LIMIT",
+        "INPUT",
+    ] {
+        assert!(
+            expected.iter().any(|e| e == &format!("err:{code}")),
+            "corpus never exercises {code}"
+        );
+    }
+}
+
+/// Run `cases` through the canonical executor and the generated runtime and
+/// require identical outcomes. Returns the canonical outcomes.
+fn differential(source: &str, cases: &[Case]) -> Vec<String> {
+    let handoff = handoff::admit_v2(source).unwrap();
     let parsed = handoff.parsed();
     let runtime = emit_d1_runtime(parsed).unwrap();
     assert!(runtime.javascript.is_ascii());
@@ -333,24 +351,10 @@ fn generated_runtime_matches_canonical_d1_case_by_case() {
         })
         .collect();
 
-    let cases = cases();
     let expected: Vec<String> = cases
         .iter()
         .map(|case| canonical(&compiled, &touched, case))
         .collect();
-    assert!(expected.iter().any(|e| e.starts_with("ok:")));
-    for code in [
-        "ARITHMETIC_OVERFLOW",
-        "REVISION_OVERFLOW",
-        "TEXT_LIMIT",
-        "INPUT",
-    ] {
-        assert!(
-            expected.iter().any(|e| e == &format!("err:{code}")),
-            "corpus never exercises {code}"
-        );
-    }
-
     let mut driver = String::from(
         "import { createRuntime, intValue, textValue, boolValue } from \"./runtime.mjs\";\n\
          const hex = (s) => Buffer.from(s, \"utf8\").toString(\"hex\");\n\
@@ -370,7 +374,7 @@ fn generated_runtime_matches_canonical_d1_case_by_case() {
            out.push(`ok:${after.revision}:${keys.map((k) => `${k}=${render(after.state.get(k))}`).join(\",\")}`);\n\
          }\n",
     );
-    for case in &cases {
+    for case in cases {
         let state: Vec<String> = case
             .state
             .iter()
@@ -415,6 +419,7 @@ fn generated_runtime_matches_canonical_d1_case_by_case() {
     for (i, (a, e)) in actual.iter().zip(&expected).enumerate() {
         assert_eq!(a, e, "case {i}: action {}", cases[i].action);
     }
+    expected
 }
 
 #[test]
