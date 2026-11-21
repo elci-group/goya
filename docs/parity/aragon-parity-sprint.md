@@ -51,6 +51,8 @@ For Sash's initial static slice, 250 millipoints equal one DIP, so a 640 × 480 
 
 ## Integration order
 
-1. Establish the common fixture and observation contract.
-2. Integrate nested proportional layout and static text, then add scrolling and editable D1 controls. Complete each slice through the normal target command.
-3. Compare both outputs with the reference before paired release builds and native qualification. Track qualification per target and per gate.
+1. Establish the common fixture and observation contract. Provision the Windows worker and the two Wayland environments in parallel with compiler work. Record which OS builds, compositor versions, DPI settings and input methods each environment can exercise.
+2. Integrate nested proportional layout and static text through the normal target commands. Compare the emitted rectangles and verify that the legacy profile still compiles its original fixtures. Add layout during resize, then clipping and scrolling. Keep each renderer's unit conversion in its adapter.
+3. Bring up the two-field counter. Snapshot every bound field before converting any value, then dispatch one D1 action through the canonical executor. Record the failing field and exact source range for a conversion error. Check that the entire state snapshot and revision survive both invalid input and overflow.
+4. Run the same corpus and compare by fixture digest, viewport, element ID and action ID. Store the first mismatch with expected and actual values. Fix shared semantic differences at the reference boundary and platform differences in the adapter.
+5. Build and launch the matched artifacts. Fill out P1–P5 per target and review the evidence against the pinned commands, source hashes, available runtime environments and explicit refusals. Leave a gate open if a required measurement is absent.
