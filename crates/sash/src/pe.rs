@@ -251,28 +251,17 @@ fn is_denied_runtime(lower: &str) -> bool {
 }
 
 fn is_system_dll(lower: &str) -> bool {
-    const EXACT: &[&str] = &[
+    // This compiler profile publishes a deliberately narrow closure. Treating
+    // every API-set contract as an admitted system DLL would let a new import
+    // silently exceed the declared Windows floor.
+    const ADMITTED: &[&str] = &[
         "kernel32.dll",
-        "kernelbase.dll",
         "user32.dll",
         "gdi32.dll",
-        "advapi32.dll",
-        "bcrypt.dll",
-        "bcryptprimitives.dll",
         "ntdll.dll",
-        "ws2_32.dll",
-        "imm32.dll",
-        "ole32.dll",
-        "oleaut32.dll",
-        "combase.dll",
-        "shell32.dll",
-        "shlwapi.dll",
-        "version.dll",
-        "sechost.dll",
-        "rpcrt4.dll",
+        "api-ms-win-core-synch-l1-2-0.dll",
     ];
-    EXACT.contains(&lower)
-        || (lower.starts_with("api-ms-win-") && !lower.contains("api-ms-win-crt"))
+    ADMITTED.contains(&lower)
 }
 
 #[derive(Clone, Copy)]
