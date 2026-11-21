@@ -28,6 +28,10 @@ const PROFILE: &str = "emperor.linux.interactive/0.0.1";
 /// from the source Sash admitted; the compiler embed is not trusted to have
 /// gone through admission unchanged.
 const MAX_ELEMENTS: usize = 32;
+/// Maximum serialized native IR accepted from a file or embedding. The
+/// admitted source itself is capped at 1 MiB; this allowance covers JSON
+/// escaping and repeated element metadata while bounding deserialization.
+const MAX_NIR_JSON_BYTES: usize = 8 * 1024 * 1024;
 /// Geometry bound in DIP, mirroring `sash::admit::MAX_DIP`. Positions are
 /// accepted in `0..=MAX_DIP` and extents in `1..=MAX_DIP`, exactly as Sash's
 /// admission accepts them. Values inside these bounds cannot combine into an
@@ -196,6 +200,12 @@ pub fn paste_is_ignored(nir_json: &str) -> Result<bool, String> {
 
 /// Parse `scene.nir_json` and require every compiled field to match it.
 pub fn assert_scene_matches(scene: &CompiledScene) -> Result<(), String> {
+    if scene.nir_json.len() > MAX_NIR_JSON_BYTES {
+        return Err(format!(
+            "native ir is {} bytes; the limit is {MAX_NIR_JSON_BYTES}",
+            scene.nir_json.len()
+        ));
+    }
     let ir: NativeIr = serde_json::from_str(scene.nir_json).map_err(|err| err.to_string())?;
     same("schema", scene.schema, &ir.schema)?;
     same("profile", scene.profile, &ir.profile)?;
@@ -258,6 +268,12 @@ pub(crate) fn press_add(controller: &mut KeyController) {
 }
 
 pub(crate) fn open_admitted(nir_json: &str) -> Result<(NativeIr, KeyController), String> {
+    if nir_json.len() > MAX_NIR_JSON_BYTES {
+        return Err(format!(
+            "native ir is {} bytes; the limit is {MAX_NIR_JSON_BYTES}",
+            nir_json.len()
+        ));
+    }
     let ir: NativeIr = serde_json::from_str(nir_json).map_err(|err| err.to_string())?;
     if ir.elements.len() > MAX_ELEMENTS {
         return Err(format!(
