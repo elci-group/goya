@@ -453,6 +453,16 @@ fn validate_live(parsed: &ParsedScene) -> Result<(), StrictParseError> {
     };
     let mut check = |cell: &SceneCell, path: &[usize]| -> Result<(), StrictParseError> {
         if let Some(key) = &cell.text_from {
+            // Inputs own their displayed text: it is the editable value, not
+            // a label to append a state value to. Reject this at shared
+            // admission so every GSSH/3-live consumer agrees, rather than
+            // letting one target accept it and a later target refuse it.
+            if cell.kind == CellKind::Input {
+                return Err(bad(
+                    "text-from cannot be used on an @input".to_owned(),
+                    property_range(path, "text_from"),
+                ));
+            }
             if !decls.iter().any(|d| &d.key == key) {
                 return Err(bad(
                     format!("text-from names undeclared state '{key}'"),
