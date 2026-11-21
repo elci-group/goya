@@ -41,6 +41,7 @@ pub struct Invocation {
     pub profile: String,
     pub release: bool,
     pub launch: bool,
+    pub exercise: bool,
     pub suite: Option<String>,
     pub package_format: Option<String>,
     /// `wayland` or `kumimanu`. The default is Wayland.

@@ -158,6 +158,7 @@ def expectations(scene, viewport, density, screen, scroll_max=()):
     for line in run(args).splitlines():
         f = line.split()
         rows.append({"id": f[0], "parent": f[1], "kind": f[2], "content": f[3], "scroll": f[4] == "1",
+                     "scroll_offset": tuple(map(int, f[5:7])),
                      "bounds": tuple(map(int, f[7:11]))})
     return rows
 
@@ -524,6 +525,10 @@ def main():
         exit_code = qualify()
     except SystemExit as error:
         exit_code = error.code
+    except KeyboardInterrupt:
+        evidence["error"] = "qualification interrupted"
+        print(evidence["error"], file=sys.stderr)
+        exit_code = 130
     except (OSError, RuntimeError, subprocess.TimeoutExpired, ET.ParseError, KeyError) as error:
         evidence["error"] = str(error)
         print(f"qualification: {error}", file=sys.stderr)

@@ -67,6 +67,7 @@ fn parse(args: &[OsString]) -> Result<Invocation, Fault> {
     let mut profile = "balanced".to_owned();
     let mut release = false;
     let mut launch = false;
+    let mut exercise = false;
     let mut release_seen = false;
     let mut launch_seen = false;
     let mut target_seen = false;
@@ -93,6 +94,11 @@ fn parse(args: &[OsString]) -> Result<Invocation, Fault> {
                 return Err(Fault::new(2, "EMP-USAGE", "duplicate --launch"));
             }
             launch = true;
+            index += 1;
+        } else if text == "--exercise" {
+            if !matches!(kind, CommandKind::Qualify) || std::mem::replace(&mut exercise, true) {
+                return Err(Fault::new(2, "EMP-USAGE", "--exercise is accepted once by qualify"));
+            }
             index += 1;
         } else if text == "--target" {
             if std::mem::replace(&mut target_seen, true) {
@@ -183,6 +189,7 @@ fn parse(args: &[OsString]) -> Result<Invocation, Fault> {
         profile,
         release,
         launch,
+        exercise,
         suite,
         package_format,
         window: window.unwrap_or_else(|| "wayland".to_owned()),

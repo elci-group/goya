@@ -151,6 +151,8 @@ pub struct OracleReport {
 pub enum RunMode {
     /// One add, no window.
     Oracle,
+    /// Run the scripted counter without opening a window.
+    ExerciseOracle,
     /// Open the Wayland host and present one frame.
     Smoke,
     /// Run the scripted counter on the Wayland host and present that frame.
@@ -172,6 +174,12 @@ pub fn run(nir_json: &str, mode: RunMode) -> Result<OracleReport, String> {
         RunMode::Oracle => {
             press_add(&mut controller);
             prove_paste_denied(&ir, &mut controller)?;
+            Ok(report(&controller, 0, "not-requested"))
+        }
+        RunMode::ExerciseOracle => {
+            let hits = goya_parity::pointer::hit_map(&ir.scene).map_err(|err| err.to_string())?;
+            let mut arm = host::PointerArm::default();
+            exercise::apply_visible_script(&ir, &mut controller, &hits, &mut arm)?;
             Ok(report(&controller, 0, "not-requested"))
         }
         RunMode::Smoke => open_window(&ir, controller, host::WindowMode::Smoke),

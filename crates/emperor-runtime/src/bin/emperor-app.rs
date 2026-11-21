@@ -17,6 +17,7 @@ include!(concat!(env!("OUT_DIR"), "/embed.rs"));
 
 enum Mode {
     Oracle,
+    ExerciseOracle,
     Smoke,
     Exercise,
     Live,
@@ -74,6 +75,7 @@ fn app() -> Result<emperor_runtime::OracleReport, AppError> {
     };
     let mode = match args.mode {
         Mode::Oracle => emperor_runtime::RunMode::Oracle,
+        Mode::ExerciseOracle => emperor_runtime::RunMode::ExerciseOracle,
         Mode::Smoke => emperor_runtime::RunMode::Smoke,
         Mode::Exercise => emperor_runtime::RunMode::Exercise,
         Mode::Live => emperor_runtime::RunMode::Live {
@@ -91,6 +93,7 @@ fn parse_args() -> Result<Args, String> {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--oracle" => set_mode(&mut mode, Mode::Oracle)?,
+            "--exercise-oracle" => set_mode(&mut mode, Mode::ExerciseOracle)?,
             "--smoke" => set_mode(&mut mode, Mode::Smoke)?,
             "--exercise" => set_mode(&mut mode, Mode::Exercise)?,
             "--live" => set_mode(&mut mode, Mode::Live)?,
@@ -121,7 +124,7 @@ fn parse_args() -> Result<Args, String> {
 
 fn set_mode(slot: &mut Option<Mode>, mode: Mode) -> Result<(), String> {
     if slot.is_some() {
-        return Err("pass only one of --oracle, --smoke, --exercise, or --live".into());
+        return Err("pass only one of --oracle, --exercise-oracle, --smoke, --exercise, or --live".into());
     }
     *slot = Some(mode);
     Ok(())

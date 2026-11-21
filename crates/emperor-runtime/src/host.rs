@@ -136,8 +136,10 @@ pub(crate) fn run_window(
                     None,
                 )
                 .map_err(|err| format!("wayland: {err}"))?;
-            dirty = false;
-            presented = presented.saturating_add(1);
+            if window.frame_committed() {
+                dirty = false;
+                presented = presented.saturating_add(1);
+            }
         } else if matches!(mode, WindowMode::Live { .. }) && !quit {
             std::thread::sleep(std::time::Duration::from_millis(16));
         }

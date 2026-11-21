@@ -18,6 +18,15 @@ checks that `ANDROID_HOME/platform-tools/adb`, the locked 34.0.0 `zipalign`
 and `apksigner`, and `JAVA_HOME/bin/java` and `keytool` exist and can run; a
 missing tool is an environment error (exit 2).
 
+Pass `--report /path/to/aragon-device.json` to capture machine-readable evidence
+from the same run. The versioned report includes the device API level and
+fingerprint, fixture source and unsigned release APK SHA-256 hashes, and each
+check result. Each geometry case records its viewport and density, requested
+scroll limits, Rust reference rows, matched Android nodes, and the observed
+accessibility tree's classes and bounds. A failed or interrupted qualification
+can leave partial evidence. Use `exit_code` to determine whether qualification
+passed.
+
 ## What is checked
 
 **Geometry (ARG-G05).** The observer is the platform's accessibility tree
