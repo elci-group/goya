@@ -106,9 +106,9 @@ example to map a Kotlin compiler error back to the scene.
 `verify(source, files)` re-admits the source and checks the digest, the
 generated ranges and every origin. The generator writes it as
 `aragon-source-map.json` (contract `ARAGON-SOURCE-MAP/1`). In the generated
-D1 runtime file, each emitted action ID branch is mapped to its interaction
-declaration; generated statements inside those branches do not yet have
-individual mappings.
+D1 runtime file, each generated action branch is mapped to its interaction
+declaration. Individual statements within a branch do not yet have separate
+source mappings.
 
 ## Evidence (17 November 2026)
 

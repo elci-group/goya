@@ -552,6 +552,9 @@ fn unique_resource_data(
         }
         let rva = read_u32(bytes, entry.child)?;
         let size = read_u32(bytes, entry.child + 4)? as usize;
+        if size == 0 {
+            return Err("resource data is empty".into());
+        }
         if size > 1024 * 1024 {
             return Err("resource data is unbounded".into());
         }

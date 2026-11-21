@@ -32,6 +32,8 @@ const MAX_ELEMENTS: usize = 32;
 /// admitted source itself is capped at 1 MiB; this allowance covers JSON
 /// escaping and repeated element metadata while bounding deserialization.
 pub const MAX_NIR_JSON_BYTES: usize = 8 * 1024 * 1024;
+/// Sash refuses scene source above this size before lowering it to NIR.
+const MAX_SCENE_SOURCE_BYTES: usize = 1024 * 1024;
 /// Geometry bound in DIP, mirroring `sash::admit::MAX_DIP`. Positions are
 /// accepted in `0..=MAX_DIP` and extents in `1..=MAX_DIP`, exactly as Sash's
 /// admission accepts them. Values inside these bounds cannot combine into an
@@ -275,6 +277,12 @@ pub(crate) fn open_admitted(nir_json: &str) -> Result<(NativeIr, KeyController),
         ));
     }
     let ir: NativeIr = serde_json::from_str(nir_json).map_err(|err| err.to_string())?;
+    if ir.scene.len() > MAX_SCENE_SOURCE_BYTES {
+        return Err(format!(
+            "scene is {} bytes; the admission limit is {MAX_SCENE_SOURCE_BYTES}",
+            ir.scene.len()
+        ));
+    }
     if ir.elements.len() > MAX_ELEMENTS {
         return Err(format!(
             "element count {} exceeds the {MAX_ELEMENTS} cells this profile admits",

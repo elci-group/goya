@@ -15,7 +15,7 @@ pub struct AndroidD1Runtime {
     pub kotlin: String,
     pub source_digest: [u8; 32],
     pub action_ranges: Vec<(String, SourceRange)>,
-    /// Generated Kotlin range for each action ID branch, in source order.
+    /// Generated Kotlin range for each complete action branch, in source order.
     pub generated_action_ranges: Vec<(String, SourceRange)>,
 }
 
@@ -169,15 +169,14 @@ pub(crate) fn emit_for_parsed(
             .ok_or(AndroidD1RuntimeError::Unsupported(
                 "actions without authored IDs",
             ))?;
-        out.push_str("            ");
         let generated_start = out.len();
+        out.push_str("            ");
         out.push_str(&kotlin_string(id));
-        let generated_end = out.len();
         generated_action_ranges.push((
             id.clone(),
             SourceRange {
                 start: generated_start,
-                end: generated_end,
+                end: 0,
             },
         ));
         out.push_str(" -> {\n");
@@ -235,6 +234,9 @@ pub(crate) fn emit_for_parsed(
             ));
         }
         out.push_str("                if (!validMap(next) || mapSize(next) > MAX_SNAPSHOT_BYTES) return DispatchResult.Failure(ErrorCode.SNAPSHOT_LIMIT)\n                if (revision == ULong.MAX_VALUE) return DispatchResult.Failure(ErrorCode.REVISION_OVERFLOW)\n                val nextRevision = revision + 1uL\n                values = next.toMap()\n                revision = nextRevision\n                DispatchResult.Success(revision)\n            }\n");
+        if let Some((_, range)) = generated_action_ranges.last_mut() {
+            range.end = out.len();
+        }
     }
     out.push_str(
         "            else -> DispatchResult.Failure(ErrorCode.UNKNOWN_ACTION)\n        }\n    }\n",
