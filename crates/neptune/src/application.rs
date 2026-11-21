@@ -235,7 +235,7 @@ pub fn lower(
 #[cfg(test)]
 mod tests {
     use super::*;
-    const SOURCE: &str = "@ontology app { @cell root { id: \"root\" @button inc { id: \"button.inc\" } @button rename { id: \"button.rename\" } } @interaction rename { id: \"action.rename\"; trigger: button.rename.activate; class: D1; state { write name: text; } input { value: text; } set name = input.value; } @interaction add { id: \"action.add\"; trigger: button.inc.activate; class: D1; state { read count: int; write count: int; } input { amount: int; } set count = state.count + input.amount; } }";
+    const SOURCE: &str = "@ontology app { @state { name: text = \"é\" session; count: int = 4 session; } @cell root { id: \"root\" @button inc { id: \"button.inc\" } @button rename { id: \"button.rename\" } @input valueField { id: \"input.value\" text: \"\" } @input amountField { id: \"input.amount\" text: \"\" } } @interaction rename { id: \"action.rename\"; trigger: button.rename.activate; class: D1; state { write name: text; } input { value: text from \"input.value\"; } set name = input.value; } @interaction add { id: \"action.add\"; trigger: button.inc.activate; class: D1; state { read count: int; write count: int; } input { amount: int from \"input.amount\"; } set count = state.count + input.amount; } }";
     fn initial() -> BTreeMap<String, D1Value> {
         BTreeMap::from([
             ("name".into(), D1Value::Text("e\u{301}".into())),
@@ -296,7 +296,7 @@ mod tests {
             "@button inc",
             "@button later { id: \"button.later\" } @button inc",
         );
-        let with_later = format!("{} @interaction later {{ id: \"action.later\"; trigger: button.later.activate; class: D1; state {{ write count: int; }} input {{ value: int; }} set count = input.value; }} }}", &with_button[..with_button.len() - 1]);
+        let with_later = format!("{} @interaction later {{ id: \"action.later\"; trigger: button.later.activate; class: D1; state {{ write count: int; }} input {{ }} set count = 0; }} }}", &with_button[..with_button.len() - 1]);
         let diagnostic = lower(&with_later, "app/main.gscene", initial()).unwrap_err();
         let range = diagnostic.range.unwrap();
         assert!(with_later[range.start..range.end].starts_with("@interaction add"));

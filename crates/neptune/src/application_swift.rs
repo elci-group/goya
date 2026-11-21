@@ -311,7 +311,7 @@ fn generate(
 #[cfg(test)]
 mod tests {
     use super::*;
-    const SOURCE: &str = "@ontology app { @cell root { id: \"root\" @button inc { id: \"button.inc\" } @button rename { id: \"button.rename\" } } @interaction rename { id: \"action.rename\"; trigger: button.rename.activate; class: D1; state { write name: text; } input { value: text; } set name = input.value; } @interaction add { id: \"action.add\"; trigger: button.inc.activate; class: D1; state { read count: int; write count: int; } input { amount: int; } set count = state.count + input.amount; } }";
+    const SOURCE: &str = "@ontology app { @state { name: text = \"é\" session; count: int = 4 session; } @cell root { id: \"root\" @button inc { id: \"button.inc\" } @button rename { id: \"button.rename\" } @input valueField { id: \"input.value\" text: \"\" } @input amountField { id: \"input.amount\" text: \"\" } } @interaction rename { id: \"action.rename\"; trigger: button.rename.activate; class: D1; state { write name: text; } input { value: text from \"input.value\"; } set name = input.value; } @interaction add { id: \"action.add\"; trigger: button.inc.activate; class: D1; state { read count: int; write count: int; } input { amount: int from \"input.amount\"; } set count = state.count + input.amount; } }";
     fn initial() -> BTreeMap<String, D1Value> {
         BTreeMap::from([
             ("count".into(), D1Value::Int(4)),
@@ -467,16 +467,20 @@ mod tests {
     fn source_generation_rejects_action_and_output_expansion_limits() {
         fn fixture(count: usize, text_bytes: usize) -> (String, BTreeMap<String, D1Value>) {
             let mut buttons = String::new();
+            let mut fields = String::new();
+            let mut states = String::new();
             let mut interactions = String::new();
             let mut initial = BTreeMap::new();
             for i in 0..count {
                 buttons.push_str(&format!("@button b{i} {{ id: \"b.{i}\" }} "));
-                interactions.push_str(&format!("@interaction a{i} {{ id: \"a.{i}\"; trigger: button.b{i}.activate; class: D1; state {{ write key{i}: text; }} input {{ value: text; }} set key{i} = input.value; }} "));
+                fields.push_str(&format!("@input field{i} {{ id: \"field.{i}\" }} "));
+                states.push_str(&format!("key{i}: text = \"\" session; "));
+                interactions.push_str(&format!("@interaction a{i} {{ id: \"a.{i}\"; trigger: button.b{i}.activate; class: D1; state {{ write key{i}: text; }} input {{ value: text from \"field.{i}\"; }} set key{i} = input.value; }} "));
                 initial.insert(format!("key{i}"), D1Value::Text("\0".repeat(text_bytes)));
             }
             (
                 format!(
-                    "@ontology app {{ @cell root {{ id: \"root\" {buttons} }} {interactions} }}"
+                    "@ontology app {{ @state {{ {states} }} @cell root {{ id: \"root\" {buttons} {fields} }} {interactions} }}"
                 ),
                 initial,
             )
