@@ -232,7 +232,14 @@ pub(crate) fn on_pointer_press(
     x: f64,
     y: f64,
 ) -> PointerEffect {
-    let Some(control) = hits.at(dip_from_surface_px(x), dip_from_surface_px(y)) else {
+    let (Some(x), Some(y)) = (dip_from_surface_px(x), dip_from_surface_px(y)) else {
+        arm.button_id = None;
+        return PointerEffect {
+            step: Step::Unchanged,
+            hit: None,
+        };
+    };
+    let Some(control) = hits.at(x, y) else {
         arm.button_id = None;
         return PointerEffect {
             step: Step::Unchanged,
@@ -274,9 +281,12 @@ pub(crate) fn on_pointer_release(
     x: f64,
     y: f64,
 ) -> PointerEffect {
-    let hit = hits
-        .at(dip_from_surface_px(x), dip_from_surface_px(y))
-        .map(|control| control.semantic_id.clone());
+    let hit = match (dip_from_surface_px(x), dip_from_surface_px(y)) {
+        (Some(x), Some(y)) => hits
+            .at(x, y)
+            .map(|control| control.semantic_id.clone()),
+        _ => None,
+    };
     let armed = arm.button_id.take();
     let Some(armed_id) = armed else {
         return PointerEffect {
@@ -501,18 +511,20 @@ fn view(controller: &KeyController) -> View {
     }
 }
 
-/// Truncate a surface pixel toward zero into an i32 DIP.
-fn dip_from_surface_px(value: f64) -> i32 {
+/// Truncate a finite surface pixel toward zero into an i32 DIP.
+/// Non-finite coordinates are invalid pointer input and must never alias the
+/// origin, where a button may be hit.
+fn dip_from_surface_px(value: f64) -> Option<i32> {
     if !value.is_finite() {
-        return 0;
+        return None;
     }
     let truncated = value.trunc();
     if truncated >= f64::from(i32::MAX) {
-        i32::MAX
+        Some(i32::MAX)
     } else if truncated <= f64::from(i32::MIN) {
-        i32::MIN
+        Some(i32::MIN)
     } else {
-        truncated as i32
+        Some(truncated as i32)
     }
 }
 
@@ -534,10 +546,10 @@ mod tests {
 
     #[test]
     fn surface_px_truncates_toward_zero() {
-        assert_eq!(dip_from_surface_px(1.9), 1);
-        assert_eq!(dip_from_surface_px(-1.9), -1);
-        assert_eq!(dip_from_surface_px(8.0), 8);
-        assert_eq!(dip_from_surface_px(f64::NAN), 0);
+        assert_eq!(dip_from_surface_px(1.9), Some(1));
+        assert_eq!(dip_from_surface_px(-1.9), Some(-1));
+        assert_eq!(dip_from_surface_px(8.0), Some(8));
+        assert_eq!(dip_from_surface_px(f64::NAN), None);
     }
 
     #[test]

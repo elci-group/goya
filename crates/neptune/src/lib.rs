@@ -150,11 +150,12 @@ pub fn preview_bundle_with_bluetooth(
 pub fn preview_static_text(source: &str) -> Result<SourcePreview, Diagnostic> {
     // Run the bounded frontend before using the strict parsed result.
     inspect(source)?;
-    let parsed = parse_strict(source).map_err(|error| Diagnostic {
+    let handoff = goya_lang::handoff::admit_v3(source).map_err(|error| Diagnostic {
         code: error.code,
         message: error.to_string(),
         range: (error.range.end > error.range.start).then_some(error.range),
     })?;
+    let parsed = handoff.parsed();
     let cells: Vec<_> = parsed
         .entries
         .iter()

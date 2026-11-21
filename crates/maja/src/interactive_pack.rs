@@ -504,6 +504,10 @@ pub const STORAGE_JS: &str = r#"// Maja durable state adapter (maja.web.local.v2
 import { convertField, utf8Length } from "./layout.js";
 export const RECORD_FORMAT = "goya.state.v1";
 const MAX_SNAPSHOT_BYTES = 1048576;
+// Keep hostile or corrupted localStorage records from making JSON.parse
+// allocate without bound. This allows generous JSON overhead over the
+// canonical 1 MiB state snapshot.
+const MAX_RECORD_CODE_UNITS = 8 * 1048576;
 const TYPES = ["int", "text", "bool"];
 // Storage namespace is (ontology name, state key): one record per ontology,
 // one entry per durable key.
@@ -538,6 +542,7 @@ export function restore(ontology, initialState) {
   const fail = (code, kept) => ({ ok: false, code, state, preserved: kept ?? Object.create(null), seen: text });
   try { text = globalThis.localStorage.getItem(recordKey(ontology)); } catch { return fail("STORAGE_UNAVAILABLE"); }
   if (text === null) return { ok: true, code: null, state, preserved, seen: text };
+  if (text.length > MAX_RECORD_CODE_UNITS) return fail("RECORD_LIMIT");
   let record;
   try { record = JSON.parse(text); } catch { return fail("RECORD_UNDECODABLE"); }
   if (!plain(record) || Object.keys(record).length !== 2 || record.format !== RECORD_FORMAT || !plain(record.values)) return fail("RECORD_UNDECODABLE");

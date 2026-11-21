@@ -191,6 +191,8 @@ Scenes with at least one durable key get `storage.js`:
   snapshot over D1's 1 MiB (`RECORD_LIMIT`). The code goes to
   `<html data-goya-restore>` (`ok` on success) and a notice goes to the
   `role=status` region. The record is not touched on load.
+  A raw record above 8 Mi UTF-16 code units is rejected as `RECORD_LIMIT`
+  before JSON parsing, bounding work on corrupted or hostile local storage.
 * **Write.** After the runtime has passed every canonical check, the hook
   writes the whole durable snapshot as it will be after the transition.
   A transition that writes no durable key never touches storage. If
