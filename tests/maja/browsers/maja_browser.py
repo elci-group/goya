@@ -60,7 +60,7 @@ class Chrome:
             "--force-device-scale-factor=1", "--user-data-dir=" + profile, "about:blank",
         ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         port_file = Path(profile) / "DevToolsActivePort"
-        deadline = time.monotonic() + 15
+        deadline = time.monotonic() + 45
         while not port_file.exists():
             if self.process.poll() is not None or time.monotonic() >= deadline:
                 raise RuntimeError("Chrome did not expose a DevTools port")
