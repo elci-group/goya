@@ -140,14 +140,23 @@ pub fn announcement<'a>(
 ) -> Option<String> {
     let mut result = String::new();
     for (context, old, new) in changes {
-        if let Some(part) = describe_change(context, old, new) {
-            if !result.is_empty() {
-                result.push_str("; ");
-            }
-            result.push_str(&part);
-        }
+        append_change(&mut result, context, old, new);
     }
     (!result.is_empty()).then_some(result)
+}
+
+fn append_change(
+    result: &mut String,
+    context: &str,
+    old: &InteractionValue,
+    new: &InteractionValue,
+) {
+    if let Some(part) = describe_change(context, old, new) {
+        if !result.is_empty() {
+            result.push_str("; ");
+        }
+        result.push_str(&part);
+    }
 }
 
 /// Build the canonical announcement for a scene after a committed state
@@ -161,17 +170,14 @@ pub fn scene_announcement(
     before: &BTreeMap<String, InteractionValue>,
     after: &BTreeMap<String, InteractionValue>,
 ) -> Option<String> {
-    let mut changes = Vec::new();
+    let mut result = String::new();
     visit_displays(root, &mut |cell, key| {
         if let (Some(old), Some(new)) = (before.get(key), after.get(key)) {
-            changes.push((context(cell.text.as_deref(), key), old, new));
+            let label = context(cell.text.as_deref(), key);
+            append_change(&mut result, &label, old, new);
         }
     });
-    announcement(
-        changes
-            .iter()
-            .map(|(label, old, new)| (label.as_str(), *old, *new)),
-    )
+    (!result.is_empty()).then_some(result)
 }
 
 #[cfg(test)]
