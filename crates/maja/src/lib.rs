@@ -830,3 +830,50 @@ fn reject(err: &mut dyn Write, diagnostic: &maja_semantic::Diagnostic) -> i32 {
     }
     4
 }
+
+#[cfg(test)]
+mod source_input_tests {
+    use super::{read_source, MAX_SOURCE_FILE_BYTES};
+    use std::{
+        fs,
+        path::PathBuf,
+        sync::atomic::{AtomicU64, Ordering},
+    };
+
+    struct Scratch(PathBuf);
+
+    impl Scratch {
+        fn new() -> Self {
+            static NEXT: AtomicU64 = AtomicU64::new(0);
+            let path = std::env::temp_dir().join(format!(
+                "maja-source-limit-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn source_at_limit_is_read_and_one_byte_over_is_rejected() {
+        let scratch = Scratch::new();
+        let source = scratch.0.join("scene.gscene");
+        fs::write(&source, vec![b'x'; MAX_SOURCE_FILE_BYTES as usize]).unwrap();
+        assert_eq!(
+            read_source(&source).unwrap().len() as u64,
+            MAX_SOURCE_FILE_BYTES
+        );
+
+        fs::write(&source, vec![b'x'; MAX_SOURCE_FILE_BYTES as usize + 1]).unwrap();
+        let error = read_source(&source).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        assert!(error.to_string().contains("1 MiB"));
+    }
+}

@@ -138,11 +138,16 @@ pub fn describe_change(
 pub fn announcement<'a>(
     changes: impl IntoIterator<Item = (&'a str, &'a InteractionValue, &'a InteractionValue)>,
 ) -> Option<String> {
-    let parts: Vec<String> = changes
-        .into_iter()
-        .filter_map(|(context, old, new)| describe_change(context, old, new))
-        .collect();
-    (!parts.is_empty()).then(|| parts.join("; "))
+    let mut result = String::new();
+    for (context, old, new) in changes {
+        if let Some(part) = describe_change(context, old, new) {
+            if !result.is_empty() {
+                result.push_str("; ");
+            }
+            result.push_str(&part);
+        }
+    }
+    (!result.is_empty()).then_some(result)
 }
 
 /// Build the canonical announcement for a scene after a committed state
