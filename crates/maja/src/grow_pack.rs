@@ -769,6 +769,25 @@ mod tests {
     }
 
     #[test]
+    fn unsupported_static_manifest_schema_is_rejected() {
+        let scratch = Scratch::new();
+        let input = scratch.0.join("input");
+        let output = scratch.0.join("output");
+        fs::create_dir(&input).unwrap();
+        let manifest = STATIC_MANIFEST.replace("MAJA-STATIC/1-draft", "MAJA-STATIC/2");
+        write_input(&input, &manifest);
+
+        let (code, _stdout, stderr) = run_package(&input, &output, "cli-name", "9.9.9");
+
+        assert_eq!(code, 4, "{stderr}");
+        assert!(
+            stderr.contains("schema is not MAJA-STATIC/1-draft"),
+            "{stderr}"
+        );
+        assert!(!output.exists());
+    }
+
+    #[test]
     fn written_toml_has_no_runtime() {
         let scratch = Scratch::new();
         let input = scratch.0.join("input");
