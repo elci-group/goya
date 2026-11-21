@@ -337,11 +337,11 @@ Durable fixture (`maja_browser.py BROWSER durable`, 21 November 2026):
 | Throwing `setItem` refuses the commit with `STORAGE_FAILED`, reported; reload still gives 6 | pass (failure simulated) | pass (failure simulated) |
 | Undecodable record: `RECORD_UNDECODABLE` reported, record kept on load, first commit starts from 0 and replaces it | pass | pass |
 | Retyped record: `RECORD_TYPE_MISMATCH` | pass | pass |
-| Record changed by another window: `STORAGE_CONFLICT`, other value kept, reload adopts it (40 + 1 = 41) | pass (write made from DevTools) | pass (write made from DevTools) |
+| Second tab commits 40 through the app. The stale tab gets `STORAGE_CONFLICT`, preserves its state and revision, and reload adopts 40 (40 + 1 = 41). | pass | pass |
 | No console errors | pass | pass |
 
-Not verified: a real quota error, a second real tab, a crash between write and
-commit (the ordering holds by construction, not by test).
+Open verification cases include a real quota error, simultaneous writes
+between the storage re-read and write, and a crash between write and commit.
 
 Browsers stop scroll offsets at whole pixels, so the maximum offset can be
 up to 1 px short of the reference limit (492 px vs 492.48 px in the run
