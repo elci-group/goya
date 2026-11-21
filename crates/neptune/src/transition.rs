@@ -283,8 +283,9 @@ mod tests {
         );
         assert!(SOURCE[action.source_range.start..action.source_range.end]
             .starts_with("@interaction increment"));
-        let scene = goya_lang::parse_strict(SOURCE).unwrap().scene;
-        let reference = goya_lang::compile_d1_interactions(&scene)
+        let handoff = goya_lang::handoff::admit_v3(SOURCE).unwrap();
+        let scene = &handoff.parsed().scene;
+        let reference = goya_lang::compile_d1_interactions(scene)
             .unwrap()
             .remove(0);
         assert_eq!(action.reference_program_hash, reference.program_hash());
