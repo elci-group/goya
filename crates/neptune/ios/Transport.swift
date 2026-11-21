@@ -63,10 +63,9 @@ final class LanTransport: NSObject, WKScriptMessageHandlerWithReply {
         guard values.count == 4, host == values.map(String.init).joined(separator: ".") else {
             return false
         }
-        return values[0] == 10 || values[0] == 127
+        return values[0] == 10
             || (values[0] == 172 && (16...31).contains(values[1]))
             || (values[0] == 192 && values[1] == 168)
-            || (values[0] == 169 && values[1] == 254)
     }
 
     func userContentController(
