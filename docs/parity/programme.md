@@ -6,6 +6,8 @@ The objective is identical application intent, consistent core behaviour, and ap
 
 This document is the programme. The executable gate is `crates/goya-parity`. That crate does not launch a window and does not admit a release.
 
+The [desktop scene sprint directive](aragon-parity-sprint.md) defines the Aragon baseline, the Windows and Linux work packages, and the evidence each target needs.
+
 ## Equivalence
 
 | Class | Obligation | Current measurement |
