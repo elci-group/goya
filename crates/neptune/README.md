@@ -100,7 +100,7 @@ is for manual testing only.
 the explicitly supplied, trusted Arachnid executable, checks the source and
 asset hashes from its report, and copies the browser assets into a Neptune
 WebKit application project. Use the Arachnid revision and media extension
-required by [Tapestry's shell](/home/sal/tapestry/tapestry-webos/shell/README.md).
+required by Tapestry's `tapestry-webos/shell/README.md`.
 The output directory must be new and its parent must exist.
 
 ```sh
