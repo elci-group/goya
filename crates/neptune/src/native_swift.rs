@@ -128,8 +128,9 @@ fn render(
 ) -> Result<Preview, crate::Diagnostic> {
     crate::validate_module(module)?;
     crate::inspect(source)?;
-    let parsed =
-        goya_lang::parse_strict(source).map_err(|e| reject(&e.to_string(), Some(e.range)))?;
+    let handoff = goya_lang::handoff::admit_v3(source)
+        .map_err(|e| reject(&e.to_string(), Some(e.range)))?;
+    let parsed = handoff.parsed();
     let root = &parsed.scene.root;
     let button = parsed
         .entries

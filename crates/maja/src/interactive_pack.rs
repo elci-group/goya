@@ -695,6 +695,7 @@ function showState(state) {
 // changed and how, in a visually hidden polite live region. Nothing is
 // announced at load or for a refused transition.
 let announcer = null;
+let announcementFrame = null;
 if (displays.length > 0) {
   announcer = document.createElement("p");
   announcer.id = "goya-announce";
@@ -706,10 +707,18 @@ if (displays.length > 0) {
 function announce(before, after) {
   const message = announcement(displays.map(([, key, context]) => [context, before.get(key), after.get(key)]));
   if (message === null) return;
+  // A queued repeat must not overwrite a newer transition's announcement.
+  if (announcementFrame !== null) {
+    cancelAnimationFrame(announcementFrame);
+    announcementFrame = null;
+  }
   // Repeating the same text is cleared first so it is announced again.
   if (announcer.textContent === message) {
     announcer.textContent = "";
-    requestAnimationFrame(() => { announcer.textContent = message; });
+    announcementFrame = requestAnimationFrame(() => {
+      announcementFrame = null;
+      announcer.textContent = message;
+    });
   } else {
     announcer.textContent = message;
   }
