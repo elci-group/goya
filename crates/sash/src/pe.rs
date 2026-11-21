@@ -332,7 +332,12 @@ fn directory(bytes: &[u8], table: usize, count: usize, index: usize) -> Result<(
         return Ok((0, 0));
     }
     let off = table + index * 8;
-    Ok((read_u32(bytes, off)?, read_u32(bytes, off + 4)?))
+    let address = read_u32(bytes, off)?;
+    let size = read_u32(bytes, off + 4)?;
+    if (address == 0) != (size == 0) {
+        return Err("data directory has an incomplete range".into());
+    }
+    Ok((address, size))
 }
 
 fn rva_to_raw_range(sections: &[Section], rva: u32) -> Result<(usize, usize), String> {

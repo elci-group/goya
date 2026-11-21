@@ -9,6 +9,7 @@
 
 use std::env;
 use std::fs;
+use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
 
@@ -133,8 +134,19 @@ fn read_nir(path: &Path) -> Result<String, AppError> {
     {
         return Err(AppError::Usage("nir path must not contain ..".into()));
     }
-    fs::read_to_string(path)
-        .map_err(|err| AppError::Usage(format!("could not read {}: {err}", path.display())))
+    let file = fs::File::open(path)
+        .map_err(|err| AppError::Usage(format!("could not read {}: {err}", path.display())))?;
+    let mut json = String::new();
+    file.take((emperor_runtime::MAX_NIR_JSON_BYTES + 1) as u64)
+        .read_to_string(&mut json)
+        .map_err(|err| AppError::Usage(format!("could not read {}: {err}", path.display())))?;
+    if json.len() > emperor_runtime::MAX_NIR_JSON_BYTES {
+        return Err(AppError::Usage(format!(
+            "native ir exceeds the {} byte limit",
+            emperor_runtime::MAX_NIR_JSON_BYTES
+        )));
+    }
+    Ok(json)
 }
 
 fn classify(err: String) -> AppError {
