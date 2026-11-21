@@ -64,6 +64,12 @@ pub(crate) fn run_window(
             .poll_events(timeout)
             .map_err(|err| format!("kumimanu: {err}"))?
         {
+            // A release may arrive after the pointer leaves this window. Do
+            // not let a press armed before focus loss activate a control if
+            // focus returns before that release is delivered.
+            if matches!(&event, Event::Focus { focused: false }) {
+                arm = host::PointerArm::default();
+            }
             if matches!(event, Event::Exposed | Event::Mapped) {
                 dirty = true;
             }
