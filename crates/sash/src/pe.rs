@@ -198,8 +198,8 @@ pub fn parse_pe(bytes: &[u8]) -> Result<PeInfo, String> {
         return Err("data directories are truncated".into());
     }
     let sections = read_sections(bytes, section_table, sections)?;
-    if entry != 0 && !entry_is_executable(&sections, entry) {
-        return Err("entry point is not backed by an executable section".into());
+    if entry != 0 && !entry_has_safe_protection(&sections, entry) {
+        return Err("entry point is not in a read-only executable section".into());
     }
     let imports = read_import_dlls(
         bytes,
@@ -317,13 +317,15 @@ fn read_sections(bytes: &[u8], table: usize, count: usize) -> Result<Vec<Section
     Ok(sections)
 }
 
-fn entry_is_executable(sections: &[Section], entry: u32) -> bool {
+fn entry_has_safe_protection(sections: &[Section], entry: u32) -> bool {
     const IMAGE_SCN_MEM_EXECUTE: u32 = 0x2000_0000;
+    const IMAGE_SCN_MEM_WRITE: u32 = 0x8000_0000;
     sections.iter().any(|section| {
         let delta = entry.saturating_sub(section.virtual_address);
         entry >= section.virtual_address
             && delta < section.raw_size
             && section.characteristics & IMAGE_SCN_MEM_EXECUTE != 0
+            && section.characteristics & IMAGE_SCN_MEM_WRITE == 0
     })
 }
 

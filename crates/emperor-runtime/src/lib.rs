@@ -347,7 +347,7 @@ pub(crate) fn open_admitted(nir_json: &str) -> Result<(NativeIr, KeyController),
         }
         if !matches!(
             element.role.as_str(),
-            "client" | "edit" | "button" | "result" | "static"
+            "client" | "edit" | "button" | "result"
         ) {
             return Err(format!("role {} is not admitted", element.role));
         }
@@ -382,7 +382,6 @@ pub(crate) fn open_admitted(nir_json: &str) -> Result<(NativeIr, KeyController),
             "edit" => edits += 1,
             "button" => buttons += 1,
             "result" => results += 1,
-            "static" => {}
             _ => return Err(format!("role {} is not admitted", element.role)),
         }
     }
