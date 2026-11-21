@@ -296,6 +296,30 @@ fn read_sections(bytes: &[u8], table: usize, count: usize) -> Result<Vec<Section
             .ok_or("section raw data exceeds the file")?;
         sections.push(section);
     }
+    for left in 0..sections.len() {
+        for right in left + 1..sections.len() {
+            let a = sections[left];
+            let b = sections[right];
+            let a_virtual_end = a.virtual_address as u64 + a.virtual_size.max(a.raw_size) as u64;
+            let b_virtual_end = b.virtual_address as u64 + b.virtual_size.max(b.raw_size) as u64;
+            if a.virtual_size.max(a.raw_size) != 0
+                && b.virtual_size.max(b.raw_size) != 0
+                && (a.virtual_address as u64) < b_virtual_end
+                && (b.virtual_address as u64) < a_virtual_end
+            {
+                return Err("PE sections have overlapping virtual ranges".into());
+            }
+            let a_raw_end = a.raw_ptr as u64 + a.raw_size as u64;
+            let b_raw_end = b.raw_ptr as u64 + b.raw_size as u64;
+            if a.raw_size != 0
+                && b.raw_size != 0
+                && (a.raw_ptr as u64) < b_raw_end
+                && (b.raw_ptr as u64) < a_raw_end
+            {
+                return Err("PE sections have overlapping raw ranges".into());
+            }
+        }
+    }
     Ok(sections)
 }
 
