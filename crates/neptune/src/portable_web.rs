@@ -222,6 +222,26 @@ fn checked_assets(staging: &Path, source_hash: &str) -> io::Result<(Value, Asset
     {
         return Err(io::Error::other("unrecognized asset in Arachnid output"));
     }
+    let mut emitted = 0;
+    for entry in fs::read_dir(&app)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_file()
+            || !entry
+                .file_name()
+                .to_str()
+                .is_some_and(|name| hashes.contains_key(name))
+        {
+            return Err(io::Error::other(
+                "unlisted or non-regular file in Arachnid output",
+            ));
+        }
+        emitted += 1;
+    }
+    if emitted != hashes.len() {
+        return Err(io::Error::other(
+            "Arachnid asset list does not match emitted files",
+        ));
+    }
     let mut assets = BTreeMap::new();
     for name in REQUIRED
         .into_iter()
@@ -276,11 +296,8 @@ fn runtime_endpoint(bytes: &[u8]) -> Result<String, String> {
         .parse()
         .map_err(|_| "lanlink endpoint must use literal IPv4")?;
     let port: u16 = port.parse().map_err(|_| "invalid lanlink port")?;
-    if port == 0
-        || origin != format!("http://{ip}:{port}")
-        || !(ip.is_private() || ip.is_link_local() || ip.is_loopback())
-    {
-        return Err("lanlink endpoint must be a canonical http://IPv4:port local origin".into());
+    if port == 0 || origin != format!("http://{ip}:{port}") || !ip.is_private() {
+        return Err("lanlink endpoint must be a canonical http://IPv4:port private origin".into());
     }
     Ok(origin)
 }
