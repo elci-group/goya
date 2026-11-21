@@ -23,10 +23,11 @@ pub fn generate(
     }
     fs::create_dir(output).map_err(|error| format!("{}: {error}", output.display()))?;
     let result = generate_into(source, compiler, bundle_id, name, output);
-    if result.is_err() {
-        if let Err(error) = fs::remove_dir_all(output) {
-            return Err(format!("{}; partial project at {} could not be cleaned up: {error}", result.unwrap_err(), output.display()));
-        }
+    if let Err(message) = result {
+        return match fs::remove_dir_all(output) {
+            Ok(()) => Err(message),
+            Err(error) => Err(format!("{message}; partial project at {} could not be cleaned up: {error}", output.display())),
+        };
     }
     result
 }
@@ -51,13 +52,14 @@ fn generate_into(
         return Err("portable scene LAN endpoint and transport script disagree".into());
     }
     let plist = info_plist(bundle_id, name, endpoint)?;
+    let project = include_str!("../ios/project.pbxproj").replace("@NEPTUNE_BUNDLE_ID@", bundle_id);
     fs::create_dir(output.join("Sources")).map_err(|error| error.to_string())?;
     fs::create_dir(output.join("NeptuneScene.xcodeproj")).map_err(|error| error.to_string())?;
     for (path, contents) in [
         ("Sources/App.swift", include_str!("../ios/App.swift")),
         ("Sources/Transport.swift", include_str!("../ios/Transport.swift")),
         ("Info.plist", &plist),
-        ("NeptuneScene.xcodeproj/project.pbxproj", include_str!("../ios/project.pbxproj")),
+        ("NeptuneScene.xcodeproj/project.pbxproj", &project),
         ("build-device.sh", include_str!("../ios/build-device.sh")),
     ] {
         fs::write(output.join(path), contents).map_err(|error| format!("{path}: {error}"))?;
