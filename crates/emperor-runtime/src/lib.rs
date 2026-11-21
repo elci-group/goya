@@ -305,6 +305,22 @@ pub(crate) fn open_admitted(nir_json: &str) -> Result<(NativeIr, KeyController),
                 element.id
             ));
         }
+        if element.span_start > element.span_end
+            || element.span_end > ir.scene.len()
+            || !ir.scene.is_char_boundary(element.span_start)
+            || !ir.scene.is_char_boundary(element.span_end)
+        {
+            return Err(format!(
+                "element {} has an invalid UTF-8 source span",
+                element.id
+            ));
+        }
+        if &ir.scene[element.span_start..element.span_end] != element.id {
+            return Err(format!(
+                "element {} source span does not match its semantic id",
+                element.id
+            ));
+        }
         if !matches!(
             element.role.as_str(),
             "client" | "edit" | "button" | "result" | "static"
