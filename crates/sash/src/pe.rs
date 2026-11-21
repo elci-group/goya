@@ -284,12 +284,17 @@ fn read_sections(bytes: &[u8], table: usize, count: usize) -> Result<Vec<Section
     let mut sections = Vec::with_capacity(count);
     for index in 0..count {
         let off = table + index * 40;
-        sections.push(Section {
+        let section = Section {
             virtual_size: read_u32(bytes, off + 8)?,
             virtual_address: read_u32(bytes, off + 12)?,
             raw_size: read_u32(bytes, off + 16)?,
             raw_ptr: read_u32(bytes, off + 20)?,
-        });
+        };
+        (section.raw_ptr as usize)
+            .checked_add(section.raw_size as usize)
+            .filter(|end| *end <= bytes.len())
+            .ok_or("section raw data exceeds the file")?;
+        sections.push(section);
     }
     Ok(sections)
 }
