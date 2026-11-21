@@ -1,5 +1,5 @@
 //! Neptune frontend inspection. No iOS semantics are admitted yet.
-use goya_lang::{lex, parse_strict, parse_with_source_map, SourceRange, TokenKind};
+use goya_lang::{lex, SourceRange, TokenKind};
 use sha2::{Digest, Sha256};
 
 pub mod apple;
@@ -325,8 +325,8 @@ pub fn inspect(source: &str) -> Result<Vec<Diagnostic>, Diagnostic> {
             _ => {}
         }
     }
-    // Admit under GSSH/2 so @state and input bindings are accepted.
-    let handoff = goya_lang::handoff::admit_v2(source).map_err(|error| Diagnostic {
+    // Apply the same GSSH/3 frontend contract as the scene compiler paths.
+    let handoff = goya_lang::handoff::admit_v3(source).map_err(|error| Diagnostic {
         code: error.code,
         message: error.to_string(),
         range: Some(error.range),
