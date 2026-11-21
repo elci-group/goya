@@ -61,7 +61,7 @@ Capabilities
 
 `source_digest_sha256` SHALL equal the lowercase hex of `AdmittedInteractive.source_digest`. That digest is the SHA-256 of the source bytes Sash admitted. A lowering that hashes a different buffer is a defect.
 
-`span_start` and `span_end` are the control's Sash `id_range`. They are byte offsets into `scene`, not UTF-16 code units and not line and column. The end is exclusive. A span that does not fall inside `scene` is a lowering defect.
+`span_start` and `span_end` are the control's Sash `id_range`, covering the authored `id` property. They are UTF-8 byte offsets into `scene` with an exclusive end. The runtime checks each range and semantic ID against the frontend source map.
 
 ## Element roles
 

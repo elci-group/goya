@@ -46,6 +46,7 @@ For Sash's initial static slice, 250 millipoints equal one DIP, so a 640 × 480 
 | --- | --- | --- |
 | Shared reference | The layout and counter fixtures produced 126 and 49 geometry rows respectively over seven viewports, including zero and negative dimensions. | The larger differential corpus, input conversion and D1 comparisons remain. |
 | Sash static scene | `sash expectations crates/sash/fixtures/proportional-static.gscene --viewport-dip 640x480 --format json` reported GSSH/3. Both label rectangles matched the reference at `160x120` points. The x64 Win10 cross-link passed PE inspection and returned exit 3 with runtime and release blocked. | P1 needs the complete scene subset. P3 needs paired builds. P4 and P5 need native Windows evidence. |
+| Emperor counter | The embedded counter's scripted exercise opened a Wayland window and committed one frame. The program reported count 3, revision 2, copy allowed and paste denied. | P1 needs the GSSH/3 scene path. P4 still needs real keyboard and pointer input, broader control and viewport coverage, and a second environment. |
 | Aragon evidence | The device qualifier accepts `--report PATH` and records platform identity, source and APK hashes, and expected and observed geometry. A fresh run needs an Android device or emulator. | Collect equivalent desktop observations before comparing results. |
 
 ## Integration order

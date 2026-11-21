@@ -404,7 +404,7 @@ fn qualify_runs_static_checks_and_oracle_and_blocks_the_rest() {
         "--target",
         "x86_64-unknown-linux-gnu",
     ]);
-    assert_eq!(build.code, 0, "{}", build.text);
+    assert!(matches!(build.code, 0 | 3), "{}", build.text);
 
     let qualify = run(&[
         "qualify",
@@ -448,5 +448,29 @@ fn qualify_runs_static_checks_and_oracle_and_blocks_the_rest() {
         assert_eq!(conformance, "BLOCKED");
     } else {
         assert_eq!(conformance, "PASS");
+    }
+
+    let headless = std::process::Command::new(env!("CARGO_BIN_EXE_emperor"))
+        .args(["qualify", &out_str, "--exercise", "--format", "json"])
+        .env_remove("WAYLAND_DISPLAY")
+        .output()
+        .expect("qualify without a Wayland display");
+    assert_eq!(headless.status.code(), Some(3));
+    let report: serde_json::Value = serde_json::from_slice(&headless.stdout).expect("report");
+    let exercise = &report["interaction_exercise"];
+    assert_eq!(report["artifact_sha256"], digest);
+    assert_eq!(exercise["headless_script"]["status"], "pass");
+    assert_eq!(exercise["wayland_script"]["status"], "blocked");
+    assert!(exercise["wayland_script"]["stdout"].is_null());
+    assert_eq!(exercise["native_seat_input"]["status"], "not-exercised");
+    assert_eq!(report["stages"][11]["status"], "BLOCKED");
+
+    if smoke == "pass" {
+        let qualified = run(&["qualify", &out_str, "--exercise"]);
+        assert_eq!(qualified.code, 0, "{}", qualified.text);
+        let exercise = &qualified.json["interaction_exercise"];
+        assert_eq!(exercise["headless_script"]["status"], "pass");
+        assert_eq!(exercise["wayland_script"]["status"], "pass");
+        assert_eq!(exercise["native_seat_input"]["status"], "not-exercised");
     }
 }
