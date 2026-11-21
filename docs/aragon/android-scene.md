@@ -54,9 +54,9 @@ Refused, at the construct's own range:
 | `text-from` | Refused by GSSH/3 (`GY-E1012`). Adopting GSSH/3-live requires D9's wrapping and announcement rules (`goya_lang::display_binding`). |
 | More than 1024 elements; element text above 16 KiB; initial text above 64 KiB; an initial snapshot above 1 MiB | Generated-code and D1 limits. |
 
-There is no display binding in GSSH/2, so **state changes are not visible on
-screen**. Showing state needs a contract extension
-([decisions D3](../gssh/decisions.md#d3--field-bindings)).
+Aragon admits GSSH/3, not GSSH/3-live, so **state changes are not visible on
+screen**. Adopting `text-from` requires Aragon to implement the display-binding
+profile and its wrapping and announcement rules ([decision D9](../gssh/decisions.md#d9--display-bindings-text-from-gssh3-live)).
 
 ## Layout and pixel rule
 

@@ -423,19 +423,20 @@ pub(crate) fn copy_text<'a>(ir: &NativeIr, controller: &'a KeyController) -> Opt
 /// Allowed paste on the edit asks the window for text.
 ///
 /// Button focus does not request the clipboard. Denied paste does not.
-/// A payload that arrives after focus moves is not decided here.
 pub(crate) fn paste_shortcut_requests_clipboard(ir: &NativeIr, controller: &KeyController) -> bool {
     ir.capabilities.paste && controller.focus == Focus::Edit
 }
 
-/// Apply a clipboard payload. Denied paste ignores every payload, including empty text.
+/// Apply a clipboard payload only while the edit still owns focus. Clipboard
+/// delivery is asynchronous, so a response to an earlier request must not
+/// replace text after focus has moved to another control.
 pub(crate) fn on_clipboard_text(
     ir: &NativeIr,
     controller: &mut KeyController,
     text: Option<&str>,
 ) -> Step {
     match text {
-        Some(text) if ir.capabilities.paste => {
+        Some(text) if ir.capabilities.paste && controller.focus == Focus::Edit => {
             controller.session.set_edit(text);
             Step::Changed
         }
