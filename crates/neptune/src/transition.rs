@@ -231,7 +231,7 @@ mod tests {
     use super::*;
     use goya_executable::{D1Snapshot, D1Value, InputSnapshot};
 
-    const SOURCE: &str = "@ontology app { @button plus { id: \"button.plus\" } @interaction increment { id: \"action.increment\"; trigger: button.plus.activate; class: D1; state { read count: int; write count: int; write previous: int; } input { amount: int; } set count = state.count + input.amount; set previous = state.count; } }";
+    const SOURCE: &str = "@ontology app { @state { count: int = 0 session; previous: int = 0 session; } @button plus { id: \"button.plus\" } @input amountField { id: \"input.amount\" } @interaction increment { id: \"action.increment\"; trigger: button.plus.activate; class: D1; state { read count: int; write count: int; write previous: int; } input { amount: int from \"input.amount\"; } set count = state.count + input.amount; set previous = state.count; } }";
 
     // Independent, test-only target interpreter. It intentionally does not
     // share the D1 VM's instruction execution or overflow implementation.
@@ -339,7 +339,7 @@ mod tests {
 
     #[test]
     fn d2_rejection_points_to_the_unsupported_interaction() {
-        let source = "@ontology app { @button plus { id: \"button.plus\" } @button go { id: \"button.go\" } @interaction increment { id: \"action.increment\"; trigger: button.plus.activate; class: D1; state { read count: int; write count: int; } input { amount: int; } set count = state.count + input.amount; } @interaction fetch { id: \"action.fetch\"; trigger: button.go.activate; class: D2; effects { network; } requests { lookup: effect network capability \"network\" request \"static request\" result int64; } state { write count: int; } input { } set count = effect.lookup; } }";
+        let source = "@ontology app { @state { count: int = 0 session; } @button plus { id: \"button.plus\" } @button go { id: \"button.go\" } @input amountField { id: \"input.amount\" } @interaction increment { id: \"action.increment\"; trigger: button.plus.activate; class: D1; state { read count: int; write count: int; } input { amount: int from \"input.amount\"; } set count = state.count + input.amount; } @interaction fetch { id: \"action.fetch\"; trigger: button.go.activate; class: D2; effects { network; } requests { lookup: effect network capability \"network\" request \"static request\" result int64; } state { write count: int; } input { } set count = effect.lookup; } }";
         let error = lower(source, "app/main.gscene").unwrap_err();
         assert_eq!(error.code, "NPT-E2104");
         let range = error.range.unwrap();

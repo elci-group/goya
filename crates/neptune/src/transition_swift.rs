@@ -310,7 +310,7 @@ pub fn preview(source: &str, module: &str) -> Result<Preview, crate::Diagnostic>
 mod tests {
     use super::*;
 
-    const SOURCE: &str = "@ontology app { @button plus { id: \"button.plus\" } @interaction increment { id: \"action.increment\"; trigger: button.plus.activate; class: D1; state { read count: int; write count: int; write previous: int; } input { amount: int; } set count = state.count + input.amount; set previous = state.count; } }";
+    const SOURCE: &str = "@ontology app { @state { count: int = 0 session; previous: int = 0 session; } @button plus { id: \"button.plus\" } @input amountField { id: \"input.amount\" } @interaction increment { id: \"action.increment\"; trigger: button.plus.activate; class: D1; state { read count: int; write count: int; write previous: int; } input { amount: int from \"input.amount\"; } set count = state.count + input.amount; set previous = state.count; } }";
 
     #[test]
     fn emits_typed_checked_snapshot_transition_deterministically() {
@@ -354,7 +354,7 @@ mod tests {
             "app/main.gscene"
         )
         .is_err());
-        let source = "@ontology app { @button set { id: \"b\" } @interaction min { id: \"a\"; trigger: button.set.activate; class: D1; state { write count: int; } input { } set count = -9223372036854775808; } }";
+        let source = "@ontology app { @state { count: int = 0 session; } @button set { id: \"b\" } @interaction min { id: \"a\"; trigger: button.set.activate; class: D1; state { write count: int; } input { } set count = -9223372036854775808; } }";
         assert!(preview(source, "app/main.gscene")
             .unwrap()
             .swift
@@ -363,7 +363,7 @@ mod tests {
 
     #[test]
     fn emits_typed_bool_and_escaped_text_without_source_identifiers() {
-        let source = "@ontology app { @button set { id: \"b\" } @interaction save { id: \"a\"; trigger: button.set.activate; class: D1; state { write message: text; write enabled: bool; } input { } set message = \"hello\\(unsafe)\"; set enabled = true; } }";
+        let source = "@ontology app { @state { message: text = \"\" session; enabled: bool = false session; } @button set { id: \"b\" } @interaction save { id: \"a\"; trigger: button.set.activate; class: D1; state { write message: text; write enabled: bool; } input { } set message = \"hello\\(unsafe)\"; set enabled = true; } }";
         let result = preview(source, "app/main.gscene").unwrap();
         assert!(result
             .swift
@@ -389,7 +389,7 @@ mod tests {
             BTreeMap::from([("text".into(), D1Value::Text(format!("{exact}é")))])
         )
         .is_err());
-        let source = "@ontology app { @button set { id: \"b\" } @interaction copy { id: \"a\"; trigger: button.set.activate; class: D1; state { read message: text; write message: text; } input { } set message = state.message; } }";
+        let source = "@ontology app { @state { message: text = \"\" session; } @button set { id: \"b\" } @interaction copy { id: \"a\"; trigger: button.set.activate; class: D1; state { read message: text; write message: text; } input { } set message = state.message; } }";
         let output = preview(source, "app/main.gscene").unwrap().swift;
         assert!(output.contains(&format!(
             "guard state.s0.utf8.count <= {}",
@@ -408,17 +408,20 @@ mod tests {
         use goya_executable::{D1Snapshot, D1Value, InputSnapshot};
         fn fixture(writes: usize) -> String {
             let declarations: String = (0..writes).map(|i| format!("write o{i}: text; ")).collect();
+            let states: String = std::iter::once("message: text = \"\" session; ".to_owned())
+                .chain((0..writes).map(|i| format!("o{i}: text = \"\" session; ")))
+                .collect();
             let assignments: String = (0..writes)
                 .map(|i| format!("set o{i} = state.message; "))
                 .collect();
-            format!("@ontology app {{ @button set {{ id: \"b\" }} @interaction copy {{ id: \"a\"; trigger: button.set.activate; class: D1; state {{ read message: text; {declarations} }} input {{ }} {assignments} }} }}")
+            format!("@ontology app {{ @state {{ {states} }} @button set {{ id: \"b\" }} @interaction copy {{ id: \"a\"; trigger: button.set.activate; class: D1; state {{ read message: text; {declarations} }} input {{ }} {assignments} }} }}")
         }
         for (writes, text_len, expected) in [
             (16, 65536, "registers exceed the byte limit"),
             (17, 60000, "snapshot exceeds the byte limit"),
         ] {
             let source = fixture(writes);
-            let scene = goya_lang::parse_strict(&source).unwrap().scene;
+            let scene = goya_lang::parse(&source).unwrap();
             let program = goya_lang::compile_d1_interactions(&scene)
                 .unwrap()
                 .remove(0);
@@ -453,6 +456,16 @@ mod tests {
         let reads: String = (0..9).map(|i| format!("read s{i}: text; ")).collect();
         let inputs: String = (0..9).map(|i| format!("i{i}: text; ")).collect();
         let writes: String = (0..18).map(|i| format!("write w{i}: text; ")).collect();
+        let states: String = (0..9)
+            .map(|i| format!("s{i}: text = \"\" session; "))
+            .chain((0..18).map(|i| format!("w{i}: text = \"\" session; ")))
+            .collect();
+        let fields: String = (0..9)
+            .map(|i| format!("@input field{i} {{ id: \"input.{i}\" }} "))
+            .collect();
+        let bindings: String = (0..9)
+            .map(|i| format!("i{i}: text from \"input.{i}\"; "))
+            .collect();
         let mut assignments = String::new();
         for i in 0..9 {
             assignments.push_str(&format!("set w{i} = state.s{i}; "));
@@ -460,8 +473,8 @@ mod tests {
         for i in 0..9 {
             assignments.push_str(&format!("set w{} = input.i{i}; ", i + 9));
         }
-        let source = format!("@ontology app {{ @button run {{ id: \"b\" }} @interaction copy {{ id: \"a\"; trigger: button.run.activate; class: D1; state {{ {reads}{writes} }} input {{ {inputs} }} {assignments} }} }}");
-        let scene = goya_lang::parse_strict(&source).unwrap().scene;
+        let source = format!("@ontology app {{ @state {{ {states} }} @button run {{ id: \"b\" }} {fields} @interaction copy {{ id: \"a\"; trigger: button.run.activate; class: D1; state {{ {reads}{writes} }} input {{ {bindings} }} {assignments} }} }}");
+        let scene = goya_lang::parse(&source).unwrap();
         let reference = goya_lang::compile_d1_interactions(&scene)
             .unwrap()
             .remove(0);
