@@ -331,6 +331,7 @@ pub fn inspect(source: &str) -> Result<Vec<Diagnostic>, Diagnostic> {
         message: error.to_string(),
         range: Some(error.range),
     })?;
+    let parsed = handoff.parsed();
     let mut diagnostics: Vec<_> = parsed
         .entries
         .iter()
