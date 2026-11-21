@@ -390,8 +390,8 @@ pub fn parse_strict_gssh3(source: &str) -> Result<ParsedScene, StrictParseError>
 /// Errors: `GY-E1013` for an invalid binding, `GY-E1008` for state misuse.
 pub fn parse_strict_gssh3_live(source: &str) -> Result<ParsedScene, StrictParseError> {
     let parsed = strict(source, Profile::Gssh3Live)?;
-    validate_live(&parsed)?;
-    validate_declarations_with(&parsed, true)?;
+    let bound_keys = validate_live(&parsed)?;
+    validate_declarations_with(&parsed, Some(&bound_keys))?;
     reject_absolute_lengths(&parsed)?;
     Ok(parsed)
 }
@@ -414,7 +414,9 @@ fn reject_absolute_lengths(parsed: &ParsedScene) -> Result<(), StrictParseError>
 }
 
 /// Every live binding names a declared key.
-fn validate_live(parsed: &ParsedScene) -> Result<(), StrictParseError> {
+fn validate_live(
+    parsed: &ParsedScene,
+) -> Result<std::collections::BTreeSet<String>, StrictParseError> {
     let empty = Vec::new();
     let decls = parsed
         .declarations
@@ -451,6 +453,7 @@ fn validate_live(parsed: &ParsedScene) -> Result<(), StrictParseError> {
         name: message,
         range,
     };
+    let mut bound_keys = std::collections::BTreeSet::new();
     let mut check = |cell: &SceneCell, path: &[usize]| -> Result<(), StrictParseError> {
         if let Some(key) = &cell.text_from {
             // Inputs own their displayed text: it is the editable value, not
@@ -469,18 +472,13 @@ fn validate_live(parsed: &ParsedScene) -> Result<(), StrictParseError> {
                     property_range(path, "text_from"),
                 ));
             }
+            bound_keys.insert(key.clone());
         }
         Ok(())
     };
-    walk(&parsed.scene.root, &mut Vec::new(), &mut check)
-}
-
-/// Keys named by live bindings anywhere in the tree.
-fn live_keys(cell: &SceneCell, out: &mut std::collections::BTreeSet<String>) {
-    out.extend(cell.text_from.iter().cloned());
-    for child in &cell.children {
-        live_keys(child, out);
-    }
+    walk(&parsed.scene.root, &mut Vec::new(), &mut check)?;
+    drop(check);
+    Ok(bound_keys)
 }
 
 /// Strict GSSH/2 admission: everything [`parse_strict`] admits and checks,
@@ -665,15 +663,14 @@ fn declaration_error(code: &'static str, name: String, range: SourceRange) -> St
 }
 
 fn validate_declarations(parsed: &ParsedScene) -> Result<(), StrictParseError> {
-    validate_declarations_with(parsed, false)
+    validate_declarations_with(parsed, None)
 }
 
-fn validate_declarations_with(parsed: &ParsedScene, live: bool) -> Result<(), StrictParseError> {
+fn validate_declarations_with(
+    parsed: &ParsedScene,
+    live_keys: Option<&std::collections::BTreeSet<String>>,
+) -> Result<(), StrictParseError> {
     let scene = &parsed.scene;
-    let mut bound = std::collections::BTreeSet::new();
-    if live {
-        live_keys(&scene.root, &mut bound);
-    }
     let declared = &parsed.declarations;
     let key_range = |uses: &[KeyUse], interaction: &str, key: &str| {
         uses.iter()
@@ -796,7 +793,10 @@ fn validate_declarations_with(parsed: &ParsedScene, live: bool) -> Result<(), St
     }
     if let Some(decl) = decls
         .iter()
-        .find(|decl| !used.contains_key(decl.key.as_str()) && !bound.contains(&decl.key))
+        .find(|decl| {
+            !used.contains_key(decl.key.as_str())
+                && !live_keys.is_some_and(|keys| keys.contains(&decl.key))
+        })
     {
         return Err(declaration_error(
             "GY-E1008",
