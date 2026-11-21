@@ -327,9 +327,27 @@ fn compile_scene(
                     .and_then(|id| handoff.origin(&Origin::Interaction(id)))
                     .unwrap_or(whole),
             })?;
+        let prefix = format!("package {package}\n\n");
+        for (action_id, generated) in &runtime.generated_action_ranges {
+            if let Some((_, source)) = runtime
+                .action_ranges
+                .iter()
+                .find(|(candidate, _)| candidate == action_id)
+            {
+                entries.push(SourceMapEntry {
+                    file: "GoyaD1Runtime.kt".to_owned(),
+                    generated: SourceRange {
+                        start: prefix.len() + generated.start,
+                        end: prefix.len() + generated.end,
+                    },
+                    origin: Origin::Interaction(action_id.clone()),
+                    source: *source,
+                });
+            }
+        }
         files.push(KotlinFile {
             name: "GoyaD1Runtime.kt".to_owned(),
-            text: format!("package {package}\n\n{}", runtime.kotlin),
+            text: format!("{prefix}{}", runtime.kotlin),
         });
     }
     entries.sort_by(|a, b| {
