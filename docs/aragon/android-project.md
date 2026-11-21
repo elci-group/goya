@@ -42,7 +42,7 @@ not established.
 
 ## Compiled scene project
 
-`--scene` compiles a GSSH/2 scene with the Aragon scene compiler
+`--scene` compiles a GSSH/3 scene with the Aragon scene compiler
 ([`android-scene.md`](android-scene.md)) instead of using a preview:
 
 ```sh

@@ -481,6 +481,9 @@ fn first_data(
     let mut dir = dir;
     for _ in 0..4 {
         let entries = read_resource_dir(bytes, root, root_end, dir)?;
+        if entries.len() != 1 {
+            return Err("manifest resource path is not unique".into());
+        }
         let Some(entry) = entries.first() else {
             return Err("resource directory is empty".into());
         };
