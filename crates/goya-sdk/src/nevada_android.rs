@@ -21,7 +21,8 @@ const MANIFEST: &str = r#"<manifest xmlns:android="http://schemas.android.com/ap
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <application android:theme="@android:style/Theme.Material.Light.NoActionBar"
                  android:label="Nevada" android:banner="@drawable/nevada_banner"
-                 android:icon="@drawable/nevada_icon">
+                 android:icon="@drawable/nevada_icon" android:allowBackup="false"
+                 android:usesCleartextTraffic="false">
         <activity android:name="dev.goya.preview.MainActivity" android:exported="true"
                   android:windowSoftInputMode="stateAlwaysHidden|adjustNothing">
             <intent-filter>

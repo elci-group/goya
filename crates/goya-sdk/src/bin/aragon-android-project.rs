@@ -302,7 +302,7 @@ fn base_files(project_name: &str) -> Vec<(String, Vec<u8>)> {
 /// Scene projects use a theme without an action bar: the scene owns the
 /// whole window inside the system bars.
 fn base_files_themed(project_name: &str, theme: &str) -> Vec<(String, Vec<u8>)> {
-    let manifest = format!("<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"><application android:theme=\"@android:style/{theme}\" android:label=\"Goya preview\"><activity android:name=\"dev.goya.preview.MainActivity\" android:exported=\"true\"><intent-filter><action android:name=\"android.intent.action.MAIN\"/><category android:name=\"android.intent.category.LAUNCHER\"/></intent-filter></activity></application></manifest>\n");
+    let manifest = format!("<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"><application android:theme=\"@android:style/{theme}\" android:label=\"Goya preview\" android:allowBackup=\"false\" android:usesCleartextTraffic=\"false\"><activity android:name=\"dev.goya.preview.MainActivity\" android:exported=\"true\"><intent-filter><action android:name=\"android.intent.action.MAIN\"/><category android:name=\"android.intent.category.LAUNCHER\"/></intent-filter></activity></application></manifest>\n");
     base_files_with_manifest(project_name, &manifest)
 }
 

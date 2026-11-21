@@ -17,6 +17,9 @@ before the destination is created. The generated file layout is checked for
 duplicate or conflicting paths before output begins. The destination must not
 already exist. An I/O failure while writing can leave a partially written
 destination.
+Generated manifests disable Android app-data backup and cleartext network
+traffic for the preview and scene profiles. The Nevada TV manifest applies the
+same defaults.
 Generated file contents and paths are deterministic for the same source; no
 timestamps, generated identifiers, or machine-specific paths are included.
 
