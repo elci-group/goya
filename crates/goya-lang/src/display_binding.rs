@@ -18,11 +18,14 @@ use std::collections::BTreeMap;
 
 /// Visit live displays in authored depth-first order.
 fn visit_displays(cell: &SceneCell, f: &mut impl FnMut(&SceneCell, &str)) {
-    if let Some(key) = cell.text_from.as_deref() {
-        f(cell, key);
-    }
-    for child in &cell.children {
-        visit_displays(child, f);
+    let mut pending = vec![cell];
+    while let Some(cell) = pending.pop() {
+        if let Some(key) = cell.text_from.as_deref() {
+            f(cell, key);
+        }
+        // Reverse push preserves source-order preorder without recursive
+        // calls, including for SceneCell values built outside the parser.
+        pending.extend(cell.children.iter().rev());
     }
 }
 

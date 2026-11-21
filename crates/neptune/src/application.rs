@@ -186,10 +186,12 @@ pub fn lower(
     module: &str,
     initial: BTreeMap<String, D1Value>,
 ) -> Result<StateModel, crate::Diagnostic> {
-    let mut actions = crate::transition::lower(source, module)?;
+    crate::validate_module(module)?;
+    crate::inspect(source)?;
     let handoff = goya_lang::handoff::admit_v3(source)
         .map_err(|e| error(e.to_string(), Some(e.range)))?;
     let parsed = handoff.parsed();
+    let mut actions = crate::transition::lower_admitted(parsed, module)?;
     if actions.len() != parsed.scene.interactions.len() {
         return Err(error("not every interaction was lowered", None));
     }

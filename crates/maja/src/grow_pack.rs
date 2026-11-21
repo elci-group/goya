@@ -49,9 +49,9 @@ fn validate_identity(name: &str, version: &str) -> Result<(), Failure> {
 }
 
 fn validate_part(label: &str, value: &str, limit_name: bool) -> Result<(), Failure> {
-    if value.bytes().any(forbidden_identity_byte) {
+    if value.chars().any(forbidden_identity_char) {
         return Err(Failure::Reject(format!(
-            "{label} contains a newline or quote"
+            "{label} contains a control character or quote"
         )));
     }
     if value.trim().is_empty() {
@@ -64,8 +64,8 @@ fn validate_part(label: &str, value: &str, limit_name: bool) -> Result<(), Failu
 }
 
 /// Characters that would break the quoted TOML strings this package writes.
-fn forbidden_identity_byte(byte: u8) -> bool {
-    byte == b'"' || byte == b'\'' || byte == b'\\' || byte == 0x7f || (byte < 0x20 && byte != b'\t')
+fn forbidden_identity_char(ch: char) -> bool {
+    ch == '"' || ch == '\'' || ch == '\\' || ch.is_control()
 }
 
 fn read_input(input: &Path) -> Result<Copied, Failure> {
@@ -873,6 +873,21 @@ mod tests {
 
         assert_eq!(code, 4, "{stderr}");
         assert!(stderr.contains("MAJA-CLI-E0007"), "{stderr}");
+        assert!(!output.exists());
+    }
+
+    #[test]
+    fn unicode_control_character_in_name_is_rejected() {
+        let scratch = Scratch::new();
+        let input = scratch.0.join("input");
+        let output = scratch.0.join("output");
+        fs::create_dir(&input).unwrap();
+        write_input(&input, STATIC_MANIFEST);
+
+        let (code, _stdout, stderr) = run_package(&input, &output, "bad\u{0085}name", "9.9.9");
+
+        assert_eq!(code, 4, "{stderr}");
+        assert!(stderr.contains("control character"), "{stderr}");
         assert!(!output.exists());
     }
 

@@ -67,7 +67,13 @@ pub fn lower(source: &str, module: &str) -> Result<Vec<Transition>, crate::Diagn
     crate::inspect(source)?;
     let handoff = goya_lang::handoff::admit_v3(source)
         .map_err(|e| rejected(e.to_string(), Some(e.range)))?;
-    let parsed = handoff.parsed();
+    lower_admitted(handoff.parsed(), module)
+}
+
+pub(crate) fn lower_admitted(
+    parsed: &goya_lang::ParsedScene,
+    module: &str,
+) -> Result<Vec<Transition>, crate::Diagnostic> {
     if let Some(unsupported) = parsed
         .scene
         .interactions
