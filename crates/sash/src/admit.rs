@@ -36,6 +36,24 @@ pub const MAX_TEXT_BYTES: usize = 64 * 1024;
 const MAX_TITLE_BYTES: usize = 256;
 pub(crate) const MAX_ID_BYTES: usize = 256;
 
+/// Explicit client viewport for a proportional GSSH/3 static scene.
+#[derive(Clone, Copy)]
+pub struct ViewportDip {
+    width: i32,
+    height: i32,
+}
+
+impl ViewportDip {
+    pub fn new(width: i32, height: i32) -> Option<Self> {
+        ((1..=MAX_DIP).contains(&width) && (1..=MAX_DIP).contains(&height))
+            .then_some(Self { width, height })
+    }
+
+    pub(crate) fn dimensions(self) -> [i32; 2] {
+        [self.width, self.height]
+    }
+}
+
 /// How an authored fact is carried into the Windows proof.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Disposition {
@@ -79,6 +97,12 @@ pub struct AdmittedWindow {
 
 /// Parse and admit `source`, or return the first fatal diagnostic.
 pub fn admit(source: &str) -> Result<AdmittedWindow, Diagnostic> {
+    check_source_size(source)?;
+    let handoff = handoff::admit(source).map_err(diagnostic_from_strict)?;
+    admit_scene(&handoff.parsed, None)
+}
+
+fn check_source_size(source: &str) -> Result<(), Diagnostic> {
     if source.len() > MAX_SOURCE_BYTES {
         return Err(Diagnostic::new(
             "SASH-PARSE",
@@ -90,8 +114,7 @@ pub fn admit(source: &str) -> Result<AdmittedWindow, Diagnostic> {
             "Split the scene or raise the bound in a new admitted profile.",
         ));
     }
-    let handoff = handoff::admit(source).map_err(diagnostic_from_strict)?;
-    admit_scene(&handoff.parsed)
+    Ok(())
 }
 
 /// Static window or the bounded interactive profile.
@@ -105,24 +128,35 @@ pub enum SceneTarget {
 /// `admit` stays the static-window gate. Callers that link an executable use
 /// this selector so a button is not forced through the static rejection.
 pub fn open(source: &str) -> Result<SceneTarget, Diagnostic> {
-    if source.len() > MAX_SOURCE_BYTES {
-        return Err(Diagnostic::new(
-            "SASH-PARSE",
-            "ingest",
-            format!(
-                "scene is {} bytes; this profile accepts at most {MAX_SOURCE_BYTES}",
-                source.len()
-            ),
-            "Split the scene or raise the bound in a new admitted profile.",
-        ));
-    }
+    check_source_size(source)?;
     let handoff = handoff::admit(source).map_err(diagnostic_from_strict)?;
     let scene = &handoff.parsed.scene;
     if !scene.interactions.is_empty() || control_in(&scene.root) {
         crate::interactive::admit_parsed(&handoff.parsed).map(SceneTarget::Interactive)
     } else {
-        admit_scene(&handoff.parsed).map(SceneTarget::Static)
+        admit_scene(&handoff.parsed, None).map(SceneTarget::Static)
     }
+}
+
+/// Select GSSH/3 static admission when an explicit viewport is provided.
+pub fn open_with_viewport(
+    source: &str,
+    viewport: Option<ViewportDip>,
+) -> Result<SceneTarget, Diagnostic> {
+    let Some(viewport) = viewport else {
+        return open(source);
+    };
+    check_source_size(source)?;
+    let handoff = handoff::admit_v3(source).map_err(diagnostic_from_strict)?;
+    let parsed = handoff.parsed();
+    if let Some((_, range)) = &parsed.declarations.state {
+        return Err(cap(
+            "declared state is outside the GSSH/3 static window slice",
+            "Remove the state declaration.",
+            Some(*range),
+        ));
+    }
+    admit_scene(parsed, Some(viewport)).map(SceneTarget::Static)
 }
 
 fn control_in(cell: &SceneCell) -> bool {
@@ -144,7 +178,10 @@ pub(crate) fn diagnostic_from_strict(error: goya_lang::StrictParseError) -> Diag
         .recode(error.code)
 }
 
-fn admit_scene(parsed: &ParsedScene) -> Result<AdmittedWindow, Diagnostic> {
+fn admit_scene(
+    parsed: &ParsedScene,
+    viewport: Option<ViewportDip>,
+) -> Result<AdmittedWindow, Diagnostic> {
     let scene = &parsed.scene;
     if let Some(interaction) = scene.interactions.first() {
         let range = entry_range(parsed, "interaction", &interaction.name);
@@ -161,8 +198,20 @@ fn admit_scene(parsed: &ParsedScene) -> Result<AdmittedWindow, Diagnostic> {
     if root.kind != CellKind::Cell || root.is_input {
         return Err(reject_control(root, parsed, &[]));
     }
-    reject_position(root, parsed)?;
-    let (extent_range, width_pt, height_pt) = require_extent(root, parsed)?;
+    let (extent_range, width_pt, height_pt) = if let Some(viewport) = viewport {
+        let points_per_dip = MP_PER_DIP as f64 / MP;
+        let range = property_range_at(parsed, &[], "extent_p")
+            .or_else(|| cell_range(parsed, &[]))
+            .ok_or_else(|| layout_error("root cell has no source origin", None))?;
+        (
+            range,
+            f64::from(viewport.width) * points_per_dip,
+            f64::from(viewport.height) * points_per_dip,
+        )
+    } else {
+        reject_position(root, parsed)?;
+        require_extent(root, parsed)?
+    };
     let frame = layout(scene, width_pt, height_pt);
     let mut labels = Vec::new();
     let mut dispositions = Vec::new();
@@ -170,6 +219,7 @@ fn admit_scene(parsed: &ParsedScene) -> Result<AdmittedWindow, Diagnostic> {
         let mut state = AdmissionWalk {
             frame: &frame,
             parsed,
+            proportional: viewport.is_some(),
             index: 0,
             seen: 0,
             labels: &mut labels,
@@ -199,6 +249,14 @@ fn admit_scene(parsed: &ParsedScene) -> Result<AdmittedWindow, Diagnostic> {
         ));
     }
     let (width_dip, height_dip) = dips(root_node.rect.width, root_node.rect.height, extent_range)?;
+    if let Some(viewport) = viewport {
+        if viewport.dimensions() != [width_dip, height_dip] {
+            return Err(layout_error(
+                "the root cell must fill the GSSH/3 viewport",
+                Some(extent_range),
+            ));
+        }
+    }
     let semantic_id = root.authored_id.clone().ok_or_else(|| {
         cap(
             "strict admission returned a cell without an id",
@@ -240,7 +298,11 @@ fn admit_scene(parsed: &ParsedScene) -> Result<AdmittedWindow, Diagnostic> {
         0,
         Disposition {
             subject: "extent".into(),
-            disposition: "preserved",
+            disposition: if viewport.is_some() {
+                "equivalently-transformed"
+            } else {
+                "preserved"
+            },
             detail: format!(
                 "{width_mp} by {height_mp} millipoints lower to {width_dip} by {height_dip} device-independent pixels at {MP_PER_DIP} millipoints per reference pixel. The initial client area is that size. Resizing clips placed labels and does not reflow them.",
                 width_mp = root_node.rect.width,
@@ -248,6 +310,16 @@ fn admit_scene(parsed: &ParsedScene) -> Result<AdmittedWindow, Diagnostic> {
             ),
         },
     );
+    if let Some(viewport) = viewport {
+        dispositions.push(Disposition {
+            subject: "viewport".into(),
+            disposition: "equivalently-transformed",
+            detail: format!(
+                "GSSH/3 rectangles are resolved against the explicit {} by {} DIP viewport with the shared Goya layout solver.",
+                viewport.width, viewport.height,
+            ),
+        });
+    }
     dispositions.push(Disposition {
         subject: "depth".into(),
         disposition: "preserved",
@@ -289,6 +361,7 @@ fn admit_scene(parsed: &ParsedScene) -> Result<AdmittedWindow, Diagnostic> {
 struct AdmissionWalk<'a> {
     frame: &'a goya_lang::Frame,
     parsed: &'a ParsedScene,
+    proportional: bool,
     index: usize,
     seen: usize,
     labels: &'a mut Vec<PlacedLabel>,
@@ -320,7 +393,24 @@ fn walk(
     if cell.kind != CellKind::Cell || cell.is_input {
         return Err(reject_control(cell, state.parsed, path));
     }
-    reject_visuals(cell, state.parsed, path)?;
+    if state.proportional {
+        for (property, value) in [("position_p", cell.position_p), ("extent_p", cell.extent_p)] {
+            if let Some(value) = value {
+                let range = property_range_at(state.parsed, path, property);
+                if !value.x.is_finite() || !value.y.is_finite() || !value.z.is_finite() {
+                    return Err(layout_error("proportional geometry is not finite", range));
+                }
+                if value.z != 0.0 {
+                    return Err(cap(
+                        "non-zero depth is reachable and a top-level window has no depth axis",
+                        "Set the proportional depth component to 0.",
+                        range,
+                    ));
+                }
+            }
+        }
+    }
+    reject_visuals_for(cell, state.parsed, path, state.proportional)?;
     let node_index = state.index;
     state.index += 1;
     let Some(node) = state.frame.nodes.get(node_index) else {
@@ -336,7 +426,7 @@ fn walk(
                 .or_else(|| cell_range(state.parsed, path)),
         ));
     }
-    if !is_root {
+    if !is_root && !state.proportional {
         expect_child_rect(
             cell,
             parent.expect("child has a parent"),
@@ -345,10 +435,14 @@ fn walk(
             path,
         )?;
     }
-    let extent_range = property_range_at(state.parsed, path, "extent")
+    let extent_property = if state.proportional { "extent_p" } else { "extent" };
+    let position_property = if state.proportional { "position_p" } else { "position" };
+    let extent_range = property_range_at(state.parsed, path, extent_property)
         .or_else(|| cell_range(state.parsed, path))
         .unwrap_or(SourceRange { start: 0, end: 0 });
-    let (x_dip, y_dip) = dips_pair(node.rect.x, node.rect.y, extent_range, "position")?;
+    let position_range =
+        property_range_at(state.parsed, path, position_property).unwrap_or(extent_range);
+    let (x_dip, y_dip) = dips_pair(node.rect.x, node.rect.y, position_range, "position")?;
     let (width_dip, height_dip) = dips(node.rect.width, node.rect.height, extent_range)?;
     match validate_text(cell, state.parsed, path)? {
         Some(text) => {
@@ -507,13 +601,24 @@ pub(crate) fn reject_visuals(
     parsed: &ParsedScene,
     path: &[usize],
 ) -> Result<(), Diagnostic> {
-    let checks: [(&str, bool); 8] = [
-        ("position_p", cell.position_p.is_some()),
-        ("extent_p", cell.extent_p.is_some()),
+    reject_visuals_for(cell, parsed, path, false)
+}
+
+fn reject_visuals_for(
+    cell: &SceneCell,
+    parsed: &ParsedScene,
+    path: &[usize],
+    proportional: bool,
+) -> Result<(), Diagnostic> {
+    let checks = [
+        ("position_p", !proportional && cell.position_p.is_some()),
+        ("extent_p", !proportional && cell.extent_p.is_some()),
         ("fill", cell.fill.is_some()),
         ("stroke", cell.stroke.is_some()),
         ("stroke_width", cell.stroke_width.is_some()),
         ("text_size", cell.text_size.is_some()),
+        ("stroke_width_p", cell.stroke_width_p.is_some()),
+        ("text_size_p", cell.text_size_p.is_some()),
         ("anchor", cell.anchor.is_some()),
         ("wrap", cell.wrap.is_some()),
     ];
