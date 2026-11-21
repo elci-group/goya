@@ -118,6 +118,12 @@ fn read_input(input: &Path) -> Result<Copied, Failure> {
     let index = read_regular(input, INDEX_HTML, MAX_INPUT_FILE_BYTES)?;
     let css = read_regular(input, APP_CSS, MAX_INPUT_FILE_BYTES)?;
     let manifest = read_regular(input, MANIFEST_JSON, MAX_INPUT_FILE_BYTES)?;
+    if std::str::from_utf8(&index).is_err() {
+        return Err(Failure::Reject("index.html is not valid UTF-8".into()));
+    }
+    if std::str::from_utf8(&css).is_err() {
+        return Err(Failure::Reject("app.css is not valid UTF-8".into()));
+    }
     admit_manifest(&manifest, &index, &css)?;
     Ok(Copied {
         index,
@@ -961,6 +967,22 @@ mod tests {
         assert_eq!(code, 4, "{stderr}");
         assert!(stderr.contains("MAJA-CLI-E0007"), "{stderr}");
         assert!(stderr.contains("artifact hashes do not match"), "{stderr}");
+        assert!(!output.exists());
+    }
+
+    #[test]
+    fn invalid_utf8_css_is_rejected_before_output_creation() {
+        let scratch = Scratch::new();
+        let input = scratch.0.join("input");
+        let output = scratch.0.join("output");
+        fs::create_dir(&input).unwrap();
+        write_input(&input, STATIC_MANIFEST);
+        fs::write(input.join(APP_CSS), [0xff, 0xfe]).unwrap();
+
+        let (code, _stdout, stderr) = run_package(&input, &output, "cli-name", "9.9.9");
+
+        assert_eq!(code, 4, "{stderr}");
+        assert!(stderr.contains("app.css is not valid UTF-8"), "{stderr}");
         assert!(!output.exists());
     }
 }
