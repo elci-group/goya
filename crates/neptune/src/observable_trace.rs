@@ -174,11 +174,12 @@ fn column_action(
     source: &str,
     preview: &serde_json::Value,
 ) -> Result<(BTreeMap<String, ActionBinding>, serde_json::Value), crate::Diagnostic> {
-    let parsed = goya_lang::parse_strict(source).map_err(|error| crate::Diagnostic {
+    let handoff = goya_lang::handoff::admit_v3(source).map_err(|error| crate::Diagnostic {
         code: error.code,
         message: error.to_string(),
         range: (error.range.end > error.range.start).then_some(error.range),
     })?;
+    let parsed = handoff.parsed();
     if parsed.scene.interactions.len() != 1 {
         return Err(reject("column preview did not preserve the action program"));
     }
@@ -259,11 +260,12 @@ fn finish(request: TraceRequest<'_>) -> Result<Trace, crate::Diagnostic> {
             )));
         }
     }
-    let parsed = goya_lang::parse_strict(source).map_err(|error| crate::Diagnostic {
+    let handoff = goya_lang::handoff::admit_v3(source).map_err(|error| crate::Diagnostic {
         code: error.code,
         message: error.to_string(),
         range: (error.range.end > error.range.start).then_some(error.range),
     })?;
+    let parsed = handoff.parsed();
     let mut application = goya_sdk::D1Application::new(&parsed.scene, initial)
         .map_err(|error| reject(&format!("host owner rejected the admitted scene: {error}")))?;
     let mut steps = vec![serde_json::json!({
