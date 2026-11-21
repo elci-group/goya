@@ -259,6 +259,12 @@ pub(crate) fn press_add(controller: &mut KeyController) {
 
 pub(crate) fn open_admitted(nir_json: &str) -> Result<(NativeIr, KeyController), String> {
     let ir: NativeIr = serde_json::from_str(nir_json).map_err(|err| err.to_string())?;
+    if ir.elements.len() > MAX_ELEMENTS {
+        return Err(format!(
+            "element count {} exceeds the {MAX_ELEMENTS} cells this profile admits",
+            ir.elements.len()
+        ));
+    }
     if ir.schema != SCHEMA {
         return Err(format!("schema {} is not {SCHEMA}", ir.schema));
     }
@@ -287,7 +293,18 @@ pub(crate) fn open_admitted(nir_json: &str) -> Result<(NativeIr, KeyController),
     if !matches!(ir.capabilities.cut.as_str(), "allow" | "default" | "deny") {
         return Err(format!("cut {} is not admitted", ir.capabilities.cut));
     }
+    let mut ids = std::collections::HashSet::with_capacity(ir.elements.len());
+    let mut clients = 0;
+    let mut edits = 0;
+    let mut buttons = 0;
+    let mut results = 0;
     for element in &ir.elements {
+        if element.id.is_empty() || !ids.insert(element.id.as_str()) {
+            return Err(format!(
+                "element id {:?} is empty or duplicated",
+                element.id
+            ));
+        }
         if !matches!(
             element.role.as_str(),
             "client" | "edit" | "button" | "result" | "static"
@@ -320,11 +337,18 @@ pub(crate) fn open_admitted(nir_json: &str) -> Result<(NativeIr, KeyController),
                 element.id, element.width_dip, element.height_dip
             ));
         }
+        match element.role.as_str() {
+            "client" => clients += 1,
+            "edit" => edits += 1,
+            "button" => buttons += 1,
+            "result" => results += 1,
+            "static" => {}
+            _ => return Err(format!("role {} is not admitted", element.role)),
+        }
     }
-    if ir.elements.len() > MAX_ELEMENTS {
+    if clients != 1 || edits != 1 || buttons != 1 || results != 1 {
         return Err(format!(
-            "element count {} exceeds the {MAX_ELEMENTS} cells this profile admits",
-            ir.elements.len()
+            "native ir needs exactly one client, edit, button, and result; found {clients}, {edits}, {buttons}, {results}"
         ));
     }
     // The window rectangle gets the same bound as the elements. Sash admits
