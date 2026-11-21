@@ -15,6 +15,8 @@ pub struct AndroidD1Runtime {
     pub kotlin: String,
     pub source_digest: [u8; 32],
     pub action_ranges: Vec<(String, SourceRange)>,
+    /// Generated Kotlin range for each action ID branch, in source order.
+    pub generated_action_ranges: Vec<(String, SourceRange)>,
 }
 
 /// Why a scene could not be emitted as a Kotlin D1 runtime.
@@ -159,6 +161,7 @@ pub(crate) fn emit_for_parsed(
     out.push_str("    private var values: Map<String, Value>\n    @get:Synchronized var revision: ULong = initialRevision\n        private set\n    @get:Synchronized val state: Map<String, Value> get() = values.toMap()\n    @Synchronized fun snapshot(): Snapshot = Snapshot(revision, values.toMap())\n");
     out.push_str("    init { if (initialState.keys != stateTypes.keys) throw IllegalArgumentException(\"STATE_SCHEMA\"); if (!validUnicode(initialState)) throw IllegalArgumentException(\"INVALID_TEXT\"); if (!withinTextLimit(initialState)) throw IllegalArgumentException(\"TEXT_LIMIT\"); if (mapSize(initialState) > MAX_SNAPSHOT_BYTES) throw IllegalArgumentException(\"SNAPSHOT_LIMIT\"); if (initialState.any { (k, v) -> kind(v) != stateTypes[k] }) throw IllegalArgumentException(\"STATE_TYPE\"); values = initialState.toMap() }\n");
     out.push_str("    @Synchronized fun dispatch(actionId: String, inputs: Map<String, Value>): DispatchResult {\n        return when (actionId) {\n");
+    let mut generated_action_ranges = Vec::with_capacity(scene.interactions.len());
     for i in &scene.interactions {
         let id = i
             .authored_id
@@ -166,7 +169,18 @@ pub(crate) fn emit_for_parsed(
             .ok_or(AndroidD1RuntimeError::Unsupported(
                 "actions without authored IDs",
             ))?;
-        out.push_str(&format!("            {} -> {{\n", kotlin_string(id)));
+        out.push_str("            ");
+        let generated_start = out.len();
+        out.push_str(&kotlin_string(id));
+        let generated_end = out.len();
+        generated_action_ranges.push((
+            id.clone(),
+            SourceRange {
+                start: generated_start,
+                end: generated_end,
+            },
+        ));
+        out.push_str(" -> {\n");
         let input_types = i
             .inputs
             .iter()
@@ -237,6 +251,7 @@ pub(crate) fn emit_for_parsed(
         kotlin: out,
         source_digest: parsed.source_digest,
         action_ranges,
+        generated_action_ranges,
     })
 }
 

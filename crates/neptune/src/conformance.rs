@@ -479,10 +479,9 @@ fn run_fixture(scene_source: &str, case_source: &str) -> Result<CorpusReport, St
     if corpus.schema_version != "1" || corpus.cases.is_empty() || corpus.cases.len() > 128 {
         return Err("unsupported or empty corpus".into());
     }
-    let scene = goya_lang::parse_strict(scene_source)
-        .map_err(|e| e.to_string())?
-        .scene;
-    let mut reference = goya_lang::compile_d1_interactions(&scene).map_err(|e| e.to_string())?;
+    let handoff = goya_lang::handoff::admit_v3(scene_source).map_err(|e| e.to_string())?;
+    let scene = &handoff.parsed().scene;
+    let mut reference = goya_lang::compile_d1_interactions(scene).map_err(|e| e.to_string())?;
     let mut target =
         crate::transition::lower(scene_source, &corpus.module).map_err(|e| e.message)?;
     if reference.len() != 1 || target.len() != 1 {
@@ -510,7 +509,7 @@ fn run_fixture(scene_source: &str, case_source: &str) -> Result<CorpusReport, St
         }
         let actual_reference = reference_run(&reference, case)?;
         let actual_target = target_run(&target, case);
-        let actual_application = application_run(&scene, &corpus.action_id, case)?;
+        let actual_application = application_run(scene, &corpus.action_id, case)?;
         let reference_case = actual_reference == case.expected;
         let target_case = actual_target == case.expected;
         let application_case = actual_application == case.expected;

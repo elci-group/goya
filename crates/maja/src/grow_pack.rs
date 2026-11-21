@@ -214,6 +214,10 @@ fn admit_manifest(bytes: &[u8], index: &[u8], css: &[u8]) -> Result<(), Failure>
         .map_err(|_| Failure::Input("cannot read input: manifest.json is invalid".into()))?;
     let fields = parse_top_level(text)
         .map_err(|_| Failure::Input("cannot read input: manifest.json is invalid".into()))?;
+    match fields.get("schema") {
+        Some(JsonValue::String(value)) if value == "MAJA-STATIC/1-draft" => {}
+        _ => return Err(Failure::Reject("schema is not MAJA-STATIC/1-draft".into())),
+    }
     match fields.get("profile") {
         Some(JsonValue::String(value)) if value == "maja.web.local.v1" => {}
         _ => return Err(Failure::Reject("profile is not maja.web.local.v1".into())),
@@ -225,6 +229,9 @@ fn admit_manifest(bytes: &[u8], index: &[u8], css: &[u8]) -> Result<(), Failure>
     let Some(JsonValue::Object(artifacts)) = fields.get("artifacts_sha256") else {
         return Err(Failure::Reject("artifact hashes are missing".into()));
     };
+    if artifacts.len() != 2 {
+        return Err(Failure::Reject("artifact hash list is not exact".into()));
+    }
     let hash_matches = |name: &str, bytes: &[u8]| matches!(artifacts.get(name), Some(JsonValue::String(value)) if value == &hex(&Sha256::digest(bytes)));
     if !hash_matches(INDEX_HTML, index) || !hash_matches(APP_CSS, css) {
         return Err(Failure::Reject(

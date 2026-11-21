@@ -662,16 +662,12 @@ fn validate_runtime_values(
     {
         return Err(TransitionError::StateTypeMismatch);
     }
-    let input_schema: BTreeMap<&str, InteractionType> = declared_inputs
-        .iter()
-        .map(|item| (item.name.as_str(), item.value_type))
-        .collect();
-    if input_schema.len() != declared_inputs.len()
-        || inputs.values().len() != input_schema.len()
-        || inputs.values().iter().any(|(key, value)| {
-            input_schema
-                .get(key.as_str())
-                .is_none_or(|ty| !value_has_type(value, *ty))
+    if inputs.values().len() != declared_inputs.len()
+        || declared_inputs.iter().any(|item| {
+            inputs
+                .values()
+                .get(item.name.as_str())
+                .is_none_or(|value| !value_has_type(value, item.value_type))
         })
     {
         return Err(TransitionError::InputTypeMismatch);
