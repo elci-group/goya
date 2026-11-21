@@ -65,8 +65,9 @@ fn rejected(message: impl Into<String>, range: Option<SourceRange>) -> crate::Di
 pub fn lower(source: &str, module: &str) -> Result<Vec<Transition>, crate::Diagnostic> {
     crate::validate_module(module)?;
     crate::inspect(source)?;
-    let parsed =
-        goya_lang::parse_strict(source).map_err(|e| rejected(e.to_string(), Some(e.range)))?;
+    let handoff = goya_lang::handoff::admit_v3(source)
+        .map_err(|e| rejected(e.to_string(), Some(e.range)))?;
+    let parsed = handoff.parsed();
     if let Some(unsupported) = parsed
         .scene
         .interactions

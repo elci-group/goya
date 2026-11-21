@@ -25,6 +25,7 @@ struct Copied {
 const INDEX_HTML: &str = "index.html";
 const APP_CSS: &str = "app.css";
 const MANIFEST_JSON: &str = "manifest.json";
+const MAX_INPUT_FILE_BYTES: u64 = 1024 * 1024;
 
 /// Package `input` into a new directory at `output`.
 ///
@@ -113,9 +114,9 @@ fn read_input(input: &Path) -> Result<Copied, Failure> {
         ));
     }
 
-    let index = read_regular(input, INDEX_HTML)?;
-    let css = read_regular(input, APP_CSS)?;
-    let manifest = read_regular(input, MANIFEST_JSON)?;
+    let index = read_regular(input, INDEX_HTML, MAX_INPUT_FILE_BYTES)?;
+    let css = read_regular(input, APP_CSS, MAX_INPUT_FILE_BYTES)?;
+    let manifest = read_regular(input, MANIFEST_JSON, MAX_INPUT_FILE_BYTES)?;
     admit_manifest(&manifest)?;
     Ok(Copied {
         index,
@@ -137,7 +138,7 @@ fn contained_name(name: &str) -> Result<(), &'static str> {
     }
 }
 
-fn read_regular(root: &Path, name: &str) -> Result<Vec<u8>, Failure> {
+fn read_regular(root: &Path, name: &str, max_bytes: u64) -> Result<Vec<u8>, Failure> {
     contained_name(name).map_err(|message| Failure::Reject(message.into()))?;
     let path = root.join(name);
     let metadata = fs::symlink_metadata(&path)
@@ -150,16 +151,29 @@ fn read_regular(root: &Path, name: &str) -> Result<Vec<u8>, Failure> {
             "cannot read input: {name} is not a regular file"
         )));
     }
-    let mut file = open_regular(&path).map_err(|error| {
+    if metadata.len() > max_bytes {
+        return Err(Failure::Reject(format!(
+            "{name} exceeds the 1 MiB packaged input limit"
+        )));
+    }
+    let file = open_regular(&path).map_err(|error| {
         if is_symlink_open_error(&error) {
             Failure::Reject("symlink escapes are rejected".into())
         } else {
             Failure::Input(format!("cannot read input: {name}: {error}"))
         }
     })?;
+    // Bound the actual read as well as the earlier metadata check: a file may
+    // grow after metadata is inspected.
     let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes)
+    file.take(max_bytes + 1)
+        .read_to_end(&mut bytes)
         .map_err(|error| Failure::Input(format!("cannot read input: {name}: {error}")))?;
+    if bytes.len() as u64 > max_bytes {
+        return Err(Failure::Reject(format!(
+            "{name} exceeds the 1 MiB packaged input limit"
+        )));
+    }
     ensure_inside(root, &path)?;
     Ok(bytes)
 }
@@ -785,7 +799,10 @@ mod tests {
         let input = scratch.0.join("input");
         let output = scratch.0.join("output");
         fs::create_dir(&input).unwrap();
-        let malformed = STATIC_MANIFEST.replace("\"qualification\": \"experimental\"", "\"qualification\": \"experimental\",\n  \"profile\": \"maja.web.local.v1\"");
+        let malformed = STATIC_MANIFEST.replace(
+            "\"qualification\": \"experimental\"",
+            "\"qualification\": \"experimental\",\n  \"profile\": \"maja.web.local.v1\"",
+        );
         write_input(&input, &malformed);
 
         let (code, _stdout, stderr) = run_package(&input, &output, "cli-name", "9.9.9");
@@ -800,6 +817,25 @@ mod tests {
     fn malformed_unicode_escape_in_manifest_is_rejected() {
         let malformed = STATIC_MANIFEST.replace("maja.web.local.v1", "maja.web.local.\\uD800");
         let result = admit_manifest(malformed.as_bytes());
-        assert!(matches!(result, Err(Failure::Input(message)) if message.contains("manifest.json is invalid")));
+        assert!(
+            matches!(result, Err(Failure::Input(message)) if message.contains("manifest.json is invalid"))
+        );
+    }
+
+    #[test]
+    fn oversized_static_member_is_rejected_without_output() {
+        let scratch = Scratch::new();
+        let input = scratch.0.join("input");
+        let output = scratch.0.join("output");
+        fs::create_dir(&input).unwrap();
+        write_input(&input, STATIC_MANIFEST);
+        fs::write(input.join(APP_CSS), vec![b'x'; 1024 * 1024 + 1]).unwrap();
+
+        let (code, _stdout, stderr) = run_package(&input, &output, "cli-name", "9.9.9");
+
+        assert_eq!(code, 4, "{stderr}");
+        assert!(stderr.contains("MAJA-CLI-E0007"), "{stderr}");
+        assert!(stderr.contains("app.css exceeds the 1 MiB"), "{stderr}");
+        assert!(!output.exists());
     }
 }

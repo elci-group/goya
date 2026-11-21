@@ -16,6 +16,16 @@
 use crate::{InteractionValue, SceneCell};
 use std::collections::BTreeMap;
 
+/// Visit live displays in authored depth-first order.
+fn visit_displays(cell: &SceneCell, f: &mut impl FnMut(&SceneCell, &str)) {
+    if let Some(key) = cell.text_from.as_deref() {
+        f(cell, key);
+    }
+    for child in &cell.children {
+        visit_displays(child, f);
+    }
+}
+
 /// The text a state value is shown as: canonical decimal for `int`, the
 /// text itself for `text`, `true` or `false` for `bool`.
 pub fn shown_text(value: &InteractionValue) -> String {
@@ -24,6 +34,23 @@ pub fn shown_text(value: &InteractionValue) -> String {
         InteractionValue::Text(t) => t.clone(),
         InteractionValue::Bool(b) => b.to_string(),
     }
+}
+
+/// Project a state snapshot onto the scene's live displays in document
+/// order. Each result contains the display's announcement context and the
+/// canonical value string; repeated bindings are preserved because each
+/// display is independently rendered.
+pub fn scene_display_values(
+    root: &SceneCell,
+    state: &BTreeMap<String, InteractionValue>,
+) -> Vec<(String, String)> {
+    let mut values = Vec::new();
+    visit_displays(root, &mut |cell, key| {
+        if let Some(value) = state.get(key) {
+            values.push((context(cell.text.as_deref(), key), shown_text(value)));
+        }
+    });
+    values
 }
 
 /// What names a display in an announcement: the element's authored text
@@ -100,24 +127,12 @@ pub fn scene_announcement(
     before: &BTreeMap<String, InteractionValue>,
     after: &BTreeMap<String, InteractionValue>,
 ) -> Option<String> {
-    fn visit<'a>(
-        cell: &'a SceneCell,
-        before: &'a BTreeMap<String, InteractionValue>,
-        after: &'a BTreeMap<String, InteractionValue>,
-        changes: &mut Vec<(String, &'a InteractionValue, &'a InteractionValue)>,
-    ) {
-        if let Some(key) = &cell.text_from {
-            if let (Some(old), Some(new)) = (before.get(key), after.get(key)) {
-                changes.push((context(cell.text.as_deref(), key), old, new));
-            }
-        }
-        for child in &cell.children {
-            visit(child, before, after, changes);
-        }
-    }
-
     let mut changes = Vec::new();
-    visit(root, before, after, &mut changes);
+    visit_displays(root, &mut |cell, key| {
+        if let (Some(old), Some(new)) = (before.get(key), after.get(key)) {
+            changes.push((context(cell.text.as_deref(), key), old, new));
+        }
+    });
     announcement(
         changes
             .iter()

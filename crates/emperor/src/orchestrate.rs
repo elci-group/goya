@@ -1441,8 +1441,19 @@ fn package_deb(invocation: Invocation, format: &str) -> Run {
     // Staging lives inside the build directory so every write stays inside
     // the traversal-checked tree; it is removed again once the archive is
     // built (or failed), leaving no residue in the deliverable directory.
+    // Claim the staging path atomically instead of deleting a pre-existing
+    // path: it may contain user data, or be a symlink into another tree.
     let staging = directory.join(".deb-staging");
-    let _ = fs::remove_dir_all(&staging);
+    if let Err(error) = fs::create_dir(&staging) {
+        return fault_run(
+            &invocation,
+            Fault::new(
+                2,
+                "EMP-PACKAGE",
+                format!("could not claim staging directory {}: {error}", staging.display()),
+            ),
+        );
+    }
     if let Err(fault) = stage_deb(&staging, &app, &desktop_source, architecture) {
         let _ = fs::remove_dir_all(&staging);
         return fault_run(&invocation, fault);

@@ -128,7 +128,7 @@ fn render(
 ) -> Result<Preview, crate::Diagnostic> {
     crate::validate_module(module)?;
     crate::inspect(source)?;
-    let handoff = goya_lang::handoff::admit_v3(source)
+    let handoff = goya_lang::handoff::admit_v2(source)
         .map_err(|e| reject(&e.to_string(), Some(e.range)))?;
     let parsed = handoff.parsed();
     let root = &parsed.scene.root;
