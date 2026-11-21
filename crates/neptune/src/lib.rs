@@ -325,17 +325,11 @@ pub fn inspect(source: &str) -> Result<Vec<Diagnostic>, Diagnostic> {
             _ => {}
         }
     }
-    // Preserve the line reported by the compatibility parser for syntax errors.
-    // The strict frontend currently returns a zero range for those failures.
-    parse_with_source_map(source).map_err(|error| Diagnostic {
-        code: "NPT-E1002",
-        message: error.to_string(),
-        range: line_range(source, error.line),
-    })?;
-    let parsed = parse_strict(source).map_err(|error| Diagnostic {
+    // Admit under GSSH/2 so @state and input bindings are accepted.
+    let handoff = goya_lang::handoff::admit_v2(source).map_err(|error| Diagnostic {
         code: error.code,
         message: error.to_string(),
-        range: (error.range.end > error.range.start).then_some(error.range),
+        range: Some(error.range),
     })?;
     let mut diagnostics: Vec<_> = parsed
         .entries
