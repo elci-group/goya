@@ -405,7 +405,11 @@ fn read_resources(
         return Ok((Vec::new(), false));
     }
     let root = rva_to_offset(sections, dir.0)?;
-    let entries = read_resource_dir(bytes, root, root)?;
+    let root_end = root
+        .checked_add(dir.1 as usize)
+        .filter(|end| *end <= bytes.len())
+        .ok_or("resource directory exceeds the file")?;
+    let entries = read_resource_dir(bytes, root, root_end, root)?;
     let has_version = entries.iter().any(|entry| entry.id == Some(RT_VERSION));
     let manifests: Vec<_> = entries
         .iter()
@@ -420,7 +424,7 @@ fn read_resources(
     if !manifest.is_dir {
         return Err("manifest entry is not a directory".into());
     }
-    let data = first_data(bytes, sections, root, manifest.child)?;
+    let data = first_data(bytes, sections, root, root_end, manifest.child)?;
     Ok((data, has_version))
 }
 
@@ -430,14 +434,22 @@ struct ResourceEntry {
     child: usize,
 }
 
-fn read_resource_dir(bytes: &[u8], root: usize, dir: usize) -> Result<Vec<ResourceEntry>, String> {
-    if dir + 16 > bytes.len() {
+fn read_resource_dir(
+    bytes: &[u8],
+    root: usize,
+    root_end: usize,
+    dir: usize,
+) -> Result<Vec<ResourceEntry>, String> {
+    if dir.checked_add(16).is_none_or(|end| end > root_end) {
         return Err("resource directory is truncated".into());
     }
     let named = read_u16(bytes, dir + 12)? as usize;
     let ids = read_u16(bytes, dir + 14)? as usize;
     let count = named + ids;
-    if count > 128 || dir + 16 + count * 8 > bytes.len() {
+    let entries_end = dir
+        .checked_add(16 + count * 8)
+        .filter(|end| *end <= root_end);
+    if count > 128 || entries_end.is_none() {
         return Err("resource directory is unbounded".into());
     }
     let mut entries = Vec::with_capacity(count);
@@ -446,7 +458,10 @@ fn read_resource_dir(bytes: &[u8], root: usize, dir: usize) -> Result<Vec<Resour
         let name = read_u32(bytes, off)?;
         let offset = read_u32(bytes, off + 4)?;
         let is_dir = offset & 0x8000_0000 != 0;
-        let child = root + (offset & 0x7FFF_FFFF) as usize;
+        let child = root
+            .checked_add((offset & 0x7FFF_FFFF) as usize)
+            .filter(|child| *child < root_end)
+            .ok_or("resource child is outside the declared directory")?;
         entries.push(ResourceEntry {
             id: (name & 0x8000_0000 == 0).then_some(name),
             is_dir,
@@ -460,11 +475,12 @@ fn first_data(
     bytes: &[u8],
     sections: &[Section],
     root: usize,
+    root_end: usize,
     dir: usize,
 ) -> Result<Vec<u8>, String> {
     let mut dir = dir;
     for _ in 0..4 {
-        let entries = read_resource_dir(bytes, root, dir)?;
+        let entries = read_resource_dir(bytes, root, root_end, dir)?;
         let Some(entry) = entries.first() else {
             return Err("resource directory is empty".into());
         };
@@ -472,7 +488,7 @@ fn first_data(
             dir = entry.child;
             continue;
         }
-        if entry.child + 16 > bytes.len() {
+        if entry.child.checked_add(16).is_none_or(|end| end > root_end) {
             return Err("resource data entry is truncated".into());
         }
         let rva = read_u32(bytes, entry.child)?;

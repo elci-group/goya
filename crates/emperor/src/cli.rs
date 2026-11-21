@@ -67,6 +67,10 @@ fn parse(args: &[OsString]) -> Result<Invocation, Fault> {
     let mut profile = "balanced".to_owned();
     let mut release = false;
     let mut launch = false;
+    let mut release_seen = false;
+    let mut launch_seen = false;
+    let mut target_seen = false;
+    let mut profile_seen = false;
     let mut out = None;
     let mut evidence = None;
     let mut suite = None;
@@ -79,18 +83,36 @@ fn parse(args: &[OsString]) -> Result<Invocation, Fault> {
             return Err(Fault::new(2, "EMP-USAGE", "arguments must be UTF-8"));
         };
         if text == "--release" {
+            if std::mem::replace(&mut release_seen, true) {
+                return Err(Fault::new(2, "EMP-USAGE", "duplicate --release"));
+            }
             release = true;
             index += 1;
         } else if text == "--launch" {
+            if std::mem::replace(&mut launch_seen, true) {
+                return Err(Fault::new(2, "EMP-USAGE", "duplicate --launch"));
+            }
             launch = true;
             index += 1;
         } else if text == "--target" {
+            if std::mem::replace(&mut target_seen, true) {
+                return Err(Fault::new(2, "EMP-USAGE", "duplicate --target"));
+            }
             target = required_value(args, &mut index, "--target")?;
         } else if text == "--profile" {
+            if std::mem::replace(&mut profile_seen, true) {
+                return Err(Fault::new(2, "EMP-USAGE", "duplicate --profile"));
+            }
             profile = required_value(args, &mut index, "--profile")?;
         } else if text == "--out" {
+            if out.is_some() {
+                return Err(Fault::new(2, "EMP-USAGE", "duplicate --out"));
+            }
             out = Some(PathBuf::from(required_raw(args, &mut index, "--out")?));
         } else if text == "--evidence" {
+            if evidence.is_some() {
+                return Err(Fault::new(2, "EMP-USAGE", "duplicate --evidence"));
+            }
             evidence = Some(PathBuf::from(required_raw(args, &mut index, "--evidence")?));
         } else if text == "--suite" {
             let value = required_value(args, &mut index, "--suite")?;
