@@ -2,6 +2,7 @@ use std::{
     env,
     fs::{self, File, OpenOptions},
     io::{self, BufRead, Read, Write},
+    path::Path,
     process::ExitCode,
 };
 
@@ -118,8 +119,58 @@ fn input_error(json: bool, operation: &std::ffi::OsStr, code: &str, message: &st
     ExitCode::FAILURE
 }
 
+fn ios_project(args: &[std::ffi::OsString]) -> ExitCode {
+    let usage = || {
+        eprintln!("usage: neptune ios-project <scene.gscene> --arachnid-bin <path> --bundle-id <id> --name <display-name> --out <new-directory>");
+        ExitCode::from(2)
+    };
+    let Some(source) = args.first() else {
+        return usage();
+    };
+    let mut options = std::collections::BTreeMap::new();
+    for pair in args[1..].chunks(2) {
+        let [flag, value] = pair else {
+            return usage();
+        };
+        let Some(flag @ ("--arachnid-bin" | "--bundle-id" | "--name" | "--out")) = flag.to_str()
+        else {
+            return usage();
+        };
+        if options.insert(flag, value).is_some() {
+            return usage();
+        }
+    }
+    if options.len() != 4 {
+        return usage();
+    }
+    let (Some(bundle_id), Some(name)) =
+        (options["--bundle-id"].to_str(), options["--name"].to_str())
+    else {
+        return usage();
+    };
+    match neptune::ios_project::generate(
+        Path::new(source),
+        Path::new(options["--arachnid-bin"]),
+        bundle_id,
+        name,
+        Path::new(options["--out"]),
+    ) {
+        Ok(report) => {
+            println!("{report}");
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("ios-project: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
 fn main() -> ExitCode {
     let args: Vec<_> = env::args_os().collect();
+    if args.get(1).is_some_and(|arg| arg == "ios-project") {
+        return ios_project(&args[2..]);
+    }
     if args.len() == 2 && args[1] == "serve" {
         return serve();
     }
@@ -454,7 +505,9 @@ fn main() -> ExitCode {
                 if json {
                     println!("{report}");
                 } else {
-                    println!("Artifact installed for manual testing; device admission is not claimed");
+                    println!(
+                        "Artifact installed for manual testing; device admission is not claimed"
+                    );
                 }
                 ExitCode::SUCCESS
             }

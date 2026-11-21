@@ -47,7 +47,7 @@ final class LanTransport: NSObject, WKScriptMessageHandlerWithReply {
 
     private init(endpoint: String, entry: URL) {
         self.endpoint = endpoint
-        self.entry = entry.resolvingSymlinksInPath()
+        self.entry = entry.resolvingSymlinksInPath().standardizedFileURL
     }
 
     /// Use only a literal local address. No DNS, credentials, redirects, or
@@ -75,7 +75,8 @@ final class LanTransport: NSObject, WKScriptMessageHandlerWithReply {
     ) {
         guard message.name == Self.handler, message.frameInfo.isMainFrame,
               let document = message.frameInfo.request.url, document.isFileURL,
-              document.resolvingSymlinksInPath().path == entry.path,
+              document.host == nil || document.host == "", document.query == nil,
+              document.resolvingSymlinksInPath().standardizedFileURL.path == entry.path,
               let message = message.body as? [String: Any] else {
             replyHandler(nil, "Lanlink requires the bundled entry document.")
             return
