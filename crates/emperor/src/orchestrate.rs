@@ -2192,16 +2192,8 @@ fn run_captured(bin: &Path, args: &[&str], timeout: Duration) -> Result<Captured
         .stderr
         .take()
         .ok_or_else(|| Fault::new(5, "EMP-RUNTIME", "the application has no stderr pipe"))?;
-    let out_thread = std::thread::spawn(move || {
-        let mut buffer = String::new();
-        let _ = stdout.read_to_string(&mut buffer);
-        buffer
-    });
-    let err_thread = std::thread::spawn(move || {
-        let mut buffer = String::new();
-        let _ = stderr.read_to_string(&mut buffer);
-        buffer
-    });
+    let out_thread = std::thread::spawn(move || read_captured_output(stdout));
+    let err_thread = std::thread::spawn(move || read_captured_output(stderr));
     let started = Instant::now();
     let status = loop {
         match child.try_wait() {
@@ -2230,6 +2222,27 @@ fn run_captured(bin: &Path, args: &[&str], timeout: Duration) -> Result<Captured
         stdout,
         stderr,
     })
+}
+
+/// Keep child diagnostics bounded while continuing to drain the pipe so a
+/// noisy child cannot exhaust compiler memory or block on a full pipe.
+fn read_captured_output(mut reader: impl Read) -> String {
+    const MAX_CAPTURE_BYTES: usize = 1024 * 1024;
+    let mut bytes = Vec::with_capacity(MAX_CAPTURE_BYTES);
+    let _ = reader
+        .by_ref()
+        .take((MAX_CAPTURE_BYTES + 1) as u64)
+        .read_to_end(&mut bytes);
+    let truncated = bytes.len() > MAX_CAPTURE_BYTES;
+    bytes.truncate(MAX_CAPTURE_BYTES);
+    if truncated {
+        let _ = std::io::copy(&mut reader, &mut std::io::sink());
+    }
+    let mut text = String::from_utf8_lossy(&bytes).into_owned();
+    if truncated {
+        text.push_str("\n[child output truncated after 1048576 bytes]");
+    }
+    text
 }
 
 fn wayland_display() -> bool {

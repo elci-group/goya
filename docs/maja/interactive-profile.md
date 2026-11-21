@@ -20,6 +20,9 @@ nothing authored is ignored. Absolute lengths are refused by GSSH/3 itself
 is refused (`MAJA-CLI-E0006`). The v1 static profile is unchanged and still
 refuses GSSH/2 declarations (`GY-E1006`).
 
+The CLI accepts regular source files up to 1 MiB. Larger files fail as input
+errors before parsing.
+
 ## Construct coverage
 
 | Construct | Browser output | Reference it must match |

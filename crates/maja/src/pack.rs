@@ -30,7 +30,7 @@ fn hex(bytes: &[u8]) -> String {
 /// Write a new output directory only. Existing outputs are never overwritten.
 pub fn write_static(ir: &StaticWebIr, output: &Path) -> io::Result<()> {
     let html = format!(concat!(
-        "<!doctype html>\n<html><head><meta charset=\"utf-8\">",
+        "<!doctype html>\n<html lang=\"und\"><head><meta charset=\"utf-8\">",
         "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">",
         "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'self'; img-src data:; base-uri 'none'; form-action 'none'\">",
         "<link rel=\"icon\" href=\"data:,\">",

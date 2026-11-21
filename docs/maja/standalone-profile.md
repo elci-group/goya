@@ -4,6 +4,9 @@ The interactive successor, [`maja.web.local.v2`](interactive-profile.md), admits
 
 `maja.web.local.v1` currently admits only one strictly parsed root `@cell` with an explicit authored `id` and static `text`. All other authored properties, children, controls, interactions and effects are rejected with a source-linked diagnostic. U+0000 and carriage returns in text, and attribute-normalized control characters in IDs, are rejected. No implicit state, bindings, persistence, server requests or capabilities are introduced. The legacy `maja.web.v1` remains fail-closed.
 
+The CLI accepts regular source files up to 1 MiB. Larger files fail as input
+errors before parsing.
+
 ```
 maja inspect app.gscene
 maja check app.gscene --target web --profile maja.web.local.v1
@@ -17,6 +20,9 @@ resource types are denied by default, with only same-origin stylesheets and
 `data:` images allowed. Base URI changes and form submissions are denied.
 This policy limits browser capabilities; it does not qualify the profile's
 overall security or accessibility.
+
+The root element uses `lang="und"` because this profile has no authored
+document-language property; it does not assume English for arbitrary text.
 
 In this v1 profile, no browser application logic, button, input, state binding, navigation, local storage, offline caching, optional remote services, machine-readable diagnostics, compiler service protocol or browser source map is implemented. The `maja-runtime` D1 emitter is used only by the v2 profile. Browser text rendering and cross-platform geometry, typography, accessibility and security are not qualified by the experimental admission.
 

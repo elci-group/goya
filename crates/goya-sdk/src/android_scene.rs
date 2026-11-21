@@ -172,7 +172,17 @@ fn compile_scene(
     // The reference wrap transform is viewport-independent; take its text
     // from the reference frame so Android never re-implements wrapping.
     let frame = goya_lang::layout(scene, 1.0, 1.0);
-    assert_eq!(frame.nodes.len(), plans.len());
+    if frame.nodes.len() != plans.len() {
+        return Err(AndroidSceneError {
+            range: whole,
+            reason: AndroidSceneReason::Runtime(format!(
+                "reference layout returned {} nodes for {} scene elements",
+                frame.nodes.len(),
+                plans.len()
+            )),
+            origin: None,
+        });
+    }
     for (plan, node) in plans.iter_mut().zip(&frame.nodes) {
         plan.text = node.text.clone();
     }

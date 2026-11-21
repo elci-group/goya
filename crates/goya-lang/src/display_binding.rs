@@ -36,18 +36,36 @@ pub fn shown_text(value: &InteractionValue) -> String {
     }
 }
 
+/// One live display projected from a state snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SceneDisplayValue {
+    /// Authored element identity, absent only for non-strict parsed scenes.
+    pub element_id: Option<String>,
+    /// State key referenced by `text-from`.
+    pub state_key: String,
+    /// Context label used by canonical announcements.
+    pub context: String,
+    /// Canonical text shown for the current value.
+    pub text: String,
+}
+
 /// Project a state snapshot onto the scene's live displays in document
-/// order. Each result contains the display's announcement context and the
-/// canonical value string; repeated bindings are preserved because each
-/// display is independently rendered.
+/// order. Results carry authored identity, bound key, announcement context
+/// and canonical value; repeated bindings are preserved because each display
+/// is independently rendered.
 pub fn scene_display_values(
     root: &SceneCell,
     state: &BTreeMap<String, InteractionValue>,
-) -> Vec<(String, String)> {
+) -> Vec<SceneDisplayValue> {
     let mut values = Vec::new();
     visit_displays(root, &mut |cell, key| {
         if let Some(value) = state.get(key) {
-            values.push((context(cell.text.as_deref(), key), shown_text(value)));
+            values.push(SceneDisplayValue {
+                element_id: cell.authored_id.clone(),
+                state_key: key.to_owned(),
+                context: context(cell.text.as_deref(), key),
+                text: shown_text(value),
+            });
         }
     });
     values
@@ -57,12 +75,14 @@ pub fn scene_display_values(
 /// without trailing spaces, tabs, line breaks or one trailing colon
 /// (`"Count: "` → `"Count"`), or the state key when that leaves nothing.
 pub fn context(authored_text: Option<&str>, key: &str) -> String {
-    let blank = |c: char| matches!(c, ' ' | '\t' | '\n' | '\r');
-    let text = authored_text.unwrap_or("").trim_end_matches(blank);
+    // Authored labels can contain Unicode spacing characters (for example a
+    // non-breaking space before a colon); treat all Unicode whitespace as a
+    // trailing blank when deriving the spoken context.
+    let text = authored_text.unwrap_or("").trim_end_matches(char::is_whitespace);
     let text = text
         .strip_suffix(':')
         .unwrap_or(text)
-        .trim_end_matches(blank);
+        .trim_end_matches(char::is_whitespace);
     if text.is_empty() {
         key.to_owned()
     } else {
