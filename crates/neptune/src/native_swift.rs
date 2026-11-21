@@ -152,7 +152,6 @@ fn render(
     if root.kind != CellKind::Button
         || !root.children.is_empty()
         || parsed.scene.interactions.len() != 1
-        || parsed.entries.len() != 5
         || button.is_none()
         || text_entry.is_none()
         || unsupported.is_some()
