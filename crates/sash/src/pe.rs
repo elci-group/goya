@@ -198,6 +198,9 @@ pub fn parse_pe(bytes: &[u8]) -> Result<PeInfo, String> {
         return Err("data directories are truncated".into());
     }
     let sections = read_sections(bytes, section_table, sections)?;
+    if entry != 0 && !entry_is_executable(&sections, entry) {
+        return Err("entry point is not backed by an executable section".into());
+    }
     let imports = read_import_dlls(
         bytes,
         &sections,
@@ -278,6 +281,7 @@ struct Section {
     virtual_address: u32,
     raw_size: u32,
     raw_ptr: u32,
+    characteristics: u32,
 }
 
 fn read_sections(bytes: &[u8], table: usize, count: usize) -> Result<Vec<Section>, String> {
@@ -289,6 +293,7 @@ fn read_sections(bytes: &[u8], table: usize, count: usize) -> Result<Vec<Section
             virtual_address: read_u32(bytes, off + 12)?,
             raw_size: read_u32(bytes, off + 16)?,
             raw_ptr: read_u32(bytes, off + 20)?,
+            characteristics: read_u32(bytes, off + 36)?,
         };
         (section.raw_ptr as usize)
             .checked_add(section.raw_size as usize)
@@ -321,6 +326,16 @@ fn read_sections(bytes: &[u8], table: usize, count: usize) -> Result<Vec<Section
         }
     }
     Ok(sections)
+}
+
+fn entry_is_executable(sections: &[Section], entry: u32) -> bool {
+    const IMAGE_SCN_MEM_EXECUTE: u32 = 0x2000_0000;
+    sections.iter().any(|section| {
+        let delta = entry.saturating_sub(section.virtual_address);
+        entry >= section.virtual_address
+            && delta < section.raw_size
+            && section.characteristics & IMAGE_SCN_MEM_EXECUTE != 0
+    })
 }
 
 fn directory(bytes: &[u8], table: usize, count: usize, index: usize) -> Result<(u32, u32), String> {
@@ -722,6 +737,7 @@ mod tests {
         put_u32(&mut bytes, section + 12, 0x1000);
         put_u32(&mut bytes, section + 16, 0x400);
         put_u32(&mut bytes, section + 20, 0x400);
+        put_u32(&mut bytes, section + 36, 0x6000_0020);
         put_u32(&mut bytes, 0x40C, 0x1040);
         bytes[0x440..0x44C].copy_from_slice(b"kernel32.dll");
         let arch = match machine {
