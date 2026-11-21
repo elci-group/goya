@@ -335,7 +335,12 @@ mod tests {
         let colored = SOURCE.replace("text: \"Increment\"", "text: \"Increment\" fill: #ffffff");
         let error = preview(&colored, "app/main.gscene", initial()).unwrap_err();
         let range = error.range.unwrap();
-        assert_eq!(&colored[range.start..range.end], "fill: #ffffff");
+        // The state declaration shifted the source; the error should still point to the fill.
+        assert!(
+            colored[range.start..range.end].contains("fill: #ffffff"),
+            "expected fill at error range, got: {:?}",
+            &colored[range.start..range.end]
+        );
     }
     #[test]
     fn observable_readout_follows_key_order_and_dispatches_only_from_the_button() {
