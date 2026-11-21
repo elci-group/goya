@@ -410,7 +410,22 @@ fn read_resources(
         .filter(|end| *end <= bytes.len())
         .ok_or("resource directory exceeds the file")?;
     let entries = read_resource_dir(bytes, root, root_end, root)?;
-    let has_version = entries.iter().any(|entry| entry.id == Some(RT_VERSION));
+    let versions: Vec<_> = entries
+        .iter()
+        .filter(|entry| entry.id == Some(RT_VERSION))
+        .collect();
+    if versions.len() > 1 {
+        return Err("more than one version resource type entry".into());
+    }
+    let has_version = if let Some(version) = versions.first() {
+        if !version.is_dir {
+            return Err("version resource entry is not a directory".into());
+        }
+        let _ = unique_resource_data(bytes, sections, root, root_end, version.child)?;
+        true
+    } else {
+        false
+    };
     let manifests: Vec<_> = entries
         .iter()
         .filter(|entry| entry.id == Some(RT_MANIFEST))
@@ -424,7 +439,7 @@ fn read_resources(
     if !manifest.is_dir {
         return Err("manifest entry is not a directory".into());
     }
-    let data = first_data(bytes, sections, root, root_end, manifest.child)?;
+    let data = unique_resource_data(bytes, sections, root, root_end, manifest.child)?;
     Ok((data, has_version))
 }
 
@@ -471,7 +486,7 @@ fn read_resource_dir(
     Ok(entries)
 }
 
-fn first_data(
+fn unique_resource_data(
     bytes: &[u8],
     sections: &[Section],
     root: usize,
@@ -482,10 +497,10 @@ fn first_data(
     for _ in 0..4 {
         let entries = read_resource_dir(bytes, root, root_end, dir)?;
         if entries.len() != 1 {
-            return Err("manifest resource path is not unique".into());
+            return Err("resource path is not unique".into());
         }
         let Some(entry) = entries.first() else {
-            return Err("resource directory is empty".into());
+            return Err("resource path is empty".into());
         };
         if entry.is_dir {
             dir = entry.child;
