@@ -3,7 +3,7 @@
 //! `check` does not link. `build` links and still reports runtime qualification
 //! as blocked. `verify` never installs, signs, or launches the executable.
 
-use crate::admit::{self, SceneTarget, PROFILE};
+use crate::admit::{self, SceneTarget, ViewportDip, PROFILE};
 use crate::orchestrate;
 use crate::pe;
 use crate::report;
@@ -51,6 +51,7 @@ pub fn execute(args: &[std::ffi::OsString]) -> Run {
     let mut release = false;
     let mut out = None;
     let mut evidence = None;
+    let mut viewport = None;
     let mut index = 2;
     while index < args.len() {
         let arg = &args[index];
@@ -90,6 +91,22 @@ pub fn execute(args: &[std::ffi::OsString]) -> Run {
                 return cli_error(2, "--evidence needs a path");
             };
             evidence = Some(PathBuf::from(value));
+            index += 2;
+        } else if text == "--viewport-dip" {
+            if command == "verify" || viewport.is_some() {
+                return cli_error(2, "--viewport-dip is accepted once on scene commands");
+            }
+            viewport = args
+                .get(index + 1)
+                .and_then(|value| value.to_str())
+                .and_then(|value| value.split_once('x'))
+                .and_then(|(width, height)| ViewportDip::new(width.parse().ok()?, height.parse().ok()?));
+            if viewport.is_none() {
+                return cli_error(
+                    2,
+                    &format!("--viewport-dip requires WIDTHxHEIGHT with each edge in 1..={}", admit::MAX_DIP),
+                );
+            }
             index += 2;
         } else if text == "--api-floor" {
             let Some(value) = args.get(index + 1).and_then(|value| value.to_str()) else {
@@ -135,7 +152,7 @@ pub fn execute(args: &[std::ffi::OsString]) -> Run {
                 .to_string(),
         );
     }
-    let base = serde_json::json!({
+    let mut base = serde_json::json!({
         "schema_version": "1",
         "directive": DIRECTIVE_ID,
         "compiler": "sash",
@@ -146,18 +163,22 @@ pub fn execute(args: &[std::ffi::OsString]) -> Run {
         "presentation_profile": PROFILE,
         "format": if json { "json" } else { "text" },
     });
+    if let Some(viewport) = viewport {
+        base["frontend_contract"] = serde_json::json!(goya_lang::handoff::CONTRACT_V3);
+        base["viewport_dip"] = serde_json::json!(viewport.dimensions());
+    }
     match command {
         "inspect" | "check" => {
             let Some(path) = one_path(&positionals) else {
                 return cli_error(2, "expected one scene path");
             };
-            scene_command(base, path, command == "inspect", api_floor)
+            scene_command(base, path, command == "inspect", api_floor, viewport)
         }
         "expectations" => {
             let Some(path) = one_path(&positionals) else {
                 return cli_error(2, "expected one scene path");
             };
-            expectations_command(base, path, api_floor)
+            expectations_command(base, path, api_floor, viewport)
         }
         "build" => {
             let Some(path) = one_path(&positionals) else {
@@ -169,7 +190,7 @@ pub fn execute(args: &[std::ffi::OsString]) -> Run {
             let Some(out) = out else {
                 return cli_error(2, "build requires --out");
             };
-            build_command(base, path, &out, admitted, api_floor)
+            build_command(base, path, &out, admitted, api_floor, viewport)
         }
         "verify" => {
             let Some(path) = one_path(&positionals) else {
@@ -192,12 +213,13 @@ fn scene_command(
     path: &Path,
     inspect: bool,
     api_floor: crate::api_floor::ApiFloor,
+    viewport: Option<ViewportDip>,
 ) -> Run {
     let source = match read_scene(path) {
         Ok(source) => source,
         Err(diagnostic) => return finish(base, 1, diagnostic, "scene was not read"),
     };
-    match admit::open(&source) {
+    match admit::open_with_viewport(&source, viewport) {
         Ok(target) => {
             let (profile, semantic_id, width_dip, height_dip, source_digest, dispositions) =
                 match &target {
@@ -264,12 +286,13 @@ fn expectations_command(
     mut base: serde_json::Value,
     path: &Path,
     api_floor: crate::api_floor::ApiFloor,
+    viewport: Option<ViewportDip>,
 ) -> Run {
     let source = match read_scene(path) {
         Ok(source) => source,
         Err(diagnostic) => return finish(base, 1, diagnostic, "scene was not read"),
     };
-    let document = match admit::open(&source) {
+    let document = match admit::open_with_viewport(&source, viewport) {
         Ok(SceneTarget::Static(window)) => {
             crate::ir_lower::lower_static_window(&window, api_floor)
         }
@@ -355,6 +378,7 @@ fn build_command(
     out: &Path,
     target: crate::windows_target::WindowsTarget,
     api_floor: crate::api_floor::ApiFloor,
+    viewport: Option<ViewportDip>,
 ) -> Run {
     let output = match fresh_output(out) {
         Ok(path) => path,
@@ -364,7 +388,7 @@ fn build_command(
         Ok(source) => source,
         Err(diagnostic) => return finish(base, 1, diagnostic, "scene was not read"),
     };
-    match orchestrate::link(&source, &output, target, api_floor) {
+    match orchestrate::link_with_viewport(&source, &output, target, api_floor, viewport) {
         Ok(linked) => {
             base["presentation_profile"] = serde_json::json!(linked.presentation_profile);
             base["status"] = serde_json::json!("LINKED");
@@ -557,7 +581,7 @@ fn finish(mut base: serde_json::Value, code: u8, diagnostic: Diagnostic, summary
 fn usage() -> Run {
     cli_error(
         2,
-        "usage: sash inspect|check|build|verify|expectations <path> [--target i686-pc-windows-msvc|x86_64-pc-windows-msvc|aarch64-pc-windows-msvc] [--profile portable-native] [--api-floor win10|win8] [--release] [--out dir] [--evidence dir] [--format json]",
+        "usage: sash inspect|check|build|verify|expectations <path> [--target i686-pc-windows-msvc|x86_64-pc-windows-msvc|aarch64-pc-windows-msvc] [--profile portable-native] [--api-floor win10|win8] [--viewport-dip WIDTHxHEIGHT] [--release] [--out dir] [--evidence dir] [--format json]",
     )
 }
 

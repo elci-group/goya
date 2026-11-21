@@ -1,9 +1,13 @@
-//! Host-side D1 fixture runner. This does not execute generated Swift.
+//! Host-side D1 fixture runner with optional generated Swift execution.
 use crate::transition::{Expression, Operation, Transition};
 use goya_executable::{D1Snapshot, D1Value, InputSnapshot};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
+use std::io::Write as _;
+use std::path::Path;
+use std::process::{Command, Stdio};
 
 const MAX_TEXT_BYTES: usize = goya_executable::D1_MAX_TEXT_BYTES;
 const MAX_SNAPSHOT_BYTES: usize = goya_executable::D1_MAX_SNAPSHOT_BYTES;
@@ -118,7 +122,7 @@ enum Outcome {
     },
 }
 
-/// A completed, narrowly scoped corpus result. No Swift or device gate is run.
+/// A completed, narrowly scoped host corpus result.
 pub struct CorpusReport {
     pub passed: bool,
     pub json: serde_json::Value,
@@ -435,12 +439,150 @@ fn application_run(
     }
 }
 
+fn swift_arguments(
+    fields: &[crate::transition_swift::Field],
+    values: &BTreeMap<String, Scalar>,
+) -> Option<Vec<String>> {
+    if fields.len() != values.len() {
+        return None;
+    }
+    fields
+        .iter()
+        .map(|field| {
+            let value = values.get(&field.source_key)?;
+            if !value.matches_type(field.value_type) {
+                return None;
+            }
+            let literal = match value {
+                Scalar::Int(value) => value.to_string(),
+                Scalar::Bool(value) => value.to_string(),
+                Scalar::Text(value) => crate::swift::Expr::StringLiteral(value.clone()).render(),
+            };
+            Some(format!("{}: {literal}", field.swift_name))
+        })
+        .collect()
+}
+
+fn run_swift_fixture(
+    swift: &Path,
+    source: &str,
+    corpus: &Corpus,
+) -> Result<Vec<Option<Outcome>>, String> {
+    let preview = crate::transition_swift::preview(source, &corpus.module)
+        .map_err(|diagnostic| diagnostic.message)?;
+    let mut script = format!("import Foundation\n{}", preview.swift);
+    script.push_str(
+        r#"
+func runCase(_ state: NeptuneState, _ input: NeptuneInput) throws {
+    let outcome: [String: Any]
+    do {
+        let next = try NeptuneTransition.apply(state: state, input: input)
+        outcome = ["status": "ok", "revision": next.revision, "state": [
+"#,
+    );
+    for field in &preview.state_fields {
+        let key = crate::swift::Expr::StringLiteral(field.source_key.clone()).render();
+        let _ = writeln!(script, "            {key}: next.{},", field.swift_name);
+    }
+    if preview.state_fields.is_empty() {
+        script.push_str("            :\n");
+    }
+    script.push_str(
+        r#"        ] as [String: Any]]
+    } catch let error as NeptuneTransitionError {
+        let code: String
+        switch error {
+        case .arithmeticOverflow: code = "arithmetic_overflow"
+        case .revisionOverflow: code = "revision_overflow"
+        case .textTooLarge: code = "text_limit"
+        case .snapshotTooLarge: code = "snapshot_limit"
+        case .registerLimit: code = "register_limit"
+        }
+        outcome = ["status": "error", "error": code]
+    }
+    let encoded = try JSONSerialization.data(withJSONObject: outcome)
+    print(String(decoding: encoded, as: UTF8.self))
+}
+"#,
+    );
+    let mut runnable = Vec::new();
+    for case in &corpus.cases {
+        // The typed transition cannot represent a missing or wrong-type field.
+        let arguments = swift_arguments(&preview.state_fields, &case.state)
+            .zip(swift_arguments(&preview.input_fields, &case.inputs));
+        runnable.push(arguments.is_some());
+        if let Some((mut state, input)) = arguments {
+            state.insert(0, format!("revision: {}", case.revision));
+            let _ = writeln!(
+                script,
+                "try runCase(NeptuneState({}), NeptuneInput({}))",
+                state.join(", "),
+                input.join(", ")
+            );
+        }
+    }
+    if !runnable.iter().any(|case| *case) {
+        return Err(format!("{} has no typed Swift cases", corpus.fixture));
+    }
+    let mut child = Command::new(swift)
+        .arg("-")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("could not start {}: {error}", swift.display()))?;
+    let input = child.stdin.take().ok_or("Swift stdin unavailable")?;
+    let (output, written) = std::thread::scope(|scope| {
+        let writer = scope.spawn(move || (&input).write_all(script.as_bytes()));
+        (child.wait_with_output(), writer.join())
+    });
+    let output = output.map_err(|error| format!("could not wait for Swift: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "Swift fixture {} exited with {}: {}",
+            corpus.fixture,
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    written
+        .map_err(|_| "Swift input thread failed")?
+        .map_err(|error| format!("could not send fixture to Swift: {error}"))?;
+    let stdout = std::str::from_utf8(&output.stdout).map_err(|error| error.to_string())?;
+    let mut lines = stdout.lines();
+    let outcomes = runnable
+        .into_iter()
+        .map(|run| {
+            if !run {
+                return Ok(None);
+            }
+            let line = lines.next().ok_or("missing generated Swift result")?;
+            serde_json::from_str(line)
+                .map(Some)
+                .map_err(|error| format!("invalid generated Swift result: {error}"))
+        })
+        .collect::<Result<_, String>>()?;
+    if lines.next().is_some() {
+        return Err("unexpected extra generated Swift result".into());
+    }
+    Ok(outcomes)
+}
+
 /// Run the pinned, hand-authored scalar corpus against the reference VM,
 /// shared application owner, and target representation.
 pub fn run_d1_corpus() -> Result<CorpusReport, String> {
+    run_corpus(None)
+}
+
+/// Also execute the generated, SwiftUI-free transition for typed cases.
+pub fn run_d1_corpus_with_swift(swift: &Path) -> Result<CorpusReport, String> {
+    run_corpus(Some(swift))
+}
+
+fn run_corpus(swift: Option<&Path>) -> Result<CorpusReport, String> {
     let reports = [
-        run_fixture(SCENE, CASES)?,
-        run_fixture(TEXT_SCENE, TEXT_CASES)?,
+        run_fixture_with_swift(SCENE, CASES, swift)?,
+        run_fixture_with_swift(TEXT_SCENE, TEXT_CASES, swift)?,
     ];
     let passed = reports.iter().all(|report| report.passed);
     let reference_passed = reports
@@ -452,6 +594,16 @@ pub fn run_d1_corpus() -> Result<CorpusReport, String> {
     let application_passed = reports
         .iter()
         .all(|report| report.json["stages"]["application_owner"] == "PASS");
+    let swift_status = if swift.is_none() {
+        "BLOCKED"
+    } else if reports
+        .iter()
+        .all(|report| report.json["stages"]["generated_swift"] == "PASS")
+    {
+        "PASS"
+    } else {
+        "FAIL"
+    };
     let mut cases = Vec::new();
     for report in &reports {
         let fixture = report.json["fixture"]
@@ -470,11 +622,23 @@ pub fn run_d1_corpus() -> Result<CorpusReport, String> {
     }
     Ok(CorpusReport {
         passed,
-        json: serde_json::json!({"schema_version":"2", "suite":"d1-scalar-corpus", "status":if passed {"PASS"} else {"FAIL"}, "scope":"host-side scalar application owner and target IR", "application_contract":goya_sdk::D1_APPLICATION_CONTRACT, "fixtures":reports.iter().map(|report| &report.json).collect::<Vec<_>>(), "cases":cases, "stages":{"reference_executor":if reference_passed {"PASS"} else {"FAIL"}, "application_owner":if application_passed {"PASS"} else {"FAIL"}, "target_ir":if target_passed {"PASS"} else {"FAIL"}, "generated_swift":"BLOCKED", "apple_typecheck":"BLOCKED", "simulator":"BLOCKED", "physical_device":"BLOCKED", "ios_admission":"NOT_RUN"}}),
+        json: serde_json::json!({"schema_version":"2", "suite":"d1-scalar-corpus", "status":if passed {"PASS"} else {"FAIL"}, "scope":corpus_scope(swift), "application_contract":goya_sdk::D1_APPLICATION_CONTRACT, "fixtures":reports.iter().map(|report| &report.json).collect::<Vec<_>>(), "cases":cases, "stages":{"reference_executor":if reference_passed {"PASS"} else {"FAIL"}, "application_owner":if application_passed {"PASS"} else {"FAIL"}, "target_ir":if target_passed {"PASS"} else {"FAIL"}, "generated_swift":swift_status, "apple_typecheck":"BLOCKED", "simulator":"BLOCKED", "physical_device":"BLOCKED", "ios_admission":"NOT_RUN"}}),
     })
 }
 
-fn run_fixture(scene_source: &str, case_source: &str) -> Result<CorpusReport, String> {
+fn corpus_scope(swift: Option<&Path>) -> &'static str {
+    if swift.is_some() {
+        "host-side scalar application owner, target IR, and typed Swift transition"
+    } else {
+        "host-side scalar application owner and target IR"
+    }
+}
+
+fn run_fixture_with_swift(
+    scene_source: &str,
+    case_source: &str,
+    swift: Option<&Path>,
+) -> Result<CorpusReport, String> {
     let corpus: Corpus = serde_json::from_str(case_source).map_err(|e| e.to_string())?;
     if corpus.schema_version != "1" || corpus.cases.is_empty() || corpus.cases.len() > 128 {
         return Err("unsupported or empty corpus".into());
@@ -502,8 +666,12 @@ fn run_fixture(scene_source: &str, case_source: &str) -> Result<CorpusReport, St
     let mut reference_passed = true;
     let mut target_passed = true;
     let mut application_passed = true;
+    let mut swift_passed = true;
+    let swift_outcomes = swift
+        .map(|swift| run_swift_fixture(swift, scene_source, &corpus))
+        .transpose()?;
     let mut seen = std::collections::BTreeSet::new();
-    for case in &corpus.cases {
+    for (index, case) in corpus.cases.iter().enumerate() {
         if case.id.is_empty() || !seen.insert(&case.id) {
             return Err("invalid or duplicate case ID".into());
         }
@@ -516,20 +684,41 @@ fn run_fixture(scene_source: &str, case_source: &str) -> Result<CorpusReport, St
         reference_passed &= reference_case;
         target_passed &= target_case;
         application_passed &= application_case;
-        let case_passed = reference_case && target_case && application_case;
+        let actual_swift = swift_outcomes
+            .as_ref()
+            .and_then(|outcomes| outcomes[index].as_ref());
+        let swift_case = actual_swift.is_none_or(|actual| *actual == case.expected);
+        swift_passed &= swift_case;
+        let case_passed = reference_case && target_case && application_case && swift_case;
         passed &= case_passed;
-        cases.push(serde_json::json!({"id":case.id,"status":if case_passed {"PASS"} else {"FAIL"},"expected":case.expected,"reference":actual_reference,"application_owner":actual_application,"target_ir":actual_target}));
+        let mut case_data = serde_json::json!({"id":case.id,"status":if case_passed {"PASS"} else {"FAIL"},"expected":case.expected,"reference":actual_reference,"application_owner":actual_application,"target_ir":actual_target});
+        if swift.is_some() {
+            case_data["generated_swift"] = actual_swift.map_or_else(
+                || serde_json::json!({"status":"NOT_APPLICABLE","reason":"case cannot be represented by the typed transition"}),
+                |actual| serde_json::json!({"status":if swift_case {"PASS"} else {"FAIL"}, "outcome":actual}),
+            );
+        }
+        cases.push(case_data);
     }
     let digest = |bytes: &[u8]| format!("{:x}", Sha256::digest(bytes));
+    let swift_status = match (swift, swift_passed) {
+        (None, _) => "BLOCKED",
+        (Some(_), true) => "PASS",
+        (Some(_), false) => "FAIL",
+    };
     Ok(CorpusReport {
         passed,
-        json: serde_json::json!({"schema_version":"1", "suite":"d1-fixture", "status":if passed {"PASS"} else {"FAIL"}, "scope":"host-side scalar application owner and target IR", "fixture":corpus.fixture, "scene_sha256":digest(scene_source.as_bytes()), "cases_sha256":digest(case_source.as_bytes()), "goya_d1_vm_version":goya_executable::D1_VM_VERSION, "reference_program_hash":reference.program_hash().iter().map(|b| format!("{b:02x}")).collect::<String>(), "stages":{"reference_executor":if reference_passed {"PASS"} else {"FAIL"}, "application_owner":if application_passed {"PASS"} else {"FAIL"}, "target_ir":if target_passed {"PASS"} else {"FAIL"}, "generated_swift":"BLOCKED", "apple_typecheck":"BLOCKED", "simulator":"BLOCKED", "physical_device":"BLOCKED", "ios_admission":"NOT_RUN"}, "cases":cases}),
+        json: serde_json::json!({"schema_version":"1", "suite":"d1-fixture", "status":if passed {"PASS"} else {"FAIL"}, "scope":corpus_scope(swift), "fixture":corpus.fixture, "scene_sha256":digest(scene_source.as_bytes()), "cases_sha256":digest(case_source.as_bytes()), "goya_d1_vm_version":goya_executable::D1_VM_VERSION, "reference_program_hash":reference.program_hash().iter().map(|b| format!("{b:02x}")).collect::<String>(), "stages":{"reference_executor":if reference_passed {"PASS"} else {"FAIL"}, "application_owner":if application_passed {"PASS"} else {"FAIL"}, "target_ir":if target_passed {"PASS"} else {"FAIL"}, "generated_swift":swift_status, "apple_typecheck":"BLOCKED", "simulator":"BLOCKED", "physical_device":"BLOCKED", "ios_admission":"NOT_RUN"}, "cases":cases}),
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn run_fixture(scene_source: &str, case_source: &str) -> Result<CorpusReport, String> {
+        run_fixture_with_swift(scene_source, case_source, None)
+    }
 
     #[test]
     fn byte_accounting_uses_utf8_and_exact_snapshot_boundaries() {

@@ -3,7 +3,7 @@
 //! The output directory is created only after the PE policy checks pass.
 //! A failed build does not leave an App.exe behind.
 
-use crate::admit::{self, SceneTarget};
+use crate::admit::{self, SceneTarget, ViewportDip};
 use crate::emit::Generated;
 use crate::interactive;
 use crate::pe;
@@ -32,6 +32,16 @@ pub fn link(
     target: crate::windows_target::WindowsTarget,
     floor: crate::api_floor::ApiFloor,
 ) -> Result<Linked, Diagnostic> {
+    link_with_viewport(source, output, target, floor, None)
+}
+
+pub fn link_with_viewport(
+    source: &str,
+    output: &Path,
+    target: WindowsTarget,
+    floor: crate::api_floor::ApiFloor,
+    viewport: Option<ViewportDip>,
+) -> Result<Linked, Diagnostic> {
     if !free_enough(output) {
         return Err(Diagnostic::new(
             "SASH-TOOLCHAIN",
@@ -40,7 +50,7 @@ pub fn link(
             "Free space and retry. Sash does not delete unrelated build caches.",
         ));
     }
-    let mut prepared = prepare(source, floor)?;
+    let mut prepared = prepare(source, floor, viewport)?;
     prepared.generated.manifest_xml = crate::windows_target::stamp_processor_architecture(
         &prepared.generated.manifest_xml,
         target,
@@ -176,8 +186,9 @@ pub(crate) fn legacy_dispositions(
 fn prepare(
     source: &str,
     floor: crate::api_floor::ApiFloor,
+    viewport: Option<ViewportDip>,
 ) -> Result<Prepared, Diagnostic> {
-    match admit::open(source)? {
+    match admit::open_with_viewport(source, viewport)? {
         SceneTarget::Static(window) => {
             let evidence = SceneEvidence {
                 presentation_profile: if floor.is_legacy() {

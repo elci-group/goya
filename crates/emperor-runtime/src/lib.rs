@@ -312,10 +312,7 @@ pub(crate) fn open_admitted(nir_json: &str) -> Result<(NativeIr, KeyController),
     {
         return Err("source_digest_sha256 must be 64 lowercase hexadecimal characters".into());
     }
-    let actual_digest = Sha256::digest(ir.scene.as_bytes())
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
+    let actual_digest = format!("{:x}", Sha256::digest(ir.scene.as_bytes()));
     if ir.source_digest_sha256 != actual_digest {
         return Err("source_digest_sha256 does not match scene bytes".into());
     }
@@ -339,6 +336,7 @@ pub(crate) fn open_admitted(nir_json: &str) -> Result<(NativeIr, KeyController),
     let mut buttons = 0;
     let mut results = 0;
     let mut spans = Vec::with_capacity(ir.elements.len());
+    let origins = goya_lang::parse_with_source_map(&ir.scene).map_err(|err| err.to_string())?;
     for element in &ir.elements {
         if element.id.is_empty() || !ids.insert(element.id.as_str()) {
             return Err(format!(
@@ -356,7 +354,13 @@ pub(crate) fn open_admitted(nir_json: &str) -> Result<(NativeIr, KeyController),
                 element.id
             ));
         }
-        if &ir.scene[element.span_start..element.span_end] != element.id {
+        if !origins.entries.iter().any(|entry| {
+            entry.kind == "property"
+                && entry.name == "id"
+                && entry.semantic_id.as_deref() == Some(element.id.as_str())
+                && entry.range.start == element.span_start
+                && entry.range.end == element.span_end
+        }) {
             return Err(format!(
                 "element {} source span does not match its semantic id",
                 element.id
@@ -600,11 +604,10 @@ mod tests {
     const SCENE: &str = include_str!("../../sash/fixtures/interactive-counter.gscene");
 
     fn counter_ir() -> NativeIr {
-        NativeIr {
+        let mut ir = NativeIr {
             schema: SCHEMA.to_owned(),
             profile: PROFILE.to_owned(),
-            source_digest_sha256: "0000000000000000000000000000000000000000000000000000000000000000"
-                .to_owned(),
+            source_digest_sha256: format!("{:x}", Sha256::digest(SCENE.as_bytes())),
             scene: SCENE.to_owned(),
             action_id: "action.add".to_owned(),
             state_id: "count".to_owned(),
@@ -668,7 +671,22 @@ mod tests {
                 subprocess: false,
                 web_content: false,
             },
+        };
+        let origins = goya_lang::parse_with_source_map(SCENE).expect("fixture origins");
+        for element in &mut ir.elements {
+            let origin = origins
+                .entries
+                .iter()
+                .find(|entry| {
+                    entry.kind == "property"
+                        && entry.name == "id"
+                        && entry.semantic_id.as_deref() == Some(element.id.as_str())
+                })
+                .expect("fixture id origin");
+            element.span_start = origin.range.start;
+            element.span_end = origin.range.end;
         }
+        ir
     }
 
     fn counter_json() -> String {
@@ -738,6 +756,16 @@ mod tests {
         let json = serde_json::to_string(&ir).expect("json");
         let err = oracle(&json).expect_err("schema");
         assert!(err.contains("nope"), "{err}");
+    }
+
+    #[test]
+    fn element_origin_must_be_its_authored_id_property() {
+        let mut ir = counter_ir();
+        ir.elements[0].span_start = ir.elements[1].span_start;
+        ir.elements[0].span_end = ir.elements[1].span_end;
+        let json = serde_json::to_string(&ir).expect("json");
+        let error = oracle(&json).expect_err("another element's origin is invalid");
+        assert!(error.contains("window.root source span"), "{error}");
     }
 
     #[test]
@@ -846,12 +874,23 @@ mod tests {
 
     #[test]
     fn compiled_scene_matches_its_json() {
-        let json = Box::leak(counter_json().into_boxed_str());
+        let ir = counter_ir();
+        let json = Box::leak(
+            serde_json::to_string(&ir)
+                .expect("fixture JSON")
+                .into_boxed_str(),
+        );
+        let mut elements: [CompiledElement; 4] =
+            ELEMENTS.try_into().expect("four fixture elements");
+        for (compiled, element) in elements.iter_mut().zip(ir.elements) {
+            compiled.span_start = element.span_start;
+            compiled.span_end = element.span_end;
+        }
         let scene = CompiledScene {
             nir_json: json,
             schema: SCHEMA,
             profile: PROFILE,
-            source_digest_sha256: "0000000000000000000000000000000000000000000000000000000000000000",
+            source_digest_sha256: Box::leak(ir.source_digest_sha256.into_boxed_str()),
             scene: SCENE,
             action_id: "action.add",
             state_id: "count",
@@ -867,7 +906,7 @@ mod tests {
             network: false,
             subprocess: false,
             web_content: false,
-            elements: ELEMENTS,
+            elements: Box::leak(Box::new(elements)),
         };
         assert_scene_matches(&scene).expect("match");
         let mut mismatched = scene.clone();
@@ -963,7 +1002,7 @@ mod tests {
     }
 
     #[test]
-    fn paste_payload_applies_after_focus_moves() {
+    fn paste_payload_is_ignored_after_focus_moves() {
         let (mut ir, mut controller) = open_admitted(&counter_json()).expect("admit");
         assert_eq!(controller.focus, goya_parity::keys::Focus::Edit);
         assert_eq!(controller.session.edit, "1");
@@ -979,9 +1018,9 @@ mod tests {
 
         assert_eq!(
             host::on_clipboard_text(&ir, &mut controller, Some("9")),
-            host::Step::Changed
+            host::Step::Unchanged
         );
-        assert_eq!(controller.session.edit, "9");
+        assert_eq!(controller.session.edit, "1");
         assert_eq!(controller.focus, goya_parity::keys::Focus::Button);
         assert_eq!(controller.session.count, 0);
         assert_eq!(controller.session.revision, 0);
@@ -989,12 +1028,11 @@ mod tests {
 
         assert_eq!(
             host::on_clipboard_text(&ir, &mut controller, Some("")),
-            host::Step::Changed
+            host::Step::Unchanged
         );
-        assert_eq!(controller.session.edit, "");
+        assert_eq!(controller.session.edit, "1");
         assert_eq!(controller.session.count, 0);
 
-        controller.session.set_edit("1");
         assert_eq!(
             host::on_clipboard_text(&ir, &mut controller, None),
             host::Step::Unchanged
@@ -1251,7 +1289,7 @@ mod tests {
     }
 
     #[test]
-    fn non_finite_press_stays_inside_the_client() {
+    fn non_finite_press_is_a_miss() {
         let (ir, mut controller) = open_admitted(&counter_json()).expect("admit");
         let hits = goya_parity::pointer::hit_map(&ir.scene).expect("hits");
         let mut arm = host::PointerArm::default();
@@ -1263,14 +1301,13 @@ mod tests {
 
         let press =
             host::on_pointer_press(&ir, &mut controller, &hits, &mut arm, f64::NAN, f64::NAN);
-        assert_eq!(press.hit.as_deref(), Some("window.root"));
+        assert_eq!(press.hit, None);
         assert_eq!(press.step, host::Step::Unchanged);
         assert_eq!(controller.focus, goya_parity::keys::Focus::Edit);
         assert_eq!(controller.session.count, 0);
         assert_eq!(controller.session.revision, 0);
         assert_eq!(controller.session.edit, "1");
         assert_eq!(controller.session.result, "0");
-        assert!(press.hit.is_some());
 
         let press = host::on_pointer_press(&ir, &mut controller, &hits, &mut arm, 176.0, 80.0);
         assert_eq!(press.hit.as_deref(), Some("window.add"));
@@ -1279,7 +1316,7 @@ mod tests {
 
         let press =
             host::on_pointer_press(&ir, &mut controller, &hits, &mut arm, f64::INFINITY, 80.0);
-        assert_eq!(press.hit.as_deref(), Some("window.root"));
+        assert_eq!(press.hit, None);
         assert_eq!(press.step, host::Step::Unchanged);
         assert_eq!(controller.focus, goya_parity::keys::Focus::Button);
         assert_eq!(controller.session.count, 0);
@@ -1300,7 +1337,7 @@ mod tests {
             80.0,
             f64::NEG_INFINITY,
         );
-        assert_eq!(press.hit.as_deref(), Some("window.root"));
+        assert_eq!(press.hit, None);
         assert_eq!(press.step, host::Step::Unchanged);
         assert_eq!(controller.focus, goya_parity::keys::Focus::Button);
         assert_eq!(controller.session.count, 0);
@@ -1433,7 +1470,7 @@ mod tests {
     }
 
     #[test]
-    fn non_finite_release_stays_inside_the_client() {
+    fn non_finite_release_is_a_miss() {
         let (ir, mut controller) = open_admitted(&counter_json()).expect("admit");
         let hits = goya_parity::pointer::hit_map(&ir.scene).expect("hits");
         let mut arm = host::PointerArm::default();
@@ -1445,8 +1482,7 @@ mod tests {
 
         let release =
             host::on_pointer_release(&mut controller, &hits, &mut arm, f64::NAN, f64::NAN);
-        assert_eq!(release.hit.as_deref(), Some("window.root"));
-        assert_ne!(release.hit.as_deref(), None);
+        assert_eq!(release.hit, None);
         assert_eq!(release.step, host::Step::Unchanged);
         assert_eq!(controller.focus, goya_parity::keys::Focus::Edit);
         assert_eq!(controller.session.count, 0);
@@ -1461,9 +1497,7 @@ mod tests {
 
         let release =
             host::on_pointer_release(&mut controller, &hits, &mut arm, f64::NAN, f64::NAN);
-        assert_eq!(release.hit.as_deref(), Some("window.root"));
-        assert_ne!(release.hit.as_deref(), None);
-        assert_ne!(release.hit.as_deref(), Some("window.add"));
+        assert_eq!(release.hit, None);
         assert_eq!(release.step, host::Step::Unchanged);
         assert_eq!(controller.focus, goya_parity::keys::Focus::Button);
         assert_eq!(controller.session.count, 0);
@@ -1484,7 +1518,7 @@ mod tests {
 
         let release =
             host::on_pointer_release(&mut controller, &hits, &mut arm, f64::INFINITY, 80.0);
-        assert_eq!(release.hit.as_deref(), Some("window.root"));
+        assert_eq!(release.hit, None);
         assert_eq!(release.step, host::Step::Unchanged);
         assert_eq!(controller.focus, goya_parity::keys::Focus::Button);
         assert_eq!(controller.session.count, 0);
@@ -1505,7 +1539,7 @@ mod tests {
 
         let release =
             host::on_pointer_release(&mut controller, &hits, &mut arm, 80.0, f64::NEG_INFINITY);
-        assert_eq!(release.hit.as_deref(), Some("window.root"));
+        assert_eq!(release.hit, None);
         assert_eq!(release.step, host::Step::Unchanged);
         assert_eq!(controller.focus, goya_parity::keys::Focus::Button);
         assert_eq!(controller.session.count, 0);

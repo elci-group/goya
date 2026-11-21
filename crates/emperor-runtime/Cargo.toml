@@ -7,6 +7,7 @@ publish = false
 description = "Shared Linux runtime for one admitted Goya counter."
 
 [dependencies]
+goya-lang.workspace = true
 goya-parity = { path = "../goya-parity" }
 goya-wayland.workspace = true
 goya-runtime.workspace = true

@@ -1,13 +1,22 @@
 @ontology acceptance {
-    @button save { id: "acceptance.save" }
+    @state {
+        saved: text = "" session;
+        prior: text = "" session;
+        enabled: bool = false session;
+    }
+    @cell root {
+        id: "acceptance.root";
+        @button save { id: "acceptance.save"; text: "Save"; }
+        @input draft { id: "acceptance.draft"; text: ""; }
+    }
     @interaction update {
         id: "acceptance.update";
         trigger: button.save.activate;
         class: D1;
-        state { read saved: text; write saved: text; write prior: text; write enabled: bool; }
-        input { draft: text; flag: bool; }
+        state { read saved: text; read enabled: bool; write saved: text; write prior: text; write enabled: bool; }
+        input { draft: text from "acceptance.draft"; }
         set saved = input.draft;
         set prior = state.saved;
-        set enabled = input.flag;
+        set enabled = state.enabled;
     }
 }

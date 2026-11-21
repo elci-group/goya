@@ -24,6 +24,7 @@ tested against the canonical executor in crates/maja-runtime/tests.
 Observation uses the shell's read-only `goya:transition` DOM event. The
 page's CSP admits no other script that could listen.
 """
+from contextlib import closing, contextmanager
 import functools
 import http.server
 import json
@@ -64,13 +65,32 @@ class Chrome:
             if self.process.poll() is not None or time.monotonic() >= deadline:
                 raise RuntimeError("Chrome did not expose a DevTools port")
             time.sleep(0.05)
-        port = int(port_file.read_text().splitlines()[0])
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/json", timeout=5) as response:
+        self.port = int(port_file.read_text().splitlines()[0])
+        self.sock = self.connect_page()
+        self.enable_observers()
+
+    def connect_page(self, target=None):
+        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/json", timeout=5) as response:
             pages = json.load(response)
-        page = next(item for item in pages if item["type"] == "page")
-        self.sock = websocket.create_connection(page["webSocketDebuggerUrl"], timeout=10, http_proxy_host=None)
+        page = next(item for item in pages if item["type"] == "page" and (target is None or item["id"] == target))
+        return websocket.create_connection(page["webSocketDebuggerUrl"], timeout=10, http_proxy_host=None)
+
+    def enable_observers(self):
         for domain in ("Runtime", "Log", "Page", "Accessibility"):
             self.call(f"{domain}.enable")
+
+    @contextmanager
+    def second_tab(self):
+        original = self.sock
+        target = self.call("Target.createTarget", {"url": "about:blank"})["targetId"]
+        try:
+            with closing(self.connect_page(target)) as tab:
+                self.sock = tab
+                self.enable_observers()
+                yield
+        finally:
+            self.sock = original
+            self.call("Target.closeTarget", {"targetId": target})
 
     def call(self, method, params=None):
         self.sequence += 1
@@ -204,6 +224,17 @@ class Firefox:
 
     def reload(self):
         self.call("browsingContext.reload", {"context": self.context, "wait": "complete"})
+
+    @contextmanager
+    def second_tab(self):
+        original = self.context
+        tab = self.call("browsingContext.create", {"type": "tab"})["context"]
+        try:
+            self.context = tab
+            yield
+        finally:
+            self.context = original
+            self.call("browsingContext.close", {"context": tab})
 
     def keys(self, values):
         actions = []
@@ -509,6 +540,7 @@ def durable_scenario(browser, url):
         return ev("document.documentElement.dataset.goyaRestore"), ev("document.getElementById('goya-status').textContent")
 
     def add(text):
+        before = ev("window.__events.length")
         ev(f"({field}.focus(), {field}.select(), 0)")
         browser.type_text(text)
         if ev(f"{field}.value") != text:
@@ -516,8 +548,8 @@ def durable_scenario(browser, url):
         box = ev("(() => { const r = document.querySelector('[data-goya-id=\"window.add\"] button').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()")
         browser.click(box[0], box[1])
         events = ev("window.__events")
-        if not events:
-            raise AssertionError("no transition event")
+        if len(events) != before + 1:
+            raise AssertionError(f"expected one new transition event, got {len(events) - before}")
         return events[-1]
 
     def expect(event, ok, revision, count, code=None):
@@ -579,9 +611,17 @@ def durable_scenario(browser, url):
     expect(add("0"), True, "1", "0")
     passed.append("a retyped record fails restore with RECORD_TYPE_MISMATCH")
 
-    # Another window's write (decision D8), simulated by writing the record
-    # from DevTools: the next durable commit is refused, not overwritten.
-    ev(f"(localStorage.setItem({json.dumps(record_key)}, {json.dumps(stored('40'))}), 0)")
+    # Both tabs restore the same record. Tab B commits through the app while
+    # tab A still holds its original snapshot (decision D8).
+    with browser.second_tab():
+        restored, _ = load(lambda: browser.navigate(url))
+        if restored != "ok" or record() != stored("0"):
+            raise AssertionError(f"second tab: restore {restored!r}, record {record()!r}")
+        expect(add("40"), True, "1", "40")
+        if record() != stored("40"):
+            raise AssertionError(f"second tab commit: record {record()!r}")
+    passed.append("a second tab restores 0 and commits 0 + 40 = 40 through the app")
+
     expect(add("1"), False, "1", "0", "STORAGE_CONFLICT")
     status = ev("document.getElementById('goya-status').textContent")
     if record() != stored("40") or not status.startswith("Action failed: STORAGE_CONFLICT") or "reload" not in status:
@@ -590,7 +630,6 @@ def durable_scenario(browser, url):
     load(browser.reload)
     expect(add("1"), True, "1", "41")
     passed.append("reload adopts the other window's value: 40 + 1 = 41")
-    not_verified.append("a second real tab (the other window's write was made from DevTools in the same tab)")
     not_verified.append("crash between setItem and commit (the write precedes the commit by construction, not by test)")
     ev("0")
     if browser.errors:

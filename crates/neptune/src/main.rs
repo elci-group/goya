@@ -227,6 +227,7 @@ fn main() -> ExitCode {
     if args.len() >= 2 && args[1] == "test" {
         let mut suite = None;
         let mut worker = None;
+        let mut swift = None;
         let mut json = false;
         for option in args[2..].chunks(2) {
             if option.len() != 2 {
@@ -237,6 +238,8 @@ fn main() -> ExitCode {
                 suite = option[1].to_str();
             } else if option[0] == "--worker" && worker.is_none() {
                 worker = option[1].to_str();
+            } else if option[0] == "--swift" && swift.is_none() {
+                swift = Some(std::path::Path::new(&option[1]));
             } else if option[0] == "--format" && option[1] == "json" && !json {
                 json = true;
             } else {
@@ -245,35 +248,41 @@ fn main() -> ExitCode {
             }
         }
         return match suite {
-            Some("d1-corpus") if worker.is_none() => match neptune::conformance::run_d1_corpus() {
-                Ok(report) => {
-                    if json {
-                        println!("{}", report.json);
-                    } else {
-                        println!(
-                            "D1 scalar corpus: {}; Swift and Apple validation are BLOCKED",
-                            if report.passed { "PASS" } else { "FAIL" }
+            Some("d1-corpus") if worker.is_none() => {
+                match swift.map_or_else(
+                    neptune::conformance::run_d1_corpus,
+                    neptune::conformance::run_d1_corpus_with_swift,
+                ) {
+                    Ok(report) => {
+                        if json {
+                            println!("{}", report.json);
+                        } else {
+                            println!(
+                            "D1 scalar corpus: {}; generated Swift: {}; Apple validation: BLOCKED",
+                            if report.passed { "PASS" } else { "FAIL" },
+                            report.json["stages"]["generated_swift"].as_str().unwrap_or("UNKNOWN"),
                         );
+                        }
+                        if report.passed {
+                            ExitCode::SUCCESS
+                        } else {
+                            ExitCode::FAILURE
+                        }
                     }
-                    if report.passed {
-                        ExitCode::SUCCESS
-                    } else {
+                    Err(error) => {
+                        if json {
+                            println!(
+                                "{}",
+                                serde_json::json!({"schema_version":"2","suite":"d1-scalar-corpus","status":"FAIL","error":error})
+                            );
+                        } else {
+                            eprintln!("D1 corpus failed: {error}");
+                        }
                         ExitCode::FAILURE
                     }
                 }
-                Err(error) => {
-                    if json {
-                        println!(
-                            "{}",
-                            serde_json::json!({"schema_version":"2","suite":"d1-scalar-corpus","status":"FAIL","error":error})
-                        );
-                    } else {
-                        eprintln!("D1 corpus failed: {error}");
-                    }
-                    ExitCode::FAILURE
-                }
-            },
-            Some("admission") => {
+            }
+            Some("admission") if swift.is_none() => {
                 if json {
                     println!(
                         "{}",
@@ -287,7 +296,8 @@ fn main() -> ExitCode {
                 ExitCode::from(3)
             }
             _ => {
-                eprintln!("usage: neptune test --suite <d1-corpus|admission> [--worker name] [--format json]");
+                eprintln!("usage: neptune test --suite d1-corpus [--swift path] [--format json]");
+                eprintln!("       neptune test --suite admission [--worker name] [--format json]");
                 ExitCode::from(2)
             }
         };

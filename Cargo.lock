@@ -338,6 +338,7 @@ name = "emperor-runtime"
 version = "0.1.8"
 dependencies = [
  "goya-kumimanu",
+ "goya-lang",
  "goya-layout",
  "goya-parity",
  "goya-runtime",

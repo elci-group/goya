@@ -27,6 +27,27 @@ The feature floor is nested cells, proportional positions and extents, text and 
 
 Record the command and exit status, compiler revision, toolchain, source and artifact digests, environment, observations and logs. Follow the [desktop evidence rules](../emperor/evidence.md). A missing environment stays BLOCKED. An observed mismatch is FAIL. Report structural inspection, headless traces, first frames and native interaction separately. The sprint reaches Aragon-level parity when both desktop targets pass P1–P5.
 
+## Reference observations
+
+Run the reference for each fixture and logical viewport. It emits one tab-separated row per authored element in document order, with its parent ID, kind, resolved rectangle, and maximum scroll offsets. Geometry is expressed in millipoints before platform scaling. ID fields escape backslashes, tabs, carriage returns and line feeds.
+
+```sh
+cargo run --locked --offline -q -p goya-parity --bin parity-scene -- \
+  crates/goya-sdk/tests/android-device/layout.gscene 360x640 640x360
+cargo run --locked --offline -q -p goya-parity --bin parity-scene -- \
+  crates/goya-sdk/tests/android-device/counter.gscene 360x640 640x360
+```
+
+For Sash's initial static slice, 250 millipoints equal one DIP, so a 640 × 480 DIP client uses a 160 × 120 point reference viewport. Aragon uses one point per dp. Compare each platform in its own physical coordinates after checking agreement in source units. Keep native observed bounds separate from reference rectangles, which include offscreen content inside scroll containers.
+
+## First sprint results
+
+| Slice | Observed result | Gate still open |
+| --- | --- | --- |
+| Shared reference | The layout and counter fixtures produced 126 and 49 geometry rows respectively over seven viewports, including zero and negative dimensions. | The larger differential corpus, input conversion and D1 comparisons remain. |
+| Sash static scene | `sash expectations crates/sash/fixtures/proportional-static.gscene --viewport-dip 640x480 --format json` reported GSSH/3. Both label rectangles matched the reference at `160x120` points. The x64 Win10 cross-link passed PE inspection and returned exit 3 with runtime and release blocked. | P1 needs the complete scene subset. P3 needs paired builds. P4 and P5 need native Windows evidence. |
+| Aragon evidence | The device qualifier accepts `--report PATH` and records platform identity, source and APK hashes, and expected and observed geometry. A fresh run needs an Android device or emulator. | Collect equivalent desktop observations before comparing results. |
+
 ## Integration order
 
 1. Establish the common fixture and observation contract.

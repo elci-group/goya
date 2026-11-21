@@ -621,10 +621,23 @@ fn qualify(invocation: Invocation) -> Run {
             ),
         )
     };
+    let exercise = if invocation.exercise {
+        match qualify_exercise(&app, &window) {
+            Ok(evidence) => Some(evidence),
+            Err(fault) => return fault_run(&invocation, fault),
+        }
+    } else {
+        None
+    };
+    let exercise_status = exercise.as_ref().map(|(status, _)| *status);
     let mut stages = Stages::new();
     for (index, name) in crate::stage::NAMES.iter().enumerate() {
         if *name == "runtime-conformance" {
-            stages.push(smoke_status, smoke_detail.clone());
+            if let Some((status, evidence)) = &exercise {
+                stages.push(*status, evidence["wayland_script"]["detail"].as_str().unwrap_or_default());
+            } else {
+                stages.push(smoke_status, smoke_detail.clone());
+            }
         } else if name == &"static-verification" {
             stages.push(
                 Status::Pass,
@@ -639,12 +652,14 @@ fn qualify(invocation: Invocation) -> Run {
             );
         }
     }
-    let exit = if smoke_status == Status::Pass {
+    let exit = if exercise_status == Some(Status::Blocked) {
+        3
+    } else if smoke_status == Status::Pass {
         0
     } else {
         smoke_exit
     };
-    finish(
+    let mut result = finish(
         &invocation,
         exit,
         stages,
@@ -659,7 +674,46 @@ fn qualify(invocation: Invocation) -> Run {
             "target": target,
             "release": release,
         }),
-    )
+    );
+    if let Some((status, evidence)) = exercise {
+        result.json["interaction_exercise"] = evidence;
+        result.text.push_str(&format!("Wayland scripted exercise {}\n", status.as_str()));
+    }
+    result
+}
+
+fn qualify_exercise(app: &Path, window: &str) -> Result<(Status, Value), Fault> {
+    let synthetic = capture_exercise(app, false)?;
+    let (status, stdout, detail) = if window != "wayland" {
+        (Status::Blocked, None, "scripted Wayland exercise requires a Wayland App")
+    } else if !display_ready(window) {
+        (Status::Blocked, None, "WAYLAND_DISPLAY is unset; scripted Wayland frame was not attempted")
+    } else {
+        (Status::Pass, Some(capture_exercise(app, true)?), "scripted counter matched the headless oracle and committed one Wayland buffer")
+    };
+    Ok((status, json!({
+        "headless_script": {"status": "pass", "stdout": synthetic},
+        "wayland_script": {"status": status.as_str().to_lowercase(), "stdout": stdout, "detail": detail},
+        "native_seat_input": {"status": "not-exercised"},
+    })))
+}
+
+fn capture_exercise(app: &Path, wayland: bool) -> Result<String, Fault> {
+    let (mode, window_report) = if wayland {
+        ("--exercise", "presented=1 wayland=opened window=wayland")
+    } else {
+        ("--exercise-oracle", "presented=0 wayland=not-requested window=not-requested")
+    };
+    let captured = run_captured(app, &[mode], Duration::from_secs(25))?;
+    let expected = format!("count=3 revision=2 {window_report} copy=true paste=false edit=2");
+    if captured.code == 0 && captured.stdout.trim_end() == expected {
+        Ok(captured.stdout)
+    } else {
+        Err(Fault::new(5, "EMP-RUNTIME", format!(
+            "{mode} exited {}\nexpected {expected}\nstdout: {}\nstderr: {}",
+            captured.code, captured.stdout, captured.stderr,
+        )))
+    }
 }
 
 /// Local latency benchmark of one build directory.

@@ -1,11 +1,19 @@
 @ontology acceptance {
-    @button add { id: "acceptance.add" }
+    @state {
+        count: int = 0 session;
+        previous: int = 0 session;
+    }
+    @cell root {
+        id: "acceptance.root";
+        @button add { id: "acceptance.add"; text: "Add"; }
+        @input amount { id: "acceptance.amount"; text: "0"; }
+    }
     @interaction increment {
         id: "acceptance.increment";
         trigger: button.add.activate;
         class: D1;
         state { read count: int; write count: int; write previous: int; }
-        input { amount: int; }
+        input { amount: int from "acceptance.amount"; }
         set count = state.count + input.amount;
         set previous = state.count;
     }
