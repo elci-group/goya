@@ -344,6 +344,7 @@ dependencies = [
  "goya-wayland",
  "serde",
  "serde_json",
+ "sha2",
  "unicode-segmentation",
  "x11rb",
 ]

@@ -190,6 +190,8 @@ pub fn parse_pe(bytes: &[u8]) -> Result<PeInfo, String> {
         _ => return Err("optional magic is not PE32 or PE32+".into()),
     };
     let entry = read_u32(bytes, optional + 16)?;
+    let size_image = read_u32(bytes, optional + 56)? as u64;
+    let size_headers = read_u32(bytes, optional + 60)? as usize;
     let subsystem = read_u16(bytes, optional + 68)?;
     let dll_characteristics = read_u16(bytes, optional + 70)?;
     let dir_count = read_u32(bytes, optional + rva_count_off)? as usize;
@@ -198,6 +200,20 @@ pub fn parse_pe(bytes: &[u8]) -> Result<PeInfo, String> {
         return Err("data directories are truncated".into());
     }
     let sections = read_sections(bytes, section_table, sections)?;
+    let header_end = section_table + sections.len() * 40;
+    if size_image == 0 || size_headers < header_end || size_headers > bytes.len() {
+        return Err("PE image or header size fields are inconsistent".into());
+    }
+    for section in &sections {
+        if section.raw_size != 0 && (section.raw_ptr as usize) < size_headers {
+            return Err("section raw data overlaps the headers".into());
+        }
+        let virtual_end = section.virtual_address as u64
+            + section.virtual_size.max(section.raw_size) as u64;
+        if virtual_end > size_image {
+            return Err("section virtual range exceeds the image size".into());
+        }
+    }
     if entry != 0 && !entry_has_safe_protection(&sections, entry) {
         return Err("entry point is not in a read-only executable section".into());
     }
@@ -725,6 +741,8 @@ mod tests {
         put_u16(&mut bytes, 0x96, FILE_EXECUTABLE | 0x0020);
         put_u16(&mut bytes, 0x98, magic);
         put_u32(&mut bytes, 0x98 + 16, 0x1000);
+        put_u32(&mut bytes, 0x98 + 56, 0x2000);
+        put_u32(&mut bytes, 0x98 + 60, 0x400);
         put_u16(&mut bytes, 0x98 + 68, SUBSYSTEM_WINDOWS_GUI);
         put_u16(&mut bytes, 0x98 + 70, dll_characteristics);
         let (rva_count_off, dir_base) = if magic == PE32 { (92, 96) } else { (108, 112) };
