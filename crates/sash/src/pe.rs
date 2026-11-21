@@ -335,7 +335,7 @@ fn directory(bytes: &[u8], table: usize, count: usize, index: usize) -> Result<(
     Ok((read_u32(bytes, off)?, read_u32(bytes, off + 4)?))
 }
 
-fn rva_to_offset(sections: &[Section], rva: u32) -> Result<usize, String> {
+fn rva_to_raw_range(sections: &[Section], rva: u32) -> Result<(usize, usize), String> {
     for section in sections {
         let span = section.virtual_size.max(section.raw_size);
         if rva >= section.virtual_address && rva.saturating_sub(section.virtual_address) < span {
@@ -344,7 +344,7 @@ fn rva_to_offset(sections: &[Section], rva: u32) -> Result<usize, String> {
                 return Err("RVA is not present in the file".into());
             }
             let offset = section.raw_ptr as usize + delta as usize;
-            return Ok(offset);
+            return Ok((offset, section.raw_size as usize - delta as usize));
         }
     }
     Err("RVA is outside every section".into())
@@ -361,11 +361,11 @@ fn read_import_dlls(
     if dir.1 < 20 {
         return Err("import directory is smaller than one descriptor".into());
     }
-    let mut offset = rva_to_offset(sections, dir.0)?;
-    let directory_end = offset
-        .checked_add(dir.1 as usize)
-        .filter(|end| *end <= bytes.len())
-        .ok_or("import directory exceeds the file")?;
+    let (mut offset, available) = rva_to_raw_range(sections, dir.0)?;
+    if dir.1 as usize > available {
+        return Err("import directory exceeds its section".into());
+    }
+    let directory_end = offset + dir.1 as usize;
     let mut names = Vec::new();
     for _ in 0..(dir.1 as usize / 20).min(64) {
         if offset.checked_add(20).is_none_or(|end| end > directory_end) {
@@ -392,11 +392,11 @@ fn read_delay_dlls(
     if dir.1 < 32 {
         return Err("delay-import directory is smaller than one descriptor".into());
     }
-    let mut offset = rva_to_offset(sections, dir.0)?;
-    let directory_end = offset
-        .checked_add(dir.1 as usize)
-        .filter(|end| *end <= bytes.len())
-        .ok_or("delay-import directory exceeds the file")?;
+    let (mut offset, available) = rva_to_raw_range(sections, dir.0)?;
+    if dir.1 as usize > available {
+        return Err("delay-import directory exceeds its section".into());
+    }
+    let directory_end = offset + dir.1 as usize;
     let mut names = Vec::new();
     for _ in 0..(dir.1 as usize / 32).min(64) {
         if offset.checked_add(32).is_none_or(|end| end > directory_end) {
@@ -416,8 +416,8 @@ fn read_delay_dlls(
 }
 
 fn read_dll_name(bytes: &[u8], sections: &[Section], rva: u32) -> Result<String, String> {
-    let offset = rva_to_offset(sections, rva)?;
-    let end = bytes[offset..]
+    let (offset, available) = rva_to_raw_range(sections, rva)?;
+    let end = bytes[offset..offset + available]
         .iter()
         .position(|byte| *byte == 0)
         .ok_or("DLL name is not terminated")?;
@@ -440,11 +440,11 @@ fn read_resources(
     if dir.0 == 0 || dir.1 == 0 {
         return Ok((Vec::new(), false));
     }
-    let root = rva_to_offset(sections, dir.0)?;
-    let root_end = root
-        .checked_add(dir.1 as usize)
-        .filter(|end| *end <= bytes.len())
-        .ok_or("resource directory exceeds the file")?;
+    let (root, available) = rva_to_raw_range(sections, dir.0)?;
+    if dir.1 as usize > available {
+        return Err("resource directory exceeds its section".into());
+    }
+    let root_end = root + dir.1 as usize;
     let entries = read_resource_dir(bytes, root, root_end, root)?;
     let versions: Vec<_> = entries
         .iter()
@@ -550,11 +550,11 @@ fn unique_resource_data(
         if size > 1024 * 1024 {
             return Err("resource data is unbounded".into());
         }
-        let offset = rva_to_offset(sections, rva)?;
-        let end = offset + size;
-        if end > bytes.len() {
-            return Err("resource data is truncated".into());
+        let (offset, available) = rva_to_raw_range(sections, rva)?;
+        if size > available {
+            return Err("resource data exceeds its section".into());
         }
+        let end = offset + size;
         return Ok(bytes[offset..end].to_vec());
     }
     Err("resource directory is too deep".into())

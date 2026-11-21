@@ -61,10 +61,16 @@ CHILD_ENV = dict(os.environ, PATH=os.path.join(JAVA_HOME, "bin") + os.pathsep + 
 
 def require_tools():
     """Fail as an environment issue before touching a connected device."""
-    required = (ADB, os.path.join(BUILD_TOOLS, "zipalign"), os.path.join(BUILD_TOOLS, "apksigner"))
+    required = (
+        ADB,
+        os.path.join(BUILD_TOOLS, "zipalign"),
+        os.path.join(BUILD_TOOLS, "apksigner"),
+        os.path.join(JAVA_HOME, "bin", "java"),
+        os.path.join(JAVA_HOME, "bin", "keytool"),
+    )
     missing = [path for path in required if not os.path.isfile(path) or not os.access(path, os.X_OK)]
     if missing:
-        print("environment: missing executable Android tools: " + ", ".join(missing), file=sys.stderr)
+        print("environment: missing required toolchain executables: " + ", ".join(missing), file=sys.stderr)
         sys.exit(2)
 
 

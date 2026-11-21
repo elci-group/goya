@@ -14,9 +14,9 @@ JAVA_HOME=~/.local/opt/jdk-21.0.13+9 ANDROID_HOME=~/.local/opt/android-sdk \
 
 Exit status: 0 when every check passes, 1 when a check fails, 2 when the
 environment or device is missing. Before querying the device, the script also
-checks that `ANDROID_HOME/platform-tools/adb` and the locked 34.0.0
-`zipalign` and `apksigner` executables exist and can run; a missing tool is an
-environment error (exit 2).
+checks that `ANDROID_HOME/platform-tools/adb`, the locked 34.0.0 `zipalign`
+and `apksigner`, and `JAVA_HOME/bin/java` and `keytool` exist and can run; a
+missing tool is an environment error (exit 2).
 
 ## What is checked
 
