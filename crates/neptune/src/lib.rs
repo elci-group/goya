@@ -138,7 +138,7 @@ pub fn preview_bundle_with_bluetooth(
         "schema_version":"2", "operation":"preview", "verification":"SOURCE_PREVIEW",
         "artifacts": {"App.swift":preview.swift, "source-map.json":map, "capabilities.json":capabilities},
         "report": {"schema_version":"1", "input_sha256":hash(source.as_bytes()),
-            "compiler":{"neptune_version":env!("CARGO_PKG_VERSION"), "goya_language_contract":goya_lang::LANG_CONTRACT, "goya_ir_contract":goya_ir::IR_CONTRACT},
+            "compiler":{"neptune_version":env!("CARGO_PKG_VERSION"), "goya_language_contract":goya_lang::LANG_CONTRACT, "semantic_handoff_contract":goya_lang::handoff::CONTRACT_V3, "goya_ir_contract":goya_ir::IR_CONTRACT},
             "artifact_sha256":{"App.swift":hash(preview.swift.as_bytes()), "source-map.json":hash(map.as_bytes()), "capabilities.json":hash(capabilities.as_bytes())},
             "stages":{"goya_frontend":"PASS", "ios_admission":"NOT_RUN", "apple_validation":"NOT_RUN"}}
     });

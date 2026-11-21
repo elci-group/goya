@@ -34,7 +34,7 @@ with the exact source range of that construct, through
 | `scroll` | Children may overflow; drag scrolls, clamped to the limits; exposed to accessibility as a `ScrollView` with page scroll actions | `Frame::scroll_limits` |
 | `fill` | Opaque background (the 8-digit form's alpha is dropped by the parser) | — |
 | `@button` + D1 `@interaction` | `Button`; a click runs the activation protocol below | Canonical D1 executor |
-| `@input` | `EditText`, initially empty | — |
+| `@input` | `EditText`, initialized from `text:` or empty when omitted | GSSH/2 D3 field-content rule |
 | `from` bindings | Snapshot, convert, then dispatch | `handoff::convert_field` |
 | `@state … session` | Initial values in a process-lifetime runtime | `initial_state()` |
 | `z` components | Not used, as in the reference evaluator | `goya_lang::layout` |
@@ -46,7 +46,6 @@ Refused, at the construct's own range:
 | `text-anchor` | The reference renderer ignores it. |
 | `stroke` without `stroke-width-p`, or the reverse | A border needs both a colour and a width. |
 | `gestures` | Clipboard policy is not implemented on Android. |
-| `text:` on `@input` | Not yet implemented. Decision D3 (21 November 2026) makes it the field's initial content; Maja implements it. |
 | Elements nested in `@button` or `@input` | The reference does not treat nested buttons as triggers. |
 | `scroll` on an element whose structural name is not unique | The reference keys scroll offsets by name, so it is ambiguous. |
 | `@state … durable` | Needs the Android storage adapter (gate ARG-G07), storing the record fixed by [decision D8](../gssh/decisions.md#d8--durable-record-format-and-concurrent-writers). |
