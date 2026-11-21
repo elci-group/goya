@@ -21,6 +21,9 @@ Requires JAVA_HOME (locked JDK) and ANDROID_HOME (locked SDK). The device
 display size, density and rotation are restored afterwards.
 """
 
+import argparse
+import hashlib
+import json
 import os
 import re
 import shutil
@@ -42,25 +45,30 @@ SWIPES = 10
 DISPLAYS = [(None, None), (None, 420), ("900x1600", 380), ("1200x1920", 480)]
 
 failures = []
+evidence = {"schema_version": 1, "checks": [], "geometry": [], "fixtures": {}}
+
+
+def environment_error(message):
+    evidence["error"] = message
+    print(f"environment: {message}", file=sys.stderr)
+    return 2
 
 
 def env(name):
     value = os.environ.get(name)
     if not value or not os.path.isdir(value):
-        print(f"environment: set {name}", file=sys.stderr)
-        sys.exit(2)
+        sys.exit(environment_error(f"set {name}"))
     return value
-
-
-SDK = env("ANDROID_HOME")
-JAVA_HOME = env("JAVA_HOME")
-ADB = os.path.join(SDK, "platform-tools", "adb")
-BUILD_TOOLS = os.path.join(SDK, "build-tools", "34.0.0")
-CHILD_ENV = dict(os.environ, PATH=os.path.join(JAVA_HOME, "bin") + os.pathsep + os.environ["PATH"])
 
 
 def require_tools():
     """Fail as an environment issue before touching a connected device."""
+    global JAVA_HOME, ADB, BUILD_TOOLS, CHILD_ENV
+    sdk = env("ANDROID_HOME")
+    JAVA_HOME = env("JAVA_HOME")
+    ADB = os.path.join(sdk, "platform-tools", "adb")
+    BUILD_TOOLS = os.path.join(sdk, "build-tools", "34.0.0")
+    CHILD_ENV = dict(os.environ, PATH=os.path.join(JAVA_HOME, "bin") + os.pathsep + os.environ["PATH"])
     required = (
         ADB,
         os.path.join(BUILD_TOOLS, "zipalign"),
@@ -70,11 +78,7 @@ def require_tools():
     )
     missing = [path for path in required if not os.path.isfile(path) or not os.access(path, os.X_OK)]
     if missing:
-        print("environment: missing required toolchain executables: " + ", ".join(missing), file=sys.stderr)
-        sys.exit(2)
-
-
-require_tools()
+        sys.exit(environment_error("missing required toolchain executables: " + ", ".join(missing)))
 
 
 def run(args, timeout=600, check=True, **kwargs):
@@ -95,6 +99,7 @@ def shell(command, check=True):
 def check(condition, message):
     status = "ok  " if condition else "FAIL"
     print(f"  {status} {message}")
+    evidence["checks"].append({"passed": condition, "message": message})
     if not condition:
         failures.append(message)
     return condition
@@ -166,6 +171,11 @@ def visible(row):
     return r > l and b > t
 
 
+def geometry_tree(node):
+    return {"bounds": bounds(node), "class": node.attrib.get("class"),
+            "children": [geometry_tree(child) for child in node]}
+
+
 def match(node, row, rows, nodes, problems):
     """Walk one element's subtree; record element id -> node."""
     nodes[row["id"]] = node
@@ -226,6 +236,21 @@ def check_geometry(scene, label, density, scroll_max=()):
     match(root, rows[0], rows, nodes, problems)
     check(not problems, f"{label}: {len(nodes)} nodes match the reference" +
           ("" if not problems else "\n      " + "\n      ".join(problems[:8])))
+    evidence["geometry"].append({
+        "label": label,
+        "fixture": os.path.basename(scene),
+        "density": density,
+        "viewport_bounds": viewport_bounds,
+        "screen_bounds": screen,
+        "scroll_max": dict(scroll_max),
+        "expected": rows,
+        "observed": {
+            element: {"bounds": bounds(node), "class": node.attrib.get("class")}
+            for element, node in nodes.items()
+        },
+        "observed_tree": geometry_tree(root),
+        "problems": problems,
+    })
     return tree, nodes, rows
 
 
@@ -336,14 +361,20 @@ def activate_expect(button, toast, label):
 
 # --- protocol ----------------------------------------------------------------
 
-def main():
-    if "device" not in adb("get-state", check=False):
-        print("environment: no device or emulator attached", file=sys.stderr)
-        return 2
+def qualify():
+    require_tools()
+    if adb("get-state", check=False).strip() != "device":
+        return environment_error("no device or emulator attached")
     sdk_level = shell("getprop ro.build.version.sdk").strip()
     fingerprint = shell("getprop ro.build.fingerprint").strip()
     physical = re.search(r"Physical size: (\d+)x(\d+)", shell("wm size"))
     physical_density = int(re.search(r"Physical density: (\d+)", shell("wm density")).group(1))
+    evidence["device"] = {
+        "api_level": int(sdk_level),
+        "fingerprint": fingerprint,
+        "physical_size": [int(physical.group(1)), int(physical.group(2))],
+        "physical_density_dpi": physical_density,
+    }
     print(f"device: API {sdk_level}, {fingerprint}, {physical.group(1)}x{physical.group(2)} @ {physical_density}")
 
     work = tempfile.mkdtemp(prefix="aragon-device-")
@@ -358,7 +389,11 @@ def main():
         scenes = {name: os.path.join(FIXTURES, name + ".gscene") for name in ("layout", "counter")}
         apks = {}
         for name, scene in scenes.items():
+            with open(scene, "rb") as source:
+                fixture = {"source_sha256": hashlib.sha256(source.read()).hexdigest()}
+            evidence["fixtures"][os.path.basename(scene)] = fixture
             apks[name], digest = build_apk(scene, work, key)
+            fixture["unsigned_apk_sha256"] = digest
             print(f"built {name}: unsigned release APK sha256 {digest}")
         shell("settings put system accelerometer_rotation 0")
         shell("settings put system user_rotation 0")
@@ -478,6 +513,31 @@ def main():
         return 1
     print("\nDevice qualification checks passed on this device.")
     return 0
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Qualify Aragon fixtures on an Android device.")
+    parser.add_argument("--report", metavar="PATH", help="write JSON qualification evidence to PATH")
+    args = parser.parse_args()
+    exit_code = 1
+    try:
+        exit_code = qualify()
+    except SystemExit as error:
+        exit_code = error.code
+    except (OSError, RuntimeError, subprocess.TimeoutExpired, ET.ParseError, KeyError) as error:
+        evidence["error"] = str(error)
+        print(f"qualification: {error}", file=sys.stderr)
+    finally:
+        if args.report:
+            evidence["exit_code"] = exit_code
+            try:
+                with open(args.report, "w", encoding="utf-8") as report:
+                    json.dump(evidence, report, indent=2, sort_keys=True)
+                    report.write("\n")
+            except OSError as error:
+                print(f"qualification report: {error}", file=sys.stderr)
+                exit_code = 1
+    return exit_code
 
 
 if __name__ == "__main__":
