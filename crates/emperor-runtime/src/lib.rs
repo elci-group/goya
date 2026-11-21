@@ -17,6 +17,7 @@ mod host_kumimanu;
 pub use exercise::{exercise_interaction, InteractionReport};
 
 use goya_parity::keys::KeyController;
+use sha2::{Digest, Sha256};
 
 /// Native IR schema accepted by this runtime.
 const SCHEMA: &str = "GY-EMP-NIR/1";
@@ -302,6 +303,13 @@ pub(crate) fn open_admitted(nir_json: &str) -> Result<(NativeIr, KeyController),
             .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
     {
         return Err("source_digest_sha256 must be 64 lowercase hexadecimal characters".into());
+    }
+    let actual_digest = Sha256::digest(ir.scene.as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    if ir.source_digest_sha256 != actual_digest {
+        return Err("source_digest_sha256 does not match scene bytes".into());
     }
     if ir.capabilities.filesystem != "none" {
         return Err(format!(
