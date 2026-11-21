@@ -93,3 +93,43 @@ connected device for manual testing. `open-i` is located on `PATH`, or via the
 report is `BLOCKED` and the exit code is 3; a failed install exits 1. The
 report marks `device_install` and never claims device admission: the artifact
 is for manual testing only.
+
+## Experimental iOS project for Tapestry
+
+`ios-project` builds the same scene source used by Tapestry on webOS. It runs
+the explicitly supplied, trusted Arachnid executable, checks the source and
+asset hashes from its report, and copies the browser assets into a Neptune
+WebKit application project. Use the Arachnid revision and media extension
+required by [Tapestry's shell](/home/sal/tapestry/tapestry-webos/shell/README.md).
+The output directory must be new and its parent must exist.
+
+```sh
+neptune ios-project /path/to/tapestry-webos/shell/tapestry.gscene \
+  --arachnid-bin /path/to/arachnid \
+  --bundle-id com.goya.neptune.tapestry --name Tapestry \
+  --out tapestry-ios
+```
+
+The scene uses Arachnid's authored canvas, display conditions, media and D1/D2
+runtime. Neptune's host scales the canvas and supports inline media. When the
+scene declares a Lanlink endpoint, the iOS host forwards its three protocol
+requests to that exact private IPv4 origin. It keeps the runtime's pairing and
+encryption protocol. The generated app requests local network access and has a
+transport security exception for the configured IP only. An offline scene
+receives neither a bridge nor a network exception.
+
+On a Mac with Xcode and the iPhoneOS SDK, build the generated project for
+arm64 iPhones running iOS 17 or later. The helper produces an unsigned device
+bundle. Use an authorized Apple signing account for the subsequent sideload.
+
+```sh
+sh tapestry-ios/build-device.sh
+neptune sideload tapestry-ios/.build/NeptuneScene.app --format json
+```
+
+`neptune-project.json` records source, backend and web asset hashes. A
+successful project generation leaves Apple compilation and device installation
+as `NOT_RUN`. Opening the app, accepting Local Network access, pairing with the
+desktop, playing and seeking video, and sending a review all require iPhone
+verification. This profile leaves the separate native SwiftUI compiler and
+shared adoption of Arachnid's extensions as open work.
