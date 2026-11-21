@@ -1,10 +1,6 @@
 //! Package the portable web scene and Neptune's WebKit host for an Apple worker.
 
-use std::{
-    fs,
-    net::Ipv4Addr,
-    path::Path,
-};
+use std::{fs, net::Ipv4Addr, path::Path};
 
 use serde_json::{json, Value};
 
@@ -26,7 +22,10 @@ pub fn generate(
     if let Err(message) = result {
         return match fs::remove_dir_all(output) {
             Ok(()) => Err(message),
-            Err(error) => Err(format!("{message}; partial project at {} could not be cleaned up: {error}", output.display())),
+            Err(error) => Err(format!(
+                "{message}; partial project at {} could not be cleaned up: {error}",
+                output.display()
+            )),
         };
     }
     result
@@ -46,7 +45,11 @@ fn generate_into(
     let endpoint = if endpoint.is_null() {
         None
     } else {
-        Some(endpoint.as_str().ok_or("invalid portable scene LAN endpoint")?)
+        Some(
+            endpoint
+                .as_str()
+                .ok_or("invalid portable scene LAN endpoint")?,
+        )
     };
     if output.join("Web/lanlink.js").is_file() != endpoint.is_some() {
         return Err("portable scene LAN endpoint and transport script disagree".into());
@@ -57,7 +60,10 @@ fn generate_into(
     fs::create_dir(output.join("NeptuneScene.xcodeproj")).map_err(|error| error.to_string())?;
     for (path, contents) in [
         ("Sources/App.swift", include_str!("../ios/App.swift")),
-        ("Sources/Transport.swift", include_str!("../ios/Transport.swift")),
+        (
+            "Sources/Transport.swift",
+            include_str!("../ios/Transport.swift"),
+        ),
         ("Info.plist", &plist),
         ("NeptuneScene.xcodeproj/project.pbxproj", &project),
         ("build-device.sh", include_str!("../ios/build-device.sh")),
@@ -96,17 +102,25 @@ fn valid_bundle_id(value: &str) -> bool {
 }
 
 fn info_plist(bundle_id: &str, name: &str, endpoint: Option<&str>) -> Result<String, String> {
-    let name = name.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+    let name = name
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;");
     let lan = match endpoint {
         Some(endpoint) => {
             let (host, port) = endpoint
                 .strip_prefix("http://")
                 .and_then(|value| value.split_once(':'))
                 .ok_or("portable scene LAN endpoint must be an HTTP IPv4 origin with a port")?;
-            let ip: Ipv4Addr = host.parse().map_err(|_| "invalid LAN endpoint IPv4 address")?;
+            let ip: Ipv4Addr = host
+                .parse()
+                .map_err(|_| "invalid LAN endpoint IPv4 address")?;
             let port: u16 = port.parse().map_err(|_| "invalid LAN endpoint port")?;
             if !ip.is_private() || port == 0 || endpoint != format!("http://{ip}:{port}") {
-                return Err("portable scene LAN endpoint must be a canonical private IPv4 HTTP origin".into());
+                return Err(
+                    "portable scene LAN endpoint must be a canonical private IPv4 HTTP origin"
+                        .into(),
+                );
             }
             format!(
                 "<key>NeptuneLanEndpoint</key><string>{endpoint}</string>\n\
