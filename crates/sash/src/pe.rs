@@ -404,7 +404,10 @@ fn read_delay_dlls(
         }
         let name_rva = read_u32(bytes, offset + 4)?;
         if name_rva == 0 {
-            return Ok(names);
+            if bytes[offset..offset + 32].iter().all(|byte| *byte == 0) {
+                return Ok(names);
+            }
+            return Err("delay-import terminator is not zero-filled".into());
         }
         names.push(read_dll_name(bytes, sections, name_rva)?);
         offset += 32;

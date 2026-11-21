@@ -117,7 +117,7 @@ fn read_input(input: &Path) -> Result<Copied, Failure> {
     let index = read_regular(input, INDEX_HTML, MAX_INPUT_FILE_BYTES)?;
     let css = read_regular(input, APP_CSS, MAX_INPUT_FILE_BYTES)?;
     let manifest = read_regular(input, MANIFEST_JSON, MAX_INPUT_FILE_BYTES)?;
-    admit_manifest(&manifest)?;
+    admit_manifest(&manifest, &index, &css)?;
     Ok(Copied {
         index,
         css,
@@ -209,19 +209,29 @@ fn ensure_inside(root: &Path, file: &Path) -> Result<(), Failure> {
     }
 }
 
-fn admit_manifest(bytes: &[u8]) -> Result<(), Failure> {
+fn admit_manifest(bytes: &[u8], index: &[u8], css: &[u8]) -> Result<(), Failure> {
     let text = std::str::from_utf8(bytes)
         .map_err(|_| Failure::Input("cannot read input: manifest.json is invalid".into()))?;
     let fields = parse_top_level(text)
         .map_err(|_| Failure::Input("cannot read input: manifest.json is invalid".into()))?;
     match fields.get("profile") {
-        Some(Some(value)) if value == "maja.web.local.v1" => {}
+        Some(JsonValue::String(value)) if value == "maja.web.local.v1" => {}
         _ => return Err(Failure::Reject("profile is not maja.web.local.v1".into())),
     }
     match fields.get("qualification") {
-        Some(Some(value)) if value == "experimental" => Ok(()),
-        _ => Err(Failure::Reject("qualification is not experimental".into())),
+        Some(JsonValue::String(value)) if value == "experimental" => {}
+        _ => return Err(Failure::Reject("qualification is not experimental".into())),
     }
+    let Some(JsonValue::Object(artifacts)) = fields.get("artifacts_sha256") else {
+        return Err(Failure::Reject("artifact hashes are missing".into()));
+    };
+    let hash_matches = |name: &str, bytes: &[u8]| matches!(artifacts.get(name), Some(JsonValue::String(value)) if value == &hex(&Sha256::digest(bytes)));
+    if !hash_matches(INDEX_HTML, index) || !hash_matches(APP_CSS, css) {
+        return Err(Failure::Reject(
+            "artifact hashes do not match package members".into(),
+        ));
+    }
+    Ok(())
 }
 
 fn write_output(output: &Path, files: &Copied, name: &str, version: &str) -> Result<(), Failure> {
@@ -309,7 +319,14 @@ fn hex(bytes: &[u8]) -> String {
     out
 }
 
-fn parse_top_level(text: &str) -> Result<BTreeMap<String, Option<String>>, ()> {
+#[derive(Debug, PartialEq, Eq)]
+enum JsonValue {
+    String(String),
+    Object(BTreeMap<String, JsonValue>),
+    Other,
+}
+
+fn parse_top_level(text: &str) -> Result<BTreeMap<String, JsonValue>, ()> {
     let mut index = 0;
     skip_ws(text, &mut index);
     let fields = parse_object(text, &mut index)?;
@@ -320,7 +337,7 @@ fn parse_top_level(text: &str) -> Result<BTreeMap<String, Option<String>>, ()> {
     Ok(fields)
 }
 
-fn parse_object(text: &str, index: &mut usize) -> Result<BTreeMap<String, Option<String>>, ()> {
+fn parse_object(text: &str, index: &mut usize) -> Result<BTreeMap<String, JsonValue>, ()> {
     expect_byte(text, index, b'{')?;
     let mut fields = BTreeMap::new();
     skip_ws(text, index);
@@ -372,33 +389,30 @@ fn parse_array(text: &str, index: &mut usize) -> Result<(), ()> {
     }
 }
 
-fn parse_value(text: &str, index: &mut usize) -> Result<Option<String>, ()> {
+fn parse_value(text: &str, index: &mut usize) -> Result<JsonValue, ()> {
     skip_ws(text, index);
     match peek(text, *index) {
-        Some(b'"') => Ok(Some(parse_string(text, index)?)),
-        Some(b'{') => {
-            parse_object(text, index)?;
-            Ok(None)
-        }
+        Some(b'"') => Ok(JsonValue::String(parse_string(text, index)?)),
+        Some(b'{') => Ok(JsonValue::Object(parse_object(text, index)?)),
         Some(b'[') => {
             parse_array(text, index)?;
-            Ok(None)
+            Ok(JsonValue::Other)
         }
         Some(b't') => {
             expect_literal(text, index, "true")?;
-            Ok(None)
+            Ok(JsonValue::Other)
         }
         Some(b'f') => {
             expect_literal(text, index, "false")?;
-            Ok(None)
+            Ok(JsonValue::Other)
         }
         Some(b'n') => {
             expect_literal(text, index, "null")?;
-            Ok(None)
+            Ok(JsonValue::Other)
         }
         Some(b'-') | Some(b'0'..=b'9') => {
             skip_number(text, index)?;
-            Ok(None)
+            Ok(JsonValue::Other)
         }
         _ => Err(()),
     }
@@ -589,7 +603,16 @@ mod tests {
     fn write_input(dir: &Path, manifest: &str) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
         let html = b"<!doctype html>\n<main>static</main>\n".to_vec();
         let css = b"main{overflow:hidden}\n".to_vec();
-        let manifest = manifest.as_bytes().to_vec();
+        let manifest = manifest
+            .replace(
+                "\"index.html\": \"aa\"",
+                &format!("\"index.html\": \"{}\"", hex(&Sha256::digest(&html))),
+            )
+            .replace(
+                "\"app.css\": \"bb\"",
+                &format!("\"app.css\": \"{}\"", hex(&Sha256::digest(&css))),
+            )
+            .into_bytes();
         fs::write(dir.join(INDEX_HTML), &html).unwrap();
         fs::write(dir.join(APP_CSS), &css).unwrap();
         fs::write(dir.join(MANIFEST_JSON), &manifest).unwrap();
@@ -816,7 +839,7 @@ mod tests {
     #[test]
     fn malformed_unicode_escape_in_manifest_is_rejected() {
         let malformed = STATIC_MANIFEST.replace("maja.web.local.v1", "maja.web.local.\\uD800");
-        let result = admit_manifest(malformed.as_bytes());
+        let result = admit_manifest(malformed.as_bytes(), b"", b"");
         assert!(
             matches!(result, Err(Failure::Input(message)) if message.contains("manifest.json is invalid"))
         );
@@ -836,6 +859,23 @@ mod tests {
         assert_eq!(code, 4, "{stderr}");
         assert!(stderr.contains("MAJA-CLI-E0007"), "{stderr}");
         assert!(stderr.contains("app.css exceeds the 1 MiB"), "{stderr}");
+        assert!(!output.exists());
+    }
+
+    #[test]
+    fn modified_static_member_is_rejected_against_manifest_hash() {
+        let scratch = Scratch::new();
+        let input = scratch.0.join("input");
+        let output = scratch.0.join("output");
+        fs::create_dir(&input).unwrap();
+        write_input(&input, STATIC_MANIFEST);
+        fs::write(input.join(APP_CSS), b"main{color:red}\n").unwrap();
+
+        let (code, _stdout, stderr) = run_package(&input, &output, "cli-name", "9.9.9");
+
+        assert_eq!(code, 4, "{stderr}");
+        assert!(stderr.contains("MAJA-CLI-E0007"), "{stderr}");
+        assert!(stderr.contains("artifact hashes do not match"), "{stderr}");
         assert!(!output.exists());
     }
 }
