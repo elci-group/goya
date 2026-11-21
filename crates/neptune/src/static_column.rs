@@ -343,11 +343,12 @@ fn emit_scene(
 pub fn preview(source: &str, module: &str) -> Result<Preview, crate::Diagnostic> {
     crate::validate_module(module)?;
     crate::inspect(source)?;
-    let parsed = goya_lang::parse_strict(source).map_err(|error| crate::Diagnostic {
+    let handoff = goya_lang::handoff::admit_v3(source).map_err(|error| crate::Diagnostic {
         code: error.code,
         message: error.to_string(),
         range: (error.range.end > error.range.start).then_some(error.range),
     })?;
+    let parsed = handoff.parsed();
     if let Some(entry) = unsupported_entry(&parsed.entries) {
         let message = match entry.kind.as_str() {
             "property" => format!("static column rejects property '{}'", entry.name),
