@@ -15,6 +15,7 @@
 
 use crate::{InteractionValue, SceneCell};
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 
 /// Visit live displays in authored depth-first order.
 fn visit_displays(cell: &SceneCell, f: &mut impl FnMut(&SceneCell, &str)) {
@@ -111,24 +112,9 @@ pub fn describe_change(
     old: &InteractionValue,
     new: &InteractionValue,
 ) -> Option<String> {
-    match (old, new) {
-        (InteractionValue::Int(a), InteractionValue::Int(b)) if a != b => {
-            let d = i128::from(*b) - i128::from(*a);
-            let (verb, amount) = if d > 0 {
-                ("increased", d)
-            } else {
-                ("decreased", -d)
-            };
-            Some(format!("{context} {verb} by {amount}, from {a} to {b}"))
-        }
-        (InteractionValue::Text(a), InteractionValue::Text(b)) if a != b => {
-            Some(format!("{context} changed from \"{a}\" to \"{b}\""))
-        }
-        (InteractionValue::Bool(a), InteractionValue::Bool(b)) if a != b => {
-            Some(format!("{context} changed from {a} to {b}"))
-        }
-        _ => None,
-    }
+    let mut result = String::new();
+    append_change(&mut result, context, old, new);
+    (!result.is_empty()).then_some(result)
 }
 
 /// The single announcement for one committed transition: every display
@@ -150,12 +136,28 @@ fn append_change(
     context: &str,
     old: &InteractionValue,
     new: &InteractionValue,
-) {
-    if let Some(part) = describe_change(context, old, new) {
-        if !result.is_empty() {
-            result.push_str("; ");
+) -> bool {
+    let separator = if result.is_empty() { "" } else { "; " };
+    match (old, new) {
+        (InteractionValue::Int(a), InteractionValue::Int(b)) if a != b => {
+            let difference = i128::from(*b) - i128::from(*a);
+            let (verb, amount) = if difference > 0 {
+                ("increased", difference)
+            } else {
+                ("decreased", -difference)
+            };
+            let _ = write!(result, "{separator}{context} {verb} by {amount}, from {a} to {b}");
+            true
         }
-        result.push_str(&part);
+        (InteractionValue::Text(a), InteractionValue::Text(b)) if a != b => {
+            let _ = write!(result, "{separator}{context} changed from \"{a}\" to \"{b}\"");
+            true
+        }
+        (InteractionValue::Bool(a), InteractionValue::Bool(b)) if a != b => {
+            let _ = write!(result, "{separator}{context} changed from {a} to {b}");
+            true
+        }
+        _ => false,
     }
 }
 
