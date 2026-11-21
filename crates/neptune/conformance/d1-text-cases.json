@@ -5,9 +5,9 @@
   "action_id": "acceptance.update",
   "trigger_id": "acceptance.save",
   "cases": [
-    {"id":"unicode-preserved", "revision":3, "state":{"saved":"e\u0301","prior":"before","enabled":false}, "inputs":{"draft":"Café 🎨","flag":true}, "expected":{"status":"ok","revision":4,"state":{"saved":"Café 🎨","prior":"e\u0301","enabled":true}}},
-    {"id":"empty-text", "revision":0, "state":{"saved":"old","prior":"discard","enabled":true}, "inputs":{"draft":"","flag":false}, "expected":{"status":"ok","revision":1,"state":{"saved":"","prior":"old","enabled":false}}},
-    {"id":"wrong-input-type", "revision":1, "state":{"saved":"old","prior":"","enabled":true}, "inputs":{"draft":"new","flag":"true"}, "expected":{"status":"error","error":"input_schema"}},
-    {"id":"wrong-state-type", "revision":1, "state":{"saved":true,"prior":"","enabled":false}, "inputs":{"draft":"new","flag":true}, "expected":{"status":"error","error":"state_schema"}}
+    {"id":"unicode-preserved", "revision":3, "state":{"saved":"e\u0301","prior":"before","enabled":true}, "inputs":{"draft":"Café 🎨"}, "expected":{"status":"ok","revision":4,"state":{"saved":"Café 🎨","prior":"e\u0301","enabled":true}}},
+    {"id":"empty-text", "revision":0, "state":{"saved":"old","prior":"discard","enabled":false}, "inputs":{"draft":""}, "expected":{"status":"ok","revision":1,"state":{"saved":"","prior":"old","enabled":false}}},
+    {"id":"wrong-input-type", "revision":1, "state":{"saved":"old","prior":"","enabled":true}, "inputs":{"draft":true}, "expected":{"status":"error","error":"input_schema"}},
+    {"id":"wrong-state-type", "revision":1, "state":{"saved":true,"prior":"","enabled":false}, "inputs":{"draft":"new"}, "expected":{"status":"error","error":"state_schema"}}
   ]
 }
