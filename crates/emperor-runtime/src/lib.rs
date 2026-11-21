@@ -330,6 +330,7 @@ pub(crate) fn open_admitted(nir_json: &str) -> Result<(NativeIr, KeyController),
     let mut edits = 0;
     let mut buttons = 0;
     let mut results = 0;
+    let mut spans = Vec::with_capacity(ir.elements.len());
     for element in &ir.elements {
         if element.id.is_empty() || !ids.insert(element.id.as_str()) {
             return Err(format!(
@@ -353,6 +354,7 @@ pub(crate) fn open_admitted(nir_json: &str) -> Result<(NativeIr, KeyController),
                 element.id
             ));
         }
+        spans.push((element.span_start, element.span_end, element.id.as_str()));
         if !matches!(
             element.role.as_str(),
             "client" | "edit" | "button" | "result"
@@ -391,6 +393,15 @@ pub(crate) fn open_admitted(nir_json: &str) -> Result<(NativeIr, KeyController),
             "button" => buttons += 1,
             "result" => results += 1,
             _ => return Err(format!("role {} is not admitted", element.role)),
+        }
+    }
+    spans.sort_unstable_by_key(|span| span.0);
+    for pair in spans.windows(2) {
+        if pair[0].1 > pair[1].0 {
+            return Err(format!(
+                "element source spans overlap: {} and {}",
+                pair[0].2, pair[1].2
+            ));
         }
     }
     if clients != 1 || edits != 1 || buttons != 1 || results != 1 {
