@@ -31,7 +31,7 @@ const MAX_ELEMENTS: usize = 32;
 /// Maximum serialized native IR accepted from a file or embedding. The
 /// admitted source itself is capped at 1 MiB; this allowance covers JSON
 /// escaping and repeated element metadata while bounding deserialization.
-const MAX_NIR_JSON_BYTES: usize = 8 * 1024 * 1024;
+pub const MAX_NIR_JSON_BYTES: usize = 8 * 1024 * 1024;
 /// Geometry bound in DIP, mirroring `sash::admit::MAX_DIP`. Positions are
 /// accepted in `0..=MAX_DIP` and extents in `1..=MAX_DIP`, exactly as Sash's
 /// admission accepts them. Values inside these bounds cannot combine into an
