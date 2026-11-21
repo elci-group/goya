@@ -26,6 +26,7 @@ const INDEX_HTML: &str = "index.html";
 const APP_CSS: &str = "app.css";
 const MANIFEST_JSON: &str = "manifest.json";
 const MAX_INPUT_FILE_BYTES: u64 = 1024 * 1024;
+const MAX_JSON_DEPTH: usize = 64;
 
 /// Package `input` into a new directory at `output`.
 ///
@@ -334,6 +335,9 @@ enum JsonValue {
 }
 
 fn parse_top_level(text: &str) -> Result<BTreeMap<String, JsonValue>, ()> {
+    if !within_json_depth(text, MAX_JSON_DEPTH) {
+        return Err(());
+    }
     let mut index = 0;
     skip_ws(text, &mut index);
     let fields = parse_object(text, &mut index)?;
@@ -342,6 +346,36 @@ fn parse_top_level(text: &str) -> Result<BTreeMap<String, JsonValue>, ()> {
         return Err(());
     }
     Ok(fields)
+}
+
+fn within_json_depth(text: &str, limit: usize) -> bool {
+    let mut depth = 0;
+    let mut in_string = false;
+    let mut escaped = false;
+    for byte in text.bytes() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match byte {
+            b'"' => in_string = true,
+            b'{' | b'[' => {
+                depth += 1;
+                if depth > limit {
+                    return false;
+                }
+            }
+            b'}' | b']' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    true
 }
 
 fn parse_object(text: &str, index: &mut usize) -> Result<BTreeMap<String, JsonValue>, ()> {
@@ -860,6 +894,16 @@ mod tests {
         assert!(stderr.contains("MAJA-CLI-E0004"), "{stderr}");
         assert!(stderr.contains("manifest.json is invalid"), "{stderr}");
         assert!(!output.exists());
+    }
+
+    #[test]
+    fn deeply_nested_manifest_json_is_rejected_without_recursing() {
+        let text = format!(
+            "{{\"nested\":{}0{} }}",
+            "[".repeat(MAX_JSON_DEPTH + 1),
+            "]".repeat(MAX_JSON_DEPTH + 1)
+        );
+        assert!(parse_top_level(&text).is_err());
     }
 
     #[test]

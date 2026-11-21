@@ -12,6 +12,11 @@ use goya_determinism::EffectKind;
 use std::collections::BTreeMap;
 use std::fmt;
 
+/// Bound recursive scene parsing and the matching tree walks used by strict
+/// admission. Ordinary scenes are shallow; this prevents adversarial nesting
+/// from exhausting the host stack.
+const MAX_CELL_DEPTH: usize = 256;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParseError {
     pub line: usize,
@@ -1038,6 +1043,9 @@ impl P {
             placeholder: None,
             max_length: None,
         };
+        if self.depth >= MAX_CELL_DEPTH {
+            return Err(self.err());
+        }
         self.depth += 1;
         loop {
             self.mark();
