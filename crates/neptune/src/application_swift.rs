@@ -380,8 +380,9 @@ mod tests {
             report["swift_sha256"],
             format!("{:x}", Sha256::digest(swift.as_bytes()))
         );
-        let scene = goya_lang::parse_strict(SOURCE).unwrap().scene;
-        let mut reference = goya_sdk::D1Application::new(&scene, initial()).unwrap();
+        let handoff = goya_lang::handoff::admit_v3(SOURCE).unwrap();
+        let scene = &handoff.parsed().scene;
+        let mut reference = goya_sdk::D1Application::new(scene, initial()).unwrap();
         reference
             .dispatch(
                 "action.add",
@@ -447,8 +448,9 @@ mod tests {
         let swift = &generated.swift[action.swift.start..action.swift.end];
         assert!(swift.find("projectedNextBytes").unwrap() < swift.find("globalNextBytes").unwrap());
         assert!(swift.find("globalNextBytes").unwrap() < swift.find("state = next").unwrap());
-        let scene = goya_lang::parse_strict(&source).unwrap().scene;
-        let mut reference = goya_sdk::D1Application::new(&scene, values).unwrap();
+        let handoff = goya_lang::handoff::admit_v3(&source).unwrap();
+        let scene = &handoff.parsed().scene;
+        let mut reference = goya_sdk::D1Application::new(scene, values).unwrap();
         let result = reference.dispatch(
             "action.17",
             BTreeMap::from([("value".into(), D1Value::Text("y".repeat(60000)))]),

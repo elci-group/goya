@@ -225,6 +225,18 @@ fn admit_manifest(bytes: &[u8], index: &[u8], css: &[u8]) -> Result<(), Failure>
         Some(JsonValue::String(value)) if value == "MAJA-STATIC/1-draft" => {}
         _ => return Err(Failure::Reject("schema is not MAJA-STATIC/1-draft".into())),
     }
+    match fields.get("source_sha256") {
+        Some(JsonValue::String(value))
+            if value.len() == 64
+                && value
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)) => {}
+        _ => {
+            return Err(Failure::Reject(
+                "source_sha256 is not a lowercase SHA-256 digest".into(),
+            ))
+        }
+    }
     match fields.get("profile") {
         Some(JsonValue::String(value)) if value == "maja.web.local.v1" => {}
         _ => return Err(Failure::Reject("profile is not maja.web.local.v1".into())),
@@ -652,6 +664,10 @@ mod tests {
         let css = b"main{overflow:hidden}\n".to_vec();
         let manifest = manifest
             .replace(
+                "\"source_sha256\": \"abc\"",
+                &format!("\"source_sha256\": \"{}\"", hex(&Sha256::digest(b"source"))),
+            )
+            .replace(
                 "\"index.html\": \"aa\"",
                 &format!("\"index.html\": \"{}\"", hex(&Sha256::digest(&html))),
             )
@@ -822,6 +838,26 @@ mod tests {
         assert_eq!(code, 4, "{stderr}");
         assert!(
             stderr.contains("schema is not MAJA-STATIC/1-draft"),
+            "{stderr}"
+        );
+        assert!(!output.exists());
+    }
+
+    #[test]
+    fn malformed_source_digest_is_rejected() {
+        let scratch = Scratch::new();
+        let input = scratch.0.join("input");
+        let output = scratch.0.join("output");
+        fs::create_dir(&input).unwrap();
+        let manifest =
+            STATIC_MANIFEST.replace("\"source_sha256\": \"abc\"", "\"source_sha256\": \"xyz\"");
+        write_input(&input, &manifest);
+
+        let (code, _stdout, stderr) = run_package(&input, &output, "cli-name", "9.9.9");
+
+        assert_eq!(code, 4, "{stderr}");
+        assert!(
+            stderr.contains("source_sha256 is not a lowercase SHA-256 digest"),
             "{stderr}"
         );
         assert!(!output.exists());
