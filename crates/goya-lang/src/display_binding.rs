@@ -50,6 +50,8 @@ pub struct SceneDisplayValue {
     pub context: String,
     /// Canonical text shown for the current value.
     pub text: String,
+    /// Authored text followed by the canonical value, before wrapping/layout.
+    pub rendered_text: String,
 }
 
 /// Project a state snapshot onto the scene's live displays in document
@@ -63,11 +65,15 @@ pub fn scene_display_values(
     let mut values = Vec::new();
     visit_displays(root, &mut |cell, key| {
         if let Some(value) = state.get(key) {
+            let text = shown_text(value);
+            let mut rendered_text = cell.text.clone().unwrap_or_default();
+            rendered_text.push_str(&text);
             values.push(SceneDisplayValue {
                 element_id: cell.authored_id.clone(),
                 state_key: key.to_owned(),
                 context: context(cell.text.as_deref(), key),
-                text: shown_text(value),
+                text,
+                rendered_text,
             });
         }
     });
