@@ -224,10 +224,15 @@ fn compile_scene(
                 "clipboard gesture policies on Android",
             ));
         }
-        if cell.kind == CellKind::Input && cell.text.is_some() {
+        if cell.kind == CellKind::Input
+            && cell
+                .text
+                .as_ref()
+                .is_some_and(|text| text.len() > D1_MAX_TEXT_BYTES)
+        {
             return Err(refuse(
                 property("text"),
-                "`text:` on @input (initial content, decision D3) until Aragon implements it",
+                "initial input text above the 64 KiB D1 limit",
             ));
         }
         if matches!(cell.kind, CellKind::Button | CellKind::Input) {
@@ -832,7 +837,15 @@ fn emit_view(
                     .string(plan.id)
                     .code(", ")
                     .int(index + 1)
-                    .code("))\n");
+                    .code(", ");
+                if let Some(initial) = &cell.text {
+                    w.mapped(text_origin.clone(), |w| {
+                        w.string(initial);
+                    });
+                } else {
+                    w.string("");
+                }
+                w.code("))\n");
             }
         }
         if let Some(stroke) = cell.stroke {
@@ -1116,7 +1129,7 @@ const VIEW_CONTENT: &str = r#"
         if (onClick != null) setOnClickListener { onClick() }
     }
 
-    private fun field(fieldId: String, viewId: Int): EditText = EditText(context).apply {
+    private fun field(fieldId: String, viewId: Int, initialText: String): EditText = EditText(context).apply {
         id = viewId
         minWidth = 0
         minHeight = 0
@@ -1124,6 +1137,7 @@ const VIEW_CONTENT: &str = r#"
         minimumHeight = 0
         setPadding(0, 0, 0, 0)
         inputType = InputType.TYPE_CLASS_TEXT
+        setText(initialText)
         fields[fieldId] = this
     }
 "#;
