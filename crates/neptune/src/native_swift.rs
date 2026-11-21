@@ -344,7 +344,7 @@ mod tests {
     #[test]
     fn observable_readout_follows_key_order_and_dispatches_only_from_the_button() {
         let source = r#"@ontology counter {
-  @state { count: int = 0; label: text = "é"; ready: bool = false; }
+  @state { count: int = 0 session; label: text = "é" session; ready: bool = false session; }
   @button increment { id: "button.increment" text: "Increment" }
   @interaction increment {
     id: "action.increment";
