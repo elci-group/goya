@@ -520,7 +520,8 @@ mod tests {
     fn text_from_is_refused_on_inputs_and_admitted_with_wrap() {
         let source = DISPLAY.replace("id: \"name\";", "id: \"name\"; text-from: state.label;");
         let error = admit_local_interactive(&source, LIVE_PROFILE).unwrap_err();
-        assert_eq!(error.code, "MAJA-E0200");
+        // The validation happens at GSSH/3-live parse time in goya-lang.
+        assert_eq!(error.code, "GY-E1013");
         let range = error.range.unwrap();
         assert!(source[range.start..range.end].starts_with("text-from: state.label"));
         // D9: `wrap` applies to the authored text; the whole text wraps
