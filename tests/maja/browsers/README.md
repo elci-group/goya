@@ -66,6 +66,13 @@ shell's read-only `goya:transition` event. It is written alongside the
 implementation, so it is not independent qualification; see
 `docs/maja/interactive-profile.md` for the last recorded run and its limits.
 
+`maja_browser.py chrome|firefox durable OUTPUT_DIRECTORY` checks a
+`maja.web.local.v2` build of `tests/maja/fixtures/durable-counter.gscene`.
+For the D8 stale-writer check, a second tab loads the same app and commits a
+new value. The first tab must reject its next commit with `STORAGE_CONFLICT`,
+preserve both its in-memory state and the winning record, and adopt the
+winning value on reload. The scenario orders the writes.
+
 Run the independent local-build cases with
 `MAJA_BIN=/absolute/path/to/maja PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests/maja/browsers -p 'test_*.py' -v`.
 These cover deterministic output, HTML text escaping, release rejection and

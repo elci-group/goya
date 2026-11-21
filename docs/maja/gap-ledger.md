@@ -37,6 +37,12 @@ D8](../gssh/decisions.md#d8--durable-record-format-and-concurrent-writers)):
 | M4-01 | **Closed for Maja** by D8; stays open for Aragon, which must adopt the same record (ARG-G07). |
 | M4-02 | **Closed**: the second writer gets `STORAGE_CONFLICT` and nothing is written (Node test, plus `maja_browser.py BROWSER durable` with the other window's write made from DevTools). Residual: no lock between the re-read and the write; a second real tab is not tested. |
 
+The durable scenario now exercises two real tabs on the same origin. The
+second tab commits through the app, then the stale tab gets
+`STORAGE_CONFLICT` and adopts the winning value on reload. This covers
+ordered writes. Simultaneous writes between the re-read and the write remain
+outside this check.
+
 GSSH/2 approval, same day:
 
 | ID | Status |
