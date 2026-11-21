@@ -13,7 +13,8 @@
 //!   shown values. It says what changed (the element's context) and how
 //!   (direction and amount, or old and new value), never how it looks.
 
-use crate::InteractionValue;
+use crate::{InteractionValue, SceneCell};
+use std::collections::BTreeMap;
 
 /// The text a state value is shown as: canonical decimal for `int`, the
 /// text itself for `text`, `true` or `false` for `bool`.
@@ -86,6 +87,42 @@ pub fn announcement<'a>(
         .filter_map(|(context, old, new)| describe_change(context, old, new))
         .collect();
     (!parts.is_empty()).then(|| parts.join("; "))
+}
+
+/// Build the canonical announcement for a scene after a committed state
+/// transition. Displays are visited in document (depth-first) order, and a
+/// display is included only when its bound value exists in both snapshots
+/// and changed. Missing keys are ignored so a partial host snapshot cannot
+/// produce a fabricated change; admitted scenes guarantee that each binding
+/// names a declared key.
+pub fn scene_announcement(
+    root: &SceneCell,
+    before: &BTreeMap<String, InteractionValue>,
+    after: &BTreeMap<String, InteractionValue>,
+) -> Option<String> {
+    fn visit<'a>(
+        cell: &'a SceneCell,
+        before: &'a BTreeMap<String, InteractionValue>,
+        after: &'a BTreeMap<String, InteractionValue>,
+        changes: &mut Vec<(String, &'a InteractionValue, &'a InteractionValue)>,
+    ) {
+        if let Some(key) = &cell.text_from {
+            if let (Some(old), Some(new)) = (before.get(key), after.get(key)) {
+                changes.push((context(cell.text.as_deref(), key), old, new));
+            }
+        }
+        for child in &cell.children {
+            visit(child, before, after, changes);
+        }
+    }
+
+    let mut changes = Vec::new();
+    visit(root, before, after, &mut changes);
+    announcement(
+        changes
+            .iter()
+            .map(|(label, old, new)| (label.as_str(), *old, *new)),
+    )
 }
 
 #[cfg(test)]
