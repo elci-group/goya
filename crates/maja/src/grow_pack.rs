@@ -778,4 +778,28 @@ mod tests {
         assert!(stderr.contains("MAJA-CLI-E0007"), "{stderr}");
         assert!(!output.exists());
     }
+
+    #[test]
+    fn malformed_manifest_json_is_rejected_before_output_creation() {
+        let scratch = Scratch::new();
+        let input = scratch.0.join("input");
+        let output = scratch.0.join("output");
+        fs::create_dir(&input).unwrap();
+        let malformed = STATIC_MANIFEST.replace("\"qualification\": \"experimental\"", "\"qualification\": \"experimental\",\n  \"profile\": \"maja.web.local.v1\"");
+        write_input(&input, &malformed);
+
+        let (code, _stdout, stderr) = run_package(&input, &output, "cli-name", "9.9.9");
+
+        assert_eq!(code, 3, "{stderr}");
+        assert!(stderr.contains("MAJA-CLI-E0004"), "{stderr}");
+        assert!(stderr.contains("manifest.json is invalid"), "{stderr}");
+        assert!(!output.exists());
+    }
+
+    #[test]
+    fn malformed_unicode_escape_in_manifest_is_rejected() {
+        let malformed = STATIC_MANIFEST.replace("maja.web.local.v1", "maja.web.local.\\uD800");
+        let result = admit_manifest(malformed.as_bytes());
+        assert!(matches!(result, Err(Failure::Input(message)) if message.contains("manifest.json is invalid")));
+    }
 }

@@ -299,9 +299,13 @@ mod tests {
     }
 
 const CERT_SCENE: &str = r#"@ontology app {
-    @button go { id: "button.go"; }
-    @input searchField { id: "element.searchField"; }
-    @cell searchPanel { id: "element.searchPanel"; }
+    @cell root {
+        id: "element.root";
+        extent: (800, 600, 0);
+        @button go { id: "button.go"; position: (100, 100, 0); extent: (200, 60, 0); }
+        @input searchField { id: "element.searchField"; position: (100, 200, 0); extent: (300, 40, 0); }
+        @button searchPanel { id: "element.searchPanel"; position: (400, 100, 0); extent: (200, 60, 0); }
+    }
     @interaction a {
         id: "action.a";
         trigger: button.go.activate;
@@ -315,7 +319,7 @@ const CERT_SCENE: &str = r#"@ontology app {
         category: general;
         slots { query: text; }
         voice {
-            utterance: "Go";
+            utterance: "Find {query}";
             confirmation: false;
         }
         fallback {
@@ -326,9 +330,13 @@ const CERT_SCENE: &str = r#"@ontology app {
 }"#;
 
 const TRANSPORT_SCENE: &str = r#"@ontology app {
-    @button go { id: "button.go"; }
-    @input playField { id: "element.playField"; }
-    @cell playPanel { id: "element.playPanel"; }
+    @cell root {
+        id: "element.root";
+        extent: (800, 600, 0);
+        @button go { id: "button.go"; position: (100, 100, 0); extent: (200, 60, 0); }
+        @input playField { id: "element.playField"; position: (100, 200, 0); extent: (300, 40, 0); }
+        @button playPanel { id: "element.playPanel"; position: (400, 100, 0); extent: (200, 60, 0); }
+    }
     @interaction p {
         id: "action.p";
         trigger: button.go.activate;
@@ -343,13 +351,17 @@ const TRANSPORT_SCENE: &str = r#"@ontology app {
         category: playback;
         slots { query: text; }
         voice {
-            utterance: "Play";
+            utterance: "Play {query}";
         }
         fallback {
             remote: playPanel;
         }
     }
 }"#;
+
+    #[test]
+    fn alexa_model_transport_intent_maps_to_builtin() {
+        let scene = parse(TRANSPORT_SCENE).unwrap();
         let model = emit_alexa_interaction_model(&scene, "oem.generic.tv/1.0.0", 800.0, 600.0)
             .expect("model emits");
         let intent = &model.intents[0];
@@ -357,7 +369,7 @@ const TRANSPORT_SCENE: &str = r#"@ontology app {
         assert!(model.builtins_used.contains(&"AMAZON.PauseIntent".to_owned()));
     }
 
-#[test]
+    #[test]
     fn alexa_model_includes_certification_metadata() {
         let scene = parse(CERT_SCENE).unwrap();
         let model = emit_alexa_interaction_model(&scene, "oem.generic.tv/1.0.0", 800.0, 600.0)

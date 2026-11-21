@@ -1,0 +1,69 @@
+@ontology tally {
+    @state {
+        count: int = 0 durable;
+        label: text = "none" session;
+        flag: bool = false session;
+    }
+    @cell root {
+        id: "root";
+        @cell total {
+            id: "total";
+            position_p: (0.05, 0.02, 0); extent_p: (0.9, 0.1, 0);
+            text: "Count: "; text-from: state.count; text_size_p: 0.6;
+        }
+        @cell shown {
+            id: "shown";
+            position_p: (0.05, 0.14, 0); extent_p: (0.9, 0.1, 0);
+            text-from: state.label; text_size_p: 0.6;
+        }
+        @input amount {
+            id: "amount";
+            position_p: (0.05, 0.3, 0); extent_p: (0.55, 0.1, 0);
+            stroke: #333; stroke_width_p: 0.05;
+        }
+        @button add {
+            id: "add";
+            position_p: (0.65, 0.3, 0); extent_p: (0.3, 0.1, 0);
+            text: "Add"; text_size_p: 0.5;
+        }
+        @input name {
+            id: "name";
+            position_p: (0.05, 0.45, 0); extent_p: (0.55, 0.1, 0);
+            stroke: #333; stroke_width_p: 0.05;
+        }
+        @button rename {
+            id: "rename";
+            position_p: (0.65, 0.45, 0); extent_p: (0.3, 0.1, 0);
+            text: "Rename"; text_size_p: 0.5;
+        }
+        @button raise {
+            id: "raise";
+            position_p: (0.05, 0.6, 0); extent_p: (0.9, 0.1, 0);
+            text: "Raised: "; text-from: state.flag; text_size_p: 0.5;
+        }
+    }
+    @interaction add {
+        id: "action.add";
+        trigger: button.add.activate;
+        class: D1;
+        state { read count: int; write count: int; }
+        input { amount: int from "amount"; }
+        set count = state.count + input.amount;
+    }
+    @interaction rename {
+        id: "action.rename";
+        trigger: button.rename.activate;
+        class: D1;
+        state { write label: text; }
+        input { value: text from "name"; }
+        set label = input.value;
+    }
+    @interaction raise {
+        id: "action.raise";
+        trigger: button.raise.activate;
+        class: D1;
+        state { write flag: bool; }
+        input { }
+        set flag = true;
+    }
+}

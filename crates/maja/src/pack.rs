@@ -32,7 +32,7 @@ pub fn write_static(ir: &StaticWebIr, output: &Path) -> io::Result<()> {
     let html = format!(concat!(
         "<!doctype html>\n<html><head><meta charset=\"utf-8\">",
         "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">",
-        "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'self'; img-src data:\">",
+        "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'self'; img-src data:; base-uri 'none'; form-action 'none'\">",
         "<link rel=\"icon\" href=\"data:,\">",
         "<link rel=\"stylesheet\" href=\"app.css\"><title>Goya application</title></head>",
         "<body><main data-goya-id=\"{}\">{}</main></body></html>\n"

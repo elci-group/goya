@@ -217,7 +217,7 @@ fn compile_scene(
         if cell.kind == CellKind::Input && cell.text.is_some() {
             return Err(refuse(
                 property("text"),
-                "`text:` on @input until its meaning (placeholder or initial content) is decided (docs/gssh/decisions.md D3)",
+                "`text:` on @input (initial content, decision D3) until Aragon implements it",
             ));
         }
         if matches!(cell.kind, CellKind::Button | CellKind::Input) {

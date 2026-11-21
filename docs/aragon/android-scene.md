@@ -46,11 +46,12 @@ Refused, at the construct's own range:
 | `text-anchor` | The reference renderer ignores it. |
 | `stroke` without `stroke-width-p`, or the reverse | A border needs both a colour and a width. |
 | `gestures` | Clipboard policy is not implemented on Android. |
-| `text:` on `@input` | Placeholder or initial content is still undecided (decision D3). |
+| `text:` on `@input` | Not yet implemented. Decision D3 (21 November 2026) makes it the field's initial content; Maja implements it. |
 | Elements nested in `@button` or `@input` | The reference does not treat nested buttons as triggers. |
 | `scroll` on an element whose structural name is not unique | The reference keys scroll offsets by name, so it is ambiguous. |
-| `@state … durable` | Needs the Android storage adapter (gate ARG-G07). |
+| `@state … durable` | Needs the Android storage adapter (gate ARG-G07), storing the record fixed by [decision D8](../gssh/decisions.md#d8--durable-record-format-and-concurrent-writers). |
 | D2 interactions | No Android capability adapters. |
+| `text-from` | Refused by GSSH/3 (`GY-E1012`). Adopting GSSH/3-live requires D9's wrapping and announcement rules (`goya_lang::display_binding`). |
 | More than 1024 elements; element text above 16 KiB; initial text above 64 KiB; an initial snapshot above 1 MiB | Generated-code and D1 limits. |
 
 There is no display binding in GSSH/2, so **state changes are not visible on

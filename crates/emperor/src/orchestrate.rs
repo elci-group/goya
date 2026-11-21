@@ -1879,13 +1879,36 @@ fn read_required_scene(invocation: &Invocation) -> Result<String, Fault> {
             "scene exceeds the admission bound",
         ));
     }
-    fs::read_to_string(path).map_err(|error| {
+    // Bound the bytes actually read as well as the earlier metadata check.
+    // The file can grow between metadata() and read_to_string(); taking at
+    // most limit + 1 lets us detect that race without allocating an
+    // unbounded buffer for compiler input.
+    let limit = sash::admit::MAX_SOURCE_BYTES as u64;
+    let file = fs::File::open(path).map_err(|error| {
         Fault::new(
             1,
             "EMP-PATH",
             format!("could not read {}: {error}", path.display()),
         )
-    })
+    })?;
+    let mut source = String::new();
+    file.take(limit + 1)
+        .read_to_string(&mut source)
+        .map_err(|error| {
+            Fault::new(
+                1,
+                "EMP-PATH",
+                format!("could not read {}: {error}", path.display()),
+            )
+        })?;
+    if source.len() as u64 > limit {
+        return Err(Fault::new(
+            1,
+            "SASH-PARSE",
+            "scene exceeds the admission bound",
+        ));
+    }
+    Ok(source)
 }
 
 fn reject_traversal(path: &Path) -> Result<(), Fault> {

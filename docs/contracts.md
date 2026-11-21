@@ -380,8 +380,14 @@ canonical IR work.
 ## GSSH/1, GSSH/2 and GSSH/3 — Shared semantic handoff (`crates/goya-lang`)
 
 Status: GSSH/1 Candidate (in use by Sash, Emperor, goya-parity and the Aragon
-previews); GSSH/2 Candidate, 2026-11-17; GSSH/3 Candidate, 2026-11-18 (used
-by the Aragon scene compiler). GSSH/2 and GSSH/3 await architecture approval.
+previews); **GSSH/2 Approved** by the project owner, 2026-11-21 (Candidate
+from 2026-11-17), including decisions D3 (`@input` `text:` is initial
+content; display bindings still open) and D8 (durable record); GSSH/3
+Candidate, 2026-11-18 (used by the Aragon scene compiler and Maja), still
+awaiting approval. **GSSH/3-live** (`handoff::admit_v3_live`), 2026-11-21: GSSH/3 plus
+`text-from` display bindings, approved as decision D9 with ecosystem-wide
+wrapping and announcement rules (reference: `goya_lang::display_binding`);
+Candidate only because GSSH/3 is. Used by Maja's `maja.web.local.v3`.
 Specification: [`docs/gssh/GSSH-2.md`](gssh/GSSH-2.md); decisions:
 [`docs/gssh/decisions.md`](gssh/decisions.md).
 

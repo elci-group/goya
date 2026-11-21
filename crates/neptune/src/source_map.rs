@@ -1,5 +1,4 @@
 //! Mapping a generated Swift UTF-8 location back to verified source bytes.
-//! Extended with Android Kotlin target support for Phase 1 source map implementation.
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -10,9 +9,6 @@ use std::path::Path;
 struct Map {
     schema_version: String,
     mappings: Vec<Mapping>,
-    // Kotlin mappings are optional for backward compatibility
-    #[serde(default)]
-    kotlin_mappings: Option<Vec<KotlinMapping>>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -20,13 +16,6 @@ struct Mapping {
     semantic_id: Identity,
     source: Span,
     swift: Span,
-}
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct KotlinMapping {
-    semantic_id: Identity,
-    source: Span,
-    kotlin: Span,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -42,14 +31,6 @@ struct Span {
 }
 
 fn valid_span(text: &str, span: &Span) -> bool {
-    span.start_byte < span.end_byte
-        && span.end_byte <= text.len()
-        && text.is_char_boundary(span.start_byte)
-        && text.is_char_boundary(span.end_byte)
-}
-
-/// Android Kotlin-specific validation for source spans and boundaries.
-fn valid_kotlin_span(text: &str, span: &Span) -> bool {
     span.start_byte < span.end_byte
         && span.end_byte <= text.len()
         && text.is_char_boundary(span.start_byte)
@@ -106,72 +87,6 @@ pub fn map_swift_location(
     map_verified_location(&preview, source, line, column)
 }
 
-/// Map a location in an already checked preview for Android Kotlin.
-/// Results identify all matching Kotlin mappings; no match is valid and remains explicitly unmapped.
-/// A matching hash proves consistency with the report, not authenticity.
-pub fn map_kotlin_location(
-    preview: &crate::artifacts::VerifiedPreview,
-    source: &str,
-    kotlin_source: &str,
-    line: usize,
-    column: usize,
-) -> Result<Value, String> {
-    if source.len() > crate::MAX_SOURCE_BYTES {
-        return Err("Kotlin source exceeds 128 KiB".into());
-    }
-    let actual = format!("{:x}", Sha256::digest(source.as_bytes()));
-    if actual != preview.input_sha256 {
-        return Err("Kotlin source hash does not match preview report".into());
-    }
-    let map: Map = serde_json::from_slice(
-        preview
-            .artifacts
-            .get("source-map.json")
-            .ok_or("missing source map")?,
-    )
-    .map_err(|e| format!("invalid source map: {e}"))?;
-    if map.schema_version != "2" || map.mappings.len() > 4096 {
-        return Err("unsupported source map schema or mapping count".into());
-    }
-    let offset = byte_offset(kotlin_source, line, column)?;
-    let mut matches = Vec::new();
-
-    // Process Swift mappings (for backward compatibility)
-    for item in map.mappings {
-        crate::validate_module(&item.semantic_id.module).map_err(|e| e.message)?;
-        if item.semantic_id.declared_id.is_empty()
-            || !valid_span(source, &item.source)
-            || !valid_span(kotlin_source, &item.swift)
-        {
-            return Err("invalid source map identity or range".into());
-        }
-        if item.swift.start_byte <= offset && offset < item.swift.end_byte {
-            let (source_line, source_column) = line_column(source, item.source.start_byte);
-            matches.push(json!({"semantic_id":{"module":item.semantic_id.module,"declared_id":item.semantic_id.declared_id}, "source_range":{"start_byte":item.source.start_byte,"end_byte":item.source.end_byte}, "swift_start":{"line":source_line,"column_utf8_byte":source_column}}));
-        }
-    }
-
-    // Process Kotlin mappings (Phase 1 Android support)
-    if let Some(kotlin_items) = &map.kotlin_mappings {
-        for item in kotlin_items {
-            crate::validate_module(&item.semantic_id.module).map_err(|e| e.message)?;
-            if item.semantic_id.declared_id.is_empty()
-                || !valid_kotlin_span(source, &item.source)
-                || !valid_kotlin_span(kotlin_source, &item.kotlin)
-            {
-                return Err("invalid Android Kotlin source map identity or range".into());
-            }
-            if item.kotlin.start_byte <= offset && offset < item.kotlin.end_byte {
-                let (source_line, source_column) = line_column(source, item.source.start_byte);
-                matches.push(json!({"semantic_id":{"module":item.semantic_id.module,"declared_id":item.semantic_id.declared_id}, "source_range":{"start_byte":item.source.start_byte,"end_byte":item.source.end_byte}, "kotlin_start":{"line":source_line,"column_utf8_byte":source_column}}));
-            }
-        }
-    }
-    Ok(
-        json!({"schema_version":"1", "status":if matches.is_empty() {"UNMAPPED"} else {"MAPPED"}, "kotlin_location":{"line":line,"column_utf8_byte":column,"byte_offset":offset}, "mappings":matches, "verification":{"artifact_integrity":"PASS","source_hash":"PASS","authenticity":"NOT_CHECKED","apple_validation":"NOT_RUN"}}),
-    )
-}
-
 /// Map a location in an already checked preview, including an inline bundle.
 pub fn map_verified_location(
     preview: &crate::artifacts::VerifiedPreview,
@@ -204,11 +119,9 @@ pub fn map_verified_location(
         return Err("unsupported source map schema or mapping count".into());
     }
 
-    // Phase 1: Support both Swift and Kotlin mappings in schema v2.
     let offset = byte_offset(swift, line, column)?;
     let mut matches = Vec::new();
 
-    // Process Swift mappings (original functionality)
     for item in map.mappings {
         crate::validate_module(&item.semantic_id.module).map_err(|e| e.message)?;
         if item.semantic_id.declared_id.is_empty()
@@ -223,24 +136,6 @@ pub fn map_verified_location(
         }
     }
 
-    // Process Kotlin mappings (Phase 1 Android support)
-    // Kotlin source would be in a separate .kt file - for now we just validate structure
-    let kotlin = ""; // Placeholder for Kotlin source - would be loaded from artifacts
-    if let Some(kotlin_items) = &map.kotlin_mappings {
-        for item in kotlin_items {
-            crate::validate_module(&item.semantic_id.module).map_err(|e| e.message)?;
-            if item.semantic_id.declared_id.is_empty()
-                || !valid_kotlin_span(source, &item.source)
-                || !valid_kotlin_span(kotlin, &item.kotlin)
-            {
-                return Err("invalid Android Kotlin source map identity or range".into());
-            }
-            if item.kotlin.start_byte <= offset && offset < item.kotlin.end_byte {
-                let (source_line, source_column) = line_column(source, item.source.start_byte);
-                matches.push(json!({"semantic_id":{"module":item.semantic_id.module,"declared_id":item.semantic_id.declared_id}, "source_range":{"start_byte":item.source.start_byte,"end_byte":item.source.end_byte}, "kotlin_start":{"line":source_line,"column_utf8_byte":source_column}}));
-            }
-        }
-    }
     Ok(
         json!({"schema_version":"1", "status":if matches.is_empty() {"UNMAPPED"} else {"MAPPED"}, "swift_location":{"line":line,"column_utf8_byte":column,"byte_offset":offset}, "mappings":matches, "verification":{"artifact_integrity":"PASS","source_hash":"PASS","authenticity":"NOT_CHECKED","apple_validation":"NOT_RUN"}}),
     )

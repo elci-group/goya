@@ -21,4 +21,43 @@ Snapshot: Goya `38c2f6132ef532e5b9b58b6a017e1f03cc1b3f5a`, Frampton `fcce0274fd7
 | M0-05 | Partially addressed: a generated counter ran in headless Chrome 157 and Firefox 150 against canonical D1 expectations (`tests/maja/browsers/maja_browser.py`). **Open**: harness is not independent, keyboard activation unverified in Firefox, no assistive technology, and inputs have no accessible name (new entry M3-01). |
 | M3-01 / F / accessibility / blocker | `@input` elements have no accessible name in `maja.web.local.v2` output; reproduce with `maja_browser.py chrome counter` (reports the textbox name). Expected a programmatic name for every control; actual empty. GSSH/2 has no label construct and Maja must not invent one. Remedy: a label or accessible-name construct in a later GSSH profile, then emit it. |
 
+## Status update, 21 November 2026
+
+| ID | Status |
+|---|---|
+| M4-01 / A + integration / durable storage format / high | `maja.web.local.v2` now admits `@state … durable` and stores it in `localStorage` under a Maja-chosen record (`goya.state.v1/<ontology>`, see [interactive profile](interactive-profile.md#durable-state)). Reproduce with `maja_browser.py chrome durable` on a build of `tests/maja/fixtures/durable-counter.gscene`. Expected: a record format shared by every GSSH/2 target; actual: GSSH/2 defines semantics only, and Aragon still refuses `durable` (ARG-G07). Remedy: record the format (or a per-target freedom) in the contract when GSSH/2 is approved. **Open.** |
+| M4-02 / F / durable multi-tab / medium | Two tabs of one durable app keep separate in-memory state; the last writer wins and the other tab's next commit overwrites it. Expected: a decided policy (reload on `storage` event, refuse, or document); actual: undecided and untested. **Open.** |
+
+Later the same day the project owner approved the record format and chose
+refuse-on-conflict for concurrent writers ([decision
+D8](../gssh/decisions.md#d8--durable-record-format-and-concurrent-writers)):
+
+| ID | Status |
+|---|---|
+| M4-01 | **Closed for Maja** by D8; stays open for Aragon, which must adopt the same record (ARG-G07). |
+| M4-02 | **Closed**: the second writer gets `STORAGE_CONFLICT` and nothing is written (Node test, plus `maja_browser.py BROWSER durable` with the other window's write made from DevTools). Residual: no lock between the re-read and the write; a second real tab is not tested. |
+
+GSSH/2 approval, same day:
+
+| ID | Status |
+|---|---|
+| M0-02 | Contract approval **done** (GSSH/2 Approved; D3 `text:` = initial content, implemented in Maja). **Open** only for display bindings (D3). |
+| M3-02 / A / GY-IR divergence / medium | `goya_lang::lowering` and `goya_sdk::Project::input_nodes` still present `@input` `text:` as a placeholder, contrary to D3. Not GSSH/2 consumers, so Maja is unaffected; remedy in their next contract revision. **Open.** |
+
+Display bindings, same day ([decision D9](../gssh/decisions.md#d9--display-bindings-text-from-gssh3-live), proposed):
+
+| ID | Status |
+|---|---|
+| M0-02 | Display bindings implemented as `text-from` in `maja.web.local.v3` (GSSH/3-live), passing in Chrome and Firefox. **Open** until D9 is approved and the Arachnid proposal is merged. |
+| M4-03 / A + integration / shown-value wrapping / medium | Arachnid wraps `text-from` values (`pre-wrap`); Maja does not and refuses `text-from` with `wrap`. Expected: one rule in the contract. **Open** (D9 b). |
+| M4-04 / F / announcements / medium | Changed values are not announced to assistive technology. Expected: a decided rule (live region or none). **Open** (D9 c). |
+
+D9 approved, same day, with wrapping and announcement rules for every target:
+
+| ID | Status |
+|---|---|
+| M0-02 | **Closed** for Maja: display bindings approved (D9) and implemented in `maja.web.local.v3`. |
+| M4-03 | **Closed**: Arachnid's `pre-wrap` is the rule for all targets; Maja follows it and admits `text-from` with `wrap`. |
+| M4-04 | **Closed for Maja**: polite announcements of what changed and how, worded by `goya_lang::display_binding` (Node differential and both browsers). Speech by a real screen reader is not verified. Arachnid must add announcements before its live profile merges (D9 compliance table). |
+
 Every future failure adds source revision, exact command, expected and actual result, owner, severity, remediation, verification and status. A passing document check does not close an implementation or release blocker.

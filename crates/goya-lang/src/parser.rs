@@ -145,6 +145,8 @@ impl fmt::Display for StrictParseError {
             "GY-E1009" => "absolute length in a proportional profile",
             "GY-E1010" => "intent declaration requires intent admission",
             "GY-E1011" => "invalid intent declaration",
+            "GY-E1012" => "live binding requires GSSH/3 live admission",
+            "GY-E1013" => "invalid live binding",
             _ => "strict parsing failed",
         };
         write!(f, "{}: {} '{}'", self.code, description, self.name)
@@ -231,6 +233,7 @@ pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
         && root.authored_id.is_none()
         && root.wrap.is_none()
         && root.gestures.is_none()
+        && root.text_from.is_none()
         && !root.scroll
         && !root.is_input;
     if collapse_root {
@@ -348,7 +351,15 @@ enum Profile {
     Gssh1,
     Gssh2,
     Gssh3,
+    /// GSSH/3 plus live bindings. Proposed; admitted only by consumers that
+    /// render state. This branch carries only `text-from` from the
+    /// Arachnid proposal (`image-from`, `present-when`, `host` state and
+    /// `@link` are not here yet and stay unknown).
+    Gssh3Live,
 }
+
+/// Properties only GSSH/3 live admission accepts.
+const LIVE_PROPERTIES: &[&str] = &["text_from"];
 
 /// Length properties GSSH/3 requires to be proportional, by canonical name,
 /// with their proportional replacement.
@@ -366,6 +377,26 @@ const ABSOLUTE_LENGTHS: &[(&str, &str)] = &[
 pub fn parse_strict_gssh3(source: &str) -> Result<ParsedScene, StrictParseError> {
     let parsed = strict(source, Profile::Gssh3)?;
     validate_declarations(&parsed)?;
+    reject_absolute_lengths(&parsed)?;
+    Ok(parsed)
+}
+
+/// Strict GSSH/3 live admission (proposed): everything
+/// [`parse_strict_gssh3`] admits and checks, plus live bindings.
+///
+/// * `text-from: state.key;` shows a declared key's value as text.
+///
+/// A declared key counts as used when an interaction or a binding uses it.
+/// Errors: `GY-E1013` for an invalid binding, `GY-E1008` for state misuse.
+pub fn parse_strict_gssh3_live(source: &str) -> Result<ParsedScene, StrictParseError> {
+    let parsed = strict(source, Profile::Gssh3Live)?;
+    validate_live(&parsed)?;
+    validate_declarations_with(&parsed, true)?;
+    reject_absolute_lengths(&parsed)?;
+    Ok(parsed)
+}
+
+fn reject_absolute_lengths(parsed: &ParsedScene) -> Result<(), StrictParseError> {
     if let Some((entry, replacement)) = parsed.entries.iter().find_map(|entry| {
         let canonical = entry.name.replace('-', "_");
         (entry.kind == "property")
@@ -379,7 +410,67 @@ pub fn parse_strict_gssh3(source: &str) -> Result<ParsedScene, StrictParseError>
             range: entry.range,
         });
     }
-    Ok(parsed)
+    Ok(())
+}
+
+/// Every live binding names a declared key.
+fn validate_live(parsed: &ParsedScene) -> Result<(), StrictParseError> {
+    let empty = Vec::new();
+    let decls = parsed
+        .declarations
+        .state
+        .as_ref()
+        .map_or(&empty, |(decls, _)| decls);
+    let property_range = |path: &[usize], name: &str| {
+        parsed
+            .entries
+            .iter()
+            .find(|e| {
+                e.kind == "property"
+                    && e.name.replace('-', "_") == name
+                    && e.scene_path.as_deref() == Some(path)
+            })
+            .map_or(SourceRange { start: 0, end: 0 }, |e| e.range)
+    };
+    type Visit<'v> = dyn FnMut(&SceneCell, &[usize]) -> Result<(), StrictParseError> + 'v;
+    fn walk(
+        cell: &SceneCell,
+        path: &mut Vec<usize>,
+        f: &mut Visit<'_>,
+    ) -> Result<(), StrictParseError> {
+        f(cell, path)?;
+        for (i, child) in cell.children.iter().enumerate() {
+            path.push(i);
+            walk(child, path, f)?;
+            path.pop();
+        }
+        Ok(())
+    }
+    let bad = |message: String, range: SourceRange| StrictParseError {
+        code: "GY-E1013",
+        name: message,
+        range,
+    };
+    let mut check = |cell: &SceneCell, path: &[usize]| -> Result<(), StrictParseError> {
+        if let Some(key) = &cell.text_from {
+            if !decls.iter().any(|d| &d.key == key) {
+                return Err(bad(
+                    format!("text-from names undeclared state '{key}'"),
+                    property_range(path, "text_from"),
+                ));
+            }
+        }
+        Ok(())
+    };
+    walk(&parsed.scene.root, &mut Vec::new(), &mut check)
+}
+
+/// Keys named by live bindings anywhere in the tree.
+fn live_keys(cell: &SceneCell, out: &mut std::collections::BTreeSet<String>) {
+    out.extend(cell.text_from.iter().cloned());
+    for child in &cell.children {
+        live_keys(child, out);
+    }
 }
 
 /// Strict GSSH/2 admission: everything [`parse_strict`] admits and checks,
@@ -406,6 +497,12 @@ fn strict(source: &str, profile: Profile) -> Result<ParsedScene, StrictParseErro
             "property" if !is_known_property(&entry.name) => Some("GY-E1001"),
             "template" => Some("GY-E1002"),
             "state" | "binding" if profile == Profile::Gssh1 => Some("GY-E1006"),
+            "property"
+                if profile < Profile::Gssh3Live
+                    && LIVE_PROPERTIES.contains(&entry.name.replace('-', "_").as_str()) =>
+            {
+                Some("GY-E1012")
+            }
             // Intent declarations are Quitasol phase-0 experimental surface.
             // No strict GSSH consumer implements them, so none may admit one.
             "intent" => Some("GY-E1010"),
@@ -459,6 +556,7 @@ fn strict(source: &str, profile: Profile) -> Result<ParsedScene, StrictParseErro
         && root.anchor.is_none()
         && root.wrap.is_none()
         && root.gestures.is_none()
+        && root.text_from.is_none()
         && !root.scroll
         && !root.is_input
         && root.children.len() > 1;
@@ -557,7 +655,15 @@ fn declaration_error(code: &'static str, name: String, range: SourceRange) -> St
 }
 
 fn validate_declarations(parsed: &ParsedScene) -> Result<(), StrictParseError> {
+    validate_declarations_with(parsed, false)
+}
+
+fn validate_declarations_with(parsed: &ParsedScene, live: bool) -> Result<(), StrictParseError> {
     let scene = &parsed.scene;
+    let mut bound = std::collections::BTreeSet::new();
+    if live {
+        live_keys(&scene.root, &mut bound);
+    }
     let declared = &parsed.declarations;
     let key_range = |uses: &[KeyUse], interaction: &str, key: &str| {
         uses.iter()
@@ -680,7 +786,7 @@ fn validate_declarations(parsed: &ParsedScene) -> Result<(), StrictParseError> {
     }
     if let Some(decl) = decls
         .iter()
-        .find(|decl| !used.contains_key(decl.key.as_str()))
+        .find(|decl| !used.contains_key(decl.key.as_str()) && !bound.contains(&decl.key))
     {
         return Err(declaration_error(
             "GY-E1008",
@@ -735,6 +841,8 @@ fn is_known_property(name: &str) -> bool {
             | "text-anchor"
             | "text_anchor"
             | "id"
+            | "text-from"
+            | "text_from"
     )
 }
 
@@ -915,6 +1023,7 @@ impl P {
             wrap: None,
             scroll: false,
             gestures: None,
+            text_from: None,
             children: Vec::new(),
             placeholder: None,
             max_length: None,
@@ -1664,6 +1773,7 @@ impl P {
                 });
             }
             "placeholder" => cell.placeholder = Some(self.expect(TokenKind::Str)?.text),
+            "text-from" | "text_from" => cell.text_from = Some(self.parse_state_ref()?),
             "max-length" | "max_length" => {
                 let text = match self.peek() {
                     Some(token) if token.kind == TokenKind::Number => {
@@ -1688,6 +1798,14 @@ impl P {
             self.bump();
         }
         Ok(())
+    }
+
+    fn parse_state_ref(&mut self) -> Result<String, ParseError> {
+        if self.expect_ident()? != "state" {
+            return Err(self.err_prev());
+        }
+        self.expect(TokenKind::Dot)?;
+        self.expect_ident()
     }
 
     fn parse_vec3(&mut self) -> Result<Vec3, ParseError> {

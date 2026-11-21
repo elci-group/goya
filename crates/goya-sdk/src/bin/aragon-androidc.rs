@@ -46,13 +46,16 @@ fn main() {
             );
             process::exit(1);
         });
-    generated
-        .write_all(kotlin.as_bytes())
-        .unwrap_or_else(|error| {
-            eprintln!(
-                "could not write Kotlin {}: {error}",
-                output.to_string_lossy()
-            );
-            process::exit(1);
-        });
+    if let Err(error) = generated.write_all(kotlin.as_bytes()) {
+        // The output was created exclusively by this invocation. Remove a
+        // partial artifact so a failed compile cannot be mistaken for valid
+        // generated Kotlin on a later build.
+        drop(generated);
+        let _ = fs::remove_file(output);
+        eprintln!(
+            "could not write Kotlin {}: {error}",
+            output.to_string_lossy()
+        );
+        process::exit(1);
+    }
 }

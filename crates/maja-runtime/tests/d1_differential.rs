@@ -582,6 +582,18 @@ for (const bad of [
   () => createRuntime(init(), 18446744073709551616n),
   () => createRuntime({}),
 ]) { try { bad(); out.push("accepted"); } catch (e) { out.push(e.message); } }
+// beforeCommit: sees writes, can refuse, cannot re-enter.
+const h = createRuntime(init());
+let seen = null;
+out.push(h.dispatch("action.add", new Map([["amount", intValue(2n)]]), (w) => { seen = [...w].map(([k, v]) => `${k}=${v.value}`).join(","); return false; }).code);
+out.push(`${seen}:${h.revision}:${h.get("count").value}`);
+out.push(h.dispatch("action.add", new Map([["amount", intValue(2n)]]), () => { throw new Error("quota"); }).code);
+out.push(h.dispatch("action.add", new Map([["amount", intValue(2n)]]), () => "STORAGE_CONFLICT").code);
+out.push(h.dispatch("action.add", new Map([["amount", intValue(2n)]]), () => "ARITHMETIC_OVERFLOW").code);
+out.push(h.dispatch("action.add", new Map([["amount", intValue(2n)]]), () => 1).code);
+out.push(h.dispatch("action.add", new Map([["amount", intValue(2n)]]), () => h.dispatch("action.raise", new Map()).code === "REENTRANT_DISPATCH").ok);
+out.push(`${h.revision}:${h.get("count").value}:${h.get("flag").value}`);
+out.push(h.dispatch("action.add", new Map([["amount", intValue(9223372036854775807n)]]), () => { throw new Error("must not be called"); }).code);
 process.stdout.write(out.join("\n") + "\n");
 "#;
     let dir = std::env::temp_dir().join(format!("maja-d1-js-{}", std::process::id()));
@@ -624,6 +636,15 @@ process.stdout.write(out.join("\n") + "\n");
             "REVISION_OVERFLOW",
             "REVISION_OVERFLOW",
             "STATE_SCHEMA",
+            "STORAGE_FAILED",
+            "count=2:0:0",
+            "STORAGE_FAILED",
+            "STORAGE_CONFLICT",
+            "STORAGE_FAILED",
+            "STORAGE_FAILED",
+            "true",
+            "1:2:false",
+            "ARITHMETIC_OVERFLOW",
         ]
     );
 }

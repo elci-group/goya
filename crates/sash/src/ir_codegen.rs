@@ -2861,7 +2861,7 @@ mod tests {
         );
         assert_eq!(
             generated.source_map["generated_digest"],
-            "439217fbfb0d46ba663d8908342c034af69c2de1a15dbd088e51933e80f5c7d1"
+            "1a536096244d7a295ddc172bfaa59b0ac89be8b084451e69bc0b9b4dbec5ae3f"
         );
         // The interactive legacy adapter keeps the full interactive behavior
         // minus per-monitor DPI.

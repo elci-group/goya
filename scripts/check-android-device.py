@@ -59,6 +59,18 @@ BUILD_TOOLS = os.path.join(SDK, "build-tools", "34.0.0")
 CHILD_ENV = dict(os.environ, PATH=os.path.join(JAVA_HOME, "bin") + os.pathsep + os.environ["PATH"])
 
 
+def require_tools():
+    """Fail as an environment issue before touching a connected device."""
+    required = (ADB, os.path.join(BUILD_TOOLS, "zipalign"), os.path.join(BUILD_TOOLS, "apksigner"))
+    missing = [path for path in required if not os.path.isfile(path) or not os.access(path, os.X_OK)]
+    if missing:
+        print("environment: missing executable Android tools: " + ", ".join(missing), file=sys.stderr)
+        sys.exit(2)
+
+
+require_tools()
+
+
 def run(args, timeout=600, check=True, **kwargs):
     result = subprocess.run(args, capture_output=True, text=True, timeout=timeout, env=CHILD_ENV, **kwargs)
     if check and result.returncode != 0:

@@ -1,8 +1,9 @@
 # GSSH/2 — Goya shared semantic handoff
 
-Contract identifier: `GSSH/2`. Status: **Candidate**, 17 November 2026.
-Architecture approval is required before a target may cite it as a frozen
-contract (`docs/contracts.md`). Decisions and their rationale are in
+Contract identifier: `GSSH/2`. Status: **Approved** by the project owner,
+21 November 2026 (Candidate from 17 November). Targets may cite it as a
+frozen contract (`docs/contracts.md`); changes need a new profile or a
+recorded decision. GSSH/3 below is still a Candidate. Decisions and their rationale are in
 [`decisions.md`](decisions.md). Implementation: `crates/goya-lang`
 (`parse_strict_gssh2`, `handoff::admit_v2`); conformance corpus:
 `crates/goya-lang/tests/strict_corpus.rs` and `tests/corpus/`.
@@ -150,6 +151,13 @@ evaluators are the canonical D1 compiler/executor and
    Storage namespace is (ontology name, state key). Commit ordering between
    the visible revision and the durable write is a target lifecycle obligation
    (Aragon gate ARG-G07); GSSH/2 does not define migrations (see decision D4).
+   The record format and the concurrent-writer rule are fixed by
+   [decision D8](decisions.md#d8--durable-record-format-and-concurrent-writers).
+5. **Field content.** An `@input`'s `text:` is the field's initial content
+   at every start, never a placeholder (decision D3). It is not state: it is
+   not restored, and edits are lost when the application restarts. A target
+   that cannot show it exactly (for example, line breaks in a single-line
+   field) refuses the scene.
 
 ## GSSH/3 — proportional lengths
 
@@ -173,6 +181,32 @@ stroke-width-p: <number>;  // fraction of the element's shorter side, [0, 0.5]
   `DrawNode::stroke_width_mp`.
 * `SemanticHandoffV2::contract()` returns `"GSSH/3"` for a handoff admitted
   by `admit_v3`.
+
+## GSSH/3-live — display bindings
+
+Candidate, 21 November 2026; its construct is approved
+([decision D9](decisions.md#d9--display-bindings-text-from-gssh3-live)).
+Entry points `parse_strict_gssh3_live` and `handoff::admit_v3_live`;
+`contract()` returns `"GSSH/3-live"`. Everything in GSSH/3 applies, plus:
+
+```text
+text-from: state.<key>;   // show a declared key's value after the element's text
+```
+
+Every earlier profile refuses `text-from` with `GY-E1012`; an undeclared key
+is `GY-E1013`. Values are shown as canonical decimal (`int`), verbatim
+(`text`) or `true`/`false` (`bool`), always the committed state. The other
+constructs of the Arachnid live proposal are not part of this branch.
+
+Normative for every target that admits GSSH/3-live:
+
+* The element's authored text and value wrap with `white-space: pre-wrap`
+  semantics (spaces and line breaks kept, lines broken at the element's
+  edge, overflow clipped).
+* Each committed transition that changes shown values is announced once,
+  politely, to assistive technology, describing what changed and how (not
+  how it looks), exactly as `goya_lang::display_binding::announcement`
+  words it. Start, restore and failed transitions are not announced.
 
 ## Not in GSSH/2
 

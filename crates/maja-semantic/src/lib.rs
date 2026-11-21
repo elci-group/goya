@@ -4,6 +4,7 @@
 mod interactive;
 pub use interactive::{
     admit_local_interactive, InteractiveWebIr, WebCell, WebCellKind, INTERACTIVE_PROFILE,
+    LIVE_PROFILE,
 };
 
 use goya_lang::{handoff, SemanticHandoff, SourceRange, StrictParseError};

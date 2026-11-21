@@ -54,3 +54,26 @@ maja-semantic -p maja-runtime -p maja-frampton` (36 tests) and clippy with
 suites and the host differential in `tests/maja/differential` passed;
 `maja_browser.py` (counter and scroll) passed in both browsers as described in the
 [profile document](interactive-profile.md#verification).
+
+## Status, 21 November 2026
+
+The project owner approved GSSH/2 and decided D3's `text:` question
+(initial content) and the durable record (D8). In Maja, durable state and
+`@input` initial content are implemented and pass in Chrome 157 and
+Firefox 150 ([profile document](interactive-profile.md#verification)).
+The **contract approval** blocker above is cleared: M2's "approved binding
+and initial-state semantics" now exist.
+
+M2 is still **not complete**. What remains:
+
+* **Display bindings**: implemented the same day as `text-from` in the
+  experimental `maja.web.local.v3`, adopted from the Arachnid live proposal
+  and **approved** as decision D9, with Arachnid-style wrapping and
+  change announcements required of every target.
+* **Work-package evidence** for gate M2: keyboard activation in Firefox
+  and IME composition (D1); a lifecycle contract for startup, disposal and
+  denied effects (E1; durable state now covers reload); and **independent
+  qualification** (G1), because the harness and differentials were written
+  alongside the implementation.
+* GSSH/3, which Maja admits through, is still a Candidate.
+* Accessibility (M3-01, no accessible name) still blocks M4.

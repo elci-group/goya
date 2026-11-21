@@ -93,7 +93,11 @@ pub fn lower_static_window(
 
     IrDocument {
         version: IR_VERSION.to_string(),
-        profile: crate::admit::PROFILE.to_string(),
+        profile: if floor.is_legacy() {
+            crate::admit::PROFILE_LEGACY.to_string()
+        } else {
+            crate::admit::PROFILE.to_string()
+        },
         window,
         controls,
         transition: None,
@@ -213,7 +217,16 @@ pub fn lower_interactive_window(
 
     IrDocument {
         version: IR_VERSION.to_string(),
-        profile: admitted.profile.to_string(),
+        profile: if floor.is_legacy() {
+            // For the win8 floor, the profile is the legacy interactive profile
+            if admitted.profile == crate::interactive::PROFILE_CLIPBOARD {
+                "sash.win32.interactive-clipboard-legacy/0.0.1"
+            } else {
+                "sash.win32.interactive-legacy/0.0.1"
+            }.to_string()
+        } else {
+            admitted.profile.to_string()
+        },
         window,
         controls,
         transition,

@@ -700,6 +700,7 @@ mod tests {
             wrap: None,
             scroll: false,
             gestures: None,
+            text_from: None,
             children: Vec::new(),
             placeholder: None,
             max_length: None,

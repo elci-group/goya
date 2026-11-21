@@ -670,8 +670,7 @@ fn fresh_output(path: &Path) -> Result<PathBuf, Diagnostic> {
     }
     let name = path.file_name().unwrap();
     let name_text = name.to_string_lossy();
-    const RESERVED: &[&str] = &["con", "prn", "aux", "nul", "com1", "com2", "lpt1", "lpt2"];
-    if RESERVED.contains(&name_text.to_ascii_lowercase().as_str()) {
+    if is_reserved_windows_device_name(&name_text) {
         return Err(Diagnostic::new(
             "SASH-DEPLOY",
             "cli",
@@ -701,6 +700,26 @@ fn fresh_output(path: &Path) -> Result<PathBuf, Diagnostic> {
         ));
     }
     Ok(full)
+}
+
+/// Windows reserves device names even when they have an extension or are
+/// followed by dots/spaces. Check the base name so the same output path is
+/// refused on Linux cross-builds and native Windows builds.
+fn is_reserved_windows_device_name(name: &str) -> bool {
+    let normalized = name.trim_end_matches(['.', ' ']);
+    let base = normalized.split('.').next().unwrap_or_default();
+    let base = base.to_ascii_lowercase();
+    matches!(
+        base.as_str(),
+        "con" | "prn" | "aux" | "nul" | "conin$" | "conout$"
+    ) || ["com", "lpt"].iter().any(|prefix| {
+        base.strip_prefix(prefix).is_some_and(|suffix| {
+            matches!(
+                suffix,
+                "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
+            )
+        })
+    })
 }
 
 fn path_is_hostile(path: &Path) -> bool {

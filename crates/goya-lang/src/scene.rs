@@ -72,6 +72,9 @@ pub struct SceneCell {
     /// Element clipboard decisions. `None` means the element authors no policy.
     /// This is not the experimental scope resolver in [`crate::gestures`].
     pub gestures: Option<GesturePolicy>,
+    /// `text-from: state.key;` shows the current value of a declared state
+    /// key as the element's text (GSSH/3 live admission only).
+    pub text_from: Option<String>,
     pub children: Vec<SceneCell>,
 }
 

@@ -596,13 +596,15 @@ where
         p != maja_semantic::WEB_PROFILE
             && p != maja_semantic::LOCAL_PROFILE
             && p != maja_semantic::INTERACTIVE_PROFILE
+            && p != maja_semantic::LIVE_PROFILE
     }) {
         let _ = writeln!(err, "MAJA-CLI-E0003: unknown profile");
         return 4;
     }
     if release
         && (profile == Some(maja_semantic::LOCAL_PROFILE)
-            || profile == Some(maja_semantic::INTERACTIVE_PROFILE))
+            || profile == Some(maja_semantic::INTERACTIVE_PROFILE)
+            || profile == Some(maja_semantic::LIVE_PROFILE))
     {
         let _ = writeln!(
             err,
@@ -617,25 +619,28 @@ where
             return 3;
         }
     };
-    if profile == Some(maja_semantic::INTERACTIVE_PROFILE) {
-        return interactive_source(&source, command, output, out, err);
+    if let Some(p) = profile
+        .filter(|p| *p == maja_semantic::INTERACTIVE_PROFILE || *p == maja_semantic::LIVE_PROFILE)
+    {
+        return interactive_source(&source, p, command, output, out, err);
     }
     inspect_source(&source, command, profile, output, out, err)
 }
 
-/// Check or build under the experimental interactive profile (GSSH/3).
+/// Check or build under an experimental interactive profile
+/// (`maja.web.local.v2` on GSSH/3, `maja.web.local.v3` on GSSH/3-live).
 fn interactive_source(
     source: &str,
+    profile: &str,
     command: &str,
     output: Option<&std::ffi::OsStr>,
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> i32 {
-    let ir =
-        match maja_semantic::admit_local_interactive(source, maja_semantic::INTERACTIVE_PROFILE) {
-            Ok(ir) => ir,
-            Err(diagnostic) => return reject(err, &diagnostic),
-        };
+    let ir = match maja_semantic::admit_local_interactive(source, profile) {
+        Ok(ir) => ir,
+        Err(diagnostic) => return reject(err, &diagnostic),
+    };
     // Generate before reporting success so runtime refusals surface on check.
     let package = match interactive_pack::generate(&ir) {
         Ok(package) => package,

@@ -265,6 +265,14 @@ pub(crate) fn open_admitted(nir_json: &str) -> Result<(NativeIr, KeyController),
     if ir.profile != PROFILE {
         return Err(format!("profile {} is not {PROFILE}", ir.profile));
     }
+    if ir.source_digest_sha256.len() != 64
+        || !ir
+            .source_digest_sha256
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+    {
+        return Err("source_digest_sha256 must be 64 lowercase hexadecimal characters".into());
+    }
     if ir.capabilities.filesystem != "none" {
         return Err(format!(
             "filesystem {} is not admitted for this profile",
@@ -505,7 +513,8 @@ mod tests {
         NativeIr {
             schema: SCHEMA.to_owned(),
             profile: PROFILE.to_owned(),
-            source_digest_sha256: "test".to_owned(),
+            source_digest_sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+                .to_owned(),
             scene: SCENE.to_owned(),
             action_id: "action.add".to_owned(),
             state_id: "count".to_owned(),
@@ -752,7 +761,7 @@ mod tests {
             nir_json: json,
             schema: SCHEMA,
             profile: PROFILE,
-            source_digest_sha256: "test",
+            source_digest_sha256: "0000000000000000000000000000000000000000000000000000000000000000",
             scene: SCENE,
             action_id: "action.add",
             state_id: "count",

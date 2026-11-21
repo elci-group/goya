@@ -16,6 +16,10 @@
 //! 5. The next touched snapshot is re-validated (`TEXT_LIMIT`,
 //!    `SNAPSHOT_LIMIT`).
 //! 6. The revision is checked last (`REVISION_OVERFLOW`).
+//! 7. An optional host `beforeCommit` hook sees the written values and may
+//!    refuse the commit (`STORAGE_FAILED`, or `STORAGE_CONFLICT` when the
+//!    hook reports one), so durable writes can precede the visible
+//!    revision. This step has no canonical counterpart.
 //!
 //! Every failure leaves state and revision unchanged. The module has no
 //! imports, timers, storage, network access or `eval`, and dispatch is
@@ -283,7 +287,7 @@ const MAX_REGISTER_BYTES = 1048576;
 const I64_MIN = -9223372036854775808n;
 const I64_MAX = 9223372036854775807n;
 const U64_MAX = 18446744073709551615n;
-export const ERROR_CODES = Object.freeze(["UNKNOWN_ACTION", "INPUT_SCHEMA", "INPUT_TYPE", "STATE_SCHEMA", "STATE_TYPE", "INVALID_TEXT", "TEXT_LIMIT", "SNAPSHOT_LIMIT", "REGISTER_LIMIT", "ARITHMETIC_OVERFLOW", "REVISION_OVERFLOW"]);
+export const ERROR_CODES = Object.freeze(["UNKNOWN_ACTION", "INPUT_SCHEMA", "INPUT_TYPE", "STATE_SCHEMA", "STATE_TYPE", "INVALID_TEXT", "TEXT_LIMIT", "SNAPSHOT_LIMIT", "REGISTER_LIMIT", "ARITHMETIC_OVERFLOW", "REVISION_OVERFLOW", "STORAGE_FAILED", "STORAGE_CONFLICT", "REENTRANT_DISPATCH"]);
 export function intValue(value) { return Object.freeze({ type: "int", value }); }
 export function textValue(value) { return Object.freeze({ type: "text", value }); }
 export function boolValue(value) { return Object.freeze({ type: "bool", value }); }
@@ -347,7 +351,14 @@ export function createRuntime(initialState, initialRevision = 0n) {
   let values = new Map([...initialState].map(([k, v]) => [k, Object.freeze({ type: v.type, value: v.value })]));
   let revision = initialRevision;
   const fail = (code) => Object.freeze({ ok: false, code });
-  function dispatch(actionId, inputs) {
+  let committing = false;
+  // `beforeCommit`, when given, receives the frozen map of written values
+  // after every canonical check has passed and before state changes. It
+  // returns true to commit, or "STORAGE_CONFLICT" to report that durable
+  // storage changed elsewhere; anything else (or a throw) fails with
+  // STORAGE_FAILED. On refusal nothing changes. It must not dispatch.
+  function dispatch(actionId, inputs, beforeCommit) {
+    if (committing) return fail("REENTRANT_DISPATCH");
     const action = typeof actionId === "string" ? ACTIONS.get(actionId) : undefined;
     if (action === undefined) return fail("UNKNOWN_ACTION");
     if (!(inputs instanceof Map) || [...inputs.keys()].some((k) => typeof k !== "string")) return fail("INPUT_SCHEMA");
@@ -367,6 +378,12 @@ export function createRuntime(initialState, initialRevision = 0n) {
     for (const v of next.values()) { const t = textError(v); if (t) return fail(t); }
     if (entriesSize(next) > MAX_SNAPSHOT_BYTES) return fail("SNAPSHOT_LIMIT");
     if (revision === U64_MAX) return fail("REVISION_OVERFLOW");
+    if (beforeCommit !== undefined) {
+      let answer = false;
+      committing = true;
+      try { answer = beforeCommit(Object.freeze(new Map(writes))); } catch { answer = false; } finally { committing = false; }
+      if (answer !== true) return fail(answer === "STORAGE_CONFLICT" ? "STORAGE_CONFLICT" : "STORAGE_FAILED");
+    }
     const committed = new Map(values);
     for (const [k, v] of writes) committed.set(k, v);
     values = committed;

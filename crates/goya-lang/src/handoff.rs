@@ -13,8 +13,9 @@
 //! awaiting architecture approval; it is not evidence of target support.
 
 use crate::{
-    parse_strict, parse_strict_gssh2, parse_strict_gssh3, InputBinding, InteractionType,
-    InteractionValue, ParsedScene, SourceRange, StateDecl, StateLifetime, StrictParseError,
+    parse_strict, parse_strict_gssh2, parse_strict_gssh3, parse_strict_gssh3_live, InputBinding,
+    InteractionType, InteractionValue, ParsedScene, SourceRange, StateDecl, StateLifetime,
+    StrictParseError,
 };
 use std::collections::BTreeMap;
 use std::ops::Deref;
@@ -28,6 +29,8 @@ pub const CONTRACT_V2: &str = "GSSH/2";
 /// Identifier for GSSH/2 with every length proportional (no absolute
 /// `position`, `extent`, `text-size` or `stroke-width`).
 pub const CONTRACT_V3: &str = "GSSH/3";
+/// GSSH/3 with live bindings (proposed; `text-from` only on this branch).
+pub const CONTRACT_V3_LIVE: &str = "GSSH/3-live";
 
 /// Largest UTF-8 text value a bound field may supply (the D1 text limit).
 pub const MAX_FIELD_TEXT_BYTES: usize = 64 * 1024;
@@ -241,6 +244,15 @@ pub fn admit_v2(source: &str) -> Result<SemanticHandoffV2, StrictParseError> {
 /// Parse and admit source under GSSH/3: GSSH/2 with proportional lengths only.
 pub fn admit_v3(source: &str) -> Result<SemanticHandoffV2, StrictParseError> {
     Ok(with_origins(CONTRACT_V3, parse_strict_gssh3(source)?))
+}
+
+/// Parse and admit source under GSSH/3 live admission (proposed): GSSH/3
+/// plus `text-from` display bindings.
+pub fn admit_v3_live(source: &str) -> Result<SemanticHandoffV2, StrictParseError> {
+    Ok(with_origins(
+        CONTRACT_V3_LIVE,
+        parse_strict_gssh3_live(source)?,
+    ))
 }
 
 fn with_origins(contract: &'static str, parsed: ParsedScene) -> SemanticHandoffV2 {

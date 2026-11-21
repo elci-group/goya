@@ -1,9 +1,10 @@
 # GSSH decision register (Aragon Phase 1)
 
-Status: **proposed, implemented, not ratified**, 17 November 2026. The
-decisions below are implemented as the Candidate contract
-[`GSSH/2`](GSSH-2.md). Architecture approval (`docs/contracts.md`) is still
-required before any target relies on GSSH/2 as frozen. They resolve the six
+Status: proposed and implemented 17 November 2026; **ratified by the project
+owner on 21 November 2026** together with the contract
+[`GSSH/2`](GSSH-2.md), which is now Approved. D3's `text:` question was
+settled the same day (initial content); D3's display bindings remain
+**Open**. D7 (GSSH/3) is decided but its profile is still a Candidate. They resolve the six
 areas of the [GSSH gap ledger](../aragon/gssh-gap-ledger.md). A decision
 marked **Open** is not resolved, and scenes that would need it are rejected.
 
@@ -72,14 +73,17 @@ clamping. A failed conversion aborts the activation without a state change.
 profile binds its one edit to its one input). That does not scale beyond one
 field and cannot be validated. Sash keeps its implicit rule under GSSH/1.
 
-**Open — `@input` `text:` meaning.** GY-LANG/1 lowering and the GY-IR runtime
-treat an `@input`'s `text:` as a *placeholder*. Sash and Emperor treat it as
-the field's *initial content*, and their admitted counter depends on that.
-GSSH/2 does not change either path. Before a GSSH/2 target renders a bound
-field, the architecture owner must choose one meaning for GY-LANG/1. The
-proposed direction is initial content, because the shipped native targets
-already use it; the placeholder reading would then need its own
-`placeholder:` property under a new profile.
+**Resolved — `@input` `text:` meaning** (project owner, 21 November 2026).
+`text:` on an `@input` is the field's **initial content**, as Sash and
+Emperor already render it (their admitted counter depends on it). A
+placeholder needs its own `placeholder:` property under a later profile.
+Implemented by Maja `maja.web.local.v2`. **Known divergence:** the older
+GY-LANG/1 → GY-IR lowering (`goya_lang::lowering`, into GY-IR/1's
+`Node::Input { placeholder }`, whose shape is frozen) and
+`goya_sdk::Project::input_nodes` still present `text:` as a placeholder.
+They are not GSSH/2 consumers, but they must move to initial content, or
+stop reading `text:` on inputs, in their next contract revision. Aragon
+still refuses `text:` on `@input` and may now implement it.
 
 **Open — display bindings.** No construct shows a state value in an element.
 Sash infers it from an element ID `state.<key>`. GSSH/2 does not admit that
@@ -197,3 +201,118 @@ with zero size, which no fraction can reproduce. The per-target status is in
 **Open.** Renderers other than Aragon do not yet read the resolved lengths
 (the Wayland renderer still uses its own scale for absolute `text-size`).
 Sash must gain proportional geometry before it can move to GSSH/3.
+
+## D8 — Durable record format and concurrent writers
+
+**Decision** (project owner, 21 November 2026; refines D4). Every target
+stores a scene's durable state as one record per ontology. The storage
+medium is the target's own; the record is shared:
+
+* **Key** `goya.state.v1/<ontology name>`. A key's namespace (D4) is the
+  entry inside the record.
+* **Text** the JSON object
+  `{"format":"goya.state.v1","values":{"<key>":["<type>",<value>]}}` with
+  exactly those two members. `int` values are canonical decimal strings
+  (JSON numbers cannot hold every i64), `text` values are strings, `bool`
+  values are JSON booleans. Only durable keys are written; the revision is
+  not.
+* **Restore** follows D4. A missing entry yields that key's authored value.
+  Every other defect fails the whole restore: an unknown envelope or type
+  tag, a value that does not decode under the GSSH/2 conversion rules
+  (canonical i64, valid UTF-8 text up to 64 KiB), a type different from the
+  declaration, or a restored snapshot above D1's 1 MiB.
+* **Write.** A transition that writes a durable key stores the whole durable
+  snapshot after the transition in one atomic write, before the new revision
+  becomes visible. If the write fails the transition fails and nothing
+  changes. Entries of a decodable record that the scene does not declare
+  durable are written back unchanged.
+* **Concurrent writers.** Each running instance remembers the record text it
+  last read or wrote. If the stored text differs at the next durable write
+  (another window or process wrote or cleared it), the transition fails with
+  a conflict, nothing is written, and the user is told to reload; reloading
+  restores the other writer's state. Last-writer-wins is rejected because it
+  silently discards another window's committed state.
+
+**Alternatives.** (a) One storage item per key: a transition writing several
+durable keys could be torn by a crash. (b) A generation counter in the
+record: same protection as comparing text, but changes the format. (c)
+Adopting another window's writes live: a state change with no user
+interaction, which GSSH/2 has no construct for.
+
+**Implemented** by Maja `maja.web.local.v2` (`localStorage`;
+`docs/maja/interactive-profile.md`). Aragon still refuses `durable` (gate
+ARG-G07) and must adopt this record when it adds a storage adapter.
+
+## D9 — Display bindings: `text-from` (GSSH/3 live)
+
+**Status: approved** by the project owner, 21 November 2026, including the
+wrapping and announcement rules below. Resolves D3's open display-binding
+question for GSSH/3-live; GSSH/2 and GSSH/3 are unchanged. The profile
+itself stays a Candidate only because its base, GSSH/3, is one.
+
+**Decision.** Adopt the Arachnid proposal's construct
+(`docs/arachnid/ARACHNID-1.md` on branch `arachnid/v0.1`), with its syntax,
+names and codes, rather than a second design. The project owner chose this
+on 21 November 2026. This branch carries only `text-from`:
+
+```text
+text-from: state.<key>;
+```
+
+* Admitted only by `parse_strict_gssh3_live` / `handoff::admit_v3_live`
+  (contract `GSSH/3-live`): GSSH/3 plus live bindings. GSSH/1, /2 and /3
+  refuse the property with `GY-E1012` at its range.
+* The key must be declared in `@state` (`GY-E1013` otherwise). A key that
+  only a display binding uses counts as used (`GY-E1008` is not raised).
+* The element shows its authored `text:` (if any) followed by the key's
+  current value: `int` as its canonical decimal, `text` verbatim, `bool` as
+  `true` or `false`. This matches Arachnid's `display()`.
+* The value shown is the committed state: after restore and before the
+  scene is first shown; after each committed transition, before the next
+  frame; unchanged by a failed or refused transition.
+* **Wrapping, all targets** (owner: "follow Arachnid's style, and enforce
+  across all other compilers"). An element with `text-from` lays out its
+  authored text followed by the value with CSS `white-space: pre-wrap`
+  semantics, as Arachnid renders it: spaces and line breaks are kept, lines
+  break at the element's edge, overflow is clipped. `wrap` may be combined
+  with it; it applies to the authored text as usual.
+* **Announcements, all targets, by default** (owner: "define what changed
+  and how it changed contextually, not aesthetically"). After each
+  committed transition that changes at least one shown value, the target
+  makes one polite announcement to assistive technology, without changing
+  what is drawn. It names each changed display by its context (the
+  element's authored text without trailing blanks and one trailing colon,
+  or the state key when that is empty) and says how it changed: `int`
+  "`<context>` increased/decreased by `<d>`, from `<old>` to `<new>`";
+  `text` "`<context>` changed from "`<old>`" to "`<new>`""; `bool`
+  "`<context>` changed from `<old>` to `<new>`"; several joined with "; "
+  in depth-first order. Nothing is announced at start, after restore, or
+  for a failed transition, which targets report separately. Appearance is
+  never described.
+* **Reference.** `goya_lang::display_binding` (`shown_text`, `context`,
+  `describe_change`, `announcement`) defines these strings; every target
+  must produce exactly them, and should test against it as Maja does.
+
+**Compliance by target** (21 November 2026):
+
+| Target | Admits GSSH/3-live | Wrapping | Announcements |
+| --- | --- | --- | --- |
+| Maja `maja.web.local.v3` | yes | yes | yes (Node differential vs the reference; Chrome and Firefox) |
+| Arachnid (branch `arachnid/v0.1`, uncommitted) | yes | yes (`pre-wrap`) | **no**: must add them before its live profile merges |
+| Aragon, Sash, Emperor, Neptune, others | no: their profiles refuse `text-from` (`GY-E1012`) | must on adoption | must on adoption |
+
+Non-strict (compatibility) consumers such as the GY-IR lowering parse
+`text-from` and ignore it, as they ignore every GSSH/2 declaration.
+
+**Alternatives.** (a) A separate minimal profile (for example `GSSH/4`
+with `text-state:`): faster, but two designs for one construct. (b) Sash's
+`state.<key>` element-ID convention: GSSH/2 already refuses inference from
+IDs (D3).
+
+**Open.** (a) The rest of the Arachnid proposal (`image-from`,
+`present-when`, `host` state, `@link`, motion) is not on this branch and
+stays unknown here (`GY-E1001`). (b) Characters that targets render
+differently in authored text (Maja refuses U+0000 and carriage return there)
+can reach a shown `text` value at run time. (c) Announcement wording is
+English only; very long `text` values are announced whole.
+

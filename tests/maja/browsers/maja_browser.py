@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
 """Exercise a `maja.web.local.v2` build in a real headless browser.
 
-Usage: python3 tests/maja/browsers/maja_browser.py chrome|firefox counter|scroll OUTPUT_DIRECTORY
+Usage: python3 tests/maja/browsers/maja_browser.py chrome|firefox counter|scroll|durable|initial|display OUTPUT_DIRECTORY
 
 `counter`: OUTPUT_DIRECTORY is `maja build fixtures/nevada/counter.gscene
 --profile maja.web.local.v2 --out ...`. `scroll`: a build of
-`tests/maja/fixtures/scroll.gscene`. Requires websocket-client and the browser.
+`tests/maja/fixtures/scroll.gscene`. `durable`: a build of
+`tests/maja/fixtures/durable-counter.gscene` (the counter with `count`
+durable). `initial`: a build of
+`tests/maja/fixtures/initial-content.gscene` (the counter's field has
+`text: "7"`, its initial content under decision D3). `display`: a `maja.web.local.v3`
+build of `tests/maja/fixtures/display-counter.gscene` (`text-from`
+display bindings, decision D9). Requires websocket-client and the browser.
 Chrome is driven through the DevTools Protocol, Firefox through WebDriver
 BiDi; neither needs a separate driver binary. `MAJA_CHROME` and
 `MAJA_FIREFOX` override the executables.
@@ -484,9 +490,278 @@ def scenario(browser, url):
     return passed, not_verified
 
 
+def durable_scenario(browser, url):
+    """Durable state: restore across reload, write-before-commit, restore failure."""
+    passed = []
+    not_verified = []
+    ev = browser.evaluate
+    record_key = "goya.state.v1/counter"
+    field = "document.querySelector('[data-goya-id=\"window.amount\"] input')"
+
+    def load(action):
+        action()
+        deadline = time.monotonic() + 10
+        while not ev("document.readyState === 'complete' && !!document.querySelector('[data-goya-id=\"window.add\"] button')"):
+            if time.monotonic() >= deadline:
+                raise RuntimeError("page did not build the scene")
+            time.sleep(0.05)
+        ev("(window.__events = [], document.addEventListener('goya:transition', (e) => window.__events.push(e.detail)), 0)")
+        return ev("document.documentElement.dataset.goyaRestore"), ev("document.getElementById('goya-status').textContent")
+
+    def add(text):
+        ev(f"({field}.focus(), {field}.select(), 0)")
+        browser.type_text(text)
+        if ev(f"{field}.value") != text:
+            raise AssertionError(f"field text was not entered: {ev(f'{field}.value')!r}")
+        box = ev("(() => { const r = document.querySelector('[data-goya-id=\"window.add\"] button').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()")
+        browser.click(box[0], box[1])
+        events = ev("window.__events")
+        if not events:
+            raise AssertionError("no transition event")
+        return events[-1]
+
+    def expect(event, ok, revision, count, code=None):
+        if event["ok"] is not ok or event["revision"] != revision or event.get("code") != code or event["state"] != {"count": ["int", count]}:
+            raise AssertionError(f"unexpected outcome {event!r}")
+
+    def record():
+        return ev(f"localStorage.getItem({json.dumps(record_key)})")
+
+    def stored(count):
+        return json.dumps({"format": "goya.state.v1", "values": {"count": ["int", count]}}, separators=(",", ":"))
+
+    restored, notice = load(lambda: browser.navigate(url))
+    if restored != "ok" or notice != "" or record() is not None:
+        raise AssertionError(f"first load: restore {restored!r}, status {notice!r}, record {record()!r}")
+    expect(add("5"), True, "1", "5")
+    if record() != stored("5"):
+        raise AssertionError(f"record after commit: {record()!r}")
+    passed.append(f"missing record starts from the authored value; 0 + 5 = 5 commits and stores {record()}")
+
+    restored, notice = load(browser.reload)
+    if restored != "ok":
+        raise AssertionError(f"reload restore: {restored!r}")
+    expect(add("1"), True, "1", "6")
+    passed.append("reload restores count 5 before any input: 5 + 1 = 6 (revision restarts at 1 per page)")
+
+    expect(add(I64_MAX), False, "1", "6", "ARITHMETIC_OVERFLOW")
+    if record() != stored("6"):
+        raise AssertionError(f"a refused transition changed the record: {record()!r}")
+    passed.append("a D1 failure (ARITHMETIC_OVERFLOW) leaves the stored record at 6")
+
+    # Simulated storage failure: the page's own Storage.setItem is replaced
+    # for this document only (cleared by the next reload).
+    ev("(Storage.prototype.setItem = function () { throw new DOMException('simulated', 'QuotaExceededError'); }, 0)")
+    expect(add("1"), False, "1", "6", "STORAGE_FAILED")
+    if ev("document.getElementById('goya-status').textContent") != "Action failed: STORAGE_FAILED" or record() != stored("6"):
+        raise AssertionError("storage failure was not reported or changed the record")
+    passed.append("a throwing setItem refuses the commit: STORAGE_FAILED, count 6 and revision 1 unchanged, reported in role=status (failure simulated)")
+    not_verified.append("a real QuotaExceededError (setItem failure was simulated)")
+
+    restored, _ = load(browser.reload)
+    expect(add("0"), True, "1", "6")
+    passed.append("after the refused write, reload still restores 6")
+
+    ev(f"(localStorage.setItem({json.dumps(record_key)}, '{{'), 0)")
+    restored, notice = load(browser.reload)
+    if restored != "RECORD_UNDECODABLE" or "RECORD_UNDECODABLE" not in notice or record() != "{":
+        raise AssertionError(f"corrupt record: restore {restored!r}, status {notice!r}, record {record()!r}")
+    passed.append(f"an undecodable record fails restore, is reported ({notice!r}) and is not overwritten on load")
+    expect(add("2"), True, "1", "2")
+    if record() != stored("2") or ev("document.getElementById('goya-status').textContent") != "":
+        raise AssertionError(f"first durable commit after a failed restore: record {record()!r}")
+    passed.append("the first commit after a failed restore starts from the authored value (0 + 2 = 2), replaces the record and clears the notice")
+
+    ev(f"(localStorage.setItem({json.dumps(record_key)}, {json.dumps(json.dumps({'format': 'goya.state.v1', 'values': {'count': ['text', '9']}}))}), 0)")
+    restored, _ = load(browser.reload)
+    if restored != "RECORD_TYPE_MISMATCH":
+        raise AssertionError(f"retyped record: {restored!r}")
+    expect(add("0"), True, "1", "0")
+    passed.append("a retyped record fails restore with RECORD_TYPE_MISMATCH")
+
+    # Another window's write (decision D8), simulated by writing the record
+    # from DevTools: the next durable commit is refused, not overwritten.
+    ev(f"(localStorage.setItem({json.dumps(record_key)}, {json.dumps(stored('40'))}), 0)")
+    expect(add("1"), False, "1", "0", "STORAGE_CONFLICT")
+    status = ev("document.getElementById('goya-status').textContent")
+    if record() != stored("40") or not status.startswith("Action failed: STORAGE_CONFLICT") or "reload" not in status:
+        raise AssertionError(f"conflict: record {record()!r}, status {status!r}")
+    passed.append("a record changed by another window refuses the next commit with STORAGE_CONFLICT; the other window's 40 survives; reported with reload advice")
+    load(browser.reload)
+    expect(add("1"), True, "1", "41")
+    passed.append("reload adopts the other window's value: 40 + 1 = 41")
+    not_verified.append("a second real tab (the other window's write was made from DevTools in the same tab)")
+    not_verified.append("crash between setItem and commit (the write precedes the commit by construction, not by test)")
+    ev("0")
+    if browser.errors:
+        raise AssertionError(f"browser errors: {browser.errors!r}")
+    passed.append("no console errors or uncaught exceptions")
+    return passed, not_verified
+
+
+def initial_scenario(browser, url):
+    """`text:` on @input is the field's initial content (decision D3)."""
+    passed = []
+    ev = browser.evaluate
+    field = "document.querySelector('[data-goya-id=\"window.amount\"] input')"
+
+    def load(action):
+        action()
+        deadline = time.monotonic() + 10
+        while not ev("document.readyState === 'complete' && !!document.querySelector('[data-goya-id=\"window.add\"] button')"):
+            if time.monotonic() >= deadline:
+                raise RuntimeError("page did not build the scene")
+            time.sleep(0.05)
+        ev("(window.__events = [], document.addEventListener('goya:transition', (e) => window.__events.push(e.detail)), 0)")
+
+    def click_add():
+        box = ev("(() => { const r = document.querySelector('[data-goya-id=\"window.add\"] button').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()")
+        browser.click(box[0], box[1])
+        return ev("window.__events")[-1]
+
+    load(lambda: browser.navigate(url))
+    if ev(f"{field}.value") != "7" or ev(f"{field}.placeholder") != "":
+        raise AssertionError(f"field: value {ev(f'{field}.value')!r}, placeholder {ev(f'{field}.placeholder')!r}")
+    passed.append("the field starts with its authored text '7' as content, not as a placeholder")
+    event = click_add()
+    if not event["ok"] or event["state"] != {"count": ["int", "7"]}:
+        raise AssertionError(f"activation with initial content: {event!r}")
+    passed.append("activating without typing converts the initial content: 0 + 7 = 7")
+    ev(f"({field}.focus(), {field}.select(), 0)")
+    browser.type_text("3")
+    load(browser.reload)
+    if ev(f"{field}.value") != "7":
+        raise AssertionError(f"after reload the field holds {ev(f'{field}.value')!r}")
+    passed.append("after editing to '3', reload shows the authored '7' again (no browser form restoration)")
+    ev("0")
+    if browser.errors:
+        raise AssertionError(f"browser errors: {browser.errors!r}")
+    passed.append("no console errors or uncaught exceptions")
+    return passed, []
+
+
+def display_scenario(browser, url):
+    """`text-from` display bindings (decision D9, profile maja.web.local.v3)."""
+    passed = []
+    not_verified = []
+    ev = browser.evaluate
+
+    def load(action):
+        action()
+        deadline = time.monotonic() + 10
+        while not ev("document.readyState === 'complete' && !!document.querySelector('[data-goya-id=\"raise\"] button')"):
+            if time.monotonic() >= deadline:
+                raise RuntimeError("page did not build the scene")
+            time.sleep(0.05)
+        ev("(window.__events = [], document.addEventListener('goya:transition', (e) => window.__events.push(e.detail)), 0)")
+
+    def shown():
+        return ev("""({
+            total: document.querySelector('[data-goya-id="total"] .goya-text').textContent,
+            shown: document.querySelector('[data-goya-id="shown"] .goya-text').textContent,
+            raise: document.querySelector('[data-goya-id="raise"] button').textContent,
+        })""")
+
+    def activate(button, field=None, text=None):
+        if field is not None:
+            sel = f"document.querySelector('[data-goya-id=\"{field}\"] input')"
+            ev(f"({sel}.focus(), {sel}.select(), 0)")
+            browser.type_text(text)
+            if ev(f"{sel}.value") != text:
+                raise AssertionError(f"field text was not entered: {ev(f'{sel}.value')!r}")
+        box = ev(f"(() => {{ const r = document.querySelector('[data-goya-id=\"{button}\"] button').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; }})()")
+        browser.click(box[0], box[1])
+        return ev("window.__events")[-1]
+
+    def expect(want, what):
+        got = shown()
+        if got != want:
+            raise AssertionError(f"{what}: shown {got!r}, expected {want!r}")
+
+    def announced():
+        return ev("document.getElementById('goya-announce').textContent")
+
+    def expect_announced(want, what):
+        got = announced()
+        if got != want:
+            raise AssertionError(f"{what}: announced {got!r}, expected {want!r}")
+
+    initial = {"total": "Count: 0", "shown": "none", "raise": "Raised: false"}
+    load(lambda: browser.navigate(url))
+    expect(initial, "first load")
+    if ev("document.documentElement.dataset.goyaRestore") != "ok":
+        raise AssertionError("restore did not run")
+    region = ev("""(() => { const a = document.getElementById('goya-announce'); const r = a.getBoundingClientRect();
+        return [a.getAttribute('aria-live'), a.getAttribute('aria-atomic'), r.width <= 1 && r.height <= 1, a.textContent]; })()""")
+    if region != ["polite", "true", True, ""]:
+        raise AssertionError(f"announcement region: {region!r}")
+    passed.append("a visually hidden polite live region exists and announces nothing at load")
+    passed.append("on load (set in the task that creates the elements) the authored values follow static text: 'Count: 0', 'none', button 'Raised: false'")
+
+    if not activate("add", "amount", "-12")["ok"]:
+        raise AssertionError("add failed")
+    expect({**initial, "total": "Count: -12"}, "after add")
+    expect_announced("Count decreased by 12, from 0 to -12", "after add")
+    passed.append("a committed int transition is shown as canonical decimal ('Count: -12') and announced as 'Count decreased by 12, from 0 to -12'")
+
+    tricky = "<b>&amp; γειά 🌍  x"
+    if not activate("rename", "name", tricky)["ok"]:
+        raise AssertionError("rename failed")
+    expect({**initial, "total": "Count: -12", "shown": tricky}, "after rename")
+    if ev("document.querySelector('[data-goya-id=\"shown\"] b')") is not None:
+        raise AssertionError("text value was parsed as markup")
+    expect_announced(f'label changed from "none" to "{tricky}"', "after rename")
+    passed.append("a text value is shown verbatim, never as markup, keeping double spaces and non-ASCII; announced with the key as context when the element has no text")
+
+    long = " ".join(["word"] * 40)
+    if not activate("rename", "name", long)["ok"]:
+        raise AssertionError("long rename failed")
+    wrapped = ev("""(() => { const t = document.querySelector('[data-goya-id="shown"] .goya-text');
+        const v = t.querySelector('[data-goya-text-from]'); const box = t.parentElement.getBoundingClientRect();
+        const rects = [...v.getClientRects()];
+        return [getComputedStyle(t).whiteSpace, rects.length, rects.every((r) => r.right <= box.right + 0.5)]; })()""")
+    if wrapped[0] != "pre-wrap" or wrapped[1] < 2 or not wrapped[2]:
+        raise AssertionError(f"long value is not wrapped at the element edge: {wrapped!r}")
+    passed.append(f"a long value wraps at the element's edge (white-space: pre-wrap, {wrapped[1]} line boxes, none past the right edge)")
+    if not activate("rename", "name", tricky)["ok"]:
+        raise AssertionError("rename back failed")
+
+    if not activate("raise")["ok"]:
+        raise AssertionError("raise failed")
+    expect({"total": "Count: -12", "shown": tricky, "raise": "Raised: true"}, "after raise")
+    expect_announced("Raised changed from false to true", "after raise")
+    passed.append("a bool value is shown as 'true' on a button after its static label and announced as 'Raised changed from false to true'")
+
+    event = activate("add", "amount", "-9223372036854775807")
+    if event["ok"] or event["code"] != "ARITHMETIC_OVERFLOW":
+        raise AssertionError(f"overflow: {event!r}")
+    expect({"total": "Count: -12", "shown": tricky, "raise": "Raised: true"}, "after refused add")
+    expect_announced("Raised changed from false to true", "after refused add")
+    passed.append("a refused transition (ARITHMETIC_OVERFLOW) changes nothing on screen and announces nothing new (the failure goes to role=status)")
+
+    load(browser.reload)
+    expect({**initial, "total": "Count: -12"}, "after reload")
+    passed.append("reload: the durable count is shown restored (-12) before any input; session values show their authored values")
+
+    roles = browser.accessibility()
+    if roles is None:
+        not_verified.append("accessibility tree: not exposed by WebDriver BiDi")
+    else:
+        if ("button", "Raised: false") not in roles:
+            raise AssertionError(f"AX tree: {roles!r}")
+        passed.append("AX tree: the button's accessible name includes its displayed value ('Raised: false')")
+    not_verified.append("that a screen reader speaks the live region (no assistive technology on this host)")
+
+    ev("0")
+    if browser.errors:
+        raise AssertionError(f"browser errors: {browser.errors!r}")
+    passed.append("no console errors or uncaught exceptions")
+    return passed, not_verified
+
+
 def main(kind, name, output):
     output = Path(output).resolve(strict=True)
-    required = ("index.html", "app.js", "scene.js", "layout.js") + (("d1.js",) if name == "counter" else ())
+    required = ("index.html", "app.js", "scene.js", "layout.js") + (("d1.js",) if name != "scroll" else ()) + (("storage.js",) if name in ("durable", "display") else ())
     for file in required:
         if not (output / file).is_file():
             raise RuntimeError(f"output does not contain {file}")
@@ -500,10 +775,12 @@ def main(kind, name, output):
     thread.start()
     browser = None
     try:
-        with tempfile.TemporaryDirectory(prefix=f"maja-{kind}-") as profile:
+        # Browser helper processes can still be flushing storage into the
+        # profile when the main process exits; leftovers are not a failure.
+        with tempfile.TemporaryDirectory(prefix=f"maja-{kind}-", ignore_cleanup_errors=True) as profile:
             browser = {"chrome": Chrome, "firefox": Firefox}[kind](profile)
             try:
-                passed, not_verified = {"counter": scenario, "scroll": scroll_scenario}[name](browser, f"http://127.0.0.1:{server.server_port}/index.html")
+                passed, not_verified = {"counter": scenario, "scroll": scroll_scenario, "durable": durable_scenario, "initial": initial_scenario, "display": display_scenario}[name](browser, f"http://127.0.0.1:{server.server_port}/index.html")
                 version = browser.version()
             finally:
                 browser.close()
@@ -518,7 +795,7 @@ def main(kind, name, output):
             for line in not_verified:
                 print("NOT VERIFIED:", line)
             print("BROWSER:", version)
-            print("NOT TESTED: assistive technology, IME composition, touch, visual typography, durable state")
+            print("NOT TESTED: assistive technology, IME composition, touch, visual typography" + ("" if name in ("durable", "display") else ", durable state"))
     finally:
         server.shutdown()
         server.server_close()
@@ -526,6 +803,6 @@ def main(kind, name, output):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 4 or sys.argv[1] not in ("chrome", "firefox") or sys.argv[2] not in ("counter", "scroll"):
-        raise SystemExit("usage: maja_browser.py chrome|firefox counter|scroll OUTPUT_DIRECTORY")
+    if len(sys.argv) != 4 or sys.argv[1] not in ("chrome", "firefox") or sys.argv[2] not in ("counter", "scroll", "durable", "initial", "display"):
+        raise SystemExit("usage: maja_browser.py chrome|firefox counter|scroll|durable|initial|display OUTPUT_DIRECTORY")
     main(sys.argv[1], sys.argv[2], sys.argv[3])

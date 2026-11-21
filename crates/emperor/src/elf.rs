@@ -43,6 +43,21 @@ pub fn parse(bytes: &[u8]) -> Result<Summary, String> {
     if phnum > 128 {
         return Err(format!("program header count {phnum} is above 128"));
     }
+    // Validate the complete declared table before reading any individual
+    // entry. Checking only the first eight bytes of each header can accept a
+    // truncated ELF whose header claims a larger `e_phentsize` or a table
+    // extending beyond EOF.
+    let table_len = u64::from(phnum)
+        .checked_mul(u64::from(phentsize))
+        .ok_or_else(|| "program header table size overflowed".to_owned())?;
+    let table_end = phoff
+        .checked_add(table_len)
+        .ok_or_else(|| "program header table offset overflowed".to_owned())?;
+    let table_end = usize::try_from(table_end)
+        .map_err(|_| "program header table offset does not fit".to_owned())?;
+    if table_end > bytes.len() {
+        return Err("program header table is outside the file".into());
+    }
     let mut gnu_stack = false;
     let mut executable_stack = false;
     let mut relro = false;
@@ -146,6 +161,14 @@ mod tests {
     #[test]
     fn tiny_buffer_is_rejected() {
         assert!(parse(&[0x7f, b'E', b'L', b'F']).is_err());
+    }
+
+    #[test]
+    fn truncated_program_header_table_is_rejected() {
+        let mut bytes = sample(true, false);
+        bytes.truncate(bytes.len() - 1);
+        let err = parse(&bytes).unwrap_err();
+        assert!(err.contains("program header table"), "{err}");
     }
 
     #[test]

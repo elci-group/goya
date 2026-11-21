@@ -5,6 +5,35 @@ use std::{
     process::ExitCode,
 };
 
+fn write_stdout(args: std::fmt::Arguments<'_>, newline: bool) {
+    let mut stdout = io::stdout().lock();
+    let result = if newline {
+        writeln!(stdout, "{args}")
+    } else {
+        write!(stdout, "{args}")
+    };
+    match result {
+        Ok(()) => {}
+        // Match ordinary CLI pipeline behavior without letting the standard
+        // print macros panic when the reader exits early (for example `head`).
+        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => {
+            std::process::exit(0);
+        }
+        Err(error) => {
+            let _ = writeln!(io::stderr().lock(), "failed to write stdout: {error}");
+        }
+    }
+}
+
+macro_rules! println {
+    () => { write_stdout(format_args!(""), true) };
+    ($($arg:tt)*) => { write_stdout(format_args!($($arg)*), true) };
+}
+
+macro_rules! print {
+    ($($arg:tt)*) => { write_stdout(format_args!($($arg)*), false) };
+}
+
 fn write_preview_bundle(path: &std::path::Path, bundle: &str) -> io::Result<()> {
     let value: serde_json::Value = serde_json::from_str(bundle).map_err(io::Error::other)?;
     let artifacts = value["artifacts"]
@@ -67,11 +96,12 @@ fn serve() -> ExitCode {
                 serde_json::json!({"schema_version":"1","job_id":null,"sequence":1,"stage":"protocol","status":"FAIL","diagnostics":[{"code":"NPT-E0001","message":"invalid JSON"}]})
             }
         };
-        if writeln!(output, "{response}")
-            .and_then(|_| output.flush())
-            .is_err()
-        {
-            return ExitCode::FAILURE;
+        if let Err(error) = writeln!(output, "{response}").and_then(|_| output.flush()) {
+            return if error.kind() == io::ErrorKind::BrokenPipe {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::FAILURE
+            };
         }
     }
 }
