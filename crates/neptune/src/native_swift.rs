@@ -147,6 +147,8 @@ fn render(
             e.scene_path.as_deref() != Some(&[]) || !matches!(e.name.as_str(), "id" | "text")
         }
         "interaction" => false,
+        // State and bindings are admitted under GSSH/2 for native previews.
+        "state" | "state-key" | "binding" => false,
         _ => true,
     });
     if root.kind != CellKind::Button
