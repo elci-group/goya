@@ -1,5 +1,4 @@
 @ontology counter {
-  @state { count: int = 0; }
   @button increment { id: "button.increment" text: "Increment" }
   @interaction increment {
     id: "action.increment";
