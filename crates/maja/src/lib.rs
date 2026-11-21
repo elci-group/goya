@@ -521,7 +521,35 @@ pub mod capability {
     }
 }
 
-use std::{ffi::OsString, fs, io::Write, path::PathBuf};
+use std::{
+    ffi::OsString,
+    fs,
+    io::{Read, Write},
+    path::PathBuf,
+};
+
+const MAX_SOURCE_FILE_BYTES: u64 = 1024 * 1024;
+
+fn read_source(path: &std::path::Path) -> std::io::Result<String> {
+    let metadata = fs::metadata(path)?;
+    if !metadata.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "source is not a regular file",
+        ));
+    }
+    let file = fs::File::open(path)?;
+    let mut source = String::new();
+    file.take(MAX_SOURCE_FILE_BYTES + 1)
+        .read_to_string(&mut source)?;
+    if source.len() as u64 > MAX_SOURCE_FILE_BYTES {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "source exceeds the 1 MiB limit",
+        ));
+    }
+    Ok(source)
+}
 
 const USAGE: &str = "usage: maja inspect SOURCE | maja check SOURCE [--target web] --profile PROFILE | maja build SOURCE --profile PROFILE [--release] --out NEW_DIR | maja package grow --input EXISTING_DIR --out NEW_DIR --name NAME --version VERSION";
 
@@ -612,7 +640,7 @@ where
         );
         return 4;
     }
-    let source = match fs::read_to_string(&source_path) {
+    let source = match read_source(&source_path) {
         Ok(source) => source,
         Err(error) => {
             let _ = writeln!(err, "MAJA-CLI-E0004: cannot read source: {error}");
