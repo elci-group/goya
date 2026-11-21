@@ -629,12 +629,11 @@ fn qualify(invocation: Invocation) -> Run {
     } else {
         None
     };
-    let exercise_status = exercise.as_ref().map(|(status, _)| *status);
     let mut stages = Stages::new();
     for (index, name) in crate::stage::NAMES.iter().enumerate() {
         if *name == "runtime-conformance" {
-            if let Some((status, evidence)) = &exercise {
-                stages.push(*status, evidence["wayland_script"]["detail"].as_str().unwrap_or_default());
+            if let Some(evidence) = &exercise {
+                stages.push(evidence.status, evidence.detail.clone());
             } else {
                 stages.push(smoke_status, smoke_detail.clone());
             }
@@ -652,12 +651,10 @@ fn qualify(invocation: Invocation) -> Run {
             );
         }
     }
-    let exit = if exercise_status == Some(Status::Blocked) {
-        3
-    } else if smoke_status == Status::Pass {
-        0
-    } else {
-        smoke_exit
+    let exit = match exercise.as_ref().map(|evidence| evidence.status) {
+        Some(Status::Blocked) => 3,
+        Some(Status::Fail) => 5,
+        _ => smoke_exit,
     };
     let mut result = finish(
         &invocation,
@@ -675,44 +672,82 @@ fn qualify(invocation: Invocation) -> Run {
             "release": release,
         }),
     );
-    if let Some((status, evidence)) = exercise {
-        result.json["interaction_exercise"] = evidence;
-        result.text.push_str(&format!("Wayland scripted exercise {}\n", status.as_str()));
+    if let Some(evidence) = exercise {
+        result.text.push_str(&format!(
+            "Wayland scripted exercise {} ({})\n",
+            evidence.status.as_str(),
+            evidence.detail,
+        ));
+        result.json["interaction_exercise"] = evidence.report;
     }
     result
 }
 
-fn qualify_exercise(app: &Path, window: &str) -> Result<(Status, Value), Fault> {
+struct ExerciseEvidence {
+    status: Status,
+    detail: String,
+    report: Value,
+}
+
+fn qualify_exercise(app: &Path, window: &str) -> Result<ExerciseEvidence, Fault> {
     let synthetic = capture_exercise(app, false)?;
     let (status, stdout, detail) = if window != "wayland" {
-        (Status::Blocked, None, "scripted Wayland exercise requires a Wayland App")
+        (
+            Status::Blocked,
+            None,
+            "scripted Wayland exercise requires a Wayland App".to_owned(),
+        )
     } else if !display_ready(window) {
-        (Status::Blocked, None, "WAYLAND_DISPLAY is unset; scripted Wayland frame was not attempted")
+        (
+            Status::Blocked,
+            None,
+            "WAYLAND_DISPLAY is unset; scripted Wayland frame was not attempted".to_owned(),
+        )
     } else {
-        (Status::Pass, Some(capture_exercise(app, true)?), "scripted counter matched the headless oracle and committed one Wayland buffer")
+        match capture_exercise(app, true) {
+            Ok(stdout) => (
+                Status::Pass,
+                Some(stdout),
+                "scripted counter matched the headless oracle and committed one Wayland buffer"
+                    .to_owned(),
+            ),
+            Err(fault) => (Status::Fail, None, fault.message),
+        }
     };
-    Ok((status, json!({
+    let report = json!({
         "headless_script": {"status": "pass", "stdout": synthetic},
         "wayland_script": {"status": status.as_str().to_lowercase(), "stdout": stdout, "detail": detail},
         "native_seat_input": {"status": "not-exercised"},
-    })))
+    });
+    Ok(ExerciseEvidence {
+        status,
+        detail,
+        report,
+    })
 }
 
 fn capture_exercise(app: &Path, wayland: bool) -> Result<String, Fault> {
     let (mode, window_report) = if wayland {
         ("--exercise", "presented=1 wayland=opened window=wayland")
     } else {
-        ("--exercise-oracle", "presented=0 wayland=not-requested window=not-requested")
+        (
+            "--exercise-oracle",
+            "presented=0 wayland=not-requested window=not-requested",
+        )
     };
     let captured = run_captured(app, &[mode], Duration::from_secs(25))?;
     let expected = format!("count=3 revision=2 {window_report} copy=true paste=false edit=2");
     if captured.code == 0 && captured.stdout.trim_end() == expected {
         Ok(captured.stdout)
     } else {
-        Err(Fault::new(5, "EMP-RUNTIME", format!(
-            "{mode} exited {}\nexpected {expected}\nstdout: {}\nstderr: {}",
-            captured.code, captured.stdout, captured.stderr,
-        )))
+        Err(Fault::new(
+            5,
+            "EMP-RUNTIME",
+            format!(
+                "{mode} exited {}\nexpected {expected}\nstdout: {}\nstderr: {}",
+                captured.code, captured.stdout, captured.stderr,
+            ),
+        ))
     }
 }
 
@@ -930,16 +965,18 @@ fn benchmark(invocation: Invocation) -> Run {
     // compositor only — it is not a compositor matrix and not a GPU path.
     let (frame_rate_runs, frame_rate_detail) = if display_ready(&window) {
         // Warmup: short pump so compositor and font caches are hot.
-        let warmup = match run_captured(&app, &["--live", "--frames", "30"], Duration::from_secs(60))
-        {
-            Ok(captured) if captured.code == 0 && presented_frames(&captured.stdout) > 0 => None,
-            Ok(captured) => Some(format!(
-                "frame-rate warmup exited {} with presented={}",
-                captured.code,
-                presented_frames(&captured.stdout)
-            )),
-            Err(fault) => Some(fault.message),
-        };
+        let warmup =
+            match run_captured(&app, &["--live", "--frames", "30"], Duration::from_secs(60)) {
+                Ok(captured) if captured.code == 0 && presented_frames(&captured.stdout) > 0 => {
+                    None
+                }
+                Ok(captured) => Some(format!(
+                    "frame-rate warmup exited {} with presented={}",
+                    captured.code,
+                    presented_frames(&captured.stdout)
+                )),
+                Err(fault) => Some(fault.message),
+            };
         let mut fps: Vec<f64> = Vec::new();
         let mut failure = warmup.unwrap_or_default();
         for _ in 0..FRAME_RATE_RUNS {
@@ -947,7 +984,11 @@ fn benchmark(invocation: Invocation) -> Run {
                 break;
             }
             let started = Instant::now();
-            match run_captured(&app, &["--live", "--frames", "120"], Duration::from_secs(60)) {
+            match run_captured(
+                &app,
+                &["--live", "--frames", "120"],
+                Duration::from_secs(60),
+            ) {
                 Ok(captured) if captured.code == 0 => {
                     let presented = presented_frames(&captured.stdout);
                     let elapsed = started.elapsed().as_secs_f64();

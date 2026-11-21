@@ -205,13 +205,16 @@ pub fn to_proportional(
                 let value = scale(cell.stroke_width.expect("parsed") * MP);
                 let rect = frame.nodes[index].rect;
                 let base = rect.width.min(rect.height);
-                let fraction = exact_fraction(value, base)
-                    .map(|f| f.min(0.5))
-                    .filter(|f| scale(f * base as f64) == value)
-                    .unwrap_or_else(|| {
-                        failure = Some(if base <= 0 { ZERO_BASE } else { NO_FRACTION });
-                        0.5
-                    });
+                let fraction = if base == 0 {
+                    0.0
+                } else {
+                    exact_fraction(value, base)
+                        .unwrap_or(value as f64 / base as f64)
+                        .clamp(0.0, 0.5)
+                };
+                if scale(fraction * base as f64) != value {
+                    failure = Some(if base == 0 { ZERO_BASE } else { NO_FRACTION });
+                }
                 format!("stroke-width-p: {}{terminator}", number(fraction))
             }
         };
@@ -291,5 +294,36 @@ mod tests {
         assert_eq!(conversion.inexact.len(), 1);
         assert_eq!(conversion.inexact[0].property, "text-size");
         assert_eq!(conversion.inexact[0].reason, ZERO_BASE);
+    }
+
+    #[test]
+    fn inexact_strokes_use_the_closest_supported_width() {
+        let source = r#"@ontology a {
+            @cell negative { id: "negative"; stroke: #000; stroke-width: -2; }
+            @cell too_wide { id: "too-wide"; stroke: #000; stroke-width: 200; }
+            @cell zero_base {
+                id: "zero-base"; extent_p: (1, 0.001); stroke: #000; stroke-width: 2;
+            }
+        }"#;
+        let conversion = to_proportional(source, 100.0, 0.5).unwrap();
+        assert_eq!(
+            conversion
+                .inexact
+                .iter()
+                .map(|item| item.reason)
+                .collect::<Vec<_>>(),
+            [NO_FRACTION, NO_FRACTION, ZERO_BASE],
+        );
+        let admitted = crate::parse_strict_gssh3(&conversion.source).unwrap();
+        let widths = |height| {
+            layout(&admitted.scene, 100.0, height)
+                .nodes
+                .iter()
+                .skip(1)
+                .map(|node| node.stroke_width_mp)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(widths(0.5), [Some(0), Some(250), Some(0)]);
+        assert_eq!(widths(100.0), [Some(0), Some(50_000), Some(0)]);
     }
 }
