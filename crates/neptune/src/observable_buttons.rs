@@ -871,6 +871,7 @@ mod tests {
     #[test]
     fn sibling_buttons_keep_identity_binding_and_closed_failures() {
         let siblings = r#"@ontology counter {
+  @state { count: int = 0 session; label: text = "start" session; }
   @button up { id: "button.up" text: "Up" }
   @button mark { id: "button.mark" text: "Mark" }
   @interaction up {

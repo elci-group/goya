@@ -732,6 +732,7 @@ mod tests {
     #[test]
     fn sibling_order_and_closed_failures() {
         let siblings = r#"@ontology counter {
+  @state { count: int = 0 session; }
   @cell title { id: "title" text: "Counter" }
   @button increment { id: "button.increment" text: "Increment" }
   @interaction increment {

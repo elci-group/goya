@@ -449,6 +449,7 @@ mod tests {
     #[test]
     fn failed_activation_keeps_the_previous_state() {
         let source = r#"@ontology counter {
+  @state { count: int = 0 session; label: text = "start" session; }
   @cell screen {
     id: "screen"
     text: "Counter"
@@ -576,6 +577,7 @@ mod tests {
     #[test]
     fn column_overflow_keeps_the_previous_state() {
         let source = r#"@ontology counter {
+  @state { count: int = 0 session; }
   @cell screen {
     id: "screen"
     text: "Counter"

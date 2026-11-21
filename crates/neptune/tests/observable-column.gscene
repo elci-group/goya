@@ -1,4 +1,5 @@
 @ontology counter {
+  @state { count: int = 0 session; }
   @cell screen {
     id: "screen"
     text: "Counter"
