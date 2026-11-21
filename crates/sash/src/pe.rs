@@ -325,10 +325,17 @@ fn read_import_dlls(
     if dir.0 == 0 || dir.1 == 0 {
         return Ok(Vec::new());
     }
+    if dir.1 < 20 {
+        return Err("import directory is smaller than one descriptor".into());
+    }
     let mut offset = rva_to_offset(sections, dir.0)?;
+    let directory_end = offset
+        .checked_add(dir.1 as usize)
+        .filter(|end| *end <= bytes.len())
+        .ok_or("import directory exceeds the file")?;
     let mut names = Vec::new();
-    for _ in 0..64 {
-        if offset + 20 > bytes.len() {
+    for _ in 0..(dir.1 as usize / 20).min(64) {
+        if offset.checked_add(20).is_none_or(|end| end > directory_end) {
             return Err("import descriptor is truncated".into());
         }
         let name_rva = read_u32(bytes, offset + 12)?;
@@ -349,10 +356,17 @@ fn read_delay_dlls(
     if dir.0 == 0 || dir.1 == 0 {
         return Ok(Vec::new());
     }
+    if dir.1 < 32 {
+        return Err("delay-import directory is smaller than one descriptor".into());
+    }
     let mut offset = rva_to_offset(sections, dir.0)?;
+    let directory_end = offset
+        .checked_add(dir.1 as usize)
+        .filter(|end| *end <= bytes.len())
+        .ok_or("delay-import directory exceeds the file")?;
     let mut names = Vec::new();
-    for _ in 0..64 {
-        if offset + 32 > bytes.len() {
+    for _ in 0..(dir.1 as usize / 32).min(64) {
+        if offset.checked_add(32).is_none_or(|end| end > directory_end) {
             return Err("delay-import descriptor is truncated".into());
         }
         let name_rva = read_u32(bytes, offset + 4)?;
