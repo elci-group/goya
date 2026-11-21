@@ -67,11 +67,13 @@ fn validate_layout(files: &[(&str, Vec<u8>)]) -> Result<(), (PathBuf, std::io::E
                 ),
             ));
         }
-        if paths.contains(relative)
-            || paths
-                .iter()
-                .any(|path: &PathBuf| path.starts_with(relative))
-        {
+        // Android projects may be generated on Windows, where the filesystem
+        // folds ASCII path case. Reject those collisions on every host so the
+        // same generated layout is either accepted or refused everywhere.
+        let key = layout_path_key(relative);
+        if paths.contains(&key) || paths.iter().any(|path: &String| {
+            path.starts_with(&key) && path.as_bytes().get(key.len()) == Some(&b'/')
+        }) {
             return Err((
                 relative.to_path_buf(),
                 std::io::Error::new(
@@ -81,7 +83,7 @@ fn validate_layout(files: &[(&str, Vec<u8>)]) -> Result<(), (PathBuf, std::io::E
             ));
         }
         if let Some(parent) = relative.parent() {
-            if paths.contains(parent) {
+            if paths.contains(&layout_path_key(parent)) {
                 return Err((
                     relative.to_path_buf(),
                     std::io::Error::new(
@@ -91,9 +93,19 @@ fn validate_layout(files: &[(&str, Vec<u8>)]) -> Result<(), (PathBuf, std::io::E
                 ));
             }
         }
-        paths.insert(relative.to_path_buf());
+        paths.insert(key);
     }
     Ok(())
+}
+
+fn layout_path_key(path: &Path) -> String {
+    path.components()
+        .filter_map(|component| match component {
+            std::path::Component::Normal(part) => Some(part.to_string_lossy().to_ascii_lowercase()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 fn create_project(root: &Path, files: &[(&str, Vec<u8>)]) -> Result<(), (PathBuf, std::io::Error)> {
