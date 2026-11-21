@@ -538,6 +538,12 @@ fn read_source(path: &std::path::Path) -> std::io::Result<String> {
             "source is not a regular file",
         ));
     }
+    if metadata.len() > MAX_SOURCE_FILE_BYTES {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "source exceeds the 1 MiB limit",
+        ));
+    }
     let file = fs::File::open(path)?;
     let mut source = String::new();
     file.take(MAX_SOURCE_FILE_BYTES + 1)

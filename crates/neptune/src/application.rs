@@ -188,8 +188,11 @@ pub fn lower(
 ) -> Result<StateModel, crate::Diagnostic> {
     crate::validate_module(module)?;
     crate::inspect(source)?;
-    let handoff = goya_lang::handoff::admit_v3(source)
-        .map_err(|e| error(e.to_string(), Some(e.range)))?;
+    let handoff = goya_lang::handoff::admit_v3(source).map_err(|e| crate::Diagnostic {
+        code: "NPT-E2104",
+        message: e.to_string(),
+        range: Some(e.range),
+    })?;
     let parsed = handoff.parsed();
     let mut actions = crate::transition::lower_admitted(parsed, module)?;
     if actions.len() != parsed.scene.interactions.len() {
