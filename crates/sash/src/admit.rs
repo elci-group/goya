@@ -16,7 +16,7 @@ pub const PROFILE: &str = "sash.win32.static-window/0.0.3";
 pub const PROFILE_LEGACY: &str = "sash.win32.static-window-legacy/0.0.1";
 
 /// Millipoints in one Goya point. Matches the private layout constant.
-const MP: f64 = 1000.0;
+pub(crate) const MP: f64 = 1000.0;
 
 /// Most cells, including containers, admitted in one window.
 const MAX_CELLS: usize = 32;
@@ -74,6 +74,8 @@ pub struct PlacedLabel {
     pub text_range: SourceRange,
     pub id_range: SourceRange,
     pub extent_range: SourceRange,
+    /// `@iden` label and hint with its source range (GSSH/4, decision D14).
+    pub iden: Option<(String, Option<String>, SourceRange)>,
 }
 
 /// A scene whose entire admitted meaning fits one static window.
@@ -98,8 +100,8 @@ pub struct AdmittedWindow {
 /// Parse and admit `source`, or return the first fatal diagnostic.
 pub fn admit(source: &str) -> Result<AdmittedWindow, Diagnostic> {
     check_source_size(source)?;
-    let handoff = handoff::admit(source).map_err(diagnostic_from_strict)?;
-    admit_scene(&handoff.parsed, None)
+    let parsed = parsed_for_platform(source, "windows", false)?;
+    admit_scene(&parsed, None)
 }
 
 fn check_source_size(source: &str) -> Result<(), Diagnostic> {
@@ -128,14 +130,42 @@ pub enum SceneTarget {
 /// `admit` stays the static-window gate. Callers that link an executable use
 /// this selector so a button is not forced through the static rejection.
 pub fn open(source: &str) -> Result<SceneTarget, Diagnostic> {
+    open_for_platform(source, "windows")
+}
+
+/// Admit a scene through Sash's shared geometry and interaction gates while
+/// resolving exceptions for the requested target platform.
+pub fn open_for_platform(source: &str, platform: &str) -> Result<SceneTarget, Diagnostic> {
     check_source_size(source)?;
-    let handoff = handoff::admit(source).map_err(diagnostic_from_strict)?;
-    let scene = &handoff.parsed.scene;
+    let parsed = parsed_for_platform(source, platform, false)?;
+    let scene = &parsed.scene;
     if !scene.interactions.is_empty() || control_in(&scene.root) {
-        crate::interactive::admit_parsed(&handoff.parsed).map(SceneTarget::Interactive)
+        crate::interactive::admit_parsed(&parsed).map(SceneTarget::Interactive)
     } else {
-        admit_scene(&handoff.parsed, None).map(SceneTarget::Static)
+        admit_scene(&parsed, None).map(SceneTarget::Static)
     }
+}
+
+/// The contract a `--viewport-dip` scene is admitted under: GSSH/4-live for
+/// the interactive counter; for a static scene GSSH/4 when it uses a GSSH/4
+/// declaration (`@platform`, `@iden`, `@persistence`), else GSSH/3.
+pub fn viewport_contract(source: &str) -> &'static str {
+    if viewport_interactive(source) {
+        return handoff::CONTRACT_V4_LIVE;
+    }
+    match handoff::admit_v4(source) {
+        Ok(handoff) if uses_gssh4(&handoff) => handoff::CONTRACT_V4,
+        _ => handoff::CONTRACT_V3,
+    }
+}
+
+fn uses_gssh4(handoff: &handoff::SemanticHandoffV2) -> bool {
+    !handoff.platform_exceptions().is_empty()
+        || handoff
+            .parsed()
+            .entries
+            .iter()
+            .any(|entry| matches!(entry.kind.as_str(), "iden" | "persistence"))
 }
 
 /// Select GSSH/3 static admission when an explicit viewport is provided.
@@ -147,8 +177,15 @@ pub fn open_with_viewport(
         return open(source);
     };
     check_source_size(source)?;
-    let handoff = handoff::admit_v3(source).map_err(diagnostic_from_strict)?;
-    let parsed = handoff.parsed();
+    // Controls and interactions on the latest profile (decision D15): the
+    // GSSH/4-live counter, with declared state, bindings, text-from and @iden.
+    if viewport_interactive(source) {
+        let handoff = handoff::admit_v4_live(source).map_err(diagnostic_from_strict)?;
+        refuse_platform_rules(&handoff, "windows")?;
+        return crate::interactive::admit_parsed_live(handoff.parsed(), viewport)
+            .map(SceneTarget::Interactive);
+    }
+    let parsed = parsed_for_platform(source, "windows", true)?;
     if let Some((_, range)) = &parsed.declarations.state {
         return Err(cap(
             "declared state is outside the GSSH/3 static window slice",
@@ -156,7 +193,63 @@ pub fn open_with_viewport(
             Some(*range),
         ));
     }
-    admit_scene(parsed, Some(viewport)).map(SceneTarget::Static)
+    admit_scene(&parsed, Some(viewport)).map(SceneTarget::Static)
+}
+
+/// GSSH/4's additional syntax is subject to each downstream slice's existing
+/// capability checks. A target with any matching exception refuses it at the
+/// authored span until its rule semantics are implemented.
+fn parsed_for_platform(
+    source: &str,
+    platform: &str,
+    legacy_gssh3: bool,
+) -> Result<ParsedScene, Diagnostic> {
+    if let Ok(handoff) = handoff::admit_v4(source) {
+        // Use GSSH/4 when the scene needs it: platform exceptions, or a
+        // GSSH/4 declaration such as `@iden` (decision D14) that earlier
+        // profiles refuse.
+        if uses_gssh4(&handoff) {
+            refuse_platform_rules(&handoff, platform)?;
+            return Ok(handoff.parsed().clone());
+        }
+    }
+
+    if legacy_gssh3 {
+        handoff::admit_v3(source)
+            .map(|handoff| handoff.parsed().clone())
+            .map_err(diagnostic_from_strict)
+    } else {
+        handoff::admit(source)
+            .map(|handoff| handoff.parsed.clone())
+            .map_err(diagnostic_from_strict)
+    }
+}
+
+/// Refuse any exception for `platform`: none is implemented by Sash yet.
+fn refuse_platform_rules(
+    handoff: &handoff::SemanticHandoffV2,
+    platform: &str,
+) -> Result<(), Diagnostic> {
+    if let Some(rule) = handoff.platform_exceptions_for(platform).next() {
+        return Err(cap(
+            format!(
+                "{platform} platform exception for '{}' ({:?}) is not implemented by this profile",
+                rule.feature, rule.use_kind,
+            ),
+            "Remove this matching platform exception or use a compiler that resolves it.",
+            Some(rule.range),
+        ));
+    }
+    Ok(())
+}
+
+/// Whether a `--viewport-dip` scene is the interactive GSSH/4-live counter:
+/// it has a control or an interaction (decided on the loose parse, so a
+/// strict refusal is reported by the profile that would admit the scene).
+fn viewport_interactive(source: &str) -> bool {
+    goya_lang::parse_with_source_map(source).is_ok_and(|parsed| {
+        !parsed.scene.interactions.is_empty() || control_in(&parsed.scene.root)
+    })
 }
 
 fn control_in(cell: &SceneCell) -> bool {
@@ -435,8 +528,16 @@ fn walk(
             path,
         )?;
     }
-    let extent_property = if state.proportional { "extent_p" } else { "extent" };
-    let position_property = if state.proportional { "position_p" } else { "position" };
+    let extent_property = if state.proportional {
+        "extent_p"
+    } else {
+        "extent"
+    };
+    let position_property = if state.proportional {
+        "position_p"
+    } else {
+        "position"
+    };
     let extent_range = property_range_at(state.parsed, path, extent_property)
         .or_else(|| cell_range(state.parsed, path))
         .unwrap_or(SourceRange { start: 0, end: 0 });
@@ -477,6 +578,17 @@ fn walk(
                     "UTF-8 label is a STATIC control at {x_dip},{y_dip} size {width_dip} by {height_dip} dip."
                 ),
             });
+            let iden = admitted_iden(cell, state.parsed, path)?;
+            if let Some((label, hint, _)) = &iden {
+                state.dispositions.push(Disposition {
+                    subject: format!("{semantic_id} @iden"),
+                    disposition: "preserved",
+                    detail: format!(
+                        "UI Automation Name {label:?}{} set by dynamic annotation (IAccPropServices).",
+                        hint.as_ref().map_or(String::new(), |hint| format!(", HelpText and description {hint:?}"))
+                    ),
+                });
+            }
             state.labels.push(PlacedLabel {
                 semantic_id,
                 text,
@@ -487,6 +599,7 @@ fn walk(
                 text_range,
                 id_range,
                 extent_range,
+                iden,
             });
         }
         None if cell.children.is_empty() => {
@@ -497,6 +610,18 @@ fn walk(
             ));
         }
         None => {
+            if cell.iden.is_some() {
+                // A text-less cell becomes no control, so there is no native
+                // object to carry the name; refuse rather than drop it.
+                return Err(cap(
+                    format!(
+                        "cell '{}' has @iden but no text, so it has no Win32 control to name",
+                        cell.name
+                    ),
+                    "Give the cell text, or move @iden to a cell that has text.",
+                    iden_range_at(state.parsed, path),
+                ));
+            }
             let id = cell.authored_id.as_deref().unwrap_or(cell.name.as_str());
             state.dispositions.push(Disposition {
                 subject: format!("{id} container"),
@@ -596,15 +721,7 @@ fn points_to_mp(points: f64) -> i64 {
     (points * MP) as i64
 }
 
-pub(crate) fn reject_visuals(
-    cell: &SceneCell,
-    parsed: &ParsedScene,
-    path: &[usize],
-) -> Result<(), Diagnostic> {
-    reject_visuals_for(cell, parsed, path, false)
-}
-
-fn reject_visuals_for(
+pub(crate) fn reject_visuals_for(
     cell: &SceneCell,
     parsed: &ParsedScene,
     path: &[usize],
@@ -639,6 +756,38 @@ fn reject_visuals_for(
         ));
     }
     Ok(())
+}
+
+/// Source range of the `@iden` of the element at `path`.
+pub(crate) fn iden_range_at(parsed: &ParsedScene, path: &[usize]) -> Option<SourceRange> {
+    parsed
+        .entries
+        .iter()
+        .find(|entry| entry.kind == "iden" && entry.scene_path.as_deref() == Some(path))
+        .map(|entry| entry.range)
+}
+
+/// `@iden` for Windows (decision D14): its label and hint become the UI
+/// Automation Name and HelpText through dynamic annotation. GSSH/4 has
+/// already bounded them and refused control characters; Windows needs them
+/// to be nonempty UTF-16 without NUL, which that implies.
+pub(crate) fn admitted_iden(
+    cell: &SceneCell,
+    parsed: &ParsedScene,
+    path: &[usize],
+) -> Result<Option<(String, Option<String>, SourceRange)>, Diagnostic> {
+    let Some(iden) = &cell.iden else {
+        return Ok(None);
+    };
+    let range = iden_range_at(parsed, path).ok_or_else(|| {
+        Diagnostic::new(
+            "SASH-PARSE",
+            "parse",
+            "strict admission did not record an @iden origin",
+            "Report this as a frontend defect.",
+        )
+    })?;
+    Ok(Some((iden.label.clone(), iden.hint.clone(), range)))
 }
 
 pub(crate) fn validate_text(
@@ -946,6 +1095,53 @@ mod tests {
     }
 
     #[test]
+    fn iden_is_accepted_on_labels_and_refused_where_no_control_carries_it() {
+        let viewport = ViewportDip::new(640, 480);
+        let source = include_str!("../fixtures/iden-static.gscene");
+        let SceneTarget::Static(window) = open_with_viewport(source, viewport).unwrap() else {
+            panic!("expected a static window");
+        };
+        assert_eq!(window.labels[0].iden.as_ref().unwrap().0, "Headline");
+        assert!(window
+            .dispositions
+            .iter()
+            .any(|d| d.subject == "label.headline @iden" && d.detail.contains("UI Automation Name")));
+        // The group has no text, so it becomes no control to name.
+        let container = source.replace(
+            "id: \"panel.group\";",
+            "id: \"panel.group\"; @iden { label: \"Panel\"; }",
+        );
+        let error = match open_with_viewport(&container, viewport) {
+            Err(error) => error,
+            Ok(_) => panic!("a text-less @iden was admitted"),
+        };
+        assert!(error.message.contains("no Win32 control to name"), "{}", error.message);
+        assert_eq!(
+            &container[error.start.unwrap()..error.end.unwrap()],
+            "@iden { label: \"Panel\"; }"
+        );
+        assert_eq!(viewport_contract(source), "GSSH/4");
+    }
+
+    #[test]
+    fn platform_exceptions_are_scoped_to_the_requested_target() {
+        let source = r#"@ontology demo {
+            @persistence { cache_targets: null; }
+            @cell root { id: "root"; }
+            @platform windows { "media": only-use("native.player"); }
+        }"#;
+        let error = parsed_for_platform(source, "windows", false).unwrap_err();
+        assert!(error.message.contains("windows platform exception"), "{}", error.message);
+        assert_eq!(
+            &source[error.start.unwrap()..error.end.unwrap()],
+            "\"media\": only-use(\"native.player\");"
+        );
+
+        let linux_only = source.replace("windows", "linux");
+        assert!(parsed_for_platform(&linux_only, "windows", false).is_ok());
+    }
+
+    #[test]
     fn fixture_admits_exact_dips() {
         let source = include_str!("../fixtures/static-window.gscene");
         let window = admit(source).unwrap();
@@ -959,6 +1155,28 @@ mod tests {
             .dispositions
             .iter()
             .any(|item| item.disposition == "preserved"));
+    }
+
+    #[test]
+    fn gssh3_rejects_unrepresentable_operations_and_geometry() {
+        let viewport = ViewportDip::new(640, 480);
+        for (property, expected) in [
+            ("text-size-p: 0.5;", "text_size_p"),
+            ("stroke-width-p: 0.125;", "stroke_width_p"),
+            ("extent_p: (0.5, 1, 0);", "must fill"),
+            ("extent_p: (1, 1, 1);", "non-zero depth"),
+        ] {
+            let source = cell(&format!("id: \"root\"; text: \"Hi\"; {property}"));
+            match open_with_viewport(&source, viewport) {
+                Ok(_) => panic!("unexpectedly admitted {property}"),
+                Err(error) => assert!(error.message.contains(expected), "{}", error.message),
+            }
+        }
+        let source = include_str!("../fixtures/proportional-static.gscene");
+        match open_with_viewport(source, ViewportDip::new(639, 480)) {
+            Ok(_) => panic!("fractional DIP unexpectedly admitted"),
+            Err(error) => assert!(error.message.contains("exact multiple")),
+        }
     }
 
     #[test]

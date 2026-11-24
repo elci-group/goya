@@ -46,6 +46,142 @@ pub struct Invocation {
     pub package_format: Option<String>,
     /// `wayland` or `kumimanu`. The default is Wayland.
     pub window: String,
+    /// Optional desktop profile. `cosmic` selects Nebula's COSMIC profile.
+    pub desktop: Option<String>,
+    /// Optional XDG config root used as the deterministic desktop theme input.
+    pub config_root: Option<PathBuf>,
+}
+
+struct DesktopBuild {
+    report: Value,
+    embedded_style: String,
+    session: Value,
+    compositor: Value,
+}
+
+/// Resolve the COSMIC build-time theme. The running application receives only
+/// the baked colours and the proportional-resize choice; it never reads the
+/// user's configuration directory.
+fn resolve_desktop_build(invocation: &Invocation) -> Result<Option<DesktopBuild>, Fault> {
+    if invocation.desktop.as_deref() != Some("cosmic") {
+        return Ok(None);
+    }
+
+    let source = invocation
+        .config_root
+        .clone()
+        .map(nebula::theme::ThemeSource::new)
+        .or_else(nebula::theme::ThemeSource::from_env);
+    let mut theme_name = None;
+    let mut variant = None;
+    let mut format = None;
+    let mut files_digest = None;
+    let mut source_files = json!([]);
+    let mut issues = Vec::new();
+    let mut fallback_reason = None;
+    let mut palette = [
+        [235, 235, 240], // Existing Emperor surface colour.
+        [20, 20, 28],    // Existing Emperor foreground colour.
+        [214, 228, 245], // Existing Emperor focus fill.
+    ];
+    let mut config_root = None;
+
+    if let Some(source) = source {
+        config_root = Some(source.config_root.display().to_string());
+        match nebula::theme::load_active(&source) {
+            Ok(active) => {
+                let loaded = active.loaded;
+                theme_name = loaded.theme.name.clone();
+                variant = Some(match loaded.variant {
+                    nebula::theme::Variant::Dark => "dark",
+                    nebula::theme::Variant::Light => "light",
+                });
+                format = Some(loaded.format);
+                files_digest = Some(active.files_sha256);
+                source_files = json!(active.source_files);
+                if let Some(mode_error) = active.mode_error {
+                    issues.push(mode_error.to_string());
+                }
+                if let Some(mode) = active.mode {
+                    issues.extend(
+                        mode.issues
+                            .into_iter()
+                            .map(|issue| format!("mode: {issue:?}")),
+                    );
+                }
+                issues.extend(
+                    loaded
+                        .issues
+                        .iter()
+                        .map(|issue| format!("{}: {:?}", issue.key, issue.problem)),
+                );
+                match nebula::theme::map_to_chroma(&loaded).palette() {
+                    Some(chroma) => {
+                        palette = [
+                            [chroma.bg.r, chroma.bg.g, chroma.bg.b],
+                            [chroma.fg.r, chroma.fg.g, chroma.fg.b],
+                            [chroma.accent.r, chroma.accent.g, chroma.accent.b],
+                        ];
+                    }
+                    None => {
+                        fallback_reason = Some(
+                            "COSMIC theme did not provide every required Chroma palette slot"
+                                .to_owned(),
+                        );
+                    }
+                }
+            }
+            Err(error) => fallback_reason = Some(error.to_string()),
+        }
+    } else {
+        fallback_reason = Some("no XDG config root or HOME was available".to_owned());
+    }
+
+    let fallback = fallback_reason.is_some();
+    let report = json!({
+        "schema": nebula::THEME_SCHEMA,
+        "config_root": config_root,
+        "format": format,
+        "name": theme_name,
+        "variant": variant,
+        "files_sha256": files_digest,
+        "source_files": source_files,
+        "files_digest_basis": "Nebula SHA-256 over the exact bounded bytes passed to its theme parser",
+        "issues": issues,
+        "fallback": fallback,
+        "fallback_reason": fallback_reason,
+        "palette": {
+            "bg": rgb_hex(palette[0]),
+            "fg": rgb_hex(palette[1]),
+            "accent": rgb_hex(palette[2]),
+        },
+    });
+    let embedded_style = format!(
+        "pub fn embedded_style() -> Option<emperor_runtime::DesktopStyle> {{ Some(emperor_runtime::DesktopStyle {{ bg: {:?}, fg: {:?}, accent: {:?}, proportional: true }}) }}\n",
+        palette[0], palette[1], palette[2]
+    );
+    let session = nebula::session::classify(&nebula::session::SessionEnv::from_process());
+    let compositor = nebula::session::identify_compositor();
+    Ok(Some(DesktopBuild {
+        report,
+        embedded_style,
+        session: json!(session),
+        compositor: json!({
+            "installed_package": {
+                "name": compositor.package,
+                "version": compositor.version,
+                "method": compositor.method,
+                "command": compositor.command,
+                "detail": compositor.detail,
+                "note": compositor.note,
+            },
+            "running_process": compositor.running_process,
+        }),
+    }))
+}
+
+fn rgb_hex(rgb: [u8; 3]) -> String {
+    format!("#{:02X}{:02X}{:02X}", rgb[0], rgb[1], rgb[2])
 }
 
 pub fn execute(invocation: Invocation) -> Run {
@@ -118,6 +254,10 @@ fn build(invocation: Invocation) -> Run {
         Ok(lowered) => lowered,
         Err(fault) => return admission_failure(&invocation, fault),
     };
+    let desktop_build = match resolve_desktop_build(&invocation) {
+        Ok(desktop_build) => desktop_build,
+        Err(fault) => return fault_run(&invocation, fault),
+    };
     if let Err(fault) = gate_target(&invocation) {
         return target_blocked(&invocation, &lowered, fault);
     }
@@ -132,7 +272,14 @@ fn build(invocation: Invocation) -> Run {
         );
     }
     let json_text = lowered.json.clone();
-    let embed = lower::embed_rust(&lowered.ir, &json_text);
+    let mut embed = lower::embed_rust(&lowered.ir, &json_text);
+    if let Some(desktop_build) = &desktop_build {
+        embed.push_str(&desktop_build.embedded_style);
+    } else {
+        embed.push_str(
+            "pub fn embedded_style() -> Option<emperor_runtime::DesktopStyle> { None }\n",
+        );
+    }
     let desktop = desktop_entry();
     if let Err(fault) = validate_desktop(&desktop) {
         return fault_run(&invocation, fault);
@@ -227,9 +374,18 @@ fn build(invocation: Invocation) -> Run {
         Err(fault) => return fault_run(&invocation, fault),
     };
     let window = invocation.window.as_str();
-    let (smoke_status, smoke_text, exit, conformance) = if display_ready(window) {
+    let cosmic_session_qualifies = desktop_build.as_ref().map_or(true, |desktop| {
+        desktop.session["qualifies"].as_bool().unwrap_or(false)
+    });
+    let smoke_eligible = display_ready(window) && cosmic_session_qualifies;
+    let (smoke_status, smoke_text, exit, conformance) = if smoke_eligible {
         match run_captured(&app, &["--smoke"], Duration::from_secs(25)) {
-            Ok(captured) if captured.code == 0 && smoke_matches(window, &captured.stdout) => {
+            Ok(captured)
+                if captured.code == 0
+                    && smoke_matches(window, &captured.stdout)
+                    && (desktop_build.is_none()
+                        || cosmic_smoke_metadata(&captured.stdout).is_some()) =>
+            {
                 ("passed", captured.stdout, 0u8, Status::Pass)
             }
             Ok(captured) => {
@@ -237,11 +393,15 @@ fn build(invocation: Invocation) -> Run {
             }
             Err(fault) => return fault_run(&invocation, fault),
         }
+    } else if display_ready(window) && !cosmic_session_qualifies {
+        ("blocked", String::new(), 3u8, Status::Blocked)
     } else {
         ("blocked", String::new(), 3u8, Status::Blocked)
     };
     let conformance_detail = if conformance == Status::Pass {
         format!("oracle and {window} smoke passed\n{}", oracle.stdout.trim())
+    } else if desktop_build.is_some() && display_ready(window) && !cosmic_session_qualifies {
+        "current session does not satisfy Nebula's COSMIC Wayland session check; COSMIC smoke was not attempted".to_owned()
     } else {
         format!(
             "no {} display; oracle passed; window launch was not attempted",
@@ -251,7 +411,7 @@ fn build(invocation: Invocation) -> Run {
     let mut stages = Stages::new();
     push_linked(&mut stages, &lowered);
     stages.push(Status::Pass, elf_note.1.clone());
-    stages.push(conformance, conformance_detail);
+    stages.push(conformance, conformance_detail.clone());
     stages.push(
         Status::NotApplicable,
         "signing is not implemented; package was not requested",
@@ -271,6 +431,34 @@ fn build(invocation: Invocation) -> Run {
         "release": invocation.release,
         "window": invocation.window,
     });
+    let mut report = report;
+    if let Some(desktop_build) = &desktop_build {
+        report["desktop_profile"] = json!(nebula::protocols::PROFILE_ID);
+        report["nebula_version"] = json!(nebula::NEBULA_VERSION);
+        report["theme"] = desktop_build.report.clone();
+        report["session"] = desktop_build.session.clone();
+        report["compositor"] = desktop_build.compositor.clone();
+        report["cosmic_smoke"] = if smoke_status == "passed" {
+            let metadata = cosmic_smoke_metadata(&smoke_text).expect("validated above");
+            json!({
+                "status": "observed",
+                "counts_as_neb_001_qualification": false,
+                "session_qualifies": cosmic_session_qualifies,
+                "window": "wayland",
+                "xdg_wm_base_bound": metadata.xdg_wm_base_bound,
+                "toplevel_state": metadata.toplevel_state,
+                "native_seat_input": "not-exercised",
+                "scope": "one-window open and buffer-present smoke; no real-seat interaction",
+            })
+        } else {
+            json!({
+                "status": "blocked",
+                "counts_as_neb_001_qualification": false,
+                "session_qualifies": cosmic_session_qualifies,
+                "reason": conformance_detail,
+            })
+        };
+    }
     let body = finish(
         &invocation,
         exit,
@@ -583,11 +771,22 @@ fn qualify(invocation: Invocation) -> Run {
         .and_then(Value::as_str)
         .unwrap_or("wayland")
         .to_owned();
+    let cosmic_profile = report.get("desktop_profile").and_then(Value::as_str)
+        == Some(nebula::protocols::PROFILE_ID);
+    let qualification_session =
+        nebula::session::classify(&nebula::session::SessionEnv::from_process());
+    let cosmic_session_qualifies =
+        cosmic_profile && window == "wayland" && qualification_session.qualifies;
+    let smoke_eligible = display_ready(&window) && (!cosmic_profile || cosmic_session_qualifies);
     // The smoke runs only when this host can actually open a window. Without
     // a display the stage is BLOCKED, not FAILED: nothing was attempted.
-    let (smoke_status, smoke_exit, smoke_detail) = if display_ready(&window) {
+    let (smoke_status, smoke_exit, smoke_detail) = if smoke_eligible {
         match run_captured(&app, &["--smoke"], Duration::from_secs(25)) {
-            Ok(captured) if captured.code == 0 && smoke_matches(&window, &captured.stdout) => {
+            Ok(captured)
+                if captured.code == 0
+                    && smoke_matches(&window, &captured.stdout)
+                    && (!cosmic_profile || cosmic_smoke_metadata(&captured.stdout).is_some()) =>
+            {
                 (Status::Pass, 0u8, captured.stdout)
             }
             Ok(captured) => {
@@ -602,6 +801,12 @@ fn qualify(invocation: Invocation) -> Run {
             }
             Err(fault) => return fault_run(&invocation, fault),
         }
+    } else if cosmic_profile && display_ready(&window) && !cosmic_session_qualifies {
+        (
+            Status::Blocked,
+            0u8,
+            "current session does not satisfy Nebula's COSMIC Wayland session check; smoke was not attempted".to_owned(),
+        )
     } else if invocation.launch {
         (
             Status::Blocked,
@@ -622,7 +827,12 @@ fn qualify(invocation: Invocation) -> Run {
         )
     };
     let exercise = if invocation.exercise {
-        match qualify_exercise(&app, &window) {
+        match qualify_exercise(
+            &app,
+            &window,
+            cosmic_profile,
+            !cosmic_profile || cosmic_session_qualifies,
+        ) {
             Ok(evidence) => Some(evidence),
             Err(fault) => return fault_run(&invocation, fault),
         }
@@ -665,13 +875,48 @@ fn qualify(invocation: Invocation) -> Run {
             "artifact_sha256": digest,
             "oracle_stdout": oracle.stdout,
             "smoke": smoke_status.as_str().to_lowercase(),
-            "smoke_detail": smoke_detail,
+            "smoke_detail": smoke_detail.clone(),
             "qualification_scope": "local-release",
             "window": window,
             "target": target,
             "release": release,
         }),
     );
+    if cosmic_profile {
+        let qualifies = cosmic_session_qualifies;
+        result.json["session_at_qualify"] = json!(qualification_session);
+        let cosmic_smoke = if display_ready(&window) && !qualifies {
+            json!({
+                "status": "not-qualified",
+                "reason": "session verdict does not satisfy Nebula's COSMIC Wayland check",
+                "counts_as_cosmic_qualification": false,
+            })
+        } else if !display_ready(&window) {
+            json!({
+                "status": "blocked",
+                "reason": format!("{} is unset; no COSMIC window smoke was attempted", display_env(&window)),
+                "counts_as_cosmic_qualification": false,
+            })
+        } else {
+            match cosmic_smoke_metadata(&smoke_detail) {
+                Some(metadata) => json!({
+                    "status": if qualifies { "passed" } else { "not-qualified" },
+                    "counts_as_cosmic_qualification": false,
+                    "session_qualifies": qualifies,
+                    "scope": "one-window smoke only; real-seat input was not exercised",
+                    "xdg_wm_base_bound": metadata.xdg_wm_base_bound,
+                    "toplevel_state": metadata.toplevel_state,
+                    "native_seat_input": "not-exercised",
+                }),
+                None => json!({
+                    "status": "failed",
+                "counts_as_cosmic_qualification": false,
+                    "detail": "smoke output did not contain one valid xdg metadata line",
+                }),
+            }
+        };
+        result.json["cosmic_smoke"] = cosmic_smoke;
+    }
     if let Some(evidence) = exercise {
         result.text.push_str(&format!(
             "Wayland scripted exercise {} ({})\n",
@@ -689,13 +934,24 @@ struct ExerciseEvidence {
     report: Value,
 }
 
-fn qualify_exercise(app: &Path, window: &str) -> Result<ExerciseEvidence, Fault> {
-    let synthetic = capture_exercise(app, false)?;
+fn qualify_exercise(
+    app: &Path,
+    window: &str,
+    cosmic_profile: bool,
+    cosmic_session_qualifies: bool,
+) -> Result<ExerciseEvidence, Fault> {
+    let synthetic = capture_exercise(app, false, cosmic_profile)?;
     let (status, stdout, detail) = if window != "wayland" {
         (
             Status::Blocked,
             None,
             "scripted Wayland exercise requires a Wayland App".to_owned(),
+        )
+    } else if cosmic_profile && !cosmic_session_qualifies {
+        (
+            Status::Blocked,
+            None,
+            "current session does not satisfy Nebula's COSMIC Wayland session check; scripted Wayland exercise was not attempted".to_owned(),
         )
     } else if !display_ready(window) {
         (
@@ -704,7 +960,7 @@ fn qualify_exercise(app: &Path, window: &str) -> Result<ExerciseEvidence, Fault>
             "WAYLAND_DISPLAY is unset; scripted Wayland frame was not attempted".to_owned(),
         )
     } else {
-        match capture_exercise(app, true) {
+        match capture_exercise(app, true, cosmic_profile) {
             Ok(stdout) => (
                 Status::Pass,
                 Some(stdout),
@@ -726,7 +982,7 @@ fn qualify_exercise(app: &Path, window: &str) -> Result<ExerciseEvidence, Fault>
     })
 }
 
-fn capture_exercise(app: &Path, wayland: bool) -> Result<String, Fault> {
+fn capture_exercise(app: &Path, wayland: bool, cosmic_profile: bool) -> Result<String, Fault> {
     let (mode, window_report) = if wayland {
         ("--exercise", "presented=1 wayland=opened window=wayland")
     } else {
@@ -737,7 +993,9 @@ fn capture_exercise(app: &Path, wayland: bool) -> Result<String, Fault> {
     };
     let captured = run_captured(app, &[mode], Duration::from_secs(25))?;
     let expected = format!("count=3 revision=2 {window_report} copy=true paste=false edit=2");
-    if captured.code == 0 && captured.stdout.trim_end() == expected {
+    let output_matches =
+        exercise_stdout_matches(&captured.stdout, &expected, cosmic_profile && wayland);
+    if captured.code == 0 && output_matches {
         Ok(captured.stdout)
     } else {
         Err(Fault::new(
@@ -749,6 +1007,88 @@ fn capture_exercise(app: &Path, wayland: bool) -> Result<String, Fault> {
             ),
         ))
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CosmicSmokeMetadata {
+    xdg_wm_base_bound: u32,
+    toplevel_state: String,
+}
+
+/// Parse the optional runtime metadata line emitted for a Nebula-built
+/// Wayland App. The default Emperor output remains a single exact line.
+fn exercise_stdout_matches(stdout: &str, expected: &str, cosmic_wayland: bool) -> bool {
+    if !cosmic_wayland {
+        return stdout.trim_end() == expected;
+    }
+    let lines: Vec<_> = stdout.split_terminator('\n').collect();
+    lines.len() == 2 && lines[0] == expected && cosmic_smoke_metadata_line(lines[1]).is_some()
+}
+
+fn cosmic_smoke_metadata(stdout: &str) -> Option<CosmicSmokeMetadata> {
+    let lines: Vec<_> = stdout.split_terminator('\n').collect();
+    if lines.len() != 2 {
+        return None;
+    }
+    cosmic_smoke_metadata_line(lines[1])
+}
+
+fn cosmic_smoke_metadata_line(line: &str) -> Option<CosmicSmokeMetadata> {
+    let rest = line.strip_prefix("xdg_wm_base_bound=")?;
+    let (version, state) = rest.split_once(" toplevel_state=")?;
+    let xdg_wm_base_bound = version.parse::<u32>().ok()?;
+    if xdg_wm_base_bound == 0 || !valid_toplevel_state_debug(state) {
+        return None;
+    }
+    Some(CosmicSmokeMetadata {
+        xdg_wm_base_bound,
+        toplevel_state: state.to_owned(),
+    })
+}
+
+fn valid_toplevel_state_debug(state: &str) -> bool {
+    if !state.starts_with("ToplevelState {") || !state.ends_with('}') {
+        return false;
+    }
+    if state.chars().any(char::is_control) {
+        return false;
+    }
+    for field in [
+        "maximized: ",
+        "fullscreen: ",
+        "resizing: ",
+        "activated: ",
+        "tiled: Edges {",
+        "suspended: ",
+        "constrained: Edges {",
+        "bounds: ",
+    ] {
+        if !state.contains(field) {
+            return false;
+        }
+    }
+    let mut braces = 0i32;
+    let mut parens = 0i32;
+    for ch in state.chars() {
+        match ch {
+            '{' => braces += 1,
+            '}' => {
+                braces -= 1;
+                if braces < 0 {
+                    return false;
+                }
+            }
+            '(' => parens += 1,
+            ')' => {
+                parens -= 1;
+                if parens < 0 {
+                    return false;
+                }
+            }
+            _ => {}
+        }
+    }
+    braces == 0 && parens == 0
 }
 
 /// Local latency benchmark of one build directory.
@@ -1010,7 +1350,10 @@ fn benchmark(invocation: Invocation) -> Run {
             }
         }
         if fps.len() == FRAME_RATE_RUNS {
-            (Some(fps), "frame rate measured over --live pumps".to_owned())
+            (
+                Some(fps),
+                "frame rate measured over --live pumps".to_owned(),
+            )
         } else {
             (None, failure)
         }
@@ -1546,7 +1889,10 @@ fn package_deb(invocation: Invocation, format: &str) -> Run {
             Fault::new(
                 2,
                 "EMP-PACKAGE",
-                format!("could not claim staging directory {}: {error}", staging.display()),
+                format!(
+                    "could not claim staging directory {}: {error}",
+                    staging.display()
+                ),
             ),
         );
     }
@@ -2280,11 +2626,11 @@ fn run_captured(bin: &Path, args: &[&str], timeout: Duration) -> Result<Captured
                 format!("could not start {}: {error}", bin.display()),
             )
         })?;
-    let mut stdout = child
+    let stdout = child
         .stdout
         .take()
         .ok_or_else(|| Fault::new(5, "EMP-RUNTIME", "the application has no stdout pipe"))?;
-    let mut stderr = child
+    let stderr = child
         .stderr
         .take()
         .ok_or_else(|| Fault::new(5, "EMP-RUNTIME", "the application has no stderr pipe"))?;
@@ -2376,10 +2722,17 @@ fn display_env(window: &str) -> &'static str {
 /// Wayland smoke still requires `wayland=opened`. Kumimanu requires its own
 /// marker and a presented frame. A missing display is not a pass.
 fn smoke_matches(window: &str, stdout: &str) -> bool {
+    let presented = stdout
+        .lines()
+        .next()
+        .unwrap_or("")
+        .split_whitespace()
+        .find_map(|field| field.strip_prefix("presented=")?.parse::<u32>().ok())
+        .unwrap_or(0);
     if window == "kumimanu" {
-        stdout.contains("window=kumimanu") && !stdout.contains("presented=0 ")
+        stdout.contains("window=kumimanu") && presented > 0
     } else {
-        stdout.contains("wayland=opened")
+        stdout.contains("wayland=opened") && presented > 0
     }
 }
 
@@ -2437,7 +2790,31 @@ fn tail(text: &str) -> &str {
 mod tests {
     // display_ready itself is environment-dependent (DISPLAY vs
     // WAYLAND_DISPLAY), so only the pure mappings are asserted here.
-    use super::{display_env, display_name, host_label, smoke_matches};
+    use super::{
+        cosmic_smoke_metadata, display_env, display_name, exercise_stdout_matches, host_label,
+        resolve_desktop_build, smoke_matches, CommandKind, Invocation,
+    };
+    use std::path::PathBuf;
+
+    fn cosmic_invocation(config_root: PathBuf) -> Invocation {
+        Invocation {
+            kind: CommandKind::Build,
+            scene: None,
+            directory: None,
+            out: None,
+            evidence: None,
+            target: "x86_64-unknown-linux-gnu".into(),
+            profile: "balanced".into(),
+            release: false,
+            launch: false,
+            exercise: false,
+            suite: None,
+            package_format: None,
+            window: "wayland".into(),
+            desktop: Some("cosmic".into()),
+            config_root: Some(config_root),
+        }
+    }
 
     #[test]
     fn display_helpers_map_kumimanu_to_x11_display() {
@@ -2449,18 +2826,55 @@ mod tests {
 
     #[test]
     fn smoke_matches_requires_each_backend_marker() {
-        assert!(smoke_matches("wayland", "opened wayland=opened\n"));
-        assert!(!smoke_matches("wayland", "window=kumimanu presented=1\n"));
         assert!(smoke_matches(
-            "kumimanu",
-            "window=kumimanu presented=3 frames\n"
+            "wayland",
+            "count=1 presented=1 wayland=opened\n"
         ));
-        assert!(!smoke_matches("kumimanu", "window=wayland presented=3\n"));
         assert!(!smoke_matches(
-            "kumimanu",
-            "window=kumimanu presented=0 frames\n"
+            "wayland",
+            "count=1 presented=0 wayland=opened\n"
         ));
+        assert!(!smoke_matches("wayland", "window=kumimanu presented=1\n"));
+        assert!(smoke_matches("kumimanu", "window=kumimanu presented=3\n"));
+        assert!(!smoke_matches("kumimanu", "window=wayland presented=3\n"));
+        assert!(!smoke_matches("kumimanu", "window=kumimanu presented=0\n"));
         assert!(!smoke_matches("kumimanu", "no display\n"));
+    }
+
+    #[test]
+    fn cosmic_exercise_accepts_only_exact_first_line_and_one_valid_metadata_line() {
+        let expected = "count=3 revision=2 presented=1 wayland=opened window=wayland copy=true paste=false edit=2";
+        let state = "ToplevelState { maximized: false, fullscreen: false, resizing: false, activated: true, tiled: Edges { left: false, right: false, top: false, bottom: false }, suspended: false, constrained: Edges { left: false, right: false, top: false, bottom: false }, bounds: None }";
+        let cosmic_output = format!("{expected}\nxdg_wm_base_bound=7 toplevel_state={state}\n");
+        assert!(exercise_stdout_matches(&cosmic_output, expected, true));
+        assert!(!exercise_stdout_matches(expected, expected, true));
+        assert!(!exercise_stdout_matches(
+            &format!("{expected}\nxdg_wm_base_bound=0 toplevel_state={state}\n"),
+            expected,
+            true
+        ));
+        assert!(!exercise_stdout_matches(
+            &format!("{expected}\nxdg_wm_base_bound=7 toplevel_state=invalid\n"),
+            expected,
+            true
+        ));
+        assert!(!exercise_stdout_matches(
+            &format!("{expected}\nxdg_wm_base_bound=7 toplevel_state={state}\nextra\n"),
+            expected,
+            true
+        ));
+        assert!(exercise_stdout_matches(expected, expected, false));
+        assert!(!exercise_stdout_matches(
+            &format!("{expected}\nxdg_wm_base_bound=7 toplevel_state={state}\n"),
+            expected,
+            false
+        ));
+        assert_eq!(
+            cosmic_smoke_metadata(&cosmic_output)
+                .unwrap()
+                .xdg_wm_base_bound,
+            7
+        );
     }
 
     #[test]
@@ -2468,5 +2882,52 @@ mod tests {
         // "none" reads as a failed lookup; a missing host triple must be
         // labeled as an unsupported platform instead.
         assert_ne!(host_label(), "none");
+    }
+
+    #[test]
+    fn cosmic_build_bakes_theme_palette_and_stable_input_digest() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../nebula/tests/fixtures/pop-2026-11-19");
+        let first = resolve_desktop_build(&cosmic_invocation(root.clone()))
+            .expect("resolve")
+            .expect("COSMIC profile");
+        let second = resolve_desktop_build(&cosmic_invocation(root))
+            .expect("resolve")
+            .expect("COSMIC profile");
+        assert_eq!(first.report["name"], "cosmic-dark");
+        assert_eq!(first.report["variant"], "dark");
+        assert_eq!(first.report["format"], "v1");
+        assert_eq!(first.report["fallback"], false);
+        let digest = first.report["files_sha256"].as_str().expect("digest");
+        assert_eq!(digest.len(), 64);
+        assert_eq!(first.report["files_sha256"], second.report["files_sha256"]);
+        assert_eq!(first.report["palette"]["bg"], "#1B1B1B");
+        assert_eq!(first.report["palette"]["accent"], "#63D0DF");
+        assert!(first.embedded_style.contains("proportional: true"));
+        assert!(first.embedded_style.contains("[27, 27, 27]"));
+        assert!(first.session["qualifies"].is_boolean());
+        assert!(first.compositor["installed_package"]["method"]
+            .as_str()
+            .is_some());
+        assert!(first.compositor["running_process"]["method"]
+            .as_str()
+            .is_some());
+        assert!(first.compositor["running_process"]["status"]
+            .as_str()
+            .is_some());
+    }
+
+    #[test]
+    fn cosmic_build_reports_theme_fallback_and_bakes_existing_defaults() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../nebula/tests/fixtures/no-such-config");
+        let build = resolve_desktop_build(&cosmic_invocation(root))
+            .expect("resolve")
+            .expect("COSMIC profile");
+        assert_eq!(build.report["fallback"], true);
+        assert!(build.report["fallback_reason"].as_str().is_some());
+        assert_eq!(build.report["palette"]["bg"], "#EBEBF0");
+        assert_eq!(build.report["palette"]["fg"], "#14141C");
+        assert!(build.embedded_style.contains("proportional: true"));
     }
 }

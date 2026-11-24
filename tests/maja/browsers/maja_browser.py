@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
 """Exercise a `maja.web.local.v2` build in a real headless browser.
 
-Usage: python3 tests/maja/browsers/maja_browser.py chrome|firefox counter|scroll|durable|initial|display OUTPUT_DIRECTORY
+Usage: python3 tests/maja/browsers/maja_browser.py chrome|firefox counter|scroll|durable|durable-idb|initial|display|display-idb OUTPUT_DIRECTORY
 
 `counter`: OUTPUT_DIRECTORY is `maja build fixtures/nevada/counter.gscene
 --profile maja.web.local.v2 --out ...`. `scroll`: a build of
 `tests/maja/fixtures/scroll.gscene`. `durable`: a build of
 `tests/maja/fixtures/durable-counter.gscene` (the counter with `count`
-durable). `initial`: a build of
+durable). `durable-idb`: a build of
+`tests/maja/fixtures/durable-idb-counter.gscene` (the same counter, kept in
+IndexedDB by its `@persistence` declaration). `initial`: a build of
 `tests/maja/fixtures/initial-content.gscene` (the counter's field has
 `text: "7"`, its initial content under decision D3). `display`: a `maja.web.local.v3`
 build of `tests/maja/fixtures/display-counter.gscene` (`text-from`
-display bindings, decision D9). Requires websocket-client and the browser.
+display bindings, decision D9). `display-idb`: a `maja.web.local.v3` build
+of `tests/maja/fixtures/display-idb-counter.gscene` (the same scene on
+GSSH/4-live, saving to IndexedDB, decision D12). Requires websocket-client and the browser.
 Chrome is driven through the DevTools Protocol, Firefox through WebDriver
 BiDi; neither needs a separate driver binary. `MAJA_CHROME` and
 `MAJA_FIREFOX` override the executables.
@@ -504,9 +508,17 @@ def scenario(browser, url):
         if ("button", "Add") not in roles or ("StaticText", "Counter") not in roles:
             raise AssertionError(f"AX tree: {roles!r}")
         textboxes = [name for role, name in roles if role == "textbox"]
-        if len(textboxes) != 1:
-            raise AssertionError(f"expected one textbox: {roles!r}")
-        passed.append(f"AX tree: button 'Add', StaticText 'Counter', one textbox (accessible name: {textboxes[0]!r})")
+        if textboxes != ["Amount"]:
+            raise AssertionError(f"expected one textbox named 'Amount' (its @iden label): {roles!r}")
+        passed.append("AX tree: button 'Add', StaticText 'Counter', one textbox whose accessible name is its @iden label 'Amount'")
+    # `@iden` (decision D14) in the DOM, in every browser: the label is the
+    # field's accessible name, the hint its description.
+    iden = ev("""(() => { const f = document.querySelector('[data-goya-id="window.amount"] input');
+        const d = document.getElementById(f.getAttribute('aria-describedby'));
+        return [f.getAttribute('aria-label'), d && d.textContent, d && d.className]; })()""")
+    if iden != ["Amount", "A whole number to add to the count", "goya-sr"]:
+        raise AssertionError(f"@iden not rendered: {iden!r}")
+    passed.append("@iden: the field's aria-label is 'Amount' and its aria-describedby names a visually hidden hint")
 
     load(browser.reload)
     set_field("1")
@@ -521,12 +533,20 @@ def scenario(browser, url):
     return passed, not_verified
 
 
-def durable_scenario(browser, url):
-    """Durable state: restore across reload, write-before-commit, restore failure."""
+def durable_scenario(browser, url, store="local-storage"):
+    """Durable state: restore across reload, write-before-commit, restore failure.
+
+    `store` is the scene's browser adapter (decision D11): "local-storage"
+    (the default) or "indexeddb" (database goya.state.v1, store records).
+    """
     passed = []
     not_verified = []
     ev = browser.evaluate
     record_key = "goya.state.v1/counter"
+    idb = store == "indexeddb"
+    # One short-lived connection per harness access, closed at once so the
+    # page's own connection is never blocked.
+    idb_open = "const q = indexedDB.open('goya.state.v1', 1); q.onupgradeneeded = () => q.result.createObjectStore('records'); q.onerror = () => no(String(q.error));"
     field = "document.querySelector('[data-goya-id=\"window.amount\"] input')"
 
     def load(action):
@@ -547,9 +567,15 @@ def durable_scenario(browser, url):
             raise AssertionError(f"field text was not entered: {ev(f'{field}.value')!r}")
         box = ev("(() => { const r = document.querySelector('[data-goya-id=\"window.add\"] button').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()")
         browser.click(box[0], box[1])
+        # An IndexedDB commit is published after its write transaction.
+        deadline = time.monotonic() + 10
+        while idb and ev("window.__events.length") == before and time.monotonic() < deadline:
+            time.sleep(0.02)
         events = ev("window.__events")
         if len(events) != before + 1:
             raise AssertionError(f"expected one new transition event, got {len(events) - before}")
+        if ev("document.getElementById('goya-scene').hasAttribute('aria-busy')"):
+            raise AssertionError("aria-busy left set after the transition settled")
         return events[-1]
 
     def expect(event, ok, revision, count, code=None):
@@ -557,7 +583,15 @@ def durable_scenario(browser, url):
             raise AssertionError(f"unexpected outcome {event!r}")
 
     def record():
-        return ev(f"localStorage.getItem({json.dumps(record_key)})")
+        if not idb:
+            return ev(f"localStorage.getItem({json.dumps(record_key)})")
+        return ev(f"new Promise((ok, no) => {{ {idb_open} q.onsuccess = () => {{ const db = q.result; const r = db.transaction('records').objectStore('records').get({json.dumps(record_key)}); r.onsuccess = () => {{ db.close(); ok(r.result === undefined ? null : r.result); }}; r.onerror = () => no(String(r.error)); }}; }})", await_promise=True)
+
+    def set_record(text):
+        if not idb:
+            ev(f"(localStorage.setItem({json.dumps(record_key)}, {json.dumps(text)}), 0)")
+            return
+        ev(f"new Promise((ok, no) => {{ {idb_open} q.onsuccess = () => {{ const db = q.result; const tx = db.transaction('records', 'readwrite'); tx.objectStore('records').put({json.dumps(text)}, {json.dumps(record_key)}); tx.oncomplete = () => {{ db.close(); ok(0); }}; tx.onabort = () => no(String(tx.error)); }}; }})", await_promise=True)
 
     def stored(count):
         return json.dumps({"format": "goya.state.v1", "values": {"count": ["int", count]}}, separators=(",", ":"))
@@ -581,20 +615,24 @@ def durable_scenario(browser, url):
         raise AssertionError(f"a refused transition changed the record: {record()!r}")
     passed.append("a D1 failure (ARITHMETIC_OVERFLOW) leaves the stored record at 6")
 
-    # Simulated storage failure: the page's own Storage.setItem is replaced
-    # for this document only (cleared by the next reload).
-    ev("(Storage.prototype.setItem = function () { throw new DOMException('simulated', 'QuotaExceededError'); }, 0)")
+    # Simulated storage failure for this document only (cleared by the next
+    # reload): setItem throws, or every IndexedDB put aborts its transaction.
+    if idb:
+        ev("(IDBObjectStore.prototype.put = function () { this.transaction.abort(); return {}; }, 0)")
+    else:
+        ev("(Storage.prototype.setItem = function () { throw new DOMException('simulated', 'QuotaExceededError'); }, 0)")
     expect(add("1"), False, "1", "6", "STORAGE_FAILED")
     if ev("document.getElementById('goya-status').textContent") != "Action failed: STORAGE_FAILED" or record() != stored("6"):
         raise AssertionError("storage failure was not reported or changed the record")
-    passed.append("a throwing setItem refuses the commit: STORAGE_FAILED, count 6 and revision 1 unchanged, reported in role=status (failure simulated)")
-    not_verified.append("a real QuotaExceededError (setItem failure was simulated)")
+    what = "an aborted IndexedDB write transaction" if idb else "a throwing setItem"
+    passed.append(f"{what} refuses the commit: STORAGE_FAILED, count 6 and revision 1 unchanged, reported in role=status (failure simulated)")
+    not_verified.append("a real quota failure (the write failure was simulated)")
 
     restored, _ = load(browser.reload)
     expect(add("0"), True, "1", "6")
     passed.append("after the refused write, reload still restores 6")
 
-    ev(f"(localStorage.setItem({json.dumps(record_key)}, '{{'), 0)")
+    set_record("{")
     restored, notice = load(browser.reload)
     if restored != "RECORD_UNDECODABLE" or "RECORD_UNDECODABLE" not in notice or record() != "{":
         raise AssertionError(f"corrupt record: restore {restored!r}, status {notice!r}, record {record()!r}")
@@ -604,7 +642,7 @@ def durable_scenario(browser, url):
         raise AssertionError(f"first durable commit after a failed restore: record {record()!r}")
     passed.append("the first commit after a failed restore starts from the authored value (0 + 2 = 2), replaces the record and clears the notice")
 
-    ev(f"(localStorage.setItem({json.dumps(record_key)}, {json.dumps(json.dumps({'format': 'goya.state.v1', 'values': {'count': ['text', '9']}}))}), 0)")
+    set_record(json.dumps({'format': 'goya.state.v1', 'values': {'count': ['text', '9']}}))
     restored, _ = load(browser.reload)
     if restored != "RECORD_TYPE_MISMATCH":
         raise AssertionError(f"retyped record: {restored!r}")
@@ -630,7 +668,21 @@ def durable_scenario(browser, url):
     load(browser.reload)
     expect(add("1"), True, "1", "41")
     passed.append("reload adopts the other window's value: 40 + 1 = 41")
-    not_verified.append("crash between setItem and commit (the write precedes the commit by construction, not by test)")
+    not_verified.append("crash between the store write and the commit (the write precedes the commit by construction, not by test)")
+    if idb:
+        if ev("localStorage.length") != 0:
+            raise AssertionError("the IndexedDB build wrote to localStorage")
+        passed.append("the declared store is used exclusively: the record is in IndexedDB goya.state.v1/records, localStorage stays empty")
+        # Decision D13 (default `copy`): with no IndexedDB record, a record
+        # left in localStorage by an earlier build is adopted and copied.
+        ev(f"new Promise((ok, no) => {{ {idb_open} q.onsuccess = () => {{ const db = q.result; const tx = db.transaction('records', 'readwrite'); tx.objectStore('records').delete({json.dumps(record_key)}); tx.oncomplete = () => {{ db.close(); ok(0); }}; tx.onabort = () => no(String(tx.error)); }}; }})", await_promise=True)
+        ev(f"(localStorage.setItem({json.dumps(record_key)}, {json.dumps(stored('77'))}), 0)")
+        restored, _ = load(browser.reload)
+        migrated = ev("document.documentElement.dataset.goyaMigrated")
+        if restored != "ok" or migrated != "browser.local-storage.v1" or record() != stored("77") or ev(f"localStorage.getItem({json.dumps(record_key)})") != stored("77"):
+            raise AssertionError(f"migration: restore {restored!r}, migrated {migrated!r}, IndexedDB {record()!r}")
+        expect(add("1"), True, "1", "78")
+        passed.append("migration (copy): a localStorage record is adopted when IndexedDB has none (77 + 1 = 78), copied into IndexedDB and kept in localStorage")
     ev("0")
     if browser.errors:
         raise AssertionError(f"browser errors: {browser.errors!r}")
@@ -679,8 +731,12 @@ def initial_scenario(browser, url):
     return passed, []
 
 
-def display_scenario(browser, url):
-    """`text-from` display bindings (decision D9, profile maja.web.local.v3)."""
+def display_scenario(browser, url, store="local-storage"):
+    """`text-from` display bindings (decision D9, profile maja.web.local.v3).
+
+    With store="indexeddb" the build is GSSH/4-live (decision D12): the same
+    checks, with the durable count kept in IndexedDB.
+    """
     passed = []
     not_verified = []
     ev = browser.evaluate
@@ -708,8 +764,13 @@ def display_scenario(browser, url):
             browser.type_text(text)
             if ev(f"{sel}.value") != text:
                 raise AssertionError(f"field text was not entered: {ev(f'{sel}.value')!r}")
+        before = ev("window.__events.length")
         box = ev(f"(() => {{ const r = document.querySelector('[data-goya-id=\"{button}\"] button').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; }})()")
         browser.click(box[0], box[1])
+        # A transition that saves to IndexedDB is published once it is saved.
+        deadline = time.monotonic() + 10
+        while ev("window.__events.length") == before and time.monotonic() < deadline:
+            time.sleep(0.02)
         return ev("window.__events")[-1]
 
     def expect(want, what):
@@ -781,6 +842,13 @@ def display_scenario(browser, url):
     load(browser.reload)
     expect({**initial, "total": "Count: -12"}, "after reload")
     passed.append("reload: the durable count is shown restored (-12) before any input; session values show their authored values")
+    if store == "indexeddb":
+        saved = ev("""new Promise((ok, no) => { const q = indexedDB.open('goya.state.v1', 1); q.onerror = () => no(String(q.error));
+            q.onsuccess = () => { const db = q.result; const r = db.transaction('records').objectStore('records').get('goya.state.v1/tally');
+            r.onsuccess = () => { db.close(); ok(r.result ?? null); }; }; })""", await_promise=True)
+        if saved != '{"format":"goya.state.v1","values":{"count":["int","-12"]}}' or ev("localStorage.length") != 0:
+            raise AssertionError(f"IndexedDB record {saved!r}, localStorage length {ev('localStorage.length')}")
+        passed.append("GSSH/4-live: the shown count was saved to IndexedDB before it was shown (record holds -12; localStorage empty)")
 
     roles = browser.accessibility()
     if roles is None:
@@ -800,7 +868,7 @@ def display_scenario(browser, url):
 
 def main(kind, name, output):
     output = Path(output).resolve(strict=True)
-    required = ("index.html", "app.js", "scene.js", "layout.js") + (("d1.js",) if name != "scroll" else ()) + (("storage.js",) if name in ("durable", "display") else ())
+    required = ("index.html", "app.js", "scene.js", "layout.js") + (("d1.js",) if name != "scroll" else ()) + (("storage.js",) if name in ("durable", "durable-idb", "display", "display-idb") else ())
     for file in required:
         if not (output / file).is_file():
             raise RuntimeError(f"output does not contain {file}")
@@ -819,7 +887,7 @@ def main(kind, name, output):
         with tempfile.TemporaryDirectory(prefix=f"maja-{kind}-", ignore_cleanup_errors=True) as profile:
             browser = {"chrome": Chrome, "firefox": Firefox}[kind](profile)
             try:
-                passed, not_verified = {"counter": scenario, "scroll": scroll_scenario, "durable": durable_scenario, "initial": initial_scenario, "display": display_scenario}[name](browser, f"http://127.0.0.1:{server.server_port}/index.html")
+                passed, not_verified = {"counter": scenario, "scroll": scroll_scenario, "durable": durable_scenario, "durable-idb": functools.partial(durable_scenario, store="indexeddb"), "display-idb": functools.partial(display_scenario, store="indexeddb"), "initial": initial_scenario, "display": display_scenario}[name](browser, f"http://127.0.0.1:{server.server_port}/index.html")
                 version = browser.version()
             finally:
                 browser.close()
@@ -834,7 +902,7 @@ def main(kind, name, output):
             for line in not_verified:
                 print("NOT VERIFIED:", line)
             print("BROWSER:", version)
-            print("NOT TESTED: assistive technology, IME composition, touch, visual typography" + ("" if name in ("durable", "display") else ", durable state"))
+            print("NOT TESTED: assistive technology, IME composition, touch, visual typography" + ("" if name in ("durable", "durable-idb", "display", "display-idb") else ", durable state"))
     finally:
         server.shutdown()
         server.server_close()
@@ -842,6 +910,6 @@ def main(kind, name, output):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 4 or sys.argv[1] not in ("chrome", "firefox") or sys.argv[2] not in ("counter", "scroll", "durable", "initial", "display"):
-        raise SystemExit("usage: maja_browser.py chrome|firefox counter|scroll|durable|initial|display OUTPUT_DIRECTORY")
+    if len(sys.argv) != 4 or sys.argv[1] not in ("chrome", "firefox") or sys.argv[2] not in ("counter", "scroll", "durable", "durable-idb", "initial", "display", "display-idb"):
+        raise SystemExit("usage: maja_browser.py chrome|firefox counter|scroll|durable|durable-idb|initial|display|display-idb OUTPUT_DIRECTORY")
     main(sys.argv[1], sys.argv[2], sys.argv[3])

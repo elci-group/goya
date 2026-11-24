@@ -28,13 +28,26 @@ pub fn run_authored_add(source: &str) -> Result<CounterRun, sash::Diagnostic> {
             return Err(cap("this run admits only the interactive counter"));
         }
     };
-    let handoff = goya_lang::handoff::admit(source).map_err(|error| {
-        cap(format!(
-            "D1 error: shared scene was not available after admission: {error}"
-        ))
-    })?;
+    // Sash has already admitted this exact source for its target. Keep the
+    // older GSSH/1 path for legacy counter scenes, and retain GSSH/4 rules
+    // when a scene carries explicit exceptions for another platform.
+    let parsed = goya_lang::parse_with_source_map(source)
+        .map_err(|error| cap(format!("D1 error: shared scene could not be parsed: {error}")))?;
+    let scene = if parsed.declarations.platform_exceptions.is_empty() {
+        goya_lang::handoff::admit(source)
+            .map_err(|error| cap(format!("D1 error: shared scene was not available after admission: {error}")))?
+            .parsed
+            .scene
+            .clone()
+    } else {
+        goya_lang::handoff::admit_v4(source)
+            .map_err(|error| cap(format!("D1 error: shared scene was not available after GSSH/4 admission: {error}")))?
+            .parsed()
+            .scene
+            .clone()
+    };
     let mut owner = goya_sdk::D1Application::new(
-        &handoff.parsed.scene,
+        &scene,
         BTreeMap::from([(
             admitted.state_key.clone(),
             D1Value::Int(admitted.initial_state),

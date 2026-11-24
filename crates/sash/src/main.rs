@@ -1,3 +1,4 @@
+//! `sash`: Goya's Windows compiler command line.
 #![forbid(unsafe_code)]
 
 fn main() -> std::process::ExitCode {

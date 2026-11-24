@@ -33,12 +33,13 @@ pub use lexer::{lex, LexError, Token, TokenKind};
 pub use lowering::{lower, LowerError, Lowered, NodeKey, NodeRecord, NodeTable, Role};
 pub use parser::{
     parse, parse_strict, parse_strict_gssh2, parse_strict_gssh3, parse_strict_gssh3_live,
-    parse_with_source_map, Declarations, InputBinding, KeyUse, ParseError, ParsedScene,
-    SourceEntry, SourceRange, StateDecl, StateLifetime, StrictParseError,
+    parse_strict_gssh4, parse_strict_gssh4_live, parse_with_source_map, Declarations, InputBinding, KeyUse, ParseError,
+    Migration, MigrationRule, ParsedScene, PlatformException, PlatformUse, SourceEntry, SourceRange, StateDecl,
+    StateLifetime, StrictParseError,
 };
 pub use scene::{
     hit_test, hit_test_scrolled, layout, Anchor, CellKind, DrawNode, Frame, GestureDecision,
-    GesturePolicy, IntentCategory, IntentDecl, RectMp, Scene, SceneCell, ScrollOffsets,
+    GesturePolicy, Iden, IntentCategory, IntentDecl, RectMp, Scene, SceneCell, ScrollOffsets,
     TransportClass, TypedSlot, Vec3,
 };
 pub use scene::{

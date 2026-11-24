@@ -173,3 +173,45 @@ mod tests {
         assert_eq!(call.render(), "Text(\"Hello\")");
     }
 }
+
+/// `@iden` (GSSH/4, decision D14) as SwiftUI's native accessibility
+/// modifiers: `label` becomes `.accessibilityLabel`, `hint` becomes
+/// `.accessibilityHint`, both as verbatim (never localised) text. A
+/// container first becomes one accessibility element that contains its
+/// children, so the name applies to the group rather than to each child.
+pub(crate) fn accessibility_modifiers(iden: &goya_lang::Iden, container: bool) -> String {
+    let text = |value: &str| {
+        Expr::Call {
+            callee: Identifier::new("Text").expect("fixed identifier"),
+            arguments: vec![Argument {
+                label: Some(Identifier::new("verbatim").expect("fixed identifier")),
+                value: Expr::StringLiteral(value.to_owned()),
+            }],
+        }
+        .render()
+    };
+    let mut out = String::new();
+    if container {
+        out.push_str(".accessibilityElement(children: .contain)");
+    }
+    out.push_str(".accessibilityLabel(");
+    out.push_str(&text(&iden.label));
+    out.push(')');
+    if let Some(hint) = &iden.hint {
+        out.push_str(".accessibilityHint(");
+        out.push_str(&text(hint));
+        out.push(')');
+    }
+    out
+}
+
+/// Source range of the `@iden` of the element at `path`.
+pub(crate) fn iden_range(
+    entries: &[goya_lang::SourceEntry],
+    path: &[usize],
+) -> Option<goya_lang::SourceRange> {
+    entries
+        .iter()
+        .find(|entry| entry.kind == "iden" && entry.scene_path.as_deref() == Some(path))
+        .map(|entry| entry.range)
+}

@@ -2,7 +2,7 @@
 //! rejections, source maps, and (with a Kotlin toolchain) JVM differential
 //! tests of the generated Kotlin against the Rust reference evaluators.
 
-use goya_lang::handoff::{admit_v3, convert_field, Origin};
+use goya_lang::handoff::{admit_v4, convert_field, Origin};
 use goya_lang::{InteractionType, InteractionValue};
 use goya_sdk::{
     compile_android_scene, compile_android_scene_with, emit_android_d1_runtime_mapped,
@@ -11,11 +11,12 @@ use goya_sdk::{
 use std::collections::BTreeMap;
 
 const COUNTER: &str = r#"@ontology counter {
+  @persistence { cache_targets: null; }
   @state { total: int = 0 session; note: text = "none" session; }
   @cell root { id: "root"; fill: #f4f1ea;
     @cell title { id: "title"; position_p: (0.04, 0.02, 0); extent_p: (0.76, 0.05, 0); text: "Goya counter"; text-size-p: 0.6; }
-    @input amount { id: "field.amount"; position_p: (0.04, 0.085, 0); extent_p: (0.5, 0.065, 0); stroke: #555555; stroke-width-p: 0.04; }
-    @input memo { id: "field.memo"; position_p: (0.05, 0.3, 0); extent_p: (0.9, 0.08, 0); }
+    @input amount { id: "field.amount"; @iden { label: "Amount"; hint: "A whole number to add"; } position_p: (0.04, 0.085, 0); extent_p: (0.5, 0.065, 0); stroke: #555555; stroke-width-p: 0.04; }
+    @input memo { id: "field.memo"; @iden { label: "Memo"; } position_p: (0.05, 0.3, 0); extent_p: (0.9, 0.08, 0); }
     @button add { id: "button.add"; position_p: (0.59, 0.085, 0); extent_p: (0.31, 0.065, 0); text: "Add"; text-size-p: 0.4; }
     @cell list { id: "list"; position_p: (0.05, 0.45, 0); extent_p: (0.9, 0.5, 0); scroll: true;
       @cell para { id: "para"; extent_p: (0.8, 2.4, 0); wrap: 12; text: "A paragraph wrapped by the reference wrapper." }
@@ -40,6 +41,18 @@ fn file<'a>(scene: &'a goya_sdk::AndroidScene, name: &str) -> &'a str {
 fn compiles_every_admitted_construct_deterministically_with_a_verified_source_map() {
     let scene = compile_android_scene(COUNTER).unwrap();
     assert_eq!(scene, compile_android_scene(COUNTER).unwrap());
+    // `@iden` (decision D14) becomes native Android accessibility, mapped
+    // back to its declaration.
+    let view = &scene
+        .files
+        .iter()
+        .find(|f| f.name == "GoyaSceneView.kt")
+        .unwrap()
+        .text;
+    assert!(view.contains(r#"cell.identify("Amount", "A whole number to add")"#));
+    assert!(view.contains(r#"cell.identify("Memo", null)"#));
+    assert!(view.contains("fun identify(label: String, hint: String?)"));
+    assert!(view.contains("info.hintText = name"));
     let names: Vec<_> = scene.files.iter().map(|file| file.name.as_str()).collect();
     assert_eq!(
         names,
@@ -59,7 +72,7 @@ fn compiles_every_admitted_construct_deterministically_with_a_verified_source_ma
     );
     scene.source_map.verify(COUNTER, &scene.files).unwrap();
 
-    let handoff = admit_v3(COUNTER).unwrap();
+    let handoff = admit_v4(COUNTER).unwrap();
     let origins: Vec<_> = scene
         .source_map
         .entries
@@ -124,6 +137,41 @@ fn compiles_every_admitted_construct_deterministically_with_a_verified_source_ma
 }
 
 #[test]
+fn gssh4_platform_rules_are_target_scoped_and_android_rules_fail_closed() {
+    let other_target = r#"@ontology demo {
+      @persistence { cache_targets: null; }
+      @cell root { id: "root"; }
+      @platform webos { "media": only-use("webos.player"); }
+    }"#;
+    let compiled = compile_android_scene(other_target).unwrap();
+    compiled
+        .source_map
+        .verify(other_target, &compiled.files)
+        .unwrap();
+
+    let android = r#"@ontology demo {
+      @persistence { cache_targets: null; }
+      @cell root { id: "root"; }
+      @platform android { "media": only-use("native.player"); }
+    }"#;
+    let expected_start = android.find("\"media\"").unwrap();
+    let expected_end = android[expected_start..].find(';').unwrap() + expected_start + 1;
+    let error = compile_android_scene(android).unwrap_err();
+    assert_eq!(
+        error.range,
+        goya_lang::SourceRange {
+            start: expected_start,
+            end: expected_end
+        }
+    );
+    assert!(error.to_string().contains("feature \"media\""));
+    assert!(matches!(
+        error.reason,
+        AndroidSceneReason::UnsupportedPlatformException(_)
+    ));
+}
+
+#[test]
 fn source_map_verification_detects_edits_and_foreign_files() {
     let scene = compile_android_scene(COUNTER).unwrap();
     let edited = COUNTER.replace("Goya counter", "Goya counter!");
@@ -141,7 +189,7 @@ fn source_map_verification_detects_edits_and_foreign_files() {
 #[test]
 fn every_unsupported_construct_is_rejected_at_its_exact_source_range() {
     let wrap = |cells: &str, extra: &str| {
-        format!("@ontology t {{ {extra} @cell root {{ id: \"root\"; {cells} }} }}")
+        format!("@ontology t {{ @persistence {{ cache_targets: null; }} {extra} @cell root {{ id: \"root\"; {cells} }} }}")
     };
     let button = "@button go { id: \"go\"; text: \"Go\" }";
     let cases: Vec<(String, &str)> = vec![
@@ -149,11 +197,7 @@ fn every_unsupported_construct_is_rejected_at_its_exact_source_range() {
         (wrap("stroke-width-p: 0.1;", ""), "stroke-width-p: 0.1;"),
         (wrap("text-anchor: middle;", ""), "text-anchor: middle;"),
         (
-            wrap("@input f { id: \"f\"; text: \"Amount\"; }", ""),
-            "text: \"Amount\";",
-        ),
-        (
-            wrap("@input f { id: \"f\"; gestures { copy: deny; } }", ""),
+            wrap("@input f { id: \"f\"; @iden { label: \"F\"; } gestures { copy: deny; } }", ""),
             "gestures { copy: deny; }",
         ),
         (
@@ -168,11 +212,11 @@ fn every_unsupported_construct_is_rejected_at_its_exact_source_range() {
             "@cell a { id: \"a\"; scroll: true; }",
         ),
         (
-            format!("@ontology t {{ @state {{ n: int = 0 durable; }} @cell root {{ id: \"root\"; {button} }} @interaction go {{ id: \"action.go\"; trigger: button.go.activate; class: D1; state {{ write n: int; }} input {{ }} set n = 1; }} }}"),
+            format!("@ontology t {{ @persistence {{ cache_targets: {{ android: \"android.preferences.v1\"; }} }} @state {{ n: int = 0 durable; }} @cell root {{ id: \"root\"; {button} }} @interaction go {{ id: \"action.go\"; trigger: button.go.activate; class: D1; state {{ write n: int; }} input {{ }} set n = 1; }} }}"),
             "n: int = 0 durable;",
         ),
         (
-            format!("@ontology t {{ @state {{ count: int = 0 session; }} @cell root {{ id: \"root\"; {button} }} @interaction go {{ id: \"action.go\"; trigger: button.go.activate; class: D2; effects {{ network; }} requests {{ lookup: effect network capability \"network\" request \"static request\" result int64; }} state {{ write count: int; }} input {{ }} set count = effect.lookup; }} }}"),
+            format!("@ontology t {{ @persistence {{ cache_targets: null; }} @state {{ count: int = 0 session; }} @cell root {{ id: \"root\"; {button} }} @interaction go {{ id: \"action.go\"; trigger: button.go.activate; class: D2; effects {{ network; }} requests {{ lookup: effect network capability \"network\" request \"static request\" result int64; }} state {{ write count: int; }} input {{ }} set count = effect.lookup; }} }}"),
             "@interaction go",
         ),
     ];
@@ -184,7 +228,7 @@ fn every_unsupported_construct_is_rejected_at_its_exact_source_range() {
         let AndroidSceneReason::Unsupported(_) = error.reason else {
             panic!("{source}: unexpected {error}");
         };
-        let handoff = admit_v3(&source).unwrap();
+        let handoff = admit_v4(&source).unwrap();
         let origin = error.origin.clone().expect("refusals name their construct");
         assert_eq!(handoff.origin(&origin), Some(error.range), "{source}");
         let start = source.find(construct).unwrap();
@@ -203,7 +247,7 @@ fn every_unsupported_construct_is_rejected_at_its_exact_source_range() {
 
 #[test]
 fn admission_failures_keep_the_strict_parser_range() {
-    let source = "@ontology t { @cell root { id: \"root\"; colour: #fff; } }";
+    let source = "@ontology t { @persistence { cache_targets: null; } @cell root { id: \"root\"; colour: #fff; } }";
     let error = compile_android_scene(source).unwrap_err();
     let AndroidSceneReason::Admission(strict) = &error.reason else {
         panic!("{error}");
@@ -211,7 +255,7 @@ fn admission_failures_keep_the_strict_parser_range() {
     assert_eq!(strict.code, "GY-E1001");
     assert_eq!(error.range, strict.range);
     // Absolute lengths are refused by GSSH/3 admission, at the property.
-    let source = "@ontology t { @cell root { id: \"root\"; extent: (10, 10, 0); } }";
+    let source = "@ontology t { @persistence { cache_targets: null; } @cell root { id: \"root\"; extent: (10, 10, 0); } }";
     let error = compile_android_scene(source).unwrap_err();
     let AndroidSceneReason::Admission(strict) = &error.reason else {
         panic!("{error}");
@@ -238,7 +282,7 @@ fn admission_failures_keep_the_strict_parser_range() {
 #[test]
 fn oversized_state_and_scenes_are_refused_before_emission() {
     let long = "x".repeat(64 * 1024 + 1);
-    let source = format!("@ontology t {{ @state {{ big: text = \"{long}\" session; }} @cell root {{ id: \"root\"; @button go {{ id: \"go\"; }} }} @interaction go {{ id: \"action.go\"; trigger: button.go.activate; class: D1; state {{ write big: text; }} input {{ }} set big = \"\"; }} }}");
+    let source = format!("@ontology t {{ @persistence {{ cache_targets: null; }} @state {{ big: text = \"{long}\" session; }} @cell root {{ id: \"root\"; @button go {{ id: \"go\"; }} }} @interaction go {{ id: \"action.go\"; trigger: button.go.activate; class: D1; state {{ write big: text; }} input {{ }} set big = \"\"; }} }}");
     let error = compile_android_scene(&source).unwrap_err();
     assert_eq!(error.origin, Some(Origin::State("big".into())));
 
@@ -246,7 +290,7 @@ fn oversized_state_and_scenes_are_refused_before_emission() {
     for index in 0..1024 {
         cells.push_str(&format!("@cell c{index} {{ id: \"c{index}\"; }} "));
     }
-    let source = format!("@ontology t {{ @cell root {{ id: \"root\"; {cells} }} }}");
+    let source = format!("@ontology t {{ @persistence {{ cache_targets: null; }} @cell root {{ id: \"root\"; {cells} }} }}");
     let error = compile_android_scene(&source).unwrap_err();
     assert_eq!(error.origin, Some(Origin::Element("c1023".into())));
 }

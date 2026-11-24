@@ -146,7 +146,7 @@ fn main() {
     let args: Vec<_> = env::args_os().skip(1).collect();
     if args.len() == 1 && (args[0] == "--help" || args[0] == "-h") {
         println!("{USAGE}");
-        println!("Generate an Android app project. Use --scene for a GSSH/3 scene, --tv for Nevada Android TV, or --root-button for a D1 preview. The default is a static-text preview.");
+        println!("Generate an Android app project. Use --scene for a GSSH/4 scene, --tv for Nevada Android TV, or --root-button for a D1 preview. The default is a GSSH/1 static-text preview.");
         process::exit(0);
     }
     if args.len() < 2 {
@@ -370,7 +370,7 @@ fn generate_tv(input: &std::ffi::OsStr, root: &Path, profile: &str) {
     write_or_exit(root, &files);
 }
 
-/// `--scene`: compile a GSSH/3 scene with the Aragon scene compiler.
+/// `--scene`: compile a GSSH/4 scene with the Aragon scene compiler.
 fn generate_scene(input: &std::ffi::OsStr, root: &Path) {
     let source = fs::read_to_string(input).unwrap_or_else(|error| {
         eprintln!("could not read scene {}: {error}", input.to_string_lossy());

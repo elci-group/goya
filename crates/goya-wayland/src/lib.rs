@@ -82,6 +82,33 @@
 //! With an empty slice both raster paths (serial and parallel tiles) stay
 //! byte-identical to the pre-wave-9 output; text scenes still rasterise
 //! serially, so parallel/serial parity is asserted with `fgs` present.
+//!
+//! ## xdg_wm_base version and toplevel state (Nebula NEB-A)
+//!
+//! `xdg_wm_base` is bound at `min(advertised, 7)` (see
+//! [`xdg_wm_base_bind_version`]; previously always version 1), and the bound
+//! version is reported by [`GoyaWindow::xdg_wm_base_version`]. At v2+ the
+//! compositor may send tiled states, v4 `configure_bounds`, v5
+//! `wm_capabilities`, v6 `suspended`, v7 constrained states. These are decoded
+//! by pure functions (unknown state values and trailing partial words are
+//! tolerated) and staged until the next `xdg_surface.configure`, then
+//! committed together, as xdg-shell requires. They are exposed additively
+//! through [`GoyaWindow::toplevel_state`], [`GoyaWindow::wm_capabilities`]
+//! (`None` = not advertised) and [`GoyaWindow::toplevel_state_generation`];
+//! no [`PlatformEvent`] variant was added and the existing
+//! `Configured`/`Resized`/`CloseRequested` paths are unchanged (configure
+//! sizes still resize immediately, not double-buffered). The crate only
+//! *reports* these states; it does not yet change drawing, sizing or
+//! decorations in response to them.
+//!
+//! Observed once (2026-11-19, `live_xdg_wm_base_toplevel_state`, COSMIC
+//! cosmic-comp on `wayland-1`): advertised v7, bound v7; `wm_capabilities`
+//! (window_menu, maximize, fullscreen, minimize) committed with the first
+//! configure; after mapping a 320x200 frame the committed state was
+//! activated, tiled on all four edges, bounds 1920x1080, not suspended or
+//! constrained. That is one compositor at one moment, not a guarantee for
+//! other desktops or for state transitions (suspend, constrain, untile) that
+//! were not exercised.
 
 use cosmic_text::{Attrs, Buffer, Color, FontSystem, Metrics, Shaping, SwashCache, Wrap};
 use goya_csr::{self, Policy as CsrPolicy};
@@ -97,7 +124,12 @@ use std::os::fd::AsFd;
 use std::sync::{Mutex, OnceLock};
 use unicode_segmentation::UnicodeSegmentation;
 
+mod toplevel_state;
 pub mod window_management;
+use toplevel_state::ToplevelTracker;
+pub use toplevel_state::{
+    xdg_wm_base_bind_version, Edges, ToplevelState, WmCapabilities, XDG_WM_BASE_MAX_VERSION,
+};
 use wayland_client::protocol::{
     wl_buffer::WlBuffer,
     wl_compositor::WlCompositor,
@@ -1063,11 +1095,16 @@ struct GoyaWindowInner {
     configured: bool,
     close_requested: bool,
     events: Vec<PlatformEvent>,
-    globals: Vec<(u32, String)>,
+    /// Registry globals from the first roundtrip: (name, interface, version).
+    globals: Vec<(u32, String, u32)>,
     compositor: Option<WlCompositor>,
     shm: Option<WlShm>,
     seat: Option<WlSeat>,
     xdg_wm_base: Option<XdgWmBase>,
+    /// Version `xdg_wm_base` was bound at (0 before binding).
+    xdg_wm_base_version: u32,
+    /// Double-buffered xdg_toplevel states, bounds and wm capabilities.
+    toplevel_tracker: ToplevelTracker,
     surface: Option<WlSurface>,
     xdg_surface: Option<XdgSurface>,
     toplevel: Option<XdgToplevel>,
@@ -1151,6 +1188,8 @@ impl GoyaWindowInner {
             shm: None,
             seat: None,
             xdg_wm_base: None,
+            xdg_wm_base_version: 0,
+            toplevel_tracker: ToplevelTracker::default(),
             surface: None,
             xdg_surface: None,
             toplevel: None,
@@ -1307,12 +1346,20 @@ impl GoyaWindow {
         let mut wm_base: Option<XdgWmBase> = None;
         let mut text_input_manager: Option<ZwpTextInputManagerV3> = None;
         let mut data_device_manager: Option<WlDataDeviceManager> = None;
-        for (name, interface) in &state.globals {
+        let mut wm_base_version = 0;
+        for (name, interface, version) in &state.globals {
             match interface.as_str() {
                 "wl_compositor" => compositor = Some(_registry.bind(*name, 1, &qh, ())),
                 "wl_shm" => shm = Some(_registry.bind(*name, 1, &qh, ())),
                 "wl_seat" => seat = Some(_registry.bind(*name, 1, &qh, ())),
-                "xdg_wm_base" => wm_base = Some(_registry.bind(*name, 1, &qh, ())),
+                "xdg_wm_base" => {
+                    // Bind the newest version both sides understand so the
+                    // compositor may send tiled/bounds/capabilities/suspended/
+                    // constrained toplevel state (v2..v7). Existing behaviour
+                    // (Resized/Configured/CloseRequested) does not depend on it.
+                    wm_base_version = xdg_wm_base_bind_version(*version);
+                    wm_base = Some(_registry.bind(*name, wm_base_version, &qh, ()));
+                }
                 "zwp_text_input_manager_v3" => {
                     text_input_manager = Some(_registry.bind(*name, 1, &qh, ()))
                 }
@@ -1338,6 +1385,7 @@ impl GoyaWindow {
         state.compositor = Some(compositor.clone());
         state.shm = Some(shm.clone());
         state.xdg_wm_base = Some(wm_base.clone());
+        state.xdg_wm_base_version = wm_base_version;
         state.seat = seat.clone();
         state.text_input_manager = text_input_manager;
         state.data_device_manager = data_device_manager;
@@ -2137,6 +2185,106 @@ impl GoyaWindow {
     /// Compositor width in pixels (fixed in this minimal scope).
     pub fn size(&self) -> (i32, i32) {
         (self.state.width, self.state.height)
+    }
+
+    /// Version `xdg_wm_base` was bound at: `min(advertised, 7)`.
+    pub fn xdg_wm_base_version(&self) -> u32 {
+        self.state.xdg_wm_base_version
+    }
+
+    /// Toplevel state committed by the most recent `xdg_surface.configure`.
+    /// Updated only while events are dispatched (`poll`/`pump`/presents).
+    pub fn toplevel_state(&self) -> ToplevelState {
+        self.state.toplevel_tracker.state()
+    }
+
+    /// Committed `wm_capabilities`, or `None` when not advertised (bound
+    /// version below 5, or the compositor never sent the event).
+    pub fn wm_capabilities(&self) -> Option<WmCapabilities> {
+        self.state.toplevel_tracker.wm_capabilities()
+    }
+
+    /// Monotonic counter bumped each time a committed configure changes
+    /// [`Self::toplevel_state`] or [`Self::wm_capabilities`]. Starts at 0;
+    /// poll it to detect changes without a new [`PlatformEvent`] variant.
+    pub fn toplevel_state_generation(&self) -> u64 {
+        self.state.toplevel_tracker.generation()
+    }
+}
+
+#[cfg(test)]
+mod xdg_wm_base_live_tests {
+    use super::*;
+    use wayland_client::globals::{registry_queue_init, GlobalListContents};
+
+    struct Probe;
+    impl Dispatch<WlRegistry, GlobalListContents> for Probe {
+        fn event(
+            _: &mut Self,
+            _: &WlRegistry,
+            _: wl_registry::Event,
+            _: &GlobalListContents,
+            _: &Connection,
+            _: &QueueHandle<Self>,
+        ) {
+        }
+    }
+
+    /// Independently read the advertised `xdg_wm_base` version on a separate
+    /// connection, so the assertion does not trust the code under test.
+    fn advertised_xdg_wm_base_version() -> Option<u32> {
+        let conn = Connection::connect_to_env().ok()?;
+        let (globals, _queue) = registry_queue_init::<Probe>(&conn).ok()?;
+        globals
+            .contents()
+            .clone_list()
+            .into_iter()
+            .find(|g| g.interface == "xdg_wm_base")
+            .map(|g| g.version)
+    }
+
+    #[test]
+    #[ignore = "live compositor; opens a window. run with --ignored --nocapture"]
+    fn live_xdg_wm_base_toplevel_state() {
+        println!("WAYLAND_DISPLAY={:?}", std::env::var_os("WAYLAND_DISPLAY"));
+        let advertised =
+            advertised_xdg_wm_base_version().expect("no compositor or no xdg_wm_base global");
+        let mut window =
+            GoyaWindow::create("goya-wayland xdg_wm_base probe", 320, 200).expect("create");
+        println!(
+            "after create: generation={} state={:?} caps={:?}",
+            window.toplevel_state_generation(),
+            window.toplevel_state(),
+            window.wm_capabilities()
+        );
+        // Map the surface with one frame so activation/tiling can be reported.
+        let (w, h) = window.size();
+        let rgba = vec![0x40u8; (w as usize) * (h as usize) * 4];
+        window
+            .present_rgba(&rgba, w as u32, h as u32)
+            .expect("present");
+        window.pump(10);
+        let events = window.poll();
+        let bound = window.xdg_wm_base_version();
+        println!("advertised xdg_wm_base version: {advertised}");
+        println!("bound xdg_wm_base version: {bound}");
+        println!("size: {:?}", window.size());
+        println!(
+            "toplevel_state_generation: {}",
+            window.toplevel_state_generation()
+        );
+        println!("toplevel_state: {:?}", window.toplevel_state());
+        println!("is_tiled: {}", window.toplevel_state().is_tiled());
+        println!("wm_capabilities: {:?}", window.wm_capabilities());
+        println!("events after map: {events:?}");
+        assert_eq!(bound, advertised.min(XDG_WM_BASE_MAX_VERSION));
+        if bound >= 5 {
+            // The protocol requires wm_capabilities before the first configure.
+            assert!(window.wm_capabilities().is_some());
+        } else {
+            assert_eq!(window.wm_capabilities(), None);
+        }
+        window.request_close();
     }
 }
 
@@ -3404,10 +3552,12 @@ impl Dispatch<WlRegistry, ()> for GoyaWindowInner {
         _: &QueueHandle<Self>,
     ) {
         if let wl_registry::Event::Global {
-            name, interface, ..
+            name,
+            interface,
+            version,
         } = event
         {
-            state.globals.push((name, interface));
+            state.globals.push((name, interface, version));
         }
     }
 }
@@ -3509,6 +3659,7 @@ impl Dispatch<XdgSurface, ()> for GoyaWindowInner {
         _: &QueueHandle<Self>,
     ) {
         if let xdg_surface::Event::Configure { serial } = event {
+            state.toplevel_tracker.commit();
             state.configured = true;
             state.ack_serial = serial;
             state.pending_configure = Some(serial);
@@ -3526,24 +3677,46 @@ impl Dispatch<XdgToplevel, ()> for GoyaWindowInner {
         _: &Connection,
         _: &QueueHandle<Self>,
     ) {
-        if let xdg_toplevel::Event::Close = event {
-            state.close_requested = true;
-            state.events.push(PlatformEvent::CloseRequested);
-        }
-        if let xdg_toplevel::Event::Configure { width, height, .. } = event {
-            if (width > 0 && width != state.width) || (height > 0 && height != state.height) {
-                if width > 0 {
-                    state.width = width;
-                }
-                if height > 0 {
-                    state.height = height;
-                }
-                // Drop the fixed-size frame: the next present() reallocates.
-                state.buffers = None;
-                state
-                    .events
-                    .push(PlatformEvent::Resized(state.width, state.height));
+        match event {
+            xdg_toplevel::Event::Close => {
+                state.close_requested = true;
+                state.events.push(PlatformEvent::CloseRequested);
             }
+            xdg_toplevel::Event::Configure {
+                width,
+                height,
+                states,
+            } => {
+                state.toplevel_tracker.stage_configure(&states);
+                state.apply_toplevel_configure_size(width, height);
+            }
+            xdg_toplevel::Event::ConfigureBounds { width, height } => {
+                state.toplevel_tracker.stage_bounds(width, height);
+            }
+            xdg_toplevel::Event::WmCapabilities { capabilities } => {
+                state.toplevel_tracker.stage_wm_capabilities(&capabilities);
+            }
+            _ => {}
+        }
+    }
+}
+
+impl GoyaWindowInner {
+    /// Pre-existing (v1) resize behaviour, unchanged: a positive configure
+    /// size that differs from the current one resizes immediately and emits
+    /// `Resized`.
+    fn apply_toplevel_configure_size(&mut self, width: i32, height: i32) {
+        if (width > 0 && width != self.width) || (height > 0 && height != self.height) {
+            if width > 0 {
+                self.width = width;
+            }
+            if height > 0 {
+                self.height = height;
+            }
+            // Drop the fixed-size frame: the next present() reallocates.
+            self.buffers = None;
+            self.events
+                .push(PlatformEvent::Resized(self.width, self.height));
         }
     }
 }

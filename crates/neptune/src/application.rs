@@ -188,7 +188,7 @@ pub fn lower(
 ) -> Result<StateModel, crate::Diagnostic> {
     crate::validate_module(module)?;
     crate::inspect(source)?;
-    let handoff = goya_lang::handoff::admit_v3(source).map_err(|e| crate::Diagnostic {
+    let handoff = crate::admit_ios(source).map_err(|e| crate::Diagnostic {
         code: "NPT-E2104",
         message: e.to_string(),
         range: Some(e.range),

@@ -1,0 +1,455 @@
+{
+  "artifact": {
+    "bytes": 17072472,
+    "path": "/tmp/nebula-mvp/App",
+    "sha256": "a658b99decb84d2fd40d8a8de880c67f4c8fc3b1659972cd623fb96e72db6a4e"
+  },
+  "build_report": {
+    "artifact_bytes": 17072472,
+    "artifact_sha256": "a658b99decb84d2fd40d8a8de880c67f4c8fc3b1659972cd623fb96e72db6a4e",
+    "compiler": "emperor",
+    "compiler_version": "0.0.1",
+    "compositor": {
+      "installed_package": {
+        "command": "dpkg-query -W -f='${Version}' cosmic-comp",
+        "detail": null,
+        "method": "dpkg-query",
+        "name": "cosmic-comp",
+        "note": "installed package version; not verified to be the running compositor process",
+        "version": "0.1~1776708607~24.04~21679f2"
+      },
+      "running_process": {
+        "detail": null,
+        "matches_installed_package": null,
+        "method": "procfs /proc/<pid>/comm and /proc/<pid>/exe",
+        "processes": [
+          {
+            "comm": "cosmic-comp",
+            "detail": null,
+            "executable": "/usr/bin/cosmic-comp",
+            "executable_deleted": false,
+            "pid": 2397
+          }
+        ],
+        "status": "candidate",
+        "uncertainty": "candidate selected by process comm and executable path; running version and package identity are not verified",
+        "version": null
+      }
+    },
+    "cosmic_smoke": {
+      "counts_as_neb_001_qualification": false,
+      "native_seat_input": "not-exercised",
+      "scope": "one-window open and buffer-present smoke; no real-seat interaction",
+      "session_qualifies": true,
+      "status": "observed",
+      "toplevel_state": "ToplevelState { maximized: false, fullscreen: false, resizing: false, activated: true, tiled: Edges { left: true, right: true, top: true, bottom: true }, suspended: false, constrained: Edges { left: false, right: false, top: false, bottom: false }, bounds: Some((1920, 1080)) }",
+      "window": "wayland",
+      "xdg_wm_base_bound": 7
+    },
+    "desktop_profile": "nebula.cosmic.app-profile/0.1",
+    "directive": "GY-EMP-001",
+    "elf_machine": 62,
+    "elf_type": 3,
+    "executable_stack": false,
+    "exit_code": 0,
+    "nebula_version": "0.1.8",
+    "operation": "build",
+    "oracle_stdout": "count=1 revision=1 presented=0 wayland=not-requested window=not-requested copy=true paste=false edit=1\n",
+    "profile": "balanced",
+    "release": false,
+    "relro": true,
+    "schema_version": "1",
+    "session": {
+      "env": {
+        "display": ":1",
+        "wayland_display": "wayland-1",
+        "xdg_current_desktop": "COSMIC",
+        "xdg_session_type": "wayland"
+      },
+      "is_cosmic_desktop": true,
+      "is_wayland_session": true,
+      "qualifies": true,
+      "reasons": [],
+      "wayland_display_set": true,
+      "x11_display": {
+        "counts_as_cosmic_qualification": false,
+        "display": ":1",
+        "kind": "xwayland",
+        "note": "DISPLAY inside a Wayland session is Xwayland; it is not native X11 and not COSMIC qualification"
+      }
+    },
+    "smoke": "passed",
+    "smoke_stdout": "count=0 revision=0 presented=1 wayland=opened window=wayland copy=true paste=false edit=1\nxdg_wm_base_bound=7 toplevel_state=ToplevelState { maximized: false, fullscreen: false, resizing: false, activated: true, tiled: Edges { left: true, right: true, top: true, bottom: true }, suspended: false, constrained: Edges { left: false, right: false, top: false, bottom: false }, bounds: Some((1920, 1080)) }\n",
+    "source_revision": "695b99f3112decd60f293bc6ac26e0f6c6f3d34e",
+    "stages": [
+      {
+        "detail": "admitted by GSSH/1 and Sash",
+        "id": 1,
+        "name": "lexical-syntactic-admission",
+        "status": "PASS"
+      },
+      {
+        "detail": "interactive profile sash.win32.interactive/0.0.2",
+        "id": 2,
+        "name": "type-semantic-validation",
+        "status": "PASS"
+      },
+      {
+        "detail": "canonical handoff GSSH/1",
+        "id": 3,
+        "name": "canonical-goya-ir",
+        "status": "PASS"
+      },
+      {
+        "detail": "copy true paste false cut default filesystem none",
+        "id": 4,
+        "name": "effects-capabilities",
+        "status": "PASS"
+      },
+      {
+        "detail": "host triple x86_64-unknown-linux-gnu",
+        "id": 5,
+        "name": "target-negotiation",
+        "status": "PASS"
+      },
+      {
+        "detail": "lowered 1774 bytes of GY-EMP-NIR/1",
+        "id": 6,
+        "name": "native-linux-lowering",
+        "status": "PASS"
+      },
+      {
+        "detail": "no optimisation pass is enabled in compiler 0.0.1",
+        "id": 7,
+        "name": "optimisation",
+        "status": "NOT_APPLICABLE"
+      },
+      {
+        "detail": "linked emperor-app through the workspace toolchain",
+        "id": 8,
+        "name": "runtime-platform-linking",
+        "status": "PASS"
+      },
+      {
+        "detail": "rustc produced the ELF",
+        "id": 9,
+        "name": "machine-code-generation",
+        "status": "PASS"
+      },
+      {
+        "detail": "copied the ELF to App",
+        "id": 10,
+        "name": "elf-assembly-linking",
+        "status": "PASS"
+      },
+      {
+        "detail": "PT_GNU_RELRO is present and PT_GNU_STACK is not executable",
+        "id": 11,
+        "name": "static-verification",
+        "status": "PASS"
+      },
+      {
+        "detail": "oracle and wayland smoke passed\ncount=1 revision=1 presented=0 wayland=not-requested window=not-requested copy=true paste=false edit=1",
+        "id": 12,
+        "name": "runtime-conformance",
+        "status": "PASS"
+      },
+      {
+        "detail": "signing is not implemented; package was not requested",
+        "id": 13,
+        "name": "packaging-signing-release",
+        "status": "NOT_APPLICABLE"
+      }
+    ],
+    "target": "x86_64-unknown-linux-gnu",
+    "theme": {
+      "config_root": "crates/nebula/tests/fixtures/pop-2026-11-19",
+      "fallback": false,
+      "fallback_reason": null,
+      "files_digest_basis": "Nebula SHA-256 over the exact bounded bytes passed to its theme parser",
+      "files_sha256": "c31e6ae35aa1543c22a59b07068135f81b11f723a403efa8224e269af4893cb1",
+      "format": "v1",
+      "issues": [],
+      "name": "cosmic-dark",
+      "palette": {
+        "accent": "#63D0DF",
+        "bg": "#1B1B1B",
+        "fg": "#E7E7E7"
+      },
+      "schema": "nebula.theme/0.1",
+      "source_files": [
+        {
+          "byte_len": 4,
+          "key": "cosmic/com.system76.CosmicTheme.Mode/v1/is_dark",
+          "sha256": "b5bea41b6c623f7c09f1bf24dcae58ebab3c0cdd90ad966bc43a45b44867e12b"
+        },
+        {
+          "byte_len": 13,
+          "key": "cosmic/com.system76.CosmicTheme.Dark/v1/name",
+          "sha256": "c4607bbbe6503b2920d9b27c5a636ef7bf22cbec045110bf4792d83d5a21503b"
+        },
+        {
+          "byte_len": 4,
+          "key": "cosmic/com.system76.CosmicTheme.Dark/v1/is_dark",
+          "sha256": "b5bea41b6c623f7c09f1bf24dcae58ebab3c0cdd90ad966bc43a45b44867e12b"
+        },
+        {
+          "byte_len": 5,
+          "key": "cosmic/com.system76.CosmicTheme.Dark/v1/is_high_contrast",
+          "sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+        },
+        {
+          "byte_len": 5,
+          "key": "cosmic/com.system76.CosmicTheme.Dark/v1/is_frosted",
+          "sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+        },
+        {
+          "byte_len": 1381,
+          "key": "cosmic/com.system76.CosmicTheme.Dark/v1/accent",
+          "sha256": "cd706931ce18c4c853afa4f3c7db2d499edaeb71122e5b8bb16e2f71fcc16592"
+        },
+        {
+          "byte_len": 2215,
+          "key": "cosmic/com.system76.CosmicTheme.Dark/v1/background",
+          "sha256": "a99041b4c803f017839b7e0086cfb3ddb2b415819725974a642fef2b0072d457"
+        },
+        {
+          "byte_len": 2219,
+          "key": "cosmic/com.system76.CosmicTheme.Dark/v1/primary",
+          "sha256": "d039f5a0d88a46b20f6ce3c297ce0483a823dc57de8ec045f11fd62c3e3bc2ff"
+        },
+        {
+          "byte_len": 2213,
+          "key": "cosmic/com.system76.CosmicTheme.Dark/v1/secondary",
+          "sha256": "4d2f655fb63e42b0b1804bdeeead3083dbccef9e73873bda49432918a565b34e"
+        },
+        {
+          "byte_len": 1382,
+          "key": "cosmic/com.system76.CosmicTheme.Dark/v1/destructive",
+          "sha256": "c9f4c2e9b156f5aec3ceff4e1e4eb335b8bcd2af8b3dc15e83dd880e326783b4"
+        },
+        {
+          "byte_len": 1394,
+          "key": "cosmic/com.system76.CosmicTheme.Dark/v1/warning",
+          "sha256": "297ec39b388d32faf55c9929d376724a0666bf2a417cefdd549ab809297c0574"
+        },
+        {
+          "byte_len": 1392,
+          "key": "cosmic/com.system76.CosmicTheme.Dark/v1/success",
+          "sha256": "9df286172d43b762d87c2f65eb27994ab77b5ae853e85bb72614a515d88d9925"
+        },
+        {
+          "byte_len": 237,
+          "key": "cosmic/com.system76.CosmicTheme.Dark/v1/corner_radii",
+          "sha256": "01c9d99f6eb90b75535d9c3e08ec6029d53bf66e531749d683704d6a7bf4a66d"
+        },
+        {
+          "byte_len": 186,
+          "key": "cosmic/com.system76.CosmicTheme.Dark/v1/spacing",
+          "sha256": "b254bdf6131ec1c5e9737ef6b5708a6a44f026b7d9d91227cb3f60b7e41ef918"
+        },
+        {
+          "byte_len": 6,
+          "key": "cosmic/com.system76.CosmicTheme.Dark/v1/gaps",
+          "sha256": "a9a78cca07158ad04ad15c220dd1988182f5ba645589c77d6b5d6c8b7a6ea913"
+        },
+        {
+          "byte_len": 1,
+          "key": "cosmic/com.system76.CosmicTheme.Dark/v1/active_hint",
+          "sha256": "4e07408562bedb8b60ce05c1decfe3ad16b72230967de01f640b7e4729b49fce"
+        }
+      ],
+      "variant": "dark"
+    },
+    "window": "wayland"
+  },
+  "commands": [
+    {
+      "argv": [
+        "cargo",
+        "run",
+        "-p",
+        "emperor",
+        "--offline",
+        "--",
+        "build",
+        "crates/sash/fixtures/interactive-counter.gscene",
+        "--desktop",
+        "cosmic",
+        "--config-root",
+        "crates/nebula/tests/fixtures/pop-2026-11-19",
+        "--out",
+        "/tmp/nebula-mvp",
+        "--format",
+        "json"
+      ],
+      "exit_status": 0
+    },
+    {
+      "argv": [
+        "target/debug/emperor",
+        "qualify",
+        "/tmp/nebula-mvp",
+        "--exercise",
+        "--format",
+        "json"
+      ],
+      "exit_status": 0
+    }
+  ],
+  "compiler_version": "0.0.1",
+  "justification": "Automated build and qualify smoke omit native seat input; see neb-001-2026-11-24.json for the separate live run.",
+  "native_seat_input": "not-exercised-in-automated-smoke",
+  "qualification_decision": "BLOCKED",
+  "qualify_report": {
+    "artifact_sha256": "a658b99decb84d2fd40d8a8de880c67f4c8fc3b1659972cd623fb96e72db6a4e",
+    "compiler": "emperor",
+    "compiler_version": "0.0.1",
+    "cosmic_smoke": {
+      "counts_as_cosmic_qualification": false,
+      "native_seat_input": "not-exercised",
+      "scope": "one-window smoke only; real-seat input was not exercised",
+      "session_qualifies": true,
+      "status": "passed",
+      "toplevel_state": "ToplevelState { maximized: false, fullscreen: false, resizing: false, activated: true, tiled: Edges { left: true, right: true, top: true, bottom: true }, suspended: false, constrained: Edges { left: false, right: false, top: false, bottom: false }, bounds: Some((1920, 1080)) }",
+      "xdg_wm_base_bound": 7
+    },
+    "directive": "GY-EMP-001",
+    "exit_code": 0,
+    "interaction_exercise": {
+      "headless_script": {
+        "status": "pass",
+        "stdout": "count=3 revision=2 presented=0 wayland=not-requested window=not-requested copy=true paste=false edit=2\n"
+      },
+      "native_seat_input": {
+        "status": "not-exercised"
+      },
+      "wayland_script": {
+        "detail": "scripted counter matched the headless oracle and committed one Wayland buffer",
+        "status": "pass",
+        "stdout": "count=3 revision=2 presented=1 wayland=opened window=wayland copy=true paste=false edit=2\nxdg_wm_base_bound=7 toplevel_state=ToplevelState { maximized: false, fullscreen: false, resizing: false, activated: true, tiled: Edges { left: true, right: true, top: true, bottom: true }, suspended: false, constrained: Edges { left: false, right: false, top: false, bottom: false }, bounds: Some((1920, 1080)) }\n"
+      }
+    },
+    "operation": "qualify",
+    "oracle_stdout": "count=1 revision=1 presented=0 wayland=not-requested window=not-requested copy=true paste=false edit=1\n",
+    "output": "json",
+    "profile": "balanced",
+    "qualification_scope": "local-release",
+    "release": false,
+    "schema_version": "1",
+    "session_at_qualify": {
+      "env": {
+        "display": ":1",
+        "wayland_display": "wayland-1",
+        "xdg_current_desktop": "COSMIC",
+        "xdg_session_type": "wayland"
+      },
+      "is_cosmic_desktop": true,
+      "is_wayland_session": true,
+      "qualifies": true,
+      "reasons": [],
+      "wayland_display_set": true,
+      "x11_display": {
+        "counts_as_cosmic_qualification": false,
+        "display": ":1",
+        "kind": "xwayland",
+        "note": "DISPLAY inside a Wayland session is Xwayland; it is not native X11 and not COSMIC qualification"
+      }
+    },
+    "smoke": "pass",
+    "smoke_detail": "count=0 revision=0 presented=1 wayland=opened window=wayland copy=true paste=false edit=1\nxdg_wm_base_bound=7 toplevel_state=ToplevelState { maximized: false, fullscreen: false, resizing: false, activated: true, tiled: Edges { left: true, right: true, top: true, bottom: true }, suspended: false, constrained: Edges { left: false, right: false, top: false, bottom: false }, bounds: Some((1920, 1080)) }\n",
+    "source_revision": "695b99f3112decd60f293bc6ac26e0f6c6f3d34e",
+    "stages": [
+      {
+        "detail": "qualify does not repeat admission",
+        "id": 1,
+        "name": "lexical-syntactic-admission",
+        "status": "NOT_APPLICABLE"
+      },
+      {
+        "detail": "qualify does not repeat admission",
+        "id": 2,
+        "name": "type-semantic-validation",
+        "status": "NOT_APPLICABLE"
+      },
+      {
+        "detail": "qualify does not repeat admission",
+        "id": 3,
+        "name": "canonical-goya-ir",
+        "status": "NOT_APPLICABLE"
+      },
+      {
+        "detail": "qualify does not repeat admission",
+        "id": 4,
+        "name": "effects-capabilities",
+        "status": "NOT_APPLICABLE"
+      },
+      {
+        "detail": "qualify does not repeat admission",
+        "id": 5,
+        "name": "target-negotiation",
+        "status": "NOT_APPLICABLE"
+      },
+      {
+        "detail": "qualify does not repeat admission",
+        "id": 6,
+        "name": "native-linux-lowering",
+        "status": "NOT_APPLICABLE"
+      },
+      {
+        "detail": "qualify does not repeat admission",
+        "id": 7,
+        "name": "optimisation",
+        "status": "NOT_APPLICABLE"
+      },
+      {
+        "detail": "qualify does not repeat admission",
+        "id": 8,
+        "name": "runtime-platform-linking",
+        "status": "NOT_APPLICABLE"
+      },
+      {
+        "detail": "qualify does not repeat admission",
+        "id": 9,
+        "name": "machine-code-generation",
+        "status": "NOT_APPLICABLE"
+      },
+      {
+        "detail": "qualify does not repeat admission",
+        "id": 10,
+        "name": "elf-assembly-linking",
+        "status": "NOT_APPLICABLE"
+      },
+      {
+        "detail": "sha256 a658b99decb84d2fd40d8a8de880c67f4c8fc3b1659972cd623fb96e72db6a4e matches the build report",
+        "id": 11,
+        "name": "static-verification",
+        "status": "PASS"
+      },
+      {
+        "detail": "scripted counter matched the headless oracle and committed one Wayland buffer",
+        "id": 12,
+        "name": "runtime-conformance",
+        "status": "PASS"
+      },
+      {
+        "detail": "the multi-machine linux-release matrix, Windows parity, and signing were not executed on this host",
+        "id": 13,
+        "name": "packaging-signing-release",
+        "status": "BLOCKED"
+      }
+    ],
+    "target": "x86_64-unknown-linux-gnu",
+    "window": "wayland"
+  },
+  "recorded_at_utc": "2026-11-24T15:07:18.181718+00:00",
+  "schema": "nebula.build-smoke/0.1",
+  "source_sha": "695b99f3112decd60f293bc6ac26e0f6c6f3d34e",
+  "target_triple": "x86_64-unknown-linux-gnu",
+  "toolchain": {
+    "cargo_lock_sha256": "ad8e6c965ac9ecfe6bb14674b1c1a4162a88561de26d3ba75dbc44360de5d233",
+    "rustc": "rustc 1.95.0 (59807616e 2026-04-14)"
+  },
+  "wayland_display_presence": "set",
+  "working_tree_dirty": true
+}

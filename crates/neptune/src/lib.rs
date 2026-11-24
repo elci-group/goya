@@ -28,6 +28,80 @@ pub const MAX_DIAGNOSTICS: usize = 256;
 /// Bounds left-nested arithmetic AST depth before the recursive Goya passes.
 pub const MAX_ADDITION_OPERATORS: usize = 256;
 
+#[derive(Debug)]
+pub(crate) struct IosAdmissionError {
+    pub code: &'static str,
+    pub message: String,
+    pub range: SourceRange,
+}
+
+impl std::fmt::Display for IosAdmissionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+/// Preserve GSSH/3 admission for ordinary iOS scenes, using GSSH/4 only when
+/// source authors scoped platform exceptions that must be resolved or refused.
+pub(crate) fn admit_ios(
+    source: &str,
+) -> Result<goya_lang::handoff::SemanticHandoffV2, IosAdmissionError> {
+    let handoff = match goya_lang::handoff::admit_v3(source) {
+        // Keep the existing contract and admission path for scenes that do
+        // not author platform rules. GSSH/4 is needed only for that syntax.
+        Ok(handoff) => return Ok(handoff),
+        Err(error) if error.code == "GY-E1015" => {
+            goya_lang::handoff::admit_v4(source).map_err(|error| IosAdmissionError {
+                code: error.code,
+                message: error.to_string(),
+                range: error.range,
+            })?
+        }
+        Err(error) => {
+            return Err(IosAdmissionError {
+                code: error.code,
+                message: error.to_string(),
+                range: error.range,
+            })
+        }
+    };
+    let exceptions = handoff.platform_exceptions().iter().map(|rule| {
+        let use_kind = match rule.use_kind {
+            goya_lang::PlatformUse::OnlyUse => "only-use",
+            goya_lang::PlatformUse::ChoiceUse => "choice-use",
+            goya_lang::PlatformUse::Fallback => "fallback",
+            goya_lang::PlatformUse::Fallbacks => "fallbacks",
+            goya_lang::PlatformUse::MustUse => "must-use",
+            goya_lang::PlatformUse::Invade => "invade",
+            goya_lang::PlatformUse::Cede => "cede",
+        };
+        goya_caprichios::PlatformRuleRef {
+            platform: rule.platform.clone(),
+            feature: rule.feature.clone(),
+            use_kind: use_kind.to_owned(),
+            options: rule.options.clone(),
+            range: goya_caprichios::SourceSpan {
+                start: rule.range.start,
+                end: rule.range.end,
+            },
+        }
+    });
+    goya_caprichios::resolve_platform_exceptions("ios", exceptions, &[]).map_err(|error| {
+        IosAdmissionError {
+            code: "GY-E1016",
+            message: format!(
+                "unresolved {} platform exception for '{}'",
+                error.platform, error.feature
+            ),
+            range: SourceRange {
+                start: error.range.start,
+                end: error.range.end,
+            },
+        }
+    })?;
+    Ok(handoff)
+}
+
 fn line_range(source: &str, line: usize) -> Option<SourceRange> {
     if line == 0 {
         return None;
@@ -152,7 +226,7 @@ pub fn preview_bundle_with_bluetooth(
 pub fn preview_static_text(source: &str) -> Result<SourcePreview, Diagnostic> {
     // Run the bounded frontend before using the strict parsed result.
     inspect(source)?;
-    let handoff = goya_lang::handoff::admit_v3(source).map_err(|error| Diagnostic {
+    let handoff = crate::admit_ios(source).map_err(|error| Diagnostic {
         code: error.code,
         message: error.to_string(),
         range: (error.range.end > error.range.start).then_some(error.range),
@@ -175,6 +249,8 @@ pub fn preview_static_text(source: &str) -> Result<SourcePreview, Diagnostic> {
         .find(|entry| match entry.kind.as_str() {
             "ontology" => false,
             "cell" => entry.scene_path.as_deref() != Some(&[]),
+            // Rendered as native accessibility modifiers (decision D14).
+            "iden" => entry.scene_path.as_deref() != Some(&[]),
             "property" => {
                 !matches!(entry.name.as_str(), "id" | "text")
                     || entry.scene_path.as_deref() != Some(&[])
@@ -185,7 +261,7 @@ pub fn preview_static_text(source: &str) -> Result<SourcePreview, Diagnostic> {
         || properties.len() != 2
         || text_property.is_none()
         || !properties.iter().any(|entry| entry.name == "id")
-        || parsed.entries.len() != 4
+        || parsed.entries.len() != 4 + usize::from(parsed.scene.root.iden.is_some())
         || !parsed.scene.interactions.is_empty()
         || !parsed.scene.root.children.is_empty()
         || cells[0].scene_path.as_deref() != Some(&[])
@@ -255,8 +331,15 @@ pub fn preview_static_text(source: &str) -> Result<SourcePreview, Diagnostic> {
     let suffix = "\n        }\n    }\n}\n";
     let start = prefix.len();
     let end = start + expr.len();
+    let iden = parsed
+        .scene
+        .root
+        .iden
+        .as_ref()
+        .map(|iden| swift::accessibility_modifiers(iden, false))
+        .unwrap_or_default();
     Ok(SourcePreview {
-        swift: format!("{prefix}{expr}{suffix}"),
+        swift: format!("{prefix}{expr}{iden}{suffix}"),
         declared_id: declared_id.clone(),
         source_range: text_range,
         swift_range: SourceRange { start, end },
@@ -327,8 +410,8 @@ pub fn inspect(source: &str) -> Result<Vec<Diagnostic>, Diagnostic> {
             _ => {}
         }
     }
-    // Apply the same GSSH/3 frontend contract as the scene compiler paths.
-    let handoff = goya_lang::handoff::admit_v3(source).map_err(|error| Diagnostic {
+    // Apply the same GSSH/4 frontend contract as the scene compiler paths.
+    let handoff = crate::admit_ios(source).map_err(|error| Diagnostic {
         code: error.code,
         message: error.to_string(),
         range: Some(error.range),
@@ -382,6 +465,35 @@ pub fn inspect(source: &str) -> Result<Vec<Diagnostic>, Diagnostic> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ios_keeps_legacy_handoff_without_platform_rules_and_refuses_scoped_rules() {
+        let base = "@ontology app { @cell root { id: \"root\"; text: \"x\"; } }";
+        assert_eq!(
+            admit_ios(base).unwrap().contract(),
+            goya_lang::handoff::CONTRACT_V3
+        );
+
+        let unrelated = base.replace(
+            "@cell root",
+            "@platform browser { \"media\": only-use(\"native.player\"); } @cell root",
+        );
+        assert_eq!(
+            admit_ios(&unrelated).unwrap().contract(),
+            goya_lang::handoff::CONTRACT_V4
+        );
+
+        let matching = base.replace(
+            "@cell root",
+            "@platform ios { \"media\": only-use(\"native.player\"); } @cell root",
+        );
+        let error = admit_ios(&matching).unwrap_err();
+        assert_eq!(error.code, "GY-E1016");
+        assert_eq!(
+            &matching[error.range.start..error.range.end],
+            "\"media\": only-use(\"native.player\");"
+        );
+    }
 
     #[test]
     fn unsupported_property_is_reported_at_original_bytes() {
@@ -440,6 +552,16 @@ mod tests {
         assert_eq!(error.code, "GY-E1001");
         let range = error.range.unwrap();
         assert!(source[range.start..range.end].starts_with("mystery"));
+    }
+
+    #[test]
+    fn single_text_preview_carries_iden_natively() {
+        let source = "@ontology example { @cell root { id: \"root\" text: \"Hi\" @iden { label: \"Greeting\"; } } }";
+        let preview = preview_static_text(source).unwrap();
+        assert!(preview
+            .swift
+            .contains("Text(verbatim: \"Hi\").accessibilityLabel(Text(verbatim: \"Greeting\"))"));
+        assert_eq!(&preview.swift[preview.swift_range.start..preview.swift_range.end], "Text(verbatim: \"Hi\")");
     }
 
     #[test]

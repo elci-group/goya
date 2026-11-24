@@ -471,7 +471,19 @@ impl SceneProject {
         // without `Viewport::new`.
         let viewport = Viewport::new(viewport.width_points, viewport.height_points)?;
         let source = source.into();
-        let scene = goya_lang::parse(&source).map_err(SdkError::Parse)?;
+        let parsed = goya_lang::parse_with_source_map(&source).map_err(SdkError::Parse)?;
+        if let Some(rule) = parsed.declarations.platform_exceptions.first() {
+            let line = source[..rule.range.start]
+                .bytes()
+                .filter(|byte| *byte == b'\n')
+                .count()
+                + 1;
+            return Err(SdkError::Parse(ParseError {
+                line,
+                range: rule.range,
+            }));
+        }
+        let scene = parsed.scene;
         let lowered = lower(&scene, viewport.width_points, viewport.height_points)
             .map_err(SdkError::Lower)?;
         Ok(Self {
@@ -565,6 +577,30 @@ mod tests {
     use super::*;
     use goya_runtime::Event;
     use std::collections::BTreeMap;
+
+    #[test]
+    fn target_neutral_scene_project_refuses_unresolved_platform_rules() {
+        let source =
+            "@ontology app { @cell root { id: \"root\"; } @platform android { \"media\": cede; } }";
+        let start = source.find("\"media\"").unwrap();
+        let end = source[start..].find(';').unwrap() + start + 1;
+        let Err(SdkError::Parse(error)) = SceneProject::from_source(source, Viewport::default())
+        else {
+            panic!("expected unresolved platform exception refusal");
+        };
+        assert_eq!(error.range, goya_lang::SourceRange { start, end });
+    }
+
+    #[test]
+    fn legacy_android_preview_stays_gssh1_and_refuses_platform_rules() {
+        let source = "@ontology app { @cell root { id: \"root\"; text: \"x\"; } @platform android { \"media\": cede; } }";
+        let AndroidTextPreviewError::StrictParse(error) =
+            emit_android_static_text_preview(source).unwrap_err()
+        else {
+            panic!("expected GSSH/1 admission refusal");
+        };
+        assert_eq!(error.code, "GY-E1015");
+    }
 
     #[test]
     fn android_preview_emits_only_strict_static_text_and_escapes_kotlin_literals() {

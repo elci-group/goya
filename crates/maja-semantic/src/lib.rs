@@ -3,7 +3,8 @@
 
 mod interactive;
 pub use interactive::{
-    admit_local_interactive, InteractiveWebIr, WebCell, WebCellKind, INTERACTIVE_PROFILE,
+    admit_local_interactive, DurableStore, InteractiveWebIr, WebCell, WebCellKind, WebIden,
+    INTERACTIVE_PROFILE,
     LIVE_PROFILE,
 };
 

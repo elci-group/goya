@@ -77,6 +77,8 @@ fn parse(args: &[OsString]) -> Result<Invocation, Fault> {
     let mut suite = None;
     let mut package_format = None;
     let mut window = None;
+    let mut desktop = None;
+    let mut config_root = None;
     let mut positionals = Vec::new();
     let mut index = 2;
     while index < args.len() {
@@ -97,7 +99,11 @@ fn parse(args: &[OsString]) -> Result<Invocation, Fault> {
             index += 1;
         } else if text == "--exercise" {
             if !matches!(kind, CommandKind::Qualify) || std::mem::replace(&mut exercise, true) {
-                return Err(Fault::new(2, "EMP-USAGE", "--exercise is accepted once by qualify"));
+                return Err(Fault::new(
+                    2,
+                    "EMP-USAGE",
+                    "--exercise is accepted once by qualify",
+                ));
             }
             index += 1;
         } else if text == "--target" {
@@ -145,6 +151,27 @@ fn parse(args: &[OsString]) -> Result<Invocation, Fault> {
             if window.replace(value).is_some() {
                 return Err(Fault::new(2, "EMP-USAGE", "duplicate --window"));
             }
+        } else if text == "--desktop" {
+            let value = required_value(args, &mut index, "--desktop")?;
+            if value != "cosmic" {
+                return Err(Fault::new(
+                    2,
+                    "EMP-USAGE",
+                    format!("unknown desktop profile {value}"),
+                ));
+            }
+            if desktop.replace(value).is_some() {
+                return Err(Fault::new(2, "EMP-USAGE", "duplicate --desktop"));
+            }
+        } else if text == "--config-root" {
+            if config_root.is_some() {
+                return Err(Fault::new(2, "EMP-USAGE", "duplicate --config-root"));
+            }
+            config_root = Some(PathBuf::from(required_raw(
+                args,
+                &mut index,
+                "--config-root",
+            )?));
         } else if text.starts_with('-') {
             return Err(Fault::new(2, "EMP-USAGE", format!("unknown option {text}")));
         } else {
@@ -164,6 +191,27 @@ fn parse(args: &[OsString]) -> Result<Invocation, Fault> {
             2,
             "EMP-USAGE",
             "expected one scene path or build directory",
+        ));
+    }
+    if (desktop.is_some() || config_root.is_some()) && !matches!(kind, CommandKind::Build) {
+        return Err(Fault::new(
+            2,
+            "EMP-USAGE",
+            "--desktop and --config-root are accepted only by build",
+        ));
+    }
+    if config_root.is_some() && desktop.is_none() {
+        return Err(Fault::new(
+            2,
+            "EMP-USAGE",
+            "--config-root requires --desktop cosmic",
+        ));
+    }
+    if desktop.is_some() && window.as_deref().unwrap_or("wayland") != "wayland" {
+        return Err(Fault::new(
+            2,
+            "EMP-USAGE",
+            "--desktop cosmic requires the Wayland window backend",
         ));
     }
     let positional = positionals.remove(0);
@@ -193,6 +241,8 @@ fn parse(args: &[OsString]) -> Result<Invocation, Fault> {
         suite,
         package_format,
         window: window.unwrap_or_else(|| "wayland".to_owned()),
+        desktop,
+        config_root,
     })
 }
 

@@ -227,14 +227,25 @@ mod tests {
                 goya_caprichios::registry::supported_contracts().contains(contract),
                 "{contract} is planned by neptune but not implemented in the registry"
             );
-            assert!(recipe.starts_with("apple-ble-"), "{recipe} is not an Apple BLE recipe");
+            assert!(
+                recipe.starts_with("apple-ble-"),
+                "{recipe} is not an Apple BLE recipe"
+            );
         }
         assert_eq!(BLUETOOTH_CONTRACTS.len(), 7);
     }
 
     #[test]
     fn privacy_plan_rejects_generic_descriptions() {
-        for description in ["", "   ", "bluetooth", "uses bluetooth", "required", "TODO", "!!!"] {
+        for description in [
+            "",
+            "   ",
+            "bluetooth",
+            "uses bluetooth",
+            "required",
+            "TODO",
+            "!!!",
+        ] {
             let plan = plan_bluetooth_privacy(description);
             assert_eq!(plan.as_ref().err().map(|d| d.code), Some("NPT-BM-E002"));
         }
@@ -248,16 +259,17 @@ mod tests {
 
     #[test]
     fn privacy_plan_is_deterministic_and_claims_no_background_execution() {
-        let plan = plan_bluetooth_privacy(
-            "Connects to your temperature sensor to show readings.",
-        )
-        .unwrap();
+        let plan = plan_bluetooth_privacy("Connects to your temperature sensor to show readings.")
+            .unwrap();
         assert_eq!(plan.usage_key(), "NSBluetoothAlwaysUsageDescription");
         assert_eq!(
             plan.usage_value(),
             "Connects to your temperature sensor to show readings."
         );
-        assert_eq!(plan.legacy_usage_key(), "NSBluetoothPeripheralUsageDescription");
+        assert_eq!(
+            plan.legacy_usage_key(),
+            "NSBluetoothPeripheralUsageDescription"
+        );
         assert!(plan.background_modes().is_empty());
         assert_eq!(plan.to_json(), plan.to_json());
     }
@@ -269,7 +281,10 @@ mod tests {
             assert_eq!(entry["semantic_id"], *contract);
             assert_eq!(entry["adapter"], *recipe);
             assert_eq!(entry["frameworks"], json!(["CoreBluetooth"]));
-            assert_eq!(entry["usage_description_keys"], json!(["NSBluetoothAlwaysUsageDescription"]));
+            assert_eq!(
+                entry["usage_description_keys"],
+                json!(["NSBluetoothAlwaysUsageDescription"])
+            );
             assert_eq!(entry["entitlements"], json!([]));
             assert_eq!(entry["test_status"], "apple_validation_not_run");
             assert_eq!(entry["fallback"], "reject");
@@ -289,7 +304,10 @@ mod tests {
                 "test_status",
                 "fallback",
             ] {
-                assert!(object.contains_key(field), "missing capability field {field}");
+                assert!(
+                    object.contains_key(field),
+                    "missing capability field {field}"
+                );
             }
         }
         for unknown in [
@@ -311,8 +329,14 @@ mod tests {
         ])
         .unwrap();
         assert_eq!(entries.len(), 2);
-        assert_eq!(entries[0]["semantic_id"], "goya.hardware.bluetooth.guard.v1");
-        assert_eq!(entries[1]["semantic_id"], "goya.hardware.bluetooth.central.v1");
+        assert_eq!(
+            entries[0]["semantic_id"],
+            "goya.hardware.bluetooth.guard.v1"
+        );
+        assert_eq!(
+            entries[1]["semantic_id"],
+            "goya.hardware.bluetooth.central.v1"
+        );
         let rejected = bluetooth_capability_entries(&[
             "goya.hardware.bluetooth.guard.v1",
             "future.unknown.v1",
@@ -322,10 +346,8 @@ mod tests {
 
     #[test]
     fn info_plist_fragment_escapes_and_is_deterministic() {
-        let plan = plan_bluetooth_privacy(
-            "Connects to your <temperature> & \"humidity\" sensor.",
-        )
-        .unwrap();
+        let plan = plan_bluetooth_privacy("Connects to your <temperature> & \"humidity\" sensor.")
+            .unwrap();
         let fragment = info_plist_privacy_fragment(&plan);
         assert_eq!(fragment, info_plist_privacy_fragment(&plan));
         assert!(fragment.contains("<key>NSBluetoothAlwaysUsageDescription</key>"));

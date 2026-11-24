@@ -24,6 +24,12 @@
 //! Every failure leaves state and revision unchanged. The module has no
 //! imports, timers, storage, network access or `eval`, and dispatch is
 //! synchronous, so activations cannot interleave.
+//!
+//! `prepare` splits step 7 for asynchronous stores (IndexedDB): it runs
+//! steps 1–6 and returns the written values with `commit` and `abandon`.
+//! Until one of them is called, every `dispatch` or `prepare` fails with
+//! `REENTRANT_DISPATCH`, so a pending durable write cannot interleave with
+//! another transition either.
 
 use goya_lang::{
     InteractionClass, InteractionExpr, InteractionType, InteractionValue, ParsedScene, SourceRange,
@@ -352,13 +358,14 @@ export function createRuntime(initialState, initialRevision = 0n) {
   let revision = initialRevision;
   const fail = (code) => Object.freeze({ ok: false, code });
   let committing = false;
+  let pending = false;
   // `beforeCommit`, when given, receives the frozen map of written values
   // after every canonical check has passed and before state changes. It
   // returns true to commit, or "STORAGE_CONFLICT" to report that durable
   // storage changed elsewhere; anything else (or a throw) fails with
   // STORAGE_FAILED. On refusal nothing changes. It must not dispatch.
-  function dispatch(actionId, inputs, beforeCommit) {
-    if (committing) return fail("REENTRANT_DISPATCH");
+  // Steps 1-6. Returns { ok: true, writes } or a failure.
+  function evaluate(actionId, inputs) {
     const action = typeof actionId === "string" ? ACTIONS.get(actionId) : undefined;
     if (action === undefined) return fail("UNKNOWN_ACTION");
     if (!(inputs instanceof Map) || [...inputs.keys()].some((k) => typeof k !== "string")) return fail("INPUT_SCHEMA");
@@ -378,20 +385,52 @@ export function createRuntime(initialState, initialRevision = 0n) {
     for (const v of next.values()) { const t = textError(v); if (t) return fail(t); }
     if (entriesSize(next) > MAX_SNAPSHOT_BYTES) return fail("SNAPSHOT_LIMIT");
     if (revision === U64_MAX) return fail("REVISION_OVERFLOW");
-    if (beforeCommit !== undefined) {
-      let answer = false;
-      committing = true;
-      try { answer = beforeCommit(Object.freeze(new Map(writes))); } catch { answer = false; } finally { committing = false; }
-      if (answer !== true) return fail(answer === "STORAGE_CONFLICT" ? "STORAGE_CONFLICT" : "STORAGE_FAILED");
-    }
+    return { ok: true, writes };
+  }
+  function apply(writes) {
     const committed = new Map(values);
     for (const [k, v] of writes) committed.set(k, v);
     values = committed;
     revision += 1n;
     return Object.freeze({ ok: true, revision });
   }
+  function dispatch(actionId, inputs, beforeCommit) {
+    if (committing || pending) return fail("REENTRANT_DISPATCH");
+    const evaluated = evaluate(actionId, inputs);
+    if (!evaluated.ok) return evaluated;
+    const writes = evaluated.writes;
+    if (beforeCommit !== undefined) {
+      let answer = false;
+      committing = true;
+      try { answer = beforeCommit(Object.freeze(new Map(writes))); } catch { answer = false; } finally { committing = false; }
+      if (answer !== true) return fail(answer === "STORAGE_CONFLICT" ? "STORAGE_CONFLICT" : "STORAGE_FAILED");
+    }
+    return apply(writes);
+  }
+  // Steps 1-6 now, step 7 later: `commit()` applies the transition and
+  // `abandon(code)` refuses it with STORAGE_CONFLICT or STORAGE_FAILED.
+  // Exactly one of them settles it; later calls fail.
+  function prepare(actionId, inputs) {
+    if (committing || pending) return fail("REENTRANT_DISPATCH");
+    const evaluated = evaluate(actionId, inputs);
+    if (!evaluated.ok) return evaluated;
+    const writes = evaluated.writes;
+    pending = true;
+    let settled = false;
+    const settle = () => { if (settled) return false; settled = true; pending = false; return true; };
+    return Object.freeze({
+      ok: true,
+      writes: Object.freeze(new Map(writes)),
+      commit() { return settle() ? apply(writes) : fail("REENTRANT_DISPATCH"); },
+      abandon(code) {
+        if (!settle()) return fail("REENTRANT_DISPATCH");
+        return fail(code === "STORAGE_CONFLICT" ? "STORAGE_CONFLICT" : "STORAGE_FAILED");
+      },
+    });
+  }
   return Object.freeze({
     dispatch,
+    prepare,
     get revision() { return revision; },
     get(key) { return values.get(key); },
     snapshot() { return Object.freeze({ revision, state: new Map(values) }); },

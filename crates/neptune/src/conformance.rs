@@ -643,7 +643,7 @@ fn run_fixture_with_swift(
     if corpus.schema_version != "1" || corpus.cases.is_empty() || corpus.cases.len() > 128 {
         return Err("unsupported or empty corpus".into());
     }
-    let handoff = goya_lang::handoff::admit_v3(scene_source).map_err(|e| e.to_string())?;
+    let handoff = crate::admit_ios(scene_source).map_err(|e| e.to_string())?;
     let scene = &handoff.parsed().scene;
     let mut reference = goya_lang::compile_d1_interactions(scene).map_err(|e| e.to_string())?;
     let mut target =

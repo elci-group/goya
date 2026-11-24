@@ -48,6 +48,11 @@ fn main() -> ExitCode {
                 report.paste_allowed,
                 report.edit
             );
+            if let (Some(version), Some(state)) =
+                (report.xdg_wm_base_version, report.toplevel_state)
+            {
+                println!("xdg_wm_base_bound={version} toplevel_state={state:?}");
+            }
             ExitCode::SUCCESS
         }
         Err(AppError::Usage(message)) => {
@@ -82,7 +87,7 @@ fn app() -> Result<emperor_runtime::OracleReport, AppError> {
             max_frames: args.frames,
         },
     };
-    emperor_runtime::run(&json, mode).map_err(classify)
+    emperor_runtime::run_with_style(&json, mode, embedded_style()).map_err(classify)
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -124,7 +129,9 @@ fn parse_args() -> Result<Args, String> {
 
 fn set_mode(slot: &mut Option<Mode>, mode: Mode) -> Result<(), String> {
     if slot.is_some() {
-        return Err("pass only one of --oracle, --exercise-oracle, --smoke, --exercise, or --live".into());
+        return Err(
+            "pass only one of --oracle, --exercise-oracle, --smoke, --exercise, or --live".into(),
+        );
     }
     *slot = Some(mode);
     Ok(())

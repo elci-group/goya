@@ -701,6 +701,7 @@ mod tests {
             scroll: false,
             gestures: None,
             text_from: None,
+            iden: None,
             children: Vec::new(),
             placeholder: None,
             max_length: None,

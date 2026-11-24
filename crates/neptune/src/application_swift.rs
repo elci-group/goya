@@ -380,7 +380,7 @@ mod tests {
             report["swift_sha256"],
             format!("{:x}", Sha256::digest(swift.as_bytes()))
         );
-        let handoff = goya_lang::handoff::admit_v3(SOURCE).unwrap();
+        let handoff = crate::admit_ios(SOURCE).unwrap();
         let scene = &handoff.parsed().scene;
         let mut reference = goya_sdk::D1Application::new(scene, initial()).unwrap();
         reference
@@ -448,7 +448,7 @@ mod tests {
         let swift = &generated.swift[action.swift.start..action.swift.end];
         assert!(swift.find("projectedNextBytes").unwrap() < swift.find("globalNextBytes").unwrap());
         assert!(swift.find("globalNextBytes").unwrap() < swift.find("state = next").unwrap());
-        let handoff = goya_lang::handoff::admit_v3(&source).unwrap();
+        let handoff = crate::admit_ios(&source).unwrap();
         let scene = &handoff.parsed().scene;
         let mut reference = goya_sdk::D1Application::new(scene, values).unwrap();
         let result = reference.dispatch(

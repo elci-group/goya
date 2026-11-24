@@ -1,4 +1,4 @@
-//! Lower an admitted GSSH/3 scene to Nevada's fixed Android TV viewport.
+//! Lower an admitted GSSH/4 scene to Nevada's fixed Android TV viewport.
 //!
 //! The numeric focus IDs are Aragon's depth-first cell indexes. Buttons
 //! with D1 activation and editable fields are essential focus targets.
@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use goya_lang::handoff::{admit_v3, Origin};
+use goya_lang::handoff::{admit_v4, Origin};
 use goya_lang::{CellKind, InteractionClass, SourceRange, StrictParseError};
 use goya_nevada::{focus::FocusElement, orchestrate::PlanInput, translate::TouchInteraction};
 
@@ -22,6 +22,9 @@ pub struct NevadaInteraction {
     pub authored_id: String,
     pub kind: TouchInteraction,
     pub range: SourceRange,
+    /// `@iden` label and hint (decision D14), for the TV's focus
+    /// announcement. Present on every text input (GSSH/4 requires it).
+    pub iden: Option<(String, Option<String>)>,
 }
 
 /// A Nevada conformance input and its correspondence with the authored scene.
@@ -52,6 +55,7 @@ impl NevadaScene {
 pub enum NevadaSceneReason {
     Admission(Box<StrictParseError>),
     Unsupported(&'static str),
+    UnsupportedPlatformException(goya_lang::PlatformException),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -67,6 +71,11 @@ impl fmt::Display for NevadaSceneError {
         match &self.reason {
             NevadaSceneReason::Admission(error) => write!(f, "{error}"),
             NevadaSceneReason::Unsupported(what) => write!(f, "Nevada does not support {what}"),
+            NevadaSceneReason::UnsupportedPlatformException(rule) => write!(
+                f,
+                "Nevada cannot resolve Android TV platform exception for feature {:?} ({:?} {:?})",
+                rule.feature, rule.use_kind, rule.options
+            ),
         }
     }
 }
@@ -75,18 +84,26 @@ impl std::error::Error for NevadaSceneError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match &self.reason {
             NevadaSceneReason::Admission(error) => Some(error.as_ref()),
-            NevadaSceneReason::Unsupported(_) => None,
+            NevadaSceneReason::Unsupported(_)
+            | NevadaSceneReason::UnsupportedPlatformException(_) => None,
         }
     }
 }
 
 /// Strictly admit a scene and lower the interactions supported by the TV runtime.
 pub fn lower_nevada_scene(source: &str) -> Result<NevadaScene, NevadaSceneError> {
-    let handoff = admit_v3(source).map_err(|error| NevadaSceneError {
+    let handoff = admit_v4(source).map_err(|error| NevadaSceneError {
         range: error.range,
         origin: None,
         reason: NevadaSceneReason::Admission(Box::new(error)),
     })?;
+    if let Some(rule) = handoff.platform_exceptions_for("android_tv").next() {
+        return Err(NevadaSceneError {
+            range: rule.range,
+            origin: None,
+            reason: NevadaSceneReason::UnsupportedPlatformException(rule.clone()),
+        });
+    }
     let parsed = handoff.parsed();
     let scene = &parsed.scene;
     let range = |origin: &Origin| {
@@ -185,6 +202,10 @@ pub fn lower_nevada_scene(source: &str) -> Result<NevadaScene, NevadaSceneError>
                 authored_id: authored_id.to_owned(),
                 kind,
                 range: range(&origin),
+                iden: cell
+                    .iden
+                    .as_ref()
+                    .map(|iden| (iden.label.clone(), iden.hint.clone())),
             });
         }
         result.cell_ids.push(id.to_owned());
@@ -207,11 +228,12 @@ mod tests {
     use goya_nevada::focus::{next_focus, unreachable_essential, Direction};
 
     const COUNTER: &str = r#"@ontology counter {
+        @persistence { cache_targets: null; }
         @state { count: int = 0 session; }
         @cell root { id: "window.root";
             @cell panel { id: "window.panel";
                 position_p: (0.1, 0.2, 0); extent_p: (0.8, 0.6, 0);
-                @input amount { id: "window.amount"; extent_p: (0.4, 0.3, 0); }
+                @input amount { id: "window.amount"; @iden { label: "Amount"; } extent_p: (0.4, 0.3, 0); }
                 @button add { id: "window.add"; position_p: (0.5, 0, 0);
                     extent_p: (0.4, 0.3, 0); text: "Add"; }
             }
@@ -230,6 +252,12 @@ mod tests {
         assert_eq!(lowered.cell_ids, android.cell_ids);
         assert_eq!(lowered.source_digest, android.source_map.source_digest);
         assert_eq!(lowered, lower_nevada_scene(COUNTER).unwrap());
+        let field = lowered
+            .interactions
+            .iter()
+            .find(|entry| entry.kind == TouchInteraction::TextInput)
+            .unwrap();
+        assert_eq!(field.iden, Some(("Amount".to_owned(), None)));
         assert_eq!(
             lowered.elements[2],
             FocusElement {
@@ -288,7 +316,7 @@ mod tests {
             (&scroll[..], "scroll: true"),
             (&collapse[..], "@input amount"),
             (
-                r#"@ontology app { @button go { id: "go"; } }"#,
+                r#"@ontology app { @persistence { cache_targets: null; } @button go { id: "go"; } }"#,
                 "@button go",
             ),
         ] {
@@ -301,9 +329,11 @@ mod tests {
     #[test]
     fn refuses_supported_language_constructs_without_tv_runtime_handlers() {
         let clipboard = r#"@ontology app {
+            @persistence { cache_targets: null; }
             @cell root { id: "root"; gestures { copy: allow; } }
         }"#;
         let d2 = r#"@ontology app {
+            @persistence { cache_targets: null; }
             @state { count: int = 0 session; }
             @button fetch { id: "button.fetch"; }
             @interaction fetch { id: "action.fetch"; trigger: button.fetch.activate; class: D2;
@@ -326,12 +356,37 @@ mod tests {
 
     #[test]
     fn preserves_strict_grammar_refusals() {
-        let source = r#"@ontology app { @cell root { id: "root"; position: (0, 0, 0); } }"#;
+        let source = r#"@ontology app { @persistence { cache_targets: null; } @cell root { id: "root"; position: (0, 0, 0); } }"#;
         let error = lower_nevada_scene(source).unwrap_err();
         let NevadaSceneReason::Admission(inner) = error.reason else {
             panic!("expected strict admission failure");
         };
         assert_eq!(inner.code, "GY-E1009");
         assert_eq!(error.range, inner.range);
+    }
+
+    #[test]
+    fn resolves_only_android_tv_platform_rules_and_refuses_unimplemented_ones() {
+        let other_platform = r#"@ontology app {
+            @persistence { cache_targets: null; }
+            @cell root { id: "root"; }
+            @platform android { "media": cede; }
+        }"#;
+        assert!(lower_nevada_scene(other_platform).is_ok());
+
+        let tv = r#"@ontology app {
+            @persistence { cache_targets: null; }
+            @cell root { id: "root"; }
+            @platform android_tv { "media": only-use("native.player"); }
+        }"#;
+        let start = tv.find("\"media\"").unwrap();
+        let end = tv[start..].find(';').unwrap() + start + 1;
+        let error = lower_nevada_scene(tv).unwrap_err();
+        assert_eq!(error.range, SourceRange { start, end });
+        assert!(error.to_string().contains("feature \"media\""));
+        assert!(matches!(
+            error.reason,
+            NevadaSceneReason::UnsupportedPlatformException(_)
+        ));
     }
 }

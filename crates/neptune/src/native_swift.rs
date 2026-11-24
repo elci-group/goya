@@ -128,8 +128,7 @@ fn render(
 ) -> Result<Preview, crate::Diagnostic> {
     crate::validate_module(module)?;
     crate::inspect(source)?;
-    let handoff = goya_lang::handoff::admit_v3(source)
-        .map_err(|e| reject(&e.to_string(), Some(e.range)))?;
+    let handoff = crate::admit_ios(source).map_err(|e| reject(&e.to_string(), Some(e.range)))?;
     let parsed = handoff.parsed();
     let root = &parsed.scene.root;
     let button = parsed
@@ -147,6 +146,8 @@ fn render(
             e.scene_path.as_deref() != Some(&[]) || !matches!(e.name.as_str(), "id" | "text")
         }
         "interaction" => false,
+        // Rendered as native accessibility modifiers (decision D14).
+        "iden" => e.scene_path.as_deref() != Some(&[]),
         // State and bindings are admitted under GSSH/2 for native previews.
         "state" | "state-key" | "binding" => false,
         _ => true,
@@ -228,6 +229,14 @@ fn render(
     swift.push_str(&verbatim(label));
     let text_end = swift.len();
     swift.push_str("\n            })\n");
+    let iden_swift = root.iden.as_ref().map(|iden| {
+        swift.push_str("            ");
+        let start = swift.len();
+        swift.push_str(&crate::swift::accessibility_modifiers(iden, false));
+        let end = swift.len();
+        swift.push('\n');
+        (start, end)
+    });
     if !readout {
         swift.push_str("            .frame(maxWidth: .infinity, maxHeight: .infinity)\n");
     }
@@ -258,6 +267,18 @@ fn render(
         "capabilities":{"schema_version":"1","profile":"experimental","frameworks":["SwiftUI","Combine"],"minimum_os":null,"entitlements":[],"usage_description_keys":[],"privacy_declarations":"owner_review_required","test_status":"apple_validation_not_run","fallback":"reject"},
         "stages":{"goya_frontend":"PASS","runtime_limit_parity":"NOT_VERIFIED","apple_validation":"NOT_RUN","ios_admission":"NOT_RUN"}
     });
+    if let (Some((start, end)), Some(iden_source)) =
+        (iden_swift, crate::swift::iden_range(&parsed.entries, &[]))
+    {
+        result["source_map"]["mappings"]
+            .as_array_mut()
+            .expect("mappings array")
+            .push(serde_json::json!({
+                "semantic_id": semantic(id),
+                "source_range": source_range(iden_source),
+                "swift_range": swift_range(start, end)
+            }));
+    }
     if readout {
         result["readout"] = serde_json::Value::Array(readout_rows);
         result["stages"]["state_readout"] = serde_json::json!("SOURCE_PREVIEW");
@@ -315,6 +336,32 @@ mod tests {
             .swift()
             .contains("é\\\\(unsafe)"));
     }
+    #[test]
+    fn button_iden_becomes_native_accessibility() {
+        let source = SOURCE.replace(
+            "text: \"Increment\" }",
+            "text: \"+\" @iden { label: \"Increment\"; hint: \"Adds one to the count\"; } }",
+        );
+        let preview = preview(&source, "app/main.gscene", initial()).unwrap();
+        let swift = preview.swift();
+        assert!(swift.contains(
+            "            })\n            .accessibilityLabel(Text(verbatim: \"Increment\")).accessibilityHint(Text(verbatim: \"Adds one to the count\"))\n"
+        ), "{swift}");
+        let json = preview.to_json();
+        let iden = json["source_map"]["mappings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|m| {
+                let s = &m["source_range"];
+                source[s["start_byte"].as_u64().unwrap() as usize..].starts_with("@iden")
+            })
+            .expect("@iden is mapped");
+        let g = &iden["swift_range"];
+        assert!(swift[g["start_byte"].as_u64().unwrap() as usize..g["end_byte"].as_u64().unwrap() as usize]
+            .starts_with(".accessibilityLabel("));
+    }
+
     #[test]
     fn unsupported_presentation_and_inputs_fail_closed() {
         for source in [

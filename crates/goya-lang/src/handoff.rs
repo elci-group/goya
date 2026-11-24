@@ -13,7 +13,8 @@
 //! awaiting architecture approval; it is not evidence of target support.
 
 use crate::{
-    parse_strict, parse_strict_gssh2, parse_strict_gssh3, parse_strict_gssh3_live, InputBinding,
+    parse_strict, parse_strict_gssh2, parse_strict_gssh3, parse_strict_gssh3_live,
+    parse_strict_gssh4, parse_strict_gssh4_live, InputBinding, PlatformException,
     InteractionType, InteractionValue, ParsedScene, SourceRange, StateDecl, StateLifetime,
     StrictParseError,
 };
@@ -31,6 +32,10 @@ pub const CONTRACT_V2: &str = "GSSH/2";
 pub const CONTRACT_V3: &str = "GSSH/3";
 /// GSSH/3 with live bindings (proposed; `text-from` only on this branch).
 pub const CONTRACT_V3_LIVE: &str = "GSSH/3-live";
+/// Platform-neutral ontology with explicit, target-scoped exceptions.
+pub const CONTRACT_V4: &str = "GSSH/4";
+/// GSSH/4 with live bindings (decision D12).
+pub const CONTRACT_V4_LIVE: &str = "GSSH/4-live";
 
 /// Largest UTF-8 text value a bound field may supply (the D1 text limit).
 pub const MAX_FIELD_TEXT_BYTES: usize = 64 * 1024;
@@ -179,6 +184,21 @@ impl SemanticHandoffV2 {
         self.contract
     }
 
+    /// Rules that this target must resolve. An empty slice means `any`.
+    pub fn platform_exceptions(&self) -> &[PlatformException] {
+        &self.parsed.declarations.platform_exceptions
+    }
+
+    /// Only exceptions for this target; other targets retain `any` semantics.
+    pub fn platform_exceptions_for<'a>(
+        &'a self,
+        platform: &'a str,
+    ) -> impl Iterator<Item = &'a PlatformException> + 'a {
+        self.platform_exceptions()
+            .iter()
+            .filter(move |rule| rule.platform == platform)
+    }
+
     pub fn parsed(&self) -> &ParsedScene {
         &self.parsed
     }
@@ -225,6 +245,25 @@ impl SemanticHandoffV2 {
             .map(|decl| decl.key.as_str())
     }
 
+    /// Configured platform cache adapters (GSSH/4 `@persistence`). `None`
+    /// when the declaration is omitted (default local stores) or is the
+    /// `cache_targets: null` opt-out; see [`Self::persistence_disabled`].
+    pub fn persistence_cache_targets(&self) -> Option<&BTreeMap<String, String>> {
+        self.parsed
+            .declarations
+            .persistence_cache_targets
+            .as_ref()?
+            .as_ref()
+    }
+
+    /// True for the authored `cache_targets: null` opt-out.
+    pub fn persistence_disabled(&self) -> bool {
+        matches!(
+            self.parsed.declarations.persistence_cache_targets,
+            Some(None)
+        )
+    }
+
     /// Source range of a construct in this revision.
     pub fn origin(&self, origin: &Origin) -> Option<SourceRange> {
         self.origins.get(origin).copied()
@@ -255,12 +294,25 @@ pub fn admit_v3_live(source: &str) -> Result<SemanticHandoffV2, StrictParseError
     ))
 }
 
+/// Admit GSSH/4; target compilers must explicitly resolve their exceptions.
+pub fn admit_v4(source: &str) -> Result<SemanticHandoffV2, StrictParseError> {
+    Ok(with_origins(CONTRACT_V4, parse_strict_gssh4(source)?))
+}
+
+/// Admit GSSH/4-live: GSSH/4 plus `text-from` display bindings (D12).
+pub fn admit_v4_live(source: &str) -> Result<SemanticHandoffV2, StrictParseError> {
+    Ok(with_origins(
+        CONTRACT_V4_LIVE,
+        parse_strict_gssh4_live(source)?,
+    ))
+}
+
 fn with_origins(contract: &'static str, parsed: ParsedScene) -> SemanticHandoffV2 {
     let mut origins = BTreeMap::new();
     for entry in &parsed.entries {
         let origin = match entry.kind.as_str() {
             "cell" | "button" | "input" => entry.semantic_id.clone().map(Origin::Element),
-            "property" | "gestures" => entry.semantic_id.clone().map(|element| Origin::Property {
+            "property" | "gestures" | "iden" => entry.semantic_id.clone().map(|element| Origin::Property {
                 element,
                 property: canonical_property(&entry.name),
             }),

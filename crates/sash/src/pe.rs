@@ -384,7 +384,7 @@ fn read_import_dlls(
     if dir.1 < 20 {
         return Err("import directory is smaller than one descriptor".into());
     }
-    if dir.1 % 20 != 0 {
+    if !dir.1.is_multiple_of(20) {
         return Err("import directory size is not descriptor-aligned".into());
     }
     let (mut offset, available) = rva_to_raw_range(sections, dir.0)?;
@@ -418,7 +418,7 @@ fn read_delay_dlls(
     if dir.1 < 32 {
         return Err("delay-import directory is smaller than one descriptor".into());
     }
-    if dir.1 % 32 != 0 {
+    if !dir.1.is_multiple_of(32) {
         return Err("delay-import directory size is not descriptor-aligned".into());
     }
     let (mut offset, available) = rva_to_raw_range(sections, dir.0)?;

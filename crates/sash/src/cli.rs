@@ -100,11 +100,16 @@ pub fn execute(args: &[std::ffi::OsString]) -> Run {
                 .get(index + 1)
                 .and_then(|value| value.to_str())
                 .and_then(|value| value.split_once('x'))
-                .and_then(|(width, height)| ViewportDip::new(width.parse().ok()?, height.parse().ok()?));
+                .and_then(|(width, height)| {
+                    ViewportDip::new(width.parse().ok()?, height.parse().ok()?)
+                });
             if viewport.is_none() {
                 return cli_error(
                     2,
-                    &format!("--viewport-dip requires WIDTHxHEIGHT with each edge in 1..={}", admit::MAX_DIP),
+                    &format!(
+                        "--viewport-dip requires WIDTHxHEIGHT with each edge in 1..={}",
+                        admit::MAX_DIP
+                    ),
                 );
             }
             index += 2;
@@ -219,6 +224,9 @@ fn scene_command(
         Ok(source) => source,
         Err(diagnostic) => return finish(base, 1, diagnostic, "scene was not read"),
     };
+    if base.get("frontend_contract").is_some() {
+        base["frontend_contract"] = serde_json::json!(admit::viewport_contract(&source));
+    }
     match admit::open_with_viewport(&source, viewport) {
         Ok(target) => {
             let (profile, semantic_id, width_dip, height_dip, source_digest, dispositions) =
@@ -292,10 +300,11 @@ fn expectations_command(
         Ok(source) => source,
         Err(diagnostic) => return finish(base, 1, diagnostic, "scene was not read"),
     };
+    if base.get("frontend_contract").is_some() {
+        base["frontend_contract"] = serde_json::json!(admit::viewport_contract(&source));
+    }
     let document = match admit::open_with_viewport(&source, viewport) {
-        Ok(SceneTarget::Static(window)) => {
-            crate::ir_lower::lower_static_window(&window, api_floor)
-        }
+        Ok(SceneTarget::Static(window)) => crate::ir_lower::lower_static_window(&window, api_floor),
         Ok(SceneTarget::Interactive(app)) => {
             crate::ir_lower::lower_interactive_window(&app, api_floor)
         }
@@ -325,7 +334,7 @@ fn expectations_command(
                 sash_ir::ControlRole::Edit => "edit",
                 sash_ir::ControlRole::Button => "button",
             };
-            serde_json::json!({
+            let mut entry = serde_json::json!({
                 "index": control.index,
                 "role": role,
                 "control_id": control.control_id,
@@ -337,7 +346,29 @@ fn expectations_command(
                     control.width_dip,
                     control.height_dip,
                 ],
-            })
+            });
+            // `@iden` (decision D14), applied by dynamic annotation.
+            if let Some(iden) = &control.iden {
+                entry["uia"] = serde_json::json!({
+                    "name": iden.label,
+                    "help_text": iden.hint,
+                    "mechanism": "IAccPropServices::SetHwndPropStr",
+                });
+            }
+            // Decision D9: the GSSH/4-live result announces each change.
+            if let Some(transition) = &document.transition {
+                if let (Some(context), true) = (
+                    &transition.announce_context,
+                    transition.state_index == control.index,
+                ) {
+                    entry["uia"]["live_setting"] = serde_json::json!("polite");
+                    entry["uia"]["announcement"] = serde_json::json!(format!(
+                        "{context} increased by <d>, from <old> to <new> (or decreased)"
+                    ));
+                    entry["uia"]["event"] = serde_json::json!("EVENT_OBJECT_LIVEREGIONCHANGED");
+                }
+            }
+            entry
         })
         .collect::<Vec<_>>());
     base["imports"] = serde_json::json!({
@@ -388,6 +419,9 @@ fn build_command(
         Ok(source) => source,
         Err(diagnostic) => return finish(base, 1, diagnostic, "scene was not read"),
     };
+    if base.get("frontend_contract").is_some() {
+        base["frontend_contract"] = serde_json::json!(admit::viewport_contract(&source));
+    }
     match orchestrate::link_with_viewport(&source, &output, target, api_floor, viewport) {
         Ok(linked) => {
             base["presentation_profile"] = serde_json::json!(linked.presentation_profile);
@@ -888,7 +922,10 @@ mod tests {
         assert_eq!(run.json["presentation_profile"], crate::admit::PROFILE);
         assert_eq!(run.json["window"]["title"], "hello");
         assert_eq!(run.json["window"]["class"], "SashStaticWindow");
-        assert_eq!(run.json["window"]["client_dip"], serde_json::json!([320, 160]));
+        assert_eq!(
+            run.json["window"]["client_dip"],
+            serde_json::json!([320, 160])
+        );
         let controls = run.json["controls"].as_array().unwrap();
         assert_eq!(controls.len(), 1);
         assert_eq!(controls[0]["role"], "static");
@@ -900,6 +937,37 @@ mod tests {
             run.json["imports"]["expected"],
             serde_json::json!(EXPECTED_IMPORTS)
         );
+    }
+
+    #[test]
+    fn explicit_viewport_projects_nested_gssh3_controls() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/fixtures/proportional-static.gscene"
+        );
+        let args = ["sash", "expectations", path, "--format", "json"];
+        let implicit = execute(&args.map(Into::into));
+        assert_ne!(implicit.code, ExitCode::SUCCESS);
+        let run = execute(
+            &args
+                .into_iter()
+                .chain(["--viewport-dip", "640x480"])
+                .map(Into::into)
+                .collect::<Vec<_>>(),
+        );
+        assert_eq!(run.code, ExitCode::SUCCESS);
+        assert_eq!(run.json["frontend_contract"], "GSSH/3");
+        assert_eq!(run.json["viewport_dip"], serde_json::json!([640, 480]));
+        assert_eq!(
+            run.json["window"]["client_dip"],
+            serde_json::json!([640, 480])
+        );
+        let controls = run.json["controls"].as_array().unwrap();
+        assert_eq!(controls.len(), 2);
+        assert_eq!(controls[0]["semantic_id"], "label.headline");
+        assert_eq!(controls[0]["dip"], serde_json::json!([200, 180, 240, 120]));
+        assert_eq!(controls[1]["semantic_id"], "label.note");
+        assert_eq!(controls[1]["dip"], serde_json::json!([440, 300, 120, 60]));
     }
 
     #[test]
@@ -974,7 +1042,10 @@ mod tests {
         ]);
         assert_eq!(run.code, ExitCode::SUCCESS);
         assert_eq!(run.json["api_floor"], "win8");
-        assert_eq!(run.json["presentation_profile"], crate::admit::PROFILE_LEGACY);
+        assert_eq!(
+            run.json["presentation_profile"],
+            crate::admit::PROFILE_LEGACY
+        );
         // The control table is floor-independent: same meaning, other adapter.
         let controls = run.json["controls"].as_array().unwrap();
         assert_eq!(controls.len(), 1);
@@ -1045,12 +1116,13 @@ mod tests {
             .find(|item| item["subject"] == "background")
             .expect("background disposition");
         let detail = background["detail"].as_str().unwrap();
-        assert!(!detail.contains("recreated when that DPI changes"), "{detail}");
+        assert!(
+            !detail.contains("recreated when that DPI changes"),
+            "{detail}"
+        );
         assert!(detail.contains("system DPI aware"), "{detail}");
-        assert!(dispositions
-            .iter()
-            .any(|item| item["subject"] == "dpi"
-                && item["detail"].as_str().unwrap().contains("GetDeviceCaps")));
+        assert!(dispositions.iter().any(|item| item["subject"] == "dpi"
+            && item["detail"].as_str().unwrap().contains("GetDeviceCaps")));
 
         // The win10 check keeps the per-monitor claim.
         let run = execute(&[
@@ -1136,7 +1208,10 @@ mod tests {
     #[test]
     fn verify_accepts_the_matching_legacy_floor() {
         let dir = std::env::temp_dir();
-        let path = dir.join(format!("sash-verify-legacy-floor-{}.exe", std::process::id()));
+        let path = dir.join(format!(
+            "sash-verify-legacy-floor-{}.exe",
+            std::process::id()
+        ));
         let manifest = concat!(
             "level=\"asInvoker\" uiAccess=\"false\" ",
             "<dpiAware>true</dpiAware> ",
@@ -1147,7 +1222,7 @@ mod tests {
             0x8664,
             0x020B,
             0x0020 | 0x0040 | 0x0100 | 0x4000,
-            &manifest,
+            manifest,
         );
         std::fs::write(&path, &bytes).unwrap();
         let run = execute(&[

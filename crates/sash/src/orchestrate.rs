@@ -12,6 +12,7 @@ use crate::windows_target::WindowsTarget;
 use crate::{Diagnostic, PROFILE_PORTABLE};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
+#[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -42,6 +43,18 @@ pub fn link_with_viewport(
     floor: crate::api_floor::ApiFloor,
     viewport: Option<ViewportDip>,
 ) -> Result<Linked, Diagnostic> {
+    // The cross-link runs Linux tools (rust-lld through a Python shim, the
+    // pinned xwin sysroot, `df`). Other hosts can admit, inspect, project
+    // expectations and verify, but have no native link path yet.
+    if !cfg!(target_os = "linux") {
+        return Err(Diagnostic::new(
+            "SASH-TOOLCHAIN",
+            "build",
+            "linking App.exe needs the Linux cross-link host; this host has no native link path",
+            "Run `sash build` on Linux with the pinned cross toolchain. `check`, `inspect`, \
+             `expectations` and `verify` work on this host.",
+        ));
+    }
     if !free_enough(output) {
         return Err(Diagnostic::new(
             "SASH-TOOLCHAIN",
@@ -398,10 +411,12 @@ fn write_linker_shim(dir: &Path) -> Result<(), Diagnostic> {
     let shim_dir = dir.join("shim");
     fs::create_dir(&shim_dir).map_err(|error| io_diag("emit", &error))?;
     let path = shim_dir.join("lld-link");
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o755)
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    // Executable by the Linux cross-link host that runs it.
+    #[cfg(unix)]
+    options.mode(0o755);
+    let mut file = options
         .open(&path)
         .map_err(|error| io_diag("emit", &error))?;
     file.write_all(LINKER_SHIM.as_bytes())
@@ -807,7 +822,19 @@ fn lock_holder_dead(lock: &Path) -> bool {
     if pid == std::process::id() {
         return false;
     }
-    !Path::new(&format!("/proc/{pid}")).exists()
+    process_gone(pid)
+}
+
+/// Whether no process `pid` exists. Only Linux exposes this without a
+/// platform API; elsewhere a lock is never presumed stale.
+#[cfg(target_os = "linux")]
+fn process_gone(pid: u32) -> bool {
+    !Path::new("/proc").join(pid.to_string()).exists()
+}
+
+#[cfg(not(target_os = "linux"))]
+fn process_gone(_pid: u32) -> bool {
+    false
 }
 
 impl Drop for TempDir {

@@ -3,6 +3,7 @@
 
 use crate::lexer::{lex, Token, TokenKind};
 use crate::scene::{
+    Iden,
     Anchor, CellKind, EffectRequestDecl, EffectValueType, GestureDecision, GesturePolicy,
     IntentCategory, IntentDecl, InteractionClass, InteractionDecl, InteractionExpr,
     InteractionType, InteractionValue, Scene, SceneCell, StateAssignment, TransportClass, TypedKey,
@@ -24,6 +25,63 @@ pub struct ParseError {
     /// parsed through the offending token. At end of input the range ends at
     /// the source length.
     pub range: SourceRange,
+}
+
+#[cfg(test)]
+mod platform_policy_tests {
+    use super::*;
+
+    const SCENE: &str = r#"@ontology demo {
+        @persistence { cache_targets: null; }
+        @cell root { id: "root"; }
+        @platform android_tv {
+            "media": only-use("native.player");
+            "input": choice-use("remote", "keyboard");
+            "decode": fallback("software");
+            "network": fallbacks("ethernet", "wifi");
+            "audio": must-use("mixer");
+            "focus": invade("custom.focus");
+            "gestures": cede;
+        }
+    }"#;
+
+    #[test]
+    fn exceptions_are_explicit_and_old_profiles_refuse_them() {
+        let any = parse_strict_gssh4("@ontology demo { @persistence { cache_targets: null; } @cell root { id: \"root\"; } }").unwrap();
+        assert!(any.declarations.platform_exceptions.is_empty());
+        let parsed = parse_strict_gssh4(SCENE).unwrap();
+        assert_eq!(parsed.declarations.platform_exceptions.len(), 7);
+        assert_eq!(parsed.declarations.platform_exceptions[1].options, ["remote", "keyboard"]);
+        assert_eq!(parsed.declarations.platform_exceptions[6].use_kind, PlatformUse::Cede);
+        assert!(parse(SCENE).is_err());
+        assert_eq!(parse_strict_gssh3(SCENE).unwrap_err().code, "GY-E1015");
+        assert_eq!(parse_strict_gssh3_live(SCENE).unwrap_err().code, "GY-E1015");
+        let neutral = SCENE.replace("@platform android_tv {", "@platform webos {");
+        assert_eq!(parse_strict_gssh4(&neutral).unwrap().declarations.platform_exceptions[0].platform, "webos");
+        let live = "@ontology demo { @persistence { cache_targets: null; } @state { label: text = \"x\" session; } @cell root { id: \"root\"; text-from: state.label; } }";
+        assert_eq!(parse_strict_gssh4(live).unwrap_err().code, "GY-E1012");
+        // GSSH/4-live admits both (decision D12); GSSH/3-live still refuses
+        // the GSSH/4 declaration.
+        let both = parse_strict_gssh4_live(live).unwrap();
+        assert_eq!(both.scene.root.text_from.as_deref(), Some("label"));
+        assert_eq!(both.declarations.persistence_cache_targets, Some(None));
+        assert_eq!(parse_strict_gssh3_live(live).unwrap_err().code, "GY-E1015");
+        assert_eq!(parse_strict_gssh4_live(SCENE).unwrap().declarations.platform_exceptions.len(), 7);
+        let unbound = live.replace("state.label", "state.missing");
+        assert_eq!(parse_strict_gssh4_live(&unbound).unwrap_err().code, "GY-E1013");
+    }
+
+    #[test]
+    fn exceptions_require_distinct_options_and_unique_scope() {
+        for bad in [
+            SCENE.replace("choice-use(\"remote\", \"keyboard\")", "choice-use(\"remote\")"),
+            SCENE.replace("fallbacks(\"ethernet\", \"wifi\")", "fallbacks(\"ethernet\")"),
+            SCENE.replace("choice-use(\"remote\", \"keyboard\")", "choice-use(\"remote\", \"remote\")"),
+            SCENE.replace("\"gestures\": cede;", "\"media\": cede;"),
+        ] {
+            assert_eq!(parse_strict_gssh4(&bad).unwrap_err().code, "GY-E1000");
+        }
+    }
 }
 
 impl fmt::Display for ParseError {
@@ -113,6 +171,78 @@ pub struct KeyUse {
     pub range: SourceRange,
 }
 
+/// What happens to a record kept in another store of the same platform when
+/// the scene's store has none (GSSH/4 `@persistence`, decision D13).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Migration {
+    /// Copy the record into the scene's store and keep the old one (default).
+    Copy,
+    /// Copy the record, then remove it from the old store.
+    Move,
+    /// Ignore other stores: start from the authored values.
+    None,
+}
+
+/// An authored `migration:` ruling.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MigrationRule {
+    /// `migration: copy|move|none;` for every platform.
+    All(Migration),
+    /// `migration: { <platform>: copy|move|none; ... };`; unlisted
+    /// platforms keep the default, `copy`.
+    PerPlatform(BTreeMap<String, Migration>),
+}
+
+impl MigrationRule {
+    pub fn for_platform(&self, platform: &str) -> Migration {
+        match self {
+            Self::All(rule) => *rule,
+            Self::PerPlatform(rules) => rules.get(platform).copied().unwrap_or(Migration::Copy),
+        }
+    }
+}
+
+/// Platform keys `@persistence` accepts.
+const PERSISTENCE_PLATFORMS: &[&str] = &["android", "ios", "macos", "windows", "linux", "browser"];
+
+/// `@iden` keys later profiles may define (decision D14). Accepted by the
+/// parser with a text value and refused by strict admission (`GY-E1017`).
+pub const RESERVED_IDEN_KEYS: &[&str] = &[
+    "role",
+    "lang",
+    "live",
+    "shortcut",
+    "value_text",
+    "state_text",
+    "native",
+];
+
+/// Largest `@iden` label and hint, in UTF-8 bytes.
+pub const MAX_IDEN_LABEL_BYTES: usize = 512;
+pub const MAX_IDEN_HINT_BYTES: usize = 2048;
+
+/// An explicit exception to the ontology's implicit `any` platform scope.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlatformUse {
+    OnlyUse,
+    ChoiceUse,
+    Fallback,
+    Fallbacks,
+    MustUse,
+    Invade,
+    Cede,
+}
+
+/// A target compiler must resolve this rule for its own platform or refuse it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlatformException {
+    pub platform: String,
+    pub feature: String,
+    pub use_kind: PlatformUse,
+    pub options: Vec<String>,
+    pub range: SourceRange,
+}
+
 /// GSSH/2 declarations retained beside the GY-LANG/1 scene, plus the
 /// interaction key ranges used to report them precisely.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -124,6 +254,14 @@ pub struct Declarations {
     pub state_uses: Vec<KeyUse>,
     /// Every input key of every interaction, in source order.
     pub input_keys: Vec<KeyUse>,
+    /// GSSH/4 `@persistence` cache targets. `None` means the author omitted
+    /// the declaration (each target's default local store); `Some(None)`
+    /// means the author disabled persistence with `cache_targets: null`.
+    pub persistence_cache_targets: Option<Option<BTreeMap<String, String>>>,
+    /// GSSH/4 `migration:` ruling; `None` means the default, `copy`.
+    pub persistence_migration: Option<MigrationRule>,
+    /// Absence means platform `any`; exceptions never change other targets.
+    pub platform_exceptions: Vec<PlatformException>,
 }
 
 /// A construct accepted for legacy compatibility but rejected by strict
@@ -150,8 +288,11 @@ impl fmt::Display for StrictParseError {
             "GY-E1009" => "absolute length in a proportional profile",
             "GY-E1010" => "intent declaration requires intent admission",
             "GY-E1011" => "invalid intent declaration",
-            "GY-E1012" => "live binding requires GSSH/3 live admission",
+            "GY-E1012" => "live binding requires a live profile (GSSH/3-live or GSSH/4-live)",
             "GY-E1013" => "invalid live binding",
+            "GY-E1014" => "invalid persistence cache targets",
+            "GY-E1015" => "declaration requires GSSH/4 admission",
+            "GY-E1017" => "invalid accessible identity",
             _ => "strict parsing failed",
         };
         write!(f, "{}: {} '{}'", self.code, description, self.name)
@@ -162,7 +303,20 @@ impl std::error::Error for StrictParseError {}
 
 /// Parse a scene document.
 pub fn parse(source: &str) -> Result<Scene, ParseError> {
-    parse_with_source_map(source).map(|parsed| parsed.scene)
+    let parsed = parse_with_source_map(source)?;
+    // The compatibility API returns only Scene and would discard policy.
+    // Refuse instead of silently dropping a platform exception.
+    if let Some(rule) = parsed.declarations.platform_exceptions.first() {
+        return Err(ParseError {
+            line: source[..rule.range.start]
+                .bytes()
+                .filter(|byte| *byte == b'\n')
+                .count()
+                + 1,
+            range: rule.range,
+        });
+    }
+    Ok(parsed.scene)
 }
 
 /// Parse a scene and retain the locations of authored declarations and properties.
@@ -189,6 +343,9 @@ pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
         anchor: 0,
         depth: 0,
         state: None,
+        persistence_cache_targets: None,
+        persistence_migration: None,
+        platform_exceptions: Vec::new(),
         bindings: Vec::new(),
         state_uses: Vec::new(),
         input_keys: Vec::new(),
@@ -279,7 +436,7 @@ pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
                 path.remove(0);
             }
             entry.scene_path = Some(path);
-        } else if entry.kind == "property" || entry.kind == "gestures" {
+        } else if matches!(entry.kind.as_str(), "property" | "gestures" | "iden") {
             let mut path = stack
                 .last()
                 .map(|(_, path, _)| path.clone())
@@ -329,6 +486,9 @@ pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
             bindings: p.bindings,
             state_uses: p.state_uses,
             input_keys: p.input_keys,
+            persistence_cache_targets: p.persistence_cache_targets,
+            persistence_migration: p.persistence_migration,
+            platform_exceptions: p.platform_exceptions,
         },
     })
 }
@@ -361,6 +521,23 @@ enum Profile {
     /// Arachnid proposal (`image-from`, `present-when`, `host` state and
     /// `@link` are not here yet and stay unknown).
     Gssh3Live,
+    /// GSSH/3 plus `@platform` exceptions and `@persistence` targets
+    /// (decisions D10, D11). Live bindings stay gated by the live profiles.
+    Gssh4,
+    /// GSSH/4 plus live bindings (decision D12): `text-from` together with
+    /// `@platform` and `@persistence`.
+    Gssh4Live,
+}
+
+impl Profile {
+    /// Admits live bindings (`text-from`).
+    fn live(self) -> bool {
+        matches!(self, Self::Gssh3Live | Self::Gssh4Live)
+    }
+    /// Admits GSSH/4 declarations (`@platform`, `@persistence`).
+    fn gssh4(self) -> bool {
+        matches!(self, Self::Gssh4 | Self::Gssh4Live)
+    }
 }
 
 /// Properties only GSSH/3 live admission accepts.
@@ -399,6 +576,121 @@ pub fn parse_strict_gssh3_live(source: &str) -> Result<ParsedScene, StrictParseE
     validate_declarations_with(&parsed, Some(&bound_keys))?;
     reject_absolute_lengths(&parsed)?;
     Ok(parsed)
+}
+
+/// Admit GSSH/3 scenes with explicit, typed per-platform exceptions.
+/// Live bindings remain gated under GSSH/3-live; platform rules do not
+/// silently widen a target's semantic profile.
+pub fn parse_strict_gssh4(source: &str) -> Result<ParsedScene, StrictParseError> {
+    let parsed = strict(source, Profile::Gssh4)?;
+    validate_idens(&parsed)?;
+    validate_declarations(&parsed)?;
+    reject_absolute_lengths(&parsed)?;
+    Ok(parsed)
+}
+
+/// Strict GSSH/4 live admission (decision D12): everything
+/// [`parse_strict_gssh4`] admits and checks, plus the live bindings of
+/// [`parse_strict_gssh3_live`], with the same rules and codes.
+pub fn parse_strict_gssh4_live(source: &str) -> Result<ParsedScene, StrictParseError> {
+    let parsed = strict(source, Profile::Gssh4Live)?;
+    validate_idens(&parsed)?;
+    let bound_keys = validate_live(&parsed)?;
+    validate_declarations_with(&parsed, Some(&bound_keys))?;
+    reject_absolute_lengths(&parsed)?;
+    Ok(parsed)
+}
+
+/// GSSH/4 accessible identity (decision D14): every `@input` has an `@iden`;
+/// labels and hints are non-blank, free of control characters and within
+/// their limits; reserved keys and an `@iden` on the ontology body itself
+/// are refused. Errors are `GY-E1017` at the narrowest range.
+fn validate_idens(parsed: &ParsedScene) -> Result<(), StrictParseError> {
+    fn walk(
+        parsed: &ParsedScene,
+        cell: &SceneCell,
+        path: &mut Vec<usize>,
+        virtual_root: bool,
+    ) -> Result<(), StrictParseError> {
+        let entry = |kinds: &[&str]| {
+            parsed
+                .entries
+                .iter()
+                .find(|entry| {
+                    kinds.contains(&entry.kind.as_str())
+                        && entry.scene_path.as_deref() == Some(path.as_slice())
+                })
+                .map(|entry| entry.range)
+        };
+        let element = entry(&["cell", "button", "input"]);
+        let error = |message: String, range: Option<SourceRange>| {
+            declaration_error(
+                "GY-E1017",
+                message,
+                range.or(element).unwrap_or(SourceRange { start: 0, end: 0 }),
+            )
+        };
+        let name = cell.authored_id.clone().unwrap_or_else(|| cell.name.clone());
+        match &cell.iden {
+            None if cell.kind == CellKind::Input => {
+                return Err(error(
+                    format!("@input '{name}' has no @iden {{ label: \"...\"; }}"),
+                    element,
+                ))
+            }
+            None => {}
+            Some(iden) => {
+                let at = entry(&["iden"]);
+                if virtual_root {
+                    return Err(error(
+                        "@iden directly in the ontology body names no element".into(),
+                        at,
+                    ));
+                }
+                if let Some((key, range)) = iden.reserved.first() {
+                    return Err(error(
+                        format!("@iden key '{key}' is reserved for a later profile"),
+                        Some(*range),
+                    ));
+                }
+                for (what, text, limit) in [
+                    ("label", Some(&iden.label), MAX_IDEN_LABEL_BYTES),
+                    ("hint", iden.hint.as_ref(), MAX_IDEN_HINT_BYTES),
+                ] {
+                    let Some(text) = text else { continue };
+                    if text.trim().is_empty() {
+                        return Err(error(format!("@iden {what} of '{name}' is blank"), at));
+                    }
+                    if text.chars().any(char::is_control) {
+                        return Err(error(
+                            format!("@iden {what} of '{name}' contains a control character"),
+                            at,
+                        ));
+                    }
+                    if text.len() > limit {
+                        return Err(error(
+                            format!("@iden {what} of '{name}' is above {limit} bytes of UTF-8"),
+                            at,
+                        ));
+                    }
+                }
+            }
+        }
+        for (index, child) in cell.children.iter().enumerate() {
+            path.push(index);
+            walk(parsed, child, path, false)?;
+            path.pop();
+        }
+        Ok(())
+    }
+    let root = &parsed.scene.root;
+    if root.authored_id.is_none() && root.kind == CellKind::Cell {
+        // The ontology body is a virtual root: its children are the
+        // top-level elements, addressed without the root index.
+        walk(parsed, root, &mut Vec::new(), true)
+    } else {
+        walk(parsed, root, &mut Vec::new(), false)
+    }
 }
 
 fn reject_absolute_lengths(parsed: &ParsedScene) -> Result<(), StrictParseError> {
@@ -482,7 +774,6 @@ fn validate_live(
         Ok(())
     };
     walk(&parsed.scene.root, &mut Vec::new(), &mut check)?;
-    drop(check);
     Ok(bound_keys)
 }
 
@@ -511,7 +802,7 @@ fn strict(source: &str, profile: Profile) -> Result<ParsedScene, StrictParseErro
             "template" => Some("GY-E1002"),
             "state" | "binding" if profile == Profile::Gssh1 => Some("GY-E1006"),
             "property"
-                if profile < Profile::Gssh3Live
+                if !profile.live()
                     && LIVE_PROPERTIES.contains(&entry.name.replace('-', "_").as_str()) =>
             {
                 Some("GY-E1012")
@@ -519,6 +810,9 @@ fn strict(source: &str, profile: Profile) -> Result<ParsedScene, StrictParseErro
             // Intent declarations are Quitasol phase-0 experimental surface.
             // No strict GSSH consumer implements them, so none may admit one.
             "intent" => Some("GY-E1010"),
+            // GSSH/4 declarations: earlier profiles refuse them rather than
+            // drop them (decision D11 keeps approved profiles unchanged).
+            "platform" | "persistence" | "iden" if !profile.gssh4() => Some("GY-E1015"),
             // Proportional text and stroke lengths are GSSH/3 only, so older
             // consumers never receive a length they would ignore.
             "property"
@@ -677,6 +971,38 @@ fn validate_declarations_with(
 ) -> Result<(), StrictParseError> {
     let scene = &parsed.scene;
     let declared = &parsed.declarations;
+    // `@persistence` is optional (GSSH/4 only, decision D11): when it is
+    // absent every target keeps durable state in its default local store.
+    // `cache_targets: null` disables persistence, so durable state with it
+    // is a contradiction.
+    let has_durable_state = declared.state.as_ref().is_some_and(|(items, _)| {
+        items
+            .iter()
+            .any(|item| item.lifetime == StateLifetime::Durable)
+    });
+    let persistence_range = || {
+        parsed
+            .entries
+            .iter()
+            .find(|entry| entry.kind == "persistence")
+            .map_or(SourceRange { start: 0, end: 0 }, |entry| entry.range)
+    };
+    if has_durable_state && matches!(declared.persistence_cache_targets, Some(None)) {
+        return Err(declaration_error(
+            "GY-E1014",
+            "durable state with `cache_targets: null` (persistence is disabled)".into(),
+            persistence_range(),
+        ));
+    }
+    if declared.persistence_migration.is_some()
+        && matches!(declared.persistence_cache_targets, Some(None))
+    {
+        return Err(declaration_error(
+            "GY-E1014",
+            "`migration` with `cache_targets: null` (persistence is disabled)".into(),
+            persistence_range(),
+        ));
+    }
     let key_range = |uses: &[KeyUse], interaction: &str, key: &str| {
         uses.iter()
             .find(|item| item.interaction == interaction && item.key == key)
@@ -796,13 +1122,10 @@ fn validate_declarations_with(
             }
         }
     }
-    if let Some(decl) = decls
-        .iter()
-        .find(|decl| {
-            !used.contains_key(decl.key.as_str())
-                && !live_keys.is_some_and(|keys| keys.contains(&decl.key))
-        })
-    {
+    if let Some(decl) = decls.iter().find(|decl| {
+        !used.contains_key(decl.key.as_str())
+            && !live_keys.is_some_and(|keys| keys.contains(&decl.key))
+    }) {
         return Err(declaration_error(
             "GY-E1008",
             format!(
@@ -922,6 +1245,9 @@ struct P {
     /// Cell-body nesting depth. The ontology body is depth 1.
     depth: usize,
     state: Option<(Vec<StateDecl>, SourceRange)>,
+    persistence_cache_targets: Option<Option<BTreeMap<String, String>>>,
+    persistence_migration: Option<MigrationRule>,
+    platform_exceptions: Vec<PlatformException>,
     bindings: Vec<InputBinding>,
     state_uses: Vec<KeyUse>,
     input_keys: Vec<KeyUse>,
@@ -1039,6 +1365,7 @@ impl P {
             scroll: false,
             gestures: None,
             text_from: None,
+            iden: None,
             children: Vec::new(),
             placeholder: None,
             max_length: None,
@@ -1142,6 +1469,50 @@ impl P {
                             });
                             self.state = Some((decls, range));
                         }
+                        "persistence" => {
+                            if self.depth != 1 || self.persistence_cache_targets.is_some() {
+                                return Err(self.err_prev());
+                            }
+                            let (targets, migration) = self.parse_persistence_block()?;
+                            self.persistence_migration = migration;
+                            let range = SourceRange {
+                                start: tok.byte_start,
+                                end: self.tokens[self.i - 1].byte_end,
+                            };
+                            self.entries.push(SourceEntry {
+                                kind: "persistence".into(),
+                                name: "persistence".into(),
+                                scene_path: None,
+                                semantic_id: None,
+                                range,
+                                source_digest: [0; 32],
+                            });
+                            self.persistence_cache_targets = Some(targets);
+                        }
+                        "platform" => {
+                            if self.depth != 1 {
+                                return Err(self.err_prev());
+                            }
+                            let platform = self.expect_ident()?;
+                            if !matches!(platform.as_str(), "android" | "ios" | "macos" | "windows" | "linux" | "browser" | "webos" | "android_tv" | "tvos") {
+                                return Err(self.err_prev());
+                            }
+                            let exceptions = self.parse_platform_block(&platform)?;
+                            for exception in exceptions {
+                                if self.platform_exceptions.iter().any(|previous| previous.platform == exception.platform && previous.feature == exception.feature) {
+                                    return Err(self.err_prev());
+                                }
+                                self.entries.push(SourceEntry {
+                                    kind: "platform".into(),
+                                    name: format!("{}:{}", exception.platform, exception.feature),
+                                    scene_path: None,
+                                    semantic_id: None,
+                                    range: exception.range,
+                                    source_digest: [0; 32],
+                                });
+                                self.platform_exceptions.push(exception);
+                            }
+                        }
                         "template" => {
                             // Recognised and skipped with its block: visual
                             // state and templates are Wave-3 expression work.
@@ -1150,6 +1521,23 @@ impl P {
                             self.entries.push(SourceEntry {
                                 kind: word.clone(),
                                 name,
+                                scene_path: None,
+                                semantic_id: None,
+                                range: SourceRange {
+                                    start: tok.byte_start,
+                                    end: self.tokens[self.i - 1].byte_end,
+                                },
+                                source_digest: [0; 32],
+                            });
+                        }
+                        "iden" => {
+                            if cell.iden.is_some() {
+                                return Err(self.err_prev());
+                            }
+                            cell.iden = Some(self.parse_iden_block()?);
+                            self.entries.push(SourceEntry {
+                                kind: "iden".into(),
+                                name: "iden".into(),
                                 scene_path: None,
                                 semantic_id: None,
                                 range: SourceRange {
@@ -1601,6 +1989,204 @@ impl P {
         }
         self.expect(TokenKind::RBrace)?;
         Ok(decls)
+    }
+
+    /// `@platform android { "media.playback": choice-use("native", "web"); }`.
+    /// Every entry is scoped to one named platform and one feature. The
+    /// ontology otherwise remains platform `any`.
+    fn parse_platform_block(&mut self, platform: &str) -> Result<Vec<PlatformException>, ParseError> {
+        self.expect(TokenKind::LBrace)?;
+        let mut exceptions = Vec::new();
+        while !matches!(self.peek().map(|token| token.kind), Some(TokenKind::RBrace)) {
+            let start = self.peek().ok_or_else(|| self.err())?.byte_start;
+            let feature = match self.peek().map(|token| token.kind) {
+                Some(TokenKind::Ident) => self.expect_ident()?,
+                Some(TokenKind::Str) => self.expect(TokenKind::Str)?.text,
+                _ => return Err(self.err()),
+            };
+            if feature.is_empty() || exceptions.iter().any(|rule: &PlatformException| rule.feature == feature) {
+                return Err(self.err_prev());
+            }
+            self.expect(TokenKind::Colon)?;
+            let use_kind = match self.expect_ident()?.as_str() {
+                "only-use" => PlatformUse::OnlyUse,
+                "choice-use" => PlatformUse::ChoiceUse,
+                "fallback" => PlatformUse::Fallback,
+                "fallbacks" => PlatformUse::Fallbacks,
+                "must-use" => PlatformUse::MustUse,
+                "invade" => PlatformUse::Invade,
+                "cede" => PlatformUse::Cede,
+                _ => return Err(self.err_prev()),
+            };
+            let mut options = Vec::new();
+            if use_kind != PlatformUse::Cede {
+                self.expect(TokenKind::LParen)?;
+                loop {
+                    let option = self.expect(TokenKind::Str)?.text;
+                    if option.is_empty() || options.contains(&option) {
+                        return Err(self.err_prev());
+                    }
+                    options.push(option);
+                    if !matches!(self.peek().map(|token| token.kind), Some(TokenKind::Comma)) {
+                        break;
+                    }
+                    self.bump();
+                }
+                self.expect(TokenKind::RParen)?;
+            }
+            let valid_count = match use_kind {
+                PlatformUse::ChoiceUse | PlatformUse::Fallbacks => options.len() >= 2,
+                PlatformUse::Cede => options.is_empty(),
+                _ => options.len() == 1,
+            };
+            if !valid_count {
+                return Err(self.err_prev());
+            }
+            let end = self.expect(TokenKind::Semicolon)?.byte_end;
+            exceptions.push(PlatformException {
+                platform: platform.to_owned(),
+                feature,
+                use_kind,
+                options,
+                range: SourceRange { start, end },
+            });
+        }
+        if exceptions.is_empty() {
+            return Err(self.err());
+        }
+        self.expect(TokenKind::RBrace)?;
+        Ok(exceptions)
+    }
+
+    /// `@persistence { cache_targets: null; }` or an explicit platform map,
+    /// optionally followed by `migration: copy|move|none;` or a platform map
+    /// of those (decision D13). The schema is closed and string-valued: a
+    /// target compiler resolves its own entry against the adapters it
+    /// implements or refuses it; targets not listed keep their default
+    /// local store (decision D11).
+    #[allow(clippy::type_complexity)]
+    fn parse_persistence_block(
+        &mut self,
+    ) -> Result<(Option<BTreeMap<String, String>>, Option<MigrationRule>), ParseError> {
+        self.expect(TokenKind::LBrace)?;
+        self.expect_ident_value("cache_targets")?;
+        self.expect(TokenKind::Colon)?;
+        let targets = match self.peek().map(|token| token.kind) {
+            Some(TokenKind::Ident) if self.peek().is_some_and(|token| token.text == "null") => {
+                self.bump();
+                None
+            }
+            Some(TokenKind::LBrace) => {
+                self.bump();
+                let mut targets = BTreeMap::new();
+                while !matches!(self.peek().map(|token| token.kind), Some(TokenKind::RBrace)) {
+                    let platform = self.expect_ident()?;
+                    if !PERSISTENCE_PLATFORMS.contains(&platform.as_str())
+                        || targets.contains_key(&platform)
+                    {
+                        return Err(self.err_prev());
+                    }
+                    self.expect(TokenKind::Colon)?;
+                    let adapter = self.expect(TokenKind::Str)?.text;
+                    if adapter.is_empty() {
+                        return Err(self.err_prev());
+                    }
+                    targets.insert(platform, adapter);
+                    self.expect(TokenKind::Semicolon)?;
+                }
+                self.expect(TokenKind::RBrace)?;
+                if targets.is_empty() {
+                    return Err(self.err_prev());
+                }
+                Some(targets)
+            }
+            _ => return Err(self.err()),
+        };
+        self.optional_semi();
+        let mut migration = None;
+        if self
+            .peek()
+            .is_some_and(|token| token.kind == TokenKind::Ident && token.text == "migration")
+        {
+            self.bump();
+            self.expect(TokenKind::Colon)?;
+            migration = Some(match self.peek().map(|token| token.kind) {
+                Some(TokenKind::LBrace) => {
+                    self.bump();
+                    let mut rules = BTreeMap::new();
+                    while !matches!(self.peek().map(|token| token.kind), Some(TokenKind::RBrace)) {
+                        let platform = self.expect_ident()?;
+                        if !PERSISTENCE_PLATFORMS.contains(&platform.as_str())
+                            || rules.contains_key(&platform)
+                        {
+                            return Err(self.err_prev());
+                        }
+                        self.expect(TokenKind::Colon)?;
+                        let rule = self.parse_migration()?;
+                        rules.insert(platform, rule);
+                        self.expect(TokenKind::Semicolon)?;
+                    }
+                    self.expect(TokenKind::RBrace)?;
+                    if rules.is_empty() {
+                        return Err(self.err_prev());
+                    }
+                    MigrationRule::PerPlatform(rules)
+                }
+                _ => MigrationRule::All(self.parse_migration()?),
+            });
+            self.optional_semi();
+        }
+        self.expect(TokenKind::RBrace)?;
+        Ok((targets, migration))
+    }
+
+    fn parse_migration(&mut self) -> Result<Migration, ParseError> {
+        match self.expect_ident()?.as_str() {
+            "copy" => Ok(Migration::Copy),
+            "move" => Ok(Migration::Move),
+            "none" => Ok(Migration::None),
+            _ => Err(self.err_prev()),
+        }
+    }
+
+    /// `@iden { label: "..."; hint: "..."; }` (decision D14). `label` is
+    /// required; each key at most once. Reserved keys are kept with their
+    /// ranges for strict admission to refuse; any other key is an error.
+    fn parse_iden_block(&mut self) -> Result<Iden, ParseError> {
+        self.expect(TokenKind::LBrace)?;
+        let mut label = None;
+        let mut hint = None;
+        let mut reserved: Vec<(String, SourceRange)> = Vec::new();
+        while !matches!(self.peek().map(|token| token.kind), Some(TokenKind::RBrace)) {
+            let start = self.peek().ok_or_else(|| self.err())?.byte_start;
+            let key = self.expect_ident()?.replace('-', "_");
+            self.expect(TokenKind::Colon)?;
+            let value = self.expect(TokenKind::Str)?.text;
+            let end = self.expect(TokenKind::Semicolon)?.byte_end;
+            let slot = match key.as_str() {
+                "label" => &mut label,
+                "hint" => &mut hint,
+                other if RESERVED_IDEN_KEYS.contains(&other) => {
+                    if reserved.iter().any(|(name, _)| name == other) {
+                        return Err(self.err_prev());
+                    }
+                    reserved.push((key, SourceRange { start, end }));
+                    continue;
+                }
+                _ => return Err(self.err_prev()),
+            };
+            if slot.is_some() {
+                return Err(self.err_prev());
+            }
+            *slot = Some(value);
+        }
+        self.expect(TokenKind::RBrace)?;
+        let Some(label) = label else {
+            return Err(self.err_prev());
+        };
+        let mut iden = Iden::new(label, hint);
+        iden.reserved = reserved;
+        Ok(iden)
     }
 
     fn parse_effect_kind(&mut self) -> Result<EffectKind, ParseError> {

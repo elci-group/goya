@@ -100,6 +100,8 @@ fn text_entry<'a>(entries: &'a [SourceEntry], path: &[usize]) -> Option<&'a Sour
 fn unsupported_entry(entries: &[SourceEntry]) -> Option<&SourceEntry> {
     entries.iter().find(|entry| match entry.kind.as_str() {
         "ontology" | "cell" => false,
+        // Rendered as native accessibility modifiers (decision D14).
+        "iden" => false,
         "property" => !matches!(entry.name.as_str(), "id" | "text"),
         _ => true,
     })
@@ -236,6 +238,25 @@ fn ir_matches(scene: &Scene, lowered: &Lowered) -> Result<(), crate::Diagnostic>
     Ok(())
 }
 
+/// Append `@iden` as native SwiftUI accessibility modifiers, mapped to the
+/// declaration (decision D14).
+fn emit_iden(
+    out: &mut String,
+    cell: &SceneCell,
+    path: &[usize],
+    entries: &[SourceEntry],
+    declared_id: &str,
+    mappings: &mut Vec<Mapping>,
+) {
+    let Some(iden) = &cell.iden else { return };
+    let start = out.len();
+    let container = cell.kind == CellKind::Cell && !cell.children.is_empty();
+    out.push_str(&crate::swift::accessibility_modifiers(iden, container));
+    if let Some(source) = crate::swift::iden_range(entries, path) {
+        push_mapping(mappings, declared_id, source, start, out.len());
+    }
+}
+
 fn push_mapping(
     mappings: &mut Vec<Mapping>,
     declared_id: &str,
@@ -286,6 +307,8 @@ fn emit_cell(
             .map(|entry| entry.range)
             .ok_or_else(|| reject("text source range unavailable", Some(cell_source)))?;
         push_mapping(mappings, declared_id, text_source, start, end);
+        emit_iden(out, cell, path, entries, declared_id, mappings);
+        mappings[mapping_at].swift_end = out.len();
         return Ok(());
     }
     out.push_str("VStack(alignment: .leading, spacing: 0) {\n");
@@ -308,6 +331,7 @@ fn emit_cell(
     }
     indent(out, level);
     out.push('}');
+    emit_iden(out, cell, path, entries, declared_id, mappings);
     mappings[mapping_at].swift_end = out.len();
     Ok(())
 }
@@ -343,7 +367,7 @@ fn emit_scene(
 pub fn preview(source: &str, module: &str) -> Result<Preview, crate::Diagnostic> {
     crate::validate_module(module)?;
     crate::inspect(source)?;
-    let handoff = goya_lang::handoff::admit_v3(source).map_err(|error| crate::Diagnostic {
+    let handoff = crate::admit_ios(source).map_err(|error| crate::Diagnostic {
         code: error.code,
         message: error.to_string(),
         range: (error.range.end > error.range.start).then_some(error.range),
@@ -496,6 +520,48 @@ mod tests {
             assert!(!swift_span.is_empty());
         }
         assert!(crate::preview_static_text(COLUMN).is_err());
+    }
+
+    #[test]
+    fn iden_becomes_native_accessibility_label_and_hint() {
+        let source = COLUMN
+            .replace(
+                "text: \"Hello\"",
+                "text: \"Hello\" @iden { label: \"Greeting\"; hint: \"Read me first\"; }",
+            )
+            .replace(
+                "text: \"Note\" }",
+                "text: \"Note\" @iden { label: \"Footnote\"; } }",
+            );
+        let preview = preview(&source, "app/main.gscene").unwrap();
+        let swift = preview.swift();
+        // The labelled container is one accessibility element holding its
+        // children; the leaf is labelled directly.
+        assert!(swift.contains(
+            "}.accessibilityElement(children: .contain).accessibilityLabel(Text(verbatim: \"Greeting\")).accessibilityHint(Text(verbatim: \"Read me first\"))"
+        ), "{swift}");
+        assert!(swift.contains(
+            "Text(verbatim: \"Note\").accessibilityLabel(Text(verbatim: \"Footnote\"))"
+        ));
+        // Each @iden is mapped back to its declaration.
+        let json = preview.to_json();
+        let mapped: Vec<_> = json["source_map"]["mappings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|m| {
+                let s = &m["source_range"];
+                &source[s["start_byte"].as_u64().unwrap() as usize..s["end_byte"].as_u64().unwrap() as usize]
+            })
+            .filter(|span| span.starts_with("@iden"))
+            .collect();
+        assert_eq!(mapped.len(), 2);
+        // Labels are verbatim text, never Swift interpolation.
+        let escaped = source.replace("Footnote", "é\\(unsafe)");
+        assert!(super::preview(&escaped, "app/main.gscene")
+            .unwrap()
+            .swift()
+            .contains("accessibilityLabel(Text(verbatim: \"é\\\\(unsafe)\"))"));
     }
 
     #[test]

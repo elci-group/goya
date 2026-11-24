@@ -174,7 +174,7 @@ fn column_action(
     source: &str,
     preview: &serde_json::Value,
 ) -> Result<(BTreeMap<String, ActionBinding>, serde_json::Value), crate::Diagnostic> {
-    let handoff = goya_lang::handoff::admit_v3(source).map_err(|error| crate::Diagnostic {
+    let handoff = crate::admit_ios(source).map_err(|error| crate::Diagnostic {
         code: error.code,
         message: error.to_string(),
         range: (error.range.end > error.range.start).then_some(error.range),
@@ -260,7 +260,7 @@ fn finish(request: TraceRequest<'_>) -> Result<Trace, crate::Diagnostic> {
             )));
         }
     }
-    let handoff = goya_lang::handoff::admit_v3(source).map_err(|error| crate::Diagnostic {
+    let handoff = crate::admit_ios(source).map_err(|error| crate::Diagnostic {
         code: error.code,
         message: error.to_string(),
         range: (error.range.end > error.range.start).then_some(error.range),

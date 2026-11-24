@@ -45,6 +45,10 @@ pub fn lower_static_window(
             text_range: to_ir_range(label.text_range),
             id_range: to_ir_range(label.id_range),
             extent_range: to_ir_range(label.extent_range),
+            iden: label.iden.as_ref().map(|(label, hint, _)| sash_ir::Iden {
+                label: label.clone(),
+                hint: hint.clone(),
+            }),
         })
         .collect();
 
@@ -57,6 +61,7 @@ pub fn lower_static_window(
             text_range: to_ir_range(label.text_range),
             id_range: to_ir_range(label.id_range),
             extent_range: to_ir_range(label.extent_range),
+            iden_range: label.iden.as_ref().map(|(_, _, range)| to_ir_range(*range)),
         })
         .collect();
 
@@ -137,6 +142,10 @@ pub fn lower_interactive_window(
                 text_range: to_ir_range(control.text_range),
                 id_range: to_ir_range(control.id_range),
                 extent_range: to_ir_range(control.extent_range),
+                iden: control.iden.as_ref().map(|(label, hint, _)| sash_ir::Iden {
+                    label: label.clone(),
+                    hint: hint.clone(),
+                }),
             }
         })
         .collect();
@@ -150,6 +159,10 @@ pub fn lower_interactive_window(
             text_range: to_ir_range(control.text_range),
             id_range: to_ir_range(control.id_range),
             extent_range: to_ir_range(control.extent_range),
+            iden_range: control
+                .iden
+                .as_ref()
+                .map(|(_, _, range)| to_ir_range(*range)),
         })
         .collect();
 
@@ -166,6 +179,7 @@ pub fn lower_interactive_window(
         button_index: admitted.button_index,
         button_id: admitted.controls[admitted.button_index].control_id,
         expr: lower_int_expr(&admitted.expr),
+        announce_context: admitted.announce_context.clone(),
     });
 
     let gesture_policy = Some(GesturePolicy {
@@ -218,12 +232,15 @@ pub fn lower_interactive_window(
     IrDocument {
         version: IR_VERSION.to_string(),
         profile: if floor.is_legacy() {
-            // For the win8 floor, the profile is the legacy interactive profile
+            // The win8 floor uses the legacy profile of the same contract:
+            // the presentation profile `orchestrate` reports, and the name
+            // recorded with the SASH-ENT-003 legacy links.
             if admitted.profile == crate::interactive::PROFILE_CLIPBOARD {
-                "sash.win32.interactive-clipboard-legacy/0.0.1"
+                crate::interactive::PROFILE_CLIPBOARD_LEGACY
             } else {
-                "sash.win32.interactive-legacy/0.0.1"
-            }.to_string()
+                crate::interactive::PROFILE_LEGACY
+            }
+            .to_string()
         } else {
             admitted.profile.to_string()
         },

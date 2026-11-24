@@ -1,6 +1,9 @@
-//! Experimental interactive profiles: `maja.web.local.v2` over GSSH/3, and
-//! `maja.web.local.v3` over GSSH/3-live, which adds `text-from` display
-//! bindings (proposed, decision D9).
+//! Experimental interactive profiles: `maja.web.local.v2` over GSSH/3, with
+//! GSSH/4 admission when `@platform` exceptions or `@persistence` targets
+//! are authored (decisions D10, D11), and
+//! `maja.web.local.v3` over GSSH/3-live (GSSH/4-live with GSSH/4
+//! declarations, decision D12), which adds `text-from` display bindings
+//! (decision D9).
 //!
 //! Every construct GSSH/3 admits is either carried into [`InteractiveWebIr`]
 //! or refused with `MAJA-E0200` at that construct's exact source range.
@@ -10,7 +13,7 @@
 //! viewports (mirroring `Frame::scroll_limits`) and `durable` state.
 
 use crate::Diagnostic;
-use goya_lang::handoff::{admit_v3, admit_v3_live, canonical_property, Origin, SemanticHandoffV2};
+use goya_lang::handoff::{canonical_property, Origin, SemanticHandoffV2};
 use goya_lang::{CellKind, InteractionClass, InteractionValue, SceneCell, SourceRange};
 
 /// Experimental interactive browser profile; not a production qualification.
@@ -55,7 +58,35 @@ pub struct WebCell {
     pub scroll: bool,
     /// `text-from`: the state key whose value is shown after `text`.
     pub text_from: Option<String>,
+    /// `@iden`: accessible name and description (decision D14).
+    pub iden: Option<WebIden>,
     pub range: SourceRange,
+}
+
+/// Accessible identity rendered natively: `label` becomes the element's
+/// accessible name, `hint` its accessible description.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WebIden {
+    pub label: String,
+    pub hint: Option<String>,
+}
+
+/// Browser store for durable state (decision D11): `localStorage` unless the
+/// scene names a defined database for the `browser` target.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DurableStore {
+    LocalStorage,
+    IndexedDb,
+}
+
+impl DurableStore {
+    /// The caprichio adapter name, as written in `cache_targets`.
+    pub fn adapter(self) -> &'static str {
+        match self {
+            Self::LocalStorage => "browser.local-storage.v1",
+            Self::IndexedDb => "browser.indexeddb.v1",
+        }
+    }
 }
 
 /// A strictly admitted scene for the interactive profile.
@@ -65,6 +96,9 @@ pub struct InteractiveWebIr {
     handoff: SemanticHandoffV2,
     source: String,
     cells: Vec<WebCell>,
+    store: DurableStore,
+    migration: goya_lang::Migration,
+    warnings: Vec<Diagnostic>,
 }
 
 impl InteractiveWebIr {
@@ -81,6 +115,19 @@ impl InteractiveWebIr {
     }
     pub fn cells(&self) -> &[WebCell] {
         &self.cells
+    }
+    /// Where durable keys are kept; meaningful only when some key is durable.
+    pub fn durable_store(&self) -> DurableStore {
+        self.store
+    }
+    /// What happens to a record in the other browser store when this
+    /// scene's store has none (decision D13; default `Copy`).
+    pub fn migration(&self) -> goya_lang::Migration {
+        self.migration
+    }
+    /// Admission warnings: the scene is built, but the author should look.
+    pub fn warnings(&self) -> &[Diagnostic] {
+        &self.warnings
     }
     pub fn source_digest(&self) -> [u8; 32] {
         self.handoff.parsed().source_digest
@@ -103,14 +150,61 @@ fn refuse(message: impl Into<String>, range: Option<SourceRange>) -> Diagnostic 
     }
 }
 
+/// Admit under the latest profile: GSSH/4, or GSSH/4-live when `live`
+/// (decisions D12, D15). Earlier profiles are not tried.
+fn admit_browser(source: &str, live: bool) -> Result<SemanticHandoffV2, Diagnostic> {
+    use goya_lang::handoff::{admit_v4, admit_v4_live};
+    let handoff = if live {
+        admit_v4_live(source)
+    } else {
+        admit_v4(source)
+    }
+    .map_err(Diagnostic::from)?;
+    let exceptions = handoff.platform_exceptions().iter().map(|rule| {
+        let use_kind = match rule.use_kind {
+            goya_lang::PlatformUse::OnlyUse => "only-use",
+            goya_lang::PlatformUse::ChoiceUse => "choice-use",
+            goya_lang::PlatformUse::Fallback => "fallback",
+            goya_lang::PlatformUse::Fallbacks => "fallbacks",
+            goya_lang::PlatformUse::MustUse => "must-use",
+            goya_lang::PlatformUse::Invade => "invade",
+            goya_lang::PlatformUse::Cede => "cede",
+        };
+        goya_caprichios::PlatformRuleRef {
+            platform: rule.platform.clone(),
+            feature: rule.feature.clone(),
+            use_kind: use_kind.to_owned(),
+            options: rule.options.clone(),
+            range: goya_caprichios::SourceSpan {
+                start: rule.range.start,
+                end: rule.range.end,
+            },
+        }
+    });
+    goya_caprichios::resolve_platform_exceptions("browser", exceptions, &[]).map_err(|error| {
+        Diagnostic {
+            code: "GY-E1016",
+            message: format!(
+                "unresolved {} platform exception for '{}'",
+                error.platform, error.feature
+            ),
+            range: Some(SourceRange {
+                start: error.range.start,
+                end: error.range.end,
+            }),
+        }
+    })?;
+    Ok(handoff)
+}
+
 /// Admit `source` under the interactive profile.
 pub fn admit_local_interactive(
     source: &str,
     profile: &str,
 ) -> Result<InteractiveWebIr, Diagnostic> {
     let (profile, handoff) = match profile {
-        INTERACTIVE_PROFILE => (INTERACTIVE_PROFILE, admit_v3(source)),
-        LIVE_PROFILE => (LIVE_PROFILE, admit_v3_live(source)),
+        INTERACTIVE_PROFILE => (INTERACTIVE_PROFILE, admit_browser(source, false)),
+        LIVE_PROFILE => (LIVE_PROFILE, admit_browser(source, true)),
         _ => {
             return Err(Diagnostic {
                 code: "MAJA-E0002",
@@ -119,7 +213,7 @@ pub fn admit_local_interactive(
             })
         }
     };
-    let handoff = handoff.map_err(Diagnostic::from)?;
+    let handoff = handoff?;
     let parsed = handoff.parsed();
     if parsed.entries.iter().any(|e| {
         e.source_digest != parsed.source_digest
@@ -145,6 +239,13 @@ pub fn admit_local_interactive(
         let allowed = match entry.kind.as_str() {
             "ontology" | "cell" | "button" | "input" | "interaction" | "state" | "state-key"
             | "binding" => true,
+            // Browser rules were resolved by `admit_browser`; other
+            // platforms' rules do not apply here (decision D10).
+            "platform" => true,
+            // Resolved to a browser store below (decision D11).
+            "persistence" => true,
+            // Rendered as the native accessible name and description (D14).
+            "iden" => true,
             "property" => {
                 let element = entry
                     .scene_path
@@ -303,6 +404,10 @@ pub fn admit_local_interactive(
             text,
             scroll: cell.scroll,
             text_from: cell.text_from.clone(),
+            iden: cell.iden.as_ref().map(|iden| WebIden {
+                label: iden.label.clone(),
+                hint: iden.hint.clone(),
+            }),
             range: at(&element).unwrap_or(whole),
         });
     }
@@ -332,6 +437,27 @@ pub fn admit_local_interactive(
             parsed.declarations.state.as_ref().map(|(_, range)| *range),
         ));
     }
+    let (store, defaulted) = durable_store(&handoff, parsed)?;
+    let migration = parsed
+        .declarations
+        .persistence_migration
+        .as_ref()
+        .map_or(goya_lang::Migration::Copy, |rule| {
+            rule.for_platform("browser")
+        });
+    let mut warnings = Vec::new();
+    // Decision D11: saving to a store the author did not choose is allowed
+    // but reported, at the first durable key.
+    if let Some(key) = handoff.durable_keys().next().filter(|_| defaulted) {
+        warnings.push(Diagnostic {
+            code: "MAJA-W0001",
+            message: format!(
+                "durable state is kept in the default browser store {} because the scene names none; declare `@persistence {{ cache_targets: {{ browser: \"...\"; }}; }}` (GSSH/4) to choose one",
+                store.adapter()
+            ),
+            range: handoff.origin(&Origin::State(key.to_owned())),
+        });
+    }
     for interaction in &scene.interactions {
         if interaction.class == InteractionClass::D2 {
             return Err(refuse(
@@ -348,7 +474,52 @@ pub fn admit_local_interactive(
         handoff,
         source: source.to_owned(),
         cells: out,
+        store,
+        migration,
+        warnings,
     })
+}
+
+/// Resolve the `browser` entry of `@persistence` (decision D11). Omitted
+/// declarations and unlisted targets use `localStorage` (and report that it
+/// was a default); a named adapter must be one Maja implements.
+fn durable_store(
+    handoff: &SemanticHandoffV2,
+    parsed: &goya_lang::ParsedScene,
+) -> Result<(DurableStore, bool), Diagnostic> {
+    use goya_caprichios::state_persistence::{resolve, Declaration, Platform};
+    let declaration = parsed
+        .declarations
+        .persistence_cache_targets
+        .as_ref()
+        .map(|targets| Declaration {
+            cache_targets: targets.clone(),
+        });
+    let range = parsed
+        .entries
+        .iter()
+        .find(|entry| entry.kind == "persistence")
+        .map(|entry| entry.range);
+    match resolve(declaration.as_ref(), Platform::Browser) {
+        Ok(resolution) if resolution.adapter == "browser.indexeddb.v1" => {
+            Ok((DurableStore::IndexedDb, resolution.defaulted))
+        }
+        Ok(resolution) => Ok((DurableStore::LocalStorage, resolution.defaulted)),
+        // Durable state with `null` is refused by GSSH/4 itself; without
+        // durable state, disabled persistence needs no store.
+        Err(_) if handoff.persistence_disabled() => Ok((DurableStore::LocalStorage, false)),
+        Err(_) => Err(refuse(
+            format!(
+                "unknown browser persistence adapter {:?} (Maja implements {})",
+                handoff
+                    .persistence_cache_targets()
+                    .and_then(|targets| targets.get("browser"))
+                    .map_or("", String::as_str),
+                Platform::Browser.adapters().join(", ")
+            ),
+            range,
+        )),
+    }
 }
 
 fn out_scroll(cells: &[WebCell], index: usize) -> bool {
@@ -383,6 +554,163 @@ mod tests {
 
     const COUNTER: &str = include_str!("../../../fixtures/nevada/counter.gscene");
 
+    #[test]
+    fn browser_admits_the_latest_profile_and_refuses_scoped_rules() {
+        assert_eq!(admit_browser(COUNTER, false).unwrap().contract(), "GSSH/4");
+
+        let unrelated = COUNTER.replace(
+            "@state {",
+            "@platform ios { \"media\": only-use(\"native.player\"); } @state {",
+        );
+        assert_eq!(
+            admit_browser(&unrelated, false).unwrap().contract(),
+            "GSSH/4"
+        );
+
+        let matching = COUNTER.replace(
+            "@state {",
+            "@platform browser { \"media\": only-use(\"native.player\"); } @state {",
+        );
+        let error = admit_browser(&matching, false).unwrap_err();
+        let range = error.range.unwrap();
+        assert_eq!(error.code, "GY-E1016");
+        assert_eq!(
+            &matching[range.start..range.end],
+            "\"media\": only-use(\"native.player\");"
+        );
+    }
+
+    #[test]
+    fn durable_store_defaults_to_local_storage_and_admits_a_declared_database() {
+        const DURABLE: &str = include_str!("../../../tests/maja/fixtures/durable-counter.gscene");
+        let declare = |block: &str| DURABLE.replacen("@state", &format!("{block} @state"), 1);
+        let store = |source: &str| {
+            let ir = admit_local_interactive(source, INTERACTIVE_PROFILE).unwrap();
+            (ir.handoff().contract(), ir.durable_store())
+        };
+        let warned = |source: &str| {
+            admit_local_interactive(source, INTERACTIVE_PROFILE)
+                .unwrap()
+                .warnings()
+                .iter()
+                .map(|w| {
+                    let range = w.range.unwrap();
+                    (w.code, source[range.start..range.end].to_owned())
+                })
+                .collect::<Vec<_>>()
+        };
+        // A default store for durable state is reported at the first durable
+        // key, whether the declaration is missing or names other platforms.
+        let default_warning = vec![("MAJA-W0001", "count: int = 0 durable;".to_owned())];
+        assert_eq!(warned(DURABLE), default_warning);
+        assert_eq!(
+            warned(&declare(
+                r#"@persistence { cache_targets: { android: "android.preferences.v1"; }; }"#
+            )),
+            default_warning
+        );
+        assert!(warned(&declare(
+            r#"@persistence { cache_targets: { browser: "browser.local-storage.v1"; }; }"#
+        ))
+        .is_empty());
+        assert!(warned(&declare(
+            r#"@persistence { cache_targets: { browser: "browser.indexeddb.v1"; }; }"#
+        ))
+        .is_empty());
+        // Nothing is saved, so nothing is reported.
+        assert!(warned(COUNTER).is_empty());
+        // No declaration: GSSH/3 and the default local store.
+        assert_eq!(store(DURABLE), ("GSSH/4", DurableStore::LocalStorage));
+        assert_eq!(
+            store(&declare(
+                r#"@persistence { cache_targets: { browser: "browser.indexeddb.v1"; }; }"#
+            )),
+            ("GSSH/4", DurableStore::IndexedDb)
+        );
+        assert_eq!(
+            store(&declare(
+                r#"@persistence { cache_targets: { browser: "browser.local-storage.v1"; }; }"#
+            )),
+            ("GSSH/4", DurableStore::LocalStorage)
+        );
+        // Another platform's adapter leaves the browser on its default.
+        assert_eq!(
+            store(&declare(
+                r#"@persistence { cache_targets: { android: "android.preferences.v1"; }; }"#
+            )),
+            ("GSSH/4", DurableStore::LocalStorage)
+        );
+        let unknown =
+            declare(r#"@persistence { cache_targets: { browser: "browser.opfs.v1"; }; }"#);
+        let error = admit_local_interactive(&unknown, INTERACTIVE_PROFILE).unwrap_err();
+        let range = error.range.unwrap();
+        assert_eq!(error.code, "MAJA-E0200");
+        assert!(
+            error.message.contains("browser.opfs.v1"),
+            "{}",
+            error.message
+        );
+        assert!(unknown[range.start..range.end].starts_with("@persistence"));
+        let disabled = declare("@persistence { cache_targets: null; }");
+        assert_eq!(
+            admit_local_interactive(&disabled, INTERACTIVE_PROFILE)
+                .unwrap_err()
+                .code,
+            "GY-E1014"
+        );
+        // The live profile moves to GSSH/4-live for the declaration (D12).
+        let live =
+            declare(r#"@persistence { cache_targets: { browser: "browser.indexeddb.v1"; }; }"#);
+        let ir = admit_local_interactive(&live, LIVE_PROFILE).unwrap();
+        assert_eq!(
+            (ir.handoff().contract(), ir.durable_store()),
+            ("GSSH/4-live", DurableStore::IndexedDb)
+        );
+        assert_eq!(
+            admit_local_interactive(DURABLE, LIVE_PROFILE)
+                .unwrap()
+                .handoff()
+                .contract(),
+            "GSSH/4-live"
+        );
+    }
+
+    #[test]
+    fn iden_is_carried_and_required_on_every_input() {
+        let ir = admit_local_interactive(COUNTER, INTERACTIVE_PROFILE).unwrap();
+        let amount = ir
+            .cells()
+            .iter()
+            .find(|c| c.kind == WebCellKind::Input)
+            .unwrap();
+        assert_eq!(
+            amount.iden,
+            Some(WebIden {
+                label: "Amount".into(),
+                hint: Some("A whole number to add to the count".into())
+            })
+        );
+        let start = COUNTER.find("@iden").unwrap();
+        let end = start + COUNTER[start..].find('}').unwrap() + 1;
+        let bare = format!("{}{}", &COUNTER[..start], &COUNTER[end..]);
+        for profile in [INTERACTIVE_PROFILE, LIVE_PROFILE] {
+            assert_eq!(
+                admit_local_interactive(&bare, profile).unwrap_err().code,
+                "GY-E1017"
+            );
+        }
+    }
+
+    #[test]
+    fn other_platforms_rules_are_admitted_and_inert() {
+        let unrelated = COUNTER.replace(
+            "@state {",
+            "@platform ios { \"media\": only-use(\"native.player\"); } @state {",
+        );
+        let ir = admit_local_interactive(&unrelated, INTERACTIVE_PROFILE).unwrap();
+        assert_eq!(ir.handoff().contract(), "GSSH/4");
+    }
+
     fn refused(source: &str) -> (String, &str) {
         let error = admit_local_interactive(source, INTERACTIVE_PROFILE).unwrap_err();
         let range = error.range.expect("refusals carry a range");
@@ -403,7 +731,7 @@ mod tests {
         assert_eq!(ir.cells()[3].kind, WebCellKind::Button);
         assert_eq!(ir.cells()[1].text.as_deref(), Some("Counter"));
         assert_eq!(ir.cell_by_name("add").unwrap().id, "window.add");
-        assert_eq!(ir.handoff().contract(), "GSSH/3");
+        assert_eq!(ir.handoff().contract(), "GSSH/4");
         assert_eq!(ir.source(), COUNTER);
     }
 
@@ -494,7 +822,7 @@ mod tests {
     fn text_from_needs_the_live_profile() {
         let ir = admit_local_interactive(DISPLAY, LIVE_PROFILE).unwrap();
         assert_eq!(ir.profile(), LIVE_PROFILE);
-        assert_eq!(ir.handoff().contract(), "GSSH/3-live");
+        assert_eq!(ir.handoff().contract(), "GSSH/4-live");
         let total = ir.cells().iter().find(|c| c.id == "total").unwrap();
         assert_eq!(total.text.as_deref(), Some("Count: "));
         assert_eq!(total.text_from.as_deref(), Some("count"));
@@ -512,7 +840,7 @@ mod tests {
                 .unwrap()
                 .handoff()
                 .contract(),
-            "GSSH/3-live"
+            "GSSH/4-live"
         );
     }
 

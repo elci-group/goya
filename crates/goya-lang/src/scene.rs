@@ -75,7 +75,38 @@ pub struct SceneCell {
     /// `text-from: state.key;` shows the current value of a declared state
     /// key as the element's text (GSSH/3 live admission only).
     pub text_from: Option<String>,
+    /// `@iden { ... }`: the element's accessible identity (GSSH/4, decision
+    /// D14). Required on every `@input` under GSSH/4.
+    pub iden: Option<Iden>,
     pub children: Vec<SceneCell>,
+}
+
+/// Accessible identity of one element (`@iden`, GSSH/4, decision D14).
+///
+/// Each target maps it to its native accessibility features: `label` is the
+/// accessible name, `hint` the accessible description. The struct is
+/// non-exhaustive so later profiles can add fields without breaking
+/// consumers; keys those profiles will define are already reserved.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Iden {
+    /// Accessible name. Required.
+    pub label: String,
+    /// Accessible description: what the element is for or how to use it.
+    pub hint: Option<String>,
+    /// Reserved keys the author wrote, with their source ranges. Strict
+    /// admission refuses them, so nothing reserved is silently dropped.
+    pub reserved: Vec<(String, crate::parser::SourceRange)>,
+}
+
+impl Iden {
+    pub fn new(label: String, hint: Option<String>) -> Self {
+        Self {
+            label,
+            hint,
+            reserved: Vec::new(),
+        }
+    }
 }
 
 /// One explicit allow or deny. An omitted operation is not a decision.

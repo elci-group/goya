@@ -1,7 +1,7 @@
 # Aragon scene compiler (Phase 3)
 
 Status: **experimental**, 17 November 2026. `goya_sdk::compile_android_scene`
-compiles a GSSH/3 scene ([`docs/gssh/GSSH-2.md`](../gssh/GSSH-2.md#gssh3--proportional-lengths)) to Kotlin
+compiles a GSSH/4 scene ([`docs/gssh/GSSH-2.md`](../gssh/GSSH-2.md#gssh4--platform-ambiguity-and-explicit-exceptions)) to Kotlin
 for Android. It replaces the single-construct static-text and root-button
 previews as Aragon's main path; those previews remain only because their
 APK hashes are recorded qualification fixtures.
@@ -11,13 +11,27 @@ cargo run --offline -p goya-sdk --bin aragon-android-project -- \
     scene.gscene generated-scene --scene
 ```
 
-Since 18 November 2026 Aragon accepts only GSSH/3 (decision D7): every
+Since 18 November 2026 Aragon accepts GSSH/4, which inherits GSSH/3's
+proportional-length requirements (decision D7): every
 length is proportional, and an absolute `position`, `extent`, `text-size` or
 `stroke-width` is refused by admission with `GY-E1009` at its range. Use
 `goya-proportional` ([migration ledger](../gssh/proportional-migration.md))
 to convert older scenes.
 
-The rule is that every construct GSSH/3 admits is either emitted or refused
+A GSSH/4 scene may declare persistence targets (`@persistence`, decision
+D11); it is optional, and without it durable state would use Android's default
+local store (`android.preferences.v1`). Aragon still refuses durable state
+until its Android lifecycle and storage adapter is wired to the platform
+runtime.
+
+Every `@input` must declare `@iden { label: "..."; }` (GSSH/4, decision D14).
+Aragon emits it through Android's native accessibility (`GoyaCell.identify`):
+an editable field's label becomes its node hint text (API 26+; folded into the
+node text on API 23–25), other elements get a content description, and the
+optional `hint` becomes the node's tooltip text (API 28+; appended to the name
+before). This is generated and source-mapped but not yet run on a device.
+
+The rule is that every construct GSSH/4 admits is either emitted or refused
 with the exact source range of that construct, through
 `AndroidSceneError { reason, origin, range }`. Nothing is ignored.
 
@@ -51,9 +65,10 @@ Refused, at the construct's own range:
 | `@state … durable` | Needs the Android storage adapter (gate ARG-G07), storing the record fixed by [decision D8](../gssh/decisions.md#d8--durable-record-format-and-concurrent-writers). |
 | D2 interactions | No Android capability adapters. |
 | `text-from` | Refused by GSSH/3 (`GY-E1012`). Adopting GSSH/3-live requires D9's wrapping and announcement rules (`goya_lang::display_binding`). |
+| `@platform android` or `@platform android_tv` exceptions | Refused at the exception's exact range until the matching compiler can resolve the named feature and use rule. Exceptions for other platforms do not affect Android or Android TV. |
 | More than 1024 elements; element text above 16 KiB; initial text above 64 KiB; an initial snapshot above 1 MiB | Generated-code and D1 limits. |
 
-Aragon admits GSSH/3, not GSSH/3-live, so **state changes are not visible on
+Aragon admits GSSH/4, not GSSH/3-live, so **state changes are not visible on
 screen**. Adopting `text-from` requires Aragon to implement the display-binding
 profile and its wrapping and announcement rules ([decision D9](../gssh/decisions.md#d9--display-bindings-text-from-gssh3-live)).
 

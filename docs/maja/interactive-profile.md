@@ -1,10 +1,13 @@
 # Experimental interactive profile `maja.web.local.v2`
 
-Status: **experimental**, 20 November 2026 (updated 21 November). Not a
+Status: **experimental**, 20 November 2026 (updated 24 November). Not a
 production or release qualification. It builds on the GSSH/2 handoff
 ([`docs/gssh/GSSH-2.md`](../gssh/GSSH-2.md)), **Approved** on 21 November
-2026, through the GSSH/3 profile, which is still a Candidate. M2 is not
-closed by this profile ([wave 3](wave-3.md#status-21-november-2026)).
+2026, through the latest profile, GSSH/4 (GSSH/4-live for `v3`), decision
+D15. GSSH/3 scenes without GSSH/4 constructs are valid GSSH/4 unless they
+have an `@input`, which now needs an `@iden` (decision D14). The
+manifest's `handoff` names the contract used. M2 is not closed by this profile
+([wave 3](wave-3.md#status-21-november-2026)).
 
 ```sh
 maja check app.gscene --profile maja.web.local.v2
@@ -38,7 +41,10 @@ errors before parsing.
 | `@input` | Native `<input type="text">`, empty unless `text:` gives its initial content (decision D3); `autocomplete="off"`, so a reload shows the authored text again | GSSH/2 rule 5 |
 | `from` bindings | Snapshot, convert, dispatch | `handoff::convert_field` (Node differential) |
 | `@state … session` | Initial values in a runtime that lives for one page load | `initial_state()` |
-| `@state … durable` | Restored from `localStorage` before the first frame; written before each commit that changes it ([below](#durable-state)) | GSSH/2 rule 4, decision D4 |
+| `@state … durable` | Restored before the first frame from `localStorage`, or from IndexedDB when the scene declares it; written before each commit that changes it ([below](#durable-state)) | GSSH/2 rule 4, decisions D4, D8, D11 |
+| `@persistence` (GSSH/4) | Selects the browser store: `browser.local-storage.v1` (the default) or `browser.indexeddb.v1`, and the `migration` rule for the browser (default `copy`); other platforms' entries are ignored | Decisions D11, D13 |
+| `@iden` (GSSH/4, required on `@input`) | `label` → `aria-label` (a plain cell also gets `role="group"`); `hint` → `aria-describedby` pointing at a visually hidden element | Decision D14 |
+| `@platform` (GSSH/4) | Rules for other platforms are inert. `@platform browser` rules are refused (`GY-E1016`) until Maja implements one | Decision D10 |
 | `scroll` | The element keeps its fill, text and stroke; its children live in an inner `overflow: auto` scroller with hidden scrollbars (wheel, touch and focused-keyboard scrolling are the browser's). Direct children may extend past it, clamped only to >= 0. | `goya_lang::layout` and `Frame::scroll_limits` (Node differential); `Frame::scrolled_nodes` translation and clipping (browser) |
 
 Refused at the construct's own range:
@@ -72,7 +78,10 @@ on screen**. Showing state needs the contract extension recorded as open in
 3. Dispatch to the generated D1 runtime. A failure leaves state and
    revision unchanged and is shown as `Action failed: <code>` in a host
    `role="status"` region. Dispatch is synchronous, so activations are
-   serialized.
+   serialized. With durable state the transition is prepared, its record
+   written, and only then committed. An IndexedDB write finishes later:
+   meanwhile `<main>` has `aria-busy="true"` and another activation fails
+   with `REENTRANT_DISPATCH` ("the previous action is still being saved").
 
 Each activation publishes a read-only `goya:transition` event on `document`
 with the action, outcome, error code, revision and, after dispatch, a copy of
@@ -92,8 +101,9 @@ randomness. Module scripts must be served over HTTP(S); they do not run from
 | `scene.js` | Generated data: elements, initial state, activations |
 | `layout.js` | Static `resolve` (layout mirror) and `convertField` |
 | `d1.js` | `MAJA-D1-JS/1-draft` runtime, only when the scene has interactions |
+| `storage.js` | Durable state adapter for the scene's store, only when a key is `durable` |
 | `app.js` | Static shell |
-| `manifest.json` | `MAJA-INTERACTIVE/1-draft`: profile, handoff contract, source SHA-256, element and action source ranges, SHA-256 of every other file |
+| `manifest.json` | `MAJA-INTERACTIVE/1-draft`: profile, handoff contract, `durable_store` (adapter name, or `null` without durable state), source SHA-256, element and action source ranges, SHA-256 of every other file |
 
 The manifest is an integrity aid, not an authenticity guarantee.
 
@@ -112,8 +122,14 @@ next touched snapshot, then the revision. Error codes are `UNKNOWN_ACTION`,
 `STORAGE_FAILED` (an optional host `beforeCommit` hook, called after every
 canonical check passed, refused the commit), `STORAGE_CONFLICT` (the hook
 reported that storage changed elsewhere) and `REENTRANT_DISPATCH` (the hook
-tried to dispatch). The canonical executor reports input schema and type
-failures as one error, so the differential compares them as one class.
+tried to dispatch, or a prepared transition is still pending). The canonical
+executor reports input schema and type failures as one error, so the
+differential compares them as one class.
+
+For asynchronous stores the runtime also has `prepare(action, inputs)`. It
+runs every canonical check and returns the written values with `commit()`
+and `abandon(code)`. Until one of them is called, `dispatch` and `prepare`
+fail with `REENTRANT_DISPATCH`. A prepared transition settles once.
 
 ## Display bindings: `maja.web.local.v3`
 
@@ -176,17 +192,29 @@ the only implementation.
 
 Scenes with at least one durable key get `storage.js`:
 
-* **Storage.** `localStorage`, because it is synchronous: restore finishes
-  before `app.js` returns (so before the first frame), and the write can
-  sit inside the D1 runtime's `beforeCommit` hook.
+* **Storage** (decision D11). By default `localStorage`, which is
+  synchronous. A GSSH/4 scene may instead declare
+  `@persistence { cache_targets: { browser: "browser.indexeddb.v1"; }; }`
+  to use IndexedDB: database `goya.state.v1`, object store `records`, the
+  same key and the same record text. Naming `browser.local-storage.v1`
+  is the same as the default. Any other browser adapter is refused
+  (`MAJA-E0200`, at the declaration); `cache_targets: null` with durable
+  state is refused by GSSH/4 (`GY-E1014`). When a scene with durable state
+  names no browser store, Maja builds it with `localStorage` and prints
+  `warning: MAJA-W0001: …` on stderr at the first durable key (for both
+  `check` and `build`, exit status 0). `app.js` awaits the restore
+  before it builds the scene, so with either store the first frame shows
+  the restored values.
 * **Record.** One item per ontology, key `goya.state.v1/<ontology name>`,
   value `{"format":"goya.state.v1","values":{"<key>":["<type>",<value>]}}`;
   ints are canonical decimal strings, text is the string, bools are JSON
   booleans. Because one record holds every durable key, a transition that
-  writes several of them is stored by one `setItem` and cannot be torn.
+  writes several of them is stored by one write and cannot be torn. With
+  IndexedDB a stored value that is not text is `RECORD_UNDECODABLE`.
 * **Restore.** A missing record, or a missing entry, gives that key's
   authored value. Anything else wrong fails the whole restore and every
-  key starts from its authored value: storage that throws on read
+  key starts from its authored value: storage that throws on read, or an
+  IndexedDB that cannot be opened
   (`STORAGE_UNAVAILABLE`); bad JSON, a wrong envelope, an unknown type tag,
   a non-canonical or out-of-range int, a non-boolean bool, text with a lone
   surrogate or above 64 KiB (`RECORD_UNDECODABLE`); an entry whose type
@@ -199,10 +227,13 @@ Scenes with at least one durable key get `storage.js`:
 * **Write.** After the runtime has passed every canonical check, the hook
   writes the whole durable snapshot as it will be after the transition.
   A transition that writes no durable key never touches storage. If
-  `setItem` throws (quota, disabled storage) the commit is refused with
-  `STORAGE_FAILED` and state, revision and record are unchanged. So the
-  stored value never trails the visible one; if the page dies between the
-  write and the commit, the next load shows the written value.
+  `setItem` throws, or the IndexedDB write transaction aborts (quota,
+  disabled storage), the commit is refused with `STORAGE_FAILED` and state,
+  revision and record are unchanged. An IndexedDB transition is committed
+  only after its `readwrite` transaction (requested with `strict`
+  durability) has completed. So the stored value never trails the visible
+  one; if the page dies between the write and the commit, the next load
+  shows the written value.
 * **After a failed restore**, the first durable commit replaces the record
   ("until the user acts"). Entries of a decodable record that the scene
   does not declare durable (for example a renamed key) are written back
@@ -213,15 +244,28 @@ Scenes with at least one durable key get `storage.js`:
   nothing is written, and the status asks the user to reload; reloading
   restores the other tab's state. Transitions that touch only session keys
   still run.
+* **Migration** (decision D13). When the scene's store has no record and
+  the other browser store has one for the same ontology, it is decoded
+  with the rules above, copied unchanged into the scene's store (only if
+  that store is still empty), and kept (`copy`, the default) or removed
+  (`move`) in the old store; `migration: none` skips this. The page gets
+  `<html data-goya-migrated="<old adapter>">`. An old record that fails to
+  decode is reported like any failed restore and left where it is.
+  `storage.js` includes the other store only when the rule is not `none`.
 * **Revision** is not stored: it restarts at 0 on every page load.
 
-Known gaps: there is no lock between the re-read and the write, so two tabs
-committing in the same instant can still race (browsers do not implement
-the storage mutex). A tab does not learn of another tab's write until it
+With IndexedDB the re-read and the write run in one `readwrite`
+transaction, which the browser serialises across tabs, so of two tabs
+committing at once exactly one wins and the other gets `STORAGE_CONFLICT`.
+
+Known gaps: with `localStorage` there is no lock between the re-read and
+the write, so two tabs committing in the same instant can still race
+(browsers do not implement the storage mutex). Changing a scene's store
+does not migrate a record kept in the other one. A tab does not learn of another tab's write until it
 tries to commit. Storage is per origin, so two apps
 with the same ontology name on one origin share a record, as GSSH/2's
 namespace implies. There is no sensitive or secure storage, and browsers
-may evict `localStorage` (no `navigator.storage.persist()` request).
+may evict either store (no `navigator.storage.persist()` request).
 
 ## Verification
 
@@ -234,10 +278,14 @@ cargo run --offline -p maja -- build tests/maja/fixtures/scroll.gscene --profile
 python3 tests/maja/browsers/maja_browser.py chrome scroll OUT2     # and firefox
 cargo run --offline -p maja -- build tests/maja/fixtures/durable-counter.gscene --profile maja.web.local.v2 --out OUT3
 python3 tests/maja/browsers/maja_browser.py chrome durable OUT3    # and firefox
+cargo run --offline -p maja -- build tests/maja/fixtures/durable-idb-counter.gscene --profile maja.web.local.v2 --out OUT6
+python3 tests/maja/browsers/maja_browser.py chrome durable-idb OUT6    # and firefox
 cargo run --offline -p maja -- build tests/maja/fixtures/initial-content.gscene --profile maja.web.local.v2 --out OUT4
 python3 tests/maja/browsers/maja_browser.py chrome initial OUT4    # and firefox
 cargo run --offline -p maja -- build tests/maja/fixtures/display-counter.gscene --profile maja.web.local.v3 --out OUT5
 python3 tests/maja/browsers/maja_browser.py chrome display OUT5    # and firefox
+cargo run --offline -p maja -- build tests/maja/fixtures/display-idb-counter.gscene --profile maja.web.local.v3 --out OUT7
+python3 tests/maja/browsers/maja_browser.py chrome display-idb OUT7    # and firefox
 ```
 
 The Rust tests need Node (`MAJA_SKIP_NODE=1` skips those parts, and says so)
@@ -270,9 +318,22 @@ and cover:
   (including `__proto__`, without prototype pollution), two windows (the
   second writer gets `STORAGE_CONFLICT`, the first writer's record
   survives, a reload adopts it; a cleared record also conflicts), and
-  `RECORD_LIMIT` at 17 × 64 KiB text keys (15 restore).
+  `RECORD_LIMIT` at 17 × 64 KiB text keys (15 restore). The IndexedDB
+  `storage.js`, through `prepare`/`commit` as `app.js` drives it, against a
+  fake IndexedDB that serialises transactions: a GSSH/4 manifest naming
+  `browser.indexeddb.v1` (and the default scene still naming
+  `browser.local-storage.v1`), missing record, session-only transition,
+  two durable keys in one write, reload, `REENTRANT_DISPATCH` for both
+  `dispatch` and `prepare` while a write is in flight with nothing visible
+  until it completes, single settlement, an aborted write refused as
+  `STORAGE_FAILED`, corrupt, retyped and non-text records, replacement after
+  a failed restore, two windows, two simultaneous writers (one wins, one
+  `STORAGE_CONFLICT`), and an unopenable database.
 * `crates/maja-semantic/src/interactive.rs`: admission and per-construct
-  refusal ranges.
+  refusal ranges; store selection (none, IndexedDB, local, another
+  platform's adapter, an unknown adapter refused at its range, `null` with
+  durable state, `@persistence` refused by the v3 profile) and other
+  platforms' `@platform` rules admitted.
 
 `maja_browser.py` (headless, Linux, 20 November 2026) drives Chrome
 through the DevTools Protocol and Firefox through WebDriver BiDi, with no
@@ -340,8 +401,29 @@ Durable fixture (`maja_browser.py BROWSER durable`, 21 November 2026):
 | Second tab commits 40 through the app. The stale tab gets `STORAGE_CONFLICT`, preserves its state and revision, and reload adopts 40 (40 + 1 = 41). | pass | pass |
 | No console errors | pass | pass |
 
+IndexedDB durable fixture (`maja_browser.py BROWSER durable-idb`, on
+`tests/maja/fixtures/durable-idb-counter.gscene`, 24 November 2026): the same
+checks as the table above, reading and writing the record through
+IndexedDB. The write failure is simulated by making every `put` abort its
+transaction.
+
+| Check | Chrome 157.0.8103.78 | Firefox 150.0 |
+| --- | --- | --- |
+| Every check of the durable table, against IndexedDB | pass | pass |
+| `aria-busy` cleared after each settled transition | pass | pass |
+| `localStorage` stays empty | pass | pass |
+
+Live display with IndexedDB (`maja_browser.py BROWSER display-idb`, a
+`maja.web.local.v3` build of `tests/maja/fixtures/display-idb-counter.gscene`,
+admitted as GSSH/4-live, 24 November 2026): every check of the display table,
+plus the reloaded count read back from IndexedDB with `localStorage` empty.
+Pass in Chrome 157.0.8103.78 and Firefox 150.0. The commit order is D12's:
+staged (`prepare`), validated, saved, then live.
+
 Open verification cases include a real quota error, simultaneous writes
-between the storage re-read and write, and a crash between write and commit.
+between the `localStorage` re-read and write, two tabs committing in the
+same instant in a real browser (covered only by the fake IndexedDB), and a
+crash between write and commit.
 
 Browsers stop scroll offsets at whole pixels, so the maximum offset can be
 up to 1 px short of the reference limit (492 px vs 492.48 px in the run
@@ -350,12 +432,13 @@ are not verified.
 
 ## Not qualified
 
-* **The input has no accessible name.** GSSH/2 has no label construct and
-  Maja does not invent one. This is an accessibility failure for any real
-  application and blocks M4.
+* Accessible names come from `@iden` (D14) and are verified in Chrome's
+  accessibility tree and in the DOM in Firefox; no screen reader has spoken
+  them on this host.
 * Other browsers, assistive technology, IME composition, touch, high-DPI
   pixel snapping, font scaling and visual typography (default font, line
   height and colours are the browser's).
 * Nested scroll viewports, D2 effects. Display bindings exist only in the
-  experimental `maja.web.local.v3` on the Candidate GSSH/3-live (construct approved as D9). Durable state is
-  implemented under decision D8, but GSSH/2 itself is still a Candidate.
+  experimental `maja.web.local.v3` on the Candidate GSSH/3-live (construct approved as D9), or on
+  GSSH/4-live when the scene uses `@persistence` or `@platform` (decision
+  D12). Durable state is implemented under decisions D8, D11 and D12.

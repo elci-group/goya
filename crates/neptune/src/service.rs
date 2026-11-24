@@ -738,19 +738,28 @@ mod tests {
             "NSBluetoothPeripheralUsageDescription"
         );
         assert_eq!(all["result"]["privacy_plan"]["background_modes"], json!([]));
-        assert_eq!(all["result"]["capability_entries"].as_array().unwrap().len(), 7);
+        assert_eq!(
+            all["result"]["capability_entries"]
+                .as_array()
+                .unwrap()
+                .len(),
+            7
+        );
         assert_eq!(
             all["result"]["capability_entries"][0]["semantic_id"],
             "goya.hardware.bluetooth.access.v1"
         );
         // Deterministic across sessions.
         let mut again = Session::default();
-        assert_eq!(all, again.handle(&json!({
-            "schema_version": "1",
-            "job_id": "bm-1",
-            "operation": "plan-bluetooth-privacy",
-            "usage_description": "Connects to your temperature sensor to show readings."
-        })));
+        assert_eq!(
+            all,
+            again.handle(&json!({
+                "schema_version": "1",
+                "job_id": "bm-1",
+                "operation": "plan-bluetooth-privacy",
+                "usage_description": "Connects to your temperature sensor to show readings."
+            }))
+        );
 
         let explicit = session.handle(&json!({
             "schema_version": "1",
@@ -760,7 +769,13 @@ mod tests {
             "contracts": ["goya.hardware.bluetooth.guard.v1", "goya.hardware.bluetooth.central.v1"]
         }));
         assert_eq!(explicit["status"], "PASS");
-        assert_eq!(explicit["result"]["capability_entries"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            explicit["result"]["capability_entries"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
 
         let generic = session.handle(&json!({
             "schema_version": "1",

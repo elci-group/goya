@@ -9,13 +9,15 @@
 //!   `handoff::convert_field`.
 //! * `d1.js`: the canonical D1 runtime (only when the scene has interactions).
 //! * `storage.js`: the durable state adapter (only when a state key is
-//!   `durable`): restore before the first frame, write before commit.
+//!   `durable`), over `localStorage` or, when the scene declares it,
+//!   IndexedDB (decision D11): restore before the first frame, write before
+//!   commit.
 //! * `app.js`: static shell — builds the DOM, lays it out, and runs the
 //!   GSSH/2 activation protocol.
 //! * `manifest.json`: hashes and source origins.
 
 use maja_runtime::{emit_d1_runtime, D1Runtime};
-use maja_semantic::{Diagnostic, InteractiveWebIr, WebCellKind};
+use maja_semantic::{Diagnostic, DurableStore, InteractiveWebIr, WebCellKind};
 use sha2::{Digest, Sha256};
 use std::{fmt::Write as _, fs, io, io::Write, path::Path};
 
@@ -73,7 +75,7 @@ pub fn generate(ir: &InteractiveWebIr) -> Result<InteractivePackage, Diagnostic>
         files.push(("d1.js", runtime.javascript.clone()));
     }
     if durable {
-        files.push(("storage.js", STORAGE_JS.to_owned()));
+        files.push(("storage.js", storage_js(ir.durable_store(), ir.migration())));
     }
     files.push(("app.js", app));
     let manifest = manifest(ir, runtime.as_ref(), &files);
@@ -122,7 +124,7 @@ fn scene_js(ir: &InteractiveWebIr, runtime: Option<&D1Runtime>) -> Result<String
         };
         let _ = writeln!(
             out,
-            "  {{ id: {}, kind: {}, parent: {}, position: {}, extent: {}, fill: {}, stroke: {}, textSize: {}, text: {}, scroll: {}, textFrom: {} }},",
+            "  {{ id: {}, kind: {}, parent: {}, position: {}, extent: {}, fill: {}, stroke: {}, textSize: {}, text: {}, scroll: {}, textFrom: {}, iden: {} }},",
             js_string(&cell.id),
             js_string(match cell.kind {
                 WebCellKind::Cell => "cell",
@@ -148,6 +150,11 @@ fn scene_js(ir: &InteractiveWebIr, runtime: Option<&D1Runtime>) -> Result<String
             cell.text.as_deref().map_or("null".into(), js_string),
             cell.scroll,
             cell.text_from.as_deref().map_or("null".into(), js_string),
+            cell.iden.as_ref().map_or("null".into(), |iden| format!(
+                "[{}, {}]",
+                js_string(&iden.label),
+                iden.hint.as_deref().map_or("null".into(), js_string)
+            )),
         );
     }
     out.push_str("];\n");
@@ -247,6 +254,25 @@ fn manifest(
     let _ = writeln!(out, "  \"profile\": \"{}\",", ir.profile());
     let _ = writeln!(out, "  \"qualification\": \"experimental\",");
     let _ = writeln!(out, "  \"handoff\": \"{}\",", ir.handoff().contract());
+    let durable = ir.handoff().durable_keys().next().is_some();
+    let _ = writeln!(
+        out,
+        "  \"durable_store\": {},",
+        if durable {
+            js_string(ir.durable_store().adapter())
+        } else {
+            "null".into()
+        }
+    );
+    let _ = writeln!(
+        out,
+        "  \"migration\": {},",
+        if durable {
+            js_string(migration_name(ir.migration()))
+        } else {
+            "null".into()
+        }
+    );
     let _ = writeln!(
         out,
         "  \"d1_runtime\": {},",
@@ -494,19 +520,16 @@ export function convertField(type, text) {
 }
 "#;
 
-/// Durable state adapter over `localStorage` (synchronous, so a restore can
-/// finish before the first frame and a write can precede the visible
-/// revision through the D1 runtime's `beforeCommit` hook).
-///
-/// One record per ontology holds every durable key, so a transition that
-/// writes several durable keys is persisted by one `setItem`.
-pub const STORAGE_JS: &str = r#"// Maja durable state adapter (maja.web.local.v2/v3). Do not edit.
-import { convertField, utf8Length } from "./layout.js";
+/// Shared part of `storage.js`: the D8 record (`goya.state.v1`), restore
+/// rules (GSSH/2 rule 4) and record encoding. One record per ontology holds
+/// every durable key, so a transition that writes several durable keys is
+/// persisted by one store write. Both backends keep the same record text.
+const STORAGE_COMMON_JS: &str = r#"import { convertField, utf8Length } from "./layout.js";
 export const RECORD_FORMAT = "goya.state.v1";
 const MAX_SNAPSHOT_BYTES = 1048576;
-// Keep hostile or corrupted localStorage records from making JSON.parse
-// allocate without bound. This allows generous JSON overhead over the
-// canonical 1 MiB state snapshot.
+// Keep hostile or corrupted records from making JSON.parse allocate without
+// bound. This allows generous JSON overhead over the canonical 1 MiB state
+// snapshot.
 const MAX_RECORD_CODE_UNITS = 8 * 1048576;
 const TYPES = ["int", "text", "bool"];
 // Storage namespace is (ontology name, state key): one record per ontology,
@@ -514,6 +537,7 @@ const TYPES = ["int", "text", "bool"];
 export function recordKey(ontology) { return `${RECORD_FORMAT}/${ontology}`; }
 const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 const plain = (o) => o !== null && typeof o === "object" && !Array.isArray(o);
+const durableKeysOf = (initialState) => initialState.filter((row) => row[3] === "durable").map((row) => row[0]);
 function initialValue(type, value) {
   return Object.freeze({ type, value: type === "int" ? BigInt(value) : value });
 }
@@ -527,21 +551,20 @@ function snapshotBytes(state) {
   for (const [k, v] of state) n += 8 + utf8Length(k) + (v.type === "int" ? 8 : v.type === "bool" ? 1 : utf8Length(v.value));
   return n;
 }
-// GSSH/2 rule 4. Returns { ok, code, state, preserved, seen }, where `seen`
-// is the record text read (null when absent, undefined when unreadable),
-// which the persister uses to detect writes by other windows. On failure `state`
-// is the authored initial state and the stored record is left untouched;
-// the first committed durable write replaces it. `preserved` holds entries
-// of a decodable record that this scene does not declare durable; they are
-// written back unchanged.
-export function restore(ontology, initialState) {
+// GSSH/2 rule 4. `text` is the record read (null when absent); `failure`
+// is a code when it could not be read. Returns { ok, code, state, preserved }.
+// On failure `state` is the authored initial state and the stored record is
+// left untouched; the first committed durable write replaces it.
+// `preserved` holds entries of a decodable record that this scene does not
+// declare durable; they are written back unchanged.
+function decodeRecord(text, initialState, failure) {
   const state = new Map(initialState.map(([k, t, v]) => [k, initialValue(t, v)]));
   const durable = initialState.filter((row) => row[3] === "durable");
   const preserved = Object.create(null);
-  let text;
-  const fail = (code, kept) => ({ ok: false, code, state, preserved: kept ?? Object.create(null), seen: text });
-  try { text = globalThis.localStorage.getItem(recordKey(ontology)); } catch { return fail("STORAGE_UNAVAILABLE"); }
-  if (text === null) return { ok: true, code: null, state, preserved, seen: text };
+  const fail = (code, kept) => ({ ok: false, code, state, preserved: kept ?? Object.create(null) });
+  if (failure) return fail(failure);
+  if (text === null) return { ok: true, code: null, state, preserved };
+  if (typeof text !== "string") return fail("RECORD_UNDECODABLE");
   if (text.length > MAX_RECORD_CODE_UNITS) return fail("RECORD_LIMIT");
   let record;
   try { record = JSON.parse(text); } catch { return fail("RECORD_UNDECODABLE"); }
@@ -559,38 +582,198 @@ export function restore(ontology, initialState) {
     restored.set(key, value);
   }
   if (snapshotBytes(restored) > MAX_SNAPSHOT_BYTES) return fail("RECORD_LIMIT", preserved);
-  return { ok: true, code: null, state: restored, preserved, seen: text };
+  return { ok: true, code: null, state: restored, preserved };
 }
-// A `beforeCommit` writer. Transitions that write no durable key never touch
-// storage. Otherwise the whole durable snapshot after the transition is
-// written as one record; any storage exception refuses the commit. The
-// record must still be exactly the text this window last read or wrote
-// (decision D8): if another window changed it, the commit is refused as a
-// conflict instead of overwriting that window's data.
+// The whole durable snapshot after a transition, as record text.
+function encodeRecord(durableKeys, preserved, current, writes) {
+  const values = Object.create(null);
+  for (const k of Object.keys(preserved)) values[k] = preserved[k];
+  for (const k of durableKeys) {
+    const v = writes.has(k) ? writes.get(k) : current.get(k);
+    values[k] = [v.type, v.type === "int" ? v.value.toString() : v.value];
+  }
+  return JSON.stringify({ format: RECORD_FORMAT, values });
+}
+"#;
+
+/// `localStorage` as a store: synchronous compare-and-set on the record
+/// text. Every method throws when storage is unavailable.
+const LOCAL_STORE_JS: &str = r#"const localStore = {
+  adapter: "browser.local-storage.v1",
+  read(key) { return globalThis.localStorage.getItem(key); },
+  // Write `text` only if the record is still `expected` (decision D8).
+  write(key, expected, text) {
+    if (globalThis.localStorage.getItem(key) !== expected) return { ok: false, conflict: true };
+    globalThis.localStorage.setItem(key, text);
+    return { ok: true };
+  },
+  remove(key) { globalThis.localStorage.removeItem(key); },
+};
+"#;
+
+/// IndexedDB as a store: database `goya.state.v1`, object store `records`,
+/// the record text as the value. Methods return promises; the comparison
+/// and the write share one `readwrite` transaction, which IndexedDB
+/// serialises across windows.
+const IDB_STORE_JS: &str = r#"const DB_NAME = RECORD_FORMAT;
+const STORE = "records";
+// Stored values that are not text compare equal to each other, so the first
+// durable commit after RECORD_UNDECODABLE can replace them.
+const OPAQUE = Object.freeze({});
+const normal = (value) => value === undefined ? null : typeof value === "string" ? value : OPAQUE;
+let opening = null;
+function openDb() {
+  if (opening !== null) return opening;
+  opening = new Promise((resolve, reject) => {
+    const request = globalThis.indexedDB.open(DB_NAME, 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
+    };
+    request.onsuccess = () => {
+      const db = request.result;
+      db.onversionchange = () => { db.close(); opening = null; };
+      db.onclose = () => { opening = null; };
+      resolve(db);
+    };
+    request.onerror = () => reject(request.error);
+    request.onblocked = () => reject(new Error("blocked"));
+  });
+  opening.catch(() => { opening = null; });
+  return opening;
+}
+// Run `step(store, setResult, tx)` in one transaction; resolves with the
+// result once the transaction has completed, rejects if it aborts.
+function transact(mode, step) {
+  return openDb().then((db) => new Promise((resolve, reject) => {
+    const tx = mode === "readwrite" ? db.transaction(STORE, mode, { durability: "strict" }) : db.transaction(STORE, mode);
+    let result;
+    tx.oncomplete = () => resolve(result);
+    tx.onabort = () => reject(tx.error);
+    step(tx.objectStore(STORE), (value) => { result = value; }, tx);
+  }));
+}
+const idbStore = {
+  adapter: "browser.indexeddb.v1",
+  read(key) {
+    return transact("readonly", (store, set) => {
+      const request = store.get(key);
+      request.onsuccess = () => set(normal(request.result));
+    });
+  },
+  write(key, expected, text) {
+    let conflict = false;
+    return transact("readwrite", (store, set, tx) => {
+      const request = store.get(key);
+      request.onsuccess = () => {
+        if (normal(request.result) !== expected) { conflict = true; tx.abort(); return; }
+        store.put(text, key);
+      };
+    }).then(() => ({ ok: true }), (error) => { if (conflict) return { ok: false, conflict: true }; throw error; });
+  },
+  remove(key) { return transact("readwrite", (store) => { store.delete(key); }); },
+};
+"#;
+
+/// Restore and write over the scene's store (`PRIMARY`), with migration
+/// from the other browser store (`SECONDARY`, decision D13).
+const STORAGE_FLOW_JS: &str = r#"export const ADAPTER = PRIMARY.adapter;
+export const MIGRATION_RULE = MIGRATION;
+async function readPrimary(key, initialState) {
+  let text;
+  try { text = await PRIMARY.read(key); } catch {
+    return { ...decodeRecord(null, initialState, "STORAGE_UNAVAILABLE"), seen: undefined, migrated: null };
+  }
+  return { ...decodeRecord(text, initialState), seen: text, migrated: null };
+}
+// Resolves to decodeRecord's result plus `seen`, the record text read from
+// the scene's store (null when absent, undefined when unreadable), which
+// the persister uses to detect writes by other windows, and `migrated`,
+// the adapter a record was adopted from (or null).
+//
+// Decision D13: when the scene's store has no record and the other browser
+// store has one for the same ontology, that record is decoded with the
+// same rules, copied into the scene's store (only if it is still empty)
+// and, under `move`, removed from the old store. An old record that fails
+// to decode is reported and left where it is.
+export async function restore(ontology, initialState) {
+  const key = recordKey(ontology);
+  const first = await readPrimary(key, initialState);
+  if (first.seen !== null || SECONDARY === null || MIGRATION === "none") return first;
+  let old;
+  try { old = await SECONDARY.read(key); } catch { return first; }
+  if (old === null) return first;
+  const decoded = decodeRecord(old, initialState);
+  if (!decoded.ok) return { ...decoded, seen: null, migrated: null };
+  let written;
+  // Not copied yet: the values are used and the next durable commit stores them.
+  try { written = await PRIMARY.write(key, null, old); } catch { return { ...decoded, seen: null, migrated: null }; }
+  // Another window filled the store first: restore what it wrote.
+  if (!written.ok) return readPrimary(key, initialState);
+  if (MIGRATION === "move") { try { await SECONDARY.remove(key); } catch { /* the copy stands */ } }
+  return { ...decoded, seen: old, migrated: SECONDARY.adapter };
+}
+// A writer for one prepared transition. Transitions that write no durable
+// key never touch storage. Otherwise the whole durable snapshot is written
+// as one record, only if the store still holds exactly the text this window
+// last read or wrote (decision D8); a changed record is a conflict and a
+// failed write refuses the commit. The answer is immediate for
+// localStorage and a promise for IndexedDB.
 export function persister(ontology, initialState, preserved, seen) {
-  const durableKeys = initialState.filter((row) => row[3] === "durable").map((row) => row[0]);
+  const durableKeys = durableKeysOf(initialState);
   const key = recordKey(ontology);
   let expected = seen;
   return (current, writes) => {
     if (!durableKeys.some((k) => writes.has(k))) return { ok: true, wrote: false };
-    const values = Object.create(null);
-    for (const k of Object.keys(preserved)) values[k] = preserved[k];
-    for (const k of durableKeys) {
-      const v = writes.has(k) ? writes.get(k) : current.get(k);
-      values[k] = [v.type, v.type === "int" ? v.value.toString() : v.value];
-    }
-    const text = JSON.stringify({ format: RECORD_FORMAT, values });
-    try {
-      if (globalThis.localStorage.getItem(key) !== expected) return { ok: false, conflict: true, wrote: false };
-      globalThis.localStorage.setItem(key, text);
-    } catch {
-      return { ok: false, conflict: false, wrote: false };
-    }
-    expected = text;
-    return { ok: true, conflict: false, wrote: true };
+    const text = encodeRecord(durableKeys, preserved, current, writes);
+    const failed = () => ({ ok: false, conflict: false, wrote: false });
+    const settle = (written) => {
+      if (!written.ok) return { ok: false, conflict: true, wrote: false };
+      expected = text;
+      return { ok: true, conflict: false, wrote: true };
+    };
+    let result;
+    try { result = PRIMARY.write(key, expected, text); } catch { return failed(); }
+    return result instanceof Promise ? result.then(settle, failed) : settle(result);
   };
 }
 "#;
+
+/// `storage.js` for the scene's store and migration rule.
+fn storage_js(store: DurableStore, migration: goya_lang::Migration) -> String {
+    let rule = migration_name(migration);
+    let (primary, secondary) = match store {
+        DurableStore::LocalStorage => ("localStore", "idbStore"),
+        DurableStore::IndexedDb => ("idbStore", "localStore"),
+    };
+    let needs_secondary = migration != goya_lang::Migration::None;
+    let uses = |name: &str| primary == name || (needs_secondary && secondary == name);
+    let mut out = format!(
+        "// Maja durable state adapter (maja.web.local.v2/v3, {}, migration {rule}). Do not edit.\n{STORAGE_COMMON_JS}",
+        store.adapter()
+    );
+    if uses("localStore") {
+        out.push_str(LOCAL_STORE_JS);
+    }
+    if uses("idbStore") {
+        out.push_str(IDB_STORE_JS);
+    }
+    let _ = writeln!(
+        out,
+        "const PRIMARY = {primary};\nconst SECONDARY = {};\nconst MIGRATION = \"{rule}\";",
+        if needs_secondary { secondary } else { "null" }
+    );
+    out.push_str(STORAGE_FLOW_JS);
+    out
+}
+
+fn migration_name(migration: goya_lang::Migration) -> &'static str {
+    match migration {
+        goya_lang::Migration::Copy => "copy",
+        goya_lang::Migration::Move => "move",
+        goya_lang::Migration::None => "none",
+    }
+}
 
 const APP_JS: &str = r#"// Maja application shell (maja.web.local.v2/v3). Do not edit.
 import { CELLS, ONTOLOGY, INITIAL_STATE, ACTIVATIONS } from "./scene.js";
@@ -598,6 +781,9 @@ import { resolve, convertField, shownText, displayContext, announcement } from "
 
 const root = document.getElementById("goya-scene");
 const status = document.getElementById("goya-status");
+// Durable keys are restored before the scene is built, so its first frame
+// already shows them. An IndexedDB restore is asynchronous and awaited here.
+const restored = restore === null ? null : await restore(ONTOLOGY, INITIAL_STATE);
 const elements = [];
 const controls = new Map();
 // `text-from` targets: [span, state key, context]. The span follows any
@@ -612,7 +798,25 @@ function displaySpan(parent, cell) {
   parent.append(value);
   displays.push([value, cell.textFrom, displayContext(cell.text, cell.textFrom)]);
 }
-for (const cell of CELLS) {
+// `@iden` (decision D14) through the browser's native accessibility: the
+// label is the accessible name; the hint is the accessible description,
+// referenced from a visually hidden element.
+function identify(target, cell, index) {
+  if (cell.iden === null) return;
+  const [label, hint] = cell.iden;
+  // A plain container gets a name only with a role that takes one.
+  if (cell.kind === "cell") target.setAttribute("role", "group");
+  target.setAttribute("aria-label", label);
+  if (hint !== null) {
+    const described = document.createElement("span");
+    described.id = `goya-hint-${index}`;
+    described.className = "goya-sr";
+    described.textContent = hint;
+    document.body.append(described);
+    target.setAttribute("aria-describedby", described.id);
+  }
+}
+for (const [index, cell] of CELLS.entries()) {
   const el = document.createElement("div");
   el.className = "goya-el";
   el.dataset.goyaId = cell.id;
@@ -624,6 +828,7 @@ for (const cell of CELLS) {
     if (cell.text !== null) button.textContent = cell.text;
     displaySpan(button, cell);
     el.append(button);
+    identify(button, cell, index);
     controls.set(cell.id, button);
   } else if (cell.kind === "input") {
     const input = document.createElement("input");
@@ -635,6 +840,7 @@ for (const cell of CELLS) {
     if (cell.text !== null) input.value = cell.text;
     input.addEventListener("input", () => { input.setCustomValidity(""); input.removeAttribute("aria-invalid"); });
     el.append(input);
+    identify(input, cell, index);
     controls.set(cell.id, input);
   } else if (cell.text !== null || cell.textFrom !== null) {
     const text = document.createElement("span");
@@ -643,6 +849,7 @@ for (const cell of CELLS) {
     displaySpan(text, cell);
     el.append(text);
   }
+  if (cell.kind === "cell") identify(el, cell, index);
   let stroke = null;
   if (cell.stroke !== null) {
     stroke = document.createElement("div");
@@ -728,27 +935,44 @@ let state = new Map(INITIAL_STATE.map(([key, type, value]) => [
   key,
   Object.freeze({ type, value: type === "int" ? BigInt(value) : value }),
 ]));
-// Durable keys are restored, and every display binding shows its value,
-// before the scene is first painted: the scene's elements are created by
-// this module, in the same task. A failed restore is reported and the app
-// starts from the authored values.
+// Every display binding shows its value before the scene is first painted:
+// the scene's elements are created by this module, in the same task as the
+// end of the restore. A failed restore is reported and the app starts from
+// the authored values.
 let runtime = null;
-let beforeCommit;
+let persist = null;
 let notice = "";
-if (restore !== null) {
-  const restored = restore(ONTOLOGY, INITIAL_STATE);
+if (restored !== null) {
   state = restored.state;
   document.documentElement.dataset.goyaRestore = restored.ok ? "ok" : restored.code;
+  if (restored.migrated !== null) document.documentElement.dataset.goyaMigrated = restored.migrated;
   if (!restored.ok) notice = `Saved state could not be restored (${restored.code}); starting from initial values.`;
-  const persist = persister(ONTOLOGY, INITIAL_STATE, restored.preserved, restored.seen);
-  beforeCommit = (writes) => {
-    const written = persist(runtime.snapshot().state, writes);
-    if (written.wrote) notice = "";
-    return written.ok ? true : written.conflict ? "STORAGE_CONFLICT" : false;
-  };
+  persist = persister(ONTOLOGY, INITIAL_STATE, restored.preserved, restored.seen);
 }
 showState(state);
 status.textContent = notice;
+// Run one activation. With durable state the transition is prepared, its
+// record written, and only then committed; an IndexedDB write completes
+// later, and until then further activations fail with REENTRANT_DISPATCH.
+function activate(actionId, inputs, done) {
+  if (persist === null) return done(runtime.dispatch(actionId, inputs));
+  const prepared = runtime.prepare(actionId, inputs);
+  if (!prepared.ok) return done(prepared);
+  const settle = (written) => {
+    if (written.wrote) notice = "";
+    done(written.ok ? prepared.commit() : prepared.abandon(written.conflict ? "STORAGE_CONFLICT" : "STORAGE_FAILED"));
+  };
+  let written;
+  try { written = persist(runtime.snapshot().state, prepared.writes); } catch { written = { ok: false, conflict: false, wrote: false }; }
+  if (!(written instanceof Promise)) return settle(written);
+  root.setAttribute("aria-busy", "true");
+  written.then(settle, () => settle({ ok: false, conflict: false, wrote: false }))
+    .finally(() => root.removeAttribute("aria-busy"));
+}
+const FAILURE_HINTS = {
+  STORAGE_CONFLICT: " (saved state was changed in another window; reload to continue)",
+  REENTRANT_DISPATCH: " (the previous action is still being saved)",
+};
 
 if (createRuntime !== null) {
   runtime = createRuntime(state);
@@ -770,22 +994,22 @@ if (createRuntime !== null) {
         inputs.set(key, converted.value);
       }
       const before = runtime.snapshot().state;
-      const result = runtime.dispatch(actionId, inputs, beforeCommit);
-      const snapshot = runtime.snapshot();
-      // A committed transition is shown before the next frame and
-      // announced; a refused one changes nothing on screen.
-      if (result.ok) {
-        showState(snapshot.state);
-        if (announcer !== null) announce(before, snapshot.state);
-      }
-      status.textContent = result.ok ? notice : `Action failed: ${result.code}` +
-        (result.code === "STORAGE_CONFLICT" ? " (saved state was changed in another window; reload to continue)" : "");
-      publish({
-        action: actionId,
-        ok: result.ok,
-        code: result.ok ? null : result.code,
-        revision: String(snapshot.revision),
-        state: Object.fromEntries([...snapshot.state].map(([k, v]) => [k, [v.type, render(v)]])),
+      activate(actionId, inputs, (result) => {
+        const snapshot = runtime.snapshot();
+        // A committed transition is shown before the next frame and
+        // announced; a refused one changes nothing on screen.
+        if (result.ok) {
+          showState(snapshot.state);
+          if (announcer !== null) announce(before, snapshot.state);
+        }
+        status.textContent = result.ok ? notice : `Action failed: ${result.code}${FAILURE_HINTS[result.code] ?? ""}`;
+        publish({
+          action: actionId,
+          ok: result.ok,
+          code: result.ok ? null : result.code,
+          revision: String(snapshot.revision),
+          state: Object.fromEntries([...snapshot.state].map(([k, v]) => [k, [v.type, render(v)]])),
+        });
       });
     });
   }

@@ -680,6 +680,9 @@ fn interactive_source(
         Ok(package) => package,
         Err(diagnostic) => return reject(err, &diagnostic),
     };
+    for warning in ir.warnings() {
+        let _ = writeln!(err, "warning: {}", located(warning));
+    }
     if command == "check" {
         let _ = writeln!(out, "admitted: experimental interactive subset");
         return 0;
@@ -824,16 +827,18 @@ fn inspect_source(
     }
 }
 
-fn reject(err: &mut dyn Write, diagnostic: &maja_semantic::Diagnostic) -> i32 {
-    if let Some(range) = diagnostic.range {
-        let _ = writeln!(
-            err,
+fn located(diagnostic: &maja_semantic::Diagnostic) -> String {
+    match diagnostic.range {
+        Some(range) => format!(
             "{}: {:?} [bytes {}..{}]",
             diagnostic.code, diagnostic.message, range.start, range.end
-        );
-    } else {
-        let _ = writeln!(err, "{}: {:?}", diagnostic.code, diagnostic.message);
+        ),
+        None => format!("{}: {:?}", diagnostic.code, diagnostic.message),
     }
+}
+
+fn reject(err: &mut dyn Write, diagnostic: &maja_semantic::Diagnostic) -> i32 {
+    let _ = writeln!(err, "{}", located(diagnostic));
     4
 }
 

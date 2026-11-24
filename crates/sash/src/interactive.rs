@@ -26,8 +26,10 @@ mod canonical {
     include!("interactive_clipboard.rs");
     include!("interactive_keys.rs");
     include!("interactive_commit.rs");
+    include!("interactive_announce.rs");
 }
 
+pub use canonical::int_change_announcement;
 pub use canonical::{
     activation, clipboard_blocked, command_activates, format_i64, hold_after_release, key_action,
     parse_canonical_i64, publish_after_text, shutdown_plan, visible_commit, Activation,
@@ -75,6 +77,10 @@ pub struct PlacedControl {
     pub text_range: SourceRange,
     pub id_range: SourceRange,
     pub extent_range: SourceRange,
+    /// `@iden` label, hint and source range (GSSH/4, decision D14).
+    pub iden: Option<(String, Option<String>, SourceRange)>,
+    /// `text-from` key (GSSH/4-live): this control shows that state value.
+    pub shows: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -104,6 +110,11 @@ pub struct AdmittedInteractive {
     pub id_range: SourceRange,
     pub extent_range: SourceRange,
     pub action_range: SourceRange,
+    /// Frontend contract: `GSSH/1`, or `GSSH/4-live` for a viewport scene.
+    pub frontend_contract: &'static str,
+    /// Decision D9 context of the shown value; `Some` makes the result a
+    /// polite UI Automation live region announced on each committed change.
+    pub announce_context: Option<String>,
 }
 
 pub fn eval(expr: &IntExpr, state_value: i64, input_value: i64) -> Option<i64> {
@@ -130,6 +141,24 @@ pub fn commit(
 }
 
 pub fn admit_parsed(parsed: &ParsedScene) -> Result<AdmittedInteractive, Diagnostic> {
+    admit_with(parsed, None)
+}
+
+/// Admit a GSSH/4-live counter laid out in `viewport` (decision D15): the
+/// initial value comes from `@state`, the edit is bound with `from`, the
+/// result shows the value with `text-from`, and `@iden` names controls.
+pub fn admit_parsed_live(
+    parsed: &ParsedScene,
+    viewport: admit::ViewportDip,
+) -> Result<AdmittedInteractive, Diagnostic> {
+    admit_with(parsed, Some(viewport))
+}
+
+fn admit_with(
+    parsed: &ParsedScene,
+    viewport: Option<admit::ViewportDip>,
+) -> Result<AdmittedInteractive, Diagnostic> {
+    let live = viewport.is_some();
     let scene = &parsed.scene;
     if scene.interactions.len() != 1 {
         return Err(admit::cap(
@@ -245,8 +274,23 @@ pub fn admit_parsed(parsed: &ParsedScene) -> Result<AdmittedInteractive, Diagnos
             admit::cell_range(parsed, &[]),
         ));
     }
-    admit::reject_position(root, parsed)?;
-    let (extent_range, width_pt, height_pt) = admit::require_extent(root, parsed)?;
+    let (extent_range, width_pt, height_pt) = match viewport {
+        Some(viewport) => {
+            let points_per_dip = admit::MP_PER_DIP as f64 / admit::MP;
+            let range = admit::property_range_at(parsed, &[], "extent_p")
+                .or_else(|| admit::cell_range(parsed, &[]))
+                .ok_or_else(|| admit::layout_error("root cell has no source origin", None))?;
+            (
+                range,
+                f64::from(viewport.dimensions()[0]) * points_per_dip,
+                f64::from(viewport.dimensions()[1]) * points_per_dip,
+            )
+        }
+        None => {
+            admit::reject_position(root, parsed)?;
+            admit::require_extent(root, parsed)?
+        }
+    };
     let frame = layout(scene, width_pt, height_pt);
     let mut controls = Vec::new();
     let mut static_ids = 100u16;
@@ -254,6 +298,7 @@ pub fn admit_parsed(parsed: &ParsedScene) -> Result<AdmittedInteractive, Diagnos
         root,
         &[],
         true,
+        live,
         &frame,
         parsed,
         &mut controls,
@@ -281,6 +326,7 @@ pub fn admit_parsed(parsed: &ParsedScene) -> Result<AdmittedInteractive, Diagnos
             child,
             &[index],
             false,
+            live,
             &frame,
             parsed,
             &mut controls,
@@ -333,24 +379,37 @@ pub fn admit_parsed(parsed: &ParsedScene) -> Result<AdmittedInteractive, Diagnos
             Some(action_range),
         ));
     }
-    let display_id = format!("state.{state_key}");
-    if controls[state_index].semantic_id != display_id {
-        return Err(admit::cap(
-            format!(
-                "result id '{}' does not display state.{state_key}",
-                controls[state_index].semantic_id
-            ),
-            "Set the result cell id to state.<key>.",
-            Some(controls[state_index].id_range),
-        ));
-    }
-    let initial_state = parse_canonical_i64(&controls[state_index].text).ok_or_else(|| {
-        admit::cap(
-            "the result text is not the canonical decimal of an i64",
-            "Use the shortest decimal form, such as 0 or -1.",
-            Some(controls[state_index].text_range),
-        )
-    })?;
+    let (initial_state, announce_context) = if live {
+        live_state(
+            parsed,
+            action,
+            state_key,
+            input_key,
+            &mut controls,
+            state_index,
+            input_index,
+        )?
+    } else {
+        let display_id = format!("state.{state_key}");
+        if controls[state_index].semantic_id != display_id {
+            return Err(admit::cap(
+                format!(
+                    "result id '{}' does not display state.{state_key}",
+                    controls[state_index].semantic_id
+                ),
+                "Set the result cell id to state.<key>.",
+                Some(controls[state_index].id_range),
+            ));
+        }
+        let initial_state = parse_canonical_i64(&controls[state_index].text).ok_or_else(|| {
+            admit::cap(
+                "the result text is not the canonical decimal of an i64",
+                "Use the shortest decimal form, such as 0 or -1.",
+                Some(controls[state_index].text_range),
+            )
+        })?;
+        (initial_state, None)
+    };
     let initial_input = parse_canonical_i64(&controls[input_index].text).ok_or_else(|| {
         admit::cap(
             "the input text is not the canonical decimal of an i64",
@@ -365,6 +424,15 @@ pub fn admit_parsed(parsed: &ParsedScene) -> Result<AdmittedInteractive, Diagnos
         frame.nodes[0].rect.height,
         extent_range,
     )?;
+    if let Some(viewport) = viewport {
+        let root_rect = frame.nodes[0].rect;
+        if root_rect.x != 0 || root_rect.y != 0 || viewport.dimensions() != [width_dip, height_dip] {
+            return Err(admit::layout_error(
+                "the root cell must fill the viewport from its origin",
+                Some(extent_range),
+            ));
+        }
+    }
     let semantic_id = controls[0].semantic_id.clone();
     let ontology_range = admit::ontology_range(parsed).ok_or_else(|| {
         Diagnostic::new(
@@ -404,6 +472,34 @@ pub fn admit_parsed(parsed: &ParsedScene) -> Result<AdmittedInteractive, Diagnos
             detail: "Emission of this profile is not a Windows launch. runtime_qualification stays BLOCKED. Close releases the font, semantic ids, and edit subclass, then unregisters the window class. A failed message pump destroys the window before that unregister.".into(),
         },
     ];
+    if let Some(context) = &announce_context {
+        dispositions.push(Disposition {
+            subject: "state".into(),
+            disposition: "preserved",
+            detail: format!(
+                "GSSH/4-live: {state_key} starts at {initial_state} from @state (session); the edit is bound with `from`; the result shows the value with text-from."
+            ),
+        });
+        dispositions.push(Disposition {
+            subject: "announcement".into(),
+            disposition: "preserved",
+            detail: format!(
+                "Decision D9: the result is a polite UI Automation live region (LiveSetting by dynamic annotation). Each stored change sets its name to \"{context} increased by <d>, from <old> to <new>\" (or decreased) and raises EVENT_OBJECT_LIVEREGIONCHANGED."
+            ),
+        });
+    }
+    for control in &controls {
+        if let Some((label, hint, _)) = &control.iden {
+            dispositions.push(Disposition {
+                subject: format!("{} @iden", control.semantic_id),
+                disposition: "preserved",
+                detail: format!(
+                    "UI Automation Name {label:?}{} set by dynamic annotation (IAccPropServices).",
+                    hint.as_ref().map_or(String::new(), |hint| format!(", HelpText and description {hint:?}"))
+                ),
+            });
+        }
+    }
     dispositions.push(Disposition {
         subject: "extent".into(),
         disposition: "preserved",
@@ -438,7 +534,91 @@ pub fn admit_parsed(parsed: &ParsedScene) -> Result<AdmittedInteractive, Diagnos
         id_range,
         extent_range,
         action_range,
+        frontend_contract: if live {
+            goya_lang::handoff::CONTRACT_V4_LIVE
+        } else {
+            goya_lang::handoff::CONTRACT
+        },
+        announce_context,
     })
+}
+
+/// GSSH/4-live state and display (decisions D3, D9): the initial value is the
+/// declared one, never inferred from an id; the result is the only control
+/// that shows state, and it shows the interaction's key.
+#[allow(clippy::too_many_arguments)]
+fn live_state(
+    parsed: &ParsedScene,
+    action: &goya_lang::InteractionDecl,
+    state_key: &str,
+    input_key: &str,
+    controls: &mut [PlacedControl],
+    state_index: usize,
+    input_index: usize,
+) -> Result<(i64, Option<String>), Diagnostic> {
+    for (index, control) in controls.iter().enumerate() {
+        if index != state_index && control.shows.is_some() {
+            return Err(admit::cap(
+                format!(
+                    "'{}' shows state; only the result cell may",
+                    control.semantic_id
+                ),
+                "Keep text-from on the result cell only.",
+                Some(control.text_range),
+            ));
+        }
+    }
+    if controls[state_index].shows.as_deref() != Some(state_key) {
+        return Err(admit::cap(
+            format!(
+                "the result cell '{}' does not show state.{state_key}",
+                controls[state_index].semantic_id
+            ),
+            "Write `text-from: state.<key>;` on the result cell.",
+            Some(controls[state_index].id_range),
+        ));
+    }
+    let decl = parsed
+        .declarations
+        .state
+        .as_ref()
+        .and_then(|(decls, _)| decls.iter().find(|decl| decl.key == state_key))
+        .ok_or_else(|| {
+            admit::cap(
+                format!("state.{state_key} is not declared"),
+                "Declare it in @state.",
+                admit::cell_range(parsed, &[]),
+            )
+        })?;
+    if decl.lifetime == goya_lang::StateLifetime::Durable {
+        return Err(admit::cap(
+            format!("state.{state_key} is durable and this profile has no Windows store yet"),
+            "Declare it session, or wait for the windows.local-settings.v1 adapter.",
+            Some(decl.range),
+        ));
+    }
+    let InteractionValue::Int(initial) = decl.initial else {
+        return Err(admit::cap(
+            format!("state.{state_key} is not an int"),
+            "Declare an int.",
+            Some(decl.range),
+        ));
+    };
+    let bound = parsed
+        .declarations
+        .bindings
+        .iter()
+        .find(|binding| binding.interaction == action.name && binding.input == input_key);
+    if bound.map(|binding| binding.field_id.as_str()) != Some(controls[input_index].semantic_id.as_str()) {
+        return Err(admit::cap(
+            format!("input.{input_key} is not bound to the edit"),
+            "Bind it with `from \"<edit id>\"`.",
+            bound.map(|binding| binding.range),
+        ));
+    }
+    controls[state_index].text = format_i64(initial);
+    let context = goya_lang::display_binding::context(None, state_key);
+    Ok((initial, Some(context)))
 }
 
 fn clipboard_profile(
@@ -603,10 +783,12 @@ fn uses(expr: &IntExpr, state: bool, input: bool) -> bool {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn place_control(
     cell: &SceneCell,
     path: &[usize],
     is_root: bool,
+    proportional: bool,
     frame: &goya_lang::Frame,
     parsed: &ParsedScene,
     controls: &mut Vec<PlacedControl>,
@@ -619,7 +801,7 @@ fn place_control(
             admit::cell_range(parsed, path),
         ));
     }
-    admit::reject_visuals(cell, parsed, path)?;
+    admit::reject_visuals_for(cell, parsed, path, proportional)?;
     let node_index = controls.len();
     let Some(node) = frame.nodes.get(node_index) else {
         return Err(admit::layout_error(
@@ -627,7 +809,7 @@ fn place_control(
             admit::cell_range(parsed, path),
         ));
     };
-    if !is_root {
+    if !is_root && !proportional {
         let parent = frame.nodes[0].rect;
         admit::expect_child_rect(cell, parent, node.rect, parsed, path)?;
     }
@@ -645,12 +827,26 @@ fn place_control(
             admit::cell_range(parsed, path),
         ));
     }
-    let Some(text) = admit::validate_text(cell, parsed, path)? else {
-        return Err(admit::cap(
-            format!("element '{}' has no text", cell.name),
-            "Set text. This profile does not invent a label.",
-            admit::cell_range(parsed, path),
-        ));
+    // A GSSH/4-live result shows only its value; its text is the initial
+    // value, filled in once the state declaration is read.
+    let text = if cell.text_from.is_some() {
+        if cell.text.is_some() {
+            return Err(admit::cap(
+                format!("element '{}' has text and text-from", cell.name),
+                "Remove text: the result shows only the state value.",
+                admit::property_range_at(parsed, path, "text"),
+            ));
+        }
+        String::new()
+    } else {
+        let Some(text) = admit::validate_text(cell, parsed, path)? else {
+            return Err(admit::cap(
+                format!("element '{}' has no text", cell.name),
+                "Set text. This profile does not invent a label.",
+                admit::cell_range(parsed, path),
+            ));
+        };
+        text
     };
     let semantic_id = cell.authored_id.clone().ok_or_else(|| {
         admit::cap(
@@ -673,7 +869,12 @@ fn place_control(
         admit::MAX_ID_BYTES,
         Some(id_range),
     )?;
-    let text_range = admit::property_range_at(parsed, path, "text").ok_or_else(|| {
+    let text_range = admit::property_range_at(
+        parsed,
+        path,
+        if cell.text_from.is_some() { "text_from" } else { "text" },
+    )
+    .ok_or_else(|| {
         Diagnostic::new(
             "SASH-PARSE",
             "parse",
@@ -681,7 +882,11 @@ fn place_control(
             "Report this as a frontend defect.",
         )
     })?;
-    let extent_range = admit::property_range_at(parsed, path, "extent")
+    let extent_range = admit::property_range_at(
+        parsed,
+        path,
+        if proportional { "extent_p" } else { "extent" },
+    )
         .or(admit::cell_range(parsed, path))
         .unwrap_or(SourceRange { start: 0, end: 0 });
     let (x_dip, y_dip) = admit::dips_pair(node.rect.x, node.rect.y, extent_range, "position")?;
@@ -707,6 +912,8 @@ fn place_control(
         text_range,
         id_range,
         extent_range,
+        iden: admit::admitted_iden(cell, parsed, path)?,
+        shows: cell.text_from.clone(),
     });
     Ok(())
 }
@@ -1166,6 +1373,104 @@ mod tests {
         match admit::open(include_str!("../fixtures/static-window.gscene")).unwrap() {
             SceneTarget::Static(window) => assert_eq!(window.semantic_id, "window.root"),
             SceneTarget::Interactive(_) => panic!("static fixture changed profile"),
+        }
+    }
+
+    fn live(source: &str) -> Result<AdmittedInteractive, crate::Diagnostic> {
+        let viewport = crate::admit::ViewportDip::new(320, 160).unwrap();
+        match crate::admit::open_with_viewport(source, Some(viewport))? {
+            crate::admit::SceneTarget::Interactive(app) => Ok(app),
+            crate::admit::SceneTarget::Static(_) => panic!("admitted as a static window"),
+        }
+    }
+
+    const LIVE: &str = include_str!("../fixtures/interactive-live.gscene");
+
+    #[test]
+    fn gssh4_live_counter_uses_declared_state_bindings_and_iden() {
+        let app = live(LIVE).unwrap();
+        assert_eq!(app.frontend_contract, "GSSH/4-live");
+        assert_eq!(app.profile, PROFILE_CLIPBOARD);
+        assert_eq!((app.initial_state, app.initial_input), (0, 1));
+        assert_eq!(app.announce_context.as_deref(), Some("count"));
+        assert_eq!(app.controls[app.state_index].text, "0");
+        assert_eq!(
+            app.controls[app.state_index].shows.as_deref(),
+            Some("count")
+        );
+        let named: Vec<_> = app
+            .controls
+            .iter()
+            .map(|control| control.iden.as_ref().map(|(label, _, _)| label.as_str()))
+            .collect();
+        assert_eq!(named, [None, Some("Amount"), Some("Add amount"), None]);
+        let dips: Vec<_> = app
+            .controls
+            .iter()
+            .map(|c| [c.x_dip, c.y_dip, c.width_dip, c.height_dip])
+            .collect();
+        assert_eq!(dips, [[0, 0, 320, 160], [20, 60, 120, 30], [160, 60, 80, 30], [20, 110, 160, 30]]);
+        assert!(app.dispositions.iter().any(|d| d.subject == "announcement"));
+        // Different initial state comes from @state, never from an id.
+        let seven = LIVE.replace("count: int = 0 session", "count: int = 7 session");
+        assert_eq!(live(&seven).unwrap().controls[3].text, "7");
+    }
+
+    #[test]
+    fn gssh4_live_counter_refuses_what_it_cannot_carry() {
+        let cases = [
+            (LIVE.replace("0 session", "0 durable"), "no Windows store"),
+            (
+                LIVE.replace(
+                    "text-from: state.count;",
+                    "text-from: state.count; text: \"Total\";",
+                ),
+                "has text and text-from",
+            ),
+            (
+                LIVE.replace("text-from: state.count;", "text: \"0\";"),
+                "does not show state.count",
+            ),
+            (
+                LIVE.replace("text: \"Add\";", "text-from: state.count;"),
+                "only the result cell may",
+            ),
+        ];
+        for (source, expected) in cases {
+            match live(&source) {
+                Ok(_) => panic!("admitted: {expected}"),
+                Err(error) => assert!(error.message.contains(expected), "{}: {}", expected, error.message),
+            }
+        }
+        // A text box without @iden is refused by GSSH/4 itself (GY-E1017).
+        let start = LIVE.find("@iden { label: \"Amount\"").unwrap();
+        let end = start + LIVE[start..].find('}').unwrap() + 1;
+        let bare = format!("{}{}", &LIVE[..start], &LIVE[end..]);
+        let error = live(&bare).unwrap_err();
+        assert!(
+            error.message.contains("GY-E1017") || error.message.contains("@iden"),
+            "{}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn announcement_wording_matches_decision_d9() {
+        use goya_lang::display_binding::describe_change;
+        for (old, new) in [
+            (0, 5),
+            (5, 0),
+            (-3, 4),
+            (7, 7),
+            (i64::MIN, i64::MAX),
+            (i64::MAX, i64::MIN),
+            (0, i64::MIN),
+        ] {
+            assert_eq!(
+                int_change_announcement("count", old, new),
+                describe_change("count", &InteractionValue::Int(old), &InteractionValue::Int(new)),
+                "{old} -> {new}"
+            );
         }
     }
 }

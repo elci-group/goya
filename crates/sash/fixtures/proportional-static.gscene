@@ -1,0 +1,22 @@
+@ontology proportionalDemo {
+    @cell root {
+        id: "window.root";
+        @cell group {
+            id: "panel.group";
+            position_p: (0.125, 0.25, 0);
+            extent_p: (0.75, 0.5, 0);
+            @cell headline {
+                id: "label.headline";
+                position_p: (0.25, 0.25, 0);
+                extent_p: (0.5, 0.5, 0);
+                text: "Proportional headline";
+            }
+            @cell note {
+                id: "label.note";
+                position_p: (0.75, 0.75, 0);
+                extent_p: (0.5, 0.5, 0);
+                text: "Bottom right";
+            }
+        }
+    }
+}

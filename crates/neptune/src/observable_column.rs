@@ -105,6 +105,8 @@ fn text_entry<'a>(entries: &'a [SourceEntry], path: &[usize]) -> Option<&'a Sour
 fn unsupported_entry(entries: &[SourceEntry]) -> Option<&SourceEntry> {
     entries.iter().find(|entry| match entry.kind.as_str() {
         "ontology" | "cell" | "button" | "interaction" => false,
+        // Rendered as native accessibility modifiers (decision D14).
+        "iden" => false,
         "property" => !matches!(entry.name.as_str(), "id" | "text"),
         _ => true,
     })
@@ -330,6 +332,25 @@ fn ir_matches(
     Ok(())
 }
 
+/// Append `@iden` as native SwiftUI accessibility modifiers, mapped to the
+/// declaration (decision D14).
+fn emit_iden(
+    out: &mut String,
+    cell: &SceneCell,
+    path: &[usize],
+    entries: &[SourceEntry],
+    declared_id: &str,
+    mappings: &mut Vec<Mapping>,
+) {
+    let Some(iden) = &cell.iden else { return };
+    let start = out.len();
+    let container = cell.kind == CellKind::Cell && !cell.children.is_empty();
+    out.push_str(&crate::swift::accessibility_modifiers(iden, container));
+    if let Some(source) = crate::swift::iden_range(entries, path) {
+        push_mapping(mappings, declared_id, source, start, out.len());
+    }
+}
+
 fn push_mapping(
     mappings: &mut Vec<Mapping>,
     declared_id: &str,
@@ -399,6 +420,7 @@ fn emit_button(
     out.push('\n');
     indent(out, level);
     out.push_str("})");
+    emit_iden(out, button, path, entries, declared_id, mappings);
     mappings[mapping_at].swift_end = out.len();
     let text_source = text_entry(entries, path)
         .map(|entry| entry.range)
@@ -443,6 +465,8 @@ fn emit_node(
             .map(|entry| entry.range)
             .ok_or_else(|| reject("text source range unavailable", Some(source)))?;
         push_mapping(mappings, declared_id, text_source, start, end);
+        emit_iden(out, cell, path, entries, declared_id, mappings);
+        mappings[mapping_at].swift_end = out.len();
         return Ok(());
     }
     out.push_str("VStack(alignment: .leading, spacing: 0) {\n");
@@ -465,6 +489,7 @@ fn emit_node(
     }
     indent(out, level);
     out.push('}');
+    emit_iden(out, cell, path, entries, declared_id, mappings);
     mappings[mapping_at].swift_end = out.len();
     Ok(())
 }
@@ -514,7 +539,7 @@ pub fn preview(
 ) -> Result<Preview, crate::Diagnostic> {
     crate::validate_module(module)?;
     crate::inspect(source)?;
-    let handoff = goya_lang::handoff::admit_v3(source).map_err(|error| crate::Diagnostic {
+    let handoff = crate::admit_ios(source).map_err(|error| crate::Diagnostic {
         code: error.code,
         message: error.to_string(),
         range: (error.range.end > error.range.start).then_some(error.range),

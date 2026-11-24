@@ -2,7 +2,7 @@
 //! and Node differentials of the layout and field-conversion mirrors.
 //! Node is required; set `MAJA_SKIP_NODE=1` to skip those parts explicitly.
 
-use goya_lang::handoff::{admit_v3, convert_field};
+use goya_lang::handoff::{admit_v4, convert_field};
 use goya_lang::{InteractionType, InteractionValue};
 use std::{ffi::OsString, fs, path::PathBuf, process::Command};
 
@@ -23,7 +23,7 @@ const LAYOUT: &str = r#"@ontology lay {
             @button a3 { id: "a3"; extent_p: (0.333333333, 0.1, 0); text: "Go"; text_size_p: 2.5; }
         }
         @cell b { id: "b"; extent_p: (1.0, 0.07, 0); position_p: (0, 0.93, 0); stroke: #000; stroke_width_p: 0.01; }
-        @input c { id: "c"; position_p: (0.7, 0.7, 0); extent_p: (0.6, 0.6, 0); }
+        @input c { id: "c"; @iden { label: "C"; } position_p: (0.7, 0.7, 0); extent_p: (0.6, 0.6, 0); }
     }
 }"#;
 
@@ -134,7 +134,7 @@ fn counter_builds_deterministically_with_hashed_manifest() {
             "{name} hash missing"
         );
     }
-    assert!(manifest.contains("\"handoff\": \"GSSH/3\""));
+    assert!(manifest.contains("\"handoff\": \"GSSH/4\""));
     assert!(manifest.contains("\"action.add\": ["));
     let tmp = temp("det-a").to_string_lossy().into_owned();
     for name in &names {
@@ -266,7 +266,7 @@ fn layout_differential(source: &str, name: &str) -> String {
     }
     driver.push_str("process.stdout.write(out.join(\"\\n\") + \"\\n\");\n");
     let actual = run_node(&dir, &driver);
-    let scene = &admit_v3(source).unwrap().parsed().scene.clone();
+    let scene = &admit_v4(source).unwrap().parsed().scene.clone();
     let mut expected = String::new();
     for (w, h) in viewports {
         let frame = goya_lang::layout(scene, w, h);
@@ -419,8 +419,8 @@ const DURABLE: &str = r#"@ontology notes {
     }
     @cell root {
         id: "root";
-        @input amount { id: "field.amount"; }
-        @input name { id: "field.name"; }
+        @input amount { id: "field.amount"; @iden { label: "Amount"; } }
+        @input name { id: "field.name"; @iden { label: "Name"; } }
         @button add { id: "button.add"; }
         @button tick { id: "button.tick"; }
         @button raise { id: "button.raise"; }
@@ -491,15 +491,15 @@ import {{ INITIAL_STATE, ONTOLOGY }} from "./scene.js";
 {FAKE_STORAGE}
 const out = [];
 const K = recordKey(ONTOLOGY);
-const boot = () => {{
-  const r = restore(ONTOLOGY, INITIAL_STATE);
+const boot = async () => {{
+  const r = await restore(ONTOLOGY, INITIAL_STATE);
   const rt = createRuntime(r.state);
   const p = persister(ONTOLOGY, INITIAL_STATE, r.preserved, r.seen);
   return {{ r, rt, hook: (w) => {{ const x = p(rt.snapshot().state, w); return x.ok ? true : x.conflict ? "STORAGE_CONFLICT" : false; }} }};
 }};
 out.push(K);
 // Missing record: authored initial values.
-let {{ r, rt, hook }} = boot();
+let {{ r, rt, hook }} = await boot();
 out.push(`missing:${{r.ok}}:${{r.code}}:${{show(r.state)}}`);
 // A session-only transition never touches storage.
 out.push(`tick:${{rt.dispatch("action.tick", new Map(), hook).ok}}:${{io.sets}}:${{store.has(K)}}`);
@@ -507,7 +507,7 @@ out.push(`tick:${{rt.dispatch("action.tick", new Map(), hook).ok}}:${{io.sets}}:
 out.push(`add:${{rt.dispatch("action.add", new Map([["amount", intValue(-5n)], ["value", textValue("γειά 🌍")]]), hook).ok}}:${{io.sets}}`);
 out.push(store.get(K));
 // Reload: durable keys restored, session key back to its initial value.
-({{ r, rt, hook }} = boot());
+({{ r, rt, hook }} = await boot());
 out.push(`reload:${{r.ok}}:${{rt.revision}}:${{show(r.state)}}`);
 // A refused write refuses the commit; state, revision and record unchanged.
 io.failSet = true;
@@ -536,33 +536,33 @@ for (const [name, text] of [
   ["partial", '{{"format":"goya.state.v1","values":{{"count":["int","3"]}}}}'],
 ]) {{
   store.set(K, text);
-  const x = restore(ONTOLOGY, INITIAL_STATE);
+  const x = await restore(ONTOLOGY, INITIAL_STATE);
   out.push(`${{name}}:${{x.ok}}:${{x.code}}:${{show(x.state)}}:${{store.get(K) === text}}`);
 }}
 io.failGet = true;
-const u = restore(ONTOLOGY, INITIAL_STATE);
+const u = await restore(ONTOLOGY, INITIAL_STATE);
 out.push(`unavailable:${{u.ok}}:${{u.code}}`);
 io.failGet = false;
 // After a failed restore the first durable commit replaces the record;
 // entries this scene does not declare durable are kept, without touching
 // Object.prototype.
 store.set(K, '{{"format":"goya.state.v1","values":{{"ticks":["int","9"],"__proto__":["int","1"],"count":["bool",true]}}}}');
-({{ r, rt, hook }} = boot());
+({{ r, rt, hook }} = await boot());
 out.push(`mismatch:${{r.code}}:${{show(r.state)}}`);
 out.push(`replace:${{rt.dispatch("action.raise", new Map(), hook).ok}}`);
 out.push(store.get(K));
 out.push(`proto:${{Object.prototype[0] === undefined && {{}}.length === undefined}}`);
-({{ r }} = boot());
+({{ r }} = await boot());
 out.push(`after:${{r.ok}}:${{show(r.state)}}`);
 // Two windows (decision D8): B's commit after A's is refused as a conflict
 // and A's record survives; B recovers by reloading.
-const a = boot(), b = boot();
+const a = await boot(), b = await boot();
 out.push(`a:${{a.rt.dispatch("action.add", new Map([["amount", intValue(1n)], ["value", textValue("A")]]), a.hook).ok}}`);
 before = store.get(K);
 const conflict = b.rt.dispatch("action.add", new Map([["amount", intValue(2n)], ["value", textValue("B")]]), b.hook);
 out.push(`b:${{conflict.code}}:${{b.rt.revision}}:${{b.rt.get("label").value}}:${{store.get(K) === before}}`);
 out.push(`b-session:${{b.rt.dispatch("action.tick", new Map(), b.hook).ok}}`);
-const b2 = boot();
+const b2 = await boot();
 out.push(`b-reload:${{show(b2.r.state)}}:${{b2.rt.dispatch("action.add", new Map([["amount", intValue(2n)], ["value", textValue("B")]]), b2.hook).ok}}`);
 out.push(`a-again:${{a.rt.dispatch("action.raise", new Map(), a.hook).code}}`);
 // Clearing the record elsewhere is a conflict too.
@@ -620,6 +620,313 @@ process.stdout.write(out.join("\n") + "\n");
     assert_eq!(got.lines().collect::<Vec<_>>(), expected);
 }
 
+/// Fake IndexedDB: string-keyed object stores; transactions run one at a
+/// time (as overlapping `readwrite` scopes do), each request completes in a
+/// later task, and an aborted transaction leaves the store unchanged.
+const FAKE_IDB: &str = r#"const dbs = new Map();
+const io = { failOpen: false, failPut: false, puts: 0 };
+const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+const queue = [];
+let running = false;
+function kick() {
+  if (running) return;
+  running = true;
+  (async () => { while (queue.length) await queue.shift()(); running = false; })();
+}
+function transaction(store, mode) {
+  const pending = [];
+  let staged = null;
+  const t = { error: null, aborted: false, abort() { t.aborted = true; } };
+  t.objectStore = () => ({
+    get(k) { const r = {}; pending.push(() => { r.result = staged.get(k); r.onsuccess?.(); }); return r; },
+    put(v, k) {
+      if (mode !== "readwrite") throw new Error("ReadOnlyError");
+      const r = {};
+      pending.push(() => {
+        if (io.failPut) { t.error = new Error("QuotaExceededError"); t.aborted = true; return; }
+        io.puts++; staged.set(k, v); r.onsuccess?.();
+      });
+      return r;
+    },
+  });
+  queue.push(async () => {
+    staged = new Map(store);
+    // Requests are placed in the task that created the transaction; it
+    // commits once a task ends with none left.
+    await tick();
+    while (pending.length && !t.aborted) { pending.shift()(); await tick(); }
+    await tick();
+    if (t.aborted) { t.onabort?.(); return; }
+    store.clear();
+    for (const [k, v] of staged) store.set(k, v);
+    t.oncomplete?.();
+  });
+  kick();
+  return t;
+}
+globalThis.indexedDB = {
+  open(name) {
+    const req = {};
+    setTimeout(() => {
+      if (io.failOpen) { req.error = new Error("SecurityError"); req.onerror?.(); return; }
+      const fresh = !dbs.has(name);
+      if (fresh) dbs.set(name, new Map());
+      const stores = dbs.get(name);
+      req.result = {
+        objectStoreNames: { contains: (n) => stores.has(n) },
+        createObjectStore(n) { stores.set(n, new Map()); },
+        close() {},
+        transaction(n, mode) { return transaction(stores.get(n), mode); },
+      };
+      if (fresh) req.onupgradeneeded?.();
+      req.onsuccess?.();
+    }, 0);
+    return req;
+  },
+};
+const records = () => dbs.get("goya.state.v1").get("records");
+const show = (m) => [...m].map(([k, v]) => `${k}=${v.type}:${String(v.value).length > 12 ? `${String(v.value).length}ch` : v.value}`).join(",");
+"#;
+
+#[test]
+fn indexeddb_store_is_declared_and_commits_only_after_its_write() {
+    let source = DURABLE.replacen(
+        "@ontology notes {",
+        r#"@ontology notes { @persistence { cache_targets: { browser: "browser.indexeddb.v1"; }; }"#,
+        1,
+    );
+    let dir = build(&source, "durable-idb");
+    let manifest = fs::read_to_string(dir.join("manifest.json")).unwrap();
+    assert!(manifest.contains("\"handoff\": \"GSSH/4\""), "{manifest}");
+    assert!(manifest.contains("\"durable_store\": \"browser.indexeddb.v1\""));
+    let storage = fs::read_to_string(dir.join("storage.js")).unwrap();
+    // IndexedDB is the store; localStorage is read only to migrate (D13).
+    assert!(storage.contains(
+        "const PRIMARY = idbStore;\nconst SECONDARY = localStore;\nconst MIGRATION = \"copy\";"
+    ));
+    assert!(manifest.contains("\"migration\": \"copy\""));
+    // Choosing the store explicitly gives no warning; relying on the default
+    // builds but warns on stderr at the first durable key (decision D11).
+    let src = temp("warn.gscene");
+    fs::write(&src, &source).unwrap();
+    let (code, _, stderr) = cli(&[
+        "check",
+        src.to_str().unwrap(),
+        "--profile",
+        "maja.web.local.v2",
+    ]);
+    assert_eq!((code, stderr.as_str()), (0, ""));
+    fs::write(&src, DURABLE).unwrap();
+    let (code, stdout, stderr) = cli(&[
+        "check",
+        src.to_str().unwrap(),
+        "--profile",
+        "maja.web.local.v2",
+    ]);
+    fs::remove_file(&src).unwrap();
+    let start = DURABLE.find("count: int = 0 durable;").unwrap();
+    assert_eq!(code, 0);
+    assert_eq!(stdout, "admitted: experimental interactive subset\n");
+    assert!(stderr.starts_with("warning: MAJA-W0001: "), "{stderr}");
+    assert!(stderr.contains("browser.local-storage.v1"), "{stderr}");
+    assert!(
+        stderr.ends_with(&format!("[bytes {start}..{}]\n", start + 23)),
+        "{stderr}"
+    );
+    // The default store is unchanged for scenes without a declaration.
+    let local = build(DURABLE, "durable-local");
+    let manifest = fs::read_to_string(local.join("manifest.json")).unwrap();
+    assert!(manifest.contains("\"handoff\": \"GSSH/4\""));
+    assert!(manifest.contains("\"durable_store\": \"browser.local-storage.v1\""));
+    assert!(fs::read_to_string(local.join("storage.js"))
+        .unwrap()
+        .contains("const PRIMARY = localStore;\nconst SECONDARY = idbStore;"));
+    fs::remove_dir_all(local).unwrap();
+    if !node_available() {
+        fs::remove_dir_all(dir).unwrap();
+        return;
+    }
+    let driver = format!(
+        r#"import {{ restore, persister, recordKey, ADAPTER }} from "./storage.js";
+import {{ createRuntime, intValue, textValue }} from "./d1.js";
+import {{ INITIAL_STATE, ONTOLOGY }} from "./scene.js";
+{FAKE_IDB}
+const out = [ADAPTER];
+const K = recordKey(ONTOLOGY);
+const add = (n, s) => new Map([["amount", intValue(n)], ["value", textValue(s)]]);
+// The shell's activation protocol (app.js `activate`).
+const boot = async () => {{
+  const r = await restore(ONTOLOGY, INITIAL_STATE);
+  const rt = createRuntime(r.state);
+  const p = persister(ONTOLOGY, INITIAL_STATE, r.preserved, r.seen);
+  const act = async (id, inputs) => {{
+    const prep = rt.prepare(id, inputs);
+    if (!prep.ok) return prep;
+    const w = await p(rt.snapshot().state, prep.writes);
+    return w.ok ? prep.commit() : prep.abandon(w.conflict ? "STORAGE_CONFLICT" : "STORAGE_FAILED");
+  }};
+  return {{ r, rt, act }};
+}};
+let {{ r, rt, act }} = await boot();
+out.push(`missing:${{r.ok}}:${{r.code}}:${{show(r.state)}}`);
+out.push(`tick:${{(await act("action.tick", new Map())).ok}}:${{io.puts}}:${{records().has(K)}}`);
+out.push(`add:${{(await act("action.add", add(-5n, "γειά 🌍"))).ok}}:${{io.puts}}`);
+out.push(records().get(K));
+({{ r, rt, act }} = await boot());
+out.push(`reload:${{r.ok}}:${{rt.revision}}:${{show(r.state)}}`);
+// While a durable write is in flight nothing else may dispatch, and the
+// transition is not visible until the write has completed.
+const first = act("action.raise", new Map());
+const during = `${{rt.dispatch("action.tick", new Map()).code}}:${{rt.prepare("action.tick", new Map()).code}}:${{rt.get("flag").value}}:${{rt.revision}}`;
+out.push(`pending:${{during}}:${{(await first).ok}}:${{rt.get("flag").value}}:${{rt.revision}}`);
+out.push(`after:${{(await act("action.tick", new Map())).ok}}`);
+// A prepared transition settles once.
+const prep = rt.prepare("action.tick", new Map());
+out.push(`settle:${{prep.commit().ok}}:${{prep.commit().code}}:${{prep.abandon().code}}`);
+// A failed write refuses the commit and leaves the record.
+io.failPut = true;
+let before = records().get(K);
+const refused = await act("action.add", add(1n, "x"));
+out.push(`refused:${{refused.code}}:${{rt.get("count").value}}:${{records().get(K) === before}}`);
+io.failPut = false;
+// Restore rules are shared with the localStorage backend; a stored value
+// that is not record text is undecodable.
+for (const [name, value] of [
+  ["not-json", "{{"],
+  ["retyped", '{{"format":"goya.state.v1","values":{{"count":["text","5"]}}}}'],
+  ["object", {{ format: "goya.state.v1", values: {{}} }}],
+]) {{
+  records().set(K, value);
+  const x = await restore(ONTOLOGY, INITIAL_STATE);
+  out.push(`${{name}}:${{x.ok}}:${{x.code}}:${{records().get(K) === value}}`);
+}}
+// The first durable commit after a failed restore replaces the record.
+({{ r, rt, act }} = await boot());
+out.push(`replace:${{r.code}}:${{(await act("action.raise", new Map())).ok}}:${{typeof records().get(K)}}`);
+// Two windows (decision D8): the later writer is refused, the record kept.
+const a = await boot(), b = await boot();
+out.push(`a:${{(await a.act("action.add", add(1n, "A"))).ok}}`);
+before = records().get(K);
+const conflict = await b.act("action.add", add(2n, "B"));
+out.push(`b:${{conflict.code}}:${{b.rt.revision}}:${{records().get(K) === before}}`);
+// Simultaneous writers: the transactions are serialised, so exactly one wins.
+const x = await boot(), y = await boot();
+const raced = await Promise.all([x.act("action.add", add(3n, "X")), y.act("action.add", add(4n, "Y"))]);
+out.push(`race:${{raced.map((z) => z.ok ? "ok" : z.code).join(",")}}:${{JSON.parse(records().get(K)).values.label[1]}}`);
+// An unavailable database: authored values, and writes refused.
+io.failOpen = true;
+const fresh = await import("./storage.js?unavailable");
+const u = await fresh.restore(ONTOLOGY, INITIAL_STATE);
+out.push(`unavailable:${{u.ok}}:${{u.code}}:${{show(u.state)}}`);
+const w = await fresh.persister(ONTOLOGY, INITIAL_STATE, u.preserved, u.seen)(u.state, new Map([["count", intValue(1n)]]));
+out.push(`unavailable-write:${{w.ok}}:${{w.conflict}}`);
+process.stdout.write(out.join("\n") + "\n");
+"#
+    );
+    let got = run_node(&dir, &driver);
+    fs::remove_dir_all(dir).unwrap();
+    let initial = "count=int:0,label=text:start,flag=bool:false,ticks=int:0";
+    let expected = vec![
+        "browser.indexeddb.v1".to_owned(),
+        format!("missing:true:null:{initial}"),
+        "tick:true:0:false".into(),
+        "add:true:1".into(),
+        r#"{"format":"goya.state.v1","values":{"count":["int","-5"],"label":["text","γειά 🌍"],"flag":["bool",false]}}"#.into(),
+        "reload:true:0:count=int:-5,label=text:γειά 🌍,flag=bool:false,ticks=int:0".into(),
+        "pending:REENTRANT_DISPATCH:REENTRANT_DISPATCH:false:0:true:true:1".into(),
+        "after:true".into(),
+        "settle:true:REENTRANT_DISPATCH:REENTRANT_DISPATCH".into(),
+        "refused:STORAGE_FAILED:-5:true".into(),
+        "not-json:false:RECORD_UNDECODABLE:true".into(),
+        "retyped:false:RECORD_TYPE_MISMATCH:true".into(),
+        "object:false:RECORD_UNDECODABLE:true".into(),
+        "replace:RECORD_UNDECODABLE:true:string".into(),
+        "a:true".into(),
+        "b:STORAGE_CONFLICT:0:true".into(),
+        "race:ok,STORAGE_CONFLICT:X".into(),
+        format!("unavailable:false:STORAGE_UNAVAILABLE:{initial}"),
+        "unavailable-write:false:false".into(),
+    ];
+    assert_eq!(got.lines().collect::<Vec<_>>(), expected);
+}
+
+#[test]
+fn records_migrate_between_browser_stores_by_rule() {
+    const REC: &str =
+        r#"{"format":"goya.state.v1","values":{"count":["int","42"],"label":["text","old"]}}"#;
+    let idb = r#"browser: "browser.indexeddb.v1";"#;
+    // (case, persistence block, seed, expected first restore, expected second)
+    let cases = [
+        ("copy", format!("@persistence {{ cache_targets: {{ {idb} }}; }}"), "ls.set(K, REC);",
+         "browser.indexeddb.v1:copy:true:null:browser.local-storage.v1:count=int:42,label=text:old,flag=bool:false,ticks=int:0:local=kept:idb=REC"),
+        ("move", format!("@persistence {{ cache_targets: {{ {idb} }}; migration: move; }}"), "ls.set(K, REC);",
+         "browser.indexeddb.v1:move:true:null:browser.local-storage.v1:count=int:42,label=text:old,flag=bool:false,ticks=int:0:local=null:idb=REC"),
+        ("none", format!("@persistence {{ cache_targets: {{ {idb} }}; migration: {{ browser: none; android: move; }}; }}"), "ls.set(K, REC);",
+         "browser.indexeddb.v1:none:true:null:null:count=int:0,label=text:start,flag=bool:false,ticks=int:0:local=kept:idb=null"),
+        ("to-local", String::new(), "seedIdb(REC);",
+         "browser.local-storage.v1:copy:true:null:browser.indexeddb.v1:count=int:42,label=text:old,flag=bool:false,ticks=int:0:local=REC:idb=kept"),
+        ("undecodable", format!("@persistence {{ cache_targets: {{ {idb} }}; }}"), "ls.set(K, \"{\");",
+         "browser.indexeddb.v1:copy:false:RECORD_UNDECODABLE:null:count=int:0,label=text:start,flag=bool:false,ticks=int:0:local=kept:idb=null"),
+        ("both", format!("@persistence {{ cache_targets: {{ {idb} }}; }}"), "ls.set(K, REC); seedIdb(REC.replace('42', '7'));",
+         "browser.indexeddb.v1:copy:true:null:null:count=int:7,label=text:old,flag=bool:false,ticks=int:0:local=kept:idb=other"),
+    ];
+    for (name, block, seed, expected) in cases {
+        let source = DURABLE.replacen(
+            "@ontology notes {",
+            &format!("@ontology notes {{ {block}"),
+            1,
+        );
+        let dir = build(&source, &format!("migrate-{name}"));
+        if !node_available() {
+            fs::remove_dir_all(dir).unwrap();
+            return;
+        }
+        let driver = format!(
+            r#"import {{ restore, recordKey, ADAPTER, MIGRATION_RULE }} from "./storage.js";
+import {{ INITIAL_STATE, ONTOLOGY }} from "./scene.js";
+{FAKE_IDB}
+const ls = new Map();
+globalThis.localStorage = {{
+  getItem: (k) => ls.has(k) ? ls.get(k) : null,
+  setItem: (k, v) => {{ ls.set(k, String(v)); }},
+  removeItem: (k) => {{ ls.delete(k); }},
+}};
+const K = recordKey(ONTOLOGY);
+const REC = {rec};
+const seedIdb = (text) => dbs.set("goya.state.v1", new Map([["records", new Map([[K, text]])]]));
+const describe = (value, seeded) => value === undefined || value === null ? "null" : value === REC ? (seeded ? "kept" : "REC") : value === "{{" ? "kept" : "other";
+const seededLocal = () => {{ {seed} }};
+seededLocal();
+const localSeeded = ls.has(K), idbSeeded = dbs.has("goya.state.v1");
+const r = await restore(ONTOLOGY, INITIAL_STATE);
+const idbNow = dbs.get("goya.state.v1")?.get("records")?.get(K);
+console.log([ADAPTER, MIGRATION_RULE, r.ok, r.code, r.migrated, show(r.state), `local=${{describe(ls.get(K), localSeeded)}}`, `idb=${{describe(idbNow, idbSeeded)}}`].map(String).join(":"));
+// Once copied, the record is the store's own: nothing migrates again.
+const again = await restore(ONTOLOGY, INITIAL_STATE);
+console.log(`again:${{again.migrated}}:${{show(again.state)}}`);
+"#,
+            rec = serde_json_string(REC),
+        );
+        let got = run_node(&dir, &driver);
+        fs::remove_dir_all(dir).unwrap();
+        let lines: Vec<_> = got.lines().collect();
+        assert_eq!(lines[0], expected, "{name}");
+        let state = expected.split(':').nth(5).map(|_| {
+            let parts: Vec<_> = expected.split(':').collect();
+            // The state field spans the fields after `migrated` up to `local=`.
+            let start = parts.iter().position(|p| p.starts_with("count=")).unwrap();
+            let end = parts.iter().position(|p| p.starts_with("local=")).unwrap();
+            parts[start..end].join(":")
+        });
+        assert_eq!(lines[1], format!("again:null:{}", state.unwrap()), "{name}");
+    }
+}
+
+/// A JavaScript string literal for `text` (ASCII inputs only here).
+fn serde_json_string(text: &str) -> String {
+    format!("'{}'", text.replace('\\', "\\\\").replace('\'', "\\'"))
+}
+
 #[test]
 fn durable_restore_refuses_snapshots_over_the_d1_limit() {
     if !node_available() {
@@ -633,7 +940,7 @@ fn durable_restore_refuses_snapshots_over_the_d1_limit() {
     let writes: String = (0..N).map(|i| format!("write t{i:02}: text; ")).collect();
     let sets: String = (0..N).map(|i| format!("set t{i:02} = input.v; ")).collect();
     let source = format!(
-        r#"@ontology big {{ @state {{ {decls}}} @cell root {{ id: "root"; @input v {{ id: "f"; }} @button go {{ id: "b"; }} }} @interaction go {{ id: "action.go"; trigger: button.go.activate; class: D1; state {{ {writes}}} input {{ v: text from "f"; }} {sets}}} }}"#
+        r#"@ontology big {{ @state {{ {decls}}} @cell root {{ id: "root"; @input v {{ id: "f"; @iden {{ label: "Value"; }} }} @button go {{ id: "b"; }} }} @interaction go {{ id: "action.go"; trigger: button.go.activate; class: D1; state {{ {writes}}} input {{ v: text from "f"; }} {sets}}} }}"#
     );
     let dir = build(&source, "durable-limit");
     let driver = format!(
@@ -645,7 +952,7 @@ for (const n of [15, 17]) {{
   const values = {{}};
   for (let i = 0; i < n; i++) values[`t${{String(i).padStart(2, "0")}}`] = ["text", full];
   store.set(recordKey(ONTOLOGY), JSON.stringify({{ format: "goya.state.v1", values }}));
-  const r = restore(ONTOLOGY, INITIAL_STATE);
+  const r = await restore(ONTOLOGY, INITIAL_STATE);
   console.log(`${{n}}:${{r.ok}}:${{r.code}}:${{[...r.state.values()].filter((v) => v.value.length).length}}`);
 }}
 "#
@@ -695,11 +1002,11 @@ fn live_profile_builds_display_bindings() {
     fs::remove_file(src).unwrap();
     let scene = fs::read_to_string(out.join("scene.js")).unwrap();
     assert!(scene.starts_with("// Generated by Maja (maja.web.local.v3)."));
-    assert!(scene.contains(r#"text: "Count: ", scroll: false, textFrom: "count" }"#));
-    assert!(scene.contains(r#"text: "Add", scroll: false, textFrom: null }"#));
+    assert!(scene.contains(r#"text: "Count: ", scroll: false, textFrom: "count", iden: null }"#));
+    assert!(scene.contains(r#"text: "Add", scroll: false, textFrom: null, iden: null }"#));
     let manifest = fs::read_to_string(out.join("manifest.json")).unwrap();
     assert!(manifest.contains("\"profile\": \"maja.web.local.v3\""));
-    assert!(manifest.contains("\"handoff\": \"GSSH/3-live\""));
+    assert!(manifest.contains("\"handoff\": \"GSSH/4-live\""));
     assert!(out.join("storage.js").exists());
     fs::remove_dir_all(out).unwrap();
 }

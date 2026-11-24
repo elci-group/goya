@@ -9,6 +9,7 @@
         }
         @input amount {
             id: "window.amount";
+            @iden { label: "Amount"; hint: "A whole number to add to the count"; }
             position_p: (0.05, 0.22, 0); extent_p: (0.55, 0.12, 0);
             stroke: #333; stroke_width_p: 0.05;
         }

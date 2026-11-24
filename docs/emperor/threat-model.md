@@ -18,6 +18,17 @@ M1 control that is specified: admission goes through `sash::admit::open` and `go
 
 Control that does not exist: a fuzzer corpus, a separate native-IR verifier beyond `deny_unknown_fields` and the profile checks, and a review that the generated window cannot be aimed at a different scene by editing `embed.rs` after the report is written.
 
+### COSMIC build theme
+
+Under `build --desktop cosmic`, the compiler reads COSMIC `v1` theme keys from
+the selected config root. Each key is limited to 64 KiB by reading at most
+65,537 bytes. A larger key is reported as `TooLarge` and only that key
+degrades; its bytes are not parsed. The running App receives baked RGB values
+and does not read the config directory. Theme colours are compile-time data,
+not a grant of filesystem access to the App. A symbolic link within the
+selected config root may still lead the compiler to another readable file;
+the caller controls the build input root.
+
 ### Third-party dependencies
 
 M1 control that is specified: `cargo` is invoked as `Command::new("cargo")` with `--offline`. The SBOM names the direct edges emperor-runtime, goya-parity, goya-wayland, sash, and goya-lang, and says it is not transitive.

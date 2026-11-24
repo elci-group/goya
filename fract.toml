@@ -1,0 +1,45 @@
+project_root = "/home/sal/goya"
+mode = "passive"
+entropy_threshold = 0.82
+confidence_threshold = 0.9
+quiet_period_secs = 120
+watch_patterns = [
+    "src/**/*.rs",
+    "**/*.py",
+    "**/*.ts",
+    "**/*.js",
+]
+ignore_patterns = [
+    "target/**",
+    "**/target/**",
+    ".git/**",
+    "**/.git/**",
+    ".fract/**",
+    ".claude/**",
+    ".doubledoor/**",
+    "arachnid/**",
+    "node_modules/**",
+    "**/node_modules/**",
+    ".venv/**",
+    "**/.venv/**",
+    "venv/**",
+    "**/venv/**",
+    "dist/**",
+    "**/dist/**",
+]
+bind = "127.0.0.1:7345"
+
+[output]
+format = "human"
+color = "auto"
+animation = "auto"
+animation_speed = "normal"
+animation_max_ms = 1800
+verbosity = "normal"
+log_format = "pretty"
+max_findings = 0
+
+[llm]
+provider = ""
+model = ""
+max_tokens = 0

@@ -24,7 +24,8 @@ fn main() {
         _ => {
             fs::write(
                 &dest,
-                "pub fn embedded() -> Option<&'static emperor_runtime::CompiledScene> { None }\n",
+                "pub fn embedded() -> Option<&'static emperor_runtime::CompiledScene> { None }\n\
+                 pub fn embedded_style() -> Option<emperor_runtime::DesktopStyle> { None }\n",
             )
             .expect("write embed.rs");
         }

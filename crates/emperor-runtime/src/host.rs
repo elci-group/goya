@@ -1,8 +1,10 @@
 //! Wayland host loop for the admitted counter.
 //!
-//! Hit rectangles stay at the admitted DIP values. Resize marks the frame
-//! dirty and does not move them. Preedit and commit events are ignored.
+//! Default hit rectangles stay at admitted DIP values when resized. A baked
+//! desktop style may opt into shared proportional placement and inverse input
+//! coordinates. Preedit and commit events are ignored.
 
+use goya_layout::proportional::{self, Anchor, Placement, Point, ResizePolicy, Size, TiledEdges};
 use goya_layout::Rect;
 use goya_parity::keys::{Focus, KeyController};
 use goya_parity::pointer::HitMap;
@@ -10,7 +12,10 @@ use goya_runtime::Primitive;
 use goya_wayland::{GoyaWindow, KeyModifiers, KeySpecial, PlatformEvent, Shortcut};
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::{press_add, Element, NativeIr, OracleReport, VK_SPACE, VK_TAB, WM_KEYDOWN};
+use crate::{
+    press_add, DesktopStyle, Element, NativeIr, OracleReport, WindowControl, VK_SPACE, VK_TAB,
+    WM_KEYDOWN,
+};
 
 const FOCUS_FILL: u32 = 0xFFD6E4F5;
 const FG: [u8; 3] = [20, 20, 28];
@@ -46,6 +51,7 @@ pub(crate) struct PointerEffect {
 #[derive(Debug, Default)]
 pub(crate) struct PointerArm {
     button_id: Option<String>,
+    window_control: Option<WindowControl>,
 }
 
 pub(crate) struct SceneFrame {
@@ -63,10 +69,11 @@ struct View {
     focus: Focus,
 }
 
-pub(crate) fn run_window(
+pub(crate) fn run_window_with_style(
     ir: &NativeIr,
     mut controller: KeyController,
     mode: WindowMode,
+    style: Option<DesktopStyle>,
 ) -> Result<OracleReport, String> {
     let _ = scene_frame(ir, &controller)?;
     let hits = goya_parity::pointer::hit_map(&ir.scene).map_err(|err| err.to_string())?;
@@ -76,7 +83,8 @@ pub(crate) fn run_window(
     } else {
         client_text
     };
-    let mut window = GoyaWindow::create(title, ir.width_dip, ir.height_dip)
+    let (initial_width, initial_height) = initial_window_size(ir.width_dip, ir.height_dip, style);
+    let mut window = GoyaWindow::create(title, initial_width, initial_height)
         .map_err(|err| format!("wayland: {err}"))?;
     let mut arm = PointerArm::default();
     if matches!(mode, WindowMode::Exercise) {
@@ -99,9 +107,26 @@ pub(crate) fn run_window(
         if window.close_requested() {
             break;
         }
-        for event in window.poll() {
+        let events = window.poll();
+        let placement = style
+            .filter(|style| style.proportional)
+            .map(|_| placement_for(ir, &window, &[]));
+        for event in events {
+            let event = if let Some(placement) = &placement {
+                map_pointer_event(event, placement)
+            } else {
+                event
+            };
             let mut published: Option<String> = None;
             let mut paste_requested = false;
+            if let Some(action) = on_window_pointer(ir, &mut arm, &event, |action| {
+                let _ = window.manage_window(action);
+            }) {
+                if action {
+                    dirty = true;
+                }
+                continue;
+            }
             let step = on_event(
                 ir,
                 &mut controller,
@@ -124,15 +149,23 @@ pub(crate) fn run_window(
             }
         }
         if dirty {
-            let frame = scene_frame(ir, &controller)?;
+            let frame = styled_frame(ir, &controller, &window, style)?;
+            let fg = style.map_or(FG, |style| style.fg);
+            let bg = style.map_or(BG, |style| style.bg);
+            let glyph_px = if style.is_some_and(|style| style.proportional) {
+                let transform = placement_for(ir, &window, &[]).transform;
+                scaled_glyph_px(transform.scale_x_milli.min(transform.scale_y_milli))
+            } else {
+                GLYPH_PX
+            };
             window
                 .present_dirty(
                     &frame.primitives,
                     &frame.fills,
                     &frame.foregrounds,
-                    FG,
-                    BG,
-                    GLYPH_PX,
+                    fg,
+                    bg,
+                    glyph_px,
                     None,
                 )
                 .map_err(|err| format!("wayland: {err}"))?;
@@ -164,7 +197,217 @@ pub(crate) fn run_window(
         wayland: "opened",
         window: "wayland",
         edit: controller.session.edit,
+        xdg_wm_base_version: style.map(|_| window.xdg_wm_base_version()),
+        toplevel_state: style.map(|_| window.toplevel_state()),
     })
+}
+
+/// Handle generated chrome before authored scene controls. `Some(true)` means
+/// an action was activated; `Some(false)` means the pointer event belongs to
+/// generated chrome; `None` lets the ordinary scene hit map handle it.
+pub(crate) fn on_window_pointer(
+    ir: &NativeIr,
+    arm: &mut PointerArm,
+    event: &PlatformEvent,
+    request: impl FnOnce(goya_wayland::window_management::WindowAction),
+) -> Option<bool> {
+    use goya_wayland::window_management::WindowAction;
+    match *event {
+        PlatformEvent::PointerPress(x, y) => {
+            if let Some(control) = window_control_at(ir, x, y) {
+                arm.button_id = None;
+                arm.window_control = Some(control);
+                Some(false)
+            } else {
+                arm.window_control = None;
+                None
+            }
+        }
+        PlatformEvent::PointerRelease(x, y) => {
+            let Some(armed) = arm.window_control.take() else {
+                return None;
+            };
+            if window_control_at(ir, x, y) == Some(armed) {
+                request(match armed {
+                    WindowControl::Minimize => WindowAction::Minimize,
+                    WindowControl::Maximize => WindowAction::Maximize,
+                    WindowControl::Restore => WindowAction::Restore,
+                    WindowControl::Close => WindowAction::Close,
+                });
+                Some(true)
+            } else {
+                Some(false)
+            }
+        }
+        _ => None,
+    }
+}
+
+fn window_control_at(ir: &NativeIr, x: f64, y: f64) -> Option<WindowControl> {
+    let (Some(x), Some(y)) = (dip_from_surface_px(x), dip_from_surface_px(y)) else {
+        return None;
+    };
+    window_control_rects(ir)
+        .into_iter()
+        .find_map(|(control, rect)| {
+            let left = rect.x.div_euclid(goya_wayland::MP_PER_PX) as i32;
+            let top = rect.y.div_euclid(goya_wayland::MP_PER_PX) as i32;
+            let width = rect.width.div_euclid(goya_wayland::MP_PER_PX) as i32;
+            let height = rect.height.div_euclid(goya_wayland::MP_PER_PX) as i32;
+            (x >= left && y >= top && x < left + width && y < top + height).then_some(control)
+        })
+}
+
+pub(crate) fn window_control_rects(ir: &NativeIr) -> Vec<(WindowControl, Rect)> {
+    let count = ir.window_controls.len();
+    if count == 0 {
+        return Vec::new();
+    }
+    let gap = 4_i32;
+    let margin = 4_i32;
+    let width =
+        ((ir.width_dip - margin * 2 - gap * (count as i32 - 1)) / count as i32).clamp(1, 28);
+    let height = ir.height_dip.min(24).max(1);
+    let top = margin.min(ir.height_dip.saturating_sub(height));
+    let start = ir.width_dip - margin - count as i32 * width - (count as i32 - 1) * gap;
+    ir.window_controls
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(index, control)| {
+            (
+                control,
+                Rect {
+                    x: i64::from(start + index as i32 * (width + gap)) * goya_wayland::MP_PER_PX,
+                    y: i64::from(top) * goya_wayland::MP_PER_PX,
+                    width: i64::from(width) * goya_wayland::MP_PER_PX,
+                    height: i64::from(height) * goya_wayland::MP_PER_PX,
+                },
+            )
+        })
+        .collect()
+}
+
+fn window_control_label(control: WindowControl) -> &'static str {
+    match control {
+        WindowControl::Minimize => "−",
+        WindowControl::Maximize => "□",
+        WindowControl::Restore => "▣",
+        WindowControl::Close => "×",
+    }
+}
+
+fn rgb(color: [u8; 3]) -> u32 {
+    (u32::from(color[0]) << 16) | (u32::from(color[1]) << 8) | u32::from(color[2])
+}
+
+fn initial_window_size(width: i32, height: i32, style: Option<DesktopStyle>) -> (i32, i32) {
+    if style.is_some_and(|style| style.proportional) {
+        // The admitted 80x40 counter is a design grid. Give its proportional
+        // presentation a usable initial surface while retaining that grid as
+        // the single source of element geometry and hit testing.
+        (width.max(640), height.max(320))
+    } else {
+        (width, height)
+    }
+}
+
+fn scaled_glyph_px(scale_milli: u32) -> u32 {
+    // The bitmap font uses pixels per 5x7 cell. One pixel per cell matches
+    // the admitted design grid; scale that cell with the scene rectangles.
+    ((scale_milli.saturating_add(500) / 1000).max(1)).min(64)
+}
+
+fn placement_for(ir: &NativeIr, window: &GoyaWindow, rects: &[Rect]) -> Placement {
+    let (width, height) = window.size();
+    let tiled = window.toplevel_state().tiled;
+    proportional::place(
+        ResizePolicy::Proportional {
+            min_scale_milli: 1,
+            max_scale_milli: 100_000,
+            preserve_aspect: true,
+            anchor: Anchor::Center,
+        },
+        Size::new(
+            i64::from(ir.width_dip) * goya_wayland::MP_PER_PX,
+            i64::from(ir.height_dip) * goya_wayland::MP_PER_PX,
+        ),
+        Size::new(
+            i64::from(width) * goya_wayland::MP_PER_PX,
+            i64::from(height) * goya_wayland::MP_PER_PX,
+        ),
+        Some(TiledEdges {
+            left: tiled.left,
+            right: tiled.right,
+            top: tiled.top,
+            bottom: tiled.bottom,
+        }),
+        rects,
+    )
+}
+
+fn map_pointer_event(event: PlatformEvent, placement: &Placement) -> PlatformEvent {
+    let point = |x: f64, y: f64| {
+        if !x.is_finite() || !y.is_finite() {
+            return (x, y);
+        }
+        let unit = goya_wayland::MP_PER_PX;
+        let design = placement.to_design(Point::new(
+            (x * unit as f64).floor() as i64,
+            (y * unit as f64).floor() as i64,
+        ));
+        (
+            design.x.div_euclid(unit) as f64,
+            design.y.div_euclid(unit) as f64,
+        )
+    };
+    match event {
+        PlatformEvent::PointerPress(x, y) => {
+            let (x, y) = point(x, y);
+            PlatformEvent::PointerPress(x, y)
+        }
+        PlatformEvent::PointerRelease(x, y) => {
+            let (x, y) = point(x, y);
+            PlatformEvent::PointerRelease(x, y)
+        }
+        other => other,
+    }
+}
+
+fn styled_frame(
+    ir: &NativeIr,
+    controller: &KeyController,
+    window: &GoyaWindow,
+    style: Option<DesktopStyle>,
+) -> Result<SceneFrame, String> {
+    let mut frame = scene_frame(ir, controller)?;
+    let Some(style) = style else { return Ok(frame) };
+    let accent = rgb(style.accent);
+    frame.fills[0] = Some(rgb(style.bg));
+    for fill in frame.fills.iter_mut().skip(1).flatten() {
+        *fill = accent;
+    }
+    frame.foregrounds.fill(Some(rgb(style.fg)));
+    if style.proportional {
+        let rects: Vec<_> = frame
+            .primitives
+            .iter()
+            .map(|primitive| match primitive {
+                Primitive::Panel(rect) | Primitive::Text(rect, _) | Primitive::Button(rect, _) => {
+                    *rect
+                }
+            })
+            .collect();
+        let placement = placement_for(ir, window, &rects);
+        for (primitive, rect) in frame.primitives.iter_mut().zip(placement.rects) {
+            match primitive {
+                Primitive::Panel(current)
+                | Primitive::Text(current, _)
+                | Primitive::Button(current, _) => *current = rect,
+            }
+        }
+    }
+    Ok(frame)
 }
 
 pub(crate) fn on_event(
@@ -284,9 +527,7 @@ pub(crate) fn on_pointer_release(
     y: f64,
 ) -> PointerEffect {
     let hit = match (dip_from_surface_px(x), dip_from_surface_px(y)) {
-        (Some(x), Some(y)) => hits
-            .at(x, y)
-            .map(|control| control.semantic_id.clone()),
+        (Some(x), Some(y)) => hits.at(x, y).map(|control| control.semantic_id.clone()),
         _ => None,
     };
     let armed = arm.button_id.take();
@@ -479,6 +720,13 @@ pub(crate) fn scene_frame(ir: &NativeIr, controller: &KeyController) -> Result<S
         controller.session.result.clone(),
     ));
     fills.push(None);
+    for (control, rect) in window_control_rects(ir) {
+        primitives.push(Primitive::Button(
+            rect,
+            window_control_label(control).to_owned(),
+        ));
+        fills.push(Some(FOCUS_FILL));
+    }
     let foregrounds = vec![None; primitives.len()];
     debug_assert_eq!(fills.len(), primitives.len());
     Ok(SceneFrame {
@@ -546,6 +794,66 @@ fn delete_last_grapheme(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cosmic_counter_uses_design_proportions_on_a_readable_surface() {
+        let style = Some(DesktopStyle {
+            bg: [0; 3],
+            fg: [255; 3],
+            accent: [100; 3],
+            proportional: true,
+        });
+        assert_eq!(initial_window_size(80, 40, style), (640, 320));
+        assert_eq!(initial_window_size(80, 40, None), (80, 40));
+        let placement = proportional::place(
+            ResizePolicy::Proportional {
+                min_scale_milli: 1,
+                max_scale_milli: 100_000,
+                preserve_aspect: true,
+                anchor: Anchor::Center,
+            },
+            Size::new(80_000, 40_000),
+            Size::new(640_000, 320_000),
+            None,
+            &[Rect {
+                x: 34_000,
+                y: 16_000,
+                width: 20_000,
+                height: 8_000,
+            }],
+        );
+        assert_eq!(placement.rects[0].x, 272_000);
+        assert_eq!(placement.rects[0].width, 160_000);
+        assert_eq!(
+            placement.to_design(Point::new(300_000, 150_000)),
+            Point::new(37_500, 18_750)
+        );
+        assert_eq!(scaled_glyph_px(placement.transform.scale_x_milli), 8);
+    }
+
+    #[test]
+    fn proportional_pointer_uses_inverse_design_coordinates() {
+        let placement = proportional::place(
+            ResizePolicy::Proportional {
+                min_scale_milli: 1,
+                max_scale_milli: 100_000,
+                preserve_aspect: false,
+                anchor: Anchor::TopLeft,
+            },
+            Size::new(320 * goya_wayland::MP_PER_PX, 160 * goya_wayland::MP_PER_PX),
+            Size::new(640 * goya_wayland::MP_PER_PX, 320 * goya_wayland::MP_PER_PX),
+            None,
+            &[],
+        );
+        assert_eq!(
+            map_pointer_event(PlatformEvent::PointerPress(160.0, 80.0), &placement),
+            PlatformEvent::PointerPress(80.0, 40.0)
+        );
+        assert_eq!(
+            map_pointer_event(PlatformEvent::PointerRelease(-0.1, 80.0), &placement),
+            PlatformEvent::PointerRelease(-1.0, 40.0)
+        );
+    }
 
     #[test]
     fn surface_px_truncates_toward_zero() {

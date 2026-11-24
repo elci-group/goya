@@ -134,6 +134,8 @@ pub(crate) fn run_window(
         wayland: "not-used",
         window: "kumimanu",
         edit: controller.session.edit,
+        xdg_wm_base_version: None,
+        toplevel_state: None,
     })
 }
 

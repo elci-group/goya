@@ -17,6 +17,9 @@ fn test_state_in_gssh2() {
     println!("Parsed successfully!");
     println!("Entries: {}", parsed.entries.len());
     for entry in &parsed.entries {
-        println!("  kind={}, name={}, path={:?}", entry.kind, entry.name, entry.scene_path);
+        println!(
+            "  kind={}, name={}, path={:?}",
+            entry.kind, entry.name, entry.scene_path
+        );
     }
 }

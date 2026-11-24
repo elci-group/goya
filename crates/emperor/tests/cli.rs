@@ -247,6 +247,62 @@ fn format_json_does_not_swallow_the_package_format() {
     );
 }
 
+#[test]
+fn desktop_profile_rejects_unknown_and_duplicate_values() {
+    let scene = fixture("interactive-counter.gscene");
+    let unknown = run(&[
+        "build",
+        &scene,
+        "--out",
+        "/tmp/nebula-invalid",
+        "--desktop",
+        "gnome",
+    ]);
+    assert_eq!(unknown.code, 2);
+    assert_eq!(unknown.json["diagnostic"], "EMP-USAGE");
+
+    let duplicate = run(&[
+        "build",
+        &scene,
+        "--out",
+        "/tmp/nebula-invalid",
+        "--desktop",
+        "cosmic",
+        "--desktop",
+        "cosmic",
+    ]);
+    assert_eq!(duplicate.code, 2);
+    assert_eq!(duplicate.json["diagnostic"], "EMP-USAGE");
+}
+
+#[test]
+fn cosmic_desktop_build_requires_wayland_and_config_root_requires_profile() {
+    let scene = fixture("interactive-counter.gscene");
+    let x11 = run(&[
+        "build",
+        &scene,
+        "--out",
+        "/tmp/nebula-invalid",
+        "--desktop",
+        "cosmic",
+        "--window",
+        "kumimanu",
+    ]);
+    assert_eq!(x11.code, 2);
+    assert_eq!(x11.json["diagnostic"], "EMP-USAGE");
+
+    let config_without_profile = run(&[
+        "build",
+        &scene,
+        "--out",
+        "/tmp/nebula-invalid",
+        "--config-root",
+        "/tmp/nebula-config",
+    ]);
+    assert_eq!(config_without_profile.code, 2);
+    assert_eq!(config_without_profile.json["diagnostic"], "EMP-USAGE");
+}
+
 /// The .deb path is exercised for real: a genuine build supplies the ELF and
 /// desktop entry, dpkg-deb turns them into an archive, and dpkg-deb -I is run
 /// back over the result so the control fields are read by dpkg itself rather

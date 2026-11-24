@@ -66,4 +66,19 @@ D9 approved, same day, with wrapping and announcement rules for every target:
 | M4-03 | **Closed**: Arachnid's `pre-wrap` is the rule for all targets; Maja follows it and admits `text-from` with `wrap`. |
 | M4-04 | **Closed for Maja**: polite announcements of what changed and how, worded by `goya_lang::display_binding` (Node differential and both browsers). Speech by a real screen reader is not verified. Arachnid must add announcements before its live profile merges (D9 compliance table). |
 
+## Status update, 24 November 2026
+
+An uncommitted cross-target change of 23 November made `@persistence` mandatory in every GSSH/2+ ontology. Reproduction: `cargo test -p maja --test interactive` at that tree; expected 9 passes, actual 9 failures (`MAJA-E0200 … persistence` on the v2 fixtures, `GY-E1014` on the v3 fixtures). It also named IndexedDB as the only browser adapter, contradicting D8. The project owner decided (D11) that approved profiles do not change, that `@persistence` is GSSH/4 only and optional, and that the browser defaults to `localStorage` but supports a declared IndexedDB.
+
+| ID | Status |
+|---|---|
+| M5-01 / A / GSSH/2 regression / blocker | **Closed** by D11: GSSH/2, GSSH/3 and GSSH/3-live reject `@persistence` (`GY-E1015`) and their corpora are unchanged. All Maja tests pass, and every `maja_browser.py` scenario passes in Chrome 157 and Firefox 150. |
+| M5-02 / A + integration / browser store / high | **Closed**: `maja.web.local.v2` resolves the `browser` target (default `browser.local-storage.v1`, declared `browser.indexeddb.v1`, anything else `MAJA-E0200`) and emits a matching `storage.js`; the IndexedDB path commits through the runtime's new `prepare`/`commit`. Verified by a Node test against a fake IndexedDB and `maja_browser.py BROWSER durable-idb` in both browsers. |
+| M4-02 | Residual unchanged for `localStorage`. For IndexedDB the re-read and write share one transaction (Node fake only; not yet raced in a real browser). |
+| M5-03 / A / live + persistence / medium | **Closed** by D12: `maja.web.local.v3` admits GSSH/4-live when a scene uses GSSH/4 declarations; `maja_browser.py BROWSER display-idb` passes in Chrome and Firefox. |
+| M5-05 / A / default-store warning / medium | **Closed**: D11 ruling 3. `MAJA-W0001` on stderr when durable state uses the default browser store (Node CLI test, semantic test). Other targets must add the same warning when they implement durable state. |
+| M5-04 / F / store migration / low | **Closed** by D13: `copy` by default, `move`/`none` by explicit ruling. Node test of six cases over both stores; `maja_browser.py BROWSER durable-idb` adopts a `localStorage` record into IndexedDB in Chrome and Firefox. |
+| M3-01 | **Closed for Maja** by D14: every `@input` needs `@iden` (GSSH/4, `GY-E1017`); its label is the field's accessible name (Chrome accessibility tree: textbox "Amount"; Firefox: DOM). Screen-reader speech not verified. |
+| M5-06 / A / profile base / medium | **Closed** by D15: `maja.web.local.v2`/`v3` admit GSSH/4 and GSSH/4-live directly. |
+
 Every future failure adds source revision, exact command, expected and actual result, owner, severity, remediation, verification and status. A passing document check does not close an implementation or release blocker.

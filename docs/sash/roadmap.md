@@ -385,6 +385,13 @@ A profile `sash.win32.<name>/<version>` is **PROMOTE**d when:
 - Windows smoke tier: `windows-smoke` CI job launches the x64 images on
   `windows-latest` with compiler-generated expectations. Informational only.
 
+- 24 November 2026: the interactive counter also admits GSSH/4-live with
+  `--viewport-dip` (declared state, `from` binding, `text-from` result);
+  `@iden` names controls through dynamic annotation and the result is a D9
+  live region; Sash compiles on a Windows host; the ten-link gate reproduces
+  again (legacy interactive profile name restored); clippy clean. All of it
+  is Linux-verified only (type-check, link, `sash verify`), not launched.
+
 **Immediate Next Step:** Execute **Phase 0** — provision Windows execution environment. All downstream swarms are gated on this.
 
 ---

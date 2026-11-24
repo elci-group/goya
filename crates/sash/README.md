@@ -1,6 +1,6 @@
 # Sash
 
-Sash is Goya's Windows compiler. It admits a GY-LANG/1 scene and produces a native `App.exe` for one of three Windows architectures.
+Sash is Goya's Windows compiler. It admits bounded Goya scenes and produces a native `App.exe` for one of three Windows architectures.
 
 Aragon remains the Android compiler. Neptune remains the iOS compiler. Sylyca is the former name of this Windows backend, not a second toolchain.
 
@@ -10,11 +10,34 @@ Profiles `sash.win32.static-window/0.0.3`, `sash.win32.interactive/0.0.1`, and `
 
 Labels use the system message font for the window DPI. The font is recreated on `WM_DPICHANGED`. Authored text size is still rejected. DPI scaling has not been executed on a Windows machine.
 
-The scene is one ontology whose root `@cell` has an id and a positive extent. Nested `@cell` nodes are admitted, up to 32 cells. Each cell with text becomes a `STATIC` control at the rectangle from `goya_lang::layout`. A cell with neither text nor children is rejected. A cell the solver would move or shrink is rejected. The fixture `fixtures/static-window.gscene` is the smallest admitted input. `fixtures/nested-static.gscene` is the nested proof. Buttons, inputs, interactions, fill, stroke, proportional geometry, and retention are rejected by this profile.
+By default, static scenes use GSSH/1. The scene is one ontology whose root `@cell` has an id and a positive absolute extent. Nested `@cell` nodes are admitted, up to 32 cells. Each cell with text becomes a `STATIC` control at the rectangle from `goya_lang::layout`. A cell with neither text nor children is rejected. A cell the solver would move or shrink is rejected. The fixture `fixtures/static-window.gscene` is the smallest admitted input. `fixtures/nested-static.gscene` is the nested proof.
+
+### Proportional static scenes
+
+`--viewport-dip WIDTHxHEIGHT` selects GSSH/3 static admission for `inspect`, `check`, `expectations`, and `build`. Each edge must be an integer from 1 through 4096. The root must resolve to the full viewport at the origin. One DIP is 250 millipoints. `goya_lang::layout` resolves nested `position_p` and `extent_p` against the parent, including the language's clamping rules. Resolved coordinates and sizes must land exactly on the DIP grid, with positive sizes and zero authored depth. The compiler flattens text cells in tree order into the existing Win32 static-window adapter. The client size is fixed at build time and labels clip on resize.
+
+The proportional slice accepts plain static cells and text. Fill, stroke, authored text size, anchors, wrapping, scrolling, gestures, controls, state, and interactions are rejected. The manifest uses the existing presentation profile for its API floor. Scene-command JSON identifies the frontend as `GSSH/3` and records the viewport.
+
+```text
+sash expectations crates/sash/fixtures/proportional-static.gscene --viewport-dip 640x480 --format json
+sash build crates/sash/fixtures/proportional-static.gscene --viewport-dip 640x480 --release --out /path/to/new-dir
+```
+
+### Accessible identity (`@iden`)
+
+A proportional static scene that declares `@iden` (GSSH/4, decision D14) is admitted as GSSH/4; `expectations` reports `frontend_contract: "GSSH/4"` and a `uia` object per labelled control. The label becomes the control's accessible name and the hint its description and help, set through Win32 dynamic annotation (`IAccPropServices::SetHwndPropStr` with `PROPID_ACC_NAME`, `PROPID_ACC_DESCRIPTION`, `PROPID_ACC_HELP`), which UI Automation exposes as Name, FullDescription and HelpText. COM is bound at run time with `LoadLibraryW`/`GetProcAddress`, so the import closure is unchanged; a failure to annotate refuses to show the window. Annotations are cleared on `WM_DESTROY`. Scenes without `@iden` generate byte-identical programs. An `@iden` on a cell without text is refused (no control carries it), and the interactive profiles, which are GSSH/1, refuse it. `fixtures/iden-static.gscene` is the proof input; its program type-checks for all three architectures on both floors, but has not been linked here or launched on Windows.
 
 Profile `sash.win32.interactive/0.0.1` is selected by `check` and `build` when the scene contains a button, an input, or an interaction and the edit states no gesture policy. It admits one heading, one canonical integer edit, one button, one result cell whose id is `state.<key>`, and one D1 integer addition. Overflow and a non-canonical edit leave the previous value unchanged. That edit keeps the system clipboard.
 
 Profile `sash.win32.interactive/0.0.2` is selected when that edit has a `gestures` block stating `copy` and `paste` as `allow` or `deny`. `cut` may be stated. An omitted cut leaves the system cut command. A denied cut also drops Shift+Delete. Delete without Shift is not a cut. Select, undo, and redo are not policy operations; authoring them is a syntax error. A denied paste does not change the edit. The static-window profile rejects every gestures block. Enter activates the button. Tab and Shift-Tab move between the edit and the button. Space is delivered to the focused control. The result text is written before the value is stored. The stored value changes only when that text reads back as the new value. A different readback restores the previous result text while the window is live. A second activation while that text is being written is ignored. A release that starts during that write drops the commit. A failed text update leaves the previous value. Close releases the font, semantic ids, and edit subclass, then unregisters the window class. Neither interactive executable has been launched on Windows.
+
+### Interactive counter on GSSH/4-live
+
+With `--viewport-dip`, a scene with controls is admitted as GSSH/4-live (decision D15) by the same interactive profiles (`0.0.1`/`0.0.2`, and their legacy floors). The initial value comes from `@state` (session only; durable is refused until a Windows store exists), the edit is bound with `input { amount: int from "<edit id>"; }`, and the result cell shows the value with `text-from: state.<key>;` and no text. Every `@input` needs `@iden`; any control may have one, and it becomes the UI Automation Name and HelpText through dynamic annotation. The result is a polite live region: after each stored change its name becomes the D9 announcement (`count increased by 1, from 0 to 1`) and `EVENT_OBJECT_LIVEREGIONCHANGED` is raised. `fixtures/interactive-live.gscene` (320x160 dip) links reproducibly for x64, x86 and ARM64 on both floors and passes `sash verify`; it has not been launched. GSSH/1 counters generate byte-identical programs.
+
+### Windows host
+
+Sash compiles on Windows. `check`, `inspect`, `expectations` and `verify` work there; `build` refuses, because the cross-link uses Linux tools (rust-lld through a Python shim, the pinned xwin sysroot).
 
 ## API floors
 

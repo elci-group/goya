@@ -129,6 +129,9 @@ const RECORDED_LINKS: &[RecordedLink] = &[
 /// present. Missing pieces skip the test rather than fail it, because the
 /// compiler contract is that Sash never downloads a target or an SDK.
 fn host_can_link() -> Option<String> {
+    if !cfg!(target_os = "linux") {
+        return Some("this is not a Linux cross-link host".to_string());
+    }
     let sysroot = Command::new("rustc")
         .args(["--print", "sysroot"])
         .output()
@@ -158,7 +161,7 @@ fn host_can_link() -> Option<String> {
     if !rc.status.success() {
         return Some("llvm-rc is not installed".to_string());
     }
-    if let Ok(home) = std::env::var("HOME") {
+    if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
         let done = std::path::Path::new(&home)
             .join(".cache/xwin/windows-msvc-sysroot/DONE");
         if !done.is_file() {

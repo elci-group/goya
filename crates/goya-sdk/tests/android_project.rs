@@ -308,10 +308,11 @@ fn emits_the_locked_gradle_wrapper_and_dependency_checksums() {
 }
 
 #[test]
-fn scene_mode_emits_the_compiled_gssh2_scene_and_its_source_map() {
+fn scene_mode_emits_the_compiled_gssh4_scene_and_its_source_map() {
     let scratch = Scratch::new();
     let source = scratch.path("input.gscene");
     let scene = r#"@ontology demo {
+  @persistence { cache_targets: null; }
   @state { taps: int = 0 session; }
   @cell root { id: "root";
     @cell label { id: "label"; position_p: (0.02, 0.01, 0); extent_p: (0.5, 0.05, 0); text: "Taps"; text-size-p: 0.6; }
@@ -353,11 +354,8 @@ fn scene_mode_emits_the_compiled_gssh2_scene_and_its_source_map() {
 
     // Refusals report the byte range and leave no output behind.
     let refused = scratch.path("refused.gscene");
-    fs::write(
-        &refused,
-        r#"@ontology demo { @cell root { id: "root"; text-size: 12; } }"#,
-    )
-    .unwrap();
+    let refused_scene = r#"@ontology demo { @persistence { cache_targets: null; } @cell root { id: "root"; text-size: 12; } }"#;
+    fs::write(&refused, refused_scene).unwrap();
     let output = cli()
         .arg(&refused)
         .arg(scratch.path("none"))
@@ -365,6 +363,8 @@ fn scene_mode_emits_the_compiled_gssh2_scene_and_its_source_map() {
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(1));
-    assert!(String::from_utf8_lossy(&output.stderr).contains("scene rejected at bytes 42.."));
+    let expected_start = refused_scene.find("text-size").unwrap();
+    assert!(String::from_utf8_lossy(&output.stderr)
+        .contains(&format!("scene rejected at bytes {expected_start}..")));
     assert!(!scratch.path("none").exists());
 }

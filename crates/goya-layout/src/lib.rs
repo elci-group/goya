@@ -8,6 +8,11 @@
 
 use goya_ir::{Module, Node, NodeId};
 
+/// Opt-in proportional resize placement for callers that want content to
+/// scale with a resized surface. The existing `layout` function keeps its
+/// fixed geometry behavior.
+pub mod proportional;
+
 /// Contract identifier implemented by this crate.
 pub const LAYOUT_CONTRACT: &str = "GY-LAYOUT/1";
 

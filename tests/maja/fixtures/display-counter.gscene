@@ -18,6 +18,7 @@
         }
         @input amount {
             id: "amount";
+            @iden { label: "Amount"; hint: "A whole number to add to the count"; }
             position_p: (0.05, 0.3, 0); extent_p: (0.55, 0.1, 0);
             stroke: #333; stroke_width_p: 0.05;
         }
@@ -28,6 +29,7 @@
         }
         @input name {
             id: "name";
+            @iden { label: "Label"; }
             position_p: (0.05, 0.45, 0); extent_p: (0.55, 0.1, 0);
             stroke: #333; stroke_width_p: 0.05;
         }

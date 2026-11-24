@@ -1,4 +1,4 @@
-//! Compile GSSH/3 through Nevada's static gate before producing TV sources.
+//! Compile GSSH/4 through Nevada's static gate before producing TV sources.
 
 use std::{fmt, fmt::Write};
 

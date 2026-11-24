@@ -304,7 +304,7 @@ text-from: state.<key>;
 Non-strict (compatibility) consumers such as the GY-IR lowering parse
 `text-from` and ignore it, as they ignore every GSSH/2 declaration.
 
-**Alternatives.** (a) A separate minimal profile (for example `GSSH/4`
+**Alternatives.** (a) A separate minimal profile
 with `text-state:`): faster, but two designs for one construct. (b) Sash's
 `state.<key>` element-ID convention: GSSH/2 already refuses inference from
 IDs (D3).
@@ -316,3 +316,146 @@ differently in authored text (Maja refuses U+0000 and carriage return there)
 can reach a shown `text` value at run time. (c) Announcement wording is
 English only; very long `text` values are announced whole.
 
+## D10 — Platform ambiguity and explicit exceptions (GSSH/4)
+
+*Numbered D9 when first written on 23 November 2026; renumbered because D9
+is display bindings.*
+
+**Decision** (project owner, 23 November 2026). An ontology has implicit
+platform scope `any`. Each compiler defines its native implementation of
+shared semantics. Authors use `@platform <target>` only for an exception to
+that default, scoped to one named feature. The GSSH/4 profile adds seven
+directives: `only-use`, `choice-use`, `fallback`, `fallbacks`, `must-use`,
+`invade`, and `cede`. Their option counts and compiler obligations are in
+[GSSH/4](GSSH-2.md#gssh4--platform-ambiguity-and-explicit-exceptions).
+
+Older profiles reject a platform exception (`GY-E1015`). A GSSH/4 compiler
+may ignore rules for other platforms, but must resolve or refuse every rule
+for its own platform with a source location. A feature name or option string
+alone is not evidence that a compiler implements it. Adopting GSSH/4 does
+not admit live bindings; their existing profile gate remains separate.
+
+## D11 — Persistence targets (GSSH/4)
+
+**Decision** (project owner, 24 November 2026).
+
+1. **Approved profiles do not change.** New constructs go into the next
+   profile, GSSH/4. GSSH/2, GSSH/3 and GSSH/3-live reject `@persistence`
+   with `GY-E1015`, as they reject `@platform`. A draft of 23 November had
+   made `@persistence` mandatory in every GSSH/2+ ontology; that would have
+   changed the approved GSSH/2 contract and invalidated existing scenes, so
+   it is withdrawn.
+2. **Default to local; support a defined database.** In GSSH/4 the
+   declaration is optional. Without it, or for a platform it does not list,
+   durable state stays in the platform's default local store. For the
+   browser that is `localStorage` (`browser.local-storage.v1`), the store D8
+   was approved on. An author may name a defined database instead; the
+   browser's is IndexedDB (`browser.indexeddb.v1`). `cache_targets: null`
+   disables persistence and cannot be combined with `durable` state
+   (`GY-E1014`). The rules are in
+   [Persistence targets](GSSH-2.md#persistence-targets).
+
+Follow-up rulings the same day:
+
+3. **Relying on the default warns.** Leaving the store unnamed is allowed,
+   but when the scene has durable state the compiler reports a warning
+   naming the default it used. Nothing is saved without durable state, so
+   such scenes get no warning.
+4. **Every platform gets a database, with its own defaults.** Each
+   platform keeps its own default local store and has its own database
+   adapter (SQLite as each operating system ships it; IndexedDB in the
+   browser). See the table in
+   [Persistence targets](GSSH-2.md#persistence-targets). Naming an adapter
+   is not proof that a compiler implements it: a target that has not built
+   a store refuses it.
+
+**Consequences.** A target refuses an adapter name it does not implement,
+at the declaration's range. Both browser stores keep the same D8 record
+text. With IndexedDB the D8 comparison and the write share one `readwrite`
+transaction, so another window cannot write between them; with
+`localStorage` a small window remains between the re-read and the write
+(Maja gap M4-02). A store change does not migrate an existing record.
+
+**Open.** (a) Implementations of the non-browser stores: no target except
+Maja emits durable state yet (Aragon refuses it, gate ARG-G07). (b) Whether
+a later profile should migrate records between stores. (c) Persistence
+targets in a live profile: resolved by D12 (GSSH/4-live). (d) Persistence keys for
+`android_tv`, `tvos` and `webos`, which `@platform` names but
+`@persistence` does not.
+
+## D12 — Live state with persistence: live, staged and source (GSSH/4-live)
+
+**Decision** (project owner, 24 November 2026). An application may show
+live values and choose its store at the same time. Following D11, this is
+a new profile, `GSSH/4-live` (GSSH/4 plus GSSH/3-live's `text-from`), not a
+change to GSSH/3-live or GSSH/4.
+
+State is kept in triplicate: **live** (shown and read by interactions),
+**staged** (one proposed change) and **source** (the saved record restored
+at the next launch; the project owner confirmed it is the stored data, not
+the `.gscene` file). Changes apply to staged, are validated, are saved to
+source, and then become live. The project owner chose **save, then show**:
+the screen never shows an unsaved value, accepting a short delay while an
+asynchronous store (IndexedDB, SQLite) writes. The full rule is in
+[Live, staged and source state](GSSH-2.md#live-staged-and-source-state-gssh4-live).
+
+**Consequences.** Maja's D1 runtime exposes the staged step as `prepare`
+(validate) with `commit` (become live) and `abandon` (discard); a second
+interaction while a change is staged fails with `REENTRANT_DISPATCH`.
+Other targets with live bindings (Arachnid) must follow the same order
+when they persist state.
+
+## D13 — Migration between persistence stores (GSSH/4)
+
+**Decision** (project owner, 24 November 2026). When an application's
+store changes, its saved data is **copied over automatically by default**.
+An author may give an explicit different ruling with a strict schema:
+`migration: copy|move|none;` for every platform, or a map of platforms to
+those words. Rules and errors are in
+[Migration between stores](GSSH-2.md#migration-between-stores).
+
+**Consequences.** Migration happens at restore, only when the scene's store
+is empty, and only from a store of the same platform; the record is
+decoded with the D8 rules before it is copied and is copied unchanged
+(entries the scene does not declare stay). The copy writes only if the
+scene's store is still empty, so two windows migrating at once cannot
+overwrite each other. Maja implements it between `localStorage` and
+IndexedDB and marks the page `data-goya-migrated`. Targets without a
+second store have nothing to migrate.
+
+## D14 — Accessible identity: `@iden` (GSSH/4)
+
+**Decision** (project owner, 24 November 2026). Add the `@iden` primitive
+and enforce it on every text box (`@input`) at compile time, for all
+platforms, with general headroom for further accessibility features and
+for each platform's native accessibility features. Rules:
+[Accessible identity](GSSH-2.md#accessible-identity-iden).
+
+**Design.** The requirement is part of GSSH/4 strict admission
+(`GY-E1017`), so every compiler that admits GSSH/4 enforces it without
+its own check. Headroom: `goya_lang::Iden` is non-exhaustive, the
+accessible name and description are separate fields, and keys later
+profiles may define are already reserved and refused precisely. Each
+target maps the fields to its native API (table in the contract) or
+refuses `@iden` at its range; none may drop it.
+
+**Status by target (24 November 2026).** Browser: implemented and verified
+in Chrome 157 (accessibility tree name) and Firefox 150 (DOM). Android:
+generated code calls the platform API; not yet run on a device. Android
+TV: label carried in the plan. iOS (Neptune): SwiftUI `accessibilityLabel`
+and `accessibilityHint` in every element-emitting preview, source-mapped;
+Swift not compiled on this host. Windows (Sash): dynamic annotation in the
+static-window profile and in the GSSH/4-live counter (whose result is also a
+D9 live region); images link reproducibly for x64, x86 and ARM64 on both API
+floors and pass `sash verify`, but none was launched. Sash's GSSH/1 counter
+cannot carry `@iden` (GSSH/1 refuses it). This closes Maja gap M3-01.
+
+## D15 — Build on the latest profile
+
+**Decision** (project owner, 24 November 2026). GSSH/3 is not taken to
+approval; work continues on the latest profile, GSSH/4 (with GSSH/4-live
+for live bindings). Maja's `maja.web.local.v2` and `v3` admit GSSH/4 and
+GSSH/4-live directly. Sash admits GSSH/4 (static) and GSSH/4-live (the
+counter) for `--viewport-dip` scenes and keeps GSSH/1 for its absolute-length
+scenes. Neptune and Emperor still try earlier profiles first; Neptune maps
+`@iden` where it admits it.

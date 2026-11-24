@@ -77,6 +77,20 @@ pub struct Control {
     pub id_range: SourceRange,
     /// Source range for extent property
     pub extent_range: SourceRange,
+    /// `@iden` accessible name and description (GSSH/4, decision D14),
+    /// applied through Win32 dynamic annotation. Absent from the JSON form
+    /// when the element declares none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub iden: Option<Iden>,
+}
+
+/// An element's accessible identity: `label` becomes the UI Automation
+/// Name, `hint` its HelpText and description.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Iden {
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hint: Option<String>,
 }
 
 /// Control role
@@ -116,6 +130,11 @@ pub struct Transition {
     pub button_id: u16,
     /// Expression tree
     pub expr: IntExpr,
+    /// Decision D9 context of the shown value (GSSH/4-live). When present,
+    /// the result is a polite UI Automation live region announced on each
+    /// stored change. Absent from the JSON form for GSSH/1 scenes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub announce_context: Option<String>,
 }
 
 /// Integer expression for transitions
@@ -204,6 +223,9 @@ pub struct ControlOrigin {
     pub id_range: SourceRange,
     /// Extent source range
     pub extent_range: SourceRange,
+    /// `@iden` source range, when declared
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub iden_range: Option<SourceRange>,
 }
 
 /// Source range (half-open UTF-8 byte offsets).
@@ -262,6 +284,7 @@ mod tests {
                 text_range: SourceRange::new(40, 46),
                 id_range: SourceRange::new(12, 25),
                 extent_range: SourceRange::new(52, 68),
+                iden: None,
             }],
             transition: None,
             gesture_policy: None,
@@ -287,6 +310,7 @@ mod tests {
                     text_range: SourceRange::new(40, 46),
                     id_range: SourceRange::new(12, 25),
                     extent_range: SourceRange::new(52, 68),
+                    iden_range: None,
                 }],
             },
         }
@@ -312,6 +336,7 @@ mod tests {
                 Box::new(IntExpr::State),
                 Box::new(IntExpr::Input),
             ),
+            announce_context: None,
         });
         document.gesture_policy = Some(GesturePolicy {
             copy_allowed: true,

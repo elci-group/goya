@@ -95,6 +95,146 @@ fn assert_range(source: &str, range: SourceRange, context: &str) {
 }
 
 #[test]
+fn persistence_targets_are_gssh4_only_optional_and_closed() {
+    use goya_lang::parse_strict_gssh4;
+    let root = "@ontology app { @cell root { id: \"root\"; } }";
+    let durable = "@ontology app { @state { n: int = 0 durable; } @cell root { id: \"root\"; @button go { id: \"go\"; } } @interaction go { id: \"action.go\"; trigger: button.go.activate; class: D1; state { write n: int; } input { } set n = 1; } }";
+    // Omitted: every target uses its default local store (decision D11).
+    assert!(parse_strict_gssh4(root).is_ok());
+    assert!(parse_strict_gssh4(durable).is_ok());
+    let declared = |scene: &str, block: &str| scene.replacen("{ ", &format!("{{ {block} "), 1);
+    let disabled = declared(root, "@persistence { cache_targets: null; }");
+    let indexed = declared(
+        durable,
+        "@persistence { cache_targets: { browser: \"browser.indexeddb.v1\"; }; }",
+    );
+    assert!(parse_strict_gssh4(&disabled).is_ok());
+    assert!(parse_strict_gssh4(&indexed).is_ok());
+    // Approved profiles never receive the declaration.
+    for older in [parse_strict_gssh2, parse_strict_gssh3] {
+        assert_eq!(older(&indexed).unwrap_err().code, "GY-E1015");
+        assert!(older(durable).is_ok());
+    }
+    let off = declared(durable, "@persistence { cache_targets: null; }");
+    let error = parse_strict_gssh4(&off).unwrap_err();
+    assert_eq!(error.code, "GY-E1014");
+    assert_eq!(
+        &off[error.range.start..error.range.end],
+        "@persistence { cache_targets: null; }"
+    );
+    let unknown = declared(
+        root,
+        "@persistence { cache_targets: { playstation: \"custom\"; }; }",
+    );
+    assert_eq!(parse_strict_gssh4(&unknown).unwrap_err().code, "GY-E1000");
+}
+
+#[test]
+fn gssh4_requires_an_accessible_identity_on_every_input() {
+    use goya_lang::{parse_strict_gssh4, parse_strict_gssh4_live};
+    let scene = |iden: &str| {
+        format!(
+            "@ontology app {{ @state {{ n: int = 0 session; }} @cell root {{ id: \"root\"; @input amount {{ id: \"amount\"; {iden} }} @button go {{ id: \"go\"; }} }} @interaction go {{ id: \"action.go\"; trigger: button.go.activate; class: D1; state {{ write n: int; }} input {{ v: int from \"amount\"; }} set n = input.v; }} }}"
+        )
+    };
+    let named = scene(r#"@iden { label: "Amount"; hint: "A whole number to add"; }"#);
+    for parse in [parse_strict_gssh4, parse_strict_gssh4_live] {
+        let parsed = parse(&named).unwrap();
+        let input = &parsed.scene.root.children[0];
+        let iden = input.iden.as_ref().unwrap();
+        assert_eq!(
+            (iden.label.as_str(), iden.hint.as_deref()),
+            ("Amount", Some("A whole number to add"))
+        );
+    }
+    // Missing on a text box: refused at the @input.
+    let bare = scene("");
+    let error = parse_strict_gssh4(&bare).unwrap_err();
+    assert_eq!(error.code, "GY-E1017");
+    assert!(bare[error.range.start..error.range.end].starts_with("@input amount"));
+    // Strict schema: blank, control characters, reserved and unknown keys.
+    for (iden, code, at) in [
+        (r#"@iden { label: "  "; }"#, "GY-E1017", "@iden"),
+        ("@iden { label: \"A\tB\"; }", "GY-E1017", "@iden"),
+        (
+            r#"@iden { label: "Amount"; role: "spinbutton"; }"#,
+            "GY-E1017",
+            "role: \"spinbutton\";",
+        ),
+        (
+            r#"@iden { label: "Amount"; colour: "red"; }"#,
+            "GY-E1000",
+            "",
+        ),
+        (r#"@iden { hint: "no label"; }"#, "GY-E1000", ""),
+        (r#"@iden { label: "A"; label: "B"; }"#, "GY-E1000", ""),
+        (
+            r#"@iden { label: "A"; } @iden { label: "B"; }"#,
+            "GY-E1000",
+            "",
+        ),
+    ] {
+        let source = scene(iden);
+        let error = parse_strict_gssh4(&source).unwrap_err();
+        assert_eq!(error.code, code, "{iden}");
+        if !at.is_empty() {
+            assert!(
+                source[error.range.start..error.range.end].starts_with(at),
+                "{iden}"
+            );
+        }
+    }
+    let long = scene(&format!("@iden {{ label: \"{}\"; }}", "a".repeat(513)));
+    assert_eq!(parse_strict_gssh4(&long).unwrap_err().code, "GY-E1017");
+    // Optional elsewhere; GSSH/3 never receives it.
+    let button = named.replace(
+        "@button go { id: \"go\"; }",
+        "@button go { id: \"go\"; @iden { label: \"Add amount\"; } }",
+    );
+    assert!(parse_strict_gssh4(&button).is_ok());
+    assert_eq!(parse_strict_gssh3(&named).unwrap_err().code, "GY-E1015");
+}
+
+#[test]
+fn persistence_migration_is_a_closed_schema() {
+    use goya_lang::{parse_strict_gssh4, Migration, MigrationRule};
+    let root = "@ontology app { @cell root { id: \"root\"; } }";
+    let with = |block: &str| root.replacen("{ ", &format!("{{ {block} "), 1);
+    let rule = |block: &str| {
+        parse_strict_gssh4(&with(block)).map(|p| p.declarations.persistence_migration)
+    };
+    assert_eq!(
+        rule(r#"@persistence { cache_targets: { browser: "browser.indexeddb.v1"; }; }"#).unwrap(),
+        None
+    );
+    assert_eq!(
+        rule(r#"@persistence { cache_targets: { browser: "browser.indexeddb.v1"; }; migration: move; }"#).unwrap(),
+        Some(MigrationRule::All(Migration::Move))
+    );
+    let per = rule(r#"@persistence { cache_targets: { browser: "browser.indexeddb.v1"; }; migration: { browser: none; android: move; }; }"#)
+        .unwrap()
+        .unwrap();
+    assert_eq!(per.for_platform("browser"), Migration::None);
+    assert_eq!(per.for_platform("android"), Migration::Move);
+    assert_eq!(per.for_platform("ios"), Migration::Copy);
+    for bad in [
+        r#"@persistence { cache_targets: { browser: "x"; }; migration: merge; }"#,
+        r#"@persistence { cache_targets: { browser: "x"; }; migration: { }; }"#,
+        r#"@persistence { cache_targets: { browser: "x"; }; migration: { playstation: copy; }; }"#,
+        r#"@persistence { cache_targets: { browser: "x"; }; migration: { browser: copy; browser: move; }; }"#,
+        r#"@persistence { migration: copy; cache_targets: { browser: "x"; }; }"#,
+    ] {
+        assert_eq!(rule(bad).unwrap_err().code, "GY-E1000", "{bad}");
+    }
+    assert_eq!(
+        rule("@persistence { cache_targets: null; migration: copy; }")
+            .unwrap_err()
+            .code,
+        "GY-E1014"
+    );
+}
+
+#[test]
 fn reject_fixtures_fail_with_their_code_at_their_exact_span() {
     for (path, source) in fixtures("reject") {
         let code = header(&path, &source, "expect");

@@ -65,8 +65,7 @@ fn rejected(message: impl Into<String>, range: Option<SourceRange>) -> crate::Di
 pub fn lower(source: &str, module: &str) -> Result<Vec<Transition>, crate::Diagnostic> {
     crate::validate_module(module)?;
     crate::inspect(source)?;
-    let handoff = goya_lang::handoff::admit_v3(source)
-        .map_err(|e| rejected(e.to_string(), Some(e.range)))?;
+    let handoff = crate::admit_ios(source).map_err(|e| rejected(e.to_string(), Some(e.range)))?;
     lower_admitted(handoff.parsed(), module)
 }
 
@@ -283,11 +282,9 @@ mod tests {
         );
         assert!(SOURCE[action.source_range.start..action.source_range.end]
             .starts_with("@interaction increment"));
-        let handoff = goya_lang::handoff::admit_v3(SOURCE).unwrap();
+        let handoff = crate::admit_ios(SOURCE).unwrap();
         let scene = &handoff.parsed().scene;
-        let reference = goya_lang::compile_d1_interactions(scene)
-            .unwrap()
-            .remove(0);
+        let reference = goya_lang::compile_d1_interactions(scene).unwrap().remove(0);
         assert_eq!(action.reference_program_hash, reference.program_hash());
         for (count, amount) in [(9, 3), (-8, 3), (i64::MAX, 1)] {
             let state = BTreeMap::from([

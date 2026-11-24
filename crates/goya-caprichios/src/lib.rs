@@ -65,12 +65,129 @@ pub mod retry_caprichio;
 pub mod samsung_pay_caprichio;
 pub mod snapdragon_accelerator_caprichio;
 pub mod snapdragon_runtime;
+pub mod state_persistence;
 pub mod storage;
 pub mod stream_caprichio;
 pub mod tensor_accelerator_caprichio;
 pub mod tensor_runtime;
 pub mod touch_id_caprichio;
 pub mod windows_hello_caprichio;
+
+/// Exact policy entries a target compiler has implemented. A match includes
+/// the feature, rule kind, and ordered option list; a feature-only match is
+/// never enough to claim that an exception was resolved.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PlatformRuleResolution {
+    pub feature: String,
+    pub use_kind: String,
+    pub options: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SourceSpan {
+    pub start: usize,
+    pub end: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PlatformRuleRef {
+    pub platform: String,
+    pub feature: String,
+    pub use_kind: String,
+    pub options: Vec<String>,
+    pub range: SourceSpan,
+}
+
+/// A source-bound target exception that is not implemented by the compiler.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UnresolvedPlatformRule {
+    pub platform: String,
+    pub feature: String,
+    pub range: SourceSpan,
+}
+
+/// Check all exceptions for `platform` against the compiler's explicit rule
+/// inventory. Rules for other platforms are deliberately inert. Exact option
+/// matching prevents a compiler from silently accepting a variant it does not
+/// implement. The target compiler converts its admitted GSSH/4 exceptions to
+/// these dependency-free records and calls this immediately after admission.
+pub fn resolve_platform_exceptions(
+    platform: &str,
+    exceptions: impl IntoIterator<Item = PlatformRuleRef>,
+    inventory: &[PlatformRuleResolution],
+) -> Result<(), UnresolvedPlatformRule> {
+    for rule in exceptions
+        .into_iter()
+        .filter(|rule| rule.platform == platform)
+    {
+        let resolved = inventory.iter().any(|entry| {
+            entry.feature == rule.feature
+                && entry.use_kind == rule.use_kind
+                && entry.options == rule.options
+        });
+        if !resolved {
+            return Err(UnresolvedPlatformRule {
+                platform: rule.platform,
+                feature: rule.feature,
+                range: rule.range,
+            });
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod platform_exception_tests {
+    use super::*;
+
+    const SOURCE: &str = "@ontology app { @persistence { cache_targets: null; } @platform ios { \"media\": only-use(\"native.player\"); } @cell title { id: \"title\"; text: \"Hello\"; } }";
+
+    fn exception() -> PlatformRuleRef {
+        let start = SOURCE.find("\"media\"").unwrap();
+        let end = SOURCE[start..].find(';').unwrap() + start + 1;
+        PlatformRuleRef {
+            platform: "ios".into(),
+            feature: "media".into(),
+            use_kind: "only-use".into(),
+            options: vec!["native.player".into()],
+            range: SourceSpan { start, end },
+        }
+    }
+
+    #[test]
+    fn unrelated_platform_rules_are_inert() {
+        assert!(resolve_platform_exceptions("browser", [exception()], &[]).is_ok());
+    }
+
+    #[test]
+    fn matching_unregistered_rule_is_refused_at_its_source_range() {
+        let error = resolve_platform_exceptions("ios", [exception()], &[]).unwrap_err();
+        assert_eq!(
+            &SOURCE[error.range.start..error.range.end],
+            "\"media\": only-use(\"native.player\");"
+        );
+    }
+
+    #[test]
+    fn exact_registered_rule_is_accepted() {
+        let inventory = [PlatformRuleResolution {
+            feature: "media".into(),
+            use_kind: "only-use".into(),
+            options: vec!["native.player".into()],
+        }];
+        assert!(resolve_platform_exceptions("ios", [exception()], &inventory).is_ok());
+        let mismatched = [PlatformRuleResolution {
+            options: vec!["other.player".into()],
+            ..inventory[0].clone()
+        }];
+        assert_eq!(
+            resolve_platform_exceptions("ios", [exception()], &mismatched)
+                .unwrap_err()
+                .feature,
+            "media"
+        );
+    }
+}
 
 use std::fmt;
 
