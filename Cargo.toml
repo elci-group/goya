@@ -62,6 +62,7 @@ members = [
     "crates/goya-document",
     "crates/goya-webview",
     "crates/goya-plugin-host",
+    "crates/goya-graphics-container",
     "crates/emperor",
     "crates/emperor-runtime",
     "crates/goya-freedesktop",
@@ -125,6 +126,7 @@ goya-ecosystem = { path = "crates/goya-ecosystem" }
 goya-sdk = { path = "crates/goya-sdk" }
 goya-webview = { path = "crates/goya-webview" }
 goya-studio = { path = "crates/goya-studio" }
+goya-graphics-container = { path = "crates/goya-graphics-container" }
 emperor-runtime = { path = "crates/emperor-runtime" }
 goya-freedesktop = { path = "crates/goya-freedesktop" }
 nebula = { path = "crates/nebula" }
