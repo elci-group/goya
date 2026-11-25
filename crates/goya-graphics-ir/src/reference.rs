@@ -73,6 +73,37 @@ impl Image {
         ]
     }
 
+    /// The largest difference between two same-sized images in any
+    /// premultiplied channel (alpha included), in 8-bit levels. This is
+    /// the tolerance metric for comparing renders (directive §5.3).
+    /// Straight-alpha RGB is unsuitable because it jumps arbitrarily where
+    /// alpha is near zero. Returns `None` if the sizes differ.
+    pub fn max_premultiplied_diff(&self, other: &Image) -> Option<u8> {
+        if (self.width, self.height) != (other.width, other.height) {
+            return None;
+        }
+        let pm = |px: &[u8]| -> [u32; 4] {
+            let a = u32::from(px[3]);
+            [
+                (u32::from(px[0]) * a + 127) / 255,
+                (u32::from(px[1]) * a + 127) / 255,
+                (u32::from(px[2]) * a + 127) / 255,
+                a,
+            ]
+        };
+        Some(
+            self.rgba
+                .chunks(4)
+                .zip(other.rgba.chunks(4))
+                .map(|(x, y)| {
+                    let (p, q) = (pm(x), pm(y));
+                    (0..4).map(|c| p[c].abs_diff(q[c])).max().unwrap_or(0) as u8
+                })
+                .max()
+                .unwrap_or(0),
+        )
+    }
+
     /// Netpbm PAM (`RGB_ALPHA`) encoding, for inspection and golden files.
     pub fn to_pam(&self) -> Vec<u8> {
         let mut out = format!(
@@ -847,6 +878,26 @@ mod tests {
                 .code,
             codes::NON_FINITE
         );
+    }
+
+    #[test]
+    fn premultiplied_diff_ignores_invisible_colour() {
+        let img = |rgba: Vec<u8>| Image {
+            width: 2,
+            height: 1,
+            rgba,
+        };
+        let a = img(vec![0, 0, 0, 0, 255, 0, 0, 255]);
+        let b = img(vec![0, 0, 255, 1, 254, 0, 0, 255]);
+        // Pixel 0: colour differs by 255 but alpha only by 1.
+        assert_eq!(a.max_premultiplied_diff(&b), Some(1));
+        assert_eq!(a.max_premultiplied_diff(&a), Some(0));
+        let c = Image {
+            width: 1,
+            height: 1,
+            rgba: vec![0; 4],
+        };
+        assert_eq!(a.max_premultiplied_diff(&c), None);
     }
 
     #[test]

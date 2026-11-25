@@ -594,12 +594,37 @@ fn put_str(out: &mut Vec<u8>, s: &str) {
     out.extend_from_slice(s.as_bytes());
 }
 
-/// `STAT`: dimensions, value labels and effects. The model must already
-/// be validated.
+/// Morph targets in first-use order, each stored once.
+fn morph_targets(model: &StateModel) -> Vec<&Path> {
+    let mut out: Vec<&Path> = Vec::new();
+    for d in &model.dimensions {
+        for v in d.values() {
+            for e in &v.effects {
+                if let Effect::Morph(_, target, _) = e {
+                    if !out.contains(&&**target) {
+                        out.push(target);
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// `STAT`: morph-target path table, dimensions, value labels and effects.
+/// The model must already be validated.
 pub(crate) fn encode_stat(model: &StateModel) -> Vec<u8> {
+    let targets = morph_targets(model);
     let mut out = Vec::new();
     out.extend_from_slice(&(model.dimensions.len() as u32).to_le_bytes());
-    out.extend_from_slice(&[0u8; 12]);
+    out.extend_from_slice(&(targets.len() as u32).to_le_bytes());
+    out.push(STAT_LITERAL);
+    out.extend_from_slice(&[0u8; 7]);
+    for t in &targets {
+        let bytes = encode_path_bytes(t);
+        out.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+        out.extend_from_slice(&bytes);
+    }
     for d in &model.dimensions {
         put_str(&mut out, &d.name);
         let values = d.values();
@@ -636,10 +661,9 @@ pub(crate) fn encode_stat(model: &StateModel) -> Vec<u8> {
                     Effect::Restyle(_, s) => out.extend_from_slice(&encode_style_record(s)),
                     Effect::Hide(_) => {}
                     Effect::Morph(_, target, t) => {
-                        let bytes = encode_path_bytes(target);
+                        let index = targets.iter().position(|p| **p == **target).unwrap_or(0);
                         out.extend_from_slice(&t.to_le_bytes());
-                        out.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
-                        out.extend_from_slice(&bytes);
+                        out.extend_from_slice(&(index as u32).to_le_bytes());
                     }
                 }
             }
@@ -647,6 +671,360 @@ pub(crate) fn encode_stat(model: &StateModel) -> Vec<u8> {
     }
     pad16(&mut out);
     out
+}
+
+/// `STAT` byte 8: the literal per-value encoding (the canonical form, and the
+/// input to the parent binding).
+pub(crate) const STAT_LITERAL: u8 = 0;
+/// `STAT` byte 8: GVI-O operative encoding (gvi-operative.md §3).
+pub(crate) const STAT_OPERATIVE: u8 = 1;
+/// Most effect fields an operative `STAT` may materialise, against
+/// expansion bombs.
+const MAX_OPERATIVE_FIELDS: usize = 1 << 24;
+/// Most label bytes an operative `STAT` may materialise.
+const MAX_LABEL_BYTES: usize = 16 << 20;
+
+fn effect_kind(e: &Effect) -> u8 {
+    match e {
+        Effect::Transform(..) => EFFECT_TRANSFORM,
+        Effect::Opacity(..) => EFFECT_OPACITY,
+        Effect::Restyle(..) => EFFECT_RESTYLE,
+        Effect::Hide(_) => EFFECT_HIDE,
+        Effect::Morph(..) => EFFECT_MORPH,
+    }
+}
+
+fn effect_selector(e: &Effect) -> &Selector {
+    match e {
+        Effect::Transform(s, _)
+        | Effect::Opacity(s, _)
+        | Effect::Restyle(s, _)
+        | Effect::Hide(s)
+        | Effect::Morph(s, ..) => s,
+    }
+}
+
+/// Number of payload integers each effect kind carries.
+fn payload_len(kind: u8) -> usize {
+    match kind {
+        EFFECT_TRANSFORM => 6,
+        EFFECT_OPACITY => 1,
+        EFFECT_RESTYLE => STYLE_RECORD,
+        EFFECT_MORPH => 2,
+        _ => 0,
+    }
+}
+
+/// An effect's shape: kind, selector kind (0 all, 1 items) and selector
+/// length.
+fn signature(e: &Effect) -> (u8, u8, usize) {
+    match effect_selector(e) {
+        Selector::All => (effect_kind(e), 0, 0),
+        Selector::Items(ids) => (effect_kind(e), 1, ids.len()),
+    }
+}
+
+/// The effect's selector ids, then its payload, as integers.
+fn effect_fields(e: &Effect, targets: &[&Path]) -> Vec<i64> {
+    let mut out: Vec<i64> = match effect_selector(e) {
+        Selector::All => Vec::new(),
+        Selector::Items(ids) => ids.iter().map(|&i| i64::from(i)).collect(),
+    };
+    match e {
+        Effect::Transform(_, t) => out.extend([t.a, t.b, t.c, t.d, t.e, t.f].map(i64::from)),
+        Effect::Opacity(_, f) => out.push(i64::from(*f)),
+        Effect::Restyle(_, st) => out.extend(encode_style_record(st).map(i64::from)),
+        Effect::Hide(_) => {}
+        Effect::Morph(_, target, t) => {
+            out.push(i64::from(*t));
+            out.push(targets.iter().position(|p| **p == **target).unwrap_or(0) as i64);
+        }
+    }
+    out
+}
+
+/// Rebuild an effect from its shape and fields.
+fn effect_from(
+    kind: u8,
+    sel_kind: u8,
+    fields: &[i64],
+    targets: &[Arc<Path>],
+) -> Result<Effect, GfxDiag> {
+    let bad = |d: &str| invalid(format!("operative STAT: {d}"));
+    let (sel, payload) = match sel_kind {
+        0 => (Selector::All, fields),
+        1 => {
+            let n = fields.len() - payload_len(kind);
+            let ids = fields[..n]
+                .iter()
+                .map(|&v| u32::try_from(v).map_err(|_| bad("selector id out of range")))
+                .collect::<Result<Vec<_>, _>>()?;
+            (Selector::Items(ids), &fields[n..])
+        }
+        _ => return Err(bad("unknown selector kind")),
+    };
+    let i32_at =
+        |k: usize| i32::try_from(payload[k]).map_err(|_| bad("transform value out of range"));
+    Ok(match kind {
+        EFFECT_TRANSFORM => Effect::Transform(
+            sel,
+            Affine {
+                a: i32_at(0)?,
+                b: i32_at(1)?,
+                c: i32_at(2)?,
+                d: i32_at(3)?,
+                e: i32_at(4)?,
+                f: i32_at(5)?,
+            },
+        ),
+        EFFECT_OPACITY => Effect::Opacity(
+            sel,
+            u8::try_from(payload[0]).map_err(|_| bad("opacity out of range"))?,
+        ),
+        EFFECT_RESTYLE => {
+            let mut rec = [0u8; STYLE_RECORD];
+            for (b, &v) in rec.iter_mut().zip(payload) {
+                *b = u8::try_from(v).map_err(|_| bad("style byte out of range"))?;
+            }
+            Effect::Restyle(sel, decode_style_record(&rec)?)
+        }
+        EFFECT_HIDE => Effect::Hide(sel),
+        EFFECT_MORPH => {
+            let t = u32::try_from(payload[0]).map_err(|_| bad("morph fraction out of range"))?;
+            let idx = usize::try_from(payload[1]).map_err(|_| bad("morph target out of range"))?;
+            let target = targets
+                .get(idx)
+                .ok_or_else(|| bad("morph target is not in the path table"))?;
+            Effect::Morph(sel, target.clone(), t)
+        }
+        _ => return Err(bad("unknown effect kind")),
+    })
+}
+
+/// `STAT` in GVI-O operative form. The header and path table are as in the
+/// literal form (with byte 8 = 1). Each dimension then follows as a varint
+/// stream: name, value count, a label column, and either uniform effect
+/// columns or literal per-value effects.
+/// The `REF` operative for a morph target: the lowest-id `GEOM` anchor that
+/// equals the target up to a translation, as `(anchor id, dx, dy)` with
+/// `target = anchor.translated(dx, dy)`.
+fn target_ref(target: &Path, anchors: &[Path]) -> Option<(u32, i32, i32)> {
+    let t0 = target.first_point();
+    anchors.iter().enumerate().find_map(|(g, a)| {
+        let a0 = a.first_point();
+        let dx = i32::try_from(i64::from(t0.x) - i64::from(a0.x)).ok()?;
+        let dy = i32::try_from(i64::from(t0.y) - i64::from(a0.y)).ok()?;
+        (a.translated(dx, dy).as_ref() == Some(target)).then_some((g as u32, dx, dy))
+    })
+}
+
+/// `STAT` in GVI-O operative form. The header is as in the literal form,
+/// with byte 8 = 1. Each morph target is then either a literal path
+/// (`u8 0`, `u32 len`, bytes) or a `REF` to a `GEOM` anchor (`u8 1`,
+/// varint id, zigzag dx, zigzag dy), using the lowest matching anchor id.
+/// Each dimension then follows as a varint stream: name, value count, a
+/// label column, and either uniform effect columns or literal per-value
+/// effects.
+pub(crate) fn encode_stat_operative(model: &StateModel, anchors: &[Path]) -> Vec<u8> {
+    use crate::operative::{encode_ints, encode_labels, put_varint};
+    let targets = morph_targets(model);
+    let mut out = Vec::new();
+    out.extend_from_slice(&(model.dimensions.len() as u32).to_le_bytes());
+    out.extend_from_slice(&(targets.len() as u32).to_le_bytes());
+    out.push(STAT_OPERATIVE);
+    out.extend_from_slice(&[0u8; 7]);
+    for t in &targets {
+        match target_ref(t, anchors) {
+            Some((g, dx, dy)) => {
+                out.push(1);
+                put_varint(&mut out, u64::from(g));
+                put_varint(
+                    &mut out,
+                    ((i64::from(dx) << 1) ^ (i64::from(dx) >> 63)) as u64,
+                );
+                put_varint(
+                    &mut out,
+                    ((i64::from(dy) << 1) ^ (i64::from(dy) >> 63)) as u64,
+                );
+            }
+            None => {
+                let bytes = encode_path_bytes(t);
+                out.push(0);
+                out.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+                out.extend_from_slice(&bytes);
+            }
+        }
+    }
+    for d in &model.dimensions {
+        put_varint(&mut out, d.name.len() as u64);
+        out.extend_from_slice(d.name.as_bytes());
+        let values = d.values();
+        put_varint(&mut out, values.len() as u64);
+        let labels: Vec<&str> = values.iter().map(|v| v.label.as_str()).collect();
+        out.extend_from_slice(&encode_labels(&labels));
+        let sigs: Vec<Vec<(u8, u8, usize)>> = values
+            .iter()
+            .map(|v| v.effects.iter().map(signature).collect())
+            .collect();
+        let uniform = sigs.windows(2).all(|w| w[0] == w[1]);
+        out.push(u8::from(uniform));
+        if uniform {
+            let sig = sigs.first().cloned().unwrap_or_default();
+            put_varint(&mut out, sig.len() as u64);
+            for &(kind, sel_kind, sel_len) in &sig {
+                out.push(kind);
+                out.push(sel_kind);
+                if sel_kind == 1 {
+                    put_varint(&mut out, sel_len as u64);
+                }
+            }
+            // One integer column per field: values down, fields across.
+            let rows: Vec<Vec<i64>> = values
+                .iter()
+                .map(|v| {
+                    v.effects
+                        .iter()
+                        .flat_map(|e| effect_fields(e, &targets))
+                        .collect()
+                })
+                .collect();
+            let width = rows.first().map_or(0, Vec::len);
+            for f in 0..width {
+                let col: Vec<i64> = rows.iter().map(|r| r[f]).collect();
+                out.extend_from_slice(&encode_ints(&col));
+            }
+        } else {
+            for v in values {
+                put_varint(&mut out, v.effects.len() as u64);
+                for e in &v.effects {
+                    let (kind, sel_kind, sel_len) = signature(e);
+                    out.push(kind);
+                    out.push(sel_kind);
+                    if sel_kind == 1 {
+                        put_varint(&mut out, sel_len as u64);
+                    }
+                    for x in effect_fields(e, &targets) {
+                        put_varint(&mut out, ((x << 1) ^ (x >> 63)) as u64);
+                    }
+                }
+            }
+        }
+    }
+    pad16(&mut out);
+    out
+}
+
+fn parse_dims_operative(
+    c: &mut crate::operative::Cursor<'_>,
+    n: usize,
+    targets: &[Arc<Path>],
+) -> Result<Vec<Dimension>, GfxDiag> {
+    use crate::operative::{decode_ints, decode_labels};
+    let bad = |d: &str| invalid(format!("operative STAT: {d}"));
+    let mut label_budget = MAX_LABEL_BYTES;
+    let mut field_budget = MAX_OPERATIVE_FIELDS;
+    let charge = |n: usize, budget: &mut usize| -> Result<(), GfxDiag> {
+        *budget = budget
+            .checked_sub(n)
+            .ok_or_else(|| bad("exceeds the expansion budget"))?;
+        Ok(())
+    };
+    let mut dims = Vec::with_capacity(n);
+    for _ in 0..n {
+        let name_len = c.varint()? as usize;
+        if name_len > u16::MAX as usize {
+            return Err(bad("dimension name is too long"));
+        }
+        let name = std::str::from_utf8(c.bytes(name_len)?)
+            .map_err(|_| bad("name is not UTF-8"))?
+            .to_string();
+        let count = c.varint()? as usize;
+        if count >= u16::MAX as usize {
+            return Err(bad("too many values"));
+        }
+        let labels = decode_labels(c, count, &mut label_budget)?;
+        let mut values: Vec<Value> = labels
+            .into_iter()
+            .map(|label| Value {
+                label,
+                effects: Vec::new(),
+            })
+            .collect();
+        match c.u8()? {
+            1 => {
+                let ec = c.varint()? as usize;
+                let mut sig = Vec::with_capacity(ec.min(c.buf.len()));
+                let mut width = 0usize;
+                for _ in 0..ec {
+                    let kind = c.u8()?;
+                    if kind > EFFECT_MORPH {
+                        return Err(bad("unknown effect kind"));
+                    }
+                    let sel_kind = c.u8()?;
+                    let sel_len = match sel_kind {
+                        0 => 0,
+                        1 => c.varint()? as usize,
+                        _ => return Err(bad("unknown selector kind")),
+                    };
+                    let w = sel_len
+                        .checked_add(payload_len(kind))
+                        .ok_or_else(|| bad("width overflows"))?;
+                    width = width.checked_add(w).ok_or_else(|| bad("width overflows"))?;
+                    charge(w.saturating_mul(count), &mut field_budget)?;
+                    sig.push((kind, sel_kind, w));
+                }
+                let cols: Vec<Vec<i64>> = (0..width)
+                    .map(|_| decode_ints(c, count))
+                    .collect::<Result<_, _>>()?;
+                for (v, value) in values.iter_mut().enumerate() {
+                    let mut f = 0;
+                    for &(kind, sel_kind, w) in &sig {
+                        let fields: Vec<i64> = (f..f + w).map(|x| cols[x][v]).collect();
+                        value
+                            .effects
+                            .push(effect_from(kind, sel_kind, &fields, targets)?);
+                        f += w;
+                    }
+                }
+            }
+            0 => {
+                for value in values.iter_mut() {
+                    let ec = c.varint()? as usize;
+                    charge(ec, &mut field_budget)?;
+                    for _ in 0..ec {
+                        let kind = c.u8()?;
+                        if kind > EFFECT_MORPH {
+                            return Err(bad("unknown effect kind"));
+                        }
+                        let sel_kind = c.u8()?;
+                        let sel_len = match sel_kind {
+                            0 => 0,
+                            1 => c.varint()? as usize,
+                            _ => return Err(bad("unknown selector kind")),
+                        };
+                        let w = sel_len
+                            .checked_add(payload_len(kind))
+                            .ok_or_else(|| bad("width overflows"))?;
+                        charge(w, &mut field_budget)?;
+                        let mut fields = Vec::with_capacity(w);
+                        for _ in 0..w {
+                            let u = c.varint()?;
+                            fields.push(((u >> 1) as i64) ^ -((u & 1) as i64));
+                        }
+                        value
+                            .effects
+                            .push(effect_from(kind, sel_kind, &fields, targets)?);
+                    }
+                }
+            }
+            _ => return Err(bad("unknown dimension layout")),
+        }
+        dims.push(Dimension {
+            name,
+            domain: Domain::Discrete(values),
+        });
+    }
+    Ok(dims)
 }
 
 /// `TRAN`: reachability declaration.
@@ -698,6 +1076,21 @@ pub(crate) struct Reader<'a> {
 impl<'a> Reader<'a> {
     pub(crate) fn new(buf: &'a [u8], what: &'static str) -> Reader<'a> {
         Reader { buf, pos: 0, what }
+    }
+
+    /// The current position, for [`Reader::since`].
+    pub(crate) fn mark(&self) -> usize {
+        self.pos
+    }
+
+    /// The bytes not yet consumed.
+    pub(crate) fn rest(&self) -> &'a [u8] {
+        &self.buf[self.pos..]
+    }
+
+    /// The bytes consumed since `mark`.
+    pub(crate) fn since(&self, mark: usize) -> &'a [u8] {
+        &self.buf[mark..self.pos]
     }
 
     fn err(&self, detail: &str) -> GfxDiag {
@@ -757,18 +1150,64 @@ impl<'a> Reader<'a> {
 
 /// Parse `STAT` into discrete dimensions. Lengths and counts are checked
 /// against the bytes actually present before anything is allocated.
+/// Parse `STAT` in either form. `anchors` are the decoded `GEOM` anchors,
+/// which operative `REF` targets resolve against (empty for literal `STAT`).
 pub(crate) fn parse_stat(
     buf: &[u8],
     max_dims: usize,
     gva_limits: &GvaLimits,
+    anchors: &[Path],
 ) -> Result<Vec<Dimension>, GfxDiag> {
     let mut r = Reader::new(buf, "STAT");
     let n = r.u32()? as usize;
-    r.zeros(12)?;
+    let paths = r.u32()? as usize;
+    let encoding = r.u8()?;
+    r.zeros(7)?;
+    if encoding > STAT_OPERATIVE {
+        return Err(invalid(format!("unknown STAT encoding {encoding}")));
+    }
     if n > max_dims {
         return Err(invalid(format!(
             "{n} dimensions exceeds the limit of {max_dims}"
         )));
+    }
+    let mut targets: Vec<Arc<Path>> = Vec::with_capacity(paths.min(buf.len() / 4));
+    for _ in 0..paths {
+        if encoding == STAT_OPERATIVE {
+            match r.u8()? {
+                0 => {}
+                1 => {
+                    let mut c = crate::operative::Cursor::new(&r.buf[r.pos..]);
+                    let g = c.varint()?;
+                    let mut signed = || -> Result<i32, GfxDiag> {
+                        let u = c.varint()?;
+                        i32::try_from(((u >> 1) as i64) ^ -((u & 1) as i64))
+                            .map_err(|_| invalid("REF offset out of range"))
+                    };
+                    let (dx, dy) = (signed()?, signed()?);
+                    r.pos += c.pos;
+                    let anchor = usize::try_from(g)
+                        .ok()
+                        .and_then(|g| anchors.get(g))
+                        .ok_or_else(|| invalid("REF names a missing anchor"))?;
+                    let target = anchor
+                        .translated(dx, dy)
+                        .ok_or_else(|| invalid("REF translation overflows"))?;
+                    targets.push(Arc::new(target));
+                    continue;
+                }
+                _ => return Err(invalid("unknown path-table entry")),
+            }
+        }
+        let len = r.u32()? as usize;
+        targets.push(Arc::new(decode_path_bytes(r.bytes(len)?, gva_limits)?));
+    }
+    if encoding == STAT_OPERATIVE {
+        let mut c = crate::operative::Cursor::new(&r.buf[r.pos..]);
+        let dims = parse_dims_operative(&mut c, n, &targets)?;
+        r.pos += c.pos;
+        r.finish()?;
+        return Ok(dims);
     }
     let mut dims = Vec::with_capacity(n);
     for _ in 0..n {
@@ -824,12 +1263,11 @@ pub(crate) fn parse_stat(
                     EFFECT_HIDE => Effect::Hide(sel),
                     EFFECT_MORPH => {
                         let t = r.u32()?;
-                        let n = r.u32()? as usize;
-                        Effect::Morph(
-                            sel,
-                            Arc::new(decode_path_bytes(r.bytes(n)?, gva_limits)?),
-                            t,
-                        )
+                        let index = r.u32()? as usize;
+                        let target = targets.get(index).ok_or_else(|| {
+                            invalid(format!("morph target {index} is not in the path table"))
+                        })?;
+                        Effect::Morph(sel, target.clone(), t)
                     }
                     other => return Err(invalid(format!("unknown effect kind {other}"))),
                 });
@@ -1079,14 +1517,14 @@ mod tests {
             let tran = encode_tran(&m);
             assert_eq!(stat.len() % 16, 0);
             assert_eq!(
-                parse_stat(&stat, 16, &GvaLimits::default()).unwrap(),
+                parse_stat(&stat, 16, &GvaLimits::default(), &[]).unwrap(),
                 m.dimensions
             );
             assert_eq!(parse_tran(&tran, 2).unwrap(), m.reachability);
             // Every truncation is rejected.
             for n in 0..stat.len() {
                 assert!(
-                    parse_stat(&stat[..n], 16, &GvaLimits::default()).is_err(),
+                    parse_stat(&stat[..n], 16, &GvaLimits::default(), &[]).is_err(),
                     "STAT cut at {n}"
                 );
             }

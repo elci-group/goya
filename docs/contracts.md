@@ -1047,6 +1047,24 @@ self-test gate, fixed in the same commit.
     whichever is smallest. Projection ids are identity or a packed column.
     Lookup is O(1) or O(log n), the section is canonical (re-encoded at
     open), and the coverage digest is independent of the form.
+  - `Inventory::set_residency` (`Packed` or `Expanded`) changes speed and
+    memory only, never results.
+  - GVI-A (`CompileOptions::albit`, opt-in) adds `Lerp` and `BakedLerp`
+    records to `DIFF`. The profile is recorded in `COST` byte 24, and
+    candidates are provenance-directed. Output is never bigger than the
+    same compilation without GVI-A; when GVI-A brings nothing, it is
+    byte-identical. See `docs/graphics/gvi-albit.md`.
+  - GVI-O (`CompileOptions::operative`, opt-in) stores operative spans
+    (`CONST`, `LINE`, `RATIO`, `NUMBERED`, literal) for `STAT` (with
+    `REF` morph targets), `DIFF` (columnar) and `PROJ` (column mode 2).
+    The parent binding stays over the canonical literal model, and every
+    per-shape hash is kept. Never bigger, and byte-identical when nothing
+    helps. See `docs/graphics/gvi-operative.md`.
+  - GVI-L stores the style pool as `LSTY` when that payload is strictly
+    shorter than `STYL`, and sets `CERT` bit 4 exactly then. `open`
+    requires the matching section and no other style section, re-encodes
+    `LSTY`, and rejects a mismatch. Decoded styles match the `STYL`
+    pool. See `docs/graphics/gvi-lineless.md`.
 - Golden fixture: `fixtures/graphics/gvi/status_icon.gvi`.
 
 ## GY-GRU/0 — Graphical Rendering Unit (`crates/goya-gru`, GOYA-GFX-001 Phase 2)
