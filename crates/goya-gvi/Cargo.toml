@@ -1,0 +1,13 @@
+[package]
+name = "goya-gvi"
+version = "0.0.1"
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Graphical Vector Inventory (.gvi, GY-GVI/0): parent-scoped, certified, precomputed projections for every reachable state of a graphic."
+
+[dependencies]
+goya-graphics-container = { path = "../goya-graphics-container" }
+goya-graphics-ir = { path = "../goya-graphics-ir" }
+goya-gva = { path = "../goya-gva" }
+sha2 = "0.10"
