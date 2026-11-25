@@ -1,0 +1,10 @@
+[package]
+name = "goya-graphics-container"
+version = "0.0.1"
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Shared binary envelope (GY-GFXC/0, draft) for Goya's .gru, .gva, .gvi and .spc graphics formats."
+
+[dependencies]
+sha2 = "0.10"
