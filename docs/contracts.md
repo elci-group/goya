@@ -1039,6 +1039,14 @@ self-test gate, fixed in the same commit.
     declared in `COST` and re-derived at open. Records are rebuilt once
     at load, never per lookup. The differential layout is emitted only
     when it is smaller.
+  - `PROJ` holds a pool of distinct rows plus a row-id list (omitted when
+    it is the identity), all in canonical bit-packed columns (frame of
+    reference or dictionary). Every field read is O(1), and every column
+    is re-encoded and compared at open.
+  - `INDX` stores keys as identity, a rank bitmap or a packed sorted list,
+    whichever is smallest. Projection ids are identity or a packed column.
+    Lookup is O(1) or O(log n), the section is canonical (re-encoded at
+    open), and the coverage digest is independent of the form.
 - Golden fixture: `fixtures/graphics/gvi/status_icon.gvi`.
 
 ## GY-GRU/0 — Graphical Rendering Unit (`crates/goya-gru`, GOYA-GFX-001 Phase 2)
