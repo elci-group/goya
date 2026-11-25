@@ -1,0 +1,28 @@
+// profile: gssh2
+@ontology nested {
+  @state { count: int = 0 session; }
+  @cell root {
+    id: "root";
+    extent: (800, 600, 0);
+    @cell viewport {
+      id: "window.viewport";
+      position: (100, 100, 0);
+      extent: (300, 120, 0);
+      scroll: true;
+      @button action {
+        id: "action.button";
+        position: (20, 200, 0);
+        extent: (180, 50, 0);
+        text: "go";
+      }
+    }
+  }
+  @interaction press {
+    id: "action.press";
+    trigger: button.action.activate;
+    class: D1;
+    state { read count: int; write count: int; }
+    input { }
+    set count = state.count + 1;
+  }
+}

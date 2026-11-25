@@ -1,0 +1,39 @@
+[package]
+name = "goya-viuda"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Viuda: webOS-native interpretation of admitted .gscene apps over GY-RESOLVER/0.1."
+
+[dependencies]
+goya-resolver.workspace = true
+goya-lang.workspace = true
+goya-scene-graphics.workspace = true
+goya-scene-runtime.workspace = true
+serde_json = "1"
+# Host-side packaging only (`viuda-pack`); never linked into the TV runtime.
+goya-arachnid = { path = "../arachnid", optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Pure-Rust Wayland client (no libwayland), so the TV binary links statically.
+wayland-client = "0.31"
+wayland-scanner = "0.31"
+wayland-backend = "0.3"
+rustix = { version = "0.38", features = ["fs", "mm", "event"] }
+
+[features]
+pack = ["dep:goya-arachnid"]
+
+[[bin]]
+name = "viuda"
+path = "src/bin/viuda.rs"
+
+[[bin]]
+name = "viuda-pack"
+path = "src/bin/viuda-pack.rs"
+required-features = ["pack"]
+
+[[bin]]
+name = "viuda-wayland-probe"
+path = "src/bin/viuda-wayland-probe.rs"

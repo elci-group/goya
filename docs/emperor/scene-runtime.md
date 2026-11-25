@@ -24,7 +24,13 @@ admitted by `handoff::admit_v4` or `admit_v4_live` is built as a scene app:
 * **Link:** `emperor-runtime`'s `emperor-scene-app` binary (feature `scene`)
   is linked offline into `DIR/App`.
 
-## Runtime (`crates/emperor-runtime/src/scene.rs`)
+## Runtime (`crates/goya-scene-runtime`, re-exported as `emperor_runtime::scene`)
+
+The runtime moved to its own crate on 25 November 2026 so that Viuda
+(`docs/viuda/VIUDA-1.md`) can link it without `goya-wayland` and AT-SPI.
+AccessKit is its `a11y` feature, which Emperor's `scene` feature turns on.
+Generated apps still name `emperor_runtime::scene::…`.
+
 
 * **Admission and layout.** The embedded source is admitted again at start
   and laid out with `goya_lang::layout` at the window size, one point per

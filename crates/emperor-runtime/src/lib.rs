@@ -9,7 +9,7 @@
 #![forbid(unsafe_code)]
 
 #[cfg(feature = "scene")]
-pub mod scene;
+pub use goya_scene_runtime as scene;
 mod exercise;
 #[cfg(feature = "kumimanu")]
 mod glyph;

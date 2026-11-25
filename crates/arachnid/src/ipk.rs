@@ -66,10 +66,21 @@ pub fn control(app: &AppInfo, installed_size: u64) -> String {
 /// Package `files` (paths relative to the app directory, `/`-separated,
 /// including `appinfo.json`) into an IPK.
 pub fn package(app: &AppInfo, files: &[(String, Vec<u8>)]) -> Result<Ipk, ArchiveError> {
+    package_with_executables(app, files, &[])
+}
+
+/// [`package`], with the files named in `executables` written with mode
+/// 0755. A native app (`"type": "native"`, used by Viuda) needs its `main`
+/// to be executable.
+pub fn package_with_executables(
+    app: &AppInfo,
+    files: &[(String, Vec<u8>)],
+    executables: &[&str],
+) -> Result<Ipk, ArchiveError> {
     let app_root = format!("usr/palm/applications/{}/", app.id);
     let pkg_root = format!("usr/palm/packages/{}/", app.id);
-    let mut tree: BTreeMap<String, Option<Vec<u8>>> = BTreeMap::new();
-    let add_dirs = |tree: &mut BTreeMap<String, Option<Vec<u8>>>, path: &str| {
+    let mut tree: BTreeMap<String, Option<(Vec<u8>, bool)>> = BTreeMap::new();
+    let add_dirs = |tree: &mut BTreeMap<String, Option<(Vec<u8>, bool)>>, path: &str| {
         let mut end = 0;
         while let Some(slash) = path[end..].find('/') {
             end += slash + 1;
@@ -79,18 +90,19 @@ pub fn package(app: &AppInfo, files: &[(String, Vec<u8>)]) -> Result<Ipk, Archiv
     for (rel, bytes) in files {
         let path = format!("{app_root}{rel}");
         add_dirs(&mut tree, &path);
-        tree.insert(path, Some(bytes.clone()));
+        tree.insert(path, Some((bytes.clone(), executables.contains(&rel.as_str()))));
     }
     let info_path = format!("{pkg_root}packageinfo.json");
     add_dirs(&mut tree, &info_path);
-    tree.insert(info_path, Some(packageinfo(app).into_bytes()));
+    tree.insert(info_path, Some((packageinfo(app).into_bytes(), false)));
 
-    let installed_size: u64 = tree.values().flatten().map(|b| b.len() as u64).sum();
+    let installed_size: u64 = tree.values().flatten().map(|(b, _)| b.len() as u64).sum();
     let entries: Vec<TarEntry> = tree
         .into_iter()
         .map(|(path, data)| match data {
             None => TarEntry::Dir(path),
-            Some(bytes) => TarEntry::File(path, bytes),
+            Some((bytes, false)) => TarEntry::File(path, bytes),
+            Some((bytes, true)) => TarEntry::Exec(path, bytes),
         })
         .collect();
     let data = gzip(&tar(&entries)?);

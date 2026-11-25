@@ -649,6 +649,7 @@ dependencies = [
  "goya-layout",
  "goya-parity",
  "goya-runtime",
+ "goya-scene-runtime",
  "goya-wayland",
  "serde",
  "serde_json",
@@ -1407,6 +1408,16 @@ name = "goya-rars"
 version = "0.1.8"
 
 [[package]]
+name = "goya-resolver"
+version = "0.1.8"
+dependencies = [
+ "goya-executable",
+ "goya-lang",
+ "goya-sdk",
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "goya-rpi"
 version = "0.1.8"
 
@@ -1435,6 +1446,21 @@ dependencies = [
  "goya-gvi",
  "goya-lang",
  "sha2",
+]
+
+[[package]]
+name = "goya-scene-runtime"
+version = "0.1.8"
+dependencies = [
+ "ab_glyph",
+ "accesskit",
+ "accesskit_unix",
+ "goya-executable",
+ "goya-graphics-ir",
+ "goya-gvi",
+ "goya-lang",
+ "serde_json",
+ "tiny-skia",
 ]
 
 [[package]]
@@ -1504,6 +1530,22 @@ dependencies = [
  "goya-determinism",
  "goya-executable",
  "goya-ir",
+]
+
+[[package]]
+name = "goya-viuda"
+version = "0.1.8"
+dependencies = [
+ "goya-arachnid",
+ "goya-lang",
+ "goya-resolver",
+ "goya-scene-graphics",
+ "goya-scene-runtime",
+ "rustix 0.38.44",
+ "serde_json",
+ "wayland-backend",
+ "wayland-client",
+ "wayland-scanner",
 ]
 
 [[package]]

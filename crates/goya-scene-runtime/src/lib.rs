@@ -1,5 +1,10 @@
 //! General GSSH/4-live scene runtime (`emperor.linux.scene/0.0.1`), used by
-//! Emperor scene apps and the Nebula COSMIC profile.
+//! Emperor scene apps, the Nebula COSMIC profile (re-exported as
+//! `emperor_runtime::scene`), and Viuda on webOS.
+//!
+//! Viuda drives it in *published* mode: `goya-resolver` executes and
+//! publishes each D1 action, and [`Scene::show_published`] shows the result.
+//! The AccessKit bridge is the `a11y` feature.
 //!
 //! The scene is admitted again at start from its embedded source (Emperor
 //! admitted it at build time), laid out with `goya_lang::layout` at the
@@ -39,6 +44,9 @@
 #![allow(clippy::needless_range_loop)]
 
 use goya_executable::{D1Snapshot, D1Value, InputSnapshot};
+
+/// The pixel types [`Scene::render`] returns.
+pub use tiny_skia;
 use goya_gvi::{GviLimits, Inventory, ParentBinding};
 use goya_lang::{
     CompiledInteraction, Condition, ConditionOp, InteractionType, InteractionValue, ParsedScene,
@@ -46,7 +54,9 @@ use goya_lang::{
 };
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
+#[cfg(feature = "a11y")]
 use std::sync::mpsc;
+#[cfg(feature = "a11y")]
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -185,7 +195,12 @@ impl Scene {
             other => other,
         }
         .map_err(|e| format!("{}: {}", e.code, e))?;
-        let parsed = handoff.parsed().clone();
+        Scene::from_parsed(handoff.parsed().clone(), spec, width, height)
+    }
+
+    /// Build the scene from a source its host has already admitted, so the
+    /// host does not admit it twice. `spec.source` is not read.
+    pub fn from_parsed(parsed: ParsedScene, spec: &SceneSpec, width: u32, height: u32) -> Result<Scene, String> {
         let mut cells = Vec::new();
         let mut parents = Vec::new();
         preorder(&parsed.scene.root, None, &mut cells, &mut parents);
@@ -390,6 +405,38 @@ impl Scene {
         !self.reduce_motion && self.cells.iter().any(|c| c.fill_to.is_some() || c.drift_p.is_some())
     }
 
+    /// The longest wait between ambient frames that still paints every
+    /// 8-bit level a breathing fill passes through. A drift moves in space,
+    /// so it asks for 30 frames a second. `None` without ambient motion.
+    ///
+    /// `fill_at` mixes with `k = (1 - cos(pi t / period)) / 2`, whose
+    /// steepest slope is `pi / (2 period)` per second. A channel that moves
+    /// `delta` levels therefore takes at least `2 period / (pi delta)`
+    /// seconds per level.
+    pub fn ambient_interval(&self) -> Option<std::time::Duration> {
+        if self.reduce_motion {
+            return None;
+        }
+        let mut best: Option<f64> = None;
+        let mut take = |secs: f64| best = Some(best.map_or(secs, |b| b.min(secs)));
+        for c in &self.cells {
+            if c.drift_p.is_some() {
+                take(1.0 / 30.0);
+            }
+            if let (Some(from), Some(to), Some(period)) = (c.fill, c.fill_to, c.fill_period_s) {
+                let delta = [16u32, 8, 0]
+                    .iter()
+                    .map(|s| ((from >> s) & 0xff).abs_diff((to >> s) & 0xff))
+                    .max()
+                    .unwrap_or(0);
+                if delta > 0 && period > 0.0 {
+                    take(2.0 * period / (std::f64::consts::PI * f64::from(delta)));
+                }
+            }
+        }
+        best.map(|s| std::time::Duration::from_secs_f64(s.max(1.0 / 30.0)))
+    }
+
     /// Activate the present button `i`: stage, save durable state, commit,
     /// announce.
     pub fn activate(&mut self, i: usize) {
@@ -431,6 +478,12 @@ impl Scene {
                 }
             }
         }
+        self.commit(staged);
+    }
+
+    /// Show a committed state: appear motion, graphic targets, focus, and
+    /// the D9 announcement of the displays whose values changed.
+    fn commit(&mut self, staged: BTreeMap<String, D1Value>) {
         let before = std::mem::replace(&mut self.state, staged);
         let present = self.presence();
         let now = Instant::now();
@@ -450,6 +503,38 @@ impl Scene {
         if !parts.is_empty() {
             self.last_announcement = parts.join("; ");
         }
+    }
+
+    /// Show state that another host has already published, for example
+    /// Viuda's `goya-resolver` instance. Nothing is executed or saved here:
+    /// the caller owns D1 execution and publication. Keys the scene does not
+    /// declare are ignored. The display is the same as after
+    /// [`Scene::activate`].
+    pub fn show_published<I: IntoIterator<Item = (String, InteractionValue)>>(&mut self, published: I) {
+        let mut staged = self.state.clone();
+        for (key, value) in published {
+            if staged.contains_key(&key) {
+                staged.insert(key, value_of(&value));
+            }
+        }
+        if staged != self.state {
+            self.commit(staged);
+        }
+    }
+
+    /// Structural name of the focused present button, which is the trigger
+    /// of the interaction it starts.
+    pub fn focused_button(&self) -> Option<&str> {
+        let f = self.focus?;
+        self.buttons().contains(&f).then(|| self.cells[f].name.as_str())
+    }
+
+    /// Focus the present button bound to a remote digit and return its
+    /// structural name, without activating it.
+    pub fn focus_digit(&mut self, d: u8) -> Option<&str> {
+        let b = self.buttons().into_iter().find(|&b| self.cells[b].remote_digit == Some(d))?;
+        self.focus = Some(b);
+        Some(self.cells[b].name.as_str())
     }
 
     /// Keep focus on the same place when its button is swapped for another
@@ -753,6 +838,7 @@ impl Scene {
 
     /// Accessibility tree for AccessKit: window, present buttons and texts,
     /// and the polite live region carrying the last D9 announcement.
+    #[cfg(feature = "a11y")]
     pub fn accessibility(&self) -> accesskit::TreeUpdate {
         use accesskit::{Action, Live, NodeBuilder, NodeId, Rect, Role, Tree, TreeUpdate};
         let present = self.presence();
@@ -806,6 +892,7 @@ impl Scene {
     }
 
     /// Handle an AccessKit action on node `id`.
+    #[cfg(feature = "a11y")]
     pub fn accessibility_action(&mut self, id: u64, action: accesskit::Action) {
         let i = id as usize;
         if i >= self.cells.len() || !self.buttons().contains(&i) {
@@ -954,18 +1041,23 @@ impl Store {
 
 /// AccessKit bridge: actions arrive on the adapter's thread and are queued
 /// for the event loop.
+#[cfg(feature = "a11y")]
 pub struct A11y {
     adapter: accesskit_unix::Adapter,
     actions: mpsc::Receiver<accesskit::ActionRequest>,
 }
 
+#[cfg(feature = "a11y")]
 struct Activation(Arc<Mutex<Option<accesskit::TreeUpdate>>>);
+#[cfg(feature = "a11y")]
 impl accesskit::ActivationHandler for Activation {
     fn request_initial_tree(&mut self) -> Option<accesskit::TreeUpdate> {
         self.0.lock().ok().and_then(|t| t.clone())
     }
 }
+#[cfg(feature = "a11y")]
 struct Actions(Mutex<mpsc::Sender<accesskit::ActionRequest>>);
+#[cfg(feature = "a11y")]
 impl accesskit::ActionHandler for Actions {
     fn do_action(&mut self, request: accesskit::ActionRequest) {
         if let Ok(tx) = self.0.lock() {
@@ -973,11 +1065,14 @@ impl accesskit::ActionHandler for Actions {
         }
     }
 }
+#[cfg(feature = "a11y")]
 struct Deactivation;
+#[cfg(feature = "a11y")]
 impl accesskit::DeactivationHandler for Deactivation {
     fn deactivate_accessibility(&mut self) {}
 }
 
+#[cfg(feature = "a11y")]
 impl A11y {
     pub fn new(initial: accesskit::TreeUpdate) -> A11y {
         let (tx, rx) = mpsc::channel();

@@ -83,12 +83,14 @@ pub fn zlib(data: &[u8]) -> Vec<u8> {
 pub enum TarEntry {
     Dir(String),
     File(String, Vec<u8>),
+    /// A file with mode 0755: the executable of a native app (Viuda).
+    Exec(String, Vec<u8>),
 }
 
 impl TarEntry {
     pub fn path(&self) -> &str {
         match self {
-            Self::Dir(p) | Self::File(p, _) => p,
+            Self::Dir(p) | Self::File(p, _) | Self::Exec(p, _) => p,
         }
     }
 }
@@ -133,7 +135,8 @@ fn split_path(path: &str) -> Option<(&str, &str)> {
         .map(|i| (&path[..i], &path[i + 1..]))
 }
 
-/// ustar archive: mode 0755 for directories and 0644 for files, uid/gid 0,
+/// ustar archive: mode 0755 for directories and executables and 0644 for
+/// other files, uid/gid 0,
 /// owner `root`, mtime 0, and two zero blocks at the end.
 pub fn tar(entries: &[TarEntry]) -> Result<Vec<u8>, ArchiveError> {
     let mut out = Vec::new();
@@ -147,6 +150,7 @@ pub fn tar(entries: &[TarEntry]) -> Result<Vec<u8>, ArchiveError> {
         let (mode, size, typeflag, data): (u64, u64, u8, &[u8]) = match entry {
             TarEntry::Dir(_) => (0o755, 0, b'5', &[]),
             TarEntry::File(_, bytes) => (0o644, bytes.len() as u64, b'0', bytes),
+            TarEntry::Exec(_, bytes) => (0o755, bytes.len() as u64, b'0', bytes),
         };
         if size > 0o77777777777 {
             return Err(ArchiveError::TooLarge(path.to_string()));
@@ -339,6 +343,17 @@ pub mod read {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn executables_get_mode_0755_and_files_0644() {
+        let out = tar(&[
+            TarEntry::Exec("app/viuda".into(), b"\x7fELF".to_vec()),
+            TarEntry::File("app/scene.gscene".into(), b"x".to_vec()),
+        ])
+        .unwrap_or_default();
+        assert_eq!(&out[100..108], b"0000755\0");
+        assert_eq!(&out[1024 + 100..1024 + 108], b"0000644\0");
+    }
 
     #[test]
     fn crc_and_adler_match_reference_values() {

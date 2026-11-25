@@ -1,6 +1,9 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/goya-resolver",
+    "crates/goya-viuda",
+    "crates/goya-scene-runtime",
     "crates/goya-caprichios",
     "crates/nevada",
     "crates/arachnid",
@@ -87,6 +90,8 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
+goya-resolver = { path = "crates/goya-resolver" }
+goya-scene-runtime = { path = "crates/goya-scene-runtime" }
 goya-ir = { path = "crates/goya-ir" }
 goya-state = { path = "crates/goya-state" }
 goya-layout = { path = "crates/goya-layout" }
