@@ -17,8 +17,8 @@ use goya_graphics_ir::{
 };
 use goya_gva::GvaLimits;
 use goya_gvi::{
-    compile_with, morph_path, Bake, Budget, Dimension, Effect, GviLimits, Inventory, Radix,
-    Reachability, Selector, StateModel, Value,
+    compile_with, morph_path, Bake, Budget, CompileOptions, Dimension, Effect, GviLimits,
+    Inventory, Radix, Reachability, Selector, StateModel, Value,
 };
 use std::error::Error;
 use std::sync::Arc;
@@ -129,22 +129,59 @@ fn main() -> Res<()> {
     let radix = Radix::new(vec![u64::from(FRAMES), 2, 3]).ok_or("radix")?;
     let states: Vec<Vec<u16>> = (0..radix.domain).map(|k| radix.unpack(k)).collect();
 
+    // Size, precompute and load-time reconstruction per encoding.
+    println!(
+        "{:<11} {:>5} {:>9} {:>12} {:>14} {:>16}",
+        "bake", "depth", "bytes", "precompute", "decode (load)", "anchors+records"
+    );
     let mut inventories = Vec::new();
     for bake in [Bake::None, Bake::Transforms] {
-        let mut times = Vec::new();
-        let mut bytes = Vec::new();
-        for _ in 0..31 {
-            let t = Instant::now();
-            bytes = compile_with(&src, &model, &budget, &gl, bake)?;
-            times.push(t.elapsed());
+        for depth in [0u32, 2, 4, 8, 16, 32] {
+            let options = CompileOptions {
+                bake,
+                max_diff_depth: depth,
+                albit: goya_gvi::AlbitProfile::Off,
+                operative: goya_gvi::OperativeProfile::Off,
+            };
+            let mut times = Vec::new();
+            let mut bytes = Vec::new();
+            for _ in 0..31 {
+                let t = Instant::now();
+                bytes = compile_with(&src, &model, &budget, &gl, options)?;
+                times.push(t.elapsed());
+            }
+            times.sort_unstable();
+            let inv = Inventory::open(&bytes, &binding, &GviLimits::default())?;
+            let mut decode = Vec::new();
+            for _ in 0..31 {
+                let t = Instant::now();
+                std::hint::black_box(inv.decode_geometry()?);
+                decode.push(t.elapsed());
+            }
+            decode.sort_unstable();
+            let l = inv.geometry_layout();
+            if let Some(dir) = std::env::var_os("GVI_DUMP") {
+                std::fs::write(
+                    std::path::Path::new(&dir).join(format!("{bake:?}-d{depth}.gvi")),
+                    &bytes,
+                )?;
+            }
+            println!(
+                "{:<11} {:>5} {:>9} {:>12.3?} {:>14.3?} {:>9}+{:<3} (max depth {}, max ancestors {})",
+                format!("{bake:?}"),
+                depth,
+                bytes.len(),
+                pct(&times, 0.5),
+                pct(&decode, 0.5),
+                l.anchors,
+                l.records,
+                l.max_depth,
+                l.max_ancestors
+            );
+            if depth == 0 {
+                inventories.push(bytes);
+            }
         }
-        times.sort_unstable();
-        println!(
-            "{bake:?}: inventory {} B, precompute median {:.3?} (31 runs)",
-            bytes.len(),
-            pct(&times, 0.5)
-        );
-        inventories.push(bytes);
     }
 
     // Dynamic baseline: the canonical star is origin-folded by GVA, so morph

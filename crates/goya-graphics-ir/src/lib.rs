@@ -47,13 +47,26 @@ pub mod codes {
     pub const NON_CANONICAL: u16 = 2007;
     pub const NON_FINITE: u16 = 2008;
     pub const UNSUPPORTED_UNIT: u16 = 2009;
+    /// GRU slot values.
+    pub const SLOT_OUT_OF_DOMAIN: u16 = 2010;
+    pub const SLOT_TYPE_MISMATCH: u16 = 2011;
     pub const GEOMETRY_REF: u16 = 3001;
     pub const STYLE_REF: u16 = 3002;
     pub const COUNT_MISMATCH: u16 = 3003;
+    /// GRU typing and dependencies.
+    pub const BINDING_TYPE: u16 = 3004;
+    pub const BINDING_CONFLICT: u16 = 3005;
+    pub const INVALIDATION_MISMATCH: u16 = 3006;
+    pub const REGION_INVALID: u16 = 3007;
+    pub const UNKNOWN_SLOT: u16 = 3008;
     pub const TOO_MANY_INSTANCES: u16 = 4101;
     pub const TOO_MANY_GEOMETRIES: u16 = 4102;
     pub const TOO_MANY_STYLES: u16 = 4103;
     pub const TOO_MANY_SEGMENTS: u16 = 4104;
+    pub const TOO_MANY_SLOTS: u16 = 4105;
+    pub const TOO_MANY_BINDINGS: u16 = 4106;
+    pub const TABLE_TOO_LONG: u16 = 4107;
+    pub const TOO_MANY_REGIONS: u16 = 4108;
     pub const CANVAS_TOO_LARGE: u16 = 4201;
     pub const TOO_MANY_EDGES: u16 = 4202;
     /// GVI eligibility (KFBM) and completeness.
@@ -421,7 +434,14 @@ impl Affine {
             };
             i32::try_from(q).ok()
         };
-        let (a1, b1, c1, d1, e1, f1) = (w(self.a), w(self.b), w(self.c), w(self.d), w(self.e), w(self.f));
+        let (a1, b1, c1, d1, e1, f1) = (
+            w(self.a),
+            w(self.b),
+            w(self.c),
+            w(self.d),
+            w(self.e),
+            w(self.f),
+        );
         let (a2, b2, c2, d2) = (w(outer.a), w(outer.b), w(outer.c), w(outer.d));
         let e = i128::from(round(a2 * e1 + c2 * f1)?) + w(outer.e);
         let f = i128::from(round(b2 * e1 + d2 * f1)?) + w(outer.f);
@@ -626,7 +646,14 @@ mod tests {
         assert_eq!(Affine::IDENTITY.max_scale(), 1.0);
         // Composition: translation is exact; scale then translate.
         let mv = Affine::translate(100, -50);
-        assert_eq!(t.then(&mv).unwrap(), Affine { e: 107, f: -53, ..t });
+        assert_eq!(
+            t.then(&mv).unwrap(),
+            Affine {
+                e: 107,
+                f: -53,
+                ..t
+            }
+        );
         let x2 = Affine {
             a: 2 * FIXED_ONE,
             d: 2 * FIXED_ONE,
@@ -643,7 +670,9 @@ mod tests {
         };
         assert_eq!(Affine::translate(3, 5).then(&half).unwrap().e, 2);
         assert_eq!(Affine::translate(3, 5).then(&half).unwrap().f, 2);
-        assert!(Affine::translate(i32::MAX, 0).then(&Affine::translate(1, 0)).is_none());
+        assert!(Affine::translate(i32::MAX, 0)
+            .then(&Affine::translate(1, 0))
+            .is_none());
         assert_eq!(t.max_scale(), 2.0);
         assert!(Style {
             fill: None,

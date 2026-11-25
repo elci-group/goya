@@ -251,6 +251,51 @@ fn main() -> Res<()> {
         dyn_t.push(t.elapsed());
         std::hint::black_box(p.id);
     }
+    // Residency (gvi.md §9.1): identical isolated loops, packed → expanded
+    // → packed again, so drift shows up as a packed/packed mismatch.
+    let (packed_file, packed_heap) = inv.table_residency();
+    let mut inv = inv;
+    let isolated = |inv: &Inventory<'_>, name: &str| -> Res<Duration> {
+        let mut v = Vec::with_capacity(order.len());
+        for &i in &order {
+            let t = Instant::now();
+            std::hint::black_box(inv.resolve(&states[i])?.drawing(&paths));
+            v.push(t.elapsed());
+        }
+        Ok(summarise(name, v))
+    };
+    let p1 = isolated(&inv, "isolated packed")?;
+    inv.set_residency(goya_gvi::Residency::Expanded);
+    let (_, expanded_heap) = inv.table_residency();
+    let x = isolated(&inv, "isolated expanded")?;
+    inv.set_residency(goya_gvi::Residency::Packed);
+    let p2 = isolated(&inv, "isolated packed again")?;
+    // O13 (GVI-O): the same menu with operative encoding, same lookups.
+    let op = goya_gvi::compile_with(
+        &src,
+        &m,
+        &budget,
+        &gl,
+        goya_gvi::CompileOptions {
+            bake: goya_gvi::Bake::None,
+            max_diff_depth: 0,
+            albit: goya_gvi::AlbitProfile::Off,
+            operative: goya_gvi::OperativeProfile::Fast,
+        },
+    )?;
+    let op_inv = Inventory::open(&op, &binding, &GviLimits::default())?;
+    println!(
+        "GVI-O: inventory {} B (baseline {} B), residency {:?}",
+        op.len(),
+        bytes.len(),
+        op_inv.residency()
+    );
+    let _ = isolated(&op_inv, "isolated GVI-O")?;
+    println!(
+        "tables: packed {packed_file} B borrowed + {packed_heap} B heap; expanded adds {} B heap; expanded vs packed lookup+drawing: {:+.1}%",
+        expanded_heap - packed_heap,
+        100.0 * (x.as_secs_f64() / ((p1.as_secs_f64() + p2.as_secs_f64()) / 2.0) - 1.0)
+    );
     let l = summarise("lookup", look);
     let ld = summarise("lookup + drawing", look_draw);
     let d = summarise("dynamic", dyn_t);

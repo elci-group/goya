@@ -580,6 +580,17 @@ pub fn encode(drawing: &Drawing, limits: &GvaLimits) -> Result<Vec<u8>, GfxDiag>
 // Shared pool codecs (also used by GVI, directive §10.4)
 // ---------------------------------------------------------------------------
 
+/// One path in GVA's path encoding (gva.md §3).
+pub fn encode_path_bytes(path: &Path) -> Vec<u8> {
+    encode_path(path)
+}
+
+/// Decode and validate one path in GVA's path encoding. The bytes must be
+/// exactly one canonical path.
+pub fn decode_path_bytes(bytes: &[u8], limits: &GvaLimits) -> Result<Path, GfxDiag> {
+    decode_path(bytes, limits)
+}
+
 /// Encode a geometry pool as its `GEOM` and `HASH` section payloads.
 pub fn encode_geometry_pool(paths: &[Path]) -> Result<(Vec<u8>, Vec<u8>), GfxDiag> {
     let encoded: Vec<Vec<u8>> = paths.iter().map(encode_path).collect();

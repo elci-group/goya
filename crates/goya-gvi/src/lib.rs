@@ -17,7 +17,12 @@
 //! (`GFX-E5005`), and so is a valid but unreachable state (`GFX-E5006`).
 //! Neither ever falls back silently to another projection.
 
+mod diff;
+mod index;
+mod lineless;
 pub mod model;
+mod operative;
+mod packed;
 
 pub use model::{
     Assessment, Budget, Dimension, Domain, Effect, Radix, Reachability, Rule, Selector, StateModel,
@@ -34,7 +39,8 @@ use goya_gva::{
     encode_geometry_pool, encode_style_pool, parse_style_pool, GeometryPool, Gva, GvaLimits,
 };
 use model::{
-    assess_and_enumerate, encode_stat, encode_tran, excluded, parse_stat, parse_tran, step, Reader,
+    assess_and_enumerate, encode_stat, encode_stat_operative, encode_tran, excluded, parse_stat,
+    parse_tran, step, Reader, STAT_OPERATIVE,
 };
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -46,16 +52,21 @@ pub const GVI_CONTRACT: &str = "GY-GVI/0";
 pub const COMPILER_ID: &str = "goya-gvi 0.0.1 (GY-GVI/0)";
 
 pub const CERT: Tag = Tag::new(b"CERT");
+pub const COST: Tag = Tag::new(b"COST");
+pub const DIFF: Tag = Tag::new(b"DIFF");
 pub const GEOM: Tag = Tag::new(b"GEOM");
 pub const HASH: Tag = Tag::new(b"HASH");
 pub const INDX: Tag = Tag::new(b"INDX");
+pub const LSTY: Tag = Tag::new(b"LSTY");
 pub const PARN: Tag = Tag::new(b"PARN");
 pub const PROJ: Tag = Tag::new(b"PROJ");
 pub const SRCE: Tag = Tag::new(b"SRCE");
 pub const STAT: Tag = Tag::new(b"STAT");
 pub const STYL: Tag = Tag::new(b"STYL");
 pub const TRAN: Tag = Tag::new(b"TRAN");
-const KNOWN: [Tag; 10] = [CERT, GEOM, HASH, INDX, PARN, PROJ, SRCE, STAT, STYL, TRAN];
+const KNOWN: [Tag; 13] = [
+    CERT, COST, DIFF, GEOM, HASH, INDX, LSTY, PARN, PROJ, SRCE, STAT, STYL, TRAN,
+];
 const ALIGN_LOG2: u8 = 4;
 
 /// `CERT.method`: completeness by product enumeration minus exclusions.
@@ -69,6 +80,11 @@ pub const ASSUME_CLOSED_EFFECTS: u32 = 1;
 pub const ASSUME_REJECT_UNREACHABLE: u32 = 2;
 /// `CERT.assumptions` bit 2: transforms were baked into geometry (§5).
 pub const ASSUME_BAKED_TRANSFORMS: u32 = 4;
+/// `CERT.assumptions` bit 3: some geometry is stored as differential
+/// records in `DIFF`, bounded by `COST` (§6).
+pub const ASSUME_DIFFERENTIAL_GEOMETRY: u32 = 8;
+/// `CERT.assumptions` bit 4: styles use the GVI-L palette record section.
+pub const ASSUME_LINELESS_STYLES: u32 = 16;
 const CERT_LEN: usize = 80;
 
 fn diag(code: u16, detail: impl Into<String>) -> GfxDiag {
@@ -160,23 +176,102 @@ impl Bake {
     }
 }
 
+/// GVI-A trajectory encoding (`docs/graphics/gvi-albit.md`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum AlbitProfile {
+    /// GVI-D only.
+    #[default]
+    Off,
+    /// Trajectory candidates from compiler provenance. Geometries that
+    /// have one skip the GVI-D predictor search; the others still use it.
+    Provenance,
+    /// Trajectory candidates plus the full GVI-D search for every
+    /// geometry, keeping the cheapest exact record.
+    Exhaustive,
+}
+
+impl AlbitProfile {
+    fn id(self) -> u8 {
+        match self {
+            AlbitProfile::Off => 0,
+            AlbitProfile::Provenance => 1,
+            AlbitProfile::Exhaustive => 2,
+        }
+    }
+
+    fn from_id(id: u8) -> Option<AlbitProfile> {
+        Some(match id {
+            0 => AlbitProfile::Off,
+            1 => AlbitProfile::Provenance,
+            2 => AlbitProfile::Exhaustive,
+            _ => return None,
+        })
+    }
+}
+
+/// GVI-O operative encoding (`docs/graphics/gvi-operative.md`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum OperativeProfile {
+    /// Literal `STAT` and record-per-entry `DIFF`.
+    #[default]
+    Off,
+    /// Constants, progressions, exact rational progressions and numbered
+    /// labels, found by a linear greedy scan with a bounded work budget.
+    /// Each section takes the operative form only if it is smaller, and the
+    /// file only if it beats the same compilation without GVI-O.
+    Fast,
+}
+
+/// Encoding choices that change bytes but not semantics.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CompileOptions {
+    pub bake: Bake,
+    /// Largest reconstruction depth for differential geometry (§6). `0`
+    /// stores every geometry complete.
+    pub max_diff_depth: u32,
+    /// GVI-A trajectory records. They live in `DIFF`, so they need
+    /// `max_diff_depth ≥ 1`; with depth 0 this setting has no effect.
+    pub albit: AlbitProfile,
+    /// GVI-O operative encoding of the state model and differential
+    /// records.
+    pub operative: OperativeProfile,
+}
+
+impl From<Bake> for CompileOptions {
+    fn from(bake: Bake) -> CompileOptions {
+        CompileOptions {
+            bake,
+            max_diff_depth: 0,
+            albit: AlbitProfile::Off,
+            operative: OperativeProfile::Off,
+        }
+    }
+}
+
+/// The deepest differential chain an encoder may declare.
+pub const MAX_DIFF_DEPTH: u32 = 64;
+
 /// The build cache key (directive §8.6): source digest, parent binding,
-/// state schema (inside the binding), compilation profile, bake policy and
-/// compiler version. If any of them changes, the inventory must be
+/// state schema (inside the binding), compilation profile, encoding options
+/// and compiler version. If any of them changes, the inventory must be
 /// regenerated.
 pub fn cache_key(
     source: &Drawing,
     model: &StateModel,
     budget: &Budget,
     gva_limits: &GvaLimits,
-    bake: Bake,
+    options: impl Into<CompileOptions>,
 ) -> Result<[u8; 32], GfxDiag> {
+    let options = options.into();
     let gva = goya_gva::encode(source, gva_limits)?;
     let binding = model.binding(source.items.len() as u32, budget)?;
     Ok(sha256(&[
         COMPILER_ID.as_bytes(),
         &Profile::Baseline.id().to_le_bytes(),
-        &[bake.id()],
+        &[options.bake.id()],
+        &options.max_diff_depth.to_le_bytes(),
+        &[options.albit.id()],
+        &[u8::from(options.operative == OperativeProfile::Fast)],
         &sha256(&[&gva]),
         &binding.0,
     ]))
@@ -198,6 +293,9 @@ struct Row {
     transform: Affine,
     opacity: u8,
     hidden: bool,
+    /// GVI-A provenance: the last morph that produced `path`, as
+    /// `(from, to in the canonical frame, t)`.
+    origin: Option<(Arc<Path>, Arc<Path>, u32)>,
 }
 
 /// An encoded projection row: item, geometry, style index, transform,
@@ -205,7 +303,7 @@ struct Row {
 type ProjRow = (u32, u32, u32, Affine, u8);
 
 /// `round_half_even(v / 65536)`.
-fn round_q16(v: i128) -> i128 {
+pub(crate) fn round_q16(v: i128) -> i128 {
     let q = v.div_euclid(65536);
     match v.rem_euclid(65536).cmp(&32768) {
         std::cmp::Ordering::Less => q,
@@ -215,7 +313,10 @@ fn round_q16(v: i128) -> i128 {
 }
 
 /// Rebuild `path` with every stored point replaced by `f(index, point)`.
-fn map_points(path: &Path, mut f: impl FnMut(usize, Point) -> Option<Point>) -> Option<Path> {
+pub(crate) fn map_points(
+    path: &Path,
+    mut f: impl FnMut(usize, Point) -> Option<Point>,
+) -> Option<Path> {
     let mut i = 0;
     let mut next = |p: Point| {
         let q = f(i, p);
@@ -283,15 +384,12 @@ fn bake_row(path: &Path, t: &Affine, style: &Style) -> Option<(Path, Affine, Sty
         }
         stroke.width = w as u32;
     }
-    let image = map_points(path, |_, p| {
-        let (x, y) = t.apply_scaled(p);
-        Some(Point::new(
-            i32::try_from(round_q16(x)).ok()?,
-            i32::try_from(round_q16(y)).ok()?,
-        ))
-    })?;
-    let o = image.first_point();
-    let geometry = image.translated(o.x.checked_neg()?, o.y.checked_neg()?)?;
+    let geometry = diff::bake_geometry(path, t)?;
+    let (x, y) = t.apply_scaled(path.first_point());
+    let o = Point::new(
+        i32::try_from(round_q16(x)).ok()?,
+        i32::try_from(round_q16(y)).ok()?,
+    );
     Some((geometry, Affine::translate(o.x, o.y), style))
 }
 
@@ -325,7 +423,9 @@ fn apply(rows: &mut [Row], effects: &[Effect]) -> Result<(), GfxDiag> {
                     let target = target
                         .translated(r.delta.0, r.delta.1)
                         .ok_or_else(mismatch)?;
-                    r.path = Arc::new(morph_path(&r.path, &target, *t).ok_or_else(mismatch)?);
+                    let morphed = Arc::new(morph_path(&r.path, &target, *t).ok_or_else(mismatch)?);
+                    r.origin = Some((r.path.clone(), Arc::new(target), *t));
+                    r.path = morphed;
                 }
                 _ => {}
             }
@@ -341,6 +441,91 @@ fn not_manageable(detail: String) -> GfxDiag {
             "not Manageable ({detail}); use SPC if approximation is permitted, otherwise GRU/GVA"
         ),
     )
+}
+
+/// The sorted key list as `u64` little-endian bytes: the input to the
+/// certificate's coverage digest, whatever form `INDX` uses.
+fn key_list_bytes(keys: &[u64]) -> Vec<u8> {
+    keys.iter().flat_map(|k| k.to_le_bytes()).collect()
+}
+
+/// The id of `path` in the pool, inserting it if new.
+fn ensure_geometry(
+    pool: &mut Vec<Path>,
+    index: &mut HashMap<Path, u32>,
+    path: &Path,
+    limits: &GvaLimits,
+) -> Result<u32, GfxDiag> {
+    if let Some(&g) = index.get(path) {
+        return Ok(g);
+    }
+    let g = pool.len() as u32;
+    if g >= limits.max_geometries {
+        return Err(diag(
+            codes::TOO_MANY_GEOMETRIES,
+            "projections need too many distinct geometries",
+        ));
+    }
+    index.insert(path.clone(), g);
+    pool.push(path.clone());
+    Ok(g)
+}
+
+/// `PROJ` (gvi.md §4): a pool of distinct rows in first-use order, a list
+/// of row ids per projection (omitted when it is the identity), and
+/// bit-packed columns.
+/// `PROJ` flags bit 0: the row list is the identity.
+const PROJ_IDENTITY: u32 = 1;
+/// `PROJ` flags bit 1: columns may use GVI-O operative spans.
+const PROJ_OPERATIVE: u32 = 2;
+
+pub(crate) fn encode_proj(projections: &[Vec<ProjRow>], operative: bool) -> Vec<u8> {
+    let mut pool: Vec<ProjRow> = Vec::new();
+    let mut index: HashMap<ProjRow, u32> = HashMap::new();
+    let mut list: Vec<i64> = Vec::new();
+    let mut starts: Vec<i64> = vec![0];
+    for p in projections {
+        for r in p {
+            let id = *index.entry(*r).or_insert_with(|| {
+                pool.push(*r);
+                (pool.len() - 1) as u32
+            });
+            list.push(i64::from(id));
+        }
+        starts.push(list.len() as i64);
+    }
+    let identity = list.len() == pool.len();
+    let mut out = Vec::new();
+    out.extend_from_slice(&(projections.len() as u32).to_le_bytes());
+    out.extend_from_slice(&(pool.len() as u32).to_le_bytes());
+    out.extend_from_slice(&(list.len() as u32).to_le_bytes());
+    let flags =
+        if identity { PROJ_IDENTITY } else { 0 } | if operative { PROJ_OPERATIVE } else { 0 };
+    out.extend_from_slice(&flags.to_le_bytes());
+    out.extend_from_slice(&packed::encode_column_with(&starts, operative));
+    if !identity {
+        out.extend_from_slice(&packed::encode_column_with(&list, operative));
+    }
+    for field in 0..10 {
+        let col: Vec<i64> = pool
+            .iter()
+            .map(|r| match field {
+                0 => i64::from(r.0),
+                1 => i64::from(r.1),
+                2 => i64::from(r.2),
+                3 => i64::from(r.3.e),
+                4 => i64::from(r.3.f),
+                5 => i64::from(r.3.a),
+                6 => i64::from(r.3.b),
+                7 => i64::from(r.3.c),
+                8 => i64::from(r.3.d),
+                _ => i64::from(r.4),
+            })
+            .collect();
+        out.extend_from_slice(&packed::encode_column_with(&col, operative));
+    }
+    pad16(&mut out);
+    out
 }
 
 /// Compile a parent-bound inventory without baking. See [`compile_with`].
@@ -361,8 +546,21 @@ pub fn compile_with(
     model: &StateModel,
     budget: &Budget,
     gva_limits: &GvaLimits,
-    bake: Bake,
+    options: impl Into<CompileOptions>,
 ) -> Result<Vec<u8>, GfxDiag> {
+    let CompileOptions {
+        bake,
+        max_diff_depth,
+        albit,
+        operative,
+    } = options.into();
+    let albit_on = albit != AlbitProfile::Off && max_diff_depth > 0;
+    if max_diff_depth > MAX_DIFF_DEPTH {
+        return Err(diag(
+            codes::GVI_INVALID_MODEL,
+            format!("differential depth {max_diff_depth} exceeds {MAX_DIFF_DEPTH}"),
+        ));
+    }
     let (assessment, keys) = assess_and_enumerate(model, budget);
     assessment.verdict()?;
     let keys = keys.ok_or_else(|| not_manageable("enumeration did not complete".into()))?;
@@ -414,6 +612,7 @@ pub fn compile_with(
             transform: gva.transform(i).unwrap_or(Affine::IDENTITY),
             opacity: v.opacity[i],
             hidden: false,
+            origin: None,
         });
     }
 
@@ -430,6 +629,10 @@ pub fn compile_with(
     let mut proj_index: HashMap<Vec<ProjRow>, u32> = HashMap::new();
     let mut state_proj: Vec<u32> = Vec::with_capacity(keys.len());
     let mut total_rows = 0u64;
+    // Known bake origins: baked geometry id → (unbaked geometry id, linear part).
+    let mut provenance: HashMap<u32, (u32, Affine)> = HashMap::new();
+    // GVI-A trajectory origins: geometry id → its morph endpoints and t.
+    let mut origins: HashMap<u32, diff::Origin> = HashMap::new();
     for &key in &keys {
         let state = radix.unpack(key);
         let mut rows = base.clone();
@@ -446,6 +649,34 @@ pub fn compile_with(
                 Some((p, t, s)) => (p, *t, *s),
                 None => (&*r.path, r.transform, r.style),
             };
+            // GVI-A: give the trajectory's endpoints earlier ids than its
+            // samples, so a sample record can reference them directly.
+            let origin_ids = match (&r.origin, albit_on) {
+                (Some((from, to, t)), true) => Some((
+                    ensure_geometry(&mut pool, &mut pool_index, from, gva_limits)?,
+                    ensure_geometry(&mut pool, &mut pool_index, to, gva_limits)?,
+                    *t,
+                )),
+                _ => None,
+            };
+            // For differential encoding, make sure the unbaked geometry
+            // has an earlier id than its baked forms, so the exact Affine
+            // predictor can refer to it. A trajectory sample does not need
+            // it.
+            if baked.is_some()
+                && max_diff_depth > 0
+                && origin_ids.is_none()
+                && !pool_index.contains_key(&*r.path)
+            {
+                if pool.len() as u32 >= gva_limits.max_geometries {
+                    return Err(diag(
+                        codes::TOO_MANY_GEOMETRIES,
+                        "projections need too many distinct geometries",
+                    ));
+                }
+                pool_index.insert((*r.path).clone(), pool.len() as u32);
+                pool.push((*r.path).clone());
+            }
             let g = match pool_index.get(path) {
                 Some(&g) => g,
                 None => {
@@ -458,6 +689,31 @@ pub fn compile_with(
                     }
                     pool_index.insert(path.clone(), g);
                     pool.push(path.clone());
+                    if let Some((from, to, t)) = origin_ids {
+                        origins.insert(
+                            g,
+                            diff::Origin {
+                                from,
+                                to,
+                                t,
+                                bake: baked.is_some().then_some(Affine {
+                                    e: 0,
+                                    f: 0,
+                                    ..r.transform
+                                }),
+                            },
+                        );
+                    }
+                    if baked.is_some() {
+                        if let Some(&base) = pool_index.get(&*r.path) {
+                            let linear = Affine {
+                                e: 0,
+                                f: 0,
+                                ..r.transform
+                            };
+                            provenance.insert(g, (base, linear));
+                        }
+                    }
                     g
                 }
             };
@@ -498,9 +754,12 @@ pub fn compile_with(
     }
 
     // Sections.
-    let stat = encode_stat(model);
+    // The parent binding is always over the canonical literal model; the
+    // stored STAT may be its operative form (gvi-operative.md §3).
+    let literal_stat = encode_stat(model);
     let tran = encode_tran(model);
-    let binding = binding_digest(&model.parent, &stat, &tran);
+    let binding = binding_digest(&model.parent, &literal_stat, &tran);
+    let mut stat = literal_stat;
 
     let mut parn = Vec::new();
     parn.extend_from_slice(&binding);
@@ -519,51 +778,30 @@ pub fn compile_with(
     srce.extend_from_slice(&source.height.to_le_bytes());
 
     let n = keys.len();
-    let mut indx = Vec::new();
-    indx.extend_from_slice(&(n as u32).to_le_bytes());
-    indx.extend_from_slice(&[0u8; 12]);
-    let keys_start = indx.len();
-    for k in &keys {
-        indx.extend_from_slice(&k.to_le_bytes());
-    }
-    let keys_bytes = indx[keys_start..].to_vec();
-    pad16(&mut indx);
-    for p in &state_proj {
-        indx.extend_from_slice(&p.to_le_bytes());
-    }
-    pad16(&mut indx);
+    let indx = index::encode_indx(&keys, &state_proj, radix.domain);
+    let keys_bytes = key_list_bytes(&keys);
 
-    let total = total_rows as u32;
-    let mut proj = Vec::new();
-    proj.extend_from_slice(&(projections.len() as u32).to_le_bytes());
-    proj.extend_from_slice(&total.to_le_bytes());
-    proj.extend_from_slice(&[0u8; 8]);
-    let mut start = 0u32;
-    proj.extend_from_slice(&start.to_le_bytes());
-    for p in &projections {
-        start += p.len() as u32;
-        proj.extend_from_slice(&start.to_le_bytes());
-    }
-    pad16(&mut proj);
-    let all_rows: Vec<&ProjRow> = projections.iter().flatten().collect();
-    for field in 0..9 {
-        for r in &all_rows {
-            match field {
-                0 => proj.extend_from_slice(&r.0.to_le_bytes()),
-                1 => proj.extend_from_slice(&r.1.to_le_bytes()),
-                2 => proj.extend_from_slice(&r.2.to_le_bytes()),
-                3 => proj.extend_from_slice(&r.3.e.to_le_bytes()),
-                4 => proj.extend_from_slice(&r.3.f.to_le_bytes()),
-                5 => proj.extend_from_slice(&r.3.a.to_le_bytes()),
-                6 => proj.extend_from_slice(&r.3.b.to_le_bytes()),
-                7 => proj.extend_from_slice(&r.3.c.to_le_bytes()),
-                _ => proj.extend_from_slice(&r.3.d.to_le_bytes()),
+    // Differential geometry (§6): choose records, then renumber so anchors
+    // come first and every record references earlier ids only.
+    let plan = (max_diff_depth > 0).then(|| {
+        diff::plan(
+            &pool,
+            paths.len(),
+            &provenance,
+            &origins,
+            albit != AlbitProfile::Provenance,
+            max_diff_depth,
+        )
+    });
+    if let Some(plan) = &plan {
+        for p in &mut projections {
+            for r in p.iter_mut() {
+                r.1 = plan.remap[r.1 as usize];
             }
         }
-        pad16(&mut proj);
     }
-    proj.extend(all_rows.iter().map(|r| r.4));
-    pad16(&mut proj);
+
+    let proj = encode_proj(&projections, operative != OperativeProfile::Off);
 
     let method = match model.reachability {
         Reachability::Product { .. } => METHOD_PRODUCT,
@@ -572,6 +810,10 @@ pub fn compile_with(
     let bake_flag = match bake {
         Bake::None => 0,
         Bake::Transforms => ASSUME_BAKED_TRANSFORMS,
+    } | if plan.is_some() {
+        ASSUME_DIFFERENTIAL_GEOMETRY
+    } else {
+        0
     };
     let mut cert = vec![0u8; CERT_LEN];
     cert[0] = method;
@@ -585,9 +827,68 @@ pub fn compile_with(
         &(ASSUME_CLOSED_EFFECTS | ASSUME_REJECT_UNREACHABLE | bake_flag).to_le_bytes(),
     );
 
-    let (geom, hash) = encode_geometry_pool(&pool)?;
+    let (anchors, diff_section, cost) = match &plan {
+        None => (pool, None, None),
+        Some(plan) => {
+            let anchors: Vec<Path> = plan.order[..plan.anchors]
+                .iter()
+                .map(|&old| pool[old as usize].clone())
+                .collect();
+            let mut d = Vec::new();
+            d.extend_from_slice(&(plan.records.len() as u32).to_le_bytes());
+            d.extend_from_slice(&[0u8; 12]);
+            let mut off = 0u32;
+            d.extend_from_slice(&off.to_le_bytes());
+            for rec in &plan.records {
+                off += rec.len() as u32;
+                d.extend_from_slice(&off.to_le_bytes());
+            }
+            pad16(&mut d);
+            for rec in &plan.records {
+                d.extend_from_slice(rec);
+            }
+            pad16(&mut d);
+            // GVI-O: the columnar operative form, if smaller.
+            if operative != OperativeProfile::Off {
+                let views: Vec<diff::RecordView<'_>> = plan
+                    .records
+                    .iter()
+                    .enumerate()
+                    .map(|(k, rec)| diff::parse_record(rec, (plan.anchors + k) as u32))
+                    .collect::<Result<_, _>>()?;
+                let op = diff::encode_diff_operative(&views);
+                if op.len() < d.len() {
+                    d = op;
+                }
+            }
+            let mut c = Vec::with_capacity(32);
+            c.extend_from_slice(&max_diff_depth.to_le_bytes());
+            c.extend_from_slice(&plan.max_depth.to_le_bytes());
+            c.extend_from_slice(&plan.max_ancestors.to_le_bytes());
+            c.extend_from_slice(&(plan.anchors as u32).to_le_bytes());
+            c.extend_from_slice(&plan.points.to_le_bytes());
+            c.push(if albit_on { albit.id() } else { 0 });
+            c.extend_from_slice(&[0u8; 7]);
+            (anchors, Some(d), Some(c))
+        }
+    };
+    // GVI-O: the operative STAT, whose REF targets point into the final
+    // anchor order, if smaller.
+    if operative != OperativeProfile::Off {
+        let op = encode_stat_operative(model, &anchors);
+        if op.len() < stat.len() {
+            stat = op;
+        }
+    }
+    let (geom, hash) = encode_geometry_pool(&anchors)?;
     let styl = encode_style_pool(&styles);
-    let sections = [
+    // GVI-L: the palette form, only when it is strictly shorter.
+    let lsty = lineless::encode(&styles).filter(|l| l.len().div_ceil(16) < styl.len().div_ceil(16));
+    if lsty.is_some() {
+        let assumptions = u32_at(&cert, 72) | ASSUME_LINELESS_STYLES;
+        cert[72..76].copy_from_slice(&assumptions.to_le_bytes());
+    }
+    let mut sections = vec![
         SectionInput::new(CERT, &cert).align_log2(ALIGN_LOG2),
         SectionInput::new(GEOM, &geom).align_log2(ALIGN_LOG2),
         SectionInput::new(HASH, &hash)
@@ -598,9 +899,17 @@ pub fn compile_with(
         SectionInput::new(PROJ, &proj).align_log2(ALIGN_LOG2),
         SectionInput::new(SRCE, &srce).align_log2(ALIGN_LOG2),
         SectionInput::new(STAT, &stat).align_log2(ALIGN_LOG2),
-        SectionInput::new(STYL, &styl).align_log2(ALIGN_LOG2),
         SectionInput::new(TRAN, &tran).align_log2(ALIGN_LOG2),
     ];
+    if let Some(l) = &lsty {
+        sections.push(SectionInput::new(LSTY, l).align_log2(ALIGN_LOG2));
+    } else {
+        sections.push(SectionInput::new(STYL, &styl).align_log2(ALIGN_LOG2));
+    }
+    if let (Some(d), Some(c)) = (&diff_section, &cost) {
+        sections.push(SectionInput::new(DIFF, d).align_log2(ALIGN_LOG2));
+        sections.push(SectionInput::new(COST, c).align_log2(ALIGN_LOG2));
+    }
     let out = encode_container(
         Format::Gvi,
         Profile::Baseline,
@@ -609,6 +918,78 @@ pub fn compile_with(
         &gva_limits.container,
     )
     .map_err(|e| diag(e.kind.code(), e.to_string()))?;
+    // Differential layout is used only when it makes the file smaller;
+    // otherwise the complete layout is emitted. The choice is
+    // deterministic, so recompiling with the same options reproduces it.
+    let out = if plan.is_some() {
+        let complete = compile_with(
+            source,
+            model,
+            budget,
+            gva_limits,
+            CompileOptions {
+                bake,
+                max_diff_depth: 0,
+                albit: AlbitProfile::Off,
+                operative,
+            },
+        )?;
+        if complete.len() <= out.len() {
+            complete
+        } else {
+            out
+        }
+    } else {
+        out
+    };
+    // GVI-A never-bigger (gvi-albit.md §5): the trajectory candidate must
+    // beat the same compilation without it, or that compilation is
+    // returned byte for byte.
+    let out = if albit_on {
+        let without = compile_with(
+            source,
+            model,
+            budget,
+            gva_limits,
+            CompileOptions {
+                bake,
+                max_diff_depth,
+                albit: AlbitProfile::Off,
+                operative,
+            },
+        )?;
+        if without.len() <= out.len() {
+            without
+        } else {
+            out
+        }
+    } else {
+        out
+    };
+    // GVI-O never-bigger (gvi-operative.md §5): the whole file must beat
+    // the same compilation without operatives, or that compilation is
+    // returned byte for byte.
+    let out = if operative != OperativeProfile::Off {
+        let without = compile_with(
+            source,
+            model,
+            budget,
+            gva_limits,
+            CompileOptions {
+                bake,
+                max_diff_depth,
+                albit,
+                operative: OperativeProfile::Off,
+            },
+        )?;
+        if without.len() <= out.len() {
+            without
+        } else {
+            out
+        }
+    } else {
+        out
+    };
     if out.len() as u64 > budget.max_bytes {
         return Err(not_manageable(format!(
             "inventory is {} bytes, over the {}-byte budget",
@@ -633,6 +1014,10 @@ pub struct GviLimits {
     pub max_rows: u32,
     /// Rule applications allowed while re-checking completeness at open.
     pub max_check_steps: u64,
+    /// Deepest differential chain accepted (§6).
+    pub max_diff_depth: u32,
+    /// Most ancestors any differential record may have.
+    pub max_diff_ancestors: usize,
 }
 
 impl Default for GviLimits {
@@ -644,6 +1029,8 @@ impl Default for GviLimits {
             max_projections: 1 << 20,
             max_rows: 1 << 24,
             max_check_steps: 1 << 24,
+            max_diff_depth: MAX_DIFF_DEPTH,
+            max_diff_ancestors: 4096,
         }
     }
 }
@@ -688,12 +1075,25 @@ pub struct Inventory<'a> {
     dims: Vec<Dimension>,
     reach: Reachability,
     radix: Radix,
-    keys: &'a [u8],
-    key_proj: &'a [u8],
-    starts: &'a [u8],
-    rows: [&'a [u8]; 9],
-    opacity: &'a [u8],
+    /// `INDX`: reachable keys and their projection ids (§4.2).
+    index: index::Index<'a>,
+    /// `PROJ`: projection start offsets into the row-id list.
+    starts: packed::Column<'a>,
+    /// Row ids per reference, or `None` when the list is the identity.
+    row_list: Option<packed::Column<'a>>,
+    /// Row pool columns: item, geometry, style, e, f, a, b, c, d, opacity.
+    cols: Vec<packed::Column<'a>>,
+    /// Native copies of the tables under expanded residency (§9.1).
+    expanded: Option<Box<ExpandedTables>>,
     geom: GeometryPool<'a>,
+    /// Differential records for geometry ids `geom.len()..` (§6).
+    records: Vec<diff::RecordView<'a>>,
+    /// `COST`: `(declared depth bound, max depth, max ancestors, reconstruction points)`.
+    cost: Option<(u32, u32, u32, u64)>,
+    /// The GVI-A profile recorded in `COST` (Off without `DIFF`).
+    albit: AlbitProfile,
+    /// Whether any section is stored in GVI-O operative form.
+    operative: OperativeProfile,
     styles: Vec<Style>,
 }
 
@@ -753,13 +1153,47 @@ impl<'a> Inventory<'a> {
         r.finish()?;
         let stat = take(STAT)?;
         let tran = take(TRAN)?;
-        if binding_digest(&parent, stat, tran) != binding {
+        // Reconstruct the model first (bounded by the open limits and the
+        // operative expansion budgets), then check the binding over its
+        // canonical literal form, whatever form is stored.
+        // An operative STAT may reference GEOM anchors (REF), so decode
+        // them first. Literal STAT needs none.
+        let stat_operative = stat.get(8) == Some(&STAT_OPERATIVE);
+        let ref_anchors: Vec<Path> = if stat_operative {
+            let pool = GeometryPool::parse(take(GEOM)?, &limits.gva)?;
+            (0..pool.len())
+                .map(|g| pool.get(g))
+                .collect::<Result<_, _>>()?
+        } else {
+            Vec::new()
+        };
+        let dims = parse_stat(stat, limits.max_dimensions, &limits.gva, &ref_anchors)?;
+        let reach = parse_tran(tran, dims.len())?;
+        let canonical = StateModel {
+            parent: String::new(),
+            dimensions: dims.clone(),
+            reachability: reach.clone(),
+        };
+        let literal_stat = encode_stat(&canonical);
+        if binding_digest(&parent, &literal_stat, tran) != binding {
             return Err(cert_err(
                 "stored state model does not match its parent binding",
             ));
         }
-        let dims = parse_stat(stat, limits.max_dimensions, &limits.gva)?;
-        let reach = parse_tran(tran, dims.len())?;
+        // The stored model must be canonical in its own form: a path table
+        // without duplicates or unused entries, in first-use order, and an
+        // operative form exactly as the encoder emits it.
+        let expected = if stat_operative {
+            encode_stat_operative(&canonical, &ref_anchors)
+        } else {
+            literal_stat
+        };
+        if expected != stat || encode_tran(&canonical) != tran {
+            return Err(diag(
+                codes::NON_CANONICAL,
+                "stored state model is not in canonical form",
+            ));
+        }
 
         // SRCE
         let srce = take(SRCE)?;
@@ -797,50 +1231,84 @@ impl<'a> Inventory<'a> {
                 "GEOM holds fewer geometries than the source",
             ));
         }
-        let styles = parse_style_pool(take(STYL)?, &limits.gva)?;
+        // CERT bit 4 decides between STYL and LSTY (GVI-L).
+        let certificate = parse_cert(take(CERT)?)?;
+        let styles = match (
+            certificate.assumptions & ASSUME_LINELESS_STYLES != 0,
+            c.section(LSTY)
+                .map_err(|e| diag(e.kind.code(), e.to_string()))?,
+            c.section(STYL)
+                .map_err(|e| diag(e.kind.code(), e.to_string()))?,
+        ) {
+            (true, Some(data), None) => lineless::decode(data, &limits.gva)?,
+            (false, None, Some(data)) => parse_style_pool(data, &limits.gva)?,
+            _ => return Err(cert_err("exactly one declared style section is required")),
+        };
 
         // INDX
-        let indx = take(INDX)?;
-        let mut r = Reader::new(indx, "INDX");
-        let n = r.u32()?;
-        r.zeros(12)?;
-        if n > limits.max_states {
-            return Err(diag(
-                codes::GVI_NOT_MANAGEABLE,
-                format!("{n} states exceeds the limit of {}", limits.max_states),
-            ));
-        }
-        let n_us = n as usize;
-        let keys = r.bytes(n_us * 8)?;
-        r.zeros((16 - (n_us * 8) % 16) % 16)?;
-        let key_proj = r.bytes(n_us * 4)?;
-        r.finish()?;
+        let (index, all_keys, _) =
+            index::Index::parse(take(INDX)?, radix.domain, limits.max_states)?;
 
         // PROJ
         let projb = take(PROJ)?;
         let mut r = Reader::new(projb, "PROJ");
         let np = r.u32()?;
+        let nrows = r.u32()?;
         let total = r.u32()?;
-        r.zeros(8)?;
-        if np > limits.max_projections || total > limits.max_rows {
+        let flags = r.u32()?;
+        if flags & !(PROJ_IDENTITY | PROJ_OPERATIVE) != 0 {
+            return Err(malformed(PROJ, "unknown flags"));
+        }
+        if np > limits.max_projections || nrows > limits.max_rows || total > limits.max_rows {
             return Err(diag(
                 codes::GVI_NOT_MANAGEABLE,
                 "projection table exceeds the open limits",
             ));
         }
-        let (np_us, total_us) = (np as usize, total as usize);
-        let starts_len = (np_us + 1) * 4;
-        let starts = r.bytes(starts_len)?;
-        r.zeros((16 - starts_len % 16) % 16)?;
-        let arr_pad = (16 - (total_us * 4) % 16) % 16;
-        let mut rows: [&[u8]; 9] = [&[]; 9];
-        for slot in rows.iter_mut() {
-            *slot = r.bytes(total_us * 4)?;
-            r.zeros(arr_pad)?;
+        let proj_operative = flags & PROJ_OPERATIVE != 0;
+        let starts = packed::Column::parse_with(&mut r, np as usize + 1, proj_operative)?;
+        let row_list = if flags & PROJ_IDENTITY != 0 {
+            if total != nrows {
+                return Err(malformed(
+                    PROJ,
+                    "an identity row list needs one reference per row",
+                ));
+            }
+            None
+        } else {
+            Some(packed::Column::parse_with(
+                &mut r,
+                total as usize,
+                proj_operative,
+            )?)
+        };
+        let mut cols = Vec::with_capacity(10);
+        for _ in 0..10 {
+            cols.push(packed::Column::parse_with(
+                &mut r,
+                nrows as usize,
+                proj_operative,
+            )?);
         }
-        let opacity = r.bytes(total_us)?;
         r.finish()?;
 
+        let differential = certificate.assumptions & ASSUME_DIFFERENTIAL_GEOMETRY != 0;
+        let present = |tag: Tag| -> Result<Option<&'a [u8]>, GfxDiag> {
+            c.section(tag)
+                .map_err(|e| diag(e.kind.code(), e.to_string()))
+        };
+        let (records, cost, albit, diff_operative) = match (differential, present(DIFF)?, present(COST)?) {
+            (false, None, None) => (Vec::new(), None, AlbitProfile::Off, false),
+            (true, Some(d), Some(cst)) => {
+                let (records, cost, albit) = parse_differential(d, cst, geom.len(), limits)?;
+                (records, Some(cost), albit, d.get(4) == Some(&diff::DIFF_OPERATIVE))
+            }
+            _ => {
+                return Err(cert_err(
+                    "DIFF and COST must be present exactly when the certificate declares differential geometry",
+                ))
+            }
+        };
         let inv = Inventory {
             bytes,
             parent,
@@ -850,45 +1318,187 @@ impl<'a> Inventory<'a> {
             source_items,
             width: u32_at(srce, 40),
             height: u32_at(srce, 44),
-            certificate: parse_cert(take(CERT)?)?,
+            certificate,
             dims,
             reach,
             radix,
-            keys,
-            key_proj,
+            index,
             starts,
-            rows,
-            opacity,
+            row_list,
+            cols,
+            expanded: None,
             geom,
+            records,
+            cost,
+            albit,
+            operative: if stat_operative || diff_operative || proj_operative {
+                OperativeProfile::Fast
+            } else {
+                OperativeProfile::Off
+            },
             styles,
         };
-        inv.check_structure(np, total)?;
-        inv.check_completeness(limits)?;
+        // Inventories with operative PROJ columns are always expanded, so
+        // the packed read path never sees a decoded column.
+        let mut inv = inv;
+        if inv.cols.iter().any(packed::Column::is_operative)
+            || inv
+                .row_list
+                .as_ref()
+                .is_some_and(packed::Column::is_operative)
+            || inv.starts.is_operative()
+        {
+            inv.set_residency(Residency::Expanded);
+        }
+        inv.check_structure(np, total, &all_keys)?;
+        inv.check_completeness(limits, &all_keys)?;
         Ok(inv)
     }
 
-    fn key(&self, i: usize) -> u64 {
-        u64_at(self.keys, i * 8)
-    }
-
     fn proj_of(&self, i: usize) -> u32 {
-        u32_at(self.key_proj, i * 4)
+        match self.expanded.as_ref().and_then(|x| x.proj.as_ref()) {
+            Some(p) => p[i],
+            None => self.index.proj_of(i),
+        }
     }
 
     fn start(&self, p: usize) -> u32 {
-        u32_at(self.starts, p * 4)
+        match &self.expanded {
+            Some(x) => x.starts[p],
+            None => self.starts.get(p) as u32,
+        }
+    }
+
+    /// Pool row of reference `r`.
+    fn row_id(&self, r: usize) -> usize {
+        match &self.expanded {
+            Some(x) => x.row_list.as_ref().map_or(r, |l| l[r] as usize),
+            None => match &self.row_list {
+                None => r,
+                Some(l) => l.get(r) as usize,
+            },
+        }
     }
 
     fn row_u32(&self, field: usize, row: usize) -> u32 {
-        u32_at(self.rows[field], row * 4)
+        match (&self.expanded, field) {
+            (Some(x), 0) => x.item[row],
+            (Some(x), 1) => x.geometry[row],
+            (Some(x), 2) => x.style[row],
+            _ => self.cols[field].get(row) as u32,
+        }
+    }
+
+    fn row_opacity(&self, row: usize) -> u8 {
+        match &self.expanded {
+            Some(x) => x.opacity[row],
+            None => self.cols[9].get(row) as u8,
+        }
+    }
+
+    fn row_transform(&self, row: usize) -> Affine {
+        match &self.expanded {
+            Some(x) => x.transform[row],
+            None => self.packed_transform(row),
+        }
+    }
+
+    fn packed_transform(&self, row: usize) -> Affine {
+        let f = |k: usize| self.cols[k].get(row) as i32;
+        Affine {
+            e: f(3),
+            f: f(4),
+            a: f(5),
+            b: f(6),
+            c: f(7),
+            d: f(8),
+        }
     }
 
     pub fn state_count(&self) -> usize {
-        self.keys.len() / 8
+        self.index.len()
+    }
+
+    /// Choose how the packed `PROJ` and `INDX` tables are held in memory
+    /// (§9.1). `Expanded` unpacks them into native arrays: faster reads,
+    /// more heap. `Packed`, the default, reads straight from the file
+    /// bytes. Results are identical either way.
+    pub fn set_residency(&mut self, residency: Residency) {
+        self.expanded = match residency {
+            // Operative PROJ columns have no packed form: such inventories
+            // stay expanded.
+            Residency::Packed
+                if self.cols.iter().any(packed::Column::is_operative)
+                    || self.starts.is_operative()
+                    || self
+                        .row_list
+                        .as_ref()
+                        .is_some_and(packed::Column::is_operative) =>
+            {
+                return
+            }
+            Residency::Packed => None,
+            Residency::Expanded => {
+                let col_u32 = |c: &packed::Column<'_>| -> Vec<u32> {
+                    c.values().into_iter().map(|v| v as u32).collect()
+                };
+                let n = self.cols[0].len();
+                Some(Box::new(ExpandedTables {
+                    starts: col_u32(&self.starts),
+                    row_list: self.row_list.as_ref().map(col_u32),
+                    item: col_u32(&self.cols[0]),
+                    geometry: col_u32(&self.cols[1]),
+                    style: col_u32(&self.cols[2]),
+                    transform: (0..n)
+                        .map(|r| {
+                            let f = |k: usize| self.cols[k].at(r) as i32;
+                            Affine {
+                                e: f(3),
+                                f: f(4),
+                                a: f(5),
+                                b: f(6),
+                                c: f(7),
+                                d: f(8),
+                            }
+                        })
+                        .collect(),
+                    opacity: self.cols[9].values().into_iter().map(|v| v as u8).collect(),
+                    proj: self.index.proj_ids(),
+                    keys: self.index.packed_keys(),
+                }))
+            }
+        };
+    }
+
+    pub fn residency(&self) -> Residency {
+        if self.expanded.is_some() {
+            Residency::Expanded
+        } else {
+            Residency::Packed
+        }
+    }
+
+    /// Memory held by the `PROJ` and `INDX` tables: `(packed bytes
+    /// borrowed from the file, heap bytes)`. Heap covers dictionaries and
+    /// the expanded tables, if present.
+    pub fn table_residency(&self) -> (usize, usize) {
+        let mut cols: Vec<&packed::Column<'a>> = self.cols.iter().collect();
+        cols.push(&self.starts);
+        if let Some(l) = &self.row_list {
+            cols.push(l);
+        }
+        cols.extend(self.index.columns());
+        let (file, mut heap) = cols.iter().fold((0, 0), |(p, h), c| {
+            (p + c.packed_bytes(), h + c.heap_bytes())
+        });
+        if let Some(x) = &self.expanded {
+            heap += x.heap_bytes();
+        }
+        (file, heap)
     }
 
     pub fn projection_count(&self) -> usize {
-        self.starts.len() / 4 - 1
+        self.starts.len() - 1
     }
 
     pub fn dimensions(&self) -> &[Dimension] {
@@ -900,18 +1510,11 @@ impl<'a> Inventory<'a> {
     }
 
     /// Index, projection and row references, plus the certificate figures.
-    fn check_structure(&self, np: u32, total: u32) -> Result<(), GfxDiag> {
+    fn check_structure(&self, np: u32, total: u32, keys: &[u64]) -> Result<(), GfxDiag> {
         let n = self.state_count();
-        let mut prev: Option<u64> = None;
         let mut used = vec![false; np as usize];
+        // Keys were checked ascending and inside the domain by Index::parse.
         for i in 0..n {
-            let k = self.key(i);
-            if prev.is_some_and(|p| p >= k) || k >= self.radix.domain {
-                return Err(cert_err(
-                    "index keys must be strictly ascending and inside the domain",
-                ));
-            }
-            prev = Some(k);
             let p = self.proj_of(i);
             let slot = used.get_mut(p as usize).ok_or_else(|| {
                 diag(
@@ -935,8 +1538,55 @@ impl<'a> Inventory<'a> {
                 return Err(malformed(PROJ, "projection ranges must not decrease"));
             }
         }
-        let (gc, sc) = (self.geom.len() as u32, self.styles.len() as u32);
-        for row in 0..total as usize {
+        // Row-id list: in range, each new row first used in pool order, and
+        // the identity form used exactly when possible.
+        let nrows = self.cols[0].len();
+        if let Some(list) = &self.row_list {
+            if list.len() <= nrows {
+                return Err(diag(
+                    codes::NON_CANONICAL,
+                    "PROJ stores an identity row list explicitly",
+                ));
+            }
+            let mut next = 0usize;
+            for k in 0..list.len() {
+                let id = list.at(k);
+                if id < 0 || id as usize > next || id as usize >= nrows {
+                    return Err(diag(
+                        codes::NON_CANONICAL,
+                        "PROJ row ids are not in first-use order",
+                    ));
+                }
+                if id as usize == next {
+                    next += 1;
+                }
+            }
+            if next != nrows {
+                return Err(diag(codes::NON_CANONICAL, "PROJ holds an unreferenced row"));
+            }
+        }
+        let mut distinct = std::collections::HashSet::with_capacity(nrows);
+        for row in 0..nrows {
+            let tuple: Vec<i64> = self.cols.iter().map(|c| c.at(row)).collect();
+            if !distinct.insert(tuple) {
+                return Err(diag(codes::NON_CANONICAL, "PROJ holds a duplicate row"));
+            }
+            for f in 3..9 {
+                if i32::try_from(self.cols[f].at(row)).is_err() {
+                    return Err(malformed(PROJ, "transform value is out of range"));
+                }
+            }
+            if !(0..=255).contains(&self.cols[9].at(row)) {
+                return Err(malformed(PROJ, "opacity is out of range"));
+            }
+            for f in 0..3 {
+                if !(0..=i64::from(u32::MAX)).contains(&self.cols[f].at(row)) {
+                    return Err(malformed(PROJ, "reference is out of range"));
+                }
+            }
+        }
+        let (gc, sc) = (self.geometry_count() as u32, self.styles.len() as u32);
+        for row in 0..nrows {
             if self.row_u32(0, row) >= self.source_items {
                 return Err(diag(
                     codes::GEOMETRY_REF,
@@ -958,7 +1608,10 @@ impl<'a> Inventory<'a> {
         }
         let c = &self.certificate;
         let required = ASSUME_CLOSED_EFFECTS | ASSUME_REJECT_UNREACHABLE;
-        let known = required | ASSUME_BAKED_TRANSFORMS;
+        let known = required
+            | ASSUME_BAKED_TRANSFORMS
+            | ASSUME_DIFFERENTIAL_GEOMETRY
+            | ASSUME_LINELESS_STYLES;
         if c.assumptions & required != required || c.assumptions & !known != 0 {
             return Err(cert_err("unknown or missing certificate assumptions"));
         }
@@ -972,7 +1625,7 @@ impl<'a> Inventory<'a> {
             || c.reachable != n as u64
             || c.projections != u64::from(np)
             || c.merged_states != (n as u64).saturating_sub(u64::from(np))
-            || c.coverage_digest != sha256(&[self.keys])
+            || c.coverage_digest != sha256(&[&key_list_bytes(keys)])
         {
             return Err(cert_err("certificate figures do not match the inventory"));
         }
@@ -984,16 +1637,10 @@ impl<'a> Inventory<'a> {
     }
 
     fn index_of(&self, key: u64) -> Option<usize> {
-        let (mut lo, mut hi) = (0usize, self.state_count());
-        while lo < hi {
-            let mid = lo + (hi - lo) / 2;
-            match self.key(mid).cmp(&key) {
-                std::cmp::Ordering::Less => lo = mid + 1,
-                std::cmp::Ordering::Greater => hi = mid,
-                std::cmp::Ordering::Equal => return Some(mid),
-            }
+        match self.expanded.as_ref().and_then(|x| x.keys.as_ref()) {
+            Some(keys) => keys.binary_search(&key).ok(),
+            None => self.index.index_of(key),
         }
-        None
     }
 
     /// Re-derive completeness from the stored model, using a different
@@ -1004,7 +1651,7 @@ impl<'a> Inventory<'a> {
     /// - **Transitions:** the initial state is indexed, the index is closed
     ///   under every rule, and every indexed state is reached by walking
     ///   rules from the initial state within the index.
-    fn check_completeness(&self, limits: &GviLimits) -> Result<(), GfxDiag> {
+    fn check_completeness(&self, limits: &GviLimits, keys: &[u64]) -> Result<(), GfxDiag> {
         let n = self.state_count();
         match &self.reach {
             Reachability::Product { exclusions } => {
@@ -1041,7 +1688,7 @@ impl<'a> Inventory<'a> {
                 let mut stack = vec![start_i];
                 let mut steps = 0u64;
                 while let Some(i) = stack.pop() {
-                    let state = self.radix.unpack(self.key(i));
+                    let state = self.radix.unpack(keys[i]);
                     for rule in rules {
                         steps += 1;
                         if steps > limits.max_check_steps {
@@ -1139,10 +1786,90 @@ impl<'a> Inventory<'a> {
     }
 
     /// Decode every geometry once, for presentation.
+    /// Decode every geometry once, for presentation: anchors directly, and
+    /// differential records in id order from their already-built bases.
+    /// Each record's hash proves its reconstruction exact.
     pub fn decode_geometry(&self) -> Result<Vec<Arc<Path>>, GfxDiag> {
-        (0..self.geom.len())
-            .map(|g| self.geom.get(g).map(Arc::new))
-            .collect()
+        let mut paths: Vec<Arc<Path>> = Vec::with_capacity(self.geometry_count());
+        for g in 0..self.geom.len() {
+            paths.push(Arc::new(self.geom.get(g)?));
+        }
+        let mut points = 0u64;
+        for rec in &self.records {
+            let p = {
+                let get = |id: u32| paths.get(id as usize).map(|a| &**a);
+                diff::reconstruct(rec, &get)?
+            };
+            points += p.points().count() as u64;
+            paths.push(Arc::new(p));
+        }
+        if self.cost.is_some_and(|c| c.3 != points) {
+            return Err(cert_err("COST misstates the reconstruction work"));
+        }
+        Ok(paths)
+    }
+
+    /// Total geometries: complete anchors plus differential records.
+    pub fn geometry_count(&self) -> usize {
+        self.geom.len() + self.records.len()
+    }
+
+    /// How geometry is stored (§6).
+    pub fn geometry_layout(&self) -> GeometryLayout {
+        let (depth_bound, max_depth, max_ancestors, points) = self.cost.unwrap_or((0, 0, 0, 0));
+        GeometryLayout {
+            anchors: self.geom.len(),
+            records: self.records.len(),
+            depth_bound,
+            max_depth,
+            max_ancestors,
+            reconstruction_points: points,
+            trajectory_records: self
+                .records
+                .iter()
+                .filter(|r| r.pred.is_trajectory())
+                .count(),
+            albit: self.albit,
+        }
+    }
+
+    /// Rebuild one geometry lazily, touching only its ancestors. This costs
+    /// at most `max_ancestors + 1` geometries (the Bounded Differential
+    /// Traversal contract).
+    pub fn geometry(&self, g: u32) -> Result<Path, GfxDiag> {
+        let anchors = self.geom.len() as u32;
+        if g < anchors {
+            return self.geom.get(g as usize);
+        }
+        let mut need = vec![g];
+        let mut stack = vec![g];
+        while let Some(id) = stack.pop() {
+            if id >= anchors {
+                let rec = self.records.get((id - anchors) as usize).ok_or_else(|| {
+                    diag(codes::GEOMETRY_REF, format!("geometry {id} does not exist"))
+                })?;
+                for b in rec.pred.bases() {
+                    if !need.contains(&b) {
+                        need.push(b);
+                        stack.push(b);
+                    }
+                }
+            }
+        }
+        need.sort_unstable();
+        let mut built: HashMap<u32, Path> = HashMap::with_capacity(need.len());
+        for id in need {
+            let p = if id < anchors {
+                self.geom.get(id as usize)?
+            } else {
+                let get = |b: u32| built.get(&b);
+                diff::reconstruct(&self.records[(id - anchors) as usize], &get)?
+            };
+            built.insert(id, p);
+        }
+        built
+            .remove(&g)
+            .ok_or_else(|| diag(codes::GEOMETRY_REF, format!("geometry {g} does not exist")))
     }
 
     pub fn styles(&self) -> &[Style] {
@@ -1176,7 +1903,13 @@ impl<'a> Inventory<'a> {
         } else {
             Bake::None
         };
-        if compile_with(source, model, budget, gva_limits, bake)? != self.bytes {
+        let options = CompileOptions {
+            bake,
+            max_diff_depth: self.cost.map_or(0, |c| c.0),
+            albit: self.albit,
+            operative: self.operative,
+        };
+        if compile_with(source, model, budget, gva_limits, options)? != self.bytes {
             return Err(diag(
                 codes::NON_CANONICAL,
                 "inventory differs from the canonical compilation",
@@ -1184,6 +1917,178 @@ impl<'a> Inventory<'a> {
         }
         Ok(())
     }
+}
+
+/// `PROJ` and `INDX` unpacked into native arrays (§9.1).
+#[derive(Debug, Clone)]
+struct ExpandedTables {
+    starts: Vec<u32>,
+    row_list: Option<Vec<u32>>,
+    item: Vec<u32>,
+    geometry: Vec<u32>,
+    style: Vec<u32>,
+    transform: Vec<Affine>,
+    opacity: Vec<u8>,
+    /// `None` when projection ids are the identity.
+    proj: Option<Vec<u32>>,
+    /// `Some` only when keys are a packed list; identity and bitmap keys
+    /// are already O(1).
+    keys: Option<Vec<u64>>,
+}
+
+impl ExpandedTables {
+    fn heap_bytes(&self) -> usize {
+        4 * (self.starts.len()
+            + self.row_list.as_ref().map_or(0, Vec::len)
+            + self.item.len()
+            + self.geometry.len()
+            + self.style.len()
+            + self.proj.as_ref().map_or(0, Vec::len))
+            + std::mem::size_of::<Affine>() * self.transform.len()
+            + self.opacity.len()
+            + 8 * self.keys.as_ref().map_or(0, Vec::len)
+    }
+}
+
+/// How the packed `PROJ` and `INDX` tables are held in memory (§9.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Residency {
+    /// Read straight from the (possibly memory-mapped) file bytes.
+    Packed,
+    /// Unpack every column into native arrays at the cost of heap memory.
+    Expanded,
+}
+
+/// How an inventory's geometry is stored (§6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GeometryLayout {
+    /// Complete geometries in `GEOM`.
+    pub anchors: usize,
+    /// Differential records in `DIFF`.
+    pub records: usize,
+    /// The declared Bounded Differential Traversal depth (0 = none).
+    pub depth_bound: u32,
+    pub max_depth: u32,
+    /// Most geometries any single lazy reconstruction touches, besides
+    /// the target itself.
+    pub max_ancestors: u32,
+    /// Points rebuilt when every record is reconstructed.
+    pub reconstruction_points: u64,
+    /// How many records are GVI-A trajectory samples.
+    pub trajectory_records: usize,
+    /// The GVI-A profile the inventory was compiled with.
+    pub albit: AlbitProfile,
+}
+
+/// `COST` fields: declared depth bound, max depth, max ancestors and
+/// reconstruction points.
+type Cost = (u32, u32, u32, u64);
+
+/// Parse `DIFF` and `COST`, and check the record graph against the declared
+/// bounds: bases are earlier ids, and depth and ancestor counts match `COST`
+/// and stay within the open limits.
+#[allow(clippy::type_complexity)]
+fn parse_differential<'a>(
+    d: &'a [u8],
+    cost: &[u8],
+    anchors: usize,
+    limits: &GviLimits,
+) -> Result<(Vec<diff::RecordView<'a>>, Cost, AlbitProfile), GfxDiag> {
+    if cost.len() != 32 || cost[25..32] != [0; 7] {
+        return Err(malformed(COST, "wrong length or non-zero reserved bytes"));
+    }
+    let albit =
+        AlbitProfile::from_id(cost[24]).ok_or_else(|| malformed(COST, "unknown GVI-A profile"))?;
+    let (bound, max_depth, max_anc, cost_anchors) = (
+        u32_at(cost, 0),
+        u32_at(cost, 4),
+        u32_at(cost, 8),
+        u32_at(cost, 12),
+    );
+    let points = u64_at(cost, 16);
+    if bound == 0 || bound > MAX_DIFF_DEPTH.min(limits.max_diff_depth) || max_depth > bound {
+        return Err(cert_err(format!(
+            "differential depth bound {bound} is not acceptable"
+        )));
+    }
+    if cost_anchors as usize != anchors {
+        return Err(cert_err("COST anchor count disagrees with GEOM"));
+    }
+    let n = u32_at(d.get(..4).ok_or_else(|| malformed(DIFF, "truncated"))?, 0) as usize;
+    if anchors + n > limits.gva.max_geometries as usize {
+        return Err(diag(codes::TOO_MANY_GEOMETRIES, "too many geometries"));
+    }
+    let parsed: Vec<diff::RecordView<'a>> = match d.get(4) {
+        Some(&diff::DIFF_OPERATIVE) => {
+            let records = diff::parse_diff_operative(d, anchors, n)?;
+            if diff::encode_diff_operative(&records) != d {
+                return Err(diag(
+                    codes::NON_CANONICAL,
+                    "operative DIFF is not canonically encoded",
+                ));
+            }
+            records
+        }
+        Some(&diff::DIFF_RECORDS) => {
+            let mut r = Reader::new(d, "DIFF");
+            r.u32()?;
+            r.zeros(12)?;
+            let table = r.bytes((n + 1) * 4)?;
+            r.zeros((16 - ((n + 1) * 4) % 16) % 16)?;
+            let offsets: Vec<usize> = table
+                .chunks_exact(4)
+                .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]) as usize)
+                .collect();
+            if offsets[0] != 0 || offsets.windows(2).any(|w| w[1] <= w[0]) {
+                return Err(malformed(
+                    DIFF,
+                    "record offsets must start at 0 and increase",
+                ));
+            }
+            let blob = r.bytes(offsets[n])?;
+            r.finish()?;
+            (0..n)
+                .map(|k| {
+                    diff::parse_record(&blob[offsets[k]..offsets[k + 1]], (anchors + k) as u32)
+                })
+                .collect::<Result<_, _>>()?
+        }
+        _ => return Err(malformed(DIFF, "unknown DIFF encoding")),
+    };
+    let mut records = Vec::with_capacity(n);
+    let mut depth: Vec<u32> = vec![0; anchors + n];
+    let mut ancestors: Vec<Vec<u32>> = vec![Vec::new(); anchors + n];
+    let (mut seen_depth, mut seen_anc) = (0u32, 0u32);
+    for (k, rec) in parsed.into_iter().enumerate() {
+        let id = (anchors + k) as u32;
+        if rec.pred.is_trajectory() && albit == AlbitProfile::Off {
+            return Err(cert_err(
+                "a GVI-A trajectory record in an inventory that declares none",
+            ));
+        }
+        let bases = rec.pred.bases();
+        depth[id as usize] = 1 + bases.iter().map(|&b| depth[b as usize]).max().unwrap_or(0);
+        let mut anc: Vec<u32> = Vec::new();
+        for &b in &bases {
+            anc.push(b);
+            anc.extend_from_slice(&ancestors[b as usize]);
+        }
+        anc.sort_unstable();
+        anc.dedup();
+        if anc.len() > limits.max_diff_ancestors {
+            return Err(cert_err("a record has more ancestors than the open limit"));
+        }
+        seen_depth = seen_depth.max(depth[id as usize]);
+        seen_anc = seen_anc.max(anc.len() as u32);
+        ancestors[id as usize] = anc;
+        records.push(rec);
+    }
+    if seen_depth != max_depth || seen_anc != max_anc || seen_depth > bound {
+        return Err(cert_err(
+            "COST misstates the differential depth or ancestor bound",
+        ));
+    }
+    Ok((records, (bound, max_depth, max_anc, points), albit))
 }
 
 fn parse_cert(b: &[u8]) -> Result<Certificate, GfxDiag> {
@@ -1215,7 +2120,7 @@ impl<'i, 'a> Projection<'i, 'a> {
     }
 
     fn u32(&self, field: usize, i: usize) -> u32 {
-        self.inv.row_u32(field, self.start + i)
+        self.inv.row_u32(field, self.inv.row_id(self.start + i))
     }
 
     /// Source item id of row `i`. Hit-testing maps back through this, so
@@ -1233,34 +2138,49 @@ impl<'i, 'a> Projection<'i, 'a> {
     }
 
     pub fn transform(&self, i: usize) -> Affine {
-        let f = |k| self.u32(k, i) as i32;
-        Affine {
-            e: f(3),
-            f: f(4),
-            a: f(5),
-            b: f(6),
-            c: f(7),
-            d: f(8),
-        }
+        self.inv.row_transform(self.inv.row_id(self.start + i))
     }
 
     pub fn opacity(&self, i: usize) -> u8 {
-        self.inv.opacity[self.start + i]
+        self.inv.row_opacity(self.inv.row_id(self.start + i))
     }
 
-    /// Build the drawing for presentation from pre-decoded geometry.
+    /// Build the drawing for presentation from pre-decoded geometry. The
+    /// residency is checked once per drawing, not once per field.
     pub fn drawing(&self, paths: &[Arc<Path>]) -> Drawing {
-        Drawing {
-            width: self.inv.width,
-            height: self.inv.height,
-            items: (0..self.len())
-                .map(|i| Item {
-                    path: paths[self.geometry(i) as usize].clone(),
-                    style: *self.style(i),
-                    transform: self.transform(i),
-                    opacity: self.opacity(i),
+        let inv = self.inv;
+        let items = match &inv.expanded {
+            Some(x) => (self.start..self.end)
+                .map(|k| {
+                    let r = x.row_list.as_ref().map_or(k, |l| l[k] as usize);
+                    Item {
+                        path: paths[x.geometry[r] as usize].clone(),
+                        style: inv.styles[x.style[r] as usize],
+                        transform: x.transform[r],
+                        opacity: x.opacity[r],
+                    }
                 })
                 .collect(),
+            None => (self.start..self.end)
+                .map(|k| {
+                    // One row-id lookup per row, then direct column reads.
+                    let r = match &inv.row_list {
+                        None => k,
+                        Some(l) => l.get(k) as usize,
+                    };
+                    Item {
+                        path: paths[inv.cols[1].get(r) as usize].clone(),
+                        style: inv.styles[inv.cols[2].get(r) as usize],
+                        transform: inv.packed_transform(r),
+                        opacity: inv.cols[9].get(r) as u8,
+                    }
+                })
+                .collect(),
+        };
+        Drawing {
+            width: inv.width,
+            height: inv.height,
+            items,
         }
     }
 }
@@ -1426,6 +2346,27 @@ mod tests {
                 Value::new("normal"),
             ],
         )
+    }
+
+    #[test]
+    fn lineless_style_pool_compiles_and_opens() {
+        let values = (1..=100)
+            .map(|width| {
+                let mut style = source().items[2].style;
+                style.stroke.as_mut().unwrap().width = width;
+                Value::new(&format!("width-{width}"))
+                    .with(Effect::Restyle(Selector::Items(vec![2]), style))
+            })
+            .collect();
+        let model = StateModel {
+            parent: "scene://lineless".into(),
+            dimensions: vec![Dimension::discrete("width", values)],
+            reachability: Reachability::Product { exclusions: vec![] },
+        };
+        let bytes = compile(&source(), &model, &bud(), &gl()).unwrap();
+        let inv = Inventory::open(&bytes, &model.binding(4, &bud()).unwrap(), &lim()).unwrap();
+        assert_ne!(inv.certificate.assumptions & ASSUME_LINELESS_STYLES, 0);
+        assert_eq!(inv.styles().len(), 104);
     }
 
     fn product_model() -> StateModel {
@@ -1855,30 +2796,35 @@ mod tests {
         )
         .unwrap();
         let d = c.section(INDX).unwrap().unwrap();
-        let n = u32::from_le_bytes([d[0], d[1], d[2], d[3]]) as usize;
-        let proj_at = 16 + (n * 8).div_ceil(16) * 16;
-        let kept: Vec<(u64, u32)> = (0..n)
-            .map(|i| {
-                (
-                    u64::from_le_bytes(d[16 + i * 8..24 + i * 8].try_into().unwrap()),
-                    u32::from_le_bytes(d[proj_at + i * 4..proj_at + i * 4 + 4].try_into().unwrap()),
-                )
+        let domain = Radix::new(
+            Inventory::open(
+                bytes,
+                &ParentBinding(c.section(PARN).unwrap().unwrap()[..32].try_into().unwrap()),
+                &lim(),
+            )
+            .unwrap()
+            .dimensions()
+            .iter()
+            .map(|dim| match &dim.domain {
+                Domain::Discrete(v) => v.len() as u64,
+                _ => 1,
             })
+            .collect(),
+        )
+        .unwrap()
+        .domain;
+        let (_, keys, ids) = index::Index::parse(d, domain, u32::MAX).unwrap();
+        let n = keys.len();
+        let kept: Vec<(u64, u32)> = keys
+            .into_iter()
+            .zip(ids)
             .filter(|&(k, _)| k != key)
             .collect();
         assert_eq!(kept.len(), n - 1, "key {key} was not indexed");
-        let mut indx = Vec::new();
-        indx.extend_from_slice(&(kept.len() as u32).to_le_bytes());
-        indx.extend_from_slice(&[0u8; 12]);
-        for (k, _) in &kept {
-            indx.extend_from_slice(&k.to_le_bytes());
-        }
-        let digest = sha256(&[&indx[16..]]);
-        pad16(&mut indx);
-        for (_, p) in &kept {
-            indx.extend_from_slice(&p.to_le_bytes());
-        }
-        pad16(&mut indx);
+        let ks: Vec<u64> = kept.iter().map(|k| k.0).collect();
+        let ps: Vec<u32> = kept.iter().map(|k| k.1).collect();
+        let indx = index::encode_indx(&ks, &ps, domain);
+        let digest = sha256(&[&key_list_bytes(&ks)]);
         rebuild(bytes, &mut |tag, sec| match tag {
             INDX => *sec = indx.clone(),
             CERT => {
@@ -1890,6 +2836,111 @@ mod tests {
             }
             _ => {}
         })
+    }
+
+    /// Every projection's rows, read back through the public accessors.
+    fn projection_rows(inv: &Inventory<'_>) -> Vec<Vec<ProjRow>> {
+        (0..inv.projection_count())
+            .map(|p| {
+                let (s, e) = (inv.start(p) as usize, inv.start(p + 1) as usize);
+                let view = Projection {
+                    inv,
+                    id: p as u32,
+                    start: s,
+                    end: e,
+                };
+                (0..view.len())
+                    .map(|i| {
+                        (
+                            view.item(i),
+                            view.geometry(i),
+                            inv.row_u32(2, inv.row_id(s + i)),
+                            view.transform(i),
+                            view.opacity(i),
+                        )
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn residency_does_not_change_results() {
+        for m in [product_model(), transitions_model()] {
+            let bytes = compile(&source(), &m, &bud(), &gl()).unwrap();
+            let mut inv = Inventory::open(&bytes, &binding(&m), &lim()).unwrap();
+            let paths = inv.decode_geometry().unwrap();
+            let radix = Radix::new(
+                m.dimensions
+                    .iter()
+                    .map(|d| match &d.domain {
+                        Domain::Discrete(v) => v.len() as u64,
+                        _ => 1,
+                    })
+                    .collect(),
+            )
+            .unwrap();
+            let snapshot = |inv: &Inventory<'_>| -> Vec<Option<Drawing>> {
+                (0..radix.domain)
+                    .map(|k| {
+                        inv.resolve(&radix.unpack(k))
+                            .ok()
+                            .map(|p| p.drawing(&paths))
+                    })
+                    .collect()
+            };
+            let packed = snapshot(&inv);
+            let (_, heap_packed) = inv.table_residency();
+            inv.set_residency(Residency::Expanded);
+            assert_eq!(snapshot(&inv), packed);
+            let (_, heap_expanded) = inv.table_residency();
+            assert!(heap_expanded > heap_packed);
+            inv.set_residency(Residency::Packed);
+            assert_eq!(inv.table_residency().1, heap_packed);
+            assert_eq!(snapshot(&inv), packed);
+        }
+    }
+
+    #[test]
+    fn proj_round_trips_and_rejects_non_canonical_tables() {
+        let m = product_model();
+        let base = compile(&source(), &m, &bud(), &gl()).unwrap();
+        let inv = Inventory::open(&base, &binding(&m), &lim()).unwrap();
+        let rows = projection_rows(&inv);
+        // Re-encoding what was read reproduces PROJ exactly.
+        let c = Container::open(
+            &base,
+            &Expect {
+                format: Format::Gvi,
+                known_sections: &KNOWN,
+            },
+            &Limits::default(),
+        )
+        .unwrap();
+        assert_eq!(encode_proj(&rows, false), c.section(PROJ).unwrap().unwrap());
+        // Shared rows are pooled: the backdrop row appears in all 24
+        // projections but is stored once.
+        assert!(inv.cols[0].len() < rows.iter().map(Vec::len).sum::<usize>());
+        // Byte 12 of the header is the identity flag; this model shares rows,
+        // so it needs an explicit row list.
+        assert_eq!(encode_proj(&rows, false)[12], 0);
+        let mut reordered = rows.clone();
+        reordered.swap(0, 1);
+        let swapped = encode_proj(&reordered, false);
+        let tampered = rebuild(&base, &mut |tag, d| {
+            if tag == PROJ {
+                *d = swapped.clone();
+            }
+        });
+        // Swapping projections keeps the table canonical but makes INDX
+        // point at the wrong appearances; verify_against notices.
+        let inv2 = Inventory::open(&tampered, &binding(&m), &lim()).unwrap();
+        assert_eq!(
+            inv2.verify_against(&source(), &m, &bud(), &gl())
+                .unwrap_err()
+                .code,
+            codes::NON_CANONICAL
+        );
     }
 
     fn open_code(bytes: &[u8], m: &StateModel) -> u16 {
@@ -1954,14 +3005,15 @@ mod tests {
         assert_eq!(open_code(&edited, &m), codes::GVI_CERTIFICATE_INVALID);
 
         // Projection rows pointing at missing styles.
+        // Projection rows pointing at a missing style, re-encoded
+        // canonically so only the reference check can object.
+        let inv = Inventory::open(&base, &binding(&m), &lim()).unwrap();
+        let mut rows = projection_rows(&inv);
+        rows[0][0].2 = 999;
+        let forged = encode_proj(&rows, false);
         let dangling = rebuild(&base, &mut |tag, d| {
             if tag == PROJ {
-                let np = u32::from_le_bytes([d[0], d[1], d[2], d[3]]) as usize;
-                let total = u32::from_le_bytes([d[4], d[5], d[6], d[7]]) as usize;
-                let starts = 16 + ((np + 1) * 4).div_ceil(16) * 16;
-                let arr = (total * 4).div_ceil(16) * 16;
-                let style0 = starts + 2 * arr;
-                d[style0..style0 + 4].copy_from_slice(&999u32.to_le_bytes());
+                *d = forged.clone();
             }
         });
         assert_eq!(open_code(&dangling, &m), codes::STYLE_REF);
@@ -2149,6 +3201,861 @@ mod tests {
         }
     }
 
+    // -----------------------------------------------------------------------
+    // Differential geometry (GVI-D)
+    // -----------------------------------------------------------------------
+
+    /// A closed path of 32 cubics with end points at `radius(i)` around
+    /// (50 pt, 50 pt). Star and circle share this structure, so they morph.
+    fn ring(radius: impl Fn(usize) -> f64) -> Path {
+        let p = |i: usize| {
+            let a = (i % 32) as f64 / 32.0 * std::f64::consts::TAU;
+            let r = radius(i % 32);
+            pt(
+                (50_000.0 + r * a.cos()).round() as i32,
+                (50_000.0 + r * a.sin()).round() as i32,
+            )
+        };
+        let mut segs = vec![Segment::MoveTo(p(0))];
+        for i in 0..32 {
+            let (a, b) = (p(i), p(i + 1));
+            let c1 = pt(a.x + (b.x - a.x) / 3, a.y + (b.y - a.y) / 3);
+            let c2 = pt(a.x + 2 * (b.x - a.x) / 3, a.y + 2 * (b.y - a.y) / 3);
+            segs.push(Segment::CubicTo(c1, c2, b));
+        }
+        segs.push(Segment::Close);
+        Path::new(segs).unwrap()
+    }
+
+    fn ring_source() -> Drawing {
+        Drawing {
+            width: 100_000,
+            height: 100_000,
+            items: vec![item(
+                ring(|i| if i % 2 == 0 { 40_000.0 } else { 22_000.0 }),
+                fill(BLUE),
+            )],
+        }
+    }
+
+    /// 12 morph frames × 3 relative sizes: 36 states.
+    fn ring_model() -> StateModel {
+        let circle = Arc::new(ring(|_| 32_000.0));
+        let frames = (0..12u32)
+            .map(|k| {
+                Value::new(&format!("f{k}")).with(Effect::Morph(
+                    Selector::All,
+                    circle.clone(),
+                    k * 65_536 / 11,
+                ))
+            })
+            .collect();
+        let scale = |q: i32| {
+            let e = 50_000 - (i64::from(q) * 50_000 / i64::from(FIXED_ONE)) as i32;
+            Affine {
+                a: q,
+                b: 0,
+                c: 0,
+                d: q,
+                e,
+                f: e,
+            }
+        };
+        StateModel {
+            parent: "scene://loader".into(),
+            dimensions: vec![
+                Dimension::discrete("frame", frames),
+                Dimension::discrete(
+                    "size",
+                    vec![
+                        Value::new("small")
+                            .with(Effect::Transform(Selector::All, scale(FIXED_ONE / 2))),
+                        Value::new("medium")
+                            .with(Effect::Transform(Selector::All, scale(FIXED_ONE * 3 / 4))),
+                        Value::new("full"),
+                    ],
+                ),
+            ],
+            reachability: Reachability::Product { exclusions: vec![] },
+        }
+    }
+
+    fn ring_binding(m: &StateModel) -> ParentBinding {
+        m.binding(1, &bud()).unwrap()
+    }
+
+    fn opts(bake: Bake, depth: u32) -> CompileOptions {
+        CompileOptions {
+            bake,
+            max_diff_depth: depth,
+            albit: AlbitProfile::Off,
+            operative: OperativeProfile::Off,
+        }
+    }
+
+    #[test]
+    fn differential_inventories_resolve_identically() {
+        let m = ring_model();
+        let radix = Radix::new(vec![12, 3]).unwrap();
+        let mut used = 0;
+        for bake in [Bake::None, Bake::Transforms] {
+            let full = compile_with(&ring_source(), &m, &bud(), &gl(), bake).unwrap();
+            let fi = Inventory::open(&full, &ring_binding(&m), &lim()).unwrap();
+            let fp = fi.decode_geometry().unwrap();
+            for depth in [1, 4, 8] {
+                let bytes =
+                    compile_with(&ring_source(), &m, &bud(), &gl(), opts(bake, depth)).unwrap();
+                let di = Inventory::open(&bytes, &ring_binding(&m), &lim()).unwrap();
+                let layout = di.geometry_layout();
+                assert!(layout.max_depth <= depth, "{layout:?}");
+                assert_eq!(layout.anchors + layout.records, fi.geometry_count());
+                // Never larger; identical to the complete layout when the
+                // differential one would not be smaller.
+                assert!(
+                    bytes.len() <= full.len(),
+                    "{bake:?}/{depth}: {} > {}",
+                    bytes.len(),
+                    full.len()
+                );
+                if layout.records == 0 {
+                    assert_eq!(bytes, full);
+                }
+                used += layout.records;
+                let dp = di.decode_geometry().unwrap();
+                for key in 0..radix.domain {
+                    let s = radix.unpack(key);
+                    assert_eq!(
+                        di.resolve(&s).unwrap().drawing(&dp),
+                        fi.resolve(&s).unwrap().drawing(&fp),
+                        "{bake:?}/{depth} state {s:?}"
+                    );
+                }
+                // Lazy reconstruction equals eager reconstruction.
+                for g in 0..di.geometry_count() as u32 {
+                    assert_eq!(di.geometry(g).unwrap(), *dp[g as usize]);
+                }
+                di.verify_against(&ring_source(), &m, &bud(), &gl())
+                    .unwrap();
+            }
+        }
+        assert!(used > 0, "no configuration used differential records");
+        assert_eq!(
+            compile_with(
+                &ring_source(),
+                &m,
+                &bud(),
+                &gl(),
+                opts(Bake::None, MAX_DIFF_DEPTH + 1)
+            )
+            .unwrap_err()
+            .code,
+            codes::GVI_INVALID_MODEL
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // GVI-A trajectory records
+    // -----------------------------------------------------------------------
+
+    fn albit(bake: Bake, depth: u32, profile: AlbitProfile) -> CompileOptions {
+        CompileOptions {
+            bake,
+            max_diff_depth: depth,
+            albit: profile,
+            operative: OperativeProfile::Off,
+        }
+    }
+
+    /// The ring model with frame fractions given explicitly.
+    fn ring_model_with(fractions: &[u32]) -> StateModel {
+        let mut m = ring_model();
+        let circle = Arc::new(ring(|_| 32_000.0));
+        m.dimensions[0] = Dimension::discrete(
+            "frame",
+            fractions
+                .iter()
+                .enumerate()
+                .map(|(k, &t)| {
+                    Value::new(&format!("f{k}")).with(Effect::Morph(
+                        Selector::All,
+                        circle.clone(),
+                        t,
+                    ))
+                })
+                .collect(),
+        );
+        m
+    }
+
+    fn all_drawings(inv: &Inventory<'_>, m: &StateModel) -> Vec<Option<Drawing>> {
+        let paths = inv.decode_geometry().unwrap();
+        let radix = Radix::new(
+            m.dimensions
+                .iter()
+                .map(|d| match &d.domain {
+                    Domain::Discrete(v) => v.len() as u64,
+                    _ => 1,
+                })
+                .collect(),
+        )
+        .unwrap();
+        (0..radix.domain)
+            .map(|k| {
+                inv.resolve(&radix.unpack(k))
+                    .ok()
+                    .map(|p| p.drawing(&paths))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn trajectory_records_are_exact_and_directly_addressed() {
+        // Uniform and eased (nonuniform) fractions.
+        let uniform: Vec<u32> = (0..12u32).map(|k| k * 65_536 / 11).collect();
+        let eased: Vec<u32> = (0..12u64).map(|k| (65_536 * k * k / 121) as u32).collect();
+        for fractions in [uniform, eased] {
+            let m = ring_model_with(&fractions);
+            let b = ring_binding(&m);
+            for bake in [Bake::None, Bake::Transforms] {
+                let plain = compile_with(&ring_source(), &m, &bud(), &gl(), bake).unwrap();
+                let reference = all_drawings(&Inventory::open(&plain, &b, &lim()).unwrap(), &m);
+                let gvid = compile_with(
+                    &ring_source(),
+                    &m,
+                    &bud(),
+                    &gl(),
+                    albit(bake, 8, AlbitProfile::Off),
+                )
+                .unwrap();
+                for profile in [AlbitProfile::Provenance, AlbitProfile::Exhaustive] {
+                    let bytes =
+                        compile_with(&ring_source(), &m, &bud(), &gl(), albit(bake, 8, profile))
+                            .unwrap();
+                    // Never bigger than GVI-D with the same depth.
+                    assert!(
+                        bytes.len() <= gvid.len(),
+                        "{bake:?} {profile:?}: {} > {}",
+                        bytes.len(),
+                        gvid.len()
+                    );
+                    let inv = Inventory::open(&bytes, &b, &lim()).unwrap();
+                    let layout = inv.geometry_layout();
+                    assert!(
+                        layout.trajectory_records > 0,
+                        "{bake:?} {profile:?}: {layout:?}"
+                    );
+                    assert_eq!(layout.albit, profile);
+                    // Every state equals the plain inventory.
+                    assert_eq!(all_drawings(&inv, &m), reference, "{bake:?} {profile:?}");
+                    // Lazy equals eager.
+                    let eager = inv.decode_geometry().unwrap();
+                    for g in 0..inv.geometry_count() as u32 {
+                        assert_eq!(inv.geometry(g).unwrap(), *eager[g as usize]);
+                    }
+                    inv.verify_against(&ring_source(), &m, &bud(), &gl())
+                        .unwrap();
+                    if profile == AlbitProfile::Provenance {
+                        // Direct addressing: every sample needs only its
+                        // two endpoints, whatever its frame.
+                        assert!(layout.max_ancestors <= 2, "{layout:?}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn trajectories_never_make_files_bigger() {
+        // Every frame morphs fully onto a different target: there is no
+        // shared trajectory, so GVI-A must return the GVI-D bytes exactly.
+        let m = {
+            let mut m = ring_model();
+            m.dimensions[0] = Dimension::discrete(
+                "frame",
+                (0..6u32)
+                    .map(|k| {
+                        let target = Arc::new(ring(move |i| {
+                            20_000.0 + f64::from((i as u32 * 7 + k * 13) % 17) * 1_000.0
+                        }));
+                        Value::new(&format!("f{k}")).with(Effect::Morph(
+                            Selector::All,
+                            target,
+                            65_536,
+                        ))
+                    })
+                    .collect(),
+            );
+            m
+        };
+        for bake in [Bake::None, Bake::Transforms] {
+            let gvid = compile_with(
+                &ring_source(),
+                &m,
+                &bud(),
+                &gl(),
+                albit(bake, 8, AlbitProfile::Off),
+            )
+            .unwrap();
+            let a = compile_with(
+                &ring_source(),
+                &m,
+                &bud(),
+                &gl(),
+                albit(bake, 8, AlbitProfile::Provenance),
+            )
+            .unwrap();
+            assert_eq!(
+                a, gvid,
+                "{bake:?}: GVI-A without benefit must be byte-identical to GVI-D"
+            );
+        }
+        // Depth 0 disables records, so GVI-A has no effect.
+        let m = ring_model();
+        assert_eq!(
+            compile_with(
+                &ring_source(),
+                &m,
+                &bud(),
+                &gl(),
+                albit(Bake::None, 0, AlbitProfile::Provenance)
+            )
+            .unwrap(),
+            compile(&ring_source(), &m, &bud(), &gl()).unwrap()
+        );
+    }
+
+    #[test]
+    fn trajectory_tampering_is_caught() {
+        let m = ring_model();
+        let base = compile_with(
+            &ring_source(),
+            &m,
+            &bud(),
+            &gl(),
+            albit(Bake::None, 8, AlbitProfile::Provenance),
+        )
+        .unwrap();
+        let b = ring_binding(&m);
+        assert!(
+            Inventory::open(&base, &b, &lim())
+                .unwrap()
+                .geometry_layout()
+                .trajectory_records
+                > 0
+        );
+        // COST claims no GVI-A profile while DIFF holds trajectory records.
+        let undeclared = rebuild(&base, &mut |tag, s| {
+            if tag == COST {
+                s[24] = 0;
+            }
+        });
+        assert_eq!(
+            Inventory::open(&undeclared, &b, &lim()).unwrap_err().code,
+            codes::GVI_CERTIFICATE_INVALID
+        );
+        // An unknown profile id.
+        let unknown = rebuild(&base, &mut |tag, s| {
+            if tag == COST {
+                s[24] = 9;
+            }
+        });
+        assert_eq!(
+            Inventory::open(&unknown, &b, &lim()).unwrap_err().code,
+            codes::MALFORMED_SECTION
+        );
+        // A sample address outside [0, 65536]: find the first trajectory
+        // record and replace its t varint with 65537.
+        let c = Container::open(
+            &base,
+            &Expect {
+                format: Format::Gvi,
+                known_sections: &KNOWN,
+            },
+            &Limits::default(),
+        )
+        .unwrap();
+        let d = c.section(DIFF).unwrap().unwrap().to_vec();
+        let n = u32::from_le_bytes(d[0..4].try_into().unwrap()) as usize;
+        let offs: Vec<usize> = (0..=n)
+            .map(|k| u32::from_le_bytes(d[16 + 4 * k..20 + 4 * k].try_into().unwrap()) as usize)
+            .collect();
+        let blob_at = 16 + ((n + 1) * 4).div_ceil(16) * 16;
+        let k = (0..n)
+            .find(|&k| d[blob_at + offs[k]] == 3)
+            .expect("a lerp record");
+        let rec = &d[blob_at + offs[k]..blob_at + offs[k + 1]];
+        // kind, flags, two single-byte varint bases (small ids), then t.
+        assert!(rec[2] < 0x80 && rec[3] < 0x80);
+        let mut t_len = 1;
+        while rec[4 + t_len - 1] & 0x80 != 0 {
+            t_len += 1;
+        }
+        let mut forged = rec[..4].to_vec();
+        forged.extend_from_slice(&[0x81, 0x80, 0x04]); // 65537
+        forged.extend_from_slice(&rec[4 + t_len..]);
+        let mut records: Vec<Vec<u8>> = (0..n)
+            .map(|j| d[blob_at + offs[j]..blob_at + offs[j + 1]].to_vec())
+            .collect();
+        records[k] = forged;
+        let mut nd = Vec::new();
+        nd.extend_from_slice(&(n as u32).to_le_bytes());
+        nd.extend_from_slice(&[0u8; 12]);
+        let mut off = 0u32;
+        nd.extend_from_slice(&off.to_le_bytes());
+        for r in &records {
+            off += r.len() as u32;
+            nd.extend_from_slice(&off.to_le_bytes());
+        }
+        pad16(&mut nd);
+        for r in &records {
+            nd.extend_from_slice(r);
+        }
+        pad16(&mut nd);
+        let bad_t = rebuild(&base, &mut |tag, s| {
+            if tag == DIFF {
+                *s = nd.clone();
+            }
+        });
+        assert_eq!(
+            Inventory::open(&bad_t, &b, &lim()).unwrap_err().code,
+            codes::GVI_CERTIFICATE_INVALID
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // GVI-O operative encoding
+    // -----------------------------------------------------------------------
+
+    fn full(
+        bake: Bake,
+        depth: u32,
+        albit: AlbitProfile,
+        operative: OperativeProfile,
+    ) -> CompileOptions {
+        CompileOptions {
+            bake,
+            max_diff_depth: depth,
+            albit,
+            operative,
+        }
+    }
+
+    fn section_of(bytes: &[u8], tag: Tag) -> Vec<u8> {
+        let c = Container::open(
+            bytes,
+            &Expect {
+                format: Format::Gvi,
+                known_sections: &KNOWN,
+            },
+            &Limits::default(),
+        )
+        .unwrap();
+        c.section(tag)
+            .unwrap()
+            .map(<[u8]>::to_vec)
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn operative_inventories_are_exact_and_smaller() {
+        // 48 uniform frames × 3 sizes: regular fractions and labels.
+        let fractions: Vec<u32> = (0..48u32).map(|k| k * 65_536 / 47).collect();
+        let m = ring_model_with(&fractions);
+        let b = ring_binding(&m);
+        for (bake, albit) in [
+            (Bake::None, AlbitProfile::Off),
+            (Bake::None, AlbitProfile::Provenance),
+            (Bake::Transforms, AlbitProfile::Provenance),
+        ] {
+            // The reference is the plain inventory with the same bake policy.
+            let plain = compile_with(&ring_source(), &m, &bud(), &gl(), bake).unwrap();
+            let reference = all_drawings(&Inventory::open(&plain, &b, &lim()).unwrap(), &m);
+            let base = compile_with(
+                &ring_source(),
+                &m,
+                &bud(),
+                &gl(),
+                full(bake, 8, albit, OperativeProfile::Off),
+            )
+            .unwrap();
+            let op = compile_with(
+                &ring_source(),
+                &m,
+                &bud(),
+                &gl(),
+                full(bake, 8, albit, OperativeProfile::Fast),
+            )
+            .unwrap();
+            assert!(
+                op.len() < base.len(),
+                "{bake:?} {albit:?}: {} ≥ {}",
+                op.len(),
+                base.len()
+            );
+            // Each section shrinks or stays.
+            for tag in [STAT, DIFF] {
+                assert!(
+                    section_of(&op, tag).len() <= section_of(&base, tag).len(),
+                    "{tag:?}"
+                );
+            }
+            assert_eq!(section_of(&op, STAT)[8], model::STAT_OPERATIVE);
+            // GO015: the same parent binding opens both.
+            let inv = Inventory::open(&op, &b, &lim()).unwrap();
+            assert_eq!(
+                inv.binding,
+                Inventory::open(&base, &b, &lim()).unwrap().binding
+            );
+            // GO013: every state equals the plain inventory.
+            assert_eq!(all_drawings(&inv, &m), reference, "{bake:?} {albit:?}");
+            // GO017: packed and expanded residency agree.
+            let mut x = Inventory::open(&op, &b, &lim()).unwrap();
+            x.set_residency(Residency::Expanded);
+            assert_eq!(all_drawings(&x, &m), reference);
+            inv.verify_against(&ring_source(), &m, &bud(), &gl())
+                .unwrap();
+            // The model decodes to exactly the compiled model.
+            assert_eq!(inv.dimensions(), m.dimensions.as_slice());
+        }
+    }
+
+    #[test]
+    fn operatives_never_make_files_bigger() {
+        // GO021: the status-icon model has five short irregular labels and
+        // mixed effects; whatever GVI-O finds, the file is never bigger,
+        // and if nothing helps it is byte-identical.
+        let m = product_model();
+        let off = compile(&source(), &m, &bud(), &gl()).unwrap();
+        let on = compile_with(
+            &source(),
+            &m,
+            &bud(),
+            &gl(),
+            full(Bake::None, 0, AlbitProfile::Off, OperativeProfile::Fast),
+        )
+        .unwrap();
+        assert!(on.len() <= off.len());
+        if on.len() == off.len() {
+            assert_eq!(on, off);
+        }
+        let inv = Inventory::open(&on, &binding(&m), &lim()).unwrap();
+        assert_eq!(
+            all_drawings(&inv, &m),
+            all_drawings(&Inventory::open(&off, &binding(&m), &lim()).unwrap(), &m)
+        );
+        // Random labels and fractions: no regularity, so identical bytes.
+        let mut x = 0x2545_f491_4f6c_dd1du64;
+        let mut next = move || {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            x
+        };
+        let circle = Arc::new(ring(|_| 32_000.0));
+        let mut rm = ring_model();
+        rm.dimensions[0] = Dimension::discrete(
+            "frame",
+            (0..6)
+                .map(|_| {
+                    let label = format!("{:x}", next());
+                    Value::new(&label).with(Effect::Morph(
+                        Selector::All,
+                        circle.clone(),
+                        (next() % 65_537) as u32,
+                    ))
+                })
+                .collect(),
+        );
+        let off = compile_with(
+            &ring_source(),
+            &rm,
+            &bud(),
+            &gl(),
+            full(
+                Bake::None,
+                8,
+                AlbitProfile::Provenance,
+                OperativeProfile::Off,
+            ),
+        )
+        .unwrap();
+        let on = compile_with(
+            &ring_source(),
+            &rm,
+            &bud(),
+            &gl(),
+            full(
+                Bake::None,
+                8,
+                AlbitProfile::Provenance,
+                OperativeProfile::Fast,
+            ),
+        )
+        .unwrap();
+        assert!(on.len() <= off.len());
+        if on.len() == off.len() {
+            assert_eq!(on, off);
+        }
+    }
+
+    #[test]
+    fn operative_projection_columns() {
+        // A 32 × 32 translation grid over a one-item source: PROJ columns
+        // e = base + 100·x (repeated progressions) and f = base + 100·y
+        // (constant runs). With several items the row pool interleaves
+        // them, which plain spans cannot express (gvi-operative.md §7).
+        let axis = |name: &str, x: bool| {
+            Dimension::discrete(
+                name,
+                (0..32i32)
+                    .map(|k| {
+                        let t = if x {
+                            Affine::translate(k * 100, 0)
+                        } else {
+                            Affine::translate(0, k * 100)
+                        };
+                        Value::new(&format!("{name}{k}")).with(Effect::Transform(Selector::All, t))
+                    })
+                    .collect(),
+            )
+        };
+        let m = StateModel {
+            parent: "scene://grid".into(),
+            dimensions: vec![axis("x", true), axis("y", false)],
+            reachability: Reachability::Product { exclusions: vec![] },
+        };
+        let b = ring_binding(&m);
+        let off = compile(&ring_source(), &m, &bud(), &gl()).unwrap();
+        let on = compile_with(
+            &ring_source(),
+            &m,
+            &bud(),
+            &gl(),
+            full(Bake::None, 0, AlbitProfile::Off, OperativeProfile::Fast),
+        )
+        .unwrap();
+        let p_off = section_of(&off, PROJ).len();
+        let p_on = section_of(&on, PROJ).len();
+        assert!(p_on * 4 < p_off, "PROJ {p_on} vs {p_off}");
+        let reference = all_drawings(&Inventory::open(&off, &b, &lim()).unwrap(), &m);
+        let mut inv = Inventory::open(&on, &b, &lim()).unwrap();
+        // Operative columns have no packed form: the inventory is expanded
+        // and stays expanded.
+        assert_eq!(inv.residency(), Residency::Expanded);
+        inv.set_residency(Residency::Packed);
+        assert_eq!(inv.residency(), Residency::Expanded);
+        assert_eq!(all_drawings(&inv, &m), reference);
+        inv.verify_against(&ring_source(), &m, &bud(), &gl())
+            .unwrap();
+        // An operative column in a PROJ that did not opt in is rejected.
+        let forged = rebuild(&on, &mut |tag, s| {
+            if tag == PROJ {
+                s[12] &= !(PROJ_OPERATIVE as u8);
+            }
+        });
+        assert!(Inventory::open(&forged, &b, &lim()).is_err());
+    }
+
+    #[test]
+    fn operative_tampering_is_caught() {
+        let fractions: Vec<u32> = (0..48u32).map(|k| k * 65_536 / 47).collect();
+        let m = ring_model_with(&fractions);
+        let b = ring_binding(&m);
+        let op = compile_with(
+            &ring_source(),
+            &m,
+            &bud(),
+            &gl(),
+            full(
+                Bake::None,
+                8,
+                AlbitProfile::Provenance,
+                OperativeProfile::Fast,
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            section_of(&op, DIFF)[4],
+            diff::DIFF_OPERATIVE,
+            "this model should take the operative DIFF"
+        );
+        // A stored model that decodes to a different model breaks the
+        // parent binding, whatever its form: flip the first label span's
+        // numbering step.
+        let mut forged = 0;
+        for i in 16..section_of(&op, STAT).len() {
+            let tampered = rebuild(&op, &mut |tag, s| {
+                if tag == STAT && i < s.len() {
+                    s[i] ^= 1;
+                }
+            });
+            match Inventory::open(&tampered, &b, &lim()) {
+                Ok(_) => panic!("STAT byte {i} flip went unnoticed"),
+                Err(e) => {
+                    assert!(
+                        matches!(
+                            e.code,
+                            codes::GVI_CERTIFICATE_INVALID
+                                | codes::NON_CANONICAL
+                                | codes::MALFORMED_SECTION
+                                | codes::NON_MINIMAL_VARINT
+                                | codes::GVI_INVALID_MODEL
+                                | codes::MALFORMED_GEOMETRY
+                                | codes::GVI_PARENT_MISMATCH
+                        ),
+                        "byte {i}: {e}"
+                    );
+                    forged += 1;
+                }
+            }
+        }
+        assert!(forged > 0);
+        // Every DIFF byte flip fails at open or at reconstruction.
+        let d = section_of(&op, DIFF);
+        for i in 0..d.len() {
+            let tampered = rebuild(&op, &mut |tag, s| {
+                if tag == DIFF {
+                    s[i] ^= 0x10;
+                }
+            });
+            let detected = match Inventory::open(&tampered, &b, &lim()) {
+                Err(_) => true,
+                Ok(inv) => inv.decode_geometry().is_err(),
+            };
+            assert!(detected, "DIFF byte {i} flip went unnoticed");
+        }
+    }
+
+    #[test]
+    fn differential_tampering_is_caught() {
+        let m = ring_model();
+        let base =
+            compile_with(&ring_source(), &m, &bud(), &gl(), opts(Bake::Transforms, 4)).unwrap();
+        let section = |bytes: &[u8], tag: Tag| -> Vec<u8> {
+            let c = Container::open(
+                bytes,
+                &Expect {
+                    format: Format::Gvi,
+                    known_sections: &KNOWN,
+                },
+                &Limits::default(),
+            )
+            .unwrap();
+            c.section(tag).unwrap().unwrap().to_vec()
+        };
+        let d = section(&base, DIFF);
+        let n = u32::from_le_bytes(d[0..4].try_into().unwrap()) as usize;
+        let blob_at = 16 + ((n + 1) * 4).div_ceil(16) * 16;
+        let rec0 = blob_at; // first record starts the blob
+
+        // A flipped hash byte: open succeeds (structure is sound), but
+        // reconstruction proves the mismatch.
+        let bad_hash = rebuild(&base, &mut |tag, s| {
+            if tag == DIFF {
+                let kind = s[rec0];
+                // kind, flags, then 1 (copy/affine) or 2 (extrapolate) varint
+                // bases; for affine, six more varints. Flip the last byte of
+                // the record, which is the hash or residual either way.
+                let end = 16
+                    + ((n + 1) * 4).div_ceil(16) * 16
+                    + u32::from_le_bytes(s[20..24].try_into().unwrap()) as usize;
+                let _ = kind;
+                s[end - 1] ^= 0x40;
+            }
+        });
+        let inv = Inventory::open(&bad_hash, &ring_binding(&m), &lim()).unwrap();
+        assert_eq!(
+            inv.decode_geometry().unwrap_err().code,
+            codes::GVI_CERTIFICATE_INVALID
+        );
+
+        // COST that understates the depth.
+        let lying = rebuild(&base, &mut |tag, s| {
+            if tag == COST {
+                s[4] = s[4].wrapping_sub(1);
+            }
+        });
+        assert_eq!(
+            Inventory::open(&lying, &ring_binding(&m), &lim())
+                .unwrap_err()
+                .code,
+            codes::GVI_CERTIFICATE_INVALID
+        );
+
+        // DIFF without the certificate declaring it.
+        let undeclared = rebuild(&base, &mut |tag, s| {
+            if tag == CERT {
+                s[72] &= !(ASSUME_DIFFERENTIAL_GEOMETRY as u8);
+            }
+        });
+        assert_eq!(
+            Inventory::open(&undeclared, &ring_binding(&m), &lim())
+                .unwrap_err()
+                .code,
+            codes::GVI_CERTIFICATE_INVALID
+        );
+
+        // A record whose base is not earlier than itself.
+        let forward = rebuild(&base, &mut |tag, s| {
+            if tag == DIFF {
+                s[rec0 + 2] = 0x7f;
+            }
+        });
+        assert_eq!(
+            Inventory::open(&forward, &ring_binding(&m), &lim())
+                .unwrap_err()
+                .code,
+            codes::GVI_CERTIFICATE_INVALID
+        );
+    }
+
+    #[test]
+    fn lineless_and_operative_compose() {
+        // A model whose many restyles make the GVI-L palette win, compiled
+        // with GVI-O on: both encodings must hold, and the result must
+        // match the plain inventory state for state.
+        let values = (1..=100)
+            .map(|width| {
+                let mut style = source().items[2].style;
+                style.stroke.as_mut().unwrap().width = width;
+                Value::new(&format!("width-{width}"))
+                    .with(Effect::Restyle(Selector::Items(vec![2]), style))
+            })
+            .collect();
+        let m = StateModel {
+            parent: "scene://lineless".into(),
+            dimensions: vec![Dimension::discrete("width", values)],
+            reachability: Reachability::Product { exclusions: vec![] },
+        };
+        let b = m.binding(4, &bud()).unwrap();
+        let plain = compile(&source(), &m, &bud(), &gl()).unwrap();
+        let op = compile_with(
+            &source(),
+            &m,
+            &bud(),
+            &gl(),
+            full(Bake::None, 0, AlbitProfile::Off, OperativeProfile::Fast),
+        )
+        .unwrap();
+        assert!(op.len() < plain.len(), "{} ≥ {}", op.len(), plain.len());
+        let inv = Inventory::open(&op, &b, &lim()).unwrap();
+        assert_ne!(
+            inv.certificate.assumptions & ASSUME_LINELESS_STYLES,
+            0,
+            "LSTY still chosen"
+        );
+        assert_eq!(
+            section_of(&op, STAT)[8],
+            model::STAT_OPERATIVE,
+            "operative STAT still chosen"
+        );
+        assert_eq!(
+            all_drawings(&inv, &m),
+            all_drawings(&Inventory::open(&plain, &b, &lim()).unwrap(), &m)
+        );
+        inv.verify_against(&source(), &m, &bud(), &gl()).unwrap();
+    }
+
     #[test]
     fn product_completeness_check() {
         let m = StateModel {
@@ -2174,7 +4081,9 @@ mod tests {
         let m = transitions_model();
         let b = binding(&m);
         let base = compile(&source(), &m, &bud(), &gl()).unwrap();
-        let tags = [CERT, GEOM, INDX, PARN, PROJ, SRCE, STAT, STYL, TRAN];
+        let tags = [
+            CERT, COST, DIFF, GEOM, INDX, PARN, PROJ, SRCE, STAT, STYL, TRAN,
+        ];
         let mut state = 0x9e37_79b9_7f4a_7c15u64;
         let mut next = move || {
             state ^= state << 13;
