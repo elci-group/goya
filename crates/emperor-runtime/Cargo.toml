@@ -17,9 +17,26 @@ serde_json = "1"
 sha2 = "0.10"
 unicode-segmentation.workspace = true
 goya-kumimanu = { path = "../goya-kumimanu", optional = true }
+# General GSSH/4-live scenes (Nebula and Emperor scene apps).
+goya-executable = { workspace = true, optional = true }
+goya-caprichios = { workspace = true, optional = true }
+goya-gvi = { workspace = true, optional = true }
+goya-graphics-ir = { workspace = true, optional = true }
+tiny-skia = { version = "=0.11.4", optional = true }
+ab_glyph = { version = "=0.2.32", optional = true }
+accesskit = { version = "=0.16.3", optional = true }
+accesskit_unix = { version = "=0.12.3", optional = true, default-features = false, features = ["tokio"] }
 
 [features]
 kumimanu = ["dep:goya-kumimanu"]
+scene = ["dep:goya-executable", "dep:goya-caprichios", "dep:goya-gvi", "dep:goya-graphics-ir", "dep:tiny-skia", "dep:ab_glyph", "dep:accesskit", "dep:accesskit_unix"]
 
 [dev-dependencies]
 x11rb = { version = "0.13.1", default-features = false }
+
+[[bin]]
+name = "emperor-scene-app"
+path = "src/bin/emperor-scene-app.rs"
+required-features = ["scene"]
+# Built only by `emperor build`, with a generated embed.
+test = false

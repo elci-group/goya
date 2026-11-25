@@ -3,6 +3,8 @@ resolver = "2"
 members = [
     "crates/goya-caprichios",
     "crates/nevada",
+    "crates/arachnid",
+    "crates/goya-scene-graphics",
     "crates/maja",
     "crates/maja-semantic",
     "crates/quitasol-semantic",
@@ -134,6 +136,7 @@ goya-graphics-container = { path = "crates/goya-graphics-container" }
 goya-graphics-ir = { path = "crates/goya-graphics-ir" }
 goya-gva = { path = "crates/goya-gva" }
 goya-gvi = { path = "crates/goya-gvi" }
+goya-scene-graphics = { path = "crates/goya-scene-graphics" }
 goya-gru = { path = "crates/goya-gru" }
 emperor-runtime = { path = "crates/emperor-runtime" }
 goya-freedesktop = { path = "crates/goya-freedesktop" }

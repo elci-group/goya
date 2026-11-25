@@ -82,7 +82,7 @@ ontology body, at most once:
   store (for the browser, `localStorage`).
 * **A target map:** each entry names the adapter one platform must use.
   Platforms not listed keep their default local store. Platform keys are
-  `android`, `ios`, `macos`, `windows`, `linux` and `browser`; an unknown
+  `android`, `ios`, `macos`, `windows`, `linux`, `browser` and `webos`; an unknown
   key, a repeated key, an empty adapter string or an empty map is a syntax
   error (`GY-E1000`).
 * **`null`:** persistence is disabled. Declaring `durable` state as well is
@@ -104,6 +104,7 @@ adapter is never accepted for another:
 | `macos` | `macos.preferences.v1` (UserDefaults) | `macos.sqlite.v1` (the system SQLite) |
 | `windows` | `windows.local-settings.v1` (ApplicationData local settings) | `windows.sqlite.v1` (the SQLite Windows ships) |
 | `linux` | `linux.xdg-state.v1` (a file under `$XDG_STATE_HOME`) | `linux.sqlite.v1` (SQLite under `$XDG_STATE_HOME`) |
+| `webos` | `webos.local-storage.v1` (the app's `localStorage`) | `webos.indexeddb.v1` (IndexedDB in the platform Chromium) |
 
 A compiler **warns** when durable state uses its platform's default because
 the scene named no adapter for it (no `@persistence`, or a map that does not
@@ -175,6 +176,7 @@ refuse it where it cannot (it is never dropped):
 | Android (Aragon) | Editable field: `AccessibilityNodeInfo.hintText` (API 26+; folded into the node text before). Others: node content description | Node tooltip text (API 28+; appended to the name before) |
 | Android TV (Nevada) | Carried on the focusable control's plan entry | Same |
 | Windows (Sash) | GSSH/4 static windows and the GSSH/4-live counter (`--viewport-dip`): MSAA name through dynamic annotation (`IAccPropServices::SetHwndPropStr`, `PROPID_ACC_NAME`), exposed by UI Automation as Name. Refused on a text-less cell (no control); GSSH/1 scenes cannot carry it | `PROPID_ACC_DESCRIPTION` and `PROPID_ACC_HELP` (UI Automation FullDescription and HelpText) |
+| webOS (Arachnid) | `aria-label` (a `cell` also gets `role="group"`), checked in headless Chrome; not yet heard through webOS Audio Guidance | `aria-describedby` → visually hidden text |
 | iOS (Neptune) | SwiftUI `.accessibilityLabel(Text(verbatim:))`; a labelled container first becomes `.accessibilityElement(children: .contain)`. Neptune admits no `@input`, so this covers text and buttons | `.accessibilityHint(Text(verbatim:))` |
 
 ### Live, staged and source state (GSSH/4-live)
@@ -372,8 +374,20 @@ text-from: state.<key>;   // show a declared key's value after the element's tex
 
 Every earlier profile refuses `text-from` with `GY-E1012`; an undeclared key
 is `GY-E1013`. Values are shown as canonical decimal (`int`), verbatim
-(`text`) or `true`/`false` (`bool`), always the committed state. The other
-constructs of the Arachnid live proposal are not part of this branch.
+(`text`) or `true`/`false` (`bool`), always the committed state.
+
+The rest of the Arachnid live proposal is also admitted by the live
+profiles (GSSH/3-live and GSSH/4-live), as proposed constructs
+([ARACHNID-2](../arachnid/ARACHNID-2.md)):
+* `host` state, `@link`, `present-when` (`is`, `at-least`), `image-from`,
+  `remote-digit`, and the bounded motion properties `fill-to`, `drift-p`
+  and `appear-s`;
+* `@graphic` / `@draw`, which declare a precomputed vector graphic and its
+  finite state model (`goya_lang::graphic`).
+
+Every earlier profile refuses them with `GY-E1012`; invalid uses are
+`GY-E1013`. A target that does not implement one must refuse it at its
+range: `goya_lang::extended_live_construct` names the first one.
 
 Normative for every target that admits GSSH/3-live:
 

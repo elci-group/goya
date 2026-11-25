@@ -1,5 +1,7 @@
 //! Build, verify, and package one admitted counter.
 
+#[path = "scene_build.rs"]
+mod scene_build;
 use crate::elf;
 use crate::lower::{self, Lowered};
 use crate::stage::{Stages, Status};
@@ -252,6 +254,17 @@ fn build(invocation: Invocation) -> Run {
     };
     let lowered = match lower::lower(&scene) {
         Ok(lowered) => lowered,
+        // Not the one-counter subset: build it as a general scene app.
+        Err(_) if goya_lang::handoff::admit_v4(&scene).is_ok() || goya_lang::handoff::admit_v4_live(&scene).is_ok() => {
+            let desktop = match resolve_desktop_build(&invocation) {
+                Ok(d) => d.map(|d| d.report),
+                Err(fault) => return fault_run(&invocation, fault),
+            };
+            if let Err(e) = fs::create_dir_all(&out) {
+                return fault_run(&invocation, Fault::new(2, "EMP-TOOLCHAIN", format!("could not create output: {e}")));
+            }
+            return scene_build::build_scene(&invocation, &scene, &out, desktop);
+        }
         Err(fault) => return admission_failure(&invocation, fault),
     };
     let desktop_build = match resolve_desktop_build(&invocation) {

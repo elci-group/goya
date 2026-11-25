@@ -1,0 +1,26 @@
+[package]
+name = "goya-arachnid"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Arachnid: Goya's webOS TV compiler target."
+
+[lib]
+name = "arachnid"
+
+[[bin]]
+name = "arachnid"
+path = "src/bin/arachnid.rs"
+
+[dependencies]
+goya-lang.workspace = true
+goya-caprichios.workspace = true
+goya-graphics-ir.workspace = true
+goya-gva.workspace = true
+goya-gvi.workspace = true
+goya-scene-graphics.workspace = true
+sha2 = "0.10"
+
+[dev-dependencies]
+goya-graphics-container.workspace = true

@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>goya.lanlink/0 vectors</title></head><body>
+<pre id="results">running</pre>
+<!-- Checks Arachnid's generated lanlink.js against the golden vector pinned in
+     tapestry-desktop tv_link::tests (computed there with ring). -->
+<script src="lanlink.js"></script>
+<script>
+(async function () {
+  var C = window.GoyaLanlinkCrypto, out = [];
+  function check(name, got, want) { out.push((got === want ? "PASS " : "FAIL ") + name + ": got " + got + ", want " + want); }
+  try {
+    var z = new Uint8Array(32), tv = new Uint8Array(65), peer = new Uint8Array(65);
+    for (var i = 0; i < 32; i++) z[i] = i;
+    for (i = 0; i < 65; i++) { tv[i] = (i * 3) & 255; peer[i] = (i * 7) & 255; }
+    var d = await C.derive(z, tv, peer);
+    var sha = async function (b) { return C.hex(await crypto.subtle.digest("SHA-256", b)); };
+    check("sas", d.sas, "697695");
+    check("tv_to_peer", await sha(d.tx), "fdfaed7d64ebabfcb079d547f7608892116000e18c2c9d2e298923738202394c");
+    check("peer_to_tv", await sha(d.rx), "98c3686e316fbe2f3b84dcbe2e3e909748630fb4efe956ec3c3a23c6af7ad24f");
+    var k = await C.aesKey(d.tx, "encrypt");
+    var ct = await C.seal(k, 1, C.aad("00112233445566778899aabbccddeeff", "/lanlink/v0/msg"), new TextEncoder().encode('{"type":"confirm"}'));
+    check("sealed confirm", C.b64(ct), "7tyNrS4BmMrEYTaYRiqaYLkfbllRRo8cOHPyk/tSxmEP+Q==");
+  } catch (e) { out.push("FAIL exception: " + e); }
+  document.getElementById("results").textContent = out.join("\n");
+})();
+</script></body></html>

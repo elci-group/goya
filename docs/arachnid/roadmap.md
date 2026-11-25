@@ -1,10 +1,19 @@
+<p align="center"><img src="../../assets/arachnid-logo.png" alt="Arachnid — webOS app compiler" width="180"></p>
+
 # Arachnid roadmap — webOS TV compiler target
 
-Status: **proposed**, 20 November 2026. This is a plan, not evidence.
-Nothing on this page claims a webOS build, an IPK, an admitted scene, a
-launched application, a device result or a gate. No Arachnid code exists:
-`arachnid/` at the repository root is an empty directory, and no crate,
-contract, diagnostic space or gate mentions Arachnid or webOS.
+Status: **in progress**, 20 November 2026, on branch `arachnid/v0.1`; continued
+on `arachnid/v0.2` ([ARACHNID-2](ARACHNID-2.md), 25 November 2026).
+* The owner's decisions on §6 are recorded in
+  [ARACHNID-1](ARACHNID-1.md).
+* Phases 0 and 1 and the static part of Phase 2 are implemented and
+  qualified offline (`scripts/check-arachnid.sh`).
+* Nothing has been installed or launched on a TV yet, so every device
+  gate is BLOCKED.
+* The engine and model lookup table is [webos-engines.md](webos-engines.md).
+
+Sections 1–4 are the reconciliation as first written, when no Arachnid
+code existed. They are kept as the audit trail.
 
 Arachnid is Goya's proposed target for LG webOS TV. webOS Open Source
 Edition (OSE) is a separate, later profile. The proposal's governing idea
@@ -227,7 +236,25 @@ to exist first: Mesut in-browser, Tauromaquia, a Luna permission model,
 and an `ie-contract` revision with a web transport. Scheduling them now
 would plan against systems that are not in the repository.
 
+## 5a. Phase status (20 November 2026)
+
+| Phase | Status |
+| --- | --- |
+| 0 — focus and skeleton | Done, with changes from the plan. Focus engine **copied** rather than extracted (owner's decision). Trap detection added. Engine/model caprichios replace the planned `profiles` module. Diagnostics use `GY-AR-6xx`. Nested scopes not started. |
+| 1 — packaging | Done offline. Reproducible IPK, checked with GNU tools. No `ares-package` differential, because the decision was to build from the ground up instead of installing Node. Installer acceptance BLOCKED until the TV run. |
+| 2 — static scene | Done offline for cells and buttons at the 1920×1080 ontology limit, rendered in headless Chrome. Launch on a TV BLOCKED. |
+| 3 — interaction | The remote runtime (5-way, pointer, modality, single activation) is done and browser-tested. `@interaction`/`@state`/`@input` lowering is not started; it waits on the shared browser state contract. |
+| Deploy | `arachnid getkey` / `deploy` are implemented without ares, following the `@webos-tools/cli` protocol and the webOS 26 temp-directory rules. Not yet run against a TV. |
+
 ## 6. Open decisions for the owner
+
+The answers given on 20 November 2026 are in [ARACHNID-1](ARACHNID-1.md):
+copy the focus engine; support 4.x onwards; the owner has a TV that can
+enter Developer Mode; build missing pieces from the ground up; use a
+dedicated branch. Question 5 (where Inquisition, Tauromaquia and the
+browser version of Mesut are specified) was answered by "build from the
+ground up". This increment built only what it needed: the focus and trap
+validator, packaging and deploy. The original questions follow.
 
 1. Extract `goya-tv-focus` from Nevada, or have Arachnid depend on
    `goya-nevada` directly?

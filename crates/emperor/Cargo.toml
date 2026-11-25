@@ -9,6 +9,8 @@ description = "Emperor compiles an admitted Goya scene to a native Linux ELF."
 [dependencies]
 emperor-runtime = { path = "../emperor-runtime" }
 goya-lang.workspace = true
+goya-scene-graphics.workspace = true
+goya-caprichios.workspace = true
 nebula = { path = "../nebula" }
 sash = { path = "../sash" }
 serde_json = "1"

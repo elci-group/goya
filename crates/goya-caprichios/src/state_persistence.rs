@@ -20,6 +20,9 @@ pub enum Platform {
     Windows,
     Linux,
     Browser,
+    /// LG webOS TV apps (Arachnid). Web apps in the platform's Chromium:
+    /// `localStorage` is the default local store, IndexedDB the database.
+    Webos,
 }
 
 impl Platform {
@@ -33,6 +36,7 @@ impl Platform {
             Self::Windows => "windows.local-settings.v1",
             Self::Linux => "linux.xdg-state.v1",
             Self::Browser => "browser.local-storage.v1",
+            Self::Webos => "webos.local-storage.v1",
         }
     }
 
@@ -47,6 +51,7 @@ impl Platform {
             Self::Macos => &["macos.preferences.v1", "macos.sqlite.v1"],
             Self::Windows => &["windows.local-settings.v1", "windows.sqlite.v1"],
             Self::Linux => &["linux.xdg-state.v1", "linux.sqlite.v1"],
+            Self::Webos => &["webos.local-storage.v1", "webos.indexeddb.v1"],
         }
     }
 
@@ -198,6 +203,7 @@ const fn platform_name(platform: Platform) -> &'static str {
         Platform::Windows => "windows",
         Platform::Linux => "linux",
         Platform::Browser => "browser",
+        Platform::Webos => "webos",
     }
 }
 

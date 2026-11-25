@@ -8,6 +8,8 @@
 
 #![forbid(unsafe_code)]
 
+#[cfg(feature = "scene")]
+pub mod scene;
 mod exercise;
 #[cfg(feature = "kumimanu")]
 mod glyph;
