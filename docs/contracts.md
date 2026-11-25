@@ -1016,7 +1016,8 @@ self-test gate, fixed in the same commit.
 - Provides:
   - `StateModel` (dimensions, closed effect set including `Morph`, product
     or transition reachability), `assess` (KFBM), `compile`,
-    `compile_with(…, Bake)`, `cache_key(…, Bake)`, `morph_path`, and
+    `compile_with(…, impl Into<CompileOptions>)` (bake policy and
+    differential depth), `cache_key(…, options)`, `morph_path`, and
     `StateModel::binding`;
   - `Inventory::open(bytes, &ParentBinding, &GviLimits)`, plus `state`,
     `resolve`, `permits`, `decode_geometry`, `verify_against`, and
@@ -1033,4 +1034,31 @@ self-test gate, fixed in the same commit.
   - Morphs are integer-exact. Baked rows carry only a translation. Strokes
     bake only under similarity transforms. Baking drift is at most 1
     premultiplied level against the unbaked inventory.
+  - Differential geometry (GVI-D) is exact and hash-verified. Records
+    reference earlier ids only, and their depth and ancestor counts are
+    declared in `COST` and re-derived at open. Records are rebuilt once
+    at load, never per lookup. The differential layout is emitted only
+    when it is smaller.
 - Golden fixture: `fixtures/graphics/gvi/status_icon.gvi`.
+
+## GY-GRU/0 — Graphical Rendering Unit (`crates/goya-gru`, GOYA-GFX-001 Phase 2)
+
+- Consumes: GY-GFXC/1, GY-GIR/0 and GY-GVA/0 (pool codecs).
+- Status: Draft. Spec: `docs/graphics/gru.md`.
+- Provides:
+  - authoring types: `UnitSource`, `Slot`/`SlotType`/`SlotValue`,
+    `Binding`/`Target`/`Map`/`Value`, `Region`/`Role`, and `encode`;
+  - loading: `Unit::open` and `Unit::instantiate`;
+  - runtime (`UnitState`): `set`, `set_named`, `take_invalidation`,
+    `item`, `drawing`, `instance_bounds`, `hit_test`, `focus_order` and
+    `focus_next`.
+- Invariants:
+  - Encoding and loading share one type checker.
+  - There is at most one binding per (instance, channel), and every map
+    is O(1).
+  - `CHNG` and `SPAT` are re-derived and verified at load.
+  - Geometry is decoded once at load and never rebuilt.
+  - `set` validates the value, touches only the instances `CHNG` lists
+    for that slot, and is atomic.
+  - Hit-testing and focus use geometry, never pixels.
+- Golden fixture: `fixtures/graphics/gru/dashboard.gru`.
