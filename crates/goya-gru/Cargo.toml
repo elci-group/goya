@@ -1,0 +1,12 @@
+[package]
+name = "goya-gru"
+version = "0.0.1"
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Graphical Rendering Unit (.gru, GY-GRU/0): reusable geometry with typed slots, bounded declarative bindings, incremental invalidation and visionless interaction regions."
+
+[dependencies]
+goya-graphics-container = { path = "../goya-graphics-container" }
+goya-graphics-ir = { path = "../goya-graphics-ir" }
+goya-gva = { path = "../goya-gva" }
