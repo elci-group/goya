@@ -893,6 +893,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "goya-gru"
+version = "0.0.1"
+dependencies = [
+ "goya-graphics-container",
+ "goya-graphics-ir",
+ "goya-gva",
+]
+
+[[package]]
 name = "goya-gva"
 version = "0.0.1"
 dependencies = [

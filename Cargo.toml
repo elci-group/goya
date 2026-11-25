@@ -66,6 +66,7 @@ members = [
     "crates/goya-graphics-ir",
     "crates/goya-gva",
     "crates/goya-gvi",
+    "crates/goya-gru",
     "crates/emperor",
     "crates/emperor-runtime",
     "crates/goya-freedesktop",
@@ -133,6 +134,7 @@ goya-graphics-container = { path = "crates/goya-graphics-container" }
 goya-graphics-ir = { path = "crates/goya-graphics-ir" }
 goya-gva = { path = "crates/goya-gva" }
 goya-gvi = { path = "crates/goya-gvi" }
+goya-gru = { path = "crates/goya-gru" }
 emperor-runtime = { path = "crates/emperor-runtime" }
 goya-freedesktop = { path = "crates/goya-freedesktop" }
 nebula = { path = "crates/nebula" }

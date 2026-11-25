@@ -1014,8 +1014,9 @@ self-test gate, fixed in the same commit.
 - Consumes: GY-GFXC/1, GY-GIR/0 and GY-GVA/0 (shared pool codecs).
 - Status: Draft. Spec: `docs/graphics/gvi.md`.
 - Provides:
-  - `StateModel` (dimensions, closed effect set, product or transition
-    reachability), `assess` (KFBM), `compile`, `cache_key`, and
+  - `StateModel` (dimensions, closed effect set including `Morph`, product
+    or transition reachability), `assess` (KFBM), `compile`,
+    `compile_with(…, Bake)`, `cache_key(…, Bake)`, `morph_path`, and
     `StateModel::binding`;
   - `Inventory::open(bytes, &ParentBinding, &GviLimits)`, plus `state`,
     `resolve`, `permits`, `decode_geometry`, `verify_against`, and
@@ -1029,4 +1030,7 @@ self-test gate, fixed in the same commit.
     closure plus reachability within the index).
   - `resolve` is validation plus binary search. Invalid states (E5005) and
     unreachable states (E5006) are rejected, never substituted.
+  - Morphs are integer-exact. Baked rows carry only a translation. Strokes
+    bake only under similarity transforms. Baking drift is at most 1
+    premultiplied level against the unbaked inventory.
 - Golden fixture: `fixtures/graphics/gvi/status_icon.gvi`.
