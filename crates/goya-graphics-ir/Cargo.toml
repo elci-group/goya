@@ -1,0 +1,12 @@
+[package]
+name = "goya-graphics-ir"
+version = "0.0.1"
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "GIR, Goya's internal graphical intermediate representation (GY-GIR/0), and the CPU reference renderer used as the graphics conformance oracle."
+
+[dependencies]
+
+[dev-dependencies]
+sha2 = "0.10"
