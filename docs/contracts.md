@@ -952,3 +952,59 @@ self-test gate, fixed in the same commit.
 - Finding: BUG-IE-LOOPBACK-01 (revoke_client left queued work running
   after consent ended) — found by this harness, fixed in ie-loopback,
   regression test un-ignored and passing.
+
+## GY-GFXC/1 — Shared graphics container (`crates/goya-graphics-container`, GOYA-GFX-001 Phase 0)
+
+- Status: Ratified 2026-11-24 (decisions D1–D5). Normative text:
+  `docs/graphics/container.md`. Programme notes: `docs/graphics/README.md`.
+- Provides: `encode(Format, Profile, features, &[SectionInput], &Limits) -> Vec<u8>`,
+  `Container::open(&[u8], &Expect, &Limits)`, `section(Tag)` (verified on
+  fetch), `verify_all()`, `Format` (`GRU\0`/`GVA\0`/`GVI\0`/`SPC\0`), `Tag`,
+  `Profile::Baseline`, and `GfxError` (stable `GFX-E1xxx` and `GFX-E4xxx` codes).
+- Invariants: 80-byte header and 72-byte directory entries, little-endian. Exactly
+  one canonical layout per input (sorted tags, fixed offsets, zero padding),
+  so encoding is byte-deterministic and does not depend on input order. The
+  envelope digest (SHA-256 of header and directory, digest field zeroed)
+  commits to every per-section SHA-256, and so to every byte. Limits and
+  checked arithmetic apply before allocation. Unknown mandatory sections and
+  required features are rejected. A digest is never treated as authenticity.
+- Golden fixture: `fixtures/graphics/container/sample.gva`.
+
+## GY-GIR/0 — Graphical intermediate representation (`crates/goya-graphics-ir`, GOYA-GFX-001 Phase 1)
+
+- Status: Draft. Spec: `docs/graphics/gva.md` §1 and §6.
+- Provides:
+  - `Path` (canonical segment lists in millipoints) and `Segment`;
+  - `Style`, `Fill` and `Stroke`, plus `Affine` (row-vector, Q16.16 linear
+    part, millipoint translation);
+  - `Item` (an `Arc<Path>`, style, transform and opacity) and `Drawing`;
+  - `Quantiser` (round-half-even, with a precision gate);
+  - `GfxDiag`, with `codes` for E2xxx, E3xxx, E41xx and E42xx;
+  - `reference::render`, the CPU conformance oracle.
+- Invariants:
+  - Canonicalising a path is idempotent.
+  - Affine application is exact integer arithmetic.
+  - Rendering uses only IEEE `+ − × ÷ sqrt`, so output is bit-identical
+    across hosts. Folding a translation between a path and its transform
+    does not change any output bit.
+  - Render limits (pixels, edges, curve steps) are enforced.
+
+## GY-GVA/0 — Graphical Vector Array (`crates/goya-gva`, GOYA-GFX-001 Phase 1)
+
+- Consumes: GY-GFXC/1 and GY-GIR/0.
+- Status: Draft. Spec: `docs/graphics/gva.md`.
+- Provides:
+  - `encode(&Drawing, &GvaLimits)`;
+  - `Gva::open`, with zero-copy instance arrays (`instances()`), lazy
+    `geometry(g)`, `instances_intersecting(rect)`, `to_drawing()` and
+    `verify()`.
+- Invariants:
+  - Geometry and styles are deduplicated by structure and pooled in
+    first-use order, with origin folding applied when it is exact.
+  - Encoding is deterministic and idempotent: encoding a decoded file
+    reproduces it exactly.
+  - `open` decodes no geometry. It validates every section, every
+    reference and every limit.
+  - `verify` rejects any file that is not canonical.
+- Golden fixtures: `fixtures/graphics/gva/icon.gva`, plus the render
+  digest in `icon.x4.sha256`.
