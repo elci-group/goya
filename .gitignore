@@ -8,3 +8,6 @@ __pycache__/
 # Build artifacts under evidence dirs are disposable and exceed GitHub limits
 evidence/**/builds/
 evidence/**/execution/
+
+# Large installer archives (e.g. Xcode .xip) must never be committed.
+*.xip

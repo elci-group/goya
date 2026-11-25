@@ -1028,6 +1028,15 @@ name = "goya-rars"
 version = "0.1.8"
 
 [[package]]
+name = "goya-resolver"
+version = "0.1.8"
+dependencies = [
+ "goya-executable",
+ "goya-lang",
+ "goya-sdk",
+]
+
+[[package]]
 name = "goya-rpi"
 version = "0.1.8"
 
