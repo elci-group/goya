@@ -902,6 +902,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "goya-gvi"
+version = "0.0.1"
+dependencies = [
+ "goya-graphics-container",
+ "goya-graphics-ir",
+ "goya-gva",
+ "sha2",
+]
+
+[[package]]
 name = "goya-hcar"
 version = "0.1.8"
 
