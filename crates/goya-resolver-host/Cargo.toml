@@ -1,0 +1,13 @@
+[package]
+name = "goya-resolver-host"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Native resolver hosts for the served Goya platforms. Surfaces stay closed."
+
+[dependencies]
+goya-resolver.workspace = true
+
+[dev-dependencies]
+goya-lang.workspace = true

@@ -1,0 +1,19 @@
+[package]
+name = "goya-resolver"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Headless interpreter for an admitted Goya scene (GY-RESOLVER/0.1)."
+
+[dependencies]
+goya-executable.workspace = true
+goya-lang.workspace = true
+unicode-segmentation.workspace = true
+
+[dev-dependencies]
+goya-sdk.workspace = true
+
+[[bin]]
+name = "goya-resolve"
+path = "src/bin/goya-resolve.rs"

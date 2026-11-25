@@ -1074,6 +1074,24 @@ name = "goya-rars"
 version = "0.1.8"
 
 [[package]]
+name = "goya-resolver"
+version = "0.1.8"
+dependencies = [
+ "goya-executable",
+ "goya-lang",
+ "goya-sdk",
+ "unicode-segmentation",
+]
+
+[[package]]
+name = "goya-resolver-host"
+version = "0.1.8"
+dependencies = [
+ "goya-lang",
+ "goya-resolver",
+]
+
+[[package]]
 name = "goya-romantico"
 version = "0.1.8"
 dependencies = [

@@ -18,6 +18,8 @@ members = [
     "crates/goya-romantico",
     "crates/goya-layout",
     "crates/goya-runtime",
+    "crates/goya-resolver",
+    "crates/goya-resolver-host",
     "crates/goya-hello",
     "crates/goya-chroma",
     "crates/goya-provenance",
@@ -91,6 +93,8 @@ goya-state = { path = "crates/goya-state" }
 goya-romantico = { path = "crates/goya-romantico" }
 goya-layout = { path = "crates/goya-layout" }
 goya-runtime = { path = "crates/goya-runtime" }
+goya-resolver = { path = "crates/goya-resolver" }
+goya-resolver-host = { path = "crates/goya-resolver-host" }
 goya-chroma = { path = "crates/goya-chroma" }
 goya-provenance = { path = "crates/goya-provenance" }
 goya-clipboard = { path = "crates/goya-clipboard" }
