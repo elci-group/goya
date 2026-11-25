@@ -1,0 +1,11 @@
+[package]
+name = "goya-romantico"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "GY-ROMANTICO/0.1 in-process portable session continuity"
+
+[dependencies]
+sha2 = "0.10"
+chacha20poly1305 = { version = "0.10.1", default-features = false, features = ["alloc"] }
+hkdf = "0.12.4"

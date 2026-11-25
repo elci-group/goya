@@ -15,6 +15,7 @@ members = [
     "crates/goya-parity",
     "crates/goya-ir",
     "crates/goya-state",
+    "crates/goya-romantico",
     "crates/goya-layout",
     "crates/goya-runtime",
     "crates/goya-hello",
@@ -87,6 +88,7 @@ license = "MIT OR Apache-2.0"
 [workspace.dependencies]
 goya-ir = { path = "crates/goya-ir" }
 goya-state = { path = "crates/goya-state" }
+goya-romantico = { path = "crates/goya-romantico" }
 goya-layout = { path = "crates/goya-layout" }
 goya-runtime = { path = "crates/goya-runtime" }
 goya-chroma = { path = "crates/goya-chroma" }

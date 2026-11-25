@@ -99,6 +99,7 @@ pub fn crates() -> &'static [Crate] {
         Crate { id: "goya-audio-linux", layer: "host", contract: "GY-AUDIO-LINUX/1", status: "implemented", role: "Linux audio adapter. Output goes through pw-cat on the PipeWire path." },
         Crate { id: "goya-ir", layer: "core", contract: "GY-IR/1", status: "implemented", role: "Typed module: Column, Row, Text, Button, Spacer, and Input. Ids are unique. Parsing is total. No external crates." },
         Crate { id: "goya-state", layer: "core", contract: "GY-STATE/1", status: "implemented", role: "Single-writer transactions. begin, set or one stage_snapshot, then commit. Drop rolls back. Revision bumps only on success. No external crates." },
+        Crate { id: "goya-romantico", layer: "core", contract: "GY-ROMANTICO/0.1", status: "experimental", role: "In-process portable session continuity. Canonical state, single-writer handoff, Goya Pairs, and a ChaCha20-Poly1305 channel keyed from the pairing secret. Follower intents, mutations, and cooperative handoff cross that channel. A caller-held journal reloads the session. A controller surface submits intents and does not become the writer. A compiled reducer and an independent interpreter share one continuity contract. Execution mode is not part of identity. A bounded diagnostic trace records session, mutation, snapshot, and handoff outcomes. It is not part of the snapshot. No socket. Discovery stays on the manual endpoint." },
         Crate { id: "goya-layout", layer: "core", contract: "GY-LAYOUT/1", status: "implemented", role: "Pure layout of a module and constraints. Geometry is millipoints, 1 point = 1000 mp. A row spacer is a horizontal gap. No clock, locale, or RNG." },
         Crate { id: "goya-runtime", layer: "core", contract: "GY-RUNTIME/1", status: "implemented", role: "Synchronous handle: hit test, text, scroll, and actions. Layout runs again only after the state revision advances. Depends on unicode-segmentation, speculation, and rpi2." },
         Crate { id: "goya-chroma", layer: "core", contract: "GY-CHROMA/1", status: "implemented", role: "OKLCH themes. Polarity reflects lightness through GREY_LINE 0.6. Unreachable WCAG contrast returns ContrastUnreachable. No external crates." },
@@ -687,7 +688,7 @@ mod tests {
         let before = ids.len();
         ids.dedup();
         assert_eq!(before, ids.len());
-        assert_eq!(before, 51);
+        assert_eq!(before, 52);
     }
 
     #[test]
