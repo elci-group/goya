@@ -1008,3 +1008,25 @@ self-test gate, fixed in the same commit.
   - `verify` rejects any file that is not canonical.
 - Golden fixtures: `fixtures/graphics/gva/icon.gva`, plus the render
   digest in `icon.x4.sha256`.
+
+## GY-GVI/0 — Graphical Vector Inventory (`crates/goya-gvi`, GOYA-GFX-001 Phase 3)
+
+- Consumes: GY-GFXC/1, GY-GIR/0 and GY-GVA/0 (shared pool codecs).
+- Status: Draft. Spec: `docs/graphics/gvi.md`.
+- Provides:
+  - `StateModel` (dimensions, closed effect set, product or transition
+    reachability), `assess` (KFBM), `compile`, `cache_key`, and
+    `StateModel::binding`;
+  - `Inventory::open(bytes, &ParentBinding, &GviLimits)`, plus `state`,
+    `resolve`, `permits`, `decode_geometry`, `verify_against`, and
+    `Projection` (zero-copy rows that carry source item ids).
+- Invariants:
+  - Compilation is deterministic, and partial inventories are never
+    emitted. Ineligible models fail with E5001–E5004 and a recommended
+    alternative.
+  - `open` rejects a foreign parent binding (E5007), verifies certificate
+    figures, and re-derives completeness independently (product check, or
+    closure plus reachability within the index).
+  - `resolve` is validation plus binary search. Invalid states (E5005) and
+    unreachable states (E5006) are rejected, never substituted.
+- Golden fixture: `fixtures/graphics/gvi/status_icon.gvi`.
