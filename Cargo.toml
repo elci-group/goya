@@ -17,7 +17,6 @@ members = [
     "crates/goya-state",
     "crates/goya-layout",
     "crates/goya-runtime",
-    "crates/goya-resolver",
     "crates/goya-hello",
     "crates/goya-chroma",
     "crates/goya-provenance",
@@ -90,7 +89,6 @@ goya-ir = { path = "crates/goya-ir" }
 goya-state = { path = "crates/goya-state" }
 goya-layout = { path = "crates/goya-layout" }
 goya-runtime = { path = "crates/goya-runtime" }
-goya-resolver = { path = "crates/goya-resolver" }
 goya-chroma = { path = "crates/goya-chroma" }
 goya-provenance = { path = "crates/goya-provenance" }
 goya-clipboard = { path = "crates/goya-clipboard" }
