@@ -1,0 +1,13 @@
+[package]
+name = "goya-disparates"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "GY-DISP-003 — deterministic extraction → assessment → deficit-report pipeline driver for the Disparates programme."
+
+[dependencies]
+goya-fair = { path = "../goya-fair" }
+goya-disparate-electron = { path = "../goya-disparate-electron" }
+goya-disparate-coverage = { path = "../goya-disparate-coverage" }
+serde_json = "1"

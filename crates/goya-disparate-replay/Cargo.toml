@@ -1,0 +1,12 @@
+[package]
+name = "goya-disparate-replay"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "GY-REPLAY/1 (draft) — scenario compilation, trace schema and comparator skeleton for behavioural replay in the Disparates programme. Execution is explicitly unimplemented."
+
+[dependencies]
+goya-fair = { path = "../goya-fair" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

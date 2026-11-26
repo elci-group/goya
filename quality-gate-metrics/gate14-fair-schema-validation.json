@@ -1,0 +1,1 @@
+{"gate": 14, "stage": "fair-schema-validation", "status": "PASS", "failed": 0, "commands": [{"command": "cargo test -p goya-fair --offline", "exit_code": 0}], "timestamp": "2026-11-19T11:44:53Z"}

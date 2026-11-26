@@ -1,0 +1,9 @@
+contract: GY-FAIR/1
+project: electron-fiddle
+framework: electron (devDependencies electron 3.0.10)
+framework: react (dependencies react ^16.6.3)
+framework: react (dependencies react-dom ^16.6.3)
+elements: 401
+coverage: Extracted 372
+coverage: Undetermined 29
+written: run1.fair.json

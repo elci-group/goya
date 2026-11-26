@@ -1,0 +1,117 @@
+{
+  "contract": "GY-COVERAGE/1",
+  "source_root": "/home/sal/corpus/fiddle",
+  "elements": 401,
+  "totals": {
+    "representable": 183,
+    "undetermined": 156,
+    "unrepresentable": 62
+  },
+  "deficits": [
+    {
+      "reason": "PERSISTENCE_CAPABILITY_UNRESOLVED",
+      "goya_evidence": "no filesystem-access contract exists in the register (checked 2026-11-19)",
+      "kinds": {
+        "filesystem_operation": 93,
+        "state_store": 34
+      },
+      "files": [
+        "src/main/files.ts",
+        "src/main/protocol.ts",
+        "src/renderer/binary.ts",
+        "src/renderer/components/settings-general-appearance.tsx",
+        "src/renderer/fetch-types.ts",
+        "src/renderer/file-manager.ts",
+        "src/renderer/state.ts",
+        "src/renderer/templates.ts",
+        "src/renderer/themes.ts",
+        "src/renderer/versions.ts",
+        "tests/main/files-spec.ts",
+        "tests/main/protocol-spec.ts",
+        "tests/renderer/binary-spec.ts",
+        "tests/renderer/components/settings-general-appearance-spec.tsx",
+        "tests/renderer/fetch-types-spec.ts",
+        "tests/renderer/file-manager-spec.ts",
+        "tests/renderer/templates-spec.ts",
+        "tests/renderer/themes-spec.tsx",
+        "tests/renderer/versions-spec.ts",
+        "tests/setup.js",
+        "tools/contributors.js",
+        "tools/fetch-releases.js"
+      ]
+    },
+    {
+      "reason": "NO_GOYA_CAPABILITY_DESKTOP_OS_INTEGRATION",
+      "goya_evidence": "no desktop OS-integration contract (notifications, dialogs, shell, tray) exists in the register (checked 2026-11-19)",
+      "kinds": {
+        "os_api_call": 52
+      },
+      "files": [
+        "src/main/dialogs.ts",
+        "src/main/files.ts",
+        "src/main/menu.ts",
+        "src/main/windows.ts",
+        "src/renderer/components/commands-runner.tsx",
+        "src/renderer/components/dialog-token.tsx",
+        "src/renderer/components/settings-credits.tsx",
+        "src/renderer/components/settings-general-appearance.tsx",
+        "src/renderer/file-manager.ts",
+        "static/templates/Dialog/main.js",
+        "static/templates/Notification/main.js",
+        "static/templates/Shell/renderer.js",
+        "static/templates/Tray/main.js",
+        "static/templates/dialog/main.js",
+        "static/templates/nativeImage/main.js",
+        "static/templates/notification/main.js",
+        "static/templates/shell/renderer.js",
+        "static/templates/tray/main.js",
+        "tests/main/dialogs-spec.ts",
+        "tests/main/files-spec.ts",
+        "tests/main/menu-spec.ts",
+        "tests/renderer/components/dialog-token-spec.tsx",
+        "tests/renderer/components/settings-credits-spec.tsx",
+        "tests/renderer/components/settings-general-appearance-spec.tsx"
+      ]
+    },
+    {
+      "reason": "DYNAMIC_REQUIRE_UNRESOLVED",
+      "goya_evidence": "",
+      "kinds": {
+        "dynamic_module_resolution": 29
+      },
+      "files": [
+        "src/main/main.ts",
+        "src/renderer/app.tsx",
+        "src/renderer/binary.ts",
+        "src/renderer/components/commands-runner.tsx",
+        "src/renderer/components/tour-welcome.tsx",
+        "src/renderer/content.ts",
+        "src/renderer/file-manager.ts",
+        "src/renderer/npm.ts",
+        "src/utils/exec.ts",
+        "src/utils/get-title.ts",
+        "src/utils/import.ts",
+        "src/utils/octokit.ts",
+        "tests/renderer/components/settings-general-appearance-spec.tsx",
+        "tests/renderer/file-manager-spec.ts",
+        "tests/renderer/templates-spec.ts",
+        "tests/renderer/themes-spec.tsx"
+      ]
+    },
+    {
+      "reason": "NO_GOYA_CAPABILITY_CHILD_PROCESS",
+      "goya_evidence": "no process-spawn capability exists in the register (checked 2026-11-19)",
+      "kinds": {
+        "child_process": 10
+      },
+      "files": [
+        "src/renderer/components/commands-runner.tsx",
+        "src/renderer/npm.ts",
+        "src/utils/exec.ts",
+        "src/utils/highlight-text.tsx",
+        "tests/utils/exec-spec.ts",
+        "tools/run-bin.js"
+      ]
+    }
+  ]
+}

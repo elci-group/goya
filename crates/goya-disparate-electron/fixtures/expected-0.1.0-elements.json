@@ -1,0 +1,542 @@
+{
+  "extractor_version": "0.1.0",
+  "elements": [
+    {
+      "id": "api-0001",
+      "kind": "os_api_call",
+      "provenance": {
+        "file": "src/main/index.js",
+        "line": 15,
+        "span_start": null,
+        "span_end": null,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "api": "dialog"
+      }
+    },
+    {
+      "id": "brg-0001",
+      "kind": "preload_bridge",
+      "provenance": {
+        "file": "src/main/broken-preload.js",
+        "line": 3,
+        "span_start": null,
+        "span_end": null,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "exposed": "fallbackAPI"
+      }
+    },
+    {
+      "id": "brg-0002",
+      "kind": "preload_bridge",
+      "provenance": {
+        "file": "src/main/preload.js",
+        "line": 3,
+        "span_start": null,
+        "span_end": null,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "exposed": "desktopAPI"
+      }
+    },
+    {
+      "id": "evt-0001",
+      "kind": "event_handler",
+      "provenance": {
+        "file": "src/renderer/App.jsx",
+        "line": 10,
+        "span_start": null,
+        "span_end": null,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "prop": "onClick"
+      }
+    },
+    {
+      "id": "evt-0002",
+      "kind": "event_handler",
+      "provenance": {
+        "file": "src/renderer/StatusPanel.jsx",
+        "line": 11,
+        "span_start": null,
+        "span_end": null,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "prop": "onClick"
+      }
+    },
+    {
+      "id": "fs-0001",
+      "kind": "filesystem_operation",
+      "provenance": {
+        "file": "src/main/index.js",
+        "line": 11,
+        "span_start": null,
+        "span_end": null,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {}
+    },
+    {
+      "id": "hook-0001",
+      "kind": "hook",
+      "provenance": {
+        "file": "src/renderer/App.jsx",
+        "line": 4,
+        "span_start": null,
+        "span_end": null,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "hook": "useState"
+      }
+    },
+    {
+      "id": "hook-0002",
+      "kind": "hook",
+      "provenance": {
+        "file": "src/renderer/App.jsx",
+        "line": 5,
+        "span_start": null,
+        "span_end": null,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "hook": "useEffect"
+      }
+    },
+    {
+      "id": "hook-0003",
+      "kind": "hook",
+      "provenance": {
+        "file": "src/renderer/StatusPanel.jsx",
+        "line": 4,
+        "span_start": null,
+        "span_end": null,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "hook": "useState"
+      }
+    },
+    {
+      "id": "hook-0004",
+      "kind": "hook",
+      "provenance": {
+        "file": "src/renderer/StatusPanel.jsx",
+        "line": 5,
+        "span_start": null,
+        "span_end": null,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "hook": "useEffect"
+      }
+    },
+    {
+      "id": "ipc-0001",
+      "kind": "ipc_channel",
+      "provenance": {
+        "file": "src/main/broken-preload.js",
+        "line": 4,
+        "span_start": null,
+        "span_end": null,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "channel": "fallback:ping",
+        "side": "renderer",
+        "verb": "invoke"
+      }
+    },
+    {
+      "id": "ipc-0002",
+      "kind": "ipc_channel",
+      "provenance": {
+        "file": "src/main/broken-preload.js",
+        "line": 5,
+        "span_start": null,
+        "span_end": null,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "channel": "fallback:done",
+        "side": "renderer",
+        "verb": "send"
+      }
+    },
+    {
+      "id": "ipc-0003",
+      "kind": "ipc_channel",
+      "provenance": {
+        "file": "src/main/index.js",
+        "line": 10,
+        "span_start": null,
+        "span_end": null,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "channel": "settings:read",
+        "side": "main",
+        "verb": "handle"
+      }
+    },
+    {
+      "id": "ipc-0004",
+      "kind": "ipc_channel",
+      "provenance": {
+        "file": "src/main/index.js",
+        "line": 14,
+        "span_start": null,
+        "span_end": null,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "channel": "sync-message",
+        "side": "main",
+        "verb": "on"
+      }
+    },
+    {
+      "id": "ipc-0005",
+      "kind": "ipc_channel",
+      "provenance": {
+        "file": "src/main/preload.js",
+        "line": 4,
+        "span_start": null,
+        "span_end": null,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "channel": "settings:read",
+        "side": "renderer",
+        "verb": "invoke"
+      }
+    },
+    {
+      "id": "ipc-0006",
+      "kind": "ipc_channel",
+      "provenance": {
+        "file": "src/main/preload.js",
+        "line": 5,
+        "span_start": null,
+        "span_end": null,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "channel": "sync-message",
+        "side": "renderer",
+        "verb": "send"
+      }
+    },
+    {
+      "id": "nat-0001",
+      "kind": "native_module",
+      "provenance": {
+        "file": "package.json",
+        "line": 8,
+        "span_start": null,
+        "span_end": null,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "unrepresentable",
+        "reason": "NATIVE_MODULE_OPAQUE",
+        "detail": "native addon dependency cannot be transliterated; it must be replaced by a Goya capability or recorded as a migration wall"
+      },
+      "semantics": {
+        "module": "better-sqlite3",
+        "resolution": "native_addon"
+      }
+    },
+    {
+      "id": "node-0001",
+      "kind": "dynamic_module_resolution",
+      "provenance": {
+        "file": "src/main/index.js",
+        "line": 19,
+        "span_start": null,
+        "span_end": null,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "undetermined",
+        "reason": "DYNAMIC_REQUIRE_UNRESOLVED",
+        "detail": "require/import destination is computed; not statically resolvable by this extractor"
+      },
+      "semantics": {
+        "resolution": "unresolved"
+      }
+    },
+    {
+      "id": "node-0002",
+      "kind": "dynamic_module_resolution",
+      "provenance": {
+        "file": "src/main/index.js",
+        "line": 22,
+        "span_start": null,
+        "span_end": null,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "undetermined",
+        "reason": "DYNAMIC_REQUIRE_UNRESOLVED",
+        "detail": "require/import destination is computed; not statically resolvable by this extractor"
+      },
+      "semantics": {
+        "resolution": "unresolved"
+      }
+    },
+    {
+      "id": "proc-0001",
+      "kind": "child_process",
+      "provenance": {
+        "file": "src/main/index.js",
+        "line": 3,
+        "span_start": null,
+        "span_end": null,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {}
+    },
+    {
+      "id": "proc-0002",
+      "kind": "child_process",
+      "provenance": {
+        "file": "src/main/index.js",
+        "line": 27,
+        "span_start": null,
+        "span_end": null,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {}
+    },
+    {
+      "id": "sty-0001",
+      "kind": "style_rule",
+      "provenance": {
+        "file": "src/renderer/styles.css",
+        "line": 1,
+        "span_start": null,
+        "span_end": null,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "selector": "body"
+      }
+    },
+    {
+      "id": "sty-0002",
+      "kind": "style_rule",
+      "provenance": {
+        "file": "src/renderer/styles.css",
+        "line": 6,
+        "span_start": null,
+        "span_end": null,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "selector": ".panel"
+      }
+    },
+    {
+      "id": "ui-0001",
+      "kind": "component",
+      "provenance": {
+        "file": "src/main/computed-channels.ts",
+        "line": 6,
+        "span_start": null,
+        "span_end": null,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "component": "registerComputedChannels"
+      }
+    },
+    {
+      "id": "ui-0002",
+      "kind": "component",
+      "provenance": {
+        "file": "src/renderer/App.jsx",
+        "line": 3,
+        "span_start": null,
+        "span_end": null,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "component": "App"
+      }
+    },
+    {
+      "id": "ui-0003",
+      "kind": "component",
+      "provenance": {
+        "file": "src/renderer/StatusPanel.jsx",
+        "line": 3,
+        "span_start": null,
+        "span_end": null,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "component": "StatusPanel"
+      }
+    },
+    {
+      "id": "unk-0001",
+      "kind": "unknown",
+      "provenance": {
+        "file": "src/main/index.js",
+        "line": 31,
+        "span_start": null,
+        "span_end": null,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "undetermined",
+        "reason": "DYNAMIC_CODE_EVALUATION",
+        "detail": "dynamic code evaluation has no statically extractable semantics"
+      },
+      "semantics": {
+        "observed": "eval"
+      }
+    },
+    {
+      "id": "win-0001",
+      "kind": "window_lifecycle",
+      "provenance": {
+        "file": "src/main/index.js",
+        "line": 6,
+        "span_start": null,
+        "span_end": null,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {}
+    }
+  ]
+}

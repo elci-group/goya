@@ -19,6 +19,8 @@ pub const FAIR_CONTRACT: &str = "GY-FAIR/1";
 pub struct FairDocument {
     /// Contract identifier; must equal [`FAIR_CONTRACT`].
     pub contract: String,
+    /// Foreign project identity: name, framework detections, entry points.
+    pub project: ProjectProvenance,
     /// Binding of this document to foreign source bytes.
     pub source: SourceManifest,
     /// Identity of the extractor that produced this document.
@@ -26,6 +28,26 @@ pub struct FairDocument {
     /// Extracted elements, in extractor emission order. Canonical output is
     /// sorted by element ID; storage order is preserved as emitted.
     pub elements: Vec<FairElement>,
+}
+
+/// Foreign project identity recorded at discovery time.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectProvenance {
+    /// Foreign project name (from its own manifest where available).
+    pub name: String,
+    /// Framework detections, each with the evidence that produced it.
+    pub frameworks: Vec<FrameworkDetection>,
+    /// Entry points declared or discovered.
+    pub entry_points: Vec<String>,
+}
+
+/// One framework detection with its evidence.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FrameworkDetection {
+    /// Detected framework (for example `electron`, `react`).
+    pub framework: String,
+    /// What produced the detection (for example `dependency electron ^31.0.1`).
+    pub evidence: String,
 }
 
 /// Hash binding of the foreign source tree.
@@ -365,6 +387,14 @@ mod tests {
     fn doc(elements: Vec<FairElement>) -> FairDocument {
         FairDocument {
             contract: FAIR_CONTRACT.into(),
+            project: ProjectProvenance {
+                name: "sample-app".into(),
+                frameworks: vec![FrameworkDetection {
+                    framework: "electron".into(),
+                    evidence: "dependency electron ^31.0.1".into(),
+                }],
+                entry_points: vec!["src/main/index.ts".into()],
+            },
             source: manifest(),
             extractor: extractor(),
             elements,

@@ -64,6 +64,10 @@ members = [
     "crates/emperor",
     "crates/emperor-runtime",
     "crates/goya-fair",
+    "crates/goya-disparate-electron",
+    "crates/goya-disparate-coverage",
+    "crates/goya-disparate-replay",
+    "crates/goya-disparates",
 ]
 
 [workspace.package]
@@ -119,6 +123,10 @@ goya-webview = { path = "crates/goya-webview" }
 goya-studio = { path = "crates/goya-studio" }
 emperor-runtime = { path = "crates/emperor-runtime" }
 goya-fair = { path = "crates/goya-fair" }
+goya-disparate-electron = { path = "crates/goya-disparate-electron" }
+goya-disparate-coverage = { path = "crates/goya-disparate-coverage" }
+goya-disparate-replay = { path = "crates/goya-disparate-replay" }
+goya-disparates = { path = "crates/goya-disparates" }
 unicode-segmentation = "1.12"
 cosmic-text = "0.17"
 

@@ -1,5 +1,17 @@
 {
   "contract": "GY-FAIR/1",
+  "project": {
+    "name": "sample-app",
+    "frameworks": [
+      {
+        "framework": "electron",
+        "evidence": "dependency electron ^31.0.1"
+      }
+    ],
+    "entry_points": [
+      "src/main/index.ts"
+    ]
+  },
   "source": {
     "root": "fixtures/sample-app",
     "files": [

@@ -1,0 +1,81 @@
+{
+  "contract": "GY-COVERAGE/1",
+  "source_root": "/home/sal/corpus/reactotron/apps/reactotron-app",
+  "elements": 345,
+  "totals": {
+    "representable": 252,
+    "undetermined": 75,
+    "unrepresentable": 18
+  },
+  "deficits": [
+    {
+      "reason": "HOOK_DATAFLOW_NOT_EXTRACTED",
+      "goya_evidence": "GY-STATE/1 covers value state; side-effect scheduling has no assessed equivalent",
+      "kinds": {
+        "hook": 63
+      },
+      "files": [
+        "src/renderer/KeybindHandler.tsx",
+        "src/renderer/RootModals.tsx",
+        "src/renderer/components/ConnectionSelector/index.tsx",
+        "src/renderer/components/Footer/index.tsx",
+        "src/renderer/components/McpSettingsModal/index.tsx",
+        "src/renderer/components/SideBar/index.tsx",
+        "src/renderer/contexts/Layout/useLayout.ts",
+        "src/renderer/contexts/Standalone/index.tsx",
+        "src/renderer/contexts/Standalone/useStandalone.ts",
+        "src/renderer/pages/customCommands/index.tsx",
+        "src/renderer/pages/help/components/AndroidDeviceHelp.tsx",
+        "src/renderer/pages/home/index.tsx",
+        "src/renderer/pages/reactNative/Overlay.tsx",
+        "src/renderer/pages/reactNative/Storybook.tsx",
+        "src/renderer/pages/state/Snapshots.tsx",
+        "src/renderer/pages/state/Subscriptions.tsx",
+        "src/renderer/pages/timeline/index.tsx"
+      ]
+    },
+    {
+      "reason": "PERSISTENCE_CAPABILITY_UNRESOLVED",
+      "goya_evidence": "no filesystem-access contract exists in the register (checked 2026-11-19)",
+      "kinds": {
+        "filesystem_operation": 9,
+        "state_store": 3
+      },
+      "files": [
+        "scripts/build.release.js",
+        "scripts/release.artifacts.js",
+        "src/main/menu.ts",
+        "src/renderer/config.ts",
+        "src/renderer/contexts/Standalone/index.tsx",
+        "src/renderer/pages/reactNative/Overlay.tsx",
+        "src/renderer/pages/timeline/index.tsx"
+      ]
+    },
+    {
+      "reason": "NO_GOYA_CAPABILITY_CHILD_PROCESS",
+      "goya_evidence": "no process-spawn capability exists in the register (checked 2026-11-19)",
+      "kinds": {
+        "child_process": 9
+      },
+      "files": [
+        "scripts/build.release.js",
+        "scripts/release.artifacts.js",
+        "src/main/utils.ts"
+      ]
+    },
+    {
+      "reason": "NO_GOYA_CAPABILITY_DESKTOP_OS_INTEGRATION",
+      "goya_evidence": "no desktop OS-integration contract (notifications, dialogs, shell, tray) exists in the register (checked 2026-11-19)",
+      "kinds": {
+        "os_api_call": 9
+      },
+      "files": [
+        "src/main/menu.ts",
+        "src/main/utils.ts",
+        "src/renderer/pages/help/index.tsx",
+        "src/renderer/pages/home/welcome.tsx",
+        "src/renderer/pages/timeline/index.tsx"
+      ]
+    }
+  ]
+}

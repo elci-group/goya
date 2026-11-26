@@ -1,0 +1,72 @@
+{
+  "work_package": "GY-DISP-003",
+  "title": "Swarm consolidation — capability map revision 2, orchestration pipeline, second corpus, and programme infrastructure (Disparates)",
+  "wave": "disparates-phase1-2",
+  "date": "2026-11-19",
+  "scope": {
+    "objective": "Consolidate a ten-agent parallel work programme: apply the evidence-backed capability-map revision, verify the second corpus run, integrate the orchestration pipeline and quality gates, and record the corrected cross-corpus deficit picture.",
+    "affected": [
+      "crates/goya-disparate-coverage (map revision 2: clipboard rule; assess counter-bug fix; map fixture regenerated; partition-regression test)",
+      "crates/goya-disparates (new: GY-DISP-003 pipeline orchestration, `disparate` CLI)",
+      "crates/goya-disparate-coverage/fixtures/capability-map-v1.json (regenerated; byte-equality test enforced)",
+      "docs/disparates/contracts/coverage-1.md (mapping-code list amendment; map revision history)",
+      "docs/disparates/reason-codes.md (MAPPED_TO_CLIPBOARD_CAPABILITY registered in the same revision that emits it; reserved codes corrected)",
+      "docs/disparates/roadmap.md (v2 findings; crate family status)",
+      "docs/disparates/corpus/electron-fiddle.md, docs/disparates/capabilities/*.md, docs/disparates/adr/0001-ast-grade-extraction.md, docs/disparates/contracts/replay-1-draft.md, docs/disparates/quinta-import-flow.md, docs/disparates/reconnaissance.md, docs/disparates/revisions/map-v2-proposal.md (swarm deliverables)",
+      "quality-gates.toml, parity.deliver.toml, scripts/quality-gates-gate14..17-*.sh (verification integration)",
+      "evidence/disparates/{reactotron-phase1,electron-fiddle-phase2}/*.map-v2.* (re-assessed outputs; v1 evidence preserved untouched)"
+    ],
+    "exclusions": [
+      "Pending map rules NOT applied: shell/dialog splits await GY-DESKINT/1 ratification; OUT_OF_RECONSTRUCTION_SCOPE awaits the coverage-1 schema amendment or an extractor scan-scope revision.",
+      "No reconstruction; FAIR-to-Goya remains unauthorised (ADR 0001 is a proposal, unimplemented).",
+      "GY-REPLAY/1 is a draft; foreign-code execution under replay remains explicitly unauthorised.",
+      "Fiddle template/test-scope contamination is preserved and declared, not silently subtracted."
+    ]
+  },
+  "repository_evidence": {
+    "map_revision_2": {
+      "change": "single inserted rule: os_api_call api=clipboard -> representable / MAPPED_TO_CLIPBOARD_CAPABILITY, evidence GY-CLIPBOARD/1; inserted before the coarse desktop-OS rule (first-match-wins); coarse rule kept byte-identical",
+      "same_revision_amendments": [
+        "reason-codes.md register row for MAPPED_TO_CLIPBOARD_CAPABILITY (governance: same-revision registration)",
+        "coverage-1.md mapping-code list + revision-history section",
+        "fixtures/capability-map-v1.json regenerated; test default_map_matches_embedded_fixture enforces byte-equality"
+      ],
+      "pending_rules_recorded_not_applied": [
+        "MAPPED_TO_URI_DELEGATION / MAPPED_TO_MODAL_DIALOG (GY-DESKINT/1 ratification)",
+        "OUT_OF_RECONSTRUCTION_SCOPE + scope_exclusions schema amendment (coverage-1 Amendment A) or extractor scan-scope revision"
+      ]
+    },
+    "counter_bug_fix": {
+      "finding": "goya-disparate-coverage assess() double-counted unmatched elements in both `untouched` and `upgraded` (found by the orchestration agent)",
+      "fix": "None-branch now counts once as upgraded; partition invariant upgraded + untouched == elements pinned by new regression test"
+    },
+    "cross_corpus_results_v2": {
+      "reactotron_345_elements": {
+        "representable": 252, "undetermined": 75, "unrepresentable": 18,
+        "top_deficits": ["HOOK_DATAFLOW_NOT_EXTRACTED 63 (programme debt)", "PERSISTENCE_CAPABILITY_UNRESOLVED 12", "NO_GOYA_CAPABILITY_DESKTOP_OS_INTEGRATION 9", "NO_GOYA_CAPABILITY_CHILD_PROCESS 9"]
+      },
+      "electron_fiddle_401_elements": {
+        "representable": 183, "undetermined": 156, "unrepresentable": 62,
+        "top_deficits": ["PERSISTENCE_CAPABILITY_UNRESOLVED 127", "NO_GOYA_CAPABILITY_DESKTOP_OS_INTEGRATION 52 (template-inflated subset)", "DYNAMIC_REQUIRE_UNRESOLVED 29 (programme debt)", "NO_GOYA_CAPABILITY_CHILD_PROCESS 10"]
+      },
+      "prediction_check": "map-v2 proposal predicted both result sets mechanically; applied assessment reproduced them exactly"
+    },
+    "tests": {
+      "command": "cargo test -p goya-fair -p goya-disparate-electron -p goya-disparate-coverage -p goya-disparates --offline",
+      "result": "12 + 9 + 12 + 6 = 39 passed, 0 failed"
+    },
+    "quality_gates": {
+      "gates_added": "14 fair-schema-validation, 15 disparate-electron-extraction, 16 disparate-coverage-assessment, 17 extraction-determinism (fixture double-run, cmp-enforced)",
+      "verification": "each gate executed: PASS; deliver --spec parity.deliver.toml --strict --allow-commands: PASS, 16/16 checks"
+    },
+    "orchestration_equivalence": {
+      "claim": "the one-shot `disparate run` pipeline reproduces the multi-step phase evidence byte-for-byte (diff -q clean on all three canonical outputs for Reactotron)"
+    }
+  },
+  "honesty_notes": [
+    "Representable counts remain assessment-sense only: nothing is translated, compiled or verified; `verified` is unreachable under the current contracts.",
+    "The largest single deficit in Reactotron (63 hook elements) is programme debt, not Goya demand; ADR 0001 (oxc-based extractor 0.2.0) is the proposed remedy and is unimplemented.",
+    "Fiddle's desktop-OS and persistence deficits include template/test-file populations that a future scope mechanism will reclassify; the current numbers are declared, not cleaned.",
+    "GY-DESKINT/1 and GY-PERSIST/1 are proposals; until ratified, the pending rules stay unapplied and their codes unemitted."
+  ]
+}

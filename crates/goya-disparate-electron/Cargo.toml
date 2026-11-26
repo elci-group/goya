@@ -1,0 +1,25 @@
+[package]
+name = "goya-disparate-electron"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Electron + React semantic extraction into GY-FAIR/1 (Disparates programme, Phase 1)."
+
+[dependencies]
+goya-fair = { path = "../goya-fair" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+# AST-grade extraction (ADR 0001). oxc 0.146.0 is the newest release whose
+# MSRV (1.95.0) matches this workspace's pinned toolchain (rust-toolchain.toml
+# channel 1.95.0); 0.147+ requires 1.96+. Exact pins keep extraction
+# deterministic. `default-features = false` drops regular-expression parsing,
+# which this extractor never inspects. `oxc_ast_visit` is required to walk the
+# typed AST; `oxc_semantic` is deliberately NOT used (file-local const lookup
+# is a bounded AST walk, not a scope-table query).
+oxc_allocator = { version = "=0.146.0", default-features = false }
+oxc_ast = { version = "=0.146.0", default-features = false }
+oxc_ast_visit = { version = "=0.146.0", default-features = false }
+oxc_parser = { version = "=0.146.0", default-features = false }
+oxc_span = { version = "=0.146.0", default-features = false }

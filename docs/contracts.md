@@ -816,3 +816,82 @@ roadmap: [docs/disparates/roadmap.md](disparates/roadmap.md).
 | Path | Owner |
 |---|---|
 | crates/goya-fair, docs/disparates | Disparates programme |
+
+---
+
+# GY-DISP-001 — Electron extraction (`crates/goya-disparate-electron`)
+
+Status: Phase 1, first milestone. Corpus nomination, extractor, and run evidence:
+[docs/disparates/roadmap.md](disparates/roadmap.md),
+[evidence/disparates/reactotron-phase1/](../evidence/disparates/reactotron-phase1/run.json).
+
+- **Provides**: `extract_app(root) -> FairDocument` — deterministic, offline, static
+  discovery + extraction of an Electron (± React) application root into GY-FAIR/1;
+  `disparate-extract` CLI emitting canonical JSON and a derived coverage summary.
+- **Consumes**: `goya-fair` (GY-FAIR/1) only.
+- **Invariants**: foreign code is never executed; no LLM participation; dynamic
+  `require`/`eval` are preserved as `undetermined` elements with register reason
+  codes, never dropped; native addon dependencies are classified `unrepresentable`
+  (`NATIVE_MODULE_OPAQUE`); byte-identical input plus extractor version yields
+  byte-identical canonical output; the extractor is a declared line-oriented lexical
+  scanner — its recognition limits are part of its identity, and a full-parser
+  revision is a new extractor version, not a silent rewrite.
+- **Stability**: element emission order and ID rule are frozen per
+  [`EXTRACTOR_ID_RULE`]; matcher vocabulary grows by contract revision.
+
+## Ownership
+| Path | Owner |
+|---|---|
+| crates/goya-disparate-electron | Disparates programme |
+
+---
+
+# GY-COVERAGE/1 — Representability assessment (`crates/goya-disparate-coverage`)
+
+Status: Candidate (Disparates programme, assessment-only authority). Full contract:
+[docs/disparates/contracts/coverage-1.md](disparates/contracts/coverage-1.md).
+
+- **Provides**: `CapabilityMap` (versioned, serialisable assessment rules; first
+  match wins), `assess`, `DeficitReport::derive`, `default_map` (v1, grounded in
+  this register as of 2026-11-19), `disparate-assess` CLI.
+- **Consumes**: `goya-fair` (GY-FAIR/1). Assessed documents must re-validate.
+- **Invariants**: only `extracted` elements are assessed — existing
+  classifications are preserved, never downgraded; every outcome carries a
+  reason code, with `representable` codes naming the mapping
+  (`MAPPED_TO_*`) and absence claims requiring a stated check date
+  (`NO_GOYA_CAPABILITY_*`); unmatched constructs fall to `undetermined`
+  `NO_COVERAGE_RULE`; Goya capability deficits and assessment-method deficits
+  are distinct report categories; reports are byte-deterministic.
+- **Stability**: reason-code register grows by revision, never renamed; the map
+  is data — policy changes are map revisions, not code changes.
+
+## Ownership
+| Path | Owner |
+|---|---|
+| crates/goya-disparate-coverage | Disparates programme |
+
+---
+
+# GY-DISP-003 — Translation orchestration (`crates/goya-disparates`)
+
+Status: Candidate (Disparates programme). Thin deterministic pipeline driver:
+the full extraction → assessment → report flow as one API and one CLI.
+
+- **Provides**: `Pipeline` (`default_map` / `with_map`) and
+  `Pipeline::run(root) -> RunOutput` — GY-DISP-001 extraction, GY-COVERAGE/1
+  assessment, deficit-report derivation, in that order; `disparate` CLI
+  (`disparate run <app-root> <output-prefix> [map.json]`) emitting canonical
+  `<prefix>.fair.json`, `<prefix>.assessed.fair.json`, `<prefix>.deficit.json`.
+- **Consumes**: `goya-fair` (GY-FAIR/1), `goya-disparate-electron`
+  (GY-DISP-001), `goya-disparate-coverage` (GY-COVERAGE/1). The capability map
+  is passed through unchanged; the orchestrator adds no assessment policy.
+- **Invariants**: deterministic — identical inputs and map yield
+  byte-identical canonical output; foreign code is never executed; no LLM
+  participation; stage ordering and output naming are frozen.
+- **Stability**: thin by contract — pipeline stages evolve under their own
+  contracts (GY-DISP-001, GY-COVERAGE/1); this crate only sequences them.
+
+## Ownership
+| Path | Owner |
+|---|---|
+| crates/goya-disparates | Disparates programme |
