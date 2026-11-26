@@ -1,0 +1,14 @@
+[package]
+name = "goya-scene-graphics"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = ".gscene @graphic declarations lowered to GY-GVI/0 inventories, shared by Goya targets."
+
+[dependencies]
+goya-lang.workspace = true
+goya-graphics-ir.workspace = true
+goya-gva.workspace = true
+goya-gvi.workspace = true
+sha2 = "0.10"

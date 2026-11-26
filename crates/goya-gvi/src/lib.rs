@@ -1501,6 +1501,11 @@ impl<'a> Inventory<'a> {
         self.starts.len() - 1
     }
 
+    /// The source drawing's canvas in millipoints (`SRCE` width, height).
+    pub fn canvas(&self) -> (u32, u32) {
+        (self.width, self.height)
+    }
+
     pub fn dimensions(&self) -> &[Dimension] {
         &self.dims
     }

@@ -182,6 +182,13 @@ pub fn open_with_viewport(
     if viewport_interactive(source) {
         let handoff = handoff::admit_v4_live(source).map_err(diagnostic_from_strict)?;
         refuse_platform_rules(&handoff, "windows")?;
+        if let Some((what, range)) = goya_lang::extended_live_construct(handoff.parsed()) {
+            return Err(cap(
+                format!("{what} is outside the Windows interactive slice"),
+                "Remove it; Sash renders text-from only among live constructs.",
+                Some(range),
+            ));
+        }
         return crate::interactive::admit_parsed_live(handoff.parsed(), viewport)
             .map(SceneTarget::Interactive);
     }

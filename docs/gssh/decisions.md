@@ -298,8 +298,9 @@ text-from: state.<key>;
 | Target | Admits GSSH/3-live | Wrapping | Announcements |
 | --- | --- | --- | --- |
 | Maja `maja.web.local.v3` | yes | yes | yes (Node differential vs the reference; Chrome and Firefox) |
+| Aragon (live scenes, 25 November 2026) | yes (GSSH/4-live) | yes | yes: `announceForAccessibility`, reference wording; checked on an emulator, not yet heard through TalkBack |
 | Arachnid (branch `arachnid/v0.1`, uncommitted) | yes | yes (`pre-wrap`) | **no**: must add them before its live profile merges |
-| Aragon, Sash, Emperor, Neptune, others | no: their profiles refuse `text-from` (`GY-E1012`) | must on adoption | must on adoption |
+| Aragon (GSSH/4 scenes), Sash, Emperor, Neptune, others | no: their profiles refuse `text-from` (`GY-E1012`) | must on adoption | must on adoption |
 
 Non-strict (compatibility) consumers such as the GY-IR lowering parse
 `text-from` and ignore it, as they ignore every GSSH/2 declaration.
@@ -380,8 +381,9 @@ transaction, so another window cannot write between them; with
 Maja emits durable state yet (Aragon refuses it, gate ARG-G07). (b) Whether
 a later profile should migrate records between stores. (c) Persistence
 targets in a live profile: resolved by D12 (GSSH/4-live). (d) Persistence keys for
-`android_tv`, `tvos` and `webos`, which `@platform` names but
-`@persistence` does not.
+`android_tv` and `tvos`, which `@platform` names but `@persistence` does
+not. (`webos` was added on 25 November 2026 for Arachnid: default
+`webos.local-storage.v1`, database `webos.indexeddb.v1`.)
 
 ## D12 — Live state with persistence: live, staged and source (GSSH/4-live)
 

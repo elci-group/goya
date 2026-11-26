@@ -161,6 +161,16 @@ fn finish(
         };
         return Err(Diagnostic::new("GY-RESOLVER-PLATFORM", message).with_range(rule.range));
     }
+    // Live constructs beyond `text-from` (host state, @link, @graphic/@draw,
+    // present-when, image-from, remote-digit, motion) are admitted by the
+    // live profiles but not executed here: refuse them, never drop them.
+    if let Some((what, range)) = goya_lang::extended_live_construct(&parsed) {
+        return Err(Diagnostic::new(
+            "GY-RESOLVER-LIVE",
+            format!("{what} is a live construct the resolver does not execute"),
+        )
+        .with_range(range));
+    }
     let state = parsed
         .declarations
         .state

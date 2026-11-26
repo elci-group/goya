@@ -743,6 +743,8 @@ fn lifetime_name(lifetime: goya_lang::StateLifetime) -> &'static str {
     match lifetime {
         goya_lang::StateLifetime::Session => "session",
         goya_lang::StateLifetime::Durable => "durable",
+        // Refused at admission (`GY-RESOLVER-LIVE`).
+        goya_lang::StateLifetime::Host => "host",
     }
 }
 

@@ -273,6 +273,13 @@ impl KotlinWriter {
 
     /// A Kotlin identifier (class, object or package segment). Callers
     /// validate user-supplied names first; this is an invariant check.
+    /// Code the compiler assembled from typed parts (numbers, escaped
+    /// string literals, generated identifiers). Never authored text.
+    pub(crate) fn generated(&mut self, code: &str) -> &mut Self {
+        self.out.push_str(code);
+        self
+    }
+
     pub(crate) fn ident(&mut self, name: &str) -> &mut Self {
         assert!(is_identifier(name), "invalid Kotlin identifier {name:?}");
         self.out.push_str(name);

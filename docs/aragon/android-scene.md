@@ -72,6 +72,41 @@ Aragon admits GSSH/4, not GSSH/3-live, so **state changes are not visible on
 screen**. Adopting `text-from` requires Aragon to implement the display-binding
 profile and its wrapping and announcement rules ([decision D9](../gssh/decisions.md#d9--display-bindings-text-from-gssh3-live)).
 
+## GSSH/4-live (25 November 2026)
+
+A scene that needs the live profile is admitted by `admit_v4_live`
+(`src/android_live.rs`). Scenes without live constructs compile byte for
+byte as before.
+
+* **Live text.** `text-from` shows the authored text and the value. Changed
+  displays are announced once to TalkBack (`announceForAccessibility`), in
+  the D9 wording.
+* **Presence.** `present-when` makes an element `GONE`. Hidden variants
+  take no touch, key focus or accessibility focus.
+* **Motion.** `fill-to` uses a reversing ARGB animator. `drift-p` is an
+  elliptical orbit, and `appear-s`/`appear-from-p` fade and slide. All of
+  it is off when the system disables animations.
+* **Digits.** `remote-digit` maps to the digit keys.
+* **Graphics.** `@graphic` and `@draw` use inventories compiled and
+  verified by `goya_scene_graphics`, decoded by the generated pure-Kotlin
+  `GoyaGvi.kt` and painted with `android.graphics`. The JVM conformance
+  test reproduces the reference decoder on every shared vector.
+* **Durable state.** `durable` state is stored in `android.preferences.v1`
+  (`SharedPreferences`, committed synchronously):
+  * restore happens before the first frame, and a record that fails to
+    restore is never overwritten (D4);
+  * a durable write is staged on a scratch runtime and saved before it is
+    shown (D12).
+* **Generated runtime.** `GoyaD1Runtime.dispatch` now calls one private
+  function per action, so no JVM method nears the 64 KB limit. The pinned
+  APK hashes in `scripts/check-android-apk-build.sh` must be re-recorded.
+* **Refused until Android platform services exist:** `host` state, `@link`
+  and `image-from`.
+
+Goya Pairs ran on an Android 15 emulator (12 of 12 checks, played through
+the accessibility tree) and on an Amazon Fire HD 10 (KFTRWI, Fire OS
+7.3.3.1, API 28).
+
 ## Layout and pixel rule
 
 `<Spec>.kt` is pure Kotlin with no Android imports. `resolve(widthPt,

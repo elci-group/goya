@@ -667,3 +667,16 @@ fn cli_dispatches_the_live_counter_and_rejects_unimplemented_flags() {
         "{report}"
     );
 }
+
+#[test]
+fn extended_live_constructs_are_refused_not_dropped() {
+    let pairs = include_str!("../../../apps/pairs.gscene");
+    match resolver().load(pairs) {
+        Err(error) => {
+            assert_eq!(error.code, "GY-RESOLVER-LIVE", "{error}");
+            let range = error.range.expect("construct range");
+            assert!(range.start < range.end && range.end <= pairs.len());
+        }
+        Ok(_) => panic!("a scene with live constructs the resolver does not execute was loaded"),
+    }
+}

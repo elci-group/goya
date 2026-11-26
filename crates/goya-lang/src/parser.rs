@@ -3,8 +3,7 @@
 
 use crate::lexer::{lex, Token, TokenKind};
 use crate::scene::{
-    Iden,
-    Anchor, CellKind, EffectRequestDecl, EffectValueType, GestureDecision, GesturePolicy,
+    Anchor, CellKind, EffectRequestDecl, EffectValueType, GestureDecision, GesturePolicy, Iden,
     IntentCategory, IntentDecl, InteractionClass, InteractionDecl, InteractionExpr,
     InteractionType, InteractionValue, Scene, SceneCell, StateAssignment, TransportClass, TypedKey,
     TypedSlot, Vec3,
@@ -47,17 +46,33 @@ mod platform_policy_tests {
 
     #[test]
     fn exceptions_are_explicit_and_old_profiles_refuse_them() {
-        let any = parse_strict_gssh4("@ontology demo { @persistence { cache_targets: null; } @cell root { id: \"root\"; } }").unwrap();
+        let any = parse_strict_gssh4(
+            "@ontology demo { @persistence { cache_targets: null; } @cell root { id: \"root\"; } }",
+        )
+        .unwrap();
         assert!(any.declarations.platform_exceptions.is_empty());
         let parsed = parse_strict_gssh4(SCENE).unwrap();
         assert_eq!(parsed.declarations.platform_exceptions.len(), 7);
-        assert_eq!(parsed.declarations.platform_exceptions[1].options, ["remote", "keyboard"]);
-        assert_eq!(parsed.declarations.platform_exceptions[6].use_kind, PlatformUse::Cede);
+        assert_eq!(
+            parsed.declarations.platform_exceptions[1].options,
+            ["remote", "keyboard"]
+        );
+        assert_eq!(
+            parsed.declarations.platform_exceptions[6].use_kind,
+            PlatformUse::Cede
+        );
         assert!(parse(SCENE).is_err());
         assert_eq!(parse_strict_gssh3(SCENE).unwrap_err().code, "GY-E1015");
         assert_eq!(parse_strict_gssh3_live(SCENE).unwrap_err().code, "GY-E1015");
         let neutral = SCENE.replace("@platform android_tv {", "@platform webos {");
-        assert_eq!(parse_strict_gssh4(&neutral).unwrap().declarations.platform_exceptions[0].platform, "webos");
+        assert_eq!(
+            parse_strict_gssh4(&neutral)
+                .unwrap()
+                .declarations
+                .platform_exceptions[0]
+                .platform,
+            "webos"
+        );
         let live = "@ontology demo { @persistence { cache_targets: null; } @state { label: text = \"x\" session; } @cell root { id: \"root\"; text-from: state.label; } }";
         assert_eq!(parse_strict_gssh4(live).unwrap_err().code, "GY-E1012");
         // GSSH/4-live admits both (decision D12); GSSH/3-live still refuses
@@ -66,17 +81,36 @@ mod platform_policy_tests {
         assert_eq!(both.scene.root.text_from.as_deref(), Some("label"));
         assert_eq!(both.declarations.persistence_cache_targets, Some(None));
         assert_eq!(parse_strict_gssh3_live(live).unwrap_err().code, "GY-E1015");
-        assert_eq!(parse_strict_gssh4_live(SCENE).unwrap().declarations.platform_exceptions.len(), 7);
+        assert_eq!(
+            parse_strict_gssh4_live(SCENE)
+                .unwrap()
+                .declarations
+                .platform_exceptions
+                .len(),
+            7
+        );
         let unbound = live.replace("state.label", "state.missing");
-        assert_eq!(parse_strict_gssh4_live(&unbound).unwrap_err().code, "GY-E1013");
+        assert_eq!(
+            parse_strict_gssh4_live(&unbound).unwrap_err().code,
+            "GY-E1013"
+        );
     }
 
     #[test]
     fn exceptions_require_distinct_options_and_unique_scope() {
         for bad in [
-            SCENE.replace("choice-use(\"remote\", \"keyboard\")", "choice-use(\"remote\")"),
-            SCENE.replace("fallbacks(\"ethernet\", \"wifi\")", "fallbacks(\"ethernet\")"),
-            SCENE.replace("choice-use(\"remote\", \"keyboard\")", "choice-use(\"remote\", \"remote\")"),
+            SCENE.replace(
+                "choice-use(\"remote\", \"keyboard\")",
+                "choice-use(\"remote\")",
+            ),
+            SCENE.replace(
+                "fallbacks(\"ethernet\", \"wifi\")",
+                "fallbacks(\"ethernet\")",
+            ),
+            SCENE.replace(
+                "choice-use(\"remote\", \"keyboard\")",
+                "choice-use(\"remote\", \"remote\")",
+            ),
             SCENE.replace("\"gestures\": cede;", "\"media\": cede;"),
         ] {
             assert_eq!(parse_strict_gssh4(&bad).unwrap_err().code, "GY-E1000");
@@ -135,6 +169,9 @@ pub enum StateLifetime {
     Session,
     /// Restored across process death by a platform storage adapter.
     Durable,
+    /// Written only by the platform host (live profiles). The scene may read
+    /// and display it; no interaction may write it, and it is never stored.
+    Host,
 }
 
 /// One `@state` entry: `key: type = initial lifetime;`.
@@ -203,7 +240,9 @@ impl MigrationRule {
 }
 
 /// Platform keys `@persistence` accepts.
-const PERSISTENCE_PLATFORMS: &[&str] = &["android", "ios", "macos", "windows", "linux", "browser"];
+const PERSISTENCE_PLATFORMS: &[&str] = &[
+    "android", "ios", "macos", "windows", "linux", "browser", "webos",
+];
 
 /// `@iden` keys later profiles may define (decision D14). Accepted by the
 /// parser with a text value and refused by strict admission (`GY-E1017`).
@@ -243,6 +282,49 @@ pub struct PlatformException {
     pub range: SourceRange,
 }
 
+/// One image slot of a `@link`: where the platform publishes a verified
+/// image and its label.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinkSlot {
+    pub name: String,
+    /// `host` text key the image handle is published under.
+    pub image: String,
+    /// `host` text key for the slot's label.
+    pub label: Option<String>,
+}
+
+/// `@link name { ... }` (live profiles, proposed): a platform link to a
+/// peer, for example a desktop, that writes `host` state. The scene says
+/// which keys each protocol role writes; the compiler supplies the
+/// protocol. D2 `network` requests whose first word is the link name are
+/// addressed to it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinkDecl {
+    pub name: String,
+    pub authored_id: Option<String>,
+    pub protocol: String,
+    pub endpoint: String,
+    /// (role, `host` key) pairs: `status` (int), `code`, `detail`, `error`,
+    /// `outbox` and `mode` (text).
+    pub roles: Vec<(String, String)>,
+    pub slots: Vec<LinkSlot>,
+    /// `field NAME: state.k;` values the peer sets by name (any type).
+    pub fields: Vec<(String, String)>,
+    /// `act NAME;` actions the scene may send to the peer.
+    pub acts: Vec<String>,
+    pub range: SourceRange,
+}
+
+/// Roles a `@link` may bind, with the type the key must have.
+pub const LINK_ROLES: &[(&str, InteractionType)] = &[
+    ("status", InteractionType::Int),
+    ("code", InteractionType::Text),
+    ("detail", InteractionType::Text),
+    ("error", InteractionType::Text),
+    ("outbox", InteractionType::Text),
+    ("mode", InteractionType::Text),
+];
+
 /// GSSH/2 declarations retained beside the GY-LANG/1 scene, plus the
 /// interaction key ranges used to report them precisely.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -262,6 +344,10 @@ pub struct Declarations {
     pub persistence_migration: Option<MigrationRule>,
     /// Absence means platform `any`; exceptions never change other targets.
     pub platform_exceptions: Vec<PlatformException>,
+    /// `@link` declarations (live profiles only).
+    pub links: Vec<LinkDecl>,
+    /// `@graphic` declarations (live profiles only).
+    pub graphics: Vec<crate::graphic::GraphicDecl>,
 }
 
 /// A construct accepted for legacy compatibility but rejected by strict
@@ -349,6 +435,8 @@ pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
         bindings: Vec::new(),
         state_uses: Vec::new(),
         input_keys: Vec::new(),
+        links: Vec::new(),
+        graphics: Vec::new(),
     };
     p.expect_at_word("ontology")?;
     let ontology_start = p.tokens[p.i - 1].byte_start;
@@ -396,6 +484,11 @@ pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
         && root.wrap.is_none()
         && root.gestures.is_none()
         && root.text_from.is_none()
+        && root.fill_to.is_none()
+        && root.drift_p.is_none()
+        && root.appear_s.is_none()
+        && root.present_when.is_none()
+        && root.draw.is_none()
         && !root.scroll
         && !root.is_input;
     if collapse_root {
@@ -489,6 +582,8 @@ pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
             persistence_cache_targets: p.persistence_cache_targets,
             persistence_migration: p.persistence_migration,
             platform_exceptions: p.platform_exceptions,
+            links: p.links,
+            graphics: p.graphics,
         },
     })
 }
@@ -541,7 +636,33 @@ impl Profile {
 }
 
 /// Properties only GSSH/3 live admission accepts.
-const LIVE_PROPERTIES: &[&str] = &["text_from"];
+const LIVE_PROPERTIES: &[&str] = &[
+    "text_from",
+    "image_from",
+    "remote_digit",
+    "present_when",
+    "fill_to",
+    "fill_period_s",
+    "drift_p",
+    "drift_period_s",
+    "appear_s",
+    "appear_from_p",
+];
+
+/// Shortest animation period, in seconds. One period holds at most one
+/// luminance swing each way, far below WCAG 2.3.1's three flashes per
+/// second.
+pub const MIN_ANIMATION_PERIOD_S: f64 = 1.0;
+/// Longest animation period, in seconds.
+pub const MAX_ANIMATION_PERIOD_S: f64 = 3600.0;
+/// Largest drift half-axis, as a fraction of the parent's extent.
+pub const MAX_DRIFT_FRACTION: f64 = 0.5;
+/// Bounds of an `appear-s` duration, in seconds. A single fade-in is not a
+/// repeating flash, so it may be shorter than an ambient period.
+pub const MIN_APPEAR_S: f64 = 0.1;
+pub const MAX_APPEAR_S: f64 = 2.0;
+/// Largest `appear-from-p` offset component, as a fraction of the parent.
+pub const MAX_APPEAR_FRACTION: f64 = 0.5;
 
 /// Length properties GSSH/3 requires to be proportional, by canonical name,
 /// with their proportional replacement.
@@ -627,10 +748,15 @@ fn validate_idens(parsed: &ParsedScene) -> Result<(), StrictParseError> {
             declaration_error(
                 "GY-E1017",
                 message,
-                range.or(element).unwrap_or(SourceRange { start: 0, end: 0 }),
+                range
+                    .or(element)
+                    .unwrap_or(SourceRange { start: 0, end: 0 }),
             )
         };
-        let name = cell.authored_id.clone().unwrap_or_else(|| cell.name.clone());
+        let name = cell
+            .authored_id
+            .clone()
+            .unwrap_or_else(|| cell.name.clone());
         match &cell.iden {
             None if cell.kind == CellKind::Input => {
                 return Err(error(
@@ -771,10 +897,270 @@ fn validate_live(
             }
             bound_keys.insert(key.clone());
         }
+        let find = |key: &str| decls.iter().find(|d| d.key == key);
+        if cell.remote_digit.is_some() && cell.kind != CellKind::Button {
+            return Err(bad(
+                format!("remote-digit belongs on a @button, not on {}", cell.name),
+                property_range(path, "remote_digit"),
+            ));
+        }
+        if let Some(key) = &cell.image_from {
+            match find(key) {
+                Some(d)
+                    if d.value_type == InteractionType::Text
+                        && d.lifetime == StateLifetime::Host => {}
+                _ => {
+                    return Err(bad(
+                        format!("image-from needs a declared `host` text key, not '{key}'"),
+                        property_range(path, "image_from"),
+                    ))
+                }
+            }
+            bound_keys.insert(key.clone());
+        }
+        let period_ok = |p: f64| {
+            p.is_finite() && (MIN_ANIMATION_PERIOD_S..=MAX_ANIMATION_PERIOD_S).contains(&p)
+        };
+        match (cell.fill_to, cell.fill_period_s) {
+            (None, None) => {}
+            (Some(_), Some(p)) if cell.fill.is_some() && period_ok(p) => {}
+            _ => {
+                return Err(bad(
+                    format!(
+                        "fill-to needs fill and fill-period-s between {MIN_ANIMATION_PERIOD_S} and {MAX_ANIMATION_PERIOD_S} seconds, and the reverse"
+                    ),
+                    property_range(path, if cell.fill_to.is_some() { "fill_to" } else { "fill_period_s" }),
+                ))
+            }
+        }
+        match (cell.drift_p, cell.drift_period_s) {
+            (None, None) => {}
+            (Some(v), Some(p))
+                if period_ok(p)
+                    && [v.x, v.y]
+                        .iter()
+                        .all(|f| f.is_finite() && (0.0..=MAX_DRIFT_FRACTION).contains(f))
+                    && v.z == 0.0 => {}
+            _ => {
+                return Err(bad(
+                    format!(
+                        "drift-p needs fractions in [0, {MAX_DRIFT_FRACTION}] with z = 0, and drift-period-s between {MIN_ANIMATION_PERIOD_S} and {MAX_ANIMATION_PERIOD_S} seconds, and the reverse"
+                    ),
+                    property_range(path, if cell.drift_p.is_some() { "drift_p" } else { "drift_period_s" }),
+                ))
+            }
+        }
+        let appear_ok = |s: f64| s.is_finite() && (MIN_APPEAR_S..=MAX_APPEAR_S).contains(&s);
+        match (cell.appear_s, cell.appear_from_p) {
+            (None, None) => {}
+            (Some(s), None) if appear_ok(s) => {}
+            (Some(s), Some(v))
+                if appear_ok(s)
+                    && [v.x, v.y]
+                        .iter()
+                        .all(|f| f.is_finite() && f.abs() <= MAX_APPEAR_FRACTION)
+                    && v.z == 0.0 => {}
+            _ => {
+                return Err(bad(
+                    format!(
+                        "appear-s must lie in [{MIN_APPEAR_S}, {MAX_APPEAR_S}] seconds; appear-from-p needs appear-s, fractions within ±{MAX_APPEAR_FRACTION} and z = 0"
+                    ),
+                    property_range(path, if cell.appear_from_p.is_some() { "appear_from_p" } else { "appear_s" }),
+                ))
+            }
+        }
+        if let Some(condition) = &cell.present_when {
+            let literal_type = match condition.value {
+                InteractionValue::Int(_) => InteractionType::Int,
+                InteractionValue::Text(_) => InteractionType::Text,
+                InteractionValue::Bool(_) => InteractionType::Bool,
+            };
+            if condition.op == crate::scene::ConditionOp::AtLeast
+                && literal_type != InteractionType::Int
+            {
+                return Err(bad(
+                    format!(
+                        "present-when {} at-least needs an int literal",
+                        condition.key
+                    ),
+                    property_range(path, "present_when"),
+                ));
+            }
+            match find(&condition.key) {
+                Some(d) if d.value_type == literal_type => {}
+                _ => {
+                    return Err(bad(
+                        format!(
+                            "present-when compares '{}' with a literal of another type or an undeclared key",
+                            condition.key
+                        ),
+                        property_range(path, "present_when"),
+                    ))
+                }
+            }
+            bound_keys.insert(condition.key.clone());
+        }
         Ok(())
     };
     walk(&parsed.scene.root, &mut Vec::new(), &mut check)?;
+
+    // @graphic / @draw: declarations are bounded and consistent, and every
+    // `when` condition is typed like `present-when`.
+    let condition_ok = |c: &crate::scene::Condition| {
+        let literal_type = match c.value {
+            InteractionValue::Int(_) => InteractionType::Int,
+            InteractionValue::Text(_) => InteractionType::Text,
+            InteractionValue::Bool(_) => InteractionType::Bool,
+        };
+        (c.op == crate::scene::ConditionOp::Is || literal_type == InteractionType::Int)
+            && decls
+                .iter()
+                .any(|d| d.key == c.key && d.value_type == literal_type)
+    };
+    let draw_keys = crate::graphic::validate(
+        &parsed.declarations.graphics,
+        &parsed.scene.root,
+        &condition_ok,
+    )
+    .map_err(|(message, range)| bad(message, range))?;
+    bound_keys.extend(draw_keys);
+
+    // @link: every binding names a host key of the role's type, and every
+    // host key has exactly one writer.
+    let mut writers: BTreeMap<&str, usize> = BTreeMap::new();
+    for link in &parsed.declarations.links {
+        let range = link.range;
+        if link.authored_id.is_none() {
+            return Err(StrictParseError {
+                code: "GY-E1005",
+                name: format!("missing ID for link {}", link.name),
+                range,
+            });
+        }
+        if link.protocol.is_empty() || link.endpoint.is_empty() {
+            return Err(bad(
+                format!("link {} needs a protocol and an endpoint", link.name),
+                range,
+            ));
+        }
+        if link.slots.is_empty() {
+            return Err(bad(format!("link {} declares no slot", link.name), range));
+        }
+        let mut bound: Vec<(&str, &str, InteractionType)> = Vec::new();
+        for (role, key) in &link.roles {
+            let ty = LINK_ROLES
+                .iter()
+                .find(|(r, _)| r == role)
+                .map(|(_, t)| *t)
+                .expect("parser admits known roles");
+            bound.push((role.as_str(), key.as_str(), ty));
+        }
+        for (i, slot) in link.slots.iter().enumerate() {
+            if link.slots[..i].iter().any(|s| s.name == slot.name) {
+                return Err(bad(
+                    format!("link {} declares slot {} twice", link.name, slot.name),
+                    range,
+                ));
+            }
+            bound.push(("slot image", slot.image.as_str(), InteractionType::Text));
+            if let Some(l) = &slot.label {
+                bound.push(("slot label", l.as_str(), InteractionType::Text));
+            }
+        }
+        for (name, key) in &link.fields {
+            match decls.iter().find(|d| d.key == *key) {
+                Some(d) if d.lifetime == StateLifetime::Host => {
+                    *writers.entry(key.as_str()).or_default() += 1;
+                    bound_keys.insert(key.clone());
+                }
+                _ => {
+                    return Err(bad(
+                        format!("link {} binds field {name} to '{key}', which must be a declared `host` key", link.name),
+                        range,
+                    ))
+                }
+            }
+        }
+        for (role, key, ty) in bound {
+            match decls.iter().find(|d| d.key == key) {
+                Some(d) if d.lifetime == StateLifetime::Host && d.value_type == ty => {}
+                _ => {
+                    return Err(bad(
+                        format!("link {} binds {role} to '{key}', which must be a declared `host` key of the role's type", link.name),
+                        range,
+                    ))
+                }
+            }
+            *writers.entry(key).or_default() += 1;
+            bound_keys.insert(key.to_owned());
+        }
+    }
+    for d in decls.iter().filter(|d| d.lifetime == StateLifetime::Host) {
+        match writers.get(d.key.as_str()) {
+            Some(1) => {}
+            Some(_) => {
+                return Err(bad(
+                    format!(
+                        "host state '{}' is written by more than one link binding",
+                        d.key
+                    ),
+                    d.range,
+                ))
+            }
+            None if parsed.declarations.links.is_empty() => {}
+            None => {
+                return Err(bad(
+                    format!("host state '{}' has no writer: bind it in a @link", d.key),
+                    d.range,
+                ))
+            }
+        }
+    }
+    for interaction in &parsed.scene.interactions {
+        for key in &interaction.state_writes {
+            if let Some(d) = decls
+                .iter()
+                .find(|d| d.key == key.name && d.lifetime == StateLifetime::Host)
+            {
+                return Err(declaration_error(
+                    "GY-E1008",
+                    format!(
+                        "interaction '{}' writes host state '{}'; only the platform host may",
+                        interaction.name, key.name
+                    ),
+                    d.range,
+                ));
+            }
+        }
+    }
     Ok(bound_keys)
+}
+
+/// Live constructs beyond `text-from` that only some consumers render:
+/// `host` state, `@link`, and the live properties other than `text-from`
+/// (`image-from`, `present-when`, `remote-digit`, motion). Shared admission
+/// accepts them in the live profiles; a target that does not implement them
+/// calls this and refuses the first one, so nothing is silently dropped.
+/// Returns a description and the construct's source range.
+pub fn extended_live_construct(parsed: &ParsedScene) -> Option<(String, SourceRange)> {
+    if let Some(d) = parsed
+        .declarations
+        .state
+        .iter()
+        .flat_map(|(decls, _)| decls)
+        .find(|d| d.lifetime == StateLifetime::Host)
+    {
+        return Some((format!("host state '{}'", d.key), d.range));
+    }
+    parsed.entries.iter().find_map(|entry| {
+        let canonical = entry.name.replace('-', "_");
+        let extended = match entry.kind.as_str() {
+            "link" | "graphic" | "draw" => true,
+            "property" => canonical != "text_from" && LIVE_PROPERTIES.contains(&canonical.as_str()),
+            _ => false,
+        };
+        extended.then(|| (format!("{} {}", entry.kind, entry.name), entry.range))
+    })
 }
 
 /// Strict GSSH/2 admission: everything [`parse_strict`] admits and checks,
@@ -807,6 +1193,7 @@ fn strict(source: &str, profile: Profile) -> Result<ParsedScene, StrictParseErro
             {
                 Some("GY-E1012")
             }
+            "link" | "graphic" | "draw" if !profile.live() => Some("GY-E1012"),
             // Intent declarations are Quitasol phase-0 experimental surface.
             // No strict GSSH consumer implements them, so none may admit one.
             "intent" => Some("GY-E1010"),
@@ -864,6 +1251,11 @@ fn strict(source: &str, profile: Profile) -> Result<ParsedScene, StrictParseErro
         && root.wrap.is_none()
         && root.gestures.is_none()
         && root.text_from.is_none()
+        && root.fill_to.is_none()
+        && root.drift_p.is_none()
+        && root.appear_s.is_none()
+        && root.present_when.is_none()
+        && root.draw.is_none()
         && !root.scroll
         && !root.is_input
         && root.children.len() > 1;
@@ -971,6 +1363,21 @@ fn validate_declarations_with(
 ) -> Result<(), StrictParseError> {
     let scene = &parsed.scene;
     let declared = &parsed.declarations;
+    // `host` state exists only where a live profile renders it.
+    if live_keys.is_none() {
+        if let Some(decl) = declared
+            .state
+            .iter()
+            .flat_map(|(decls, _)| decls)
+            .find(|d| d.lifetime == StateLifetime::Host)
+        {
+            return Err(declaration_error(
+                "GY-E1012",
+                format!("host state '{}'", decl.key),
+                decl.range,
+            ));
+        }
+    }
     // `@persistence` is optional (GSSH/4 only, decision D11): when it is
     // absent every target keeps durable state in its default local store.
     // `cache_targets: null` disables persistence, so durable state with it
@@ -1181,6 +1588,24 @@ fn is_known_property(name: &str) -> bool {
             | "id"
             | "text-from"
             | "text_from"
+            | "remote-digit"
+            | "remote_digit"
+            | "image-from"
+            | "image_from"
+            | "present-when"
+            | "present_when"
+            | "fill-to"
+            | "fill_to"
+            | "fill-period-s"
+            | "fill_period_s"
+            | "drift-p"
+            | "drift_p"
+            | "drift-period-s"
+            | "drift_period_s"
+            | "appear-s"
+            | "appear_s"
+            | "appear-from-p"
+            | "appear_from_p"
     )
 }
 
@@ -1251,6 +1676,8 @@ struct P {
     bindings: Vec<InputBinding>,
     state_uses: Vec<KeyUse>,
     input_keys: Vec<KeyUse>,
+    links: Vec<LinkDecl>,
+    graphics: Vec<crate::graphic::GraphicDecl>,
 }
 
 impl P {
@@ -1365,6 +1792,16 @@ impl P {
             scroll: false,
             gestures: None,
             text_from: None,
+            image_from: None,
+            remote_digit: None,
+            present_when: None,
+            fill_to: None,
+            fill_period_s: None,
+            drift_p: None,
+            drift_period_s: None,
+            appear_s: None,
+            appear_from_p: None,
+            draw: None,
             iden: None,
             children: Vec::new(),
             placeholder: None,
@@ -1489,17 +1926,52 @@ impl P {
                             });
                             self.persistence_cache_targets = Some(targets);
                         }
+                        "link" => {
+                            if self.depth != 1 {
+                                return Err(self.err_prev());
+                            }
+                            let name = self.expect_ident()?;
+                            let mut link = self.parse_link(name)?;
+                            let range = SourceRange {
+                                start: tok.byte_start,
+                                end: self.tokens[self.i - 1].byte_end,
+                            };
+                            link.range = range;
+                            self.entries.push(SourceEntry {
+                                kind: "link".into(),
+                                name: link.name.clone(),
+                                scene_path: None,
+                                semantic_id: link.authored_id.clone(),
+                                range,
+                                source_digest: [0; 32],
+                            });
+                            self.links.push(link);
+                        }
                         "platform" => {
                             if self.depth != 1 {
                                 return Err(self.err_prev());
                             }
                             let platform = self.expect_ident()?;
-                            if !matches!(platform.as_str(), "android" | "ios" | "macos" | "windows" | "linux" | "browser" | "webos" | "android_tv" | "tvos") {
+                            if !matches!(
+                                platform.as_str(),
+                                "android"
+                                    | "ios"
+                                    | "macos"
+                                    | "windows"
+                                    | "linux"
+                                    | "browser"
+                                    | "webos"
+                                    | "android_tv"
+                                    | "tvos"
+                            ) {
                                 return Err(self.err_prev());
                             }
                             let exceptions = self.parse_platform_block(&platform)?;
                             for exception in exceptions {
-                                if self.platform_exceptions.iter().any(|previous| previous.platform == exception.platform && previous.feature == exception.feature) {
+                                if self.platform_exceptions.iter().any(|previous| {
+                                    previous.platform == exception.platform
+                                        && previous.feature == exception.feature
+                                }) {
                                     return Err(self.err_prev());
                                 }
                                 self.entries.push(SourceEntry {
@@ -1529,6 +2001,48 @@ impl P {
                                 },
                                 source_digest: [0; 32],
                             });
+                        }
+                        "graphic" => {
+                            if self.depth != 1 {
+                                return Err(self.err_prev());
+                            }
+                            let name = self.expect_ident()?;
+                            let mut g = self.parse_graphic(name)?;
+                            let range = SourceRange {
+                                start: tok.byte_start,
+                                end: self.tokens[self.i - 1].byte_end,
+                            };
+                            g.range = range;
+                            self.entries.push(SourceEntry {
+                                kind: "graphic".into(),
+                                name: g.name.clone(),
+                                scene_path: None,
+                                semantic_id: g.authored_id.clone(),
+                                range,
+                                source_digest: [0; 32],
+                            });
+                            self.graphics.push(g);
+                        }
+                        "draw" => {
+                            if self.depth == 1 || cell.draw.is_some() {
+                                return Err(self.err_prev());
+                            }
+                            let graphic = self.expect_ident()?;
+                            let mut d = self.parse_draw(graphic)?;
+                            let range = SourceRange {
+                                start: tok.byte_start,
+                                end: self.tokens[self.i - 1].byte_end,
+                            };
+                            d.range = range;
+                            self.entries.push(SourceEntry {
+                                kind: "draw".into(),
+                                name: d.graphic.clone(),
+                                scene_path: None,
+                                semantic_id: None,
+                                range,
+                                source_digest: [0; 32],
+                            });
+                            cell.draw = Some(d);
                         }
                         "iden" => {
                             if cell.iden.is_some() {
@@ -1967,6 +2481,7 @@ impl P {
             let lifetime = match self.expect_ident()?.as_str() {
                 "session" => StateLifetime::Session,
                 "durable" => StateLifetime::Durable,
+                "host" => StateLifetime::Host,
                 _ => return Err(self.err_prev()),
             };
             let end = self.expect(TokenKind::Semicolon)?.byte_end;
@@ -1994,7 +2509,10 @@ impl P {
     /// `@platform android { "media.playback": choice-use("native", "web"); }`.
     /// Every entry is scoped to one named platform and one feature. The
     /// ontology otherwise remains platform `any`.
-    fn parse_platform_block(&mut self, platform: &str) -> Result<Vec<PlatformException>, ParseError> {
+    fn parse_platform_block(
+        &mut self,
+        platform: &str,
+    ) -> Result<Vec<PlatformException>, ParseError> {
         self.expect(TokenKind::LBrace)?;
         let mut exceptions = Vec::new();
         while !matches!(self.peek().map(|token| token.kind), Some(TokenKind::RBrace)) {
@@ -2004,7 +2522,11 @@ impl P {
                 Some(TokenKind::Str) => self.expect(TokenKind::Str)?.text,
                 _ => return Err(self.err()),
             };
-            if feature.is_empty() || exceptions.iter().any(|rule: &PlatformException| rule.feature == feature) {
+            if feature.is_empty()
+                || exceptions
+                    .iter()
+                    .any(|rule: &PlatformException| rule.feature == feature)
+            {
                 return Err(self.err_prev());
             }
             self.expect(TokenKind::Colon)?;
@@ -2378,6 +2900,24 @@ impl P {
             }
             "placeholder" => cell.placeholder = Some(self.expect(TokenKind::Str)?.text),
             "text-from" | "text_from" => cell.text_from = Some(self.parse_state_ref()?),
+            "remote-digit" | "remote_digit" => {
+                let token = self.expect(TokenKind::Number)?;
+                let bytes = token.text.as_bytes();
+                if cell.remote_digit.is_some() || bytes.len() != 1 || !bytes[0].is_ascii_digit() {
+                    return Err(self.err_prev());
+                }
+                cell.remote_digit = Some(bytes[0] - b'0');
+            }
+            "image-from" | "image_from" => cell.image_from = Some(self.parse_state_ref()?),
+            "present-when" | "present_when" => {
+                cell.present_when = Some(self.parse_condition()?);
+            }
+            "fill-to" | "fill_to" => cell.fill_to = Some(self.parse_hex()?),
+            "fill-period-s" | "fill_period_s" => cell.fill_period_s = Some(self.parse_number()?),
+            "drift-p" | "drift_p" => cell.drift_p = Some(self.parse_vec3()?),
+            "drift-period-s" | "drift_period_s" => cell.drift_period_s = Some(self.parse_number()?),
+            "appear-s" | "appear_s" => cell.appear_s = Some(self.parse_number()?),
+            "appear-from-p" | "appear_from_p" => cell.appear_from_p = Some(self.parse_vec3()?),
             "max-length" | "max_length" => {
                 let text = match self.peek() {
                     Some(token) if token.kind == TokenKind::Number => {
@@ -2402,6 +2942,374 @@ impl P {
             self.bump();
         }
         Ok(())
+    }
+
+    /// `@link` body: `id`, `protocol` and `endpoint` strings, role bindings
+    /// `role: state.key;`, `field NAME: state.key;`, `act NAME;` and
+    /// `slot name { image: state.k; label: state.k; }`.
+    fn parse_link(&mut self, name: String) -> Result<LinkDecl, ParseError> {
+        self.expect(TokenKind::LBrace)?;
+        let mut link = LinkDecl {
+            name,
+            authored_id: None,
+            protocol: String::new(),
+            endpoint: String::new(),
+            roles: Vec::new(),
+            slots: Vec::new(),
+            fields: Vec::new(),
+            acts: Vec::new(),
+            range: SourceRange { start: 0, end: 0 },
+        };
+        while !matches!(self.peek().map(|t| t.kind), Some(TokenKind::RBrace)) {
+            let key = self.expect_ident()?;
+            if key == "act" {
+                let name = self.expect_ident()?;
+                if link.acts.contains(&name) {
+                    return Err(self.err_prev());
+                }
+                link.acts.push(name);
+                self.optional_semi();
+                continue;
+            }
+            if key == "field" {
+                let name = self.expect_ident()?;
+                self.expect(TokenKind::Colon)?;
+                let v = self.parse_state_ref()?;
+                if link.fields.iter().any(|(n, _)| *n == name) {
+                    return Err(self.err_prev());
+                }
+                link.fields.push((name, v));
+                self.optional_semi();
+                continue;
+            }
+            if key == "slot" {
+                let slot_name = self.expect_ident()?;
+                self.expect(TokenKind::LBrace)?;
+                let (mut image, mut label) = (None, None);
+                while !matches!(self.peek().map(|t| t.kind), Some(TokenKind::RBrace)) {
+                    let k = self.expect_ident()?;
+                    self.expect(TokenKind::Colon)?;
+                    let v = self.parse_state_ref()?;
+                    let slot = match k.as_str() {
+                        "image" => &mut image,
+                        "label" => &mut label,
+                        _ => return Err(self.err_prev()),
+                    };
+                    if slot.replace(v).is_some() {
+                        return Err(self.err_prev());
+                    }
+                    self.optional_semi();
+                }
+                self.expect(TokenKind::RBrace)?;
+                self.optional_semi();
+                let image = image.ok_or_else(|| self.err_prev())?;
+                link.slots.push(LinkSlot {
+                    name: slot_name,
+                    image,
+                    label,
+                });
+                continue;
+            }
+            self.expect(TokenKind::Colon)?;
+            match key.as_str() {
+                "id" => link.authored_id = Some(self.expect(TokenKind::Str)?.text),
+                "protocol" => link.protocol = self.expect(TokenKind::Str)?.text,
+                "endpoint" => link.endpoint = self.expect(TokenKind::Str)?.text,
+                role if LINK_ROLES.iter().any(|(r, _)| *r == role) => {
+                    if link.roles.iter().any(|(r, _)| r == role) {
+                        return Err(self.err_prev());
+                    }
+                    let v = self.parse_state_ref()?;
+                    link.roles.push((role.to_string(), v));
+                }
+                _ => return Err(self.err_prev()),
+            }
+            self.optional_semi();
+        }
+        self.expect(TokenKind::RBrace)?;
+        Ok(link)
+    }
+
+    /// `state.<key> is <literal>` or `state.<key> at-least <int>`.
+    fn parse_condition(&mut self) -> Result<crate::scene::Condition, ParseError> {
+        let key = self.parse_state_ref()?;
+        let op = match self.expect_ident()?.as_str() {
+            "is" => crate::scene::ConditionOp::Is,
+            "at-least" | "at_least" => crate::scene::ConditionOp::AtLeast,
+            _ => return Err(self.err_prev()),
+        };
+        let value = match self.peek().map(|t| t.kind) {
+            Some(TokenKind::Number) => {
+                let text = self.bump().ok_or_else(|| self.err())?.text;
+                if !is_canonical_decimal(&text) {
+                    return Err(self.err_prev());
+                }
+                InteractionValue::Int(text.parse().map_err(|_| self.err_prev())?)
+            }
+            Some(TokenKind::Str) => {
+                InteractionValue::Text(self.bump().ok_or_else(|| self.err())?.text)
+            }
+            Some(TokenKind::Ident) => match self.expect_ident()?.as_str() {
+                "true" => InteractionValue::Bool(true),
+                "false" => InteractionValue::Bool(false),
+                _ => return Err(self.err_prev()),
+            },
+            _ => return Err(self.err()),
+        };
+        Ok(crate::scene::Condition { key, op, value })
+    }
+
+    /// `(n, n, ...)` with between `min` and `max` numbers.
+    fn parse_numbers(&mut self, min: usize, max: usize) -> Result<Vec<f64>, ParseError> {
+        self.expect(TokenKind::LParen)?;
+        let mut v = vec![self.parse_number()?];
+        while matches!(self.peek().map(|t| t.kind), Some(TokenKind::Comma)) {
+            self.bump();
+            v.push(self.parse_number()?);
+        }
+        self.expect(TokenKind::RParen)?;
+        if v.len() < min || v.len() > max {
+            return Err(self.err_prev());
+        }
+        Ok(v)
+    }
+
+    fn parse_path_string(&mut self) -> Result<Vec<crate::graphic::PathCmd>, ParseError> {
+        let text = self.expect(TokenKind::Str)?.text;
+        crate::graphic::parse_path_data(&text).ok_or_else(|| self.err_prev())
+    }
+
+    /// `@graphic name { id; canvas; @shape ...; @dimension ... }`.
+    fn parse_graphic(&mut self, name: String) -> Result<crate::graphic::GraphicDecl, ParseError> {
+        use crate::graphic::*;
+        self.expect(TokenKind::LBrace)?;
+        let mut g = GraphicDecl {
+            name,
+            authored_id: None,
+            canvas: (0.0, 0.0),
+            shapes: Vec::new(),
+            dimensions: Vec::new(),
+            range: SourceRange { start: 0, end: 0 },
+        };
+        let mut canvas = false;
+        while !matches!(self.peek().map(|t| t.kind), Some(TokenKind::RBrace)) {
+            match self.peek().map(|t| t.kind) {
+                Some(TokenKind::AtWord) => {
+                    let word = self.bump().ok_or_else(|| self.err())?.text;
+                    let item = self.expect_ident()?;
+                    match word.as_str() {
+                        "shape" => g.shapes.push(self.parse_shape(item)?),
+                        "dimension" => g.dimensions.push(self.parse_graphic_dimension(item)?),
+                        _ => return Err(self.err_prev()),
+                    }
+                }
+                _ => {
+                    let key = self.expect_ident()?;
+                    self.expect(TokenKind::Colon)?;
+                    match key.as_str() {
+                        "id" if g.authored_id.is_none() => {
+                            g.authored_id = Some(self.expect(TokenKind::Str)?.text)
+                        }
+                        "canvas" if !canvas => {
+                            let v = self.parse_numbers(2, 2)?;
+                            g.canvas = (v[0], v[1]);
+                            canvas = true;
+                        }
+                        _ => return Err(self.err_prev()),
+                    }
+                    self.expect(TokenKind::Semicolon)?;
+                }
+            }
+        }
+        self.expect(TokenKind::RBrace)?;
+        if !canvas {
+            return Err(self.err_prev());
+        }
+        Ok(g)
+    }
+
+    fn parse_shape(&mut self, name: String) -> Result<crate::graphic::ShapeDecl, ParseError> {
+        use crate::graphic::*;
+        self.expect(TokenKind::LBrace)?;
+        let mut geometry = None;
+        let (mut fill, mut stroke, mut stroke_width) = (None, None, None);
+        while !matches!(self.peek().map(|t| t.kind), Some(TokenKind::RBrace)) {
+            let key = self.expect_ident()?;
+            self.expect(TokenKind::Colon)?;
+            let dup = match key.as_str() {
+                "path" => geometry
+                    .replace(Geometry::Path(self.parse_path_string()?))
+                    .is_some(),
+                "rect" => {
+                    let v = self.parse_numbers(4, 5)?;
+                    let r = v.get(4).copied().unwrap_or(0.0);
+                    geometry
+                        .replace(Geometry::Rect {
+                            x: v[0],
+                            y: v[1],
+                            w: v[2],
+                            h: v[3],
+                            r,
+                        })
+                        .is_some()
+                }
+                "ellipse" => {
+                    let v = self.parse_numbers(4, 4)?;
+                    geometry
+                        .replace(Geometry::Ellipse {
+                            cx: v[0],
+                            cy: v[1],
+                            rx: v[2],
+                            ry: v[3],
+                        })
+                        .is_some()
+                }
+                "fill" => fill.replace(self.parse_hex()?).is_some(),
+                "stroke" => stroke.replace(self.parse_hex()?).is_some(),
+                "stroke-width" | "stroke_width" => {
+                    stroke_width.replace(self.parse_number()?).is_some()
+                }
+                _ => return Err(self.err_prev()),
+            };
+            if dup {
+                return Err(self.err_prev());
+            }
+            self.expect(TokenKind::Semicolon)?;
+        }
+        self.expect(TokenKind::RBrace)?;
+        let geometry = geometry.ok_or_else(|| self.err_prev())?;
+        Ok(ShapeDecl {
+            name,
+            geometry,
+            fill,
+            stroke,
+            stroke_width,
+        })
+    }
+
+    fn parse_selector(&mut self) -> Result<crate::graphic::Selector, ParseError> {
+        let first = self.expect_ident()?;
+        if first == "all" {
+            return Ok(crate::graphic::Selector::All);
+        }
+        let mut names = vec![first];
+        while matches!(self.peek().map(|t| t.kind), Some(TokenKind::Comma))
+            && self
+                .tokens
+                .get(self.i + 1)
+                .is_some_and(|t| t.kind == TokenKind::Ident)
+        {
+            self.bump();
+            names.push(self.expect_ident()?);
+        }
+        Ok(crate::graphic::Selector::Shapes(names))
+    }
+
+    fn parse_graphic_dimension(
+        &mut self,
+        name: String,
+    ) -> Result<crate::graphic::GraphicDimension, ParseError> {
+        use crate::graphic::*;
+        self.expect(TokenKind::LBrace)?;
+        let mut d = GraphicDimension {
+            name,
+            step_s: None,
+            values: Vec::new(),
+        };
+        while !matches!(self.peek().map(|t| t.kind), Some(TokenKind::RBrace)) {
+            if matches!(self.peek().map(|t| t.kind), Some(TokenKind::AtWord)) {
+                let word = self.bump().ok_or_else(|| self.err())?.text;
+                if word != "value" {
+                    return Err(self.err_prev());
+                }
+                let vname = self.expect_ident()?;
+                self.expect(TokenKind::LBrace)?;
+                let mut effects = Vec::new();
+                while !matches!(self.peek().map(|t| t.kind), Some(TokenKind::RBrace)) {
+                    let key = self.expect_ident()?;
+                    self.expect(TokenKind::Colon)?;
+                    let e = match key.as_str() {
+                        "hide" => GraphicEffect::Hide(self.parse_selector()?),
+                        "scale" => {
+                            let s = self.parse_selector()?;
+                            let v = self.parse_numbers(2, 2)?;
+                            GraphicEffect::Scale(s, v[0], v[1])
+                        }
+                        "move" => {
+                            let s = self.parse_selector()?;
+                            let v = self.parse_numbers(2, 2)?;
+                            GraphicEffect::Move(s, v[0], v[1])
+                        }
+                        "fade" => {
+                            let s = self.parse_selector()?;
+                            GraphicEffect::Fade(s, self.parse_number()?)
+                        }
+                        "paint" => {
+                            let s = self.parse_selector()?;
+                            GraphicEffect::Paint(s, self.parse_hex()?)
+                        }
+                        "morph" => {
+                            let shape = self.expect_ident()?;
+                            let target = self.parse_path_string()?;
+                            GraphicEffect::Morph(shape, target, self.parse_number()?)
+                        }
+                        _ => return Err(self.err_prev()),
+                    };
+                    effects.push(e);
+                    self.expect(TokenKind::Semicolon)?;
+                }
+                self.expect(TokenKind::RBrace)?;
+                d.values.push(GraphicValue {
+                    name: vname,
+                    effects,
+                });
+            } else {
+                let key = self.expect_ident()?;
+                self.expect(TokenKind::Colon)?;
+                if (key != "step-s" && key != "step_s")
+                    || d.step_s.is_some()
+                    || !d.values.is_empty()
+                {
+                    return Err(self.err_prev());
+                }
+                d.step_s = Some(self.parse_number()?);
+                self.expect(TokenKind::Semicolon)?;
+            }
+        }
+        self.expect(TokenKind::RBrace)?;
+        Ok(d)
+    }
+
+    /// `@draw graphic { dimension: "value" [when <condition>]; ... }`.
+    fn parse_draw(&mut self, graphic: String) -> Result<crate::graphic::DrawDecl, ParseError> {
+        self.expect(TokenKind::LBrace)?;
+        let mut rules = Vec::new();
+        while !matches!(self.peek().map(|t| t.kind), Some(TokenKind::RBrace)) {
+            let dimension = self.expect_ident()?;
+            self.expect(TokenKind::Colon)?;
+            let value = self.expect(TokenKind::Str)?.text;
+            let when = if self
+                .peek()
+                .is_some_and(|t| t.kind == TokenKind::Ident && t.text == "when")
+            {
+                self.bump();
+                Some(self.parse_condition()?)
+            } else {
+                None
+            };
+            self.expect(TokenKind::Semicolon)?;
+            rules.push(crate::graphic::DrawRule {
+                dimension,
+                value,
+                when,
+            });
+        }
+        self.expect(TokenKind::RBrace)?;
+        Ok(crate::graphic::DrawDecl {
+            graphic,
+            rules,
+            range: SourceRange { start: 0, end: 0 },
+        })
     }
 
     fn parse_state_ref(&mut self) -> Result<String, ParseError> {
@@ -2490,5 +3398,402 @@ impl P {
             }
             _ => Err(self.err()),
         }
+    }
+}
+
+#[cfg(test)]
+mod live_tests {
+    use super::*;
+
+    const LIVE: &str = r#"@ontology app {
+      @cell root { id: "root";
+    @cell status { id: "status"; position_p: (0, 0, 0); extent_p: (1, 0.1, 0); text-from: state.link_text; }
+    @cell home { id: "home"; position_p: (0, 0.1, 0); extent_p: (1, 0.9, 0); present-when: state.screen is 0;
+      @button open { id: "open"; position_p: (0.1, 0.1, 0); extent_p: (0.2, 0.2, 0); text: "Open"; }
+    }
+    @cell viewer { id: "viewer"; position_p: (0, 0.1, 0); extent_p: (1, 0.9, 0); present-when: state.screen is 1;
+      @cell picture { id: "picture"; position_p: (0, 0, 0); extent_p: (1, 0.8, 0); image-from: state.left; }
+      @button back { id: "back"; position_p: (0.1, 0.85, 0); extent_p: (0.2, 0.1, 0); text: "Back"; }
+    }
+      }
+      @state { screen: int = 0 session; link_text: text = "unpaired" host; left: text = "" host; }
+      @interaction show { id: "action.show"; trigger: button.open.activate; class: D1; state { write screen: int; } input { } set screen = 1; }
+      @interaction hide { id: "action.hide"; trigger: button.back.activate; class: D1; state { write screen: int; } input { } set screen = 0; }
+    }"#;
+
+    #[test]
+    fn live_profile_admits_bindings_and_host_state() {
+        let parsed = parse_strict_gssh3_live(LIVE).expect("live admission");
+        let viewer = parsed.scene.find_node("viewer").unwrap();
+        assert_eq!(
+            viewer.present_when,
+            Some(crate::scene::Condition {
+                key: "screen".into(),
+                op: crate::scene::ConditionOp::Is,
+                value: InteractionValue::Int(1)
+            })
+        );
+        assert_eq!(
+            parsed
+                .scene
+                .find_node("picture")
+                .unwrap()
+                .image_from
+                .as_deref(),
+            Some("left")
+        );
+        assert_eq!(
+            parsed
+                .scene
+                .find_node("status")
+                .unwrap()
+                .text_from
+                .as_deref(),
+            Some("link_text")
+        );
+        let (decls, _) = parsed.declarations.state.as_ref().unwrap();
+        assert_eq!(
+            decls.iter().find(|d| d.key == "left").unwrap().lifetime,
+            StateLifetime::Host
+        );
+    }
+
+    #[test]
+    fn older_profiles_refuse_live_constructs() {
+        for result in [
+            parse_strict_gssh3(LIVE),
+            parse_strict_gssh2(LIVE),
+            parse_strict(LIVE),
+        ] {
+            let error = result.unwrap_err();
+            assert!(matches!(error.code, "GY-E1012" | "GY-E1006"), "{error}");
+        }
+        assert_eq!(parse_strict_gssh3(LIVE).unwrap_err().code, "GY-E1012");
+        // Host state alone, without any live property, is also refused.
+        let host_only = r#"@ontology app { @cell root { id: "root"; @button go { id: "go"; position_p: (0,0,0); extent_p: (1,1,0); } } @state { n: int = 0 host; m: int = 0 session; } @interaction r { id: "action.r"; trigger: button.go.activate; class: D1; state { read n: int; write m: int; } input { } set m = state.n; } }"#;
+        assert_eq!(parse_strict_gssh3(host_only).unwrap_err().code, "GY-E1012");
+    }
+
+    #[test]
+    fn interactions_may_not_write_host_state() {
+        let src = LIVE.replace("screen: int = 0 session", "screen: int = 0 host");
+        let error = parse_strict_gssh3_live(&src).unwrap_err();
+        assert_eq!(error.code, "GY-E1008", "{error}");
+        assert!(error.name.contains("writes host state"), "{error}");
+    }
+
+    #[test]
+    fn bindings_are_type_checked() {
+        let wrong_literal = LIVE.replace("state.screen is 1", "state.screen is \"one\"");
+        assert_eq!(
+            parse_strict_gssh3_live(&wrong_literal).unwrap_err().code,
+            "GY-E1013"
+        );
+        let undeclared = LIVE.replace("text-from: state.link_text", "text-from: state.nope");
+        assert_eq!(
+            parse_strict_gssh3_live(&undeclared).unwrap_err().code,
+            "GY-E1013"
+        );
+        let session_image = LIVE.replace("left: text = \"\" host", "left: text = \"\" session");
+        assert_eq!(
+            parse_strict_gssh3_live(&session_image).unwrap_err().code,
+            "GY-E1013"
+        );
+    }
+
+    #[test]
+    fn a_key_used_only_by_a_binding_counts_as_used() {
+        // link_text is never named by an interaction.
+        assert!(parse_strict_gssh3_live(LIVE).is_ok());
+        let unused = LIVE.replace(
+            "left: text = \"\" host;",
+            "left: text = \"\" host; spare: int = 0 host;",
+        );
+        assert_eq!(
+            parse_strict_gssh3_live(&unused).unwrap_err().code,
+            "GY-E1008"
+        );
+    }
+
+    #[test]
+    fn motion_properties_are_live_only_and_bounded() {
+        let moving = LIVE
+            .replace(
+                r#"@cell root { id: "root";"#,
+                r#"@cell root { id: "root"; fill: #f4f1ea; fill-to: #e9eef1; fill-period-s: 45;"#,
+            )
+            .replace(
+                r#"@cell home { id: "home";"#,
+                r#"@cell home { id: "home"; drift-p: (0.01, 0.01, 0); drift-period-s: 240;"#,
+            );
+        let parsed = parse_strict_gssh3_live(&moving).expect("motion admitted");
+        assert_eq!(
+            parsed.scene.find_node("root").unwrap().fill_to,
+            Some(0xe9eef1)
+        );
+        assert_eq!(
+            parsed.scene.find_node("home").unwrap().drift_period_s,
+            Some(240.0)
+        );
+        assert_eq!(parse_strict_gssh3(&moving).unwrap_err().code, "GY-E1012");
+        let appearing = moving.replace(
+            r#"present-when: state.screen is 1;"#,
+            r#"present-when: state.screen is 1; appear-s: 0.5; appear-from-p: (0, 0.05, 0);"#,
+        );
+        assert_eq!(
+            parse_strict_gssh3_live(&appearing)
+                .unwrap()
+                .scene
+                .find_node("viewer")
+                .unwrap()
+                .appear_s,
+            Some(0.5)
+        );
+        for bad in [
+            "appear-s: 3;",
+            "appear-from-p: (0, 0.05, 0);",
+            "appear-s: 0.5; appear-from-p: (0.9, 0, 0);",
+        ] {
+            let src = moving.replace(
+                r#"present-when: state.screen is 1;"#,
+                &format!("present-when: state.screen is 1; {bad}"),
+            );
+            assert_eq!(
+                parse_strict_gssh3_live(&src).unwrap_err().code,
+                "GY-E1013",
+                "{bad}"
+            );
+        }
+        for (from, to) in [
+            ("fill-period-s: 45", "fill-period-s: 0.5"),
+            ("fill-period-s: 45;", ""),
+            ("drift-p: (0.01, 0.01, 0)", "drift-p: (0.9, 0.01, 0)"),
+            ("drift-p: (0.01, 0.01, 0)", "drift-p: (0.01, 0.01, 1)"),
+            ("drift-period-s: 240", "drift-period-s: 7200"),
+        ] {
+            let src = moving.replace(from, to);
+            assert_eq!(
+                parse_strict_gssh3_live(&src).unwrap_err().code,
+                "GY-E1013",
+                "{from} -> {to}"
+            );
+        }
+        // fill-to without a fill to breathe from.
+        let src = moving.replace("fill: #f4f1ea; ", "");
+        assert_eq!(parse_strict_gssh3_live(&src).unwrap_err().code, "GY-E1013");
+    }
+
+    #[test]
+    fn links_bind_host_state_with_one_writer_each() {
+        let src = LIVE.replace(
+            "  @interaction show",
+            r#"  @link desktop { id: "link.desktop"; protocol: "goya.lanlink/0"; endpoint: "http://192.168.1.2:8770"; detail: state.link_text; slot main { image: state.left; } }
+      @interaction show"#,
+        );
+        let parsed = parse_strict_gssh3_live(&src).unwrap_or_else(|e| panic!("{e}"));
+        let link = &parsed.declarations.links[0];
+        assert_eq!(
+            (link.name.as_str(), link.protocol.as_str()),
+            ("desktop", "goya.lanlink/0")
+        );
+        assert_eq!(
+            link.roles,
+            vec![("detail".to_string(), "link_text".to_string())]
+        );
+        assert_eq!(link.slots[0].image, "left");
+        assert_eq!(parse_strict_gssh3(&src).unwrap_err().code, "GY-E1012");
+        // A host key nobody writes, once links are in play.
+        let orphan = src
+            .replace(
+                r#"left: text = "" host;"#,
+                r#"left: text = "" host; spare: text = "" host;"#,
+            )
+            .replace(
+                "image-from: state.left;",
+                "image-from: state.left; text-from: state.spare;",
+            );
+        assert_eq!(
+            parse_strict_gssh3_live(&orphan).unwrap_err().code,
+            "GY-E1013"
+        );
+        // A role bound to a key of the wrong type.
+        let wrong = src.replace("detail: state.link_text;", "status: state.link_text;");
+        assert_eq!(
+            parse_strict_gssh3_live(&wrong).unwrap_err().code,
+            "GY-E1013"
+        );
+        // Unknown roles do not parse.
+        assert!(parse_strict_gssh3_live(
+            &src.replace("detail: state.link_text;", "colour: state.link_text;")
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn lists_digits_fields_and_acts() {
+        let src = LIVE
+            .replace(r#"present-when: state.screen is 1;"#, r#"present-when: state.screen at-least 1;"#)
+            .replace(r#"@button back { id: "back";"#, r#"@button back { id: "back"; remote-digit: 7;"#)
+            .replace(
+                "  @interaction show",
+                r#"  @link desktop { id: "link.desktop"; protocol: "goya.lanlink/1"; endpoint: "http://192.168.1.2:8770"; detail: state.link_text; act web_next; field rows: state.rows; slot main { image: state.left; } }
+      @interaction show"#,
+            )
+            .replace(r#"left: text = "" host;"#, r#"left: text = "" host; rows: int = 0 host;"#);
+        let parsed = parse_strict_gssh3_live(&src).unwrap_or_else(|e| panic!("{e}"));
+        let viewer = parsed.scene.find_node("viewer").unwrap();
+        assert_eq!(
+            viewer.present_when.as_ref().unwrap().op,
+            crate::scene::ConditionOp::AtLeast
+        );
+        assert_eq!(
+            parsed.scene.find_node("back").unwrap().remote_digit,
+            Some(7)
+        );
+        let link = &parsed.declarations.links[0];
+        assert_eq!(link.acts, vec!["web_next".to_string()]);
+        assert_eq!(link.fields, vec![("rows".to_string(), "rows".to_string())]);
+        // at-least needs an int literal; remote-digit is 0-9 on buttons only.
+        assert_eq!(
+            parse_strict_gssh3_live(&src.replace("at-least 1", "at-least \"x\""))
+                .unwrap_err()
+                .code,
+            "GY-E1013"
+        );
+        assert!(
+            parse_strict_gssh3_live(&src.replace("remote-digit: 7", "remote-digit: 12")).is_err()
+        );
+        let on_cell = src.replace(
+            r#"@cell status { id: "status";"#,
+            r#"@cell status { id: "status"; remote-digit: 1;"#,
+        );
+        assert_eq!(
+            parse_strict_gssh3_live(&on_cell).unwrap_err().code,
+            "GY-E1013"
+        );
+        assert_eq!(parse_strict_gssh3(&src).unwrap_err().code, "GY-E1012");
+    }
+
+    const GRAPHIC: &str = r#"@ontology g {
+      @graphic badge { id: "graphic.badge"; canvas: (100, 100);
+    @shape disc { ellipse: (50, 50, 40, 40); fill: #2b4c7e; }
+    @shape mark { path: "M 30 50 L 45 65 L 72 36 Z"; fill: #ffffff; stroke: #000000; stroke-width: 2; }
+    @dimension state { step-s: 0.05; @value off { hide: mark; } @value half { scale: all (0.5, 1); } @value on { paint: disc #2e9e4f; } }
+      }
+      @state { lit: bool = false session; }
+      @cell root { id: "root";
+    @cell icon { id: "icon"; position_p: (0, 0, 0); extent_p: (0.2, 0.2, 0); @draw badge { state: "on" when state.lit is true; state: "off"; } }
+    @button go { id: "go"; position_p: (0.5, 0.5, 0); extent_p: (0.2, 0.2, 0); }
+      }
+      @interaction toggle { id: "action.toggle"; trigger: button.go.activate; class: D1; state { write lit: bool; } input { } set lit = true; }
+    }"#;
+
+    #[test]
+    fn graphics_are_live_only_and_validated() {
+        let parsed = parse_strict_gssh3_live(GRAPHIC).unwrap_or_else(|e| panic!("{e}"));
+        let g = &parsed.declarations.graphics[0];
+        assert_eq!(
+            (
+                g.name.as_str(),
+                g.shapes.len(),
+                g.dimensions[0].values.len()
+            ),
+            ("badge", 2, 3)
+        );
+        assert_eq!(g.dimensions[0].step_s, Some(0.05));
+        let draw = parsed
+            .scene
+            .find_node("icon")
+            .unwrap()
+            .draw
+            .as_ref()
+            .unwrap();
+        assert_eq!(draw.rules.len(), 2);
+        assert!(parse_strict_gssh4_live(GRAPHIC).is_ok());
+        for older in [parse_strict_gssh3(GRAPHIC), parse_strict_gssh4(GRAPHIC)] {
+            assert_eq!(older.unwrap_err().code, "GY-E1012");
+        }
+        // Targets that do not draw graphics refuse them rather than drop them.
+        let (what, _) = extended_live_construct(&parsed).unwrap();
+        assert!(
+            what.starts_with("graphic") || what.starts_with("draw"),
+            "{what}"
+        );
+        // A dimension without a final unconditional rule, an unknown value,
+        // a condition on an undeclared key and an unknown shape are refused.
+        for bad in [
+            GRAPHIC.replace(r#" state: "off";"#, ""),
+            GRAPHIC.replace(r#"state: "off";"#, r#"state: "dim";"#),
+            GRAPHIC.replace("state.lit is true", "state.nope is true"),
+            GRAPHIC.replace("hide: mark;", "hide: ghost;"),
+            GRAPHIC.replace("step-s: 0.05;", "step-s: 5;"),
+        ] {
+            assert_eq!(
+                parse_strict_gssh3_live(&bad).unwrap_err().code,
+                "GY-E1013",
+                "{bad}"
+            );
+        }
+        // Relative path commands are a syntax error.
+        assert_eq!(
+            parse_strict_gssh3_live(&GRAPHIC.replace("M 30 50 L 45 65", "m 30 50 l 45 65"))
+                .unwrap_err()
+                .code,
+            "GY-E1000"
+        );
+        // A key read only by a @draw rule counts as used.
+        let only_draw = GRAPHIC.replace("@button go { id: \"go\"; position_p: (0.5, 0.5, 0); extent_p: (0.2, 0.2, 0); }", "").replace("  @interaction toggle { id: \"action.toggle\"; trigger: button.go.activate; class: D1; state { write lit: bool; } input { } set lit = true; }\n", "");
+        assert!(parse_strict_gssh3_live(&only_draw).is_ok());
+    }
+
+    #[test]
+    fn live_profile_still_rejects_absolute_lengths() {
+        let src = LIVE.replace("extent_p: (1, 0.1, 0)", "extent: (100, 10, 0)");
+        assert_eq!(parse_strict_gssh3_live(&src).unwrap_err().code, "GY-E1009");
+    }
+}
+
+#[cfg(test)]
+mod gssh4_platform_tests {
+    use super::*;
+
+    const SOURCE: &str = r#"@ontology demo {
+        @persistence { cache_targets: null; }
+        @platform webos {
+            "media.playback": only-use("html.video");
+            "remote.input": choice-use("focus", "native.remote");
+        }
+        @cell root { id: "root"; }
+    }"#;
+
+    #[test]
+    fn live_scene_can_carry_platform_policy_without_legacy_silence() {
+        let parsed = parse_strict_gssh4_live(SOURCE).unwrap();
+        assert_eq!(parsed.declarations.platform_exceptions.len(), 2);
+        assert_eq!(parsed.declarations.platform_exceptions[0].platform, "webos");
+        assert_eq!(
+            parse_strict_gssh3_live(SOURCE).unwrap_err().code,
+            "GY-E1015"
+        );
+    }
+
+    #[test]
+    fn platform_policy_keeps_persistence_optional_and_choices_distinct() {
+        // Decision D11: @persistence is optional in GSSH/4; omitting it means
+        // each target's default local store (Arachnid's earlier draft made it
+        // mandatory, which D11 superseded).
+        assert!(parse_strict_gssh4_live(
+            &SOURCE.replace("@persistence { cache_targets: null; }", "")
+        )
+        .is_ok());
+        assert_eq!(
+            parse_strict_gssh4_live(&SOURCE.replace(
+                "choice-use(\"focus\", \"native.remote\")",
+                "choice-use(\"focus\")"
+            ))
+            .unwrap_err()
+            .code,
+            "GY-E1000"
+        );
     }
 }

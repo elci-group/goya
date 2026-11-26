@@ -6,6 +6,8 @@ license.workspace = true
 description = "Rust SDK facade for authoring and running Goya scenes"
 
 [dependencies]
+goya-caprichios.workspace = true
+goya-scene-graphics.workspace = true
 goya-lang.workspace = true
 goya-nevada = { path = "../nevada" }
 goya-ir.workspace = true
