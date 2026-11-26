@@ -1043,9 +1043,9 @@ fn validate_live(
                 range,
             ));
         }
-        if link.slots.is_empty() {
-            return Err(bad(format!("link {} declares no slot", link.name), range));
-        }
+        // Whether a link needs image slots is the protocol's rule, checked
+        // by the target that lowers it (goya.lanlink/0 needs one;
+        // bloom.link/0 has none).
         let mut bound: Vec<(&str, &str, InteractionType)> = Vec::new();
         for (role, key) in &link.roles {
             let ty = LINK_ROLES
