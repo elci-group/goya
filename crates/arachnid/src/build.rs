@@ -70,18 +70,24 @@ fn min_chromium(o: &Ontology) -> u16 {
     } else {
         crate::lanlink::MIN_CHROMIUM
     };
+    let apps = if o.parsed.declarations.apps.is_empty() {
+        0
+    } else {
+        crate::apps::MIN_CHROMIUM
+    };
     let gvi = if o.graphics.is_empty() {
         0
     } else {
         crate::graphics::MIN_CHROMIUM
     };
-    link.max(gvi)
+    link.max(gvi).max(apps)
 }
 
 /// Admit, check platform services and gate, without emitting anything.
 pub fn check(source: &str, target: &Target) -> Result<Ontology, Vec<Diagnostic>> {
     let o = ontology::admit(source)?;
-    let services = crate::lanlink::check(&o.parsed);
+    let mut services = crate::lanlink::check(&o.parsed);
+    services.extend(crate::apps::check(&o.parsed));
     if !services.is_empty() {
         return Err(services);
     }
@@ -95,6 +101,7 @@ pub fn check(source: &str, target: &Target) -> Result<Ontology, Vec<Diagnostic>>
                 "this scene's platform services ({}) need Chromium {need}; {} ships Chromium {have}",
                 [
                     (!o.parsed.declarations.links.is_empty()).then_some(crate::lanlink::PROTOCOL),
+                    (!o.parsed.declarations.apps.is_empty()).then_some(crate::apps::CONTRACT),
                     (!o.graphics.is_empty()).then_some("GY-GVI/0 runtime"),
                 ]
                 .into_iter()
@@ -129,10 +136,11 @@ fn compatibility_report(target: &Target, min: u16) -> String {
             .join(", ")
     };
     let input = format!(
-        "{{\"remote_contract\": \"{}\", \"five_way\": \"required\", \"pointer\": \"optional\", \"navigate_keys\": [{}], \"activate_keys\": [{}], \"platform_keys\": [{}]}}",
+        "{{\"remote_contract\": \"{}\", \"five_way\": \"required\", \"pointer\": \"optional\", \"navigate_keys\": [{}], \"activate_keys\": [{}], \"colour_keys\": [{}], \"platform_keys\": [{}]}}",
         crate::remote::CONTRACT,
         codes(crate::remote::Handling::Navigate),
         codes(crate::remote::Handling::Activate),
+        codes(crate::remote::Handling::Colour),
         codes(crate::remote::Handling::Platform)
     );
     format!(
@@ -165,7 +173,14 @@ pub fn build(source: &str, opts: &BuildOptions) -> Result<BuildOutput, Vec<Diagn
     };
     let o = check(source, &opts.target)?;
     let link_runtime = crate::lanlink::runtime_js(&o.parsed);
-    let service_script = link_runtime.as_ref().map(|_| crate::lanlink::FILE);
+    let apps_runtime = crate::apps::runtime_js(&o.parsed);
+    let mut service_scripts = Vec::new();
+    if link_runtime.is_some() {
+        service_scripts.push(crate::lanlink::FILE);
+    }
+    if apps_runtime.is_some() {
+        service_scripts.push(crate::apps::FILE);
+    }
 
     let mut app_files = vec![
         ("app.css".to_string(), emit::app_css().into_bytes()),
@@ -174,13 +189,19 @@ pub fn build(source: &str, opts: &BuildOptions) -> Result<BuildOutput, Vec<Diagn
         (appinfo::ICON.to_string(), icon),
         (
             appinfo::MAIN.to_string(),
-            emit::index_html(&o, &opts.app, service_script).into_bytes(),
+            emit::index_html(&o, &opts.app, &service_scripts).into_bytes(),
         ),
     ];
     // Enforced: every build carries the Arachnid splash (splash.rs).
     app_files.push((crate::splash::FILE.to_string(), crate::splash::LOGO.to_vec()));
     if let Some(js) = link_runtime {
         app_files.push((crate::lanlink::FILE.to_string(), js.into_bytes()));
+    }
+    if let Some(js) = apps_runtime {
+        app_files.push((crate::apps::FILE.to_string(), js.into_bytes()));
+    }
+    if o.sky.is_some() {
+        app_files.push((crate::sky::FILE.to_string(), crate::sky::script().into_bytes()));
     }
     if !o.graphics.is_empty() {
         app_files.push((crate::graphics::FILE.to_string(), crate::gvi_js::GVI_JS.as_bytes().to_vec()));
@@ -367,7 +388,7 @@ mod tests {
             "{compat}"
         );
         assert!(
-            compat.contains(r#""navigate_keys": [37, 38, 39, 40], "activate_keys": [13], "platform_keys": [461, 403, 404, 405, 406]"#),
+            compat.contains(r#""navigate_keys": [37, 38, 39, 40], "activate_keys": [13], "colour_keys": [403, 404, 405, 406], "platform_keys": [461]"#),
             "{compat}"
         );
     }

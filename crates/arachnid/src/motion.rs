@@ -36,7 +36,9 @@
 //!   could move under cannot be verified, so it is refused. Only nodes
 //!   present together in some presence configuration are considered.
 //!   Text over unchanging backgrounds is not checked; Arachnid has no
-//!   general contrast contract yet.
+//!   general contrast contract yet. A live sky (`sky: local`) can take any
+//!   colour, so text over it must be covered by an opaque fill drawn above
+//!   the sky that is present with the text, moves with it and contains it.
 //!
 //! **Emission** uses only compositor-friendly properties. A drift is a
 //! `transform` animation on a wrapper around the drifting subtree, which
@@ -137,6 +139,13 @@ fn expand(r: &RectMp, ax: i64, ay: i64) -> RectMp {
         width: r.width + 2 * ax,
         height: r.height + 2 * ay,
     }
+}
+
+fn contains(outer: &RectMp, inner: &RectMp) -> bool {
+    outer.x <= inner.x
+        && outer.y <= inner.y
+        && outer.x as i128 + outer.width as i128 >= inner.x as i128 + inner.width as i128
+        && outer.y as i128 + outer.height as i128 >= inner.y as i128 + inner.height as i128
 }
 
 fn intersects(a: &RectMp, b: &RectMp) -> bool {
@@ -276,11 +285,35 @@ pub fn analyse(
             continue;
         }
         let text_rect = expand(&frame.nodes[i].rect, sway[i].0, sway[i].1);
+        // A live sky takes any colour, so text may never sit on it: an
+        // opaque fill drawn above the sky, present with the text and moving
+        // with it, must cover the text entirely.
+        for s in (0..i).filter(|&s| cells[s].sky.is_some()) {
+            if !co_present(i, s) || !intersects(&expand(&frame.nodes[s].rect, sway[s].0, sway[s].1), &text_rect) {
+                continue;
+            }
+            let covered = (s + 1..=i).any(|k| {
+                cells[k].fill.is_some()
+                    && cells[k].sky.is_none()
+                    && (k == i || co_present(i, k))
+                    && movers[k] == movers[i]
+                    && contains(&frame.nodes[k].rect, &frame.nodes[i].rect)
+            });
+            if !covered {
+                diags.push(Diagnostic::new(
+                    Code::TextContrast,
+                    format!(
+                        "text of {} would sit on the live sky {}; give it, or a cell around it, a fill",
+                        frame.nodes[i].name, frame.nodes[s].name
+                    ),
+                ));
+            }
+        }
         let mut candidates = Vec::new();
         let mut dynamic = false;
         for j in 0..=i {
             let cj = cells[j];
-            if cj.fill.is_none() && cj.image_from.is_none() {
+            if (cj.fill.is_none() && cj.image_from.is_none()) || cj.sky.is_some() {
                 continue;
             }
             // Nodes never present together never overlap on screen.

@@ -113,6 +113,70 @@ built through the API, which together cover:
 * frame-of-reference, dictionary and operative columns;
 * literal and operative `STAT`.
 
+**Importing SVG.** `arachnid import-svg <art.svg> --name N --id ID --canvas W,H
+[--inset F] [--fill #rrggbb] [--background #rrggbb] [--radius F]` prints a
+`@graphic` block (`goya_lang::svg_import`).
+* It reads the full SVG path grammar: relative commands, `S`/`T`, arcs
+  (converted to cubics, one per quarter turn), and minified numbers such as
+  `.5.5`. Its output is the absolute subset that `path` accepts.
+* The art is scaled uniformly and centred on the canvas, with an optional
+  rounded background tile.
+* It refuses anything it cannot reproduce exactly instead of approximating
+  it: `transform`, `<use>`, basic shapes, strokes, CSS and named colours.
+* Every graphic needs a dimension, so the block ends with
+  `@dimension look { @value plain { } }`. Draw it with
+  `@draw N { look: "plain"; }`.
+* A `@draw` canvas stretches to its cell, so give the cell the canvas's
+  aspect ratio in pixels.
+
+**Content inside a button.** Nodes are emitted flat, so a button's children
+follow it as siblings. The focus ring raises the button (`.b.f`, `z-index:1`),
+and before this fix it painted over its own children. Each node inside a
+button now carries `data-in="<button>"`, and the page head holds one rule per
+such button, `#nB.f~[data-in="B"]{z-index:1}`. Only that button's content
+rises with it. Pages without content inside buttons are unchanged; the Pairs
+IPK is byte-identical.
+
+**Colour groups** (`colour-group`). Each member button carries
+`data-colour-group`. `app.js` holds a `GROUPS` table mapping focus id to
+`[key code, condition]`.
+* A colour key first activates a present `remote-colour` claimant, as
+  before.
+* Otherwise it focuses the next present member of that colour whose
+  condition holds against live state, in focus-id (draw) order, wrapping.
+* With neither, the key is left to the platform.
+* In any presence configuration, a present claimant and a present group
+  member of the same colour are refused (`GY-AR-650`, HostContract).
+
+**Live sky** (`sky: local`, `sky.rs`, contract `arachnid.sky/0.0.1`). The
+sky node gets a 640×360 `<canvas class="sky">` scaled to the node, and the
+IPK carries the generated `sky.js`.
+* **Where.** The device's IANA zone is looked up in
+  `crates/arachnid/data/tz-coordinates.tsv`: 542 zones, built from tzdata
+  2026a `zone1970.tab` and `zone.tab`, with every `tzdata.zi` link
+  resolved so ICU's legacy names resolve too. A zone without coordinates
+  uses the UTC offset's longitude at 35° N.
+* **When and what.**
+  * The Sun's position comes from the NOAA equations; the Moon's from a
+    low-precision ephemeris with phase.
+  * Single-scattering atmosphere (Rayleigh, Mie, ozone, Earth's shadow)
+    in a WebGL1 shader, with a blue multiple-scattering fill.
+  * Drifting clouds lit by the transmitted light, sun and moon disks (the
+    moon shaded from the Sun's direction), stars turned by local sidereal
+    time, and a hill line.
+  * Average-metered auto-exposure, and an ACES tone curve.
+* **Fallback.** Without WebGL or fragment `highp`, a 2D canvas shows the
+  same atmosphere model at 64×36.
+* **Cost.** One frame per 500 ms, none while hidden. Under reduced motion,
+  one frame a minute with still clouds.
+* **Contrast** (`motion.rs`, `GY-AR-622`). Text may never sit on the sky.
+  Every text node over it needs an opaque fill drawn above the sky,
+  present with it, moving with it, and containing it.
+* **Tests.** `tests/runtime/sky.js` checks it under Node (18 checks): NOAA
+  reference positions, moon phases, zone lookup, colours and exposure.
+  The launcher harness checks the WebGL shader in Chrome: a blue noon and
+  a dark midnight.
+
 ## 5. Goya Pairs
 
 Measured at build:

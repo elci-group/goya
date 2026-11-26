@@ -76,7 +76,7 @@ pub fn html_escape(s: &str) -> String {
     out
 }
 
-pub fn index_html(o: &Ontology, app: &AppInfo, host_script: Option<&str>) -> String {
+pub fn index_html(o: &Ontology, app: &AppInfo, host_scripts: &[&str]) -> String {
     let focus_of = |node: usize| {
         o.actionable
             .iter()
@@ -84,13 +84,37 @@ pub fn index_html(o: &Ontology, app: &AppInfo, host_script: Option<&str>) -> Str
             .map(|a| a.focus_id)
     };
     let mut body = String::new();
+    // Nodes are emitted flat, so a button's content follows it as siblings.
+    // The focus ring raises the button (`.b.f`), and its content must rise
+    // with it or the focused button paints over its own logo and label.
+    // `inside[i]` is the innermost button enclosing node i.
+    let mut inside: Vec<Option<usize>> = vec![None; o.frame.nodes.len()];
+    let mut holders: Vec<usize> = Vec::new();
+    for (i, enclosing) in inside.iter_mut().enumerate() {
+        while holders.last().is_some_and(|&b| i >= o.motion.subtree_end[b]) {
+            holders.pop();
+        }
+        *enclosing = holders.last().copied();
+        if focus_of(i).is_some() {
+            holders.push(i);
+        }
+    }
+    let in_attr = |i: usize| inside[i].map(|b| format!(" data-in=\"{b}\"")).unwrap_or_default();
+    let mut raised: Vec<usize> = inside.iter().flatten().copied().collect();
+    raised.sort_unstable();
+    raised.dedup();
+    let content_rules: String = raised
+        .iter()
+        .map(|b| format!("#n{b}.f~[data-in=\"{b}\"]{{z-index:1}}"))
+        .collect();
     // Ends of open drift wrappers, innermost last.
     let mut open: Vec<usize> = Vec::new();
     for (i, node) in o.frame.nodes.iter().enumerate() {
         if let Some(d) = o.motion.drift[i] {
             body.push_str(&format!(
-                "<div class=\"m{}\" style=\"--ax:{};--ay:{};animation-duration:{}ms\">\n",
+                "<div class=\"m{}\"{} style=\"--ax:{};--ay:{};animation-duration:{}ms\">\n",
                 if d.decorative { " dec" } else { "" },
+                in_attr(i),
                 px(d.ax),
                 px(d.ay),
                 d.period_ms
@@ -102,8 +126,9 @@ pub fn index_html(o: &Ontology, app: &AppInfo, host_script: Option<&str>) -> Str
             // Fades (and slides) in at launch when present, and again each
             // time the runtime sees the subtree become present.
             body.push_str(&format!(
-                "<div class=\"w{}\" data-appear=\"{i}\" style=\"--dx:{};--dy:{};animation-duration:{}ms\">\n",
+                "<div class=\"w{}\" data-appear=\"{i}\"{} style=\"--dx:{};--dy:{};animation-duration:{}ms\">\n",
                 if initial_nodes[i] { " a" } else { "" },
+                in_attr(i),
                 px(a.dx),
                 px(a.dy),
                 a.ms
@@ -146,6 +171,14 @@ pub fn index_html(o: &Ontology, app: &AppInfo, host_script: Option<&str>) -> Str
         } else {
             attrs.push('"');
         }
+        attrs.push_str(&in_attr(i));
+        if let Some(colour) = o.remote_colour[i] {
+            attrs.push_str(&format!(" data-remote-colour=\"{}\"", crate::remote::colour_code(colour)));
+        }
+        if let Some(g) = &o.colour_group[i] {
+            let code = g.colour.map_or("deal".to_string(), |c| crate::remote::colour_code(c).to_string());
+            attrs.push_str(&format!(" data-colour-group=\"{code}\""));
+        }
         if let Some(digit) = o.remote_digit[i] {
             attrs.push_str(&format!(" data-remote-digit=\"{digit}\""));
         }
@@ -166,6 +199,13 @@ pub fn index_html(o: &Ontology, app: &AppInfo, host_script: Option<&str>) -> Str
             attrs.push_str(" hidden");
         }
         let mut text = String::new();
+        if o.sky == Some(i) {
+            // The live sky paints here, under everything else (sky.js).
+            text.push_str(&crate::sky::canvas_markup(
+                (r.width as f64 / 1000.0).round().max(1.0) as u32,
+                (r.height as f64 / 1000.0).round().max(1.0) as u32,
+            ));
+        }
         if o.draw[i].is_some() {
             // The GVI painter draws the precomputed state here (gvi.js).
             text.push_str(&format!(
@@ -216,12 +256,20 @@ pub fn index_html(o: &Ontology, app: &AppInfo, host_script: Option<&str>) -> Str
         }
     }
     debug_assert!(open.is_empty(), "every drift wrapper closes inside the frame");
+    let runtime_scripts = [
+        (!o.graphics.is_empty()).then_some("<script src=\"gvi.js\"></script>\n"),
+        o.sky.is_some().then_some("<script src=\"sky.js\"></script>\n"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<String>();
     format!(
-        "<!DOCTYPE html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n<title>{}</title>\n<link rel=\"stylesheet\" href=\"app.css\">\n</head>\n<body>\n<div id=\"ontology\">\n{body}{}</div>\n<div id=\"arachnid-live\" class=\"sr\" role=\"status\" aria-live=\"polite\"></div>\n{}<script src=\"app.js\"></script>\n{}</body>\n</html>\n",
+        "<!DOCTYPE html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n<title>{}</title>\n<link rel=\"stylesheet\" href=\"app.css\">\n{}</head>\n<body>\n<div id=\"ontology\">\n{body}{}</div>\n<div id=\"arachnid-live\" class=\"sr\" role=\"status\" aria-live=\"polite\"></div>\n{}<script src=\"app.js\"></script>\n{}</body>\n</html>\n",
         html_escape(&app.title),
+        if content_rules.is_empty() { String::new() } else { format!("<style>{content_rules}</style>\n") },
         crate::splash::markup(),
-        if o.graphics.is_empty() { "" } else { "<script src=\"gvi.js\"></script>\n" },
-        host_script.map_or(String::new(), |h| format!("<script src=\"{}\"></script>\n", html_escape(h)))
+        runtime_scripts,
+        host_scripts.iter().map(|h| format!("<script src=\"{}\"></script>\n", html_escape(h))).collect::<String>()
     )
 }
 
@@ -236,6 +284,7 @@ pub fn app_css() -> String {
          .i{{position:absolute;left:0;top:0;width:100%;height:100%;object-fit:contain}}\n\
          .n.z{{z-index:0}}\n\
          .gv{{position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none}}\n\
+         .sky,.sky-lights,.sky-clouds,.sky-hills{{position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none}}\n\
          .sr{{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}}\n\
          .g{{position:absolute;left:0;top:0;width:100%;height:100%;z-index:-1;opacity:0;pointer-events:none;will-change:opacity;animation:breathe 1s ease-in-out infinite alternate}}\n\
          @keyframes breathe{{from{{opacity:0}}to{{opacity:1}}}}\n\
@@ -472,8 +521,23 @@ fn tables_js(o: &Ontology) -> String {
                         .iter()
                         .filter(|r| &r.dimension == name)
                         .map(|r| {
+                            let when = r.when.as_ref().map_or("null".into(), cond_js);
+                            if r.dealt {
+                                // [cond, -1, value index per colour, enclosing button]
+                                let idx: Vec<String> = goya_lang::graphic::DEALT_VALUES
+                                    .iter()
+                                    .map(|c| labels.iter().position(|l| l == c).unwrap_or(0).to_string())
+                                    .collect();
+                                let button = o
+                                    .actionable
+                                    .iter()
+                                    .filter(|a| a.node <= i && i < o.motion.subtree_end[a.node])
+                                    .max_by_key(|a| a.node)
+                                    .map_or(-1, |a| a.focus_id as i64);
+                                return format!("[{when},-1,[{}],{button}]", idx.join(","));
+                            }
                             let v = labels.iter().position(|l| *l == r.value).unwrap_or(0);
-                            format!("[{},{v}]", r.when.as_ref().map_or("null".into(), cond_js))
+                            format!("[{when},{v}]")
                         })
                         .collect();
                     format!("[{}]", rules.join(","))
@@ -482,8 +546,22 @@ fn tables_js(o: &Ontology) -> String {
             Some(format!("\"{i}\":{{g:{},dims:[{}]}}", js(&d.graphic), dims.join(",")))
         })
         .collect();
+    // Colour groups: focus id -> [key code (0: dealt), condition or null].
+    let groups: Vec<String> = o
+        .actionable
+        .iter()
+        .filter_map(|a| {
+            let g = o.colour_group[a.node].as_ref()?;
+            Some(format!(
+                "\"{}\":[{},{}]",
+                a.focus_id,
+                g.colour.map_or(0, crate::remote::colour_code),
+                g.when.as_ref().map_or("null".into(), cond_js)
+            ))
+        })
+        .collect();
     format!(
-        "  var NODE_COND = {{{}}};\n  var CONFIGS = {{{}}};\n  var NODE_OF = [{}];\n  var STATE = {{{}}};\n  var TYPES = {{{}}};\n  var HOST = {{{}}};\n  var INTERACTIONS = {{{}}};\n  var SLOTS = [{}];\n  var SLOT_OF = [{}];\n  var DURABLE = {{{}}};\n  var STORE_KEY = {};\n  var DISPLAYS = [{}];\n  var GRAPHICS = {{{}}};\n  var DRAWS = {{{}}};\n",
+        "  var NODE_COND = {{{}}};\n  var CONFIGS = {{{}}};\n  var NODE_OF = [{}];\n  var STATE = {{{}}};\n  var TYPES = {{{}}};\n  var HOST = {{{}}};\n  var INTERACTIONS = {{{}}};\n  var SLOTS = [{}];\n  var SLOT_OF = [{}];\n  var DURABLE = {{{}}};\n  var STORE_KEY = {};\n  var DISPLAYS = [{}];\n  var GRAPHICS = {{{}}};\n  var DRAWS = {{{}}};\n  var GROUPS = {{{}}};\n",
         conds.join(","),
         configs.join(","),
         node_of.join(","),
@@ -497,7 +575,8 @@ fn tables_js(o: &Ontology) -> String {
         store,
         displays.join(","),
         graphics.join(",\n    "),
-        draws.join(",\n    ")
+        draws.join(",\n    "),
+        groups.join(",")
     )
 }
 
@@ -670,11 +749,37 @@ pub fn app_js(o: &Ontology) -> String {
      the chosen value, one per step; otherwise it changes at once. */
   function holds(c) {{ var v = STATE[c[0]]; return c[1] === "ge" ? typeof v === "number" && v >= c[2] : v === c[2]; }}
   function choose(d) {{
-    var out = [];
+    var out = [], dealt = null;
     for (var k = 0; k < d.dims.length; k++) {{
       var rules = d.dims[k];
-      for (var r = 0; r < rules.length; r++) if (!rules[r][0] || holds(rules[r][0])) {{ out.push(rules[r][1]); break; }}
+      for (var r = 0; r < rules.length; r++) {{
+        if (rules[r][0] && !holds(rules[r][0])) continue;
+        if (rules[r][1] === -1) {{
+          if (dealt === null) dealt = dealColours();
+          var code = dealt[rules[r][3]];
+          if (code === undefined) continue;
+          out.push(rules[r][2][code - 403]);
+          break;
+        }}
+        out.push(rules[r][1]);
+        break;
+      }}
     }}
+    return out;
+  }}
+  /* colour-group: deal. Red, green, yellow and blue go, in draw order, to
+     the present dealing members whose condition holds; the rest get none.
+     Returns focus id -> key code. */
+  function dealColours() {{
+    var ids = [], out = {{}};
+    for (var gid in GROUPS) {{
+      if (!GROUPS.hasOwnProperty(gid) || GROUPS[gid][0] !== 0) continue;
+      var id = Number(gid);
+      if (!presentNode(NODE_OF[id]) || (GROUPS[gid][1] !== null && !holds(GROUPS[gid][1]))) continue;
+      ids.push(id);
+    }}
+    ids.sort(function (a, b) {{ return a - b; }});
+    for (var i = 0; i < ids.length && i < 4; i++) out[ids[i]] = 403 + i;
     return out;
   }}
   function same(a, b) {{ for (var i = 0; i < a.length; i++) if (a[i] !== b[i]) return false; return true; }}
@@ -816,7 +921,8 @@ pub fn app_js(o: &Ontology) -> String {
     var pre = snapshot(), results = {{}}, i = 0;
     function next() {{
       if (i >= it.requests.length) return Promise.resolve();
-      var r = it.requests[i++], fn = providers[r[1]];
+      /* A provider may serve only requests whose first word names it. */
+      var r = it.requests[i++], fn = providers[r[1] + " " + r[2].split(" ")[0]] || providers[r[1]];
       if (!fn) return Promise.reject(new Error("no host provides " + r[1]));
       return Promise.resolve(fn(r[2])).then(function (v) {{
         var ok = r[3] === "int" ? typeof v === "number" && v % 1 === 0 && v <= MAX && v >= -MAX
@@ -873,6 +979,38 @@ pub fn app_js(o: &Ontology) -> String {
         return;
       }}
     }}
+    /* A colour key activates the present button that claims it. Otherwise
+       it moves focus to the next present member of its colour group (in
+       draw order, wrapping) whose condition holds, activating nothing.
+       With neither, it is left to the platform. */
+    if (!splashOn && k >= 403 && k <= 406 && !e.repeat) {{
+      var claimed = document.querySelectorAll("[data-remote-colour=\"" + k + "\"]");
+      for (var c = 0; c < claimed.length; c++) {{
+        var cid = Number(claimed[c].getAttribute("data-focus"));
+        if (!presentNode(NODE_OF[cid])) continue;
+        e.preventDefault();
+        pointerMode = false;
+        focus(SLOT_OF[cid]);
+        activate(SLOT_OF[cid], "colour");
+        return;
+      }}
+      var members = [], dealt = dealColours();
+      for (var did in dealt) if (dealt.hasOwnProperty(did) && dealt[did] === k) members.push(Number(did));
+      for (var gid in GROUPS) {{
+        if (!GROUPS.hasOwnProperty(gid) || GROUPS[gid][0] !== k) continue;
+        var mid = Number(gid);
+        if (!presentNode(NODE_OF[mid]) || (GROUPS[gid][1] !== null && !holds(GROUPS[gid][1]))) continue;
+        members.push(mid);
+      }}
+      if (members.length) {{
+        members.sort(function (a, b) {{ return a - b; }});
+        e.preventDefault();
+        pointerMode = false;
+        var at = current === null ? -1 : members.indexOf(member(current));
+        focus(SLOT_OF[members[(at + 1) % members.length]]);
+      }}
+      return;
+    }}
     if (SLOT.hasOwnProperty(k)) {{
       e.preventDefault();
       pointerMode = false;
@@ -924,9 +1062,9 @@ pub fn app_js(o: &Ontology) -> String {
       STATE[key] = value;
       render();
     }},
-    provide: function (label, fn) {{
+    provide: function (label, fn, route) {{
       if (typeof fn !== "function") throw new Error("provider for " + label + " must be a function");
-      providers[label] = fn;
+      providers[route ? label + " " + route : label] = fn;
     }},
     setImage: function (key, blob, handle) {{
       if (!HOST[key] || TYPES[key] !== "text") throw new Error(key + " is not a host text key");

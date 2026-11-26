@@ -315,6 +315,19 @@ pub struct LinkDecl {
     pub range: SourceRange,
 }
 
+/// `@apps name { id: "..."; app NAME: "platform.app.id"; ... }` (live
+/// profiles, proposed): the other applications a scene may open. The
+/// scene names each one; the target supplies the platform service. D2
+/// `network` requests `NAME launch APP` are addressed to it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AppsDecl {
+    pub name: String,
+    pub authored_id: Option<String>,
+    /// (scene name, platform application id) in source order.
+    pub apps: Vec<(String, String)>,
+    pub range: SourceRange,
+}
+
 /// Roles a `@link` may bind, with the type the key must have.
 pub const LINK_ROLES: &[(&str, InteractionType)] = &[
     ("status", InteractionType::Int),
@@ -346,6 +359,8 @@ pub struct Declarations {
     pub platform_exceptions: Vec<PlatformException>,
     /// `@link` declarations (live profiles only).
     pub links: Vec<LinkDecl>,
+    /// `@apps` declarations (live profiles only).
+    pub apps: Vec<AppsDecl>,
     /// `@graphic` declarations (live profiles only).
     pub graphics: Vec<crate::graphic::GraphicDecl>,
 }
@@ -436,6 +451,7 @@ pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
         state_uses: Vec::new(),
         input_keys: Vec::new(),
         links: Vec::new(),
+        apps: Vec::new(),
         graphics: Vec::new(),
     };
     p.expect_at_word("ontology")?;
@@ -583,6 +599,7 @@ pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
             persistence_migration: p.persistence_migration,
             platform_exceptions: p.platform_exceptions,
             links: p.links,
+            apps: p.apps,
             graphics: p.graphics,
         },
     })
@@ -640,6 +657,9 @@ const LIVE_PROPERTIES: &[&str] = &[
     "text_from",
     "image_from",
     "remote_digit",
+    "remote_colour",
+    "colour_group",
+    "sky",
     "present_when",
     "fill_to",
     "fill_period_s",
@@ -904,6 +924,47 @@ fn validate_live(
                 property_range(path, "remote_digit"),
             ));
         }
+        if cell.remote_colour.is_some() && cell.kind != CellKind::Button {
+            return Err(bad(
+                format!("remote-colour belongs on a @button, not on {}", cell.name),
+                property_range(path, "remote_colour"),
+            ));
+        }
+        if let Some(group) = &cell.colour_group {
+            if cell.kind != CellKind::Button {
+                return Err(bad(
+                    format!("colour-group belongs on a @button, not on {}", cell.name),
+                    property_range(path, "colour_group"),
+                ));
+            }
+            if cell.remote_colour.is_some() {
+                return Err(bad(
+                    format!("{} cannot both claim a colour key and join a colour group", cell.name),
+                    property_range(path, "colour_group"),
+                ));
+            }
+            if let Some(c) = &group.when {
+                let literal_type = match c.value {
+                    InteractionValue::Int(_) => InteractionType::Int,
+                    InteractionValue::Text(_) => InteractionType::Text,
+                    InteractionValue::Bool(_) => InteractionType::Bool,
+                };
+                let typed = find(&c.key).is_some_and(|d| d.value_type == literal_type);
+                if !typed || (c.op == crate::scene::ConditionOp::AtLeast && literal_type != InteractionType::Int) {
+                    return Err(bad(
+                        format!("colour-group of {} compares '{}' with a literal of another type or an undeclared key", cell.name, c.key),
+                        property_range(path, "colour_group"),
+                    ));
+                }
+                bound_keys.insert(c.key.clone());
+            }
+        }
+        if cell.sky.is_some() && (cell.kind != CellKind::Cell || cell.image_from.is_some() || cell.draw.is_some()) {
+            return Err(bad(
+                format!("sky belongs on a plain @cell without image-from or @draw, not on {}", cell.name),
+                property_range(path, "sky"),
+            ));
+        }
         if let Some(key) = &cell.image_from {
             match find(key) {
                 Some(d)
@@ -1043,8 +1104,8 @@ fn validate_live(
                 range,
             ));
         }
-        if link.slots.is_empty() {
-            return Err(bad(format!("link {} declares no slot", link.name), range));
+        if link.slots.is_empty() && link.fields.is_empty() {
+            return Err(bad(format!("link {} declares no slot or field", link.name), range));
         }
         let mut bound: Vec<(&str, &str, InteractionType)> = Vec::new();
         for (role, key) in &link.roles {
@@ -1137,8 +1198,9 @@ fn validate_live(
 }
 
 /// Live constructs beyond `text-from` that only some consumers render:
-/// `host` state, `@link`, and the live properties other than `text-from`
-/// (`image-from`, `present-when`, `remote-digit`, motion). Shared admission
+/// `host` state, `@link`, `@apps`, and the live properties other than
+/// `text-from` (`image-from`, `present-when`, `remote-digit`,
+/// `remote-colour`, motion). Shared admission
 /// accepts them in the live profiles; a target that does not implement them
 /// calls this and refuses the first one, so nothing is silently dropped.
 /// Returns a description and the construct's source range.
@@ -1155,7 +1217,7 @@ pub fn extended_live_construct(parsed: &ParsedScene) -> Option<(String, SourceRa
     parsed.entries.iter().find_map(|entry| {
         let canonical = entry.name.replace('-', "_");
         let extended = match entry.kind.as_str() {
-            "link" | "graphic" | "draw" => true,
+            "link" | "apps" | "graphic" | "draw" => true,
             "property" => canonical != "text_from" && LIVE_PROPERTIES.contains(&canonical.as_str()),
             _ => false,
         };
@@ -1193,7 +1255,7 @@ fn strict(source: &str, profile: Profile) -> Result<ParsedScene, StrictParseErro
             {
                 Some("GY-E1012")
             }
-            "link" | "graphic" | "draw" if !profile.live() => Some("GY-E1012"),
+            "link" | "apps" | "graphic" | "draw" if !profile.live() => Some("GY-E1012"),
             // Intent declarations are Quitasol phase-0 experimental surface.
             // No strict GSSH consumer implements them, so none may admit one.
             "intent" => Some("GY-E1010"),
@@ -1590,6 +1652,11 @@ fn is_known_property(name: &str) -> bool {
             | "text_from"
             | "remote-digit"
             | "remote_digit"
+            | "remote-colour"
+            | "remote_colour"
+            | "colour-group"
+            | "colour_group"
+            | "sky"
             | "image-from"
             | "image_from"
             | "present-when"
@@ -1677,6 +1744,7 @@ struct P {
     state_uses: Vec<KeyUse>,
     input_keys: Vec<KeyUse>,
     links: Vec<LinkDecl>,
+    apps: Vec<AppsDecl>,
     graphics: Vec<crate::graphic::GraphicDecl>,
 }
 
@@ -1794,6 +1862,9 @@ impl P {
             text_from: None,
             image_from: None,
             remote_digit: None,
+            remote_colour: None,
+            colour_group: None,
+            sky: None,
             present_when: None,
             fill_to: None,
             fill_period_s: None,
@@ -1946,6 +2017,27 @@ impl P {
                                 source_digest: [0; 32],
                             });
                             self.links.push(link);
+                        }
+                        "apps" => {
+                            if self.depth != 1 {
+                                return Err(self.err_prev());
+                            }
+                            let name = self.expect_ident()?;
+                            let mut apps = self.parse_apps(name)?;
+                            let range = SourceRange {
+                                start: tok.byte_start,
+                                end: self.tokens[self.i - 1].byte_end,
+                            };
+                            apps.range = range;
+                            self.entries.push(SourceEntry {
+                                kind: "apps".into(),
+                                name: apps.name.clone(),
+                                scene_path: None,
+                                semantic_id: apps.authored_id.clone(),
+                                range,
+                                source_digest: [0; 32],
+                            });
+                            self.apps.push(apps);
                         }
                         "platform" => {
                             if self.depth != 1 {
@@ -2908,6 +3000,37 @@ impl P {
                 }
                 cell.remote_digit = Some(bytes[0] - b'0');
             }
+            "remote-colour" | "remote_colour" => {
+                let word = self.expect_ident()?;
+                match crate::scene::RemoteColour::parse(&word) {
+                    Some(c) if cell.remote_colour.is_none() => cell.remote_colour = Some(c),
+                    _ => return Err(self.err_prev()),
+                }
+            }
+            "colour-group" | "colour_group" => {
+                let word = self.expect_ident()?;
+                if cell.colour_group.is_some() {
+                    return Err(self.err_prev());
+                }
+                let colour = match word.as_str() {
+                    "deal" => None,
+                    w => Some(crate::scene::RemoteColour::parse(w).ok_or_else(|| self.err_prev())?),
+                };
+                let when = match self.peek() {
+                    Some(t) if t.kind == TokenKind::Ident && t.text == "when" => {
+                        self.bump();
+                        Some(self.parse_condition()?)
+                    }
+                    _ => None,
+                };
+                cell.colour_group = Some(crate::scene::ColourGroup { colour, when });
+            }
+            "sky" => {
+                if cell.sky.is_some() || self.expect_ident()? != "local" {
+                    return Err(self.err_prev());
+                }
+                cell.sky = Some(crate::scene::Sky::Local);
+            }
             "image-from" | "image_from" => cell.image_from = Some(self.parse_state_ref()?),
             "present-when" | "present_when" => {
                 cell.present_when = Some(self.parse_condition()?);
@@ -3028,6 +3151,39 @@ impl P {
         }
         self.expect(TokenKind::RBrace)?;
         Ok(link)
+    }
+
+    fn parse_apps(&mut self, name: String) -> Result<AppsDecl, ParseError> {
+        self.expect(TokenKind::LBrace)?;
+        let mut decl = AppsDecl {
+            name,
+            authored_id: None,
+            apps: Vec::new(),
+            range: SourceRange { start: 0, end: 0 },
+        };
+        while !matches!(self.peek().map(|t| t.kind), Some(TokenKind::RBrace)) {
+            let key = self.expect_ident()?;
+            if key == "app" {
+                let app = self.expect_ident()?;
+                self.expect(TokenKind::Colon)?;
+                let id = self.expect(TokenKind::Str)?.text;
+                if id.is_empty() || decl.apps.iter().any(|(n, _)| *n == app) {
+                    return Err(self.err_prev());
+                }
+                decl.apps.push((app, id));
+            } else if key == "id" && decl.authored_id.is_none() {
+                self.expect(TokenKind::Colon)?;
+                decl.authored_id = Some(self.expect(TokenKind::Str)?.text);
+            } else {
+                return Err(self.err_prev());
+            }
+            self.optional_semi();
+        }
+        self.expect(TokenKind::RBrace)?;
+        if decl.apps.is_empty() {
+            return Err(self.err_prev());
+        }
+        Ok(decl)
     }
 
     /// `state.<key> is <literal>` or `state.<key> at-least <int>`.
@@ -3287,7 +3443,15 @@ impl P {
         while !matches!(self.peek().map(|t| t.kind), Some(TokenKind::RBrace)) {
             let dimension = self.expect_ident()?;
             self.expect(TokenKind::Colon)?;
-            let value = self.expect(TokenKind::Str)?.text;
+            // `dealt`: the colour dealt to the enclosing `colour-group: deal`
+            // button, if it has one.
+            let (value, dealt) = match self.peek().map(|t| t.kind) {
+                Some(TokenKind::Ident) if self.peek().is_some_and(|t| t.text == "dealt") => {
+                    self.bump();
+                    (String::new(), true)
+                }
+                _ => (self.expect(TokenKind::Str)?.text, false),
+            };
             let when = if self
                 .peek()
                 .is_some_and(|t| t.kind == TokenKind::Ident && t.text == "when")
@@ -3302,6 +3466,7 @@ impl P {
                 dimension,
                 value,
                 when,
+                dealt,
             });
         }
         self.expect(TokenKind::RBrace)?;
@@ -3584,6 +3749,21 @@ mod live_tests {
     }
 
     #[test]
+    fn dashboard_links_bind_fields_without_media_slots() {
+        let src = r#"@ontology dashboard {
+          @state { cpu: int = 0 host; }
+          @cell root { id: "root"; text-from: state.cpu; }
+          @link peer { id: "link.peer"; protocol: "goya.lanlink/0";
+            endpoint: "http://127.0.0.1:8780"; field cpu: state.cpu; act refresh; }
+        }"#;
+        let parsed = parse_strict_gssh3_live(src).unwrap();
+        assert!(parsed.declarations.links[0].slots.is_empty());
+        assert_eq!(parsed.declarations.links[0].fields.len(), 1);
+        assert!(parse_strict_gssh3_live(&src.replace("field cpu: state.cpu;", "")).is_err());
+        assert!(parse_strict_gssh3(src).is_err());
+    }
+
+    #[test]
     fn links_bind_host_state_with_one_writer_each() {
         let src = LIVE.replace(
             "  @interaction show",
@@ -3627,6 +3807,105 @@ mod live_tests {
             &src.replace("detail: state.link_text;", "colour: state.link_text;")
         )
         .is_err());
+    }
+
+    #[test]
+    fn colour_groups_and_sky_are_live_only_and_typed() {
+        let src = LIVE
+            .replace(
+                r#"@button open { id: "open";"#,
+                r#"@button open { id: "open"; colour-group: red when state.screen is 0;"#,
+            )
+            .replace(r#"@button back { id: "back";"#, r#"@button back { id: "back"; colour-group: blue;"#)
+            .replace(r#"@cell root { id: "root";"#, r#"@cell root { id: "root"; sky: local;"#);
+        let parsed = parse_strict_gssh3_live(&src).unwrap_or_else(|e| panic!("{e}"));
+        let open = parsed.scene.find_node("open").unwrap().colour_group.clone().unwrap();
+        assert_eq!(open.colour, Some(crate::scene::RemoteColour::Red));
+        assert_eq!(open.when.unwrap().key, "screen");
+        assert_eq!(parsed.scene.find_node("back").unwrap().colour_group.as_ref().unwrap().when, None);
+        assert_eq!(parsed.scene.root.sky, Some(crate::scene::Sky::Local));
+        // Groups are on buttons, typed, once, and exclusive with remote-colour.
+        let on_cell = src.replace(r#"@cell status { id: "status";"#, r#"@cell status { id: "status"; colour-group: green;"#);
+        assert_eq!(parse_strict_gssh3_live(&on_cell).unwrap_err().code, "GY-E1013");
+        let mistyped = src.replace("colour-group: red when state.screen is 0;", r#"colour-group: red when state.screen is "home";"#);
+        assert_eq!(parse_strict_gssh3_live(&mistyped).unwrap_err().code, "GY-E1013");
+        let undeclared = src.replace("when state.screen is 0", "when state.nothing is 0");
+        assert_eq!(parse_strict_gssh3_live(&undeclared).unwrap_err().code, "GY-E1013");
+        assert!(parse_strict_gssh3_live(&src.replace("colour-group: blue;", "colour-group: blue; colour-group: red;")).is_err());
+        assert!(parse_strict_gssh3_live(&src.replace("colour-group: blue;", "colour-group: purple;")).is_err());
+        let both = src.replace("colour-group: blue;", "colour-group: blue; remote-colour: blue;");
+        assert_eq!(parse_strict_gssh3_live(&both).unwrap_err().code, "GY-E1013");
+        // Sky: only `local`, once, on a plain cell.
+        assert!(parse_strict_gssh3_live(&src.replace("sky: local;", "sky: noon;")).is_err());
+        assert!(parse_strict_gssh3_live(&src.replace("sky: local;", "sky: local; sky: local;")).is_err());
+        let on_button = src.replace("colour-group: blue;", "colour-group: blue; sky: local;");
+        assert_eq!(parse_strict_gssh3_live(&on_button).unwrap_err().code, "GY-E1013");
+        // Approved profiles refuse both rather than drop them, and consumers
+        // that do not lower them see them as extended live constructs.
+        assert_eq!(parse_strict_gssh3(&src).unwrap_err().code, "GY-E1012");
+        assert!(LIVE_PROPERTIES.contains(&"colour_group") && LIVE_PROPERTIES.contains(&"sky"));
+        // `deal`, and a @draw inside the button showing the dealt colour.
+        let dealt = src
+            .replace("colour-group: blue;", "colour-group: deal;")
+            .replace(
+                "  @interaction show",
+                r#"  @graphic chip { id: "graphic.chip"; canvas: (10, 4); @shape red { rect: (0, 0, 10, 4); fill: #ff0000; } @dimension hue { @value red { } @value green { } @value yellow { } @value blue { } @value none { hide: red; } } }
+      @interaction show"#,
+            )
+            .replace(
+                r#"text: "Back"; }"#,
+                r#"text: "Back"; @cell chip { id: "back.chip"; position_p: (0, 0, 0); extent_p: (0.2, 0.2, 0); @draw chip { hue: dealt; hue: "none"; } } }"#,
+            );
+        let parsed = parse_strict_gssh3_live(&dealt).unwrap_or_else(|e| panic!("{e}"));
+        assert!(parsed.scene.find_node("back").unwrap().colour_group.as_ref().unwrap().dealt());
+        let rule = &parsed.scene.find_node("chip").unwrap().draw.as_ref().unwrap().rules[0];
+        assert!(rule.dealt && rule.value.is_empty());
+        // dealt is never final, needs the four colours, and needs a dealing button.
+        assert!(parse_strict_gssh3_live(&dealt.replace(r#"hue: dealt; hue: "none";"#, "hue: dealt;")).is_err());
+        assert!(parse_strict_gssh3_live(&dealt.replace("@value yellow { } ", "")).is_err());
+        assert!(parse_strict_gssh3_live(&dealt.replace("colour-group: deal;", "colour-group: blue;")).is_err());
+        assert!(parsed.entries.iter().any(|e| e.kind == "property" && e.name == "sky"));
+    }
+
+    #[test]
+    fn colour_keys_and_apps_are_live_only() {
+        let src = LIVE
+            .replace(r#"@button back { id: "back";"#, r#"@button back { id: "back"; remote-colour: red;"#)
+            .replace(
+                "  @interaction show",
+                r#"  @apps tv { id: "apps.tv"; app browser: "com.webos.app.browser"; app pairs: "com.goya.arachnid.pairs"; }
+      @interaction show"#,
+            );
+        let parsed = parse_strict_gssh3_live(&src).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(
+            parsed.scene.find_node("back").unwrap().remote_colour,
+            Some(crate::scene::RemoteColour::Red)
+        );
+        let apps = &parsed.declarations.apps[0];
+        assert_eq!(apps.name, "tv");
+        assert_eq!(apps.authored_id.as_deref(), Some("apps.tv"));
+        assert_eq!(apps.apps[1], ("pairs".to_string(), "com.goya.arachnid.pairs".to_string()));
+        assert!(parsed.entries.iter().any(|e| e.kind == "apps" && e.name == "tv"));
+        // Only the four colours, once, on buttons; apps need at least one
+        // entry and unique names.
+        assert!(parse_strict_gssh3_live(&src.replace("remote-colour: red", "remote-colour: purple")).is_err());
+        assert!(parse_strict_gssh3_live(&src.replace("remote-colour: red;", "remote-colour: red; remote-colour: blue;")).is_err());
+        let on_cell = src.replace(
+            r#"@cell status { id: "status";"#,
+            r#"@cell status { id: "status"; remote-colour: blue;"#,
+        );
+        assert_eq!(parse_strict_gssh3_live(&on_cell).unwrap_err().code, "GY-E1013");
+        assert!(parse_strict_gssh3_live(&src.replace(r#"app pairs: "com.goya.arachnid.pairs";"#, r#"app browser: "x";"#)).is_err());
+        assert!(parse_strict_gssh3_live(&src.replace(r#"app browser: "com.webos.app.browser";"#, r#"app browser: "";"#)).is_err());
+        // Approved profiles refuse both rather than drop them.
+        assert_eq!(parse_strict_gssh3(&src).unwrap_err().code, "GY-E1012");
+        let apps_only = LIVE.replace(
+            "  @interaction show",
+            r#"  @apps tv { app browser: "com.webos.app.browser"; }
+      @interaction show"#,
+        );
+        assert!(parse_strict_gssh3_live(&apps_only).is_ok());
+        assert_eq!(parse_strict_gssh3(&apps_only).unwrap_err().code, "GY-E1012");
     }
 
     #[test]

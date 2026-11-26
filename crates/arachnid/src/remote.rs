@@ -14,6 +14,11 @@
 //! * Back never reached the page. The platform closed the app, and the
 //!   next launch was a fresh load.
 //!
+//! Observed on the same TV with `examples/luna_probe.rs` (26 November
+//! 2026): Red, Green, Yellow and Blue arrive as `keydown`/`keyup` 403–406
+//! with `key` = `Unidentified`; a held key repeats (`repeat` set), which
+//! the runtime ignores.
+//!
 //! The compile-time half is [`press_counts`]: for every actionable element,
 //! how many arrow presses it takes to reach it from the initial focus, and
 //! how many to get back. These are reported, not judged, because there is
@@ -33,6 +38,10 @@ pub enum Handling {
     Activate,
     /// Not handled; the default action is left to the platform.
     Platform,
+    /// A colour key: activates the present button that claims it with
+    /// `remote-colour` (default action prevented); otherwise left to the
+    /// platform.
+    Colour,
 }
 
 /// Where a key fact comes from.
@@ -94,35 +103,46 @@ pub const KEYS: &[Key] = &[
     Key {
         code: 403,
         name: "Red",
-        handling: Handling::Platform,
-        evidence: Evidence::Documented,
+        handling: Handling::Colour,
+        evidence: Evidence::Observed,
     },
     Key {
         code: 404,
         name: "Green",
-        handling: Handling::Platform,
-        evidence: Evidence::Documented,
+        handling: Handling::Colour,
+        evidence: Evidence::Observed,
     },
     Key {
         code: 405,
         name: "Yellow",
-        handling: Handling::Platform,
-        evidence: Evidence::Documented,
+        handling: Handling::Colour,
+        evidence: Evidence::Observed,
     },
     Key {
         code: 406,
         name: "Blue",
-        handling: Handling::Platform,
-        evidence: Evidence::Documented,
+        handling: Handling::Colour,
+        evidence: Evidence::Observed,
     },
 ];
 
-/// Codes the runtime consumes, in table order.
+/// Codes the runtime always consumes, in table order. Colour keys are
+/// consumed only while a present button claims them.
 pub fn consumed_codes() -> Vec<u16> {
     KEYS.iter()
-        .filter(|k| k.handling != Handling::Platform)
+        .filter(|k| matches!(k.handling, Handling::Navigate | Handling::Activate))
         .map(|k| k.code)
         .collect()
+}
+
+/// The keyCode of a colour key (LG: Red/Green/Yellow/Blue are 403–406).
+pub fn colour_code(c: goya_lang::RemoteColour) -> u16 {
+    match c {
+        goya_lang::RemoteColour::Red => 403,
+        goya_lang::RemoteColour::Green => 404,
+        goya_lang::RemoteColour::Yellow => 405,
+        goya_lang::RemoteColour::Blue => 406,
+    }
 }
 
 /// Arrow-press distances over the compiled focus graph.
@@ -223,5 +243,18 @@ mod tests {
     #[test]
     fn runtime_consumes_only_five_way() {
         assert_eq!(consumed_codes(), vec![37, 38, 39, 40, 13]);
+    }
+
+    #[test]
+    fn colour_keys_follow_the_language_order() {
+        let codes: Vec<(u16, &str)> = goya_lang::RemoteColour::ALL
+            .iter()
+            .map(|c| (colour_code(*c), c.as_str()))
+            .collect();
+        assert_eq!(codes, vec![(403, "red"), (404, "green"), (405, "yellow"), (406, "blue")]);
+        assert!(KEYS
+            .iter()
+            .filter(|k| k.handling == Handling::Colour)
+            .all(|k| (403..=406).contains(&k.code) && k.evidence == Evidence::Observed));
     }
 }

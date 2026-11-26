@@ -383,7 +383,22 @@ profiles (GSSH/3-live and GSSH/4-live), as proposed constructs
   `remote-digit`, and the bounded motion properties `fill-to`, `drift-p`
   and `appear-s`;
 * `@graphic` / `@draw`, which declare a precomputed vector graphic and its
-  finite state model (`goya_lang::graphic`).
+  finite state model (`goya_lang::graphic`);
+* `remote-colour: red|green|yellow|blue;` on a `@button`, and
+  `@apps NAME { app APP: "platform.id"; … }`, whose D2 `network` request
+  `NAME launch APP` opens another application
+  ([launcher](../arachnid/launcher.md), Slice 1);
+* `colour-group: red|green|yellow|blue [when state.KEY is LITERAL];` on a
+  `@button` (`goya_lang::ColourGroup`).
+  * The colour key moves focus to the next present member of its group
+    whose condition holds, in draw order, wrapping. It activates nothing.
+  * The condition is typed like `present-when`, but it is evaluated when
+    the key is pressed and is not a presence condition, so it adds no
+    presence configurations.
+  * A button cannot both claim a key with `remote-colour` and join a group.
+* `sky: local;` on a plain `@cell` (`goya_lang::Sky`). The cell's
+  background is the sky over the device's time-zone location at its local
+  time. It is decoration: it reads the clock and writes no state.
 
 Every earlier profile refuses them with `GY-E1012`; invalid uses are
 `GY-E1013`. A target that does not implement one must refuse it at its

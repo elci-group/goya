@@ -29,6 +29,63 @@ pub enum Anchor {
     End,
 }
 
+/// A remote colour key a button claims with `remote-colour:` (live only).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum RemoteColour {
+    Red,
+    Green,
+    Yellow,
+    Blue,
+}
+
+impl RemoteColour {
+    pub const ALL: [RemoteColour; 4] = [Self::Red, Self::Green, Self::Yellow, Self::Blue];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Red => "red",
+            Self::Green => "green",
+            Self::Yellow => "yellow",
+            Self::Blue => "blue",
+        }
+    }
+
+    pub fn parse(word: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|c| c.as_str() == word)
+    }
+}
+
+/// `colour-group: red|green|yellow|blue|deal [when state.key is <literal>];`
+/// on a `@button` (live only). The colour key moves focus through the
+/// present members of its group in draw order, starting again from the
+/// first, and activates nothing. A member whose `when` condition fails is
+/// skipped.
+///
+/// `deal` (`colour: None`) makes the colours unique on every screen: the
+/// target deals red, green, yellow and blue, in draw order, to the present
+/// `deal` members whose condition holds; any after the fourth get no key.
+/// A `@draw` inside the button shows the dealt colour with a `dealt` rule.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ColourGroup {
+    pub colour: Option<RemoteColour>,
+    pub when: Option<Condition>,
+}
+
+impl ColourGroup {
+    pub fn dealt(&self) -> bool {
+        self.colour.is_none()
+    }
+}
+
+/// `sky: local;` on a `@cell` (live only): the cell's background is the
+/// sky over the device's time-zone location at its local time, drawn and
+/// updated by the target. It is decoration: it reads the clock but writes
+/// no state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sky {
+    Local,
+}
+
 /// A scene element: RUGID-style cell or button.
 #[derive(Debug, Clone)]
 pub struct SceneCell {
@@ -80,6 +137,13 @@ pub struct SceneCell {
     pub image_from: Option<String>,
     /// `remote-digit: N;` numeric remote shortcut on a button (live only).
     pub remote_digit: Option<u8>,
+    /// `remote-colour: red|green|yellow|blue;` colour-key shortcut on a
+    /// button (live only).
+    pub remote_colour: Option<RemoteColour>,
+    /// `colour-group:` membership (live only), see [`ColourGroup`].
+    pub colour_group: Option<ColourGroup>,
+    /// `sky:` live background (live only), see [`Sky`].
+    pub sky: Option<Sky>,
     /// `present-when: state.key is <literal>;` (or `at-least <int>`) makes
     /// the element and its subtree present only while the condition holds
     /// (live profiles only). Nested conditions conjoin.

@@ -21,6 +21,7 @@ mod lowering;
 mod parser;
 pub mod proportional;
 mod scene;
+pub mod svg_import;
 mod transition;
 
 pub use handoff::{SemanticHandoff, CONTRACT as SEMANTIC_HANDOFF_CONTRACT};
@@ -35,14 +36,14 @@ pub use lowering::{lower, LowerError, Lowered, NodeKey, NodeRecord, NodeTable, R
 pub use parser::{
     extended_live_construct, parse, parse_strict, parse_strict_gssh2, parse_strict_gssh3,
     parse_strict_gssh3_live, parse_strict_gssh4, parse_strict_gssh4_live, parse_with_source_map,
-    Declarations, InputBinding, KeyUse, LinkDecl, LinkSlot, Migration, MigrationRule, ParseError,
+    AppsDecl, Declarations, InputBinding, KeyUse, LinkDecl, LinkSlot, Migration, MigrationRule, ParseError,
     ParsedScene, PlatformException, PlatformUse, SourceEntry, SourceRange, StateDecl,
     StateLifetime, StrictParseError, LINK_ROLES, MAX_ANIMATION_PERIOD_S, MAX_APPEAR_FRACTION,
     MAX_APPEAR_S, MAX_DRIFT_FRACTION, MIN_ANIMATION_PERIOD_S, MIN_APPEAR_S,
 };
 pub use scene::{
     hit_test, hit_test_scrolled, layout, Anchor, CellKind, Condition, ConditionOp, DrawNode, Frame,
-    GestureDecision, GesturePolicy, Iden, IntentCategory, IntentDecl, RectMp, Scene, SceneCell,
+    GestureDecision, GesturePolicy, Iden, IntentCategory, IntentDecl, RectMp, RemoteColour, Scene, SceneCell, ColourGroup, Sky,
     ScrollOffsets, TransportClass, TypedSlot, Vec3,
 };
 pub use scene::{

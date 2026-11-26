@@ -1,0 +1,419 @@
+// Goya Launcher: a home screen for LG webOS TVs, written only in .gscene and
+// compiled by Arachnid (docs/arachnid/launcher.md, Slice 1).
+//
+// Profiles choose favourites. The four colour keys pick apps: on each
+// screen the first four included tiles are dealt red, green, yellow and
+// blue (colour-group: deal), each tile wears its colour, and the key jumps
+// to it. Settings includes or omits each app. Panels are on the channel bar.
+// The background is the live sky over the TV's time zone (sky: local); all
+// text sits on opaque cards, so contrast holds whatever the sky shows.
+// Applications open through @apps. The app ids below are LG's usual ids and
+// cannot be discovered on this TV: listApps and listLaunchPoints are denied.
+// Household pairs with bloom-tv (Slice 2). Broadcast and Activity remain
+// unconnected until their peer features exist.
+//
+// The logo is one @graphic: four channel squares around a home point. It
+// follows the open panel (the other squares dim), precomputed as GY-GVI/0.
+// Each app tile shows its logo, an @graphic converted from SVG with
+// `arachnid import-svg`, above (Favourites) or beside (Applications) its name.
+@ontology goya_launcher {
+  @persistence { cache_targets: { android: "android.preferences.v1"; linux: "linux.xdg-state.v1"; webos: "webos.local-storage.v1"; }; }
+  @state { screen: int = 0 session; profile: int = 0 durable; notice: text = "" session; link: int = 0 host; link_detail: text = "" host; pair_code: text = "" host; devices: int = 0 host; d1_name: text = "" host; d1_state: text = "" host; d1_cpu: int = -1 host; d1_wake: bool = false host; d2_name: text = "" host; d2_state: text = "" host; d2_cpu: int = -1 host; d2_wake: bool = false host; d3_name: text = "" host; d3_state: text = "" host; d3_cpu: int = -1 host; d3_wake: bool = false host; d4_name: text = "" host; d4_state: text = "" host; d4_cpu: int = -1 host; d4_wake: bool = false host; cc_youtube: bool = true durable; cc_netflix: bool = true durable; cc_prime: bool = true durable; cc_browser: bool = true durable; cc_livetv: bool = true durable; cc_pairs: bool = true durable; }
+  @graphic logo {
+    id: "graphic.logo";
+    canvas: (240, 240);
+    @shape tile { rect: (8, 8, 224, 224, 48); fill: #2b4c7e; }
+    @shape red { rect: (36, 36, 76, 76, 18); fill: #d64550; }
+    @shape green { rect: (128, 36, 76, 76, 18); fill: #2e9e4f; }
+    @shape yellow { rect: (36, 128, 76, 76, 18); fill: #e0a81e; }
+    @shape blue { rect: (128, 128, 76, 76, 18); fill: #4b6fd6; }
+    @shape home { ellipse: (120, 120, 14, 14); fill: #f4f1ea; stroke: #2b4c7e; stroke-width: 6; }
+    @dimension channel {
+      @value home { }
+      @value red { fade: green, yellow, blue 0.3; }
+      @value green { fade: red, yellow, blue 0.3; }
+      @value yellow { fade: red, green, blue 0.3; }
+      @value blue { fade: red, green, yellow 0.3; }
+    }
+  }
+  @link household { id: "link.household"; protocol: "goya.lanlink/0"; endpoint: "http://192.168.1.129:8780"; status: state.link; detail: state.link_detail; code: state.pair_code; act wake; act refresh; field devices: state.devices; field d1_name: state.d1_name; field d1_state: state.d1_state; field d1_cpu: state.d1_cpu; field d1_wake: state.d1_wake; field d2_name: state.d2_name; field d2_state: state.d2_state; field d2_cpu: state.d2_cpu; field d2_wake: state.d2_wake; field d3_name: state.d3_name; field d3_state: state.d3_state; field d3_cpu: state.d3_cpu; field d3_wake: state.d3_wake; field d4_name: state.d4_name; field d4_state: state.d4_state; field d4_cpu: state.d4_cpu; field d4_wake: state.d4_wake; }
+  @graphic cpu_gauge { id: "graphic.cpu"; canvas: (120, 24);
+    @shape b1 { rect: (0, 0, 26, 24, 4); fill: #2e9e4f; }
+    @shape b2 { rect: (30, 0, 26, 24, 4); fill: #2e9e4f; }
+    @shape b3 { rect: (60, 0, 26, 24, 4); fill: #2e9e4f; }
+    @shape b4 { rect: (90, 0, 26, 24, 4); fill: #2e9e4f; }
+    @dimension level {
+      @value unknown { fade: all 0.12; }
+      @value q0 { fade: b1, b2, b3, b4 0.18; }
+      @value q1 { fade: b2, b3, b4 0.18; }
+      @value q2 { fade: b3, b4 0.18; }
+      @value q3 { fade: b4 0.18; }
+      @value q4 { }
+    }
+  }
+  // App logos: 16:9 tiles converted from assets/app-logos by
+  // `arachnid import-svg` (see assets/app-logos/SOURCES.md).
+  @graphic logo_youtube {
+    id: "graphic.app.youtube";
+    canvas: (320, 180);
+    @shape tile { rect: (0, 0, 320, 180, 21); fill: #ffffff; }
+    @shape mark { path: "M 222.089 58.604 C 220.599 52.992 216.233 48.597 210.63 47.07 C 200.527 44.343 160 44.343 160 44.343 C 160 44.343 119.473 44.343 109.364 47.07 C 103.764 48.6 99.401 52.994 97.911 58.604 C 95.2 68.778 95.2 90 95.2 90 C 95.2 90 95.2 111.222 97.911 121.396 C 99.401 127.008 103.767 131.403 109.37 132.93 C 119.473 135.657 160 135.657 160 135.657 C 160 135.657 200.527 135.657 210.636 132.93 C 216.239 131.404 220.606 127.009 222.095 121.396 C 224.8 111.222 224.8 90 224.8 90 C 224.8 90 224.8 68.778 222.089 58.604 Z M 146.743 109.267 L 146.743 70.733 L 180.617 90 L 146.743 109.267 Z"; fill: #ff0000; }
+    @dimension look { @value plain { } }
+  }
+  @graphic logo_netflix {
+    id: "graphic.app.netflix";
+    canvas: (320, 180);
+    @shape tile { rect: (0, 0, 320, 180, 21); fill: #000000; }
+    @shape mark { path: "M 120.388 18 L 170.476 159.612 C 184.552 159.966 199.612 162 199.612 162 L 148.678 18 L 120.388 18 Z M 171.322 18 L 171.322 73.032 L 199.612 153.012 L 199.612 18 L 171.322 18 Z M 120.388 27 L 120.388 162 C 131.626 160.65 137.248 160.128 148.678 159.612 L 148.678 106.98 L 120.388 27 Z"; fill: #e50914; }
+    @dimension look { @value plain { } }
+  }
+  @graphic logo_prime {
+    id: "graphic.app.prime";
+    canvas: (320, 180);
+    @shape tile { rect: (0, 0, 320, 180, 21); fill: #1f2e3e; }
+    @shape mark { path: "M 84.4 74.3 C 84.4 74.03 84.463 73.84 84.576 73.733 C 84.69 73.626 84.873 73.576 85.118 73.576 L 87.191 73.576 C 87.632 73.576 87.897 73.79 87.991 74.212 L 88.193 74.962 C 88.766 74.408 89.465 73.96 90.272 73.639 C 91.063 73.312 91.91 73.143 92.766 73.141 C 94.619 73.141 96.093 73.828 97.176 75.195 C 98.254 76.562 98.796 78.408 98.796 80.739 C 98.796 82.339 98.531 83.732 97.995 84.929 C 97.454 86.126 96.729 87.039 95.809 87.682 C 94.884 88.331 93.777 88.67 92.647 88.652 C 91.859 88.652 91.116 88.526 90.41 88.274 C 89.744 88.051 89.128 87.7 88.596 87.241 L 88.596 93.56 C 88.596 93.83 88.545 94.019 88.438 94.127 C 88.331 94.227 88.149 94.284 87.871 94.284 L 85.125 94.284 C 84.873 94.284 84.696 94.227 84.583 94.127 C 84.463 94.019 84.406 93.83 84.406 93.56 Z M 91.412 76.316 C 90.42 76.317 89.446 76.587 88.596 77.098 L 88.596 84.695 C 89.442 85.217 90.418 85.488 91.412 85.477 C 92.483 85.477 93.277 85.111 93.781 84.38 C 94.291 83.643 94.543 82.49 94.543 80.915 C 94.543 79.315 94.291 78.15 93.8 77.419 C 93.296 76.688 92.502 76.323 91.412 76.323 Z M 105.574 75.768 C 106.337 74.924 107.061 74.319 107.742 73.967 C 108.411 73.612 109.158 73.429 109.915 73.431 L 110.312 73.431 C 110.583 73.431 110.772 73.488 110.892 73.589 C 111.005 73.696 111.062 73.885 111.062 74.156 L 111.062 76.581 C 111.062 76.833 111.011 77.009 110.904 77.129 C 110.797 77.243 110.614 77.299 110.343 77.299 C 110.171 77.298 109.999 77.29 109.827 77.274 C 109.019 77.213 108.207 77.266 107.414 77.432 C 106.784 77.558 106.242 77.715 105.801 77.91 L 105.801 87.612 C 105.801 87.864 105.751 88.047 105.644 88.16 C 105.543 88.274 105.354 88.337 105.083 88.337 L 102.33 88.337 C 102.078 88.337 101.895 88.274 101.782 88.16 C 101.668 88.047 101.605 87.864 101.605 87.612 L 101.605 74.3 C 101.605 74.03 101.668 73.84 101.782 73.733 C 101.895 73.626 102.078 73.576 102.33 73.576 L 104.396 73.576 C 104.837 73.576 105.102 73.79 105.203 74.206 Z M 115.188 71.295 C 114.548 71.326 113.921 71.109 113.437 70.69 C 112.986 70.263 112.744 69.66 112.775 69.04 C 112.775 68.347 112.996 67.799 113.437 67.402 C 113.92 66.98 114.547 66.761 115.188 66.791 C 115.919 66.791 116.499 66.992 116.94 67.396 C 117.381 67.799 117.601 68.347 117.601 69.04 C 117.63 69.66 117.389 70.262 116.94 70.69 C 116.455 71.109 115.828 71.326 115.188 71.295 Z M 113.09 74.3 C 113.09 74.03 113.153 73.84 113.26 73.733 C 113.38 73.626 113.563 73.576 113.808 73.576 L 116.568 73.576 C 116.839 73.576 117.021 73.626 117.129 73.733 C 117.236 73.841 117.286 74.03 117.286 74.3 L 117.286 87.612 C 117.286 87.864 117.236 88.047 117.129 88.16 C 117.021 88.274 116.839 88.337 116.562 88.337 L 113.808 88.337 C 113.556 88.337 113.38 88.274 113.26 88.16 C 113.147 88.047 113.09 87.864 113.09 87.612 Z M 124.663 74.993 C 125.678 74.319 126.591 73.84 127.404 73.563 C 128.223 73.28 129.061 73.141 129.924 73.141 C 131.644 73.141 132.86 73.759 133.572 74.993 C 134.548 74.338 135.462 73.859 136.331 73.576 C 137.194 73.286 138.082 73.141 139.002 73.141 C 140.344 73.141 141.377 73.519 142.121 74.269 C 142.858 75.025 143.223 76.071 143.223 77.419 L 143.223 87.612 C 143.223 87.864 143.173 88.047 143.066 88.16 C 142.959 88.28 142.776 88.33 142.505 88.33 L 139.746 88.33 C 139.493 88.33 139.317 88.28 139.204 88.16 C 139.09 88.047 139.027 87.864 139.027 87.612 L 139.027 78.345 C 139.027 77.035 138.448 76.379 137.276 76.379 C 136.243 76.379 135.197 76.631 134.145 77.129 L 134.145 87.612 C 134.145 87.864 134.094 88.047 133.987 88.16 C 133.88 88.28 133.698 88.331 133.42 88.331 L 130.667 88.331 C 130.415 88.331 130.239 88.28 130.125 88.16 C 130.006 88.047 129.949 87.864 129.949 87.612 L 129.949 78.345 C 129.949 77.035 129.363 76.379 128.198 76.379 C 127.127 76.379 126.074 76.631 125.035 77.154 L 125.035 87.612 C 125.035 87.864 124.985 88.047 124.877 88.16 C 124.77 88.28 124.588 88.331 124.317 88.331 L 121.557 88.331 C 121.312 88.331 121.129 88.28 121.016 88.16 C 120.902 88.047 120.845 87.864 120.845 87.612 L 120.845 74.3 C 120.845 74.03 120.902 73.84 121.016 73.733 C 121.129 73.626 121.312 73.576 121.557 73.576 L 123.63 73.576 C 124.071 73.576 124.336 73.79 124.436 74.212 Z M 152.301 82.301 C 151.345 82.316 150.39 82.21 149.46 81.986 C 149.574 83.272 149.964 84.191 150.626 84.758 C 151.287 85.313 152.283 85.59 153.624 85.59 C 154.16 85.59 154.683 85.558 155.193 85.489 C 155.962 85.371 156.724 85.207 157.474 84.998 C 157.522 84.99 157.57 84.985 157.619 84.985 C 157.946 84.985 158.11 85.206 158.11 85.647 L 158.11 86.976 C 158.11 87.285 158.066 87.499 157.984 87.625 C 157.852 87.783 157.677 87.899 157.48 87.959 C 156.056 88.502 154.544 88.775 153.02 88.765 C 150.645 88.765 148.824 88.116 147.551 86.8 C 146.272 85.496 145.636 83.618 145.636 81.174 C 145.636 78.666 146.291 76.701 147.589 75.283 C 148.893 73.853 150.701 73.141 153.02 73.141 C 154.803 73.141 156.195 73.576 157.203 74.439 C 158.209 75.303 158.766 76.579 158.715 77.904 C 158.715 79.353 158.167 80.443 157.089 81.18 C 156.006 81.93 154.412 82.295 152.301 82.295 Z M 152.705 76.064 C 150.865 76.064 149.807 77.198 149.517 79.466 C 150.285 79.624 151.136 79.7 152.075 79.7 C 153.051 79.7 153.757 79.548 154.198 79.252 C 154.639 78.956 154.859 78.496 154.859 77.879 C 154.859 76.663 154.141 76.058 152.705 76.058 Z M 171.277 88.324 C 171.117 88.33 170.956 88.306 170.805 88.255 C 170.681 88.207 170.572 88.126 170.49 88.022 C 170.388 87.885 170.307 87.735 170.25 87.575 L 165.355 74.723 C 165.304 74.591 165.256 74.459 165.21 74.326 C 165.175 74.224 165.156 74.118 165.153 74.011 C 165.153 73.714 165.342 73.57 165.727 73.57 L 168.587 73.57 C 168.896 73.57 169.116 73.633 169.261 73.746 C 169.406 73.859 169.513 74.055 169.589 74.326 L 172.537 84.544 L 175.542 74.326 C 175.589 74.103 175.703 73.901 175.87 73.746 C 176.015 73.633 176.235 73.576 176.544 73.576 L 179.316 73.576 C 179.7 73.576 179.889 73.715 179.889 74.004 C 179.887 74.112 179.868 74.218 179.832 74.319 L 179.694 74.729 L 174.799 87.575 C 174.739 87.733 174.656 87.881 174.553 88.015 C 174.476 88.119 174.374 88.201 174.257 88.255 C 174.099 88.307 173.932 88.328 173.765 88.318 Z M 184.003 71.295 C 183.364 71.325 182.739 71.106 182.258 70.684 C 181.811 70.26 181.569 69.662 181.596 69.046 C 181.596 68.353 181.817 67.799 182.258 67.396 C 182.74 66.976 183.365 66.76 184.003 66.791 C 184.728 66.791 185.307 66.992 185.748 67.396 C 186.189 67.799 186.403 68.347 186.403 69.04 C 186.403 69.733 186.189 70.281 185.748 70.684 C 185.267 71.106 184.642 71.325 184.003 71.295 Z M 182.63 88.324 C 182.378 88.324 182.201 88.261 182.088 88.148 C 181.968 88.034 181.911 87.852 181.911 87.6 L 181.911 74.294 C 181.911 74.023 181.974 73.841 182.088 73.727 C 182.201 73.626 182.384 73.576 182.63 73.576 L 185.376 73.576 C 185.641 73.576 185.83 73.626 185.937 73.733 C 186.038 73.841 186.088 74.023 186.088 74.3 L 186.088 87.6 C 186.088 87.852 186.038 88.041 185.937 88.148 C 185.83 88.268 185.641 88.324 185.37 88.324 Z M 194.902 88.639 C 193.75 88.666 192.619 88.329 191.67 87.675 C 190.728 86.999 189.998 86.068 189.566 84.991 C 189.057 83.731 188.809 82.381 188.835 81.023 C 188.835 78.628 189.402 76.726 190.524 75.289 C 191.576 73.891 193.241 73.09 194.99 73.141 C 196.407 73.111 197.79 73.57 198.909 74.439 L 198.909 67.685 C 198.909 67.415 198.972 67.226 199.079 67.118 C 199.192 67.018 199.375 66.961 199.627 66.961 L 202.374 66.961 C 202.638 66.961 202.821 67.018 202.928 67.118 C 203.035 67.226 203.086 67.415 203.086 67.685 L 203.086 87.6 C 203.086 87.852 203.035 88.041 202.928 88.148 C 202.821 88.268 202.638 88.324 202.374 88.324 L 200.081 88.324 C 199.893 88.336 199.707 88.285 199.551 88.179 C 199.409 88.05 199.314 87.877 199.281 87.688 L 199.11 87.026 C 197.968 88.087 196.46 88.665 194.902 88.639 Z M 196.275 85.464 C 197.213 85.458 198.129 85.178 198.909 84.658 L 198.909 77.035 C 198.046 76.543 197.066 76.295 196.074 76.316 C 195.066 76.316 194.31 76.694 193.818 77.45 C 193.314 78.213 193.075 79.366 193.075 80.903 C 193.075 82.446 193.333 83.587 193.856 84.343 C 194.385 85.092 195.192 85.464 196.275 85.464 Z M 212.58 82.251 C 211.515 82.251 210.595 82.15 209.808 81.936 C 209.921 83.202 210.299 84.11 210.942 84.658 C 211.591 85.206 212.561 85.477 213.871 85.477 C 214.394 85.477 214.905 85.445 215.396 85.376 C 216.148 85.261 216.893 85.101 217.626 84.897 C 217.672 84.889 217.718 84.885 217.765 84.884 C 218.08 84.884 218.237 85.105 218.237 85.533 L 218.237 86.837 C 218.237 87.14 218.193 87.354 218.111 87.474 C 217.984 87.627 217.816 87.741 217.626 87.801 C 216.239 88.334 214.765 88.603 213.279 88.595 C 210.967 88.595 209.184 87.953 207.949 86.667 C 206.708 85.382 206.084 83.543 206.084 81.149 C 206.084 78.692 206.715 76.77 207.987 75.371 C 209.26 73.973 211.024 73.274 213.279 73.274 C 215.018 73.274 216.379 73.702 217.355 74.552 C 218.337 75.401 218.88 76.651 218.829 77.948 C 218.829 79.366 218.3 80.437 217.248 81.161 C 216.19 81.886 214.634 82.251 212.586 82.251 Z M 212.977 76.14 C 211.181 76.14 210.142 77.249 209.865 79.479 C 210.614 79.63 211.44 79.706 212.359 79.706 C 213.304 79.706 213.997 79.555 214.432 79.265 C 214.86 78.975 215.075 78.528 215.075 77.923 C 215.075 76.726 214.375 76.134 212.977 76.134 Z M 228.361 88.759 C 226.093 88.759 224.317 88.066 223.038 86.693 C 221.759 85.319 221.123 83.398 221.123 80.934 C 221.123 78.49 221.759 76.581 223.038 75.201 C 224.317 73.828 226.093 73.141 228.361 73.141 C 230.629 73.141 232.406 73.828 233.685 75.201 C 234.964 76.581 235.6 78.49 235.6 80.934 C 235.6 83.391 234.964 85.319 233.685 86.693 C 232.406 88.066 230.629 88.759 228.361 88.759 Z M 228.361 85.521 C 230.365 85.521 231.366 83.996 231.366 80.934 C 231.366 77.891 230.358 76.373 228.361 76.373 C 226.358 76.373 225.356 77.891 225.356 80.934 C 225.356 83.996 226.364 85.521 228.361 85.521 Z M 185.244 97.403 C 187.796 95.475 191.191 94.832 194.001 94.832 C 196.635 94.832 198.764 95.399 199.217 95.998 C 200.162 97.258 198.972 105.977 194.335 110.135 C 193.629 110.777 192.949 110.431 193.264 109.587 C 194.31 106.802 196.641 100.54 195.532 99.022 C 194.429 97.497 188.237 98.297 185.452 98.656 C 185.024 98.707 184.778 98.53 184.746 98.272 L 184.746 98.127 C 184.772 97.9 184.935 97.636 185.244 97.403 Z M 121.085 96.319 C 121.13 95.986 121.417 95.739 121.753 95.746 C 121.923 95.746 122.112 95.802 122.313 95.922 C 134.031 103.197 147.543 107.063 161.336 107.086 C 170.912 107.086 181.433 104.944 191.109 100.515 C 192.571 99.853 193.793 101.548 192.369 102.695 C 183.732 109.562 171.208 113.216 160.428 113.216 C 145.327 113.216 131.719 107.193 121.425 97.169 C 121.248 97.009 121.128 96.794 121.085 96.558 Z"; fill: #ffffff; }
+    @dimension look { @value plain { } }
+  }
+  @graphic logo_browser {
+    id: "graphic.app.browser";
+    canvas: (320, 180);
+    @shape tile { rect: (0, 0, 320, 180, 21); fill: #4b6fd6; }
+    @shape mark { path: "M 183.544 100.8 C 183.976 97.236 184.3 93.672 184.3 90 C 184.3 86.328 183.976 82.764 183.544 79.2 L 201.796 79.2 C 202.66 82.656 203.2 86.274 203.2 90 C 203.2 93.726 202.66 97.344 201.796 100.8 M 173.986 130.824 C 177.226 124.83 179.71 118.35 181.438 111.6 L 197.368 111.6 C 192.184 120.51 183.922 127.422 173.986 130.824 M 172.636 100.8 L 147.364 100.8 C 146.824 97.236 146.5 93.672 146.5 90 C 146.5 86.328 146.824 82.71 147.364 79.2 L 172.636 79.2 C 173.122 82.71 173.5 86.328 173.5 90 C 173.5 93.672 173.122 97.236 172.636 100.8 M 160 132.984 C 155.518 126.504 151.9 119.322 149.686 111.6 L 170.314 111.6 C 168.1 119.322 164.482 126.504 160 132.984 M 138.4 68.4 L 122.632 68.4 C 127.762 59.436 136.078 52.524 145.96 49.176 C 142.72 55.17 140.29 61.65 138.4 68.4 M 122.632 111.6 L 138.4 111.6 C 140.29 118.35 142.72 124.83 145.96 130.824 C 136.078 127.422 127.762 120.51 122.632 111.6 M 118.204 100.8 C 117.34 97.344 116.8 93.726 116.8 90 C 116.8 86.274 117.34 82.656 118.204 79.2 L 136.456 79.2 C 136.024 82.764 135.7 86.328 135.7 90 C 135.7 93.672 136.024 97.236 136.456 100.8 M 160 46.962 C 164.482 53.442 168.1 60.678 170.314 68.4 L 149.686 68.4 C 151.9 60.678 155.518 53.442 160 46.962 M 197.368 68.4 L 181.438 68.4 C 179.71 61.65 177.226 55.17 173.986 49.176 C 183.922 52.578 192.184 59.436 197.368 68.4 M 160 36 C 130.138 36 106 60.3 106 90 C 106 119.823 130.177 144 160 144 C 189.823 144 214 119.823 214 90 C 214 60.177 189.823 36 160 36 Z"; fill: #ffffff; }
+    @dimension look { @value plain { } }
+  }
+  @graphic logo_livetv {
+    id: "graphic.app.livetv";
+    canvas: (320, 180);
+    @shape tile { rect: (0, 0, 320, 180, 21); fill: #d64550; }
+    @shape mark { path: "M 139.264 41.4 L 131.65 49.014 L 145.636 63 L 116.8 63 C 110.806 63 106 67.806 106 73.8 L 106 127.8 C 106 133.794 110.806 138.6 116.8 138.6 L 203.2 138.6 C 209.194 138.6 214 133.794 214 127.8 L 214 73.8 C 214 67.806 209.194 63 203.2 63 L 174.364 63 L 188.35 49.014 L 180.736 41.4 L 160 62.136 L 139.264 41.4 M 116.8 73.8 L 187 73.8 L 187 127.8 L 116.8 127.8 L 116.8 73.8 M 200.5 73.8 C 203.482 73.8 205.9 76.218 205.9 79.2 C 205.9 82.182 203.482 84.6 200.5 84.6 C 197.518 84.6 195.1 82.182 195.1 79.2 C 195.1 76.218 197.518 73.8 200.5 73.8 M 200.5 90 C 203.482 90 205.9 92.418 205.9 95.4 C 205.9 98.382 203.482 100.8 200.5 100.8 C 197.518 100.8 195.1 98.382 195.1 95.4 C 195.1 92.418 197.518 90 200.5 90 Z"; fill: #ffffff; }
+    @dimension look { @value plain { } }
+  }
+  @graphic logo_pairs {
+    id: "graphic.app.pairs";
+    canvas: (320, 180);
+    @shape tile { rect: (0, 0, 320, 180, 21); fill: #2b4c7e; }
+    @shape card_l { rect: (86, 40, 72, 100.8, 10); fill: #fffaf0; stroke: #e0a81e; stroke-width: 3; }
+    @shape star { path: "M 122 73.48 L 126.443 86.084 L 139.804 86.415 L 129.19 94.536 L 133.003 107.345 L 122 99.76 L 110.997 107.345 L 114.81 94.536 L 104.196 86.415 L 117.557 86.084 Z"; fill: #e0a81e; }
+    @shape card_r { rect: (162, 40, 72, 100.8, 10); fill: #fffaf0; stroke: #e0a81e; stroke-width: 3; }
+    @shape heart { path: "M 198 110.2 C 183.6 99.4 178.2 90.4 181.8 81.4 C 185.4 73.12 195.12 73.12 198 81.4 C 200.88 73.12 210.6 73.12 214.2 81.4 C 217.8 90.4 212.4 99.4 198 110.2 Z"; fill: #d64550; }
+    @dimension look { @value plain { } }
+  }
+  // A colour-key chip. On a tile it shows the colour dealt to the tile on
+  // this screen (dealt), or a grey outline when the tile has no key. In
+  // Settings, four dots mean the app takes part in colour keys.
+  @graphic chip {
+    id: "graphic.chip";
+    canvas: (120, 48);
+    @shape red { rect: (4, 4, 112, 40, 20); fill: #d64550; }
+    @shape green { rect: (4, 4, 112, 40, 20); fill: #2e9e4f; }
+    @shape yellow { rect: (4, 4, 112, 40, 20); fill: #e0a81e; }
+    @shape blue { rect: (4, 4, 112, 40, 20); fill: #4b6fd6; }
+    @shape none { rect: (6, 6, 108, 36, 18); fill: #fffaf0; stroke: #9aa5b1; stroke-width: 5; }
+    @shape dot_red { ellipse: (22, 24, 11, 11); fill: #d64550; }
+    @shape dot_green { ellipse: (47, 24, 11, 11); fill: #2e9e4f; }
+    @shape dot_yellow { ellipse: (73, 24, 11, 11); fill: #e0a81e; }
+    @shape dot_blue { ellipse: (98, 24, 11, 11); fill: #4b6fd6; }
+    @dimension hue {
+      @value red { hide: green, yellow, blue, none, dot_red, dot_green, dot_yellow, dot_blue; }
+      @value green { hide: red, yellow, blue, none, dot_red, dot_green, dot_yellow, dot_blue; }
+      @value yellow { hide: red, green, blue, none, dot_red, dot_green, dot_yellow, dot_blue; }
+      @value blue { hide: red, green, yellow, none, dot_red, dot_green, dot_yellow, dot_blue; }
+      @value all { hide: red, green, yellow, blue, none; }
+      @value none { hide: red, green, yellow, blue, dot_red, dot_green, dot_yellow, dot_blue; }
+    }
+  }
+  @apps tv { id: "apps.tv"; app youtube: "youtube.leanback.v4"; app netflix: "netflix"; app prime: "amazon"; app browser: "com.webos.app.browser"; app livetv: "com.webos.app.livetv"; app pairs: "com.goya.arachnid.pairs"; }
+  @cell root { id: "root"; fill: #6f8fb0; sky: local;
+    @cell logo { id: "logo"; position_p: (0.04, 0.025, 0); extent_p: (0.05625, 0.1, 0);
+      @draw logo { channel: "red" when state.screen is 2; channel: "green" when state.screen is 3; channel: "yellow" when state.screen is 4; channel: "blue" when state.screen is 5; channel: "home"; }
+    }
+    @cell brand { id: "brand"; position_p: (0.105, 0.04, 0); extent_p: (0.11, 0.08, 0); fill: #fffaf0; text: "Goya"; text-size-p: 0.7; text-anchor: middle; }
+    @cell who_1 { id: "who.1"; present-when: state.profile is 1; position_p: (0.8, 0.05, 0); extent_p: (0.16, 0.055, 0); fill: #fffaf0; text: "Owner"; text-size-p: 0.66; text-anchor: middle; }
+    @cell who_2 { id: "who.2"; present-when: state.profile is 2; position_p: (0.8, 0.05, 0); extent_p: (0.16, 0.055, 0); fill: #fffaf0; text: "Family"; text-size-p: 0.66; text-anchor: middle; }
+    @cell who_3 { id: "who.3"; present-when: state.profile is 3; position_p: (0.8, 0.05, 0); extent_p: (0.16, 0.055, 0); fill: #fffaf0; text: "Guest"; text-size-p: 0.66; text-anchor: middle; }
+    @cell notice { id: "notice"; position_p: (0.04, 0.9, 0); extent_p: (0.92, 0.06, 0); fill: #fffaf0; text-from: state.notice; text-size-p: 0.5; text-anchor: middle; }
+    @cell picker { id: "screen.picker"; present-when: state.screen is 0; position_p: (0.04, 0.15, 0); extent_p: (0.92, 0.7, 0); appear-s: 0.4; appear-from-p: (0, 0.03, 0);
+      @cell picker_heading { id: "picker.heading"; position_p: (0.28, 0, 0); extent_p: (0.44, 0.18, 0); fill: #fffaf0; text: "Choose a profile"; text-size-p: 0.6; text-anchor: middle; }
+      @button pick_1 { id: "pick.1"; position_p: (0, 0.3, 0); extent_p: (0.3, 0.5, 0); text: "Owner"; text-size-p: 0.16; fill: #d9e2ec; stroke: #52606d; stroke-width-p: 0.02; @iden { label: "Profile Owner"; hint: "Press OK to use this profile"; } }
+      @button pick_2 { id: "pick.2"; position_p: (0.35, 0.3, 0); extent_p: (0.3, 0.5, 0); text: "Family"; text-size-p: 0.16; fill: #d9e2ec; stroke: #52606d; stroke-width-p: 0.02; @iden { label: "Profile Family"; hint: "Press OK to use this profile"; } }
+      @button pick_3 { id: "pick.3"; position_p: (0.7, 0.3, 0); extent_p: (0.3, 0.5, 0); text: "Guest"; text-size-p: 0.16; fill: #d9e2ec; stroke: #52606d; stroke-width-p: 0.02; @iden { label: "Profile Guest"; hint: "Press OK to use this profile"; } }
+    }
+    @cell home { id: "screen.home"; present-when: state.screen is 1; position_p: (0.04, 0.15, 0); extent_p: (0.92, 0.55, 0); appear-s: 0.4; appear-from-p: (0, 0.03, 0);
+      @cell home_heading { id: "home.heading"; position_p: (0, 0, 0); extent_p: (0.2, 0.15, 0); fill: #fffaf0; text: "Favourites"; text-size-p: 0.6; text-anchor: middle; }
+      @cell legend { id: "home.legend"; position_p: (0.5, 0.02, 0); extent_p: (0.5, 0.11, 0); fill: #fffaf0;
+        @cell c0 { id: "home.legend.red"; position_p: (0.02, 0.2, 0); extent_p: (0.11, 0.6, 0); @draw chip { hue: "red"; } }
+        @cell c1 { id: "home.legend.green"; position_p: (0.14, 0.2, 0); extent_p: (0.11, 0.6, 0); @draw chip { hue: "green"; } }
+        @cell c2 { id: "home.legend.yellow"; position_p: (0.26, 0.2, 0); extent_p: (0.11, 0.6, 0); @draw chip { hue: "yellow"; } }
+        @cell c3 { id: "home.legend.blue"; position_p: (0.38, 0.2, 0); extent_p: (0.11, 0.6, 0); @draw chip { hue: "blue"; } }
+        @cell legend_text { id: "home.legend.text"; position_p: (0.51, 0.15, 0); extent_p: (0.47, 0.7, 0); text: "keys pick the app wearing it"; text-size-p: 0.62; }
+      }
+      @cell favs_1 { id: "favs.1"; present-when: state.profile is 1; position_p: (0, 0.22, 0); extent_p: (1, 0.78, 0);
+        @button fav_1_youtube { id: "fav.1.youtube"; colour-group: deal when state.cc_youtube is true; position_p: (0, 0.05, 0); extent_p: (0.23, 0.9, 0); fill: #fffaf0; stroke: #2b4c7e; stroke-width-p: 0.02; @iden { label: "YouTube"; hint: "Press OK to open"; }
+          @cell art { id: "fav.1.youtube.art"; position_p: (0.06, 0.14, 0); extent_p: (0.88, 0.4823, 0); @draw logo_youtube { look: "plain"; } }
+          @cell label { id: "fav.1.youtube.label"; position_p: (0, 0.72, 0); extent_p: (1, 0.2, 0); text: "YouTube"; text-size-p: 0.42; text-anchor: middle; }
+          @cell chip { id: "fav.1.youtube.chip"; position_p: (0.74, 0.035, 0); extent_p: (0.2, 0.078, 0); @draw chip { hue: dealt; hue: "none"; } }
+        }
+        @button fav_1_pairs { id: "fav.1.pairs"; colour-group: deal when state.cc_pairs is true; position_p: (0.2567, 0.05, 0); extent_p: (0.23, 0.9, 0); fill: #fffaf0; stroke: #2b4c7e; stroke-width-p: 0.02; @iden { label: "Goya Pairs"; hint: "Press OK to open"; }
+          @cell art { id: "fav.1.pairs.art"; position_p: (0.06, 0.14, 0); extent_p: (0.88, 0.4823, 0); @draw logo_pairs { look: "plain"; } }
+          @cell label { id: "fav.1.pairs.label"; position_p: (0, 0.72, 0); extent_p: (1, 0.2, 0); text: "Goya Pairs"; text-size-p: 0.42; text-anchor: middle; }
+          @cell chip { id: "fav.1.pairs.chip"; position_p: (0.74, 0.035, 0); extent_p: (0.2, 0.078, 0); @draw chip { hue: dealt; hue: "none"; } }
+        }
+        @button fav_1_browser { id: "fav.1.browser"; colour-group: deal when state.cc_browser is true; position_p: (0.5133, 0.05, 0); extent_p: (0.23, 0.9, 0); fill: #fffaf0; stroke: #2b4c7e; stroke-width-p: 0.02; @iden { label: "Web Browser"; hint: "Press OK to open"; }
+          @cell art { id: "fav.1.browser.art"; position_p: (0.06, 0.14, 0); extent_p: (0.88, 0.4823, 0); @draw logo_browser { look: "plain"; } }
+          @cell label { id: "fav.1.browser.label"; position_p: (0, 0.72, 0); extent_p: (1, 0.2, 0); text: "Web Browser"; text-size-p: 0.42; text-anchor: middle; }
+          @cell chip { id: "fav.1.browser.chip"; position_p: (0.74, 0.035, 0); extent_p: (0.2, 0.078, 0); @draw chip { hue: dealt; hue: "none"; } }
+        }
+        @button fav_1_netflix { id: "fav.1.netflix"; colour-group: deal when state.cc_netflix is true; position_p: (0.77, 0.05, 0); extent_p: (0.23, 0.9, 0); fill: #fffaf0; stroke: #2b4c7e; stroke-width-p: 0.02; @iden { label: "Netflix"; hint: "Press OK to open"; }
+          @cell art { id: "fav.1.netflix.art"; position_p: (0.06, 0.14, 0); extent_p: (0.88, 0.4823, 0); @draw logo_netflix { look: "plain"; } }
+          @cell label { id: "fav.1.netflix.label"; position_p: (0, 0.72, 0); extent_p: (1, 0.2, 0); text: "Netflix"; text-size-p: 0.42; text-anchor: middle; }
+          @cell chip { id: "fav.1.netflix.chip"; position_p: (0.74, 0.035, 0); extent_p: (0.2, 0.078, 0); @draw chip { hue: dealt; hue: "none"; } }
+        }
+      }
+      @cell favs_2 { id: "favs.2"; present-when: state.profile is 2; position_p: (0, 0.22, 0); extent_p: (1, 0.78, 0);
+        @button fav_2_youtube { id: "fav.2.youtube"; colour-group: deal when state.cc_youtube is true; position_p: (0, 0.05, 0); extent_p: (0.23, 0.9, 0); fill: #fffaf0; stroke: #2b4c7e; stroke-width-p: 0.02; @iden { label: "YouTube"; hint: "Press OK to open"; }
+          @cell art { id: "fav.2.youtube.art"; position_p: (0.06, 0.14, 0); extent_p: (0.88, 0.4823, 0); @draw logo_youtube { look: "plain"; } }
+          @cell label { id: "fav.2.youtube.label"; position_p: (0, 0.72, 0); extent_p: (1, 0.2, 0); text: "YouTube"; text-size-p: 0.42; text-anchor: middle; }
+          @cell chip { id: "fav.2.youtube.chip"; position_p: (0.74, 0.035, 0); extent_p: (0.2, 0.078, 0); @draw chip { hue: dealt; hue: "none"; } }
+        }
+        @button fav_2_netflix { id: "fav.2.netflix"; colour-group: deal when state.cc_netflix is true; position_p: (0.2567, 0.05, 0); extent_p: (0.23, 0.9, 0); fill: #fffaf0; stroke: #2b4c7e; stroke-width-p: 0.02; @iden { label: "Netflix"; hint: "Press OK to open"; }
+          @cell art { id: "fav.2.netflix.art"; position_p: (0.06, 0.14, 0); extent_p: (0.88, 0.4823, 0); @draw logo_netflix { look: "plain"; } }
+          @cell label { id: "fav.2.netflix.label"; position_p: (0, 0.72, 0); extent_p: (1, 0.2, 0); text: "Netflix"; text-size-p: 0.42; text-anchor: middle; }
+          @cell chip { id: "fav.2.netflix.chip"; position_p: (0.74, 0.035, 0); extent_p: (0.2, 0.078, 0); @draw chip { hue: dealt; hue: "none"; } }
+        }
+        @button fav_2_prime { id: "fav.2.prime"; colour-group: deal when state.cc_prime is true; position_p: (0.5133, 0.05, 0); extent_p: (0.23, 0.9, 0); fill: #fffaf0; stroke: #2b4c7e; stroke-width-p: 0.02; @iden { label: "Prime Video"; hint: "Press OK to open"; }
+          @cell art { id: "fav.2.prime.art"; position_p: (0.06, 0.14, 0); extent_p: (0.88, 0.4823, 0); @draw logo_prime { look: "plain"; } }
+          @cell label { id: "fav.2.prime.label"; position_p: (0, 0.72, 0); extent_p: (1, 0.2, 0); text: "Prime Video"; text-size-p: 0.42; text-anchor: middle; }
+          @cell chip { id: "fav.2.prime.chip"; position_p: (0.74, 0.035, 0); extent_p: (0.2, 0.078, 0); @draw chip { hue: dealt; hue: "none"; } }
+        }
+        @button fav_2_livetv { id: "fav.2.livetv"; colour-group: deal when state.cc_livetv is true; position_p: (0.77, 0.05, 0); extent_p: (0.23, 0.9, 0); fill: #fffaf0; stroke: #2b4c7e; stroke-width-p: 0.02; @iden { label: "Live TV"; hint: "Press OK to open"; }
+          @cell art { id: "fav.2.livetv.art"; position_p: (0.06, 0.14, 0); extent_p: (0.88, 0.4823, 0); @draw logo_livetv { look: "plain"; } }
+          @cell label { id: "fav.2.livetv.label"; position_p: (0, 0.72, 0); extent_p: (1, 0.2, 0); text: "Live TV"; text-size-p: 0.42; text-anchor: middle; }
+          @cell chip { id: "fav.2.livetv.chip"; position_p: (0.74, 0.035, 0); extent_p: (0.2, 0.078, 0); @draw chip { hue: dealt; hue: "none"; } }
+        }
+      }
+      @cell favs_3 { id: "favs.3"; present-when: state.profile is 3; position_p: (0, 0.22, 0); extent_p: (1, 0.78, 0);
+        @button fav_3_youtube { id: "fav.3.youtube"; colour-group: deal when state.cc_youtube is true; position_p: (0, 0.05, 0); extent_p: (0.23, 0.9, 0); fill: #fffaf0; stroke: #2b4c7e; stroke-width-p: 0.02; @iden { label: "YouTube"; hint: "Press OK to open"; }
+          @cell art { id: "fav.3.youtube.art"; position_p: (0.06, 0.14, 0); extent_p: (0.88, 0.4823, 0); @draw logo_youtube { look: "plain"; } }
+          @cell label { id: "fav.3.youtube.label"; position_p: (0, 0.72, 0); extent_p: (1, 0.2, 0); text: "YouTube"; text-size-p: 0.42; text-anchor: middle; }
+          @cell chip { id: "fav.3.youtube.chip"; position_p: (0.74, 0.035, 0); extent_p: (0.2, 0.078, 0); @draw chip { hue: dealt; hue: "none"; } }
+        }
+        @button fav_3_browser { id: "fav.3.browser"; colour-group: deal when state.cc_browser is true; position_p: (0.2567, 0.05, 0); extent_p: (0.23, 0.9, 0); fill: #fffaf0; stroke: #2b4c7e; stroke-width-p: 0.02; @iden { label: "Web Browser"; hint: "Press OK to open"; }
+          @cell art { id: "fav.3.browser.art"; position_p: (0.06, 0.14, 0); extent_p: (0.88, 0.4823, 0); @draw logo_browser { look: "plain"; } }
+          @cell label { id: "fav.3.browser.label"; position_p: (0, 0.72, 0); extent_p: (1, 0.2, 0); text: "Web Browser"; text-size-p: 0.42; text-anchor: middle; }
+          @cell chip { id: "fav.3.browser.chip"; position_p: (0.74, 0.035, 0); extent_p: (0.2, 0.078, 0); @draw chip { hue: dealt; hue: "none"; } }
+        }
+        @button fav_3_livetv { id: "fav.3.livetv"; colour-group: deal when state.cc_livetv is true; position_p: (0.5133, 0.05, 0); extent_p: (0.23, 0.9, 0); fill: #fffaf0; stroke: #2b4c7e; stroke-width-p: 0.02; @iden { label: "Live TV"; hint: "Press OK to open"; }
+          @cell art { id: "fav.3.livetv.art"; position_p: (0.06, 0.14, 0); extent_p: (0.88, 0.4823, 0); @draw logo_livetv { look: "plain"; } }
+          @cell label { id: "fav.3.livetv.label"; position_p: (0, 0.72, 0); extent_p: (1, 0.2, 0); text: "Live TV"; text-size-p: 0.42; text-anchor: middle; }
+          @cell chip { id: "fav.3.livetv.chip"; position_p: (0.74, 0.035, 0); extent_p: (0.2, 0.078, 0); @draw chip { hue: dealt; hue: "none"; } }
+        }
+      }
+    }
+    @cell library { id: "screen.apps"; present-when: state.screen is 2; position_p: (0.04, 0.15, 0); extent_p: (0.92, 0.55, 0); appear-s: 0.4; appear-from-p: (0, 0.03, 0);
+      @cell library_heading { id: "apps.heading"; position_p: (0, 0, 0); extent_p: (0.24, 0.15, 0); fill: #fffaf0; text: "Applications"; text-size-p: 0.6; text-anchor: middle; }
+      @cell legend { id: "apps.legend"; position_p: (0.5, 0.02, 0); extent_p: (0.5, 0.11, 0); fill: #fffaf0;
+        @cell c0 { id: "apps.legend.red"; position_p: (0.02, 0.2, 0); extent_p: (0.11, 0.6, 0); @draw chip { hue: "red"; } }
+        @cell c1 { id: "apps.legend.green"; position_p: (0.14, 0.2, 0); extent_p: (0.11, 0.6, 0); @draw chip { hue: "green"; } }
+        @cell c2 { id: "apps.legend.yellow"; position_p: (0.26, 0.2, 0); extent_p: (0.11, 0.6, 0); @draw chip { hue: "yellow"; } }
+        @cell c3 { id: "apps.legend.blue"; position_p: (0.38, 0.2, 0); extent_p: (0.11, 0.6, 0); @draw chip { hue: "blue"; } }
+        @cell legend_text { id: "apps.legend.text"; position_p: (0.51, 0.15, 0); extent_p: (0.47, 0.7, 0); text: "keys pick the app wearing it"; text-size-p: 0.62; }
+      }
+      @button lib_youtube { id: "apps.youtube"; colour-group: deal when state.cc_youtube is true; position_p: (0, 0.2, 0); extent_p: (0.3, 0.36, 0); fill: #fffaf0; stroke: #2b4c7e; stroke-width-p: 0.02; @iden { label: "YouTube"; hint: "Press OK to open"; }
+        @cell art { id: "apps.youtube.art"; position_p: (0.03, 0.1, 0); extent_p: (0.5739, 0.8, 0); @draw logo_youtube { look: "plain"; } }
+        @cell label { id: "apps.youtube.label"; position_p: (0.62, 0.39, 0); extent_p: (0.36, 0.22, 0); text: "YouTube"; text-size-p: 0.67; text-anchor: start; }
+        @cell chip { id: "apps.youtube.chip"; position_p: (0.62, 0.12, 0); extent_p: (0.15, 0.149, 0); @draw chip { hue: dealt; hue: "none"; } }
+      }
+      @button lib_netflix { id: "apps.netflix"; colour-group: deal when state.cc_netflix is true; position_p: (0.35, 0.2, 0); extent_p: (0.3, 0.36, 0); fill: #fffaf0; stroke: #2b4c7e; stroke-width-p: 0.02; @iden { label: "Netflix"; hint: "Press OK to open"; }
+        @cell art { id: "apps.netflix.art"; position_p: (0.03, 0.1, 0); extent_p: (0.5739, 0.8, 0); @draw logo_netflix { look: "plain"; } }
+        @cell label { id: "apps.netflix.label"; position_p: (0.62, 0.39, 0); extent_p: (0.36, 0.22, 0); text: "Netflix"; text-size-p: 0.67; text-anchor: start; }
+        @cell chip { id: "apps.netflix.chip"; position_p: (0.62, 0.12, 0); extent_p: (0.15, 0.149, 0); @draw chip { hue: dealt; hue: "none"; } }
+      }
+      @button lib_prime { id: "apps.prime"; colour-group: deal when state.cc_prime is true; position_p: (0.7, 0.2, 0); extent_p: (0.3, 0.36, 0); fill: #fffaf0; stroke: #2b4c7e; stroke-width-p: 0.02; @iden { label: "Prime Video"; hint: "Press OK to open"; }
+        @cell art { id: "apps.prime.art"; position_p: (0.03, 0.1, 0); extent_p: (0.5739, 0.8, 0); @draw logo_prime { look: "plain"; } }
+        @cell label { id: "apps.prime.label"; position_p: (0.62, 0.39, 0); extent_p: (0.36, 0.22, 0); text: "Prime Video"; text-size-p: 0.67; text-anchor: start; }
+        @cell chip { id: "apps.prime.chip"; position_p: (0.62, 0.12, 0); extent_p: (0.15, 0.149, 0); @draw chip { hue: dealt; hue: "none"; } }
+      }
+      @button lib_browser { id: "apps.browser"; colour-group: deal when state.cc_browser is true; position_p: (0, 0.62, 0); extent_p: (0.3, 0.36, 0); fill: #fffaf0; stroke: #2b4c7e; stroke-width-p: 0.02; @iden { label: "Web Browser"; hint: "Press OK to open"; }
+        @cell art { id: "apps.browser.art"; position_p: (0.03, 0.1, 0); extent_p: (0.5739, 0.8, 0); @draw logo_browser { look: "plain"; } }
+        @cell label { id: "apps.browser.label"; position_p: (0.62, 0.39, 0); extent_p: (0.36, 0.22, 0); text: "Web Browser"; text-size-p: 0.67; text-anchor: start; }
+        @cell chip { id: "apps.browser.chip"; position_p: (0.62, 0.12, 0); extent_p: (0.15, 0.149, 0); @draw chip { hue: dealt; hue: "none"; } }
+      }
+      @button lib_livetv { id: "apps.livetv"; colour-group: deal when state.cc_livetv is true; position_p: (0.35, 0.62, 0); extent_p: (0.3, 0.36, 0); fill: #fffaf0; stroke: #2b4c7e; stroke-width-p: 0.02; @iden { label: "Live TV"; hint: "Press OK to open"; }
+        @cell art { id: "apps.livetv.art"; position_p: (0.03, 0.1, 0); extent_p: (0.5739, 0.8, 0); @draw logo_livetv { look: "plain"; } }
+        @cell label { id: "apps.livetv.label"; position_p: (0.62, 0.39, 0); extent_p: (0.36, 0.22, 0); text: "Live TV"; text-size-p: 0.67; text-anchor: start; }
+        @cell chip { id: "apps.livetv.chip"; position_p: (0.62, 0.12, 0); extent_p: (0.15, 0.149, 0); @draw chip { hue: dealt; hue: "none"; } }
+      }
+      @button lib_pairs { id: "apps.pairs"; colour-group: deal when state.cc_pairs is true; position_p: (0.7, 0.62, 0); extent_p: (0.3, 0.36, 0); fill: #fffaf0; stroke: #2b4c7e; stroke-width-p: 0.02; @iden { label: "Goya Pairs"; hint: "Press OK to open"; }
+        @cell art { id: "apps.pairs.art"; position_p: (0.03, 0.1, 0); extent_p: (0.5739, 0.8, 0); @draw logo_pairs { look: "plain"; } }
+        @cell label { id: "apps.pairs.label"; position_p: (0.62, 0.39, 0); extent_p: (0.36, 0.22, 0); text: "Goya Pairs"; text-size-p: 0.67; text-anchor: start; }
+        @cell chip { id: "apps.pairs.chip"; position_p: (0.62, 0.12, 0); extent_p: (0.15, 0.149, 0); @draw chip { hue: dealt; hue: "none"; } }
+      }
+    }
+    @cell panel_household { id: "screen.household"; fill: #fffaf0; present-when: state.screen is 3; position_p: (0.04, 0.15, 0); extent_p: (0.92, 0.55, 0); appear-s: 0.4; appear-from-p: (0, 0.03, 0);
+      @cell household_heading { id: "household.heading"; position_p: (0, 0, 0); extent_p: (1, 0.15, 0); text: "Household"; text-size-p: 0.6; }
+      @cell household_detail { id: "household.detail"; position_p: (0, 0.12, 0); extent_p: (1, 0.1, 0); text-from: state.link_detail; text-size-p: 0.5; }
+      @cell household_unpaired { id: "household.unpaired"; present-when: state.link is 0; position_p: (0, 0.26, 0); extent_p: (1, 0.35, 0); text: "Start bloom-tv on your desktop, then pair this TV to see your configured devices."; wrap: 65; text-size-p: 0.17; }
+      @cell household_pairing { id: "household.pairing"; present-when: state.link is 1; position_p: (0, 0.26, 0); extent_p: (1, 0.45, 0);
+        @cell code { id: "household.code"; position_p: (0, 0, 0); extent_p: (0.4, 0.4, 0); text-from: state.pair_code; text-size-p: 0.8; }
+        @cell compare { id: "household.compare"; position_p: (0, 0.5, 0); extent_p: (1, 0.45, 0); text: "Compare with the code in bloom-tv. Confirm on both screens only when they match."; wrap: 65; text-size-p: 0.25; }
+      }
+      @cell household_waiting { id: "household.waiting"; present-when: state.link is 2; position_p: (0, 0.26, 0); extent_p: (1, 0.4, 0); text: "Waiting for desktop confirmation. Run bloom-tv confirm --state DIR --code with the matching code."; wrap: 65; text-size-p: 0.18; }
+      @cell household_ready { id: "household.ready"; present-when: state.link is 3; position_p: (0, 0.24, 0); extent_p: (1, 0.55, 0);
+        @cell device_1 { id: "household.d1"; present-when: state.devices at-least 1; position_p: (0, 0.00, 0); extent_p: (1, 0.22, 0);
+          @cell name { id: "household.d1.name"; position_p: (0, 0, 0); extent_p: (0.23, 1, 0); text-from: state.d1_name; text-size-p: 0.38; }
+          @cell reading { id: "household.d1.state"; position_p: (0.25, 0, 0); extent_p: (0.32, 1, 0); text-from: state.d1_state; text-size-p: 0.35; }
+          @cell gauge { id: "household.d1.cpu"; position_p: (0.6, 0.26, 0); extent_p: (0.18, 0.48, 0);
+            @draw cpu_gauge { level: "q0" when state.d1_cpu is 0; level: "q1" when state.d1_cpu is 1; level: "q2" when state.d1_cpu is 2; level: "q3" when state.d1_cpu is 3; level: "q4" when state.d1_cpu is 4; level: "unknown"; }
+          }
+          @button wake_1 { id: "household.d1.wake"; present-when: state.d1_wake is true; position_p: (0.81, 0, 0); extent_p: (0.19, 1, 0); text: "Wake"; text-size-p: 0.4; fill: #d3ecd9; stroke: #2e9e4f; stroke-width-p: 0.02; @iden { label: "Wake device 1"; hint: "Send Wake-on-LAN"; } }
+        }
+        @cell device_2 { id: "household.d2"; present-when: state.devices at-least 2; position_p: (0, 0.25, 0); extent_p: (1, 0.22, 0);
+          @cell name { id: "household.d2.name"; position_p: (0, 0, 0); extent_p: (0.23, 1, 0); text-from: state.d2_name; text-size-p: 0.38; }
+          @cell reading { id: "household.d2.state"; position_p: (0.25, 0, 0); extent_p: (0.32, 1, 0); text-from: state.d2_state; text-size-p: 0.35; }
+          @cell gauge { id: "household.d2.cpu"; position_p: (0.6, 0.26, 0); extent_p: (0.18, 0.48, 0);
+            @draw cpu_gauge { level: "q0" when state.d2_cpu is 0; level: "q1" when state.d2_cpu is 1; level: "q2" when state.d2_cpu is 2; level: "q3" when state.d2_cpu is 3; level: "q4" when state.d2_cpu is 4; level: "unknown"; }
+          }
+          @button wake_2 { id: "household.d2.wake"; present-when: state.d2_wake is true; position_p: (0.81, 0, 0); extent_p: (0.19, 1, 0); text: "Wake"; text-size-p: 0.4; fill: #d3ecd9; stroke: #2e9e4f; stroke-width-p: 0.02; @iden { label: "Wake device 2"; hint: "Send Wake-on-LAN"; } }
+        }
+        @cell device_3 { id: "household.d3"; present-when: state.devices at-least 3; position_p: (0, 0.50, 0); extent_p: (1, 0.22, 0);
+          @cell name { id: "household.d3.name"; position_p: (0, 0, 0); extent_p: (0.23, 1, 0); text-from: state.d3_name; text-size-p: 0.38; }
+          @cell reading { id: "household.d3.state"; position_p: (0.25, 0, 0); extent_p: (0.32, 1, 0); text-from: state.d3_state; text-size-p: 0.35; }
+          @cell gauge { id: "household.d3.cpu"; position_p: (0.6, 0.26, 0); extent_p: (0.18, 0.48, 0);
+            @draw cpu_gauge { level: "q0" when state.d3_cpu is 0; level: "q1" when state.d3_cpu is 1; level: "q2" when state.d3_cpu is 2; level: "q3" when state.d3_cpu is 3; level: "q4" when state.d3_cpu is 4; level: "unknown"; }
+          }
+          @button wake_3 { id: "household.d3.wake"; present-when: state.d3_wake is true; position_p: (0.81, 0, 0); extent_p: (0.19, 1, 0); text: "Wake"; text-size-p: 0.4; fill: #d3ecd9; stroke: #2e9e4f; stroke-width-p: 0.02; @iden { label: "Wake device 3"; hint: "Send Wake-on-LAN"; } }
+        }
+        @cell device_4 { id: "household.d4"; present-when: state.devices at-least 4; position_p: (0, 0.75, 0); extent_p: (1, 0.22, 0);
+          @cell name { id: "household.d4.name"; position_p: (0, 0, 0); extent_p: (0.23, 1, 0); text-from: state.d4_name; text-size-p: 0.38; }
+          @cell reading { id: "household.d4.state"; position_p: (0.25, 0, 0); extent_p: (0.32, 1, 0); text-from: state.d4_state; text-size-p: 0.35; }
+          @cell gauge { id: "household.d4.cpu"; position_p: (0.6, 0.26, 0); extent_p: (0.18, 0.48, 0);
+            @draw cpu_gauge { level: "q0" when state.d4_cpu is 0; level: "q1" when state.d4_cpu is 1; level: "q2" when state.d4_cpu is 2; level: "q3" when state.d4_cpu is 3; level: "q4" when state.d4_cpu is 4; level: "unknown"; }
+          }
+          @button wake_4 { id: "household.d4.wake"; present-when: state.d4_wake is true; position_p: (0.81, 0, 0); extent_p: (0.19, 1, 0); text: "Wake"; text-size-p: 0.4; fill: #d3ecd9; stroke: #2e9e4f; stroke-width-p: 0.02; @iden { label: "Wake device 4"; hint: "Send Wake-on-LAN"; } }
+        }
+      }
+      @button hh_pair { id: "household.pair"; present-when: state.link is 0; position_p: (0, 0.84, 0); extent_p: (0.23, 0.14, 0); text: "Pair desktop"; text-size-p: 0.38; fill: #d9e2ec; stroke: #52606d; stroke-width-p: 0.02; @iden { label: "Pair desktop"; hint: "Household connection"; } }
+      @button hh_confirm { id: "household.confirm"; present-when: state.link is 1; position_p: (0, 0.84, 0); extent_p: (0.23, 0.14, 0); text: "Codes match"; text-size-p: 0.38; fill: #d9e2ec; stroke: #52606d; stroke-width-p: 0.02; @iden { label: "Codes match"; hint: "Household connection"; } }
+      @button hh_cancel { id: "household.cancel"; present-when: state.link is 1; position_p: (0.25, 0.84, 0); extent_p: (0.23, 0.14, 0); text: "Cancel"; text-size-p: 0.38; fill: #d9e2ec; stroke: #52606d; stroke-width-p: 0.02; @iden { label: "Cancel"; hint: "Household connection"; } }
+      @button hh_cancel_wait { id: "household.cancel_wait"; present-when: state.link is 2; position_p: (0, 0.84, 0); extent_p: (0.23, 0.14, 0); text: "Cancel"; text-size-p: 0.38; fill: #d9e2ec; stroke: #52606d; stroke-width-p: 0.02; @iden { label: "Cancel"; hint: "Household connection"; } }
+      @button hh_refresh { id: "household.refresh"; present-when: state.link is 3; position_p: (0, 0.84, 0); extent_p: (0.23, 0.14, 0); text: "Refresh"; text-size-p: 0.38; fill: #d9e2ec; stroke: #52606d; stroke-width-p: 0.02; @iden { label: "Refresh"; hint: "Household connection"; } }
+      @button hh_retry { id: "household.retry"; present-when: state.link is 6; position_p: (0, 0.84, 0); extent_p: (0.23, 0.14, 0); text: "Retry"; text-size-p: 0.38; fill: #d9e2ec; stroke: #52606d; stroke-width-p: 0.02; @iden { label: "Retry"; hint: "Household connection"; } }
+      @button hh_pair_again { id: "household.pair_again"; present-when: state.link is 7; position_p: (0, 0.84, 0); extent_p: (0.23, 0.14, 0); text: "Pair again"; text-size-p: 0.38; fill: #d9e2ec; stroke: #52606d; stroke-width-p: 0.02; @iden { label: "Pair again"; hint: "Household connection"; } }
+      @button hh_forget { id: "household.forget"; present-when: state.link at-least 2; position_p: (0.5, 0.84, 0); extent_p: (0.3, 0.14, 0); text: "Forget desktop"; text-size-p: 0.38; fill: #d9e2ec; @iden { label: "Forget desktop"; hint: "End this pairing"; } }
+    }
+    @cell panel_broadcast { id: "screen.broadcast"; fill: #fffaf0; present-when: state.screen is 4; position_p: (0.04, 0.15, 0); extent_p: (0.92, 0.55, 0); appear-s: 0.4; appear-from-p: (0, 0.03, 0);
+      @cell broadcast_heading { id: "broadcast.heading"; position_p: (0, 0, 0); extent_p: (1, 0.15, 0); text: "Broadcast"; text-size-p: 0.6; }
+      @cell broadcast_body { id: "broadcast.body"; position_p: (0, 0.25, 0); extent_p: (1, 0.4, 0); text: "OBS scenes, recording and streaming will be controlled from here through the paired desktop. Nothing is connected yet."; wrap: 70; text-size-p: 0.14; }
+    }
+    @cell panel_activity { id: "screen.activity"; fill: #fffaf0; present-when: state.screen is 5; position_p: (0.04, 0.15, 0); extent_p: (0.92, 0.55, 0); appear-s: 0.4; appear-from-p: (0, 0.03, 0);
+      @cell activity_heading { id: "activity.heading"; position_p: (0, 0, 0); extent_p: (1, 0.15, 0); text: "Activity"; text-size-p: 0.6; }
+      @cell activity_body { id: "activity.body"; position_p: (0, 0.25, 0); extent_p: (1, 0.4, 0); text: "Notifications and resource use from your devices will appear here. Nothing is connected yet."; wrap: 70; text-size-p: 0.14; }
+    }
+    @cell panel_settings { id: "screen.settings"; present-when: state.screen is 6; fill: #fffaf0; position_p: (0.04, 0.15, 0); extent_p: (0.92, 0.55, 0); appear-s: 0.4; appear-from-p: (0, 0.03, 0);
+      @cell settings_heading { id: "settings.heading"; position_p: (0, 0, 0); extent_p: (1, 0.13, 0); text: "Settings"; text-size-p: 0.6; }
+      @cell settings_about { id: "settings.about"; position_p: (0, 0.13, 0); extent_p: (1, 0.12, 0); text: "Colour keys: on each screen the first four included apps get red, green, yellow and blue. Omit apps to choose which."; text-size-p: 0.36; }
+      @cell row_youtube { id: "settings.youtube"; position_p: (0, 0.28, 0); extent_p: (0.49, 0.21, 0);
+        @cell art { id: "settings.youtube.art"; position_p: (0, 0.08, 0); extent_p: (0.2158, 0.84, 0); @draw logo_youtube { look: "plain"; } }
+        @cell chip { id: "settings.youtube.chip"; position_p: (0.235, 0.375, 0); extent_p: (0.09, 0.249, 0); @draw chip { hue: "all" when state.cc_youtube is true; hue: "none"; } }
+        @cell name { id: "settings.youtube.name"; position_p: (0.34, 0.3, 0); extent_p: (0.25, 0.4, 0); text: "YouTube"; text-size-p: 0.65; }
+        @button include_youtube { id: "settings.youtube.include"; position_p: (0.6, 0.12, 0); extent_p: (0.19, 0.76, 0); text: "Include"; text-size-p: 0.36; fill: #d9e2ec; stroke: #52606d; stroke-width-p: 0.03; @iden { label: "Include YouTube in colour keys"; hint: "Press OK"; } }
+        @button omit_youtube { id: "settings.youtube.omit"; position_p: (0.8, 0.12, 0); extent_p: (0.19, 0.76, 0); text: "Omit"; text-size-p: 0.36; fill: #d9e2ec; stroke: #52606d; stroke-width-p: 0.03; @iden { label: "Omit YouTube from colour keys"; hint: "Press OK"; } }
+      }
+      @cell row_netflix { id: "settings.netflix"; position_p: (0.51, 0.28, 0); extent_p: (0.49, 0.21, 0);
+        @cell art { id: "settings.netflix.art"; position_p: (0, 0.08, 0); extent_p: (0.2158, 0.84, 0); @draw logo_netflix { look: "plain"; } }
+        @cell chip { id: "settings.netflix.chip"; position_p: (0.235, 0.375, 0); extent_p: (0.09, 0.249, 0); @draw chip { hue: "all" when state.cc_netflix is true; hue: "none"; } }
+        @cell name { id: "settings.netflix.name"; position_p: (0.34, 0.3, 0); extent_p: (0.25, 0.4, 0); text: "Netflix"; text-size-p: 0.65; }
+        @button include_netflix { id: "settings.netflix.include"; position_p: (0.6, 0.12, 0); extent_p: (0.19, 0.76, 0); text: "Include"; text-size-p: 0.36; fill: #d9e2ec; stroke: #52606d; stroke-width-p: 0.03; @iden { label: "Include Netflix in colour keys"; hint: "Press OK"; } }
+        @button omit_netflix { id: "settings.netflix.omit"; position_p: (0.8, 0.12, 0); extent_p: (0.19, 0.76, 0); text: "Omit"; text-size-p: 0.36; fill: #d9e2ec; stroke: #52606d; stroke-width-p: 0.03; @iden { label: "Omit Netflix from colour keys"; hint: "Press OK"; } }
+      }
+      @cell row_prime { id: "settings.prime"; position_p: (0, 0.52, 0); extent_p: (0.49, 0.21, 0);
+        @cell art { id: "settings.prime.art"; position_p: (0, 0.08, 0); extent_p: (0.2158, 0.84, 0); @draw logo_prime { look: "plain"; } }
+        @cell chip { id: "settings.prime.chip"; position_p: (0.235, 0.375, 0); extent_p: (0.09, 0.249, 0); @draw chip { hue: "all" when state.cc_prime is true; hue: "none"; } }
+        @cell name { id: "settings.prime.name"; position_p: (0.34, 0.3, 0); extent_p: (0.25, 0.4, 0); text: "Prime Video"; text-size-p: 0.65; }
+        @button include_prime { id: "settings.prime.include"; position_p: (0.6, 0.12, 0); extent_p: (0.19, 0.76, 0); text: "Include"; text-size-p: 0.36; fill: #d9e2ec; stroke: #52606d; stroke-width-p: 0.03; @iden { label: "Include Prime Video in colour keys"; hint: "Press OK"; } }
+        @button omit_prime { id: "settings.prime.omit"; position_p: (0.8, 0.12, 0); extent_p: (0.19, 0.76, 0); text: "Omit"; text-size-p: 0.36; fill: #d9e2ec; stroke: #52606d; stroke-width-p: 0.03; @iden { label: "Omit Prime Video from colour keys"; hint: "Press OK"; } }
+      }
+      @cell row_browser { id: "settings.browser"; position_p: (0.51, 0.52, 0); extent_p: (0.49, 0.21, 0);
+        @cell art { id: "settings.browser.art"; position_p: (0, 0.08, 0); extent_p: (0.2158, 0.84, 0); @draw logo_browser { look: "plain"; } }
+        @cell chip { id: "settings.browser.chip"; position_p: (0.235, 0.375, 0); extent_p: (0.09, 0.249, 0); @draw chip { hue: "all" when state.cc_browser is true; hue: "none"; } }
+        @cell name { id: "settings.browser.name"; position_p: (0.34, 0.3, 0); extent_p: (0.25, 0.4, 0); text: "Web Browser"; text-size-p: 0.65; }
+        @button include_browser { id: "settings.browser.include"; position_p: (0.6, 0.12, 0); extent_p: (0.19, 0.76, 0); text: "Include"; text-size-p: 0.36; fill: #d9e2ec; stroke: #52606d; stroke-width-p: 0.03; @iden { label: "Include Web Browser in colour keys"; hint: "Press OK"; } }
+        @button omit_browser { id: "settings.browser.omit"; position_p: (0.8, 0.12, 0); extent_p: (0.19, 0.76, 0); text: "Omit"; text-size-p: 0.36; fill: #d9e2ec; stroke: #52606d; stroke-width-p: 0.03; @iden { label: "Omit Web Browser from colour keys"; hint: "Press OK"; } }
+      }
+      @cell row_livetv { id: "settings.livetv"; position_p: (0, 0.76, 0); extent_p: (0.49, 0.21, 0);
+        @cell art { id: "settings.livetv.art"; position_p: (0, 0.08, 0); extent_p: (0.2158, 0.84, 0); @draw logo_livetv { look: "plain"; } }
+        @cell chip { id: "settings.livetv.chip"; position_p: (0.235, 0.375, 0); extent_p: (0.09, 0.249, 0); @draw chip { hue: "all" when state.cc_livetv is true; hue: "none"; } }
+        @cell name { id: "settings.livetv.name"; position_p: (0.34, 0.3, 0); extent_p: (0.25, 0.4, 0); text: "Live TV"; text-size-p: 0.65; }
+        @button include_livetv { id: "settings.livetv.include"; position_p: (0.6, 0.12, 0); extent_p: (0.19, 0.76, 0); text: "Include"; text-size-p: 0.36; fill: #d9e2ec; stroke: #52606d; stroke-width-p: 0.03; @iden { label: "Include Live TV in colour keys"; hint: "Press OK"; } }
+        @button omit_livetv { id: "settings.livetv.omit"; position_p: (0.8, 0.12, 0); extent_p: (0.19, 0.76, 0); text: "Omit"; text-size-p: 0.36; fill: #d9e2ec; stroke: #52606d; stroke-width-p: 0.03; @iden { label: "Omit Live TV from colour keys"; hint: "Press OK"; } }
+      }
+      @cell row_pairs { id: "settings.pairs"; position_p: (0.51, 0.76, 0); extent_p: (0.49, 0.21, 0);
+        @cell art { id: "settings.pairs.art"; position_p: (0, 0.08, 0); extent_p: (0.2158, 0.84, 0); @draw logo_pairs { look: "plain"; } }
+        @cell chip { id: "settings.pairs.chip"; position_p: (0.235, 0.375, 0); extent_p: (0.09, 0.249, 0); @draw chip { hue: "all" when state.cc_pairs is true; hue: "none"; } }
+        @cell name { id: "settings.pairs.name"; position_p: (0.34, 0.3, 0); extent_p: (0.25, 0.4, 0); text: "Goya Pairs"; text-size-p: 0.65; }
+        @button include_pairs { id: "settings.pairs.include"; position_p: (0.6, 0.12, 0); extent_p: (0.19, 0.76, 0); text: "Include"; text-size-p: 0.36; fill: #d9e2ec; stroke: #52606d; stroke-width-p: 0.03; @iden { label: "Include Goya Pairs in colour keys"; hint: "Press OK"; } }
+        @button omit_pairs { id: "settings.pairs.omit"; position_p: (0.8, 0.12, 0); extent_p: (0.19, 0.76, 0); text: "Omit"; text-size-p: 0.36; fill: #d9e2ec; stroke: #52606d; stroke-width-p: 0.03; @iden { label: "Omit Goya Pairs from colour keys"; hint: "Press OK"; } }
+      }
+    }
+    @cell channels { id: "channels"; present-when: state.screen at-least 1; position_p: (0.04, 0.73, 0); extent_p: (0.92, 0.14, 0);
+      @button ch_home { id: "channel.home"; position_p: (0.000, 0, 0); extent_p: (0.13, 1, 0); text: "Home"; text-size-p: 0.22; fill: #d9e2ec; stroke: #52606d; stroke-width-p: 0.04; @iden { label: "Home"; hint: "Show favourites"; } }
+      @button ch_apps { id: "channel.apps"; position_p: (0.145, 0, 0); extent_p: (0.13, 1, 0); text: "Applications"; text-size-p: 0.22; fill: #d9e2ec; stroke: #52606d; stroke-width-p: 0.04; @iden { label: "Applications"; hint: "Show all applications"; } }
+      @button ch_household { id: "channel.household"; position_p: (0.290, 0, 0); extent_p: (0.13, 1, 0); text: "Household"; text-size-p: 0.22; fill: #d9e2ec; stroke: #52606d; stroke-width-p: 0.04; @iden { label: "Household"; hint: "Show household devices"; } }
+      @button ch_broadcast { id: "channel.broadcast"; position_p: (0.435, 0, 0); extent_p: (0.13, 1, 0); text: "Broadcast"; text-size-p: 0.22; fill: #d9e2ec; stroke: #52606d; stroke-width-p: 0.04; @iden { label: "Broadcast"; hint: "Show broadcast controls"; } }
+      @button ch_activity { id: "channel.activity"; position_p: (0.580, 0, 0); extent_p: (0.13, 1, 0); text: "Activity"; text-size-p: 0.22; fill: #d9e2ec; stroke: #52606d; stroke-width-p: 0.04; @iden { label: "Activity"; hint: "Show activity"; } }
+      @button ch_settings { id: "channel.settings"; position_p: (0.725, 0, 0); extent_p: (0.13, 1, 0); text: "Settings"; text-size-p: 0.22; fill: #d9e2ec; stroke: #52606d; stroke-width-p: 0.04; @iden { label: "Settings"; hint: "Choose which apps the colour keys select"; } }
+      @button ch_profiles { id: "channel.profiles"; position_p: (0.870, 0, 0); extent_p: (0.13, 1, 0); text: "Profiles"; text-size-p: 0.22; fill: #d9e2ec; stroke: #52606d; stroke-width-p: 0.04; @iden { label: "Profiles"; hint: "Choose another profile"; } }
+    }
+  }
+  @interaction pick_1 { id: "action.pick_1"; trigger: button.pick_1.activate; class: D1; state { write profile: int; write screen: int; } input { } set profile = 1; set screen = 1; }
+  @interaction pick_2 { id: "action.pick_2"; trigger: button.pick_2.activate; class: D1; state { write profile: int; write screen: int; } input { } set profile = 2; set screen = 1; }
+  @interaction pick_3 { id: "action.pick_3"; trigger: button.pick_3.activate; class: D1; state { write profile: int; write screen: int; } input { } set profile = 3; set screen = 1; }
+  @interaction fav_1_youtube { id: "action.fav_1_youtube"; trigger: button.fav_1_youtube.activate; class: D2; effects { network; } requests { r: effect network capability "network" request "tv launch youtube" result text; } state { write notice: text; } input { } set notice = effect.r; }
+  @interaction fav_1_pairs { id: "action.fav_1_pairs"; trigger: button.fav_1_pairs.activate; class: D2; effects { network; } requests { r: effect network capability "network" request "tv launch pairs" result text; } state { write notice: text; } input { } set notice = effect.r; }
+  @interaction fav_1_browser { id: "action.fav_1_browser"; trigger: button.fav_1_browser.activate; class: D2; effects { network; } requests { r: effect network capability "network" request "tv launch browser" result text; } state { write notice: text; } input { } set notice = effect.r; }
+  @interaction fav_1_netflix { id: "action.fav_1_netflix"; trigger: button.fav_1_netflix.activate; class: D2; effects { network; } requests { r: effect network capability "network" request "tv launch netflix" result text; } state { write notice: text; } input { } set notice = effect.r; }
+  @interaction fav_2_youtube { id: "action.fav_2_youtube"; trigger: button.fav_2_youtube.activate; class: D2; effects { network; } requests { r: effect network capability "network" request "tv launch youtube" result text; } state { write notice: text; } input { } set notice = effect.r; }
+  @interaction fav_2_netflix { id: "action.fav_2_netflix"; trigger: button.fav_2_netflix.activate; class: D2; effects { network; } requests { r: effect network capability "network" request "tv launch netflix" result text; } state { write notice: text; } input { } set notice = effect.r; }
+  @interaction fav_2_prime { id: "action.fav_2_prime"; trigger: button.fav_2_prime.activate; class: D2; effects { network; } requests { r: effect network capability "network" request "tv launch prime" result text; } state { write notice: text; } input { } set notice = effect.r; }
+  @interaction fav_2_livetv { id: "action.fav_2_livetv"; trigger: button.fav_2_livetv.activate; class: D2; effects { network; } requests { r: effect network capability "network" request "tv launch livetv" result text; } state { write notice: text; } input { } set notice = effect.r; }
+  @interaction fav_3_youtube { id: "action.fav_3_youtube"; trigger: button.fav_3_youtube.activate; class: D2; effects { network; } requests { r: effect network capability "network" request "tv launch youtube" result text; } state { write notice: text; } input { } set notice = effect.r; }
+  @interaction fav_3_browser { id: "action.fav_3_browser"; trigger: button.fav_3_browser.activate; class: D2; effects { network; } requests { r: effect network capability "network" request "tv launch browser" result text; } state { write notice: text; } input { } set notice = effect.r; }
+  @interaction fav_3_livetv { id: "action.fav_3_livetv"; trigger: button.fav_3_livetv.activate; class: D2; effects { network; } requests { r: effect network capability "network" request "tv launch livetv" result text; } state { write notice: text; } input { } set notice = effect.r; }
+  @interaction lib_youtube { id: "action.lib_youtube"; trigger: button.lib_youtube.activate; class: D2; effects { network; } requests { r: effect network capability "network" request "tv launch youtube" result text; } state { write notice: text; } input { } set notice = effect.r; }
+  @interaction lib_netflix { id: "action.lib_netflix"; trigger: button.lib_netflix.activate; class: D2; effects { network; } requests { r: effect network capability "network" request "tv launch netflix" result text; } state { write notice: text; } input { } set notice = effect.r; }
+  @interaction lib_prime { id: "action.lib_prime"; trigger: button.lib_prime.activate; class: D2; effects { network; } requests { r: effect network capability "network" request "tv launch prime" result text; } state { write notice: text; } input { } set notice = effect.r; }
+  @interaction lib_browser { id: "action.lib_browser"; trigger: button.lib_browser.activate; class: D2; effects { network; } requests { r: effect network capability "network" request "tv launch browser" result text; } state { write notice: text; } input { } set notice = effect.r; }
+  @interaction lib_livetv { id: "action.lib_livetv"; trigger: button.lib_livetv.activate; class: D2; effects { network; } requests { r: effect network capability "network" request "tv launch livetv" result text; } state { write notice: text; } input { } set notice = effect.r; }
+  @interaction lib_pairs { id: "action.lib_pairs"; trigger: button.lib_pairs.activate; class: D2; effects { network; } requests { r: effect network capability "network" request "tv launch pairs" result text; } state { write notice: text; } input { } set notice = effect.r; }
+  @interaction ch_home { id: "action.ch_home"; trigger: button.ch_home.activate; class: D1; state { write screen: int; } input { } set screen = 1; }
+  @interaction ch_apps { id: "action.ch_apps"; trigger: button.ch_apps.activate; class: D1; state { write screen: int; } input { } set screen = 2; }
+  @interaction ch_household { id: "action.ch_household"; trigger: button.ch_household.activate; class: D1; state { write screen: int; } input { } set screen = 3; }
+  @interaction ch_broadcast { id: "action.ch_broadcast"; trigger: button.ch_broadcast.activate; class: D1; state { write screen: int; } input { } set screen = 4; }
+  @interaction ch_activity { id: "action.ch_activity"; trigger: button.ch_activity.activate; class: D1; state { write screen: int; } input { } set screen = 5; }
+  @interaction ch_settings { id: "action.ch_settings"; trigger: button.ch_settings.activate; class: D1; state { write screen: int; } input { } set screen = 6; }
+  @interaction include_youtube { id: "action.include_youtube"; trigger: button.include_youtube.activate; class: D1; state { write cc_youtube: bool; } input { } set cc_youtube = true; }
+  @interaction omit_youtube { id: "action.omit_youtube"; trigger: button.omit_youtube.activate; class: D1; state { write cc_youtube: bool; } input { } set cc_youtube = false; }
+  @interaction include_netflix { id: "action.include_netflix"; trigger: button.include_netflix.activate; class: D1; state { write cc_netflix: bool; } input { } set cc_netflix = true; }
+  @interaction omit_netflix { id: "action.omit_netflix"; trigger: button.omit_netflix.activate; class: D1; state { write cc_netflix: bool; } input { } set cc_netflix = false; }
+  @interaction include_prime { id: "action.include_prime"; trigger: button.include_prime.activate; class: D1; state { write cc_prime: bool; } input { } set cc_prime = true; }
+  @interaction omit_prime { id: "action.omit_prime"; trigger: button.omit_prime.activate; class: D1; state { write cc_prime: bool; } input { } set cc_prime = false; }
+  @interaction include_browser { id: "action.include_browser"; trigger: button.include_browser.activate; class: D1; state { write cc_browser: bool; } input { } set cc_browser = true; }
+  @interaction omit_browser { id: "action.omit_browser"; trigger: button.omit_browser.activate; class: D1; state { write cc_browser: bool; } input { } set cc_browser = false; }
+  @interaction include_livetv { id: "action.include_livetv"; trigger: button.include_livetv.activate; class: D1; state { write cc_livetv: bool; } input { } set cc_livetv = true; }
+  @interaction omit_livetv { id: "action.omit_livetv"; trigger: button.omit_livetv.activate; class: D1; state { write cc_livetv: bool; } input { } set cc_livetv = false; }
+  @interaction include_pairs { id: "action.include_pairs"; trigger: button.include_pairs.activate; class: D1; state { write cc_pairs: bool; } input { } set cc_pairs = true; }
+  @interaction omit_pairs { id: "action.omit_pairs"; trigger: button.omit_pairs.activate; class: D1; state { write cc_pairs: bool; } input { } set cc_pairs = false; }
+  @interaction ch_profiles { id: "action.ch_profiles"; trigger: button.ch_profiles.activate; class: D1; state { write screen: int; } input { } set screen = 0; }
+  @interaction hh_pair { id: "action.hh_pair"; trigger: button.hh_pair.activate; class: D2; effects { network; } requests { r: effect network capability "network" request "household pair" result text; } state { write notice: text; } input { } set notice = effect.r; }
+  @interaction hh_confirm { id: "action.hh_confirm"; trigger: button.hh_confirm.activate; class: D2; effects { network; } requests { r: effect network capability "network" request "household confirm" result text; } state { write notice: text; } input { } set notice = effect.r; }
+  @interaction hh_cancel { id: "action.hh_cancel"; trigger: button.hh_cancel.activate; class: D2; effects { network; } requests { r: effect network capability "network" request "household cancel" result text; } state { write notice: text; } input { } set notice = effect.r; }
+  @interaction hh_cancel_wait { id: "action.hh_cancel_wait"; trigger: button.hh_cancel_wait.activate; class: D2; effects { network; } requests { r: effect network capability "network" request "household cancel" result text; } state { write notice: text; } input { } set notice = effect.r; }
+  @interaction hh_refresh { id: "action.hh_refresh"; trigger: button.hh_refresh.activate; class: D2; effects { network; } requests { r: effect network capability "network" request "household act refresh" result text; } state { write notice: text; } input { } set notice = effect.r; }
+  @interaction hh_retry { id: "action.hh_retry"; trigger: button.hh_retry.activate; class: D2; effects { network; } requests { r: effect network capability "network" request "household retry" result text; } state { write notice: text; } input { } set notice = effect.r; }
+  @interaction hh_pair_again { id: "action.hh_pair_again"; trigger: button.hh_pair_again.activate; class: D2; effects { network; } requests { r: effect network capability "network" request "household pair" result text; } state { write notice: text; } input { } set notice = effect.r; }
+  @interaction hh_forget { id: "action.hh_forget"; trigger: button.hh_forget.activate; class: D2; effects { network; } requests { r: effect network capability "network" request "household forget" result text; } state { write notice: text; } input { } set notice = effect.r; }
+  @interaction wake_1 { id: "action.wake_1"; trigger: button.wake_1.activate; class: D2; effects { network; } requests { r: effect network capability "network" request "household act wake 1" result text; } state { write notice: text; } input { } set notice = effect.r; }
+  @interaction wake_2 { id: "action.wake_2"; trigger: button.wake_2.activate; class: D2; effects { network; } requests { r: effect network capability "network" request "household act wake 2" result text; } state { write notice: text; } input { } set notice = effect.r; }
+  @interaction wake_3 { id: "action.wake_3"; trigger: button.wake_3.activate; class: D2; effects { network; } requests { r: effect network capability "network" request "household act wake 3" result text; } state { write notice: text; } input { } set notice = effect.r; }
+  @interaction wake_4 { id: "action.wake_4"; trigger: button.wake_4.activate; class: D2; effects { network; } requests { r: effect network capability "network" request "household act wake 4" result text; } state { write notice: text; } input { } set notice = effect.r; }
+}

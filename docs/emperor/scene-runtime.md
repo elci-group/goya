@@ -38,7 +38,8 @@ admitted by `handoff::admit_v4` or `admit_v4_live` is built as a scene app:
     at the element's edge.
   * `present-when` (`is` and `at-least`) is conjoined with the element's
     ancestors.
-  * `remote-digit` maps to the digit keys.
+  * `remote-digit` maps to the digit keys. `remote-colour`, `colour-group`,
+    `sky` and `@apps` are refused at their range.
   * `fill-to` breathes the background with ease in and out. `drift-p` and
     `appear-s`/`appear-from-p` are offsets and opacity inherited down the
     subtree. All motion stops with `GOYA_REDUCE_MOTION`.
