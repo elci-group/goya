@@ -44,7 +44,7 @@ Frampton is a separate server language. It is not a Goya backend and not a resol
 
 1. Reject source over the byte budget (`GY-RESOLVER-BUDGET`, default 1 MiB).
 2. Admit. Explicit contract or a single `// profile:` comment wins. Otherwise try strictest-first and keep the weakest non-gate diagnostic. With no target, every `@platform` exception is `GY-RESOLVER-PLATFORM` and does not fall through. A selected target ignores other platforms' exceptions and refuses its own. The surface stays closed. See `docs/resolver/P7-hosts.md`.
-   Live constructs other than `text-from` (`host` state, `@link`, `@graphic`/`@draw`, `present-when`, `image-from`, `remote-digit`, `fill-to`, `drift-p`, `appear-s`), which the live profiles admit, are refused at their range with `GY-RESOLVER-LIVE` (`goya_lang::extended_live_construct`); they are never dropped.
+   Of the live constructs beyond `text-from` that the live profiles admit, `host` state and the presentation-only ones (`@graphic`/`@draw`, `present-when`, `image-from`, `fill-to`, `drift-p`, `appear-s`) load: they carry no semantics here and the host's presentation layer paints them (Viuda, ADR-RESOLVER-001 Amendment 13). `@link` and `remote-digit` drive state and actions the resolver does not execute, so they are refused at their range with `GY-RESOLVER-LIVE` (`goya_lang::extended_live_constructs`); they are never dropped.
 3. Compile every D1 and D2 interaction. A compile failure is `GY-RESOLVER-TRANSITION`.
 4. Require an authored id on every interaction (`GY-RESOLVER-ACTION-ID`) and a field binding on every input (`GY-RESOLVER-UNBOUND`).
 5. Materialise revision 0 from `@state` initials. A missing or mistyped D1 initial is `GY-RESOLVER-INITIAL`.
