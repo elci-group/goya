@@ -72,6 +72,8 @@ fn parse(args: &[OsString]) -> Result<Invocation, Fault> {
     let mut suite = None;
     let mut package_format = None;
     let mut window = None;
+    let mut desktop = None;
+    let mut cosmic_config_root = None;
     let mut positionals = Vec::new();
     let mut index = 2;
     while index < args.len() {
@@ -117,6 +119,17 @@ fn parse(args: &[OsString]) -> Result<Invocation, Fault> {
             if window.replace(value).is_some() {
                 return Err(Fault::new(2, "EMP-USAGE", "duplicate --window"));
             }
+        } else if text == "--desktop" {
+            let value = required_value(args, &mut index, "--desktop")?;
+            let value = crate::desktop::parse(&value)?;
+            if desktop.replace(value).is_some() {
+                return Err(Fault::new(2, "EMP-USAGE", "duplicate --desktop"));
+            }
+        } else if text == "--cosmic-config-root" {
+            let value = PathBuf::from(required_raw(args, &mut index, "--cosmic-config-root")?);
+            if cosmic_config_root.replace(value).is_some() {
+                return Err(Fault::new(2, "EMP-USAGE", "duplicate --cosmic-config-root"));
+            }
         } else if text.starts_with('-') {
             return Err(Fault::new(2, "EMP-USAGE", format!("unknown option {text}")));
         } else {
@@ -136,6 +149,17 @@ fn parse(args: &[OsString]) -> Result<Invocation, Fault> {
             2,
             "EMP-USAGE",
             "expected one scene path or build directory",
+        ));
+    }
+    let window = window.unwrap_or_else(|| "wayland".to_owned());
+    let desktop_explicit = desktop.is_some();
+    let desktop = desktop.unwrap_or(crate::desktop::GENERIC);
+    crate::desktop::check_window(desktop, &window)?;
+    if cosmic_config_root.is_some() && desktop != crate::desktop::COSMIC {
+        return Err(Fault::new(
+            2,
+            "EMP-USAGE",
+            "--cosmic-config-root requires --desktop cosmic",
         ));
     }
     let positional = positionals.remove(0);
@@ -163,7 +187,10 @@ fn parse(args: &[OsString]) -> Result<Invocation, Fault> {
         launch,
         suite,
         package_format,
-        window: window.unwrap_or_else(|| "wayland".to_owned()),
+        window,
+        desktop: desktop.to_owned(),
+        desktop_explicit,
+        cosmic_config_root,
     })
 }
 
@@ -199,5 +226,162 @@ fn usage_run(fault: Fault) -> Run {
             "detail": fault.message,
         }),
         text: format!("{}: {}\n", fault.code, fault.message),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(list: &[&str]) -> Vec<OsString> {
+        std::iter::once("emperor")
+            .chain(list.iter().copied())
+            .map(OsString::from)
+            .collect()
+    }
+
+    fn parsed(list: &[&str]) -> Invocation {
+        match parse(&args(list)) {
+            Ok(invocation) => invocation,
+            Err(fault) => panic!("{list:?}: {fault}"),
+        }
+    }
+
+    fn fault(list: &[&str]) -> Fault {
+        match parse(&args(list)) {
+            Ok(_) => panic!("{list:?} parsed"),
+            Err(fault) => fault,
+        }
+    }
+
+    const TARGET: [&str; 2] = ["--target", "x86_64-unknown-linux-gnu"];
+
+    #[test]
+    fn desktop_defaults_to_generic() {
+        let invocation = parsed(&["build", "scene.gscene", TARGET[0], TARGET[1]]);
+        assert_eq!(invocation.desktop, "generic");
+        assert!(!invocation.desktop_explicit);
+        assert_eq!(invocation.window, "wayland");
+        assert!(invocation.cosmic_config_root.is_none());
+    }
+
+    #[test]
+    fn desktop_accepts_generic_and_cosmic_on_every_command() {
+        for command in ["check", "build", "test", "inspect"] {
+            let generic = parsed(&[
+                command,
+                "s.gscene",
+                "--desktop",
+                "generic",
+                TARGET[0],
+                TARGET[1],
+            ]);
+            assert_eq!(generic.desktop, "generic");
+            assert!(generic.desktop_explicit);
+            let cosmic = parsed(&[
+                command,
+                "s.gscene",
+                "--desktop",
+                "cosmic",
+                TARGET[0],
+                TARGET[1],
+            ]);
+            assert_eq!(cosmic.desktop, "cosmic");
+            assert_eq!(cosmic.window, "wayland");
+        }
+        for command in ["verify", "qualify", "benchmark", "package"] {
+            let cosmic = parsed(&[command, "out", "--desktop", "cosmic", TARGET[0], TARGET[1]]);
+            assert_eq!(cosmic.desktop, "cosmic");
+            assert!(cosmic.directory.is_some());
+        }
+        let explicit = parsed(&[
+            "build",
+            "s.gscene",
+            "--desktop",
+            "cosmic",
+            "--window",
+            "wayland",
+            "--cosmic-config-root",
+            "fixtures/pop",
+            TARGET[0],
+            TARGET[1],
+        ]);
+        assert_eq!(
+            explicit.cosmic_config_root.as_deref(),
+            Some(std::path::Path::new("fixtures/pop"))
+        );
+    }
+
+    #[test]
+    fn desktop_rejects_unknown_duplicate_and_missing_values() {
+        let unknown = fault(&[
+            "build",
+            "s.gscene",
+            "--desktop",
+            "gnome",
+            TARGET[0],
+            TARGET[1],
+        ]);
+        assert_eq!((unknown.exit, unknown.code), (2, "EMP-USAGE"));
+        let duplicate = fault(&[
+            "build",
+            "s.gscene",
+            "--desktop",
+            "cosmic",
+            "--desktop",
+            "cosmic",
+            TARGET[0],
+            TARGET[1],
+        ]);
+        assert_eq!((duplicate.exit, duplicate.code), (2, "EMP-USAGE"));
+        assert!(duplicate.message.contains("duplicate --desktop"));
+        let missing = fault(&["build", "s.gscene", TARGET[0], TARGET[1], "--desktop"]);
+        assert_eq!((missing.exit, missing.code), (2, "EMP-USAGE"));
+    }
+
+    #[test]
+    fn cosmic_rejects_the_x11_host_with_usage_exit_2() {
+        for order in [
+            ["--desktop", "cosmic", "--window", "kumimanu"],
+            ["--window", "kumimanu", "--desktop", "cosmic"],
+        ] {
+            let mut list = vec!["build", "s.gscene", TARGET[0], TARGET[1]];
+            list.extend(order);
+            let fault = fault(&list);
+            assert_eq!((fault.exit, fault.code), (2, "EMP-USAGE"));
+            assert!(fault.message.contains("Xwayland"), "{}", fault.message);
+        }
+        // The generic profile keeps kumimanu.
+        let generic = parsed(&[
+            "build", "s.gscene", "--window", "kumimanu", TARGET[0], TARGET[1],
+        ]);
+        assert_eq!(
+            (generic.desktop.as_str(), generic.window.as_str()),
+            ("generic", "kumimanu")
+        );
+        // Through the public entry point the rejection is a usage run.
+        let run = execute(&args(&[
+            "check",
+            "s.gscene",
+            "--desktop",
+            "cosmic",
+            "--window",
+            "kumimanu",
+        ]));
+        assert_eq!(run.code, 2);
+        assert_eq!(run.json["diagnostic"], "EMP-USAGE");
+    }
+
+    #[test]
+    fn config_root_requires_cosmic() {
+        let fault = fault(&[
+            "build",
+            "s.gscene",
+            "--cosmic-config-root",
+            "fixtures/pop",
+            TARGET[0],
+            TARGET[1],
+        ]);
+        assert_eq!((fault.exit, fault.code), (2, "EMP-USAGE"));
     }
 }

@@ -1,8 +1,13 @@
 //! Wayland host loop for the admitted counter.
 //!
 //! Hit rectangles stay at the admitted DIP values. Resize marks the frame
-//! dirty and does not move them. Preedit and commit events are ignored.
+//! dirty and does not move them. Under the generic profile (EMP-M1) the
+//! frame is drawn at those rectangles. Under the opt-in COSMIC profile the
+//! frame is placed proportionally and pointer positions are mapped back to
+//! design space through the same placement before the hit test. Preedit and
+//! commit events are ignored.
 
+use goya_layout::proportional::{self, ResizePolicy, Size, Transform};
 use goya_layout::Rect;
 use goya_parity::keys::{Focus, KeyController};
 use goya_parity::pointer::HitMap;
@@ -10,12 +15,8 @@ use goya_runtime::Primitive;
 use goya_wayland::{GoyaWindow, KeyModifiers, KeySpecial, PlatformEvent, Shortcut};
 use unicode_segmentation::UnicodeSegmentation;
 
+use crate::presentation::{self, Paint, PointerMap, Presentation, WmObservation, GLYPH_PX};
 use crate::{press_add, Element, NativeIr, OracleReport, VK_SPACE, VK_TAB, WM_KEYDOWN};
-
-const FOCUS_FILL: u32 = 0xFFD6E4F5;
-const FG: [u8; 3] = [20, 20, 28];
-const BG: [u8; 3] = [235, 235, 240];
-const GLYPH_PX: u32 = 8;
 
 pub(crate) enum WindowMode {
     Smoke,
@@ -67,8 +68,9 @@ pub(crate) fn run_window(
     ir: &NativeIr,
     mut controller: KeyController,
     mode: WindowMode,
+    look: &Presentation,
 ) -> Result<OracleReport, String> {
-    let _ = scene_frame(ir, &controller)?;
+    let _ = scene_frame_with(ir, &controller, &look.paint)?;
     let hits = goya_parity::pointer::hit_map(&ir.scene).map_err(|err| err.to_string())?;
     let client_text = find_role(ir, "client")?.text.as_str();
     let title = if client_text.is_empty() {
@@ -87,6 +89,13 @@ pub(crate) fn run_window(
     let mut presented = 0u32;
     let mut pumps = 0u32;
     let mut quit = false;
+    // The pointer is mapped through the placement of the frame on screen.
+    // Fixed never changes it; Proportional updates it when a frame commits.
+    let mut shown = PointerMap::Fixed;
+    let mut shown_transform = Transform::IDENTITY;
+    let mut shown_hint = None;
+    let mut seen_generation = window.toplevel_state_generation();
+    let mut resizes = 0u32;
     loop {
         if let WindowMode::Live {
             max_frames: Some(limit),
@@ -102,11 +111,15 @@ pub(crate) fn run_window(
         for event in window.poll() {
             let mut published: Option<String> = None;
             let mut paste_requested = false;
-            let step = on_event(
+            if matches!(event, PlatformEvent::Resized(_, _)) {
+                resizes = resizes.saturating_add(1);
+            }
+            let step = on_event_mapped(
                 ir,
                 &mut controller,
                 &hits,
                 &mut arm,
+                shown,
                 &mut |text| published = Some(text.to_owned()),
                 &mut || paste_requested = true,
                 event,
@@ -123,19 +136,38 @@ pub(crate) fn run_window(
                 Step::Unchanged => {}
             }
         }
+        // A tiled-state change can move the anchor of a proportional frame.
+        let generation = window.toplevel_state_generation();
+        if generation != seen_generation {
+            seen_generation = generation;
+            if look.resize != ResizePolicy::Fixed {
+                dirty = true;
+            }
+        }
         if dirty {
-            let frame = scene_frame(ir, &controller)?;
+            let mut frame = scene_frame_with(ir, &controller, &look.paint)?;
+            let hint = presentation::tiled_hint(&window.toplevel_state());
+            let transform = place_frame(ir, look.resize, window.size(), hint, &mut frame);
+            let glyph_px = match look.resize {
+                ResizePolicy::Fixed => GLYPH_PX,
+                ResizePolicy::Proportional { .. } => presentation::glyph_px(&transform),
+            };
             window
                 .present_dirty(
                     &frame.primitives,
                     &frame.fills,
                     &frame.foregrounds,
-                    FG,
-                    BG,
-                    GLYPH_PX,
+                    look.paint.fg,
+                    look.paint.bg,
+                    glyph_px,
                     None,
                 )
                 .map_err(|err| format!("wayland: {err}"))?;
+            if look.resize != ResizePolicy::Fixed && window.frame_committed() {
+                shown = PointerMap::Placed(transform);
+                shown_transform = transform;
+                shown_hint = hint;
+            }
             dirty = false;
             presented = presented.saturating_add(1);
         } else if matches!(mode, WindowMode::Live { .. }) && !quit {
@@ -153,6 +185,18 @@ pub(crate) fn run_window(
             break;
         }
     }
+    let wm = WmObservation {
+        xdg_wm_base_version: window.xdg_wm_base_version(),
+        state: window.toplevel_state(),
+        capabilities: window.wm_capabilities(),
+        state_generation: window.toplevel_state_generation(),
+        size: window.size(),
+        desktop: look.desktop,
+        resize: look.resize_name(),
+        tiled_hint: shown_hint,
+        transform: shown_transform,
+        resizes,
+    };
     Ok(OracleReport {
         count: controller.session.count,
         revision: controller.session.revision,
@@ -162,9 +206,53 @@ pub(crate) fn run_window(
         wayland: "opened",
         window: "wayland",
         edit: controller.session.edit,
+        wm: Some(wm),
     })
 }
 
+/// Place a frame on a surface of `surface_px` under `policy`.
+///
+/// `Fixed` leaves the frame untouched and returns the identity: EMP-M1 draws
+/// at the admitted DIP rectangles. `Proportional` replaces every primitive
+/// rectangle with the [`proportional::place`] output and returns the
+/// transform, which the caller also uses for the pointer.
+pub(crate) fn place_frame(
+    ir: &NativeIr,
+    policy: ResizePolicy,
+    surface_px: (i32, i32),
+    tiled: Option<proportional::TiledEdges>,
+    frame: &mut SceneFrame,
+) -> Transform {
+    if policy == ResizePolicy::Fixed {
+        return Transform::IDENTITY;
+    }
+    let mp = goya_wayland::MP_PER_PX;
+    let design = Size::new(i64::from(ir.width_dip) * mp, i64::from(ir.height_dip) * mp);
+    let configured = Size::new(i64::from(surface_px.0) * mp, i64::from(surface_px.1) * mp);
+    let rects: Vec<Rect> = frame.primitives.iter().map(primitive_rect).collect();
+    let placement = proportional::place(policy, design, configured, tiled, &rects);
+    for (primitive, rect) in frame.primitives.iter_mut().zip(placement.rects.iter()) {
+        set_primitive_rect(primitive, *rect);
+    }
+    placement.transform
+}
+
+fn primitive_rect(primitive: &Primitive) -> Rect {
+    match primitive {
+        Primitive::Panel(rect) | Primitive::Text(rect, _) | Primitive::Button(rect, _) => *rect,
+    }
+}
+
+fn set_primitive_rect(primitive: &mut Primitive, rect: Rect) {
+    match primitive {
+        Primitive::Panel(slot) | Primitive::Text(slot, _) | Primitive::Button(slot, _) => {
+            *slot = rect
+        }
+    }
+}
+
+/// EMP-M1 dispatch: pointer positions are surface pixels at scale 1.
+#[cfg_attr(not(feature = "kumimanu"), allow(dead_code))]
 pub(crate) fn on_event(
     ir: &NativeIr,
     controller: &mut KeyController,
@@ -174,9 +262,37 @@ pub(crate) fn on_event(
     request_paste: &mut dyn FnMut(),
     event: PlatformEvent,
 ) -> Step {
+    on_event_mapped(
+        ir,
+        controller,
+        hits,
+        arm,
+        PointerMap::Fixed,
+        publish,
+        request_paste,
+        event,
+    )
+}
+
+/// Dispatch with pointer positions mapped by `map` before the hit test.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn on_event_mapped(
+    ir: &NativeIr,
+    controller: &mut KeyController,
+    hits: &HitMap,
+    arm: &mut PointerArm,
+    map: PointerMap,
+    publish: &mut dyn FnMut(&str),
+    request_paste: &mut dyn FnMut(),
+    event: PlatformEvent,
+) -> Step {
     match event {
-        PlatformEvent::PointerPress(x, y) => on_pointer_press(ir, controller, hits, arm, x, y).step,
-        PlatformEvent::PointerRelease(x, y) => on_pointer_release(controller, hits, arm, x, y).step,
+        PlatformEvent::PointerPress(x, y) => {
+            on_pointer_press_mapped(ir, controller, hits, arm, map, x, y).step
+        }
+        PlatformEvent::PointerRelease(x, y) => {
+            on_pointer_release_mapped(controller, hits, arm, map, x, y).step
+        }
         PlatformEvent::KeyChar(ch) => on_char(controller, ch),
         PlatformEvent::KeySpecial(KeySpecial::Tab) => on_tab(controller, false),
         PlatformEvent::KeySpecialWithModifiers { key, modifiers } => {
@@ -232,7 +348,20 @@ pub(crate) fn on_pointer_press(
     x: f64,
     y: f64,
 ) -> PointerEffect {
-    let Some(control) = hits.at(dip_from_surface_px(x), dip_from_surface_px(y)) else {
+    on_pointer_press_mapped(ir, controller, hits, arm, PointerMap::Fixed, x, y)
+}
+
+pub(crate) fn on_pointer_press_mapped(
+    ir: &NativeIr,
+    controller: &mut KeyController,
+    hits: &HitMap,
+    arm: &mut PointerArm,
+    map: PointerMap,
+    x: f64,
+    y: f64,
+) -> PointerEffect {
+    let (dip_x, dip_y) = map.dip(x, y);
+    let Some(control) = hits.at(dip_x, dip_y) else {
         arm.button_id = None;
         return PointerEffect {
             step: Step::Unchanged,
@@ -274,8 +403,20 @@ pub(crate) fn on_pointer_release(
     x: f64,
     y: f64,
 ) -> PointerEffect {
+    on_pointer_release_mapped(controller, hits, arm, PointerMap::Fixed, x, y)
+}
+
+pub(crate) fn on_pointer_release_mapped(
+    controller: &mut KeyController,
+    hits: &HitMap,
+    arm: &mut PointerArm,
+    map: PointerMap,
+    x: f64,
+    y: f64,
+) -> PointerEffect {
+    let (dip_x, dip_y) = map.dip(x, y);
     let hit = hits
-        .at(dip_from_surface_px(x), dip_from_surface_px(y))
+        .at(dip_x, dip_y)
         .map(|control| control.semantic_id.clone());
     let armed = arm.button_id.take();
     let Some(armed_id) = armed else {
@@ -443,30 +584,59 @@ pub(crate) fn ignore_ime(_controller: &KeyController) -> Step {
     Step::Unchanged
 }
 
+/// EMP-M1 frame with the generic paint.
+#[cfg_attr(not(any(test, feature = "kumimanu")), allow(dead_code))]
 pub(crate) fn scene_frame(ir: &NativeIr, controller: &KeyController) -> Result<SceneFrame, String> {
+    scene_frame_with(ir, controller, &Paint::GENERIC)
+}
+
+/// Frame at the admitted DIP rectangles with `paint`.
+///
+/// The generic paint fills only the focused control and leaves every glyph
+/// colour to the host default, exactly as EMP-M1 did.
+pub(crate) fn scene_frame_with(
+    ir: &NativeIr,
+    controller: &KeyController,
+    paint: &Paint,
+) -> Result<SceneFrame, String> {
     let client = find_role(ir, "client")?;
     let edit = find_role(ir, "edit")?;
     let button = find_role(ir, "button")?;
     let result = find_role(ir, "result")?;
     let mut primitives = Vec::with_capacity(5);
     let mut fills = Vec::with_capacity(5);
+    let mut foregrounds = Vec::with_capacity(5);
+    let edit_focused = controller.focus == Focus::Edit;
+    let button_focused = controller.focus == Focus::Button;
+    let focus_or_field = |focused: bool| {
+        if focused {
+            Some(paint.focus_fill)
+        } else {
+            paint.field_fill
+        }
+    };
+    let focus_fg = |focused: bool| if focused { paint.focus_fg } else { None };
     primitives.push(Primitive::Panel(dip_rect(client)));
     fills.push(None);
+    foregrounds.push(None);
     primitives.push(Primitive::Text(dip_rect(client), client.text.clone()));
-    fills.push(None);
+    fills.push(paint.client_fill);
+    foregrounds.push(None);
     primitives.push(Primitive::Text(
         dip_rect(edit),
         controller.session.edit.clone(),
     ));
-    fills.push((controller.focus == Focus::Edit).then_some(FOCUS_FILL));
+    fills.push(focus_or_field(edit_focused));
+    foregrounds.push(focus_fg(edit_focused));
     primitives.push(Primitive::Button(dip_rect(button), button.text.clone()));
-    fills.push((controller.focus == Focus::Button).then_some(FOCUS_FILL));
+    fills.push(focus_or_field(button_focused));
+    foregrounds.push(focus_fg(button_focused));
     primitives.push(Primitive::Text(
         dip_rect(result),
         controller.session.result.clone(),
     ));
-    fills.push(None);
-    let foregrounds = vec![None; primitives.len()];
+    fills.push(paint.field_fill);
+    foregrounds.push(None);
     debug_assert_eq!(fills.len(), primitives.len());
     Ok(SceneFrame {
         primitives,
@@ -501,21 +671,6 @@ fn view(controller: &KeyController) -> View {
     }
 }
 
-/// Truncate a surface pixel toward zero into an i32 DIP.
-fn dip_from_surface_px(value: f64) -> i32 {
-    if !value.is_finite() {
-        return 0;
-    }
-    let truncated = value.trunc();
-    if truncated >= f64::from(i32::MAX) {
-        i32::MAX
-    } else if truncated <= f64::from(i32::MIN) {
-        i32::MIN
-    } else {
-        truncated as i32
-    }
-}
-
 fn delete_last_grapheme(text: &str) -> String {
     let mut cut = text.len();
     for (index, _) in text.grapheme_indices(true) {
@@ -531,6 +686,7 @@ fn delete_last_grapheme(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::presentation::dip_from_surface_px;
 
     #[test]
     fn surface_px_truncates_toward_zero() {

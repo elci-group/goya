@@ -1,5 +1,6 @@
 //! Build, verify, and package one admitted counter.
 
+use crate::desktop;
 use crate::elf;
 use crate::lower::{self, Lowered};
 use crate::stage::{Stages, Status};
@@ -45,6 +46,14 @@ pub struct Invocation {
     pub package_format: Option<String>,
     /// `wayland` or `kumimanu`. The default is Wayland.
     pub window: String,
+    /// `generic` (default, EMP-M1) or `cosmic` (Nebula, Wayland only).
+    pub desktop: String,
+    /// True when `--desktop` was passed. Directory commands then require it
+    /// to match the build report.
+    pub desktop_explicit: bool,
+    /// Config root (the directory holding `cosmic/`) for `--desktop cosmic`.
+    /// Defaults to `$XDG_CONFIG_HOME` or `~/.config`, read by the compiler.
+    pub cosmic_config_root: Option<PathBuf>,
 }
 
 pub fn execute(invocation: Invocation) -> Run {
@@ -130,12 +139,39 @@ fn build(invocation: Invocation) -> Run {
             ),
         );
     }
+    if let Some(root) = &invocation.cosmic_config_root {
+        if let Err(fault) = reject_traversal(root) {
+            return fault_run(&invocation, fault);
+        }
+    }
     let json_text = lowered.json.clone();
     let embed = lower::embed_rust(&lowered.ir, &json_text);
     let desktop = desktop_entry();
     if let Err(fault) = validate_desktop(&desktop) {
         return fault_run(&invocation, fault);
     }
+    // Desktop profile: presentation only, resolved here at build time. The
+    // generic profile writes no presentation file and links the runtime's
+    // generic default, exactly as before.
+    let (look, theme_record, presentation_path) = if invocation.desktop == desktop::COSMIC {
+        let source = invocation
+            .cosmic_config_root
+            .clone()
+            .map(nebula::theme::ThemeSource::new)
+            .or_else(nebula::theme::ThemeSource::from_env);
+        let bake = desktop::bake_cosmic(source.as_ref());
+        let path = out.join("presentation.rs");
+        if let Err(error) = fs::write(&path, desktop::presentation_rust(&bake)) {
+            return fault_run(&invocation, io_fault(error));
+        }
+        (
+            emperor_runtime::Presentation::cosmic(bake.paint),
+            bake.record,
+            Some(path),
+        )
+    } else {
+        (emperor_runtime::Presentation::GENERIC, Value::Null, None)
+    };
     if let Err(fault) = write_outputs(
         &out,
         &lowered,
@@ -152,6 +188,7 @@ fn build(invocation: Invocation) -> Run {
     if let Err(fault) = cargo_build(
         &root,
         &embed_path,
+        presentation_path.as_deref(),
         &target_dir,
         invocation.release,
         invocation.window.as_str(),
@@ -226,7 +263,8 @@ fn build(invocation: Invocation) -> Run {
         Err(fault) => return fault_run(&invocation, fault),
     };
     let window = invocation.window.as_str();
-    let (smoke_status, smoke_text, exit, conformance) = if display_ready(window) {
+    let smoke_attempted = display_ready(window);
+    let (smoke_status, smoke_text, exit, conformance) = if smoke_attempted {
         match run_captured(&app, &["--smoke"], Duration::from_secs(25)) {
             Ok(captured) if captured.code == 0 && smoke_matches(window, &captured.stdout) => {
                 ("passed", captured.stdout, 0u8, Status::Pass)
@@ -269,13 +307,31 @@ fn build(invocation: Invocation) -> Run {
         "profile": invocation.profile,
         "release": invocation.release,
         "window": invocation.window,
+        "desktop_profile": invocation.desktop,
+        "presentation": desktop::presentation_json(&look),
+        "theme": theme_record,
+        "compositor": desktop::identify(&invocation.desktop),
+        "toplevel": desktop::parse_wm_line(&smoke_text),
     });
+    let theme_line = match theme_record.get("applied").and_then(Value::as_bool) {
+        Some(true) => format!(
+            "desktop cosmic: theme applied, digest {}\n",
+            theme_record["digest_sha256"].as_str().unwrap_or("none")
+        ),
+        Some(false) => format!(
+            "desktop cosmic: generic colours (fallback: {})\n",
+            theme_record["fallback_reason"]
+                .as_str()
+                .unwrap_or("unknown")
+        ),
+        None => String::new(),
+    };
     let body = finish(
         &invocation,
         exit,
         stages,
         format!(
-            "wrote {}\nsha256 {digest}\nsmoke {smoke_status}\n",
+            "wrote {}\nsha256 {digest}\nsmoke {smoke_status}\n{theme_line}",
             app.display()
         ),
         report.clone(),
@@ -340,6 +396,10 @@ fn verify(invocation: Invocation) -> Run {
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_owned();
+    let recorded_desktop = match recorded_desktop(&invocation, &report) {
+        Ok(desktop) => desktop,
+        Err(fault) => return fault_run(&invocation, fault),
+    };
     let (bytes, _length, digest) = match hash_and_elf_prefix(&app) {
         Ok(read) => read,
         Err(fault) => return fault_run(&invocation, fault),
@@ -458,7 +518,12 @@ fn verify(invocation: Invocation) -> Run {
         exit,
         stages,
         format!("verified {digest}\n"),
-        json!({"artifact_sha256": digest, "smoke": recorded_smoke, "window": window}),
+        json!({
+            "artifact_sha256": digest,
+            "smoke": recorded_smoke,
+            "window": window,
+            "desktop_profile": recorded_desktop,
+        }),
     )
 }
 
@@ -526,6 +591,10 @@ fn qualify(invocation: Invocation) -> Run {
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_owned();
+    let recorded_desktop = match recorded_desktop(&invocation, &report) {
+        Ok(desktop) => desktop,
+        Err(fault) => return fault_run(&invocation, fault),
+    };
     let (bytes, _length, digest) = match hash_and_elf_prefix(&app) {
         Ok(read) => read,
         Err(fault) => return fault_run(&invocation, fault),
@@ -657,8 +726,39 @@ fn qualify(invocation: Invocation) -> Run {
             "window": window,
             "target": target,
             "release": release,
+            "desktop_profile": recorded_desktop,
+            "presentation": report.get("presentation").cloned().unwrap_or(Value::Null),
+            "theme": report.get("theme").cloned().unwrap_or(Value::Null),
+            "compositor": desktop::identify(&recorded_desktop),
+            "toplevel": if smoke_status == Status::Pass {
+                desktop::parse_wm_line(&smoke_detail)
+            } else {
+                Value::Null
+            },
         }),
     )
+}
+
+/// Desktop profile recorded by a build report. Reports written before
+/// desktop profiles existed are `generic`. An explicit `--desktop` on a
+/// directory command must match the report.
+fn recorded_desktop(invocation: &Invocation, report: &Value) -> Result<String, Fault> {
+    let recorded = report
+        .get("desktop_profile")
+        .and_then(Value::as_str)
+        .unwrap_or(desktop::GENERIC)
+        .to_owned();
+    if invocation.desktop_explicit && invocation.desktop != recorded {
+        return Err(Fault::new(
+            2,
+            "EMP-USAGE",
+            format!(
+                "--desktop {} does not match the build report, which records {recorded}",
+                invocation.desktop
+            ),
+        ));
+    }
+    Ok(recorded)
 }
 
 /// Local latency benchmark of one build directory.
@@ -875,16 +975,18 @@ fn benchmark(invocation: Invocation) -> Run {
     // compositor only — it is not a compositor matrix and not a GPU path.
     let (frame_rate_runs, frame_rate_detail) = if display_ready(&window) {
         // Warmup: short pump so compositor and font caches are hot.
-        let warmup = match run_captured(&app, &["--live", "--frames", "30"], Duration::from_secs(60))
-        {
-            Ok(captured) if captured.code == 0 && presented_frames(&captured.stdout) > 0 => None,
-            Ok(captured) => Some(format!(
-                "frame-rate warmup exited {} with presented={}",
-                captured.code,
-                presented_frames(&captured.stdout)
-            )),
-            Err(fault) => Some(fault.message),
-        };
+        let warmup =
+            match run_captured(&app, &["--live", "--frames", "30"], Duration::from_secs(60)) {
+                Ok(captured) if captured.code == 0 && presented_frames(&captured.stdout) > 0 => {
+                    None
+                }
+                Ok(captured) => Some(format!(
+                    "frame-rate warmup exited {} with presented={}",
+                    captured.code,
+                    presented_frames(&captured.stdout)
+                )),
+                Err(fault) => Some(fault.message),
+            };
         let mut fps: Vec<f64> = Vec::new();
         let mut failure = warmup.unwrap_or_default();
         for _ in 0..FRAME_RATE_RUNS {
@@ -892,7 +994,11 @@ fn benchmark(invocation: Invocation) -> Run {
                 break;
             }
             let started = Instant::now();
-            match run_captured(&app, &["--live", "--frames", "120"], Duration::from_secs(60)) {
+            match run_captured(
+                &app,
+                &["--live", "--frames", "120"],
+                Duration::from_secs(60),
+            ) {
                 Ok(captured) if captured.code == 0 => {
                     let presented = presented_frames(&captured.stdout);
                     let elapsed = started.elapsed().as_secs_f64();
@@ -914,7 +1020,10 @@ fn benchmark(invocation: Invocation) -> Run {
             }
         }
         if fps.len() == FRAME_RATE_RUNS {
-            (Some(fps), "frame rate measured over --live pumps".to_owned())
+            (
+                Some(fps),
+                "frame rate measured over --live pumps".to_owned(),
+            )
         } else {
             (None, failure)
         }
@@ -1964,6 +2073,7 @@ fn write_reports(
         "profile": invocation.profile,
         "release": invocation.release,
         "window": invocation.window,
+        "desktop_profile": invocation.desktop,
         "artifact_sha256": digest,
         "rustc": rustc_version(),
         "signing": "not performed",
@@ -1997,6 +2107,7 @@ fn validate_desktop(text: &str) -> Result<(), Fault> {
 fn cargo_build(
     root: &Path,
     embed: &Path,
+    presentation: Option<&Path>,
     target_dir: &Path,
     release: bool,
     window: &str,
@@ -2023,6 +2134,14 @@ fn cargo_build(
         // Skipping it shrinks both link time and the artifact. Release builds
         // keep the workspace profile's `debug = true` untouched.
         command.env("CARGO_PROFILE_DEV_DEBUG", "0");
+    }
+    match presentation {
+        Some(path) => {
+            command.env("EMPEROR_PRESENTATION", path);
+        }
+        None => {
+            command.env_remove("EMPEROR_PRESENTATION");
+        }
     }
     command
         .current_dir(root)

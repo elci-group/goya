@@ -324,7 +324,9 @@ name = "emperor"
 version = "0.1.8"
 dependencies = [
  "emperor-runtime",
+ "goya-chroma",
  "goya-lang",
+ "nebula",
  "sash",
  "serde_json",
  "sha2",

@@ -7,6 +7,7 @@
 #![forbid(unsafe_code)]
 
 pub mod cli;
+pub mod desktop;
 pub mod elf;
 pub mod lower;
 pub mod orchestrate;

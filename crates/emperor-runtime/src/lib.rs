@@ -13,8 +13,11 @@ mod glyph;
 mod host;
 #[cfg(feature = "kumimanu")]
 mod host_kumimanu;
+pub mod presentation;
 
 pub use exercise::{exercise_interaction, InteractionReport};
+pub use goya_layout::proportional::{Anchor, ResizePolicy, TiledEdges, Transform};
+pub use presentation::{Desktop, Paint, Presentation, WmObservation};
 
 use goya_parity::keys::KeyController;
 
@@ -137,6 +140,9 @@ pub struct OracleReport {
     /// `wayland`, `kumimanu`, or `not-requested` when no window was opened.
     pub window: &'static str,
     pub edit: String,
+    /// What the Wayland host saw of the compositor. `None` for the oracle
+    /// and the X11 host.
+    pub wm: Option<WmObservation>,
 }
 
 /// How [`run`] drives the admitted counter.
@@ -157,9 +163,21 @@ pub fn oracle(nir_json: &str) -> Result<OracleReport, String> {
     run(nir_json, RunMode::Oracle)
 }
 
-/// Admit `nir_json` and run it in `mode`. Windowed modes present through the
-/// host picked by [`open_window`]; `Oracle` never opens a window.
+/// Admit `nir_json` and run it in `mode` with the generic presentation.
+/// Windowed modes present through the host picked by [`open_window`];
+/// `Oracle` never opens a window.
 pub fn run(nir_json: &str, mode: RunMode) -> Result<OracleReport, String> {
+    run_with(nir_json, mode, &Presentation::GENERIC)
+}
+
+/// [`run`] with an explicit presentation. The oracle ignores `look`: paint
+/// and resize policy are presentation, not semantics. The X11 host always
+/// uses the generic presentation.
+pub fn run_with(
+    nir_json: &str,
+    mode: RunMode,
+    look: &Presentation,
+) -> Result<OracleReport, String> {
     let (ir, mut controller) = open_admitted(nir_json)?;
     match mode {
         RunMode::Oracle => {
@@ -167,10 +185,10 @@ pub fn run(nir_json: &str, mode: RunMode) -> Result<OracleReport, String> {
             prove_paste_denied(&ir, &mut controller)?;
             Ok(report(&controller, 0, "not-requested"))
         }
-        RunMode::Smoke => open_window(&ir, controller, host::WindowMode::Smoke),
-        RunMode::Exercise => open_window(&ir, controller, host::WindowMode::Exercise),
+        RunMode::Smoke => open_window(&ir, controller, host::WindowMode::Smoke, look),
+        RunMode::Exercise => open_window(&ir, controller, host::WindowMode::Exercise, look),
         RunMode::Live { max_frames } => {
-            open_window(&ir, controller, host::WindowMode::Live { max_frames })
+            open_window(&ir, controller, host::WindowMode::Live { max_frames }, look)
         }
     }
 }
@@ -412,10 +430,11 @@ fn open_window(
     ir: &NativeIr,
     controller: KeyController,
     mode: host::WindowMode,
+    look: &Presentation,
 ) -> Result<OracleReport, String> {
     match backend_for(option_env!("EMPEROR_WINDOW_BACKEND")) {
         Backend::Kumimanu => open_kumimanu(ir, controller, mode),
-        Backend::Wayland => host::run_window(ir, controller, mode),
+        Backend::Wayland => host::run_window(ir, controller, mode, look),
     }
 }
 
@@ -452,6 +471,7 @@ fn report(controller: &KeyController, presented: u32, wayland: &'static str) -> 
         wayland,
         window,
         edit: controller.session.edit.clone(),
+        wm: None,
     }
 }
 
@@ -2599,6 +2619,219 @@ mod tests {
         assert_eq!(report.revision, 2);
         assert!(report.copy_allowed);
         assert!(!report.paste_allowed);
+    }
+
+    /// Id of the drawn control (edit, button, result) containing surface
+    /// point `(x_mp, y_mp)`, else the client when inside the drawn client.
+    fn drawn_hit(frame: &host::SceneFrame, x_mp: i64, y_mp: i64) -> Option<&'static str> {
+        let inside = |rect: &goya_layout::Rect| {
+            x_mp >= rect.x
+                && x_mp < rect.x + rect.width
+                && y_mp >= rect.y
+                && y_mp < rect.y + rect.height
+        };
+        let rect_of = |index: usize| match &frame.primitives[index] {
+            goya_runtime::Primitive::Panel(rect)
+            | goya_runtime::Primitive::Text(rect, _)
+            | goya_runtime::Primitive::Button(rect, _) => *rect,
+        };
+        for (index, id) in [(4, "state.count"), (3, "window.add"), (2, "window.amount")] {
+            if inside(&rect_of(index)) {
+                return Some(id);
+            }
+        }
+        inside(&rect_of(0)).then_some("window.root")
+    }
+
+    fn assert_round_trip(surface: (i32, i32)) -> presentation::PointerMap {
+        let (ir, controller) = open_admitted(&counter_json()).expect("admit");
+        let hits = goya_parity::pointer::hit_map(&ir.scene).expect("hits");
+        let mut frame = host::scene_frame(&ir, &controller).expect("frame");
+        let transform =
+            host::place_frame(&ir, presentation::COSMIC_RESIZE, surface, None, &mut frame);
+        let map = presentation::PointerMap::Placed(transform);
+        let mp = goya_wayland::MP_PER_PX;
+        // Every pixel centre and every pixel corner of the surface.
+        for y2 in 0..(surface.1 * 2) {
+            for x2 in 0..(surface.0 * 2) {
+                let x = f64::from(x2) / 2.0;
+                let y = f64::from(y2) / 2.0;
+                let drawn = drawn_hit(&frame, (x * mp as f64) as i64, (y * mp as f64) as i64);
+                let (dx, dy) = map.dip(x, y);
+                let hit = hits.at(dx, dy).map(|control| control.semantic_id.as_str());
+                assert_eq!(hit, drawn, "surface ({x}, {y}) -> dip ({dx}, {dy})");
+            }
+        }
+        map
+    }
+
+    #[test]
+    fn proportional_pointer_round_trip_hits_what_is_drawn() {
+        // 2x, exact fit.
+        let map = assert_round_trip((640, 320));
+        let presentation::PointerMap::Placed(transform) = map else {
+            panic!("placed");
+        };
+        assert_eq!(
+            (transform.scale_x_milli, transform.scale_y_milli),
+            (2000, 2000)
+        );
+        assert_eq!((transform.offset_x, transform.offset_y), (0, 0));
+        // Letterboxed: wider than 2:1, content centred horizontally.
+        let map = assert_round_trip((800, 320));
+        let presentation::PointerMap::Placed(transform) = map else {
+            panic!("placed");
+        };
+        assert_eq!(transform.scale_x_milli, 2000);
+        assert_eq!(transform.offset_x, 80 * goya_wayland::MP_PER_PX);
+        // Non-integer scale and odd sizes.
+        assert_round_trip((333, 201));
+        // Below the 0.5x clamp the content overflows; hits still match the
+        // drawn (clipped) rectangles.
+        assert_round_trip((100, 50));
+    }
+
+    #[test]
+    fn proportional_activation_follows_the_drawn_button() {
+        let (ir, mut controller) = open_admitted(&counter_json()).expect("admit");
+        let hits = goya_parity::pointer::hit_map(&ir.scene).expect("hits");
+        let mut frame = host::scene_frame(&ir, &controller).expect("frame");
+        let transform = host::place_frame(
+            &ir,
+            presentation::COSMIC_RESIZE,
+            (640, 320),
+            None,
+            &mut frame,
+        );
+        let map = presentation::PointerMap::Placed(transform);
+        let mut arm = host::PointerArm::default();
+        let event = |controller: &mut goya_parity::keys::KeyController,
+                     arm: &mut host::PointerArm,
+                     event: goya_wayland::PlatformEvent| {
+            host::on_event_mapped(
+                &ir,
+                controller,
+                &hits,
+                arm,
+                map,
+                &mut |_| {},
+                &mut || {},
+                event,
+            )
+        };
+        // (176, 80) is the button at scale 1; at 2x it is empty client space.
+        event(
+            &mut controller,
+            &mut arm,
+            goya_wayland::PlatformEvent::PointerPress(176.0, 80.0),
+        );
+        event(
+            &mut controller,
+            &mut arm,
+            goya_wayland::PlatformEvent::PointerRelease(176.0, 80.0),
+        );
+        assert_eq!(
+            (controller.session.count, controller.session.revision),
+            (0, 0)
+        );
+        // The centre of the drawn button activates, once, with the same
+        // session arithmetic as every other profile.
+        event(
+            &mut controller,
+            &mut arm,
+            goya_wayland::PlatformEvent::PointerPress(352.0, 160.0),
+        );
+        assert_eq!(controller.focus, goya_parity::keys::Focus::Button);
+        event(
+            &mut controller,
+            &mut arm,
+            goya_wayland::PlatformEvent::PointerRelease(352.0, 160.0),
+        );
+        assert_eq!(
+            (controller.session.count, controller.session.revision),
+            (1, 1)
+        );
+        // The drawn edit focuses without activating.
+        event(
+            &mut controller,
+            &mut arm,
+            goya_wayland::PlatformEvent::PointerPress(100.0, 150.0),
+        );
+        assert_eq!(controller.focus, goya_parity::keys::Focus::Edit);
+        assert_eq!(controller.session.count, 1);
+    }
+
+    #[test]
+    fn fixed_policy_leaves_the_frame_and_pointer_untouched() {
+        let (ir, controller) = open_admitted(&counter_json()).expect("admit");
+        let generic = host::scene_frame(&ir, &controller).expect("frame");
+        let mut placed = host::scene_frame_with(&ir, &controller, &Paint::GENERIC).expect("frame");
+        assert_eq!(placed.primitives, generic.primitives);
+        assert_eq!(placed.fills, generic.fills);
+        assert_eq!(placed.foregrounds, generic.foregrounds);
+        let transform = host::place_frame(
+            &ir,
+            Presentation::GENERIC.resize,
+            (900, 700),
+            Some(TiledEdges {
+                left: true,
+                right: false,
+                top: false,
+                bottom: false,
+            }),
+            &mut placed,
+        );
+        assert_eq!(transform, Transform::IDENTITY);
+        assert_eq!(placed.primitives, generic.primitives);
+    }
+
+    #[test]
+    fn cosmic_paint_fills_cells_and_recolours_the_focused_label() {
+        let (ir, mut controller) = open_admitted(&counter_json()).expect("admit");
+        let paint = Paint {
+            fg: [0xE0, 0xE0, 0xE0],
+            bg: [0x1B, 0x1B, 0x1B],
+            client_fill: Some(0xFF1B1B1B),
+            field_fill: Some(0xFF272727),
+            focus_fill: 0xFF63D0DF,
+            focus_fg: Some(0xFF000000),
+        };
+        let frame = host::scene_frame_with(&ir, &controller, &paint).expect("frame");
+        let field = Some(0xFF272727);
+        let focus = Some(0xFF63D0DF);
+        assert_eq!(
+            frame.fills,
+            vec![None, Some(0xFF1B1B1B), focus, field, field]
+        );
+        assert_eq!(
+            frame.foregrounds,
+            vec![None, None, Some(0xFF000000), None, None]
+        );
+        host::on_tab(&mut controller, false);
+        let frame = host::scene_frame_with(&ir, &controller, &paint).expect("frame");
+        assert_eq!(
+            frame.fills,
+            vec![None, Some(0xFF1B1B1B), field, focus, field]
+        );
+        assert_eq!(
+            frame.foregrounds,
+            vec![None, None, None, Some(0xFF000000), None]
+        );
+    }
+
+    #[test]
+    fn oracle_ignores_the_presentation() {
+        let json = counter_json();
+        let generic = run_with(&json, RunMode::Oracle, &Presentation::GENERIC).expect("generic");
+        let cosmic = run_with(
+            &json,
+            RunMode::Oracle,
+            &Presentation::cosmic(Paint::GENERIC),
+        )
+        .expect("cosmic");
+        assert_eq!(generic, cosmic);
+        assert_eq!(generic, oracle(&json).expect("oracle"));
+        assert_eq!(generic.wm, None);
     }
 
     #[cfg(feature = "kumimanu")]

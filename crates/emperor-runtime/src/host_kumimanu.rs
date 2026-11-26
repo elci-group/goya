@@ -128,6 +128,7 @@ pub(crate) fn run_window(
         wayland: "not-used",
         window: "kumimanu",
         edit: controller.session.edit,
+        wm: None,
     })
 }
 

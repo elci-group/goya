@@ -13,6 +13,9 @@ use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
 
 include!(concat!(env!("OUT_DIR"), "/embed.rs"));
+// `presentation()`: generic unless the compiler baked a desktop profile in
+// through `EMPEROR_PRESENTATION`. Nothing here reads a theme at run time.
+include!(concat!(env!("OUT_DIR"), "/presentation.rs"));
 
 enum Mode {
     Oracle,
@@ -46,6 +49,9 @@ fn main() -> ExitCode {
                 report.paste_allowed,
                 report.edit
             );
+            if let Some(wm) = &report.wm {
+                println!("{}", wm.line());
+            }
             ExitCode::SUCCESS
         }
         Err(AppError::Usage(message)) => {
@@ -79,7 +85,7 @@ fn app() -> Result<emperor_runtime::OracleReport, AppError> {
             max_frames: args.frames,
         },
     };
-    emperor_runtime::run(&json, mode).map_err(classify)
+    emperor_runtime::run_with(&json, mode, presentation()).map_err(classify)
 }
 
 fn parse_args() -> Result<Args, String> {
