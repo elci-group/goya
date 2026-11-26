@@ -138,9 +138,17 @@ pub struct GraphicDecl {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DrawRule {
     pub dimension: String,
+    /// The value label; empty for a `dealt` rule.
     pub value: String,
     pub when: Option<Condition>,
+    /// `dim: dealt`: the colour (`red`, `green`, `yellow` or `blue`) dealt
+    /// to the enclosing `colour-group: deal` button. The rule does not
+    /// match while that button has no colour, so it is never final.
+    pub dealt: bool,
 }
+
+/// The values a dimension needs for a `dealt` rule.
+pub const DEALT_VALUES: [&str; 4] = ["red", "green", "yellow", "blue"];
 
 /// `@draw graphic { rules }` inside a cell.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -403,9 +411,16 @@ pub fn validate(
         }
     }
     let mut keys = BTreeSet::new();
-    let mut stack = vec![root];
-    while let Some(cell) = stack.pop() {
-        stack.extend(cell.children.iter());
+    // Each cell with whether its nearest enclosing button (itself included)
+    // deals colours.
+    let mut stack = vec![(root, false)];
+    while let Some((cell, outer_deals)) = stack.pop() {
+        let deals = if cell.kind == crate::scene::CellKind::Button {
+            cell.colour_group.as_ref().is_some_and(|g| g.dealt())
+        } else {
+            outer_deals
+        };
+        stack.extend(cell.children.iter().map(|c| (c, deals)));
         let Some(draw) = &cell.draw else { continue };
         let bad = |m: String| {
             Err((
@@ -423,7 +438,7 @@ pub fn validate(
                 .filter(|r| r.dimension == d.name)
                 .collect();
             match rules.last() {
-                Some(r) if r.when.is_none() => {}
+                Some(r) if r.when.is_none() && !r.dealt => {}
                 _ => {
                     return bad(format!(
                         "dimension {} needs a final rule without `when`",
@@ -431,14 +446,24 @@ pub fn validate(
                     ))
                 }
             }
-            if rules[..rules.len() - 1].iter().any(|r| r.when.is_none()) {
+            if rules[..rules.len() - 1].iter().any(|r| r.when.is_none() && !r.dealt) {
                 return bad(format!(
                     "dimension {} has an unreachable rule after an unconditional one",
                     d.name
                 ));
             }
             for r in rules {
-                if !d.values.iter().any(|v| v.name == r.value) {
+                if r.dealt {
+                    if !deals {
+                        return bad(format!(
+                            "dimension {} uses dealt outside a colour-group: deal button",
+                            d.name
+                        ));
+                    }
+                    if let Some(missing) = DEALT_VALUES.iter().find(|c| !d.values.iter().any(|v| v.name == **c)) {
+                        return bad(format!("dimension {} needs a value \"{missing}\" for dealt", d.name));
+                    }
+                } else if !d.values.iter().any(|v| v.name == r.value) {
                     return bad(format!("dimension {} has no value \"{}\"", d.name, r.value));
                 }
                 if let Some(c) = &r.when {

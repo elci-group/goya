@@ -9,6 +9,9 @@
 //!                [--vendor NAME] [--icon icon.png] [--target T]
 //! arachnid getkey --host TV_IP --out KEY_FILE   fetch the Developer Mode key
 //! arachnid deploy <app.ipk> --host TV_IP --key KEY_FILE [--launch yes] [--dry-run yes]
+//! arachnid import-svg <art.svg> --name N --id ID --canvas W,H
+//!                [--inset F] [--fill #rrggbb] [--background #rrggbb] [--radius F]
+//!                                            print the art as a @graphic block
 //! ```
 //! A target is `model:<number>`, `webos:<version>`, `reported:<version>` or
 //! `ua:<agent>`. Without one, builds use the floor, webOS TV 4.0.
@@ -25,7 +28,7 @@ use std::process::ExitCode;
 
 fn usage() -> ExitCode {
     eprintln!(
-        "usage:\n  arachnid platforms\n  arachnid models [--year YYYY]\n  arachnid lookup <target>\n  arachnid check <scene> [--target T]\n  arachnid build <scene> --id ID --version V --title T --out NEW_DIR [--vendor NAME] [--icon PNG] [--target T]\n  arachnid getkey --host TV_IP --out KEY_FILE\n  arachnid deploy <app.ipk> --host TV_IP --key KEY_FILE [--launch yes] [--dry-run yes]\n\ntargets: model:<number> | webos:<version> | reported:<version> | ua:<agent>"
+        "usage:\n  arachnid platforms\n  arachnid models [--year YYYY]\n  arachnid lookup <target>\n  arachnid check <scene> [--target T]\n  arachnid build <scene> --id ID --version V --title T --out NEW_DIR [--vendor NAME] [--icon PNG] [--target T]\n  arachnid getkey --host TV_IP --out KEY_FILE\n  arachnid deploy <app.ipk> --host TV_IP --key KEY_FILE [--launch yes] [--dry-run yes]\n  arachnid import-svg <art.svg> --name N --id ID --canvas W,H [--inset F] [--fill #rrggbb] [--background #rrggbb] [--radius F]\n\ntargets: model:<number> | webos:<version> | reported:<version> | ua:<agent>"
     );
     ExitCode::from(2)
 }
@@ -59,6 +62,55 @@ fn options(args: &[String]) -> Result<Vec<(String, String)>, String> {
 
 fn take(opts: &[(String, String)], name: &str) -> Option<String> {
     opts.iter().find(|(n, _)| n == name).map(|(_, v)| v.clone())
+}
+
+/// `arachnid import-svg`: convert SVG artwork to `@graphic` source on stdout.
+fn import_svg(file: &str, opts: &[(String, String)]) -> Result<String, String> {
+    use goya_lang::svg_import::{parse_svg, to_graphic, Placement};
+    let known = [
+        "name",
+        "id",
+        "canvas",
+        "inset",
+        "fill",
+        "background",
+        "radius",
+    ];
+    if let Some((n, _)) = opts.iter().find(|(n, _)| !known.contains(&n.as_str())) {
+        return Err(format!("unknown option --{n}"));
+    }
+    let hex = |v: String| -> Result<u32, String> {
+        v.strip_prefix('#')
+            .filter(|h| h.len() == 6)
+            .and_then(|h| u32::from_str_radix(h, 16).ok())
+            .ok_or_else(|| format!("{v:?} is not #rrggbb"))
+    };
+    let frac = |name: &str, default: f64| -> Result<f64, String> {
+        take(opts, name).map_or(Ok(default), |v| {
+            v.parse::<f64>()
+                .map_err(|_| format!("--{name} {v:?} is not a number"))
+        })
+    };
+    let name = take(opts, "name").ok_or("--name is required")?;
+    let id = take(opts, "id").ok_or("--id is required")?;
+    let canvas = take(opts, "canvas").ok_or("--canvas is required")?;
+    let (w, h) = canvas
+        .split_once(',')
+        .and_then(|(w, h)| Some((w.trim().parse::<f64>().ok()?, h.trim().parse::<f64>().ok()?)))
+        .ok_or_else(|| format!("--canvas {canvas:?} is not W,H"))?;
+    let background = match take(opts, "background") {
+        Some(bg) => Some((hex(bg)?, frac("radius", 0.0)?)),
+        None => None,
+    };
+    let place = Placement {
+        canvas: (w, h),
+        inset: frac("inset", 0.0)?,
+        fill: take(opts, "fill").map_or(Ok(0), hex)?,
+        background,
+    };
+    let svg = std::fs::read_to_string(file).map_err(|e| format!("{file}: {e}"))?;
+    let art = parse_svg(&svg).map_err(|e| format!("{file}: {e}"))?;
+    to_graphic(&art, &name, &id, &place).map_err(|e| format!("{file}: {e}"))
 }
 
 fn platforms() {
@@ -153,6 +205,18 @@ fn main() -> ExitCode {
             }
             Err(d) => report(&[d], None),
         },
+        "import-svg" if args.len() >= 2 => {
+            match options(&args[2..]).and_then(|o| import_svg(&args[1], &o)) {
+                Ok(g) => {
+                    print!("{g}");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("{e}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
         "check" | "build" if args.len() >= 2 => {
             let file = &args[1];
             let opts = match options(&args[2..]) {

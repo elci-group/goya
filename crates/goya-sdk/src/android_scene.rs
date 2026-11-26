@@ -320,6 +320,42 @@ fn compile_scene(
             range: entry.range,
         });
     }
+    if let Some(entry) = handoff.parsed().entries.iter().find(|e| e.kind == "apps") {
+        return Err(AndroidSceneError {
+            reason: AndroidSceneReason::Unsupported("@apps (application launching is not lowered to Android yet)"),
+            origin: None,
+            range: entry.range,
+        });
+    }
+    if let Some(entry) = handoff
+        .parsed()
+        .entries
+        .iter()
+        .find(|e| e.kind == "property" && e.name.replace('-', "_") == "remote_colour")
+    {
+        return Err(AndroidSceneError {
+            reason: AndroidSceneReason::Unsupported("remote-colour (colour keys are not lowered to Android yet)"),
+            origin: None,
+            range: entry.range,
+        });
+    }
+    for (property, reason) in [
+        ("colour_group", "colour-group (colour-key focus groups are not lowered to Android yet)"),
+        ("sky", "sky (the live sky background is not lowered to Android yet)"),
+    ] {
+        if let Some(entry) = handoff
+            .parsed()
+            .entries
+            .iter()
+            .find(|e| e.kind == "property" && e.name.replace('-', "_") == property)
+        {
+            return Err(AndroidSceneError {
+                reason: AndroidSceneReason::Unsupported(reason),
+                origin: None,
+                range: entry.range,
+            });
+        }
+    }
     for plan in &plans {
         let property = |name: &str| Origin::Property { element: plan.id.to_owned(), property: name.to_owned() };
         if plan.cell.image_from.is_some() {

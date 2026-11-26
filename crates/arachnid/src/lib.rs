@@ -11,6 +11,7 @@
 //! `goya_caprichios::webos_tv_models`.
 
 pub mod appinfo;
+pub mod apps;
 pub mod archive;
 pub mod build;
 pub mod deploy;
@@ -25,6 +26,7 @@ pub mod live;
 pub mod motion;
 pub mod ontology;
 pub mod remote;
+pub mod sky;
 pub mod splash;
 pub mod target;
 pub mod traps;

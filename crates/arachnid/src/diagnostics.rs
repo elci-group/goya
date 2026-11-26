@@ -61,6 +61,9 @@ pub enum Code {
     /// Host state or a D2 request has no platform service to serve it, or
     /// a `@link` is not one Arachnid lowers.
     HostContract = 650,
+    /// A launch request names an application its `@apps` does not declare,
+    /// or an `@apps` declaration is not one Arachnid lowers.
+    LaunchContract = 652,
     /// Generated code needs a web feature the target engine lacks.
     FeatureUnsupported = 660,
     /// Package metadata violates LG's `appinfo.json` rules.

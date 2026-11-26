@@ -68,6 +68,10 @@ pub(super) fn build_scene(invocation: &Invocation, source: &str, out: &Path, des
         .find(|d| d.lifetime == StateLifetime::Host)
         .map(|d| (format!("host state '{}'", d.key), d.range))
         .or_else(|| parsed.entries.iter().find(|e| e.kind == "link").map(|e| ("@link".to_owned(), e.range)))
+        .or_else(|| parsed.entries.iter().find(|e| e.kind == "apps").map(|e| ("@apps".to_owned(), e.range)))
+        .or_else(|| parsed.entries.iter().find(|e| e.kind == "property" && e.name.replace('-', "_") == "remote_colour").map(|e| ("remote-colour".to_owned(), e.range)))
+        .or_else(|| parsed.entries.iter().find(|e| e.kind == "property" && e.name.replace('-', "_") == "colour_group").map(|e| ("colour-group".to_owned(), e.range)))
+        .or_else(|| parsed.entries.iter().find(|e| e.kind == "property" && e.name == "sky").map(|e| ("sky".to_owned(), e.range)))
         .or_else(|| parsed.entries.iter().find(|e| e.kind == "property" && e.name.replace('-', "_") == "image_from").map(|e| ("image-from".to_owned(), e.range)))
         .or_else(|| {
             parsed.scene.interactions.iter().find(|i| i.class == goya_lang::InteractionClass::D2).map(|i| {

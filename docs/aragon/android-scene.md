@@ -89,7 +89,9 @@ byte as before.
 * **Motion.** `fill-to` uses a reversing ARGB animator. `drift-p` is an
   elliptical orbit, and `appear-s`/`appear-from-p` fade and slide. All of
   it is off when the system disables animations.
-* **Digits.** `remote-digit` maps to the digit keys.
+* **Digits.** `remote-digit` maps to the digit keys. `remote-colour`,
+  `colour-group`, `sky` and `@apps` are refused at their range; they are
+  not lowered to Android yet.
 * **Graphics.** `@graphic` and `@draw` use inventories compiled and
   verified by `goya_scene_graphics`, decoded by the generated pure-Kotlin
   `GoyaGvi.kt` and painted with `android.graphics`. The JVM conformance

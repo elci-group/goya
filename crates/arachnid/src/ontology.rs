@@ -106,6 +106,11 @@ pub struct Ontology {
     pub text_from: Vec<Option<String>>,
     pub image_from: Vec<Option<String>>,
     pub remote_digit: Vec<Option<u8>>,
+    pub remote_colour: Vec<Option<goya_lang::RemoteColour>>,
+    /// `colour-group` per frame node (buttons only).
+    pub colour_group: Vec<Option<goya_lang::ColourGroup>>,
+    /// The node drawn with `sky: local`, if any (at most one).
+    pub sky: Option<usize>,
     pub motion: crate::motion::Motion,
     /// Focus slots: the buttons stacked on each slot, by focus id. Graph
     /// ids are slot ids.
@@ -332,6 +337,18 @@ pub fn admit(source: &str) -> Result<Ontology, Vec<Diagnostic>> {
             diags.push(Diagnostic::new(Code::HostContract, "remote-digit requires a button"));
         }
     }
+    let remote_colour: Vec<_> = cells.iter().map(|cell| cell.remote_colour).collect();
+    for (node, colour) in remote_colour.iter().enumerate() {
+        if colour.is_some() && !actionable.iter().any(|button| button.node == node) {
+            diags.push(Diagnostic::new(Code::HostContract, "remote-colour requires a button"));
+        }
+    }
+    let colour_group: Vec<_> = cells.iter().map(|cell| cell.colour_group.clone()).collect();
+    let skies: Vec<usize> = (0..cells.len()).filter(|&i| cells[i].sky.is_some()).collect();
+    if skies.len() > 1 {
+        diags.push(Diagnostic::new(Code::HostContract, "a scene draws at most one sky"));
+    }
+    let sky = skies.first().copied();
     let mut presence = Presence::from_cells(&cells, &parents);
 
     // Focus slots: buttons with the same rectangle form one slot. A slot
@@ -467,6 +484,7 @@ pub fn admit(source: &str) -> Result<Ontology, Vec<Diagnostic>> {
         .collect();
     let mut configurations = Vec::new();
     let mut reported_digits = std::collections::BTreeSet::new();
+    let mut reported_colours = std::collections::BTreeSet::new();
     let mut reported_overlaps = std::collections::BTreeSet::new();
     let mut reported = std::collections::BTreeSet::new();
     for (present_nodes, when) in distinct {
@@ -486,6 +504,35 @@ pub fn admit(source: &str) -> Result<Ontology, Vec<Diagnostic>> {
                     if reported_digits.insert((digit, other, button.name.as_str())) {
                         diags.push(Diagnostic::new(Code::HostContract, format!(
                             "buttons {other} and {} share remote digit {digit}{suffix}", button.name
+                        )));
+                    }
+                }
+            }
+        }
+        let mut colours = std::collections::BTreeMap::new();
+        // A colour key cannot both activate a claimant and move through a
+        // group in the same configuration.
+        for button in &present {
+            if let Some(colour) = remote_colour[button.node] {
+                if let Some(member) = present
+                    .iter()
+                    .find(|m| colour_group[m.node].as_ref().is_some_and(|g| g.colour == Some(colour) || g.dealt()))
+                {
+                    if reported_colours.insert((colour, member.name.as_str(), button.name.as_str())) {
+                        diags.push(Diagnostic::new(Code::HostContract, format!(
+                            "button {} claims the {} key while {} is in the {} colour group{suffix}",
+                            button.name, colour.as_str(), member.name, colour.as_str()
+                        )));
+                    }
+                }
+            }
+        }
+        for button in &present {
+            if let Some(colour) = remote_colour[button.node] {
+                if let Some(other) = colours.insert(colour, button.name.as_str()) {
+                    if reported_colours.insert((colour, other, button.name.as_str())) {
+                        diags.push(Diagnostic::new(Code::HostContract, format!(
+                            "buttons {other} and {} both claim the {} key{suffix}", button.name, colour.as_str()
                         )));
                     }
                 }
@@ -628,6 +675,9 @@ pub fn admit(source: &str) -> Result<Ontology, Vec<Diagnostic>> {
             text_from,
             image_from,
             remote_digit,
+            remote_colour,
+            colour_group,
+            sky,
             motion,
             slots,
             slot_of,
@@ -891,7 +941,7 @@ mod tests {
         assert!(o.motion.drift[thread].unwrap().decorative);
         assert!(o.motion.flow[0].is_some(), "the root breathes");
         assert_eq!(o.motion.subtree_end[stage], o.frame.nodes.len());
-        let html = crate::emit::index_html(&o, &crate::appinfo::AppInfo { id: "com.example.a".into(), title: "A".into(), version: "1.0.0".into(), vendor: None }, None);
+        let html = crate::emit::index_html(&o, &crate::appinfo::AppInfo { id: "com.example.a".into(), title: "A".into(), version: "1.0.0".into(), vendor: None }, &[]);
         assert!(html.contains(r#"<div class="m" style="--ax:7.68px;--ay:6.48px;animation-duration:240000ms">"#), "{html}");
         assert!(html.contains(r#"<div class="m dec""#), "{html}");
         assert!(html.contains(r#"class="g" style="background:linear-gradient(115deg,#e9eef1,#f4f1ea);animation-duration:45000ms""#), "{html}");
@@ -911,11 +961,80 @@ mod tests {
         let title = o.authored_ids.iter().position(|id| id.as_deref() == Some("title")).unwrap();
         // 0.05 of the stage's 1080 pt height.
         assert_eq!(o.motion.appear[title], Some(crate::motion::Appear { dx: 0, dy: 54_000, ms: 600 }));
-        let html = crate::emit::index_html(&o, &crate::appinfo::AppInfo { id: "com.example.a".into(), title: "A".into(), version: "1.0.0".into(), vendor: None }, None);
+        let html = crate::emit::index_html(&o, &crate::appinfo::AppInfo { id: "com.example.a".into(), title: "A".into(), version: "1.0.0".into(), vendor: None }, &[]);
         assert!(html.contains(&format!(r#"<div class="w a" data-appear="{title}" style="--dx:0px;--dy:54px;animation-duration:600ms">"#)), "{html}");
         // Sliding in from far above would leave the limit.
         let src = src.replace("appear-from-p: (0, 0.05, 0)", "appear-from-p: (0, -0.2, 0)");
         assert!(codes(admit(&src)).contains(&621));
+    }
+
+    #[test]
+    fn a_focused_button_keeps_its_content_above_it() {
+        // Content inside a button is emitted after it as siblings; the focus
+        // ring raises the button, so its own content must rise with it.
+        let src = AMBIENT.replace(
+            r#"@button a { id: "a"; position_p: (0.05, 0.7, 0); extent_p: (0.2, 0.15, 0); text: "A"; fill: #d9e2ec; }"#,
+            r#"@button a { id: "a"; position_p: (0.05, 0.7, 0); extent_p: (0.2, 0.15, 0); fill: #d9e2ec;
+        @cell a_label { id: "a.label"; position_p: (0, 0.5, 0); extent_p: (1, 0.5, 0); text: "A"; text-anchor: middle; }
+      }"#,
+        );
+        let o = admit(&src).unwrap_or_else(|d| panic!("{d:?}"));
+        let at = |id: &str| o.authored_ids.iter().position(|x| x.as_deref() == Some(id)).unwrap();
+        let (a, label, b) = (at("a"), at("a.label"), at("b"));
+        let html = crate::emit::index_html(&o, &crate::appinfo::AppInfo { id: "com.example.a".into(), title: "A".into(), version: "1.0.0".into(), vendor: None }, &[]);
+        assert!(html.contains(&format!(r#"<style>#n{a}.f~[data-in="{a}"]{{z-index:1}}</style>"#)), "{html}");
+        assert!(html.contains(&format!(r#"id="n{label}" class="n" data-in="{a}""#)), "{html}");
+        // Only content is marked: not the button itself, nor its neighbour.
+        assert!(!html.contains(&format!(r#"id="n{a}" class="n b" role="button" data-focus="0" data-in"#)), "{html}");
+        assert!(!html.contains(&format!(r#"id="n{b}" class="n b" role="button" data-focus="1" data-in"#)), "{html}");
+        assert_eq!(html.matches(" data-in=").count(), 1, "one marked node");
+    }
+
+    #[test]
+    fn colour_groups_are_emitted_and_exclusive_with_claims() {
+        let src = AMBIENT
+            .replace(r#"@button a { id: "a";"#, r#"@button a { id: "a"; colour-group: red;"#)
+            .replace(r#"@button b { id: "b";"#, r#"@button b { id: "b"; colour-group: red when state.on is true;"#)
+            .replace("  @cell root {", "  @state { on: bool = true durable; }\n  @cell root {")
+            .replacen("\n}", "\n  @interaction off { id: \"action.off\"; trigger: button.a.activate; class: D1; state { write on: bool; } input { } set on = false; }\n}", 1);
+        let o = admit(&src).unwrap_or_else(|d| panic!("{d:?}"));
+        let html = crate::emit::index_html(&o, &crate::appinfo::AppInfo { id: "com.example.a".into(), title: "A".into(), version: "1.0.0".into(), vendor: None }, &[]);
+        assert_eq!(html.matches(r#"data-colour-group="403""#).count(), 2, "{html}");
+        let js = crate::emit::app_js(&o);
+        assert!(js.contains(r#"var GROUPS = {"0":[403,null],"1":[403,["on","is",true]]};"#), "{js}");
+        // A claimant and a group member of one colour cannot be present together.
+        let clash = src.replace(r#"@button b { id: "b"; colour-group: red when state.on is true;"#, r#"@button b { id: "b"; remote-colour: red;"#);
+        let Err(d) = admit(&clash) else { panic!("a claim beside a group must be refused") };
+        assert!(d.iter().any(|d| d.message.contains("claims the red key while a is in the red colour group")), "{d:?}");
+    }
+
+    #[test]
+    fn text_on_a_live_sky_must_be_covered_by_a_fill() {
+        let src = AMBIENT.replace(
+            r#"@cell root { id: "root"; fill: #f4f1ea; fill-to: #e9eef1; fill-period-s: 45;"#,
+            r#"@cell root { id: "root"; fill: #f4f1ea; sky: local;"#,
+        );
+        // The title sits straight on the sky.
+        let Err(d) = admit(&src) else { panic!("uncovered text must be refused") };
+        assert!(d.iter().any(|d| d.code == Code::TextContrast && d.message.contains("title would sit on the live sky root")), "{d:?}");
+        // A filled card under it, drifting with it, covers it.
+        let covered = src.replace(
+            r#"@cell title { id: "title"; position_p: (0.05, 0.05, 0); extent_p: (0.6, 0.1, 0);"#,
+            r#"@cell title { id: "title"; position_p: (0.05, 0.05, 0); extent_p: (0.6, 0.1, 0); fill: #fffaf0;"#,
+        );
+        let o = admit(&covered).unwrap_or_else(|d| panic!("{d:?}"));
+        assert_eq!(o.sky, Some(0));
+        let html = crate::emit::index_html(&o, &crate::appinfo::AppInfo { id: "com.example.a".into(), title: "A".into(), version: "1.0.0".into(), vendor: None }, &[]);
+        assert!(html.contains(r#"<canvas class="sky" width="320" height="180" aria-hidden="true"></canvas><canvas class="sky-lights" width="1920" height="1080""#), "{html}");
+        assert!(html.contains(r#"<script src="sky.js"></script>"#));
+        // A card that drifts on its own while the text moves with the stage
+        // is not cover: the text would slide off it onto the sky.
+        let unstable = src.replace(
+            r#"@cell thread { id: "thread"; position_p: (0.2, 0.5, 0); extent_p: (0.5, 0.02, 0); fill: #e6dccb;"#,
+            r#"@cell thread { id: "thread"; position_p: (0.04, 0.04, 0); extent_p: (0.7, 0.2, 0); fill: #e6dccb;"#,
+        );
+        let Err(d) = admit(&unstable) else { panic!("a drifting card is not cover") };
+        assert!(d.iter().any(|d| d.message.contains("title would sit on the live sky root")), "{d:?}");
     }
 
     #[test]

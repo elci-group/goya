@@ -165,9 +165,11 @@ fn finish(
     // properties (@graphic/@draw, present-when, image-from, fill-to,
     // appear-s, drift) carry no semantics here and are left to the host's
     // presentation layer (Viuda paints them through goya-scene-runtime).
-    // @link and remote-digit drive state and actions this resolver does not
-    // execute: refuse them, never drop them.
-    let semantic_free = |name: &str| !matches!(name, "link" | "remote_digit");
+    // @link, @apps, remote-digit and remote-colour drive state and actions
+    // this resolver does not execute: refuse them, never drop them.
+    // colour-group (focus only) and sky (decoration) are presentation.
+    let semantic_free =
+        |name: &str| !matches!(name, "link" | "apps" | "remote_digit" | "remote_colour");
     if let Some((what, range)) = goya_lang::extended_live_constructs(&parsed, semantic_free).next() {
         return Err(Diagnostic::new(
             "GY-RESOLVER-LIVE",
