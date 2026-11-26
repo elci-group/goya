@@ -1233,12 +1233,14 @@ dependencies = [
 name = "goya-sdk"
 version = "0.1.8"
 dependencies = [
+ "goya-caprichios",
  "goya-executable",
  "goya-ir",
  "goya-lang",
  "goya-layout",
  "goya-nevada",
  "goya-runtime",
+ "goya-scene-graphics",
  "goya-state",
  "goya-vee",
  "sha2",

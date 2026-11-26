@@ -267,6 +267,28 @@ pub fn admit_local_interactive(
     };
     let at = |origin: &Origin| handoff.origin(origin).or(Some(whole));
 
+    // 0. Live constructs the web target does not implement (host state,
+    // @link, image-from, remote-digit, drift) are refused, never dropped.
+    // Maja paints @graphic/@draw, present-when, fill-to and appear-s.
+    let maja_paints = |name: &str| {
+        matches!(
+            name,
+            "graphic"
+                | "draw"
+                | "present_when"
+                | "fill_to"
+                | "fill_period_s"
+                | "appear_s"
+                | "appear_from_p"
+        )
+    };
+    if let Some((what, range)) = goya_lang::extended_live_constructs(parsed, maja_paints).next() {
+        return Err(refuse(
+            format!("unsupported construct in {INTERACTIVE_PROFILE}: {what}"),
+            Some(range),
+        ));
+    }
+
     // 1. Closed allow-list over every source entry.
     for entry in &parsed.entries {
         let allowed = match entry.kind.as_str() {

@@ -37,8 +37,10 @@ fn repository_scenes_convert_exactly_at_the_reference_viewport() {
     let mut zero_base = 0;
     for path in &paths {
         let source = std::fs::read_to_string(path).unwrap();
-        if parse_with_source_map(&source).is_err() {
-            // Deliberately malformed fixtures (negative corpus).
+        if parse_with_source_map(&source).is_err() || parse(&source).is_err() {
+            // Deliberately malformed fixtures (negative corpus), and live
+            // scenes the compatibility `parse` refuses rather than drops
+            // (`@link`, `@graphic`, `present-when`, ...).
             skipped += 1;
             continue;
         }

@@ -448,8 +448,20 @@ text-from: state.<key>;   // show a declared key's value after the element's tex
 
 Every earlier profile refuses `text-from` with `GY-E1012`; an undeclared key
 is `GY-E1013`. Values are shown as canonical decimal (`int`), verbatim
-(`text`) or `true`/`false` (`bool`), always the committed state. The other
-constructs of the Arachnid live proposal are not part of this branch.
+(`text`) or `true`/`false` (`bool`), always the committed state.
+
+The rest of the Arachnid live proposal is also admitted by the live
+profiles (GSSH/3-live and GSSH/4-live), as proposed constructs
+(ARACHNID-2, on branch `arachnid/v0.3`):
+* `host` state, `@link`, `present-when` (`is`, `at-least`), `image-from`,
+  `remote-digit`, and the bounded motion properties `fill-to`, `drift-p`
+  and `appear-s`;
+* `@graphic` / `@draw`, which declare a precomputed vector graphic and its
+  finite state model (`goya_lang::graphic`).
+
+Every earlier profile refuses them with `GY-E1012`; invalid uses are
+`GY-E1013`. A target that does not implement one must refuse it at its
+range: `goya_lang::extended_live_construct` names the first one.
 
 Normative for every target that admits GSSH/3-live:
 

@@ -381,6 +381,8 @@ fn scene_js(
         let lifetime = match decl.lifetime {
             goya_lang::StateLifetime::Session => "session",
             goya_lang::StateLifetime::Durable => "durable",
+            // Refused at admission (`extended_live_construct`).
+            goya_lang::StateLifetime::Host => "host",
         };
         let _ = writeln!(
             out,

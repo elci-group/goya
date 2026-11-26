@@ -39,11 +39,13 @@ pub use intents::{
 pub use lexer::{lex, LexError, Token, TokenKind};
 pub use lowering::{lower, LowerError, Lowered, NodeKey, NodeRecord, NodeTable, Role};
 pub use parser::{
-    first_extended_live, parse, parse_strict, parse_strict_gssh2, parse_strict_gssh3,
+    extended_live_construct, extended_live_constructs, parse, parse_strict, parse_strict_gssh2, parse_strict_gssh3,
     parse_strict_gssh3_live, parse_strict_gssh4, parse_strict_gssh4_live, parse_strict_gssh5,
     parse_strict_gssh5_live, parse_with_source_map, Declarations, DesktopDecl, InputBinding,
-    KeyUse, Migration, MigrationRule, ParseError, ParsedScene, PlatformException, PlatformUse,
-    SourceEntry, SourceRange, StateDecl, StateLifetime, StrictParseError,
+    KeyUse, LinkDecl, LinkSlot, Migration, MigrationRule, ParseError, ParsedScene,
+    PlatformException, PlatformUse, SourceEntry, SourceRange, StateDecl, StateLifetime,
+    StrictParseError, LINK_ROLES, MAX_ANIMATION_PERIOD_S, MAX_APPEAR_FRACTION, MAX_APPEAR_S,
+    MAX_DRIFT_FRACTION, MIN_ANIMATION_PERIOD_S, MIN_APPEAR_S,
 };
 pub use scene::{
     hit_test, hit_test_scrolled, layout, Anchor, CellKind, ChromaticCandidate, ChromaticsDecl,

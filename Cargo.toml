@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/goya-caprichios",
     "crates/nevada",
+    "crates/goya-scene-graphics",
     "crates/maja",
     "crates/maja-semantic",
     "crates/quitasol-semantic",

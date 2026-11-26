@@ -172,6 +172,9 @@ pub enum StateLifetime {
     Session,
     /// Restored across process death by a platform storage adapter.
     Durable,
+    /// Written only by the platform host (live profiles). The scene may read
+    /// and display it; no interaction may write it, and it is never stored.
+    Host,
 }
 
 /// One `@state` entry: `key: type = initial lifetime;`.
@@ -293,6 +296,49 @@ pub struct PlatformException {
     pub range: SourceRange,
 }
 
+/// One image slot of a `@link`: where the platform publishes a verified
+/// image and its label.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinkSlot {
+    pub name: String,
+    /// `host` text key the image handle is published under.
+    pub image: String,
+    /// `host` text key for the slot's label.
+    pub label: Option<String>,
+}
+
+/// `@link name { ... }` (live profiles, proposed): a platform link to a
+/// peer, for example a desktop, that writes `host` state. The scene says
+/// which keys each protocol role writes; the compiler supplies the
+/// protocol. D2 `network` requests whose first word is the link name are
+/// addressed to it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinkDecl {
+    pub name: String,
+    pub authored_id: Option<String>,
+    pub protocol: String,
+    pub endpoint: String,
+    /// (role, `host` key) pairs: `status` (int), `code`, `detail`, `error`,
+    /// `outbox` and `mode` (text).
+    pub roles: Vec<(String, String)>,
+    pub slots: Vec<LinkSlot>,
+    /// `field NAME: state.k;` values the peer sets by name (any type).
+    pub fields: Vec<(String, String)>,
+    /// `act NAME;` actions the scene may send to the peer.
+    pub acts: Vec<String>,
+    pub range: SourceRange,
+}
+
+/// Roles a `@link` may bind, with the type the key must have.
+pub const LINK_ROLES: &[(&str, InteractionType)] = &[
+    ("status", InteractionType::Int),
+    ("code", InteractionType::Text),
+    ("detail", InteractionType::Text),
+    ("error", InteractionType::Text),
+    ("outbox", InteractionType::Text),
+    ("mode", InteractionType::Text),
+];
+
 /// GSSH/2 declarations retained beside the GY-LANG/1 scene, plus the
 /// interaction key ranges used to report them precisely.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -314,6 +360,8 @@ pub struct Declarations {
     pub platform_exceptions: Vec<PlatformException>,
     /// GSSH/4 `@desktop`. `None` is the enforced default: fullscreen.
     pub desktop: Option<DesktopDecl>,
+    /// `@link` declarations (live profiles only).
+    pub links: Vec<LinkDecl>,
     /// `@graphic` declarations (live profiles only).
     pub graphics: Vec<crate::graphic::GraphicDecl>,
 }
@@ -446,6 +494,7 @@ pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
         bindings: Vec::new(),
         state_uses: Vec::new(),
         input_keys: Vec::new(),
+        links: Vec::new(),
     };
     p.expect_at_word("ontology")?;
     let ontology_start = p.tokens[p.i - 1].byte_start;
@@ -498,6 +547,7 @@ pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
         && root.appear_s.is_none()
         && root.appear_from_p.is_none()
         && root.draw.is_none()
+        && root.drift_p.is_none()
         && root.text_phrasing.is_none()
         && root.placeholder_phrasing.is_none()
         && !root.scroll
@@ -598,6 +648,7 @@ pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
             persistence_migration: p.persistence_migration,
             platform_exceptions: p.platform_exceptions,
             desktop: p.desktop,
+            links: p.links,
             graphics: p.graphics,
         },
     })
@@ -665,17 +716,25 @@ impl Profile {
 /// Properties only GSSH/3 live admission accepts.
 const LIVE_PROPERTIES: &[&str] = &[
     "text_from",
+    "image_from",
+    "remote_digit",
     "present_when",
     "fill_to",
     "fill_period_s",
+    "drift_p",
+    "drift_period_s",
     "appear_s",
     "appear_from_p",
 ];
 
-/// Shortest fill cross-fade, in seconds.
+/// Shortest animation period, in seconds. One period holds at most one
+/// luminance swing each way, far below WCAG 2.3.1's three flashes per
+/// second.
 pub const MIN_ANIMATION_PERIOD_S: f64 = 1.0;
-/// Longest fill cross-fade, in seconds.
+/// Longest animation period, in seconds.
 pub const MAX_ANIMATION_PERIOD_S: f64 = 3600.0;
+/// Largest drift half-axis, as a fraction of the parent's extent.
+pub const MAX_DRIFT_FRACTION: f64 = 0.5;
 /// Bounds of an `appear-s` duration, in seconds. A single fade-in is not a
 /// repeating flash, so it may be shorter than an ambient period.
 pub const MIN_APPEAR_S: f64 = 0.1;
@@ -962,6 +1021,26 @@ fn validate_live(
             bound_keys.insert(key.clone());
         }
         let find = |key: &str| decls.iter().find(|d| d.key == key);
+        if cell.remote_digit.is_some() && cell.kind != CellKind::Button {
+            return Err(bad(
+                format!("remote-digit belongs on a @button, not on {}", cell.name),
+                property_range(path, "remote_digit"),
+            ));
+        }
+        if let Some(key) = &cell.image_from {
+            match find(key) {
+                Some(d)
+                    if d.value_type == InteractionType::Text
+                        && d.lifetime == StateLifetime::Host => {}
+                _ => {
+                    return Err(bad(
+                        format!("image-from needs a declared `host` text key, not '{key}'"),
+                        property_range(path, "image_from"),
+                    ))
+                }
+            }
+            bound_keys.insert(key.clone());
+        }
         let period_ok = |p: f64| {
             p.is_finite() && (MIN_ANIMATION_PERIOD_S..=MAX_ANIMATION_PERIOD_S).contains(&p)
         };
@@ -973,14 +1052,43 @@ fn validate_live(
                     format!(
                         "fill-to needs fill and fill-period-s between {MIN_ANIMATION_PERIOD_S} and {MAX_ANIMATION_PERIOD_S} seconds, and the reverse"
                     ),
-                    property_range(
-                        path,
-                        if cell.fill_to.is_some() {
-                            "fill_to"
-                        } else {
-                            "fill_period_s"
-                        },
+                    property_range(path, if cell.fill_to.is_some() { "fill_to" } else { "fill_period_s" }),
+                ))
+            }
+        }
+        match (cell.drift_p, cell.drift_period_s) {
+            (None, None) => {}
+            (Some(v), Some(p))
+                if period_ok(p)
+                    && [v.x, v.y]
+                        .iter()
+                        .all(|f| f.is_finite() && (0.0..=MAX_DRIFT_FRACTION).contains(f))
+                    && v.z == 0.0 => {}
+            _ => {
+                return Err(bad(
+                    format!(
+                        "drift-p needs fractions in [0, {MAX_DRIFT_FRACTION}] with z = 0, and drift-period-s between {MIN_ANIMATION_PERIOD_S} and {MAX_ANIMATION_PERIOD_S} seconds, and the reverse"
                     ),
+                    property_range(path, if cell.drift_p.is_some() { "drift_p" } else { "drift_period_s" }),
+                ))
+            }
+        }
+        let appear_ok = |s: f64| s.is_finite() && (MIN_APPEAR_S..=MAX_APPEAR_S).contains(&s);
+        match (cell.appear_s, cell.appear_from_p) {
+            (None, None) => {}
+            (Some(s), None) if appear_ok(s) => {}
+            (Some(s), Some(v))
+                if appear_ok(s)
+                    && [v.x, v.y]
+                        .iter()
+                        .all(|f| f.is_finite() && f.abs() <= MAX_APPEAR_FRACTION)
+                    && v.z == 0.0 => {}
+            _ => {
+                return Err(bad(
+                    format!(
+                        "appear-s must lie in [{MIN_APPEAR_S}, {MAX_APPEAR_S}] seconds; appear-from-p needs appear-s, fractions within ±{MAX_APPEAR_FRACTION} and z = 0"
+                    ),
+                    property_range(path, if cell.appear_from_p.is_some() { "appear_from_p" } else { "appear_s" }),
                 ))
             }
         }
@@ -990,7 +1098,9 @@ fn validate_live(
                 InteractionValue::Text(_) => InteractionType::Text,
                 InteractionValue::Bool(_) => InteractionType::Bool,
             };
-            if condition.op == ConditionOp::AtLeast && literal_type != InteractionType::Int {
+            if condition.op == crate::scene::ConditionOp::AtLeast
+                && literal_type != InteractionType::Int
+            {
                 return Err(bad(
                     format!(
                         "present-when {} at-least needs an int literal",
@@ -1013,42 +1123,19 @@ fn validate_live(
             }
             bound_keys.insert(condition.key.clone());
         }
-        let appear_ok = |s: f64| s.is_finite() && (MIN_APPEAR_S..=MAX_APPEAR_S).contains(&s);
-        match (cell.appear_s, cell.appear_from_p) {
-            (None, None) => {}
-            (Some(s), None) if appear_ok(s) => {}
-            (Some(s), Some(v))
-                if appear_ok(s)
-                    && [v.x, v.y]
-                        .iter()
-                        .all(|f| f.is_finite() && f.abs() <= MAX_APPEAR_FRACTION)
-                    && v.z == 0.0 => {}
-            _ => {
-                return Err(bad(
-                    format!(
-                        "appear-s must lie in [{MIN_APPEAR_S}, {MAX_APPEAR_S}] seconds; appear-from-p needs appear-s, fractions within ±{MAX_APPEAR_FRACTION} and z = 0"
-                    ),
-                    property_range(
-                        path,
-                        if cell.appear_from_p.is_some() {
-                            "appear_from_p"
-                        } else {
-                            "appear_s"
-                        },
-                    ),
-                ))
-            }
-        }
         Ok(())
     };
     walk(&parsed.scene.root, &mut Vec::new(), &mut check)?;
-    let condition_ok = |c: &Condition| {
+
+    // @graphic / @draw: declarations are bounded and consistent, and every
+    // `when` condition is typed like `present-when`.
+    let condition_ok = |c: &crate::scene::Condition| {
         let literal_type = match c.value {
             InteractionValue::Int(_) => InteractionType::Int,
             InteractionValue::Text(_) => InteractionType::Text,
             InteractionValue::Bool(_) => InteractionType::Bool,
         };
-        (c.op == ConditionOp::Is || literal_type == InteractionType::Int)
+        (c.op == crate::scene::ConditionOp::Is || literal_type == InteractionType::Int)
             && decls
                 .iter()
                 .any(|d| d.key == c.key && d.value_type == literal_type)
@@ -1060,16 +1147,125 @@ fn validate_live(
     )
     .map_err(|(message, range)| bad(message, range))?;
     bound_keys.extend(draw_keys);
+
+    // @link: every binding names a host key of the role's type, and every
+    // host key has exactly one writer.
+    let mut writers: BTreeMap<&str, usize> = BTreeMap::new();
+    for link in &parsed.declarations.links {
+        let range = link.range;
+        if link.authored_id.is_none() {
+            return Err(StrictParseError {
+                code: "GY-E1005",
+                name: format!("missing ID for link {}", link.name),
+                range,
+            });
+        }
+        if link.protocol.is_empty() || link.endpoint.is_empty() {
+            return Err(bad(
+                format!("link {} needs a protocol and an endpoint", link.name),
+                range,
+            ));
+        }
+        if link.slots.is_empty() {
+            return Err(bad(format!("link {} declares no slot", link.name), range));
+        }
+        let mut bound: Vec<(&str, &str, InteractionType)> = Vec::new();
+        for (role, key) in &link.roles {
+            let ty = LINK_ROLES
+                .iter()
+                .find(|(r, _)| r == role)
+                .map(|(_, t)| *t)
+                .expect("parser admits known roles");
+            bound.push((role.as_str(), key.as_str(), ty));
+        }
+        for (i, slot) in link.slots.iter().enumerate() {
+            if link.slots[..i].iter().any(|s| s.name == slot.name) {
+                return Err(bad(
+                    format!("link {} declares slot {} twice", link.name, slot.name),
+                    range,
+                ));
+            }
+            bound.push(("slot image", slot.image.as_str(), InteractionType::Text));
+            if let Some(l) = &slot.label {
+                bound.push(("slot label", l.as_str(), InteractionType::Text));
+            }
+        }
+        for (name, key) in &link.fields {
+            match decls.iter().find(|d| d.key == *key) {
+                Some(d) if d.lifetime == StateLifetime::Host => {
+                    *writers.entry(key.as_str()).or_default() += 1;
+                    bound_keys.insert(key.clone());
+                }
+                _ => {
+                    return Err(bad(
+                        format!("link {} binds field {name} to '{key}', which must be a declared `host` key", link.name),
+                        range,
+                    ))
+                }
+            }
+        }
+        for (role, key, ty) in bound {
+            match decls.iter().find(|d| d.key == key) {
+                Some(d) if d.lifetime == StateLifetime::Host && d.value_type == ty => {}
+                _ => {
+                    return Err(bad(
+                        format!("link {} binds {role} to '{key}', which must be a declared `host` key of the role's type", link.name),
+                        range,
+                    ))
+                }
+            }
+            *writers.entry(key).or_default() += 1;
+            bound_keys.insert(key.to_owned());
+        }
+    }
+    for d in decls.iter().filter(|d| d.lifetime == StateLifetime::Host) {
+        match writers.get(d.key.as_str()) {
+            Some(1) => {}
+            Some(_) => {
+                return Err(bad(
+                    format!(
+                        "host state '{}' is written by more than one link binding",
+                        d.key
+                    ),
+                    d.range,
+                ))
+            }
+            None if parsed.declarations.links.is_empty() => {}
+            None => {
+                return Err(bad(
+                    format!("host state '{}' has no writer: bind it in a @link", d.key),
+                    d.range,
+                ))
+            }
+        }
+    }
+    for interaction in &parsed.scene.interactions {
+        for key in &interaction.state_writes {
+            if let Some(d) = decls
+                .iter()
+                .find(|d| d.key == key.name && d.lifetime == StateLifetime::Host)
+            {
+                return Err(declaration_error(
+                    "GY-E1008",
+                    format!(
+                        "interaction '{}' writes host state '{}'; only the platform host may",
+                        interaction.name, key.name
+                    ),
+                    d.range,
+                ));
+            }
+        }
+    }
     Ok(bound_keys)
 }
 
-/// The first `@graphic`, `@draw`, `present-when` or `fill-to` in source
-/// order. Live profiles admit these; every other consumer refuses them
-/// rather than painting a scene that ignores them.
-pub fn first_extended_live(parsed: &ParsedScene) -> Option<SourceRange> {
+/// The first `@link`, `@graphic`, `@draw`, `present-when`, `fill-to` or
+/// `appear-s` in source order. The compatibility [`parse`] refuses these
+/// rather than returning a `Scene` the layout pass would paint without them.
+fn first_extended_live(parsed: &ParsedScene) -> Option<SourceRange> {
     parsed.entries.iter().find_map(|entry| {
         let hit = match entry.kind.as_str() {
-            "graphic" | "draw" => true,
+            "link" | "graphic" | "draw" => true,
             "property" => matches!(
                 entry.name.replace('-', "_").as_str(),
                 "present_when" | "fill_to" | "fill_period_s" | "appear_s" | "appear_from_p"
@@ -1078,6 +1274,50 @@ pub fn first_extended_live(parsed: &ParsedScene) -> Option<SourceRange> {
         };
         hit.then_some(entry.range)
     })
+}
+
+/// Live constructs beyond `text-from` that only some consumers render:
+/// `host` state, `@link`, and the live properties other than `text-from`
+/// (`image-from`, `present-when`, `remote-digit`, motion). Shared admission
+/// accepts them in the live profiles; a target that does not implement them
+/// calls this and refuses the first one, so nothing is silently dropped.
+/// Returns a description and the construct's source range.
+pub fn extended_live_construct(parsed: &ParsedScene) -> Option<(String, SourceRange)> {
+    extended_live_constructs(parsed, |_| false).next()
+}
+
+/// Every construct [`extended_live_construct`] would name, in the same
+/// order, except those `supported` accepts. `supported` receives the
+/// canonical name: `host`, `link`, `graphic`, `draw`, or a live property
+/// with `-` replaced by `_` (for example `present_when`). A target that
+/// implements some extended constructs refuses the first one it does not.
+pub fn extended_live_constructs<'a>(
+    parsed: &'a ParsedScene,
+    supported: impl Fn(&str) -> bool + 'a,
+) -> impl Iterator<Item = (String, SourceRange)> + 'a {
+    let supported = std::rc::Rc::new(supported);
+    let host_ok = supported.clone();
+    let host = parsed
+        .declarations
+        .state
+        .iter()
+        .flat_map(|(decls, _)| decls)
+        .filter(move |d| d.lifetime == StateLifetime::Host && !host_ok("host"))
+        .map(|d| (format!("host state '{}'", d.key), d.range));
+    let entries = parsed.entries.iter().filter_map(move |entry| {
+        let canonical = entry.name.replace('-', "_");
+        let name = match entry.kind.as_str() {
+            "link" | "graphic" | "draw" => entry.kind.as_str(),
+            "property"
+                if canonical != "text_from" && LIVE_PROPERTIES.contains(&canonical.as_str()) =>
+            {
+                canonical.as_str()
+            }
+            _ => return None,
+        };
+        (!supported(name)).then(|| (format!("{} {}", entry.kind, entry.name), entry.range))
+    });
+    host.chain(entries)
 }
 
 /// Strict GSSH/2 admission: everything [`parse_strict`] admits and checks,
@@ -1113,7 +1353,7 @@ fn strict(source: &str, profile: Profile) -> Result<ParsedScene, StrictParseErro
             {
                 Some("GY-E1012")
             }
-            "graphic" | "draw" if !profile.live() => Some("GY-E1012"),
+            "link" | "graphic" | "draw" if !profile.live() => Some("GY-E1012"),
             // Intent declarations are Quitasol phase-0 experimental surface.
             // No strict GSSH consumer implements them, so none may admit one.
             "intent" => Some("GY-E1010"),
@@ -1180,6 +1420,7 @@ fn strict(source: &str, profile: Profile) -> Result<ParsedScene, StrictParseErro
         && root.appear_s.is_none()
         && root.appear_from_p.is_none()
         && root.draw.is_none()
+        && root.drift_p.is_none()
         && root.text_phrasing.is_none()
         && root.placeholder_phrasing.is_none()
         && !root.scroll
@@ -1471,6 +1712,21 @@ fn validate_declarations_with(
 ) -> Result<(), StrictParseError> {
     let scene = &parsed.scene;
     let declared = &parsed.declarations;
+    // `host` state exists only where a live profile renders it.
+    if live_keys.is_none() {
+        if let Some(decl) = declared
+            .state
+            .iter()
+            .flat_map(|(decls, _)| decls)
+            .find(|d| d.lifetime == StateLifetime::Host)
+        {
+            return Err(declaration_error(
+                "GY-E1012",
+                format!("host state '{}'", decl.key),
+                decl.range,
+            ));
+        }
+    }
     // `@persistence` is optional (GSSH/4 only, decision D11): when it is
     // absent every target keeps durable state in its default local store.
     // `cache_targets: null` disables persistence, so durable state with it
@@ -1682,12 +1938,20 @@ fn is_known_property(name: &str) -> bool {
             | "placeholder"
             | "text-from"
             | "text_from"
+            | "remote-digit"
+            | "remote_digit"
+            | "image-from"
+            | "image_from"
             | "present-when"
             | "present_when"
             | "fill-to"
             | "fill_to"
             | "fill-period-s"
             | "fill_period_s"
+            | "drift-p"
+            | "drift_p"
+            | "drift-period-s"
+            | "drift_period_s"
             | "appear-s"
             | "appear_s"
             | "appear-from-p"
@@ -1794,6 +2058,7 @@ struct P {
     bindings: Vec<InputBinding>,
     state_uses: Vec<KeyUse>,
     input_keys: Vec<KeyUse>,
+    links: Vec<LinkDecl>,
 }
 
 impl P {
@@ -1909,9 +2174,13 @@ impl P {
             scroll: false,
             gestures: None,
             text_from: None,
+            image_from: None,
+            remote_digit: None,
             present_when: None,
             fill_to: None,
             fill_period_s: None,
+            drift_p: None,
+            drift_period_s: None,
             appear_s: None,
             appear_from_p: None,
             draw: None,
@@ -2086,6 +2355,27 @@ impl P {
                                 controls: body.controls,
                                 range,
                             });
+                        }
+                        "link" => {
+                            if self.depth != 1 {
+                                return Err(self.err_prev());
+                            }
+                            let name = self.expect_ident()?;
+                            let mut link = self.parse_link(name)?;
+                            let range = SourceRange {
+                                start: tok.byte_start,
+                                end: self.tokens[self.i - 1].byte_end,
+                            };
+                            link.range = range;
+                            self.entries.push(SourceEntry {
+                                kind: "link".into(),
+                                name: link.name.clone(),
+                                scene_path: None,
+                                semantic_id: link.authored_id.clone(),
+                                range,
+                                source_digest: [0; 32],
+                            });
+                            self.links.push(link);
                         }
                         "graphic" => {
                             if self.depth != 1 {
@@ -2886,6 +3176,7 @@ impl P {
             let lifetime = match self.expect_ident()?.as_str() {
                 "session" => StateLifetime::Session,
                 "durable" => StateLifetime::Durable,
+                "host" => StateLifetime::Host,
                 _ => return Err(self.err_prev()),
             };
             let end = self.expect(TokenKind::Semicolon)?.byte_end;
@@ -3515,11 +3806,22 @@ impl P {
                 self.parse_static_copy(&mut cell.placeholder, &mut cell.placeholder_phrasing)?
             }
             "text-from" | "text_from" => cell.text_from = Some(self.parse_state_ref()?),
+            "remote-digit" | "remote_digit" => {
+                let token = self.expect(TokenKind::Number)?;
+                let bytes = token.text.as_bytes();
+                if cell.remote_digit.is_some() || bytes.len() != 1 || !bytes[0].is_ascii_digit() {
+                    return Err(self.err_prev());
+                }
+                cell.remote_digit = Some(bytes[0] - b'0');
+            }
+            "image-from" | "image_from" => cell.image_from = Some(self.parse_state_ref()?),
             "present-when" | "present_when" => {
                 cell.present_when = Some(self.parse_condition()?);
             }
             "fill-to" | "fill_to" => cell.fill_to = Some(self.parse_hex()?),
             "fill-period-s" | "fill_period_s" => cell.fill_period_s = Some(self.parse_number()?),
+            "drift-p" | "drift_p" => cell.drift_p = Some(self.parse_vec3()?),
+            "drift-period-s" | "drift_period_s" => cell.drift_period_s = Some(self.parse_number()?),
             "appear-s" | "appear_s" => cell.appear_s = Some(self.parse_number()?),
             "appear-from-p" | "appear_from_p" => cell.appear_from_p = Some(self.parse_vec3()?),
             "max-length" | "max_length" => {
@@ -3630,6 +3932,92 @@ impl P {
         let end = self.expect(TokenKind::RBrace)?.byte_end;
         phrasing.range.end = end;
         Ok(phrasing)
+    }
+
+    /// `@link` body: `id`, `protocol` and `endpoint` strings, role bindings
+    /// `role: state.key;`, `field NAME: state.key;`, `act NAME;` and
+    /// `slot name { image: state.k; label: state.k; }`.
+    fn parse_link(&mut self, name: String) -> Result<LinkDecl, ParseError> {
+        self.expect(TokenKind::LBrace)?;
+        let mut link = LinkDecl {
+            name,
+            authored_id: None,
+            protocol: String::new(),
+            endpoint: String::new(),
+            roles: Vec::new(),
+            slots: Vec::new(),
+            fields: Vec::new(),
+            acts: Vec::new(),
+            range: SourceRange { start: 0, end: 0 },
+        };
+        while !matches!(self.peek().map(|t| t.kind), Some(TokenKind::RBrace)) {
+            let key = self.expect_ident()?;
+            if key == "act" {
+                let name = self.expect_ident()?;
+                if link.acts.contains(&name) {
+                    return Err(self.err_prev());
+                }
+                link.acts.push(name);
+                self.optional_semi();
+                continue;
+            }
+            if key == "field" {
+                let name = self.expect_ident()?;
+                self.expect(TokenKind::Colon)?;
+                let v = self.parse_state_ref()?;
+                if link.fields.iter().any(|(n, _)| *n == name) {
+                    return Err(self.err_prev());
+                }
+                link.fields.push((name, v));
+                self.optional_semi();
+                continue;
+            }
+            if key == "slot" {
+                let slot_name = self.expect_ident()?;
+                self.expect(TokenKind::LBrace)?;
+                let (mut image, mut label) = (None, None);
+                while !matches!(self.peek().map(|t| t.kind), Some(TokenKind::RBrace)) {
+                    let k = self.expect_ident()?;
+                    self.expect(TokenKind::Colon)?;
+                    let v = self.parse_state_ref()?;
+                    let slot = match k.as_str() {
+                        "image" => &mut image,
+                        "label" => &mut label,
+                        _ => return Err(self.err_prev()),
+                    };
+                    if slot.replace(v).is_some() {
+                        return Err(self.err_prev());
+                    }
+                    self.optional_semi();
+                }
+                self.expect(TokenKind::RBrace)?;
+                self.optional_semi();
+                let image = image.ok_or_else(|| self.err_prev())?;
+                link.slots.push(LinkSlot {
+                    name: slot_name,
+                    image,
+                    label,
+                });
+                continue;
+            }
+            self.expect(TokenKind::Colon)?;
+            match key.as_str() {
+                "id" => link.authored_id = Some(self.expect(TokenKind::Str)?.text),
+                "protocol" => link.protocol = self.expect(TokenKind::Str)?.text,
+                "endpoint" => link.endpoint = self.expect(TokenKind::Str)?.text,
+                role if LINK_ROLES.iter().any(|(r, _)| *r == role) => {
+                    if link.roles.iter().any(|(r, _)| r == role) {
+                        return Err(self.err_prev());
+                    }
+                    let v = self.parse_state_ref()?;
+                    link.roles.push((role.to_string(), v));
+                }
+                _ => return Err(self.err_prev()),
+            }
+            self.optional_semi();
+        }
+        self.expect(TokenKind::RBrace)?;
+        Ok(link)
     }
 
     fn parse_state_ref(&mut self) -> Result<String, ParseError> {
@@ -4401,5 +4789,403 @@ mod phrasing_tests {
         assert_eq!(parse_strict_gssh5(&absolute).unwrap_err().code, "GY-E1009");
         let desktop = scene(r#"@desktop {} @cell root { id: "root"; text: @universal "Hi"; }"#);
         assert!(parse_strict_gssh5(&desktop).is_ok());
+    }
+}
+
+
+#[cfg(test)]
+mod live_tests {
+    use super::*;
+
+    const LIVE: &str = r#"@ontology app {
+      @cell root { id: "root";
+    @cell status { id: "status"; position_p: (0, 0, 0); extent_p: (1, 0.1, 0); text-from: state.link_text; }
+    @cell home { id: "home"; position_p: (0, 0.1, 0); extent_p: (1, 0.9, 0); present-when: state.screen is 0;
+      @button open { id: "open"; position_p: (0.1, 0.1, 0); extent_p: (0.2, 0.2, 0); text: "Open"; }
+    }
+    @cell viewer { id: "viewer"; position_p: (0, 0.1, 0); extent_p: (1, 0.9, 0); present-when: state.screen is 1;
+      @cell picture { id: "picture"; position_p: (0, 0, 0); extent_p: (1, 0.8, 0); image-from: state.left; }
+      @button back { id: "back"; position_p: (0.1, 0.85, 0); extent_p: (0.2, 0.1, 0); text: "Back"; }
+    }
+      }
+      @state { screen: int = 0 session; link_text: text = "unpaired" host; left: text = "" host; }
+      @interaction show { id: "action.show"; trigger: button.open.activate; class: D1; state { write screen: int; } input { } set screen = 1; }
+      @interaction hide { id: "action.hide"; trigger: button.back.activate; class: D1; state { write screen: int; } input { } set screen = 0; }
+    }"#;
+
+    #[test]
+    fn live_profile_admits_bindings_and_host_state() {
+        let parsed = parse_strict_gssh3_live(LIVE).expect("live admission");
+        let viewer = parsed.scene.find_node("viewer").unwrap();
+        assert_eq!(
+            viewer.present_when,
+            Some(crate::scene::Condition {
+                key: "screen".into(),
+                op: crate::scene::ConditionOp::Is,
+                value: InteractionValue::Int(1)
+            })
+        );
+        assert_eq!(
+            parsed
+                .scene
+                .find_node("picture")
+                .unwrap()
+                .image_from
+                .as_deref(),
+            Some("left")
+        );
+        assert_eq!(
+            parsed
+                .scene
+                .find_node("status")
+                .unwrap()
+                .text_from
+                .as_deref(),
+            Some("link_text")
+        );
+        let (decls, _) = parsed.declarations.state.as_ref().unwrap();
+        assert_eq!(
+            decls.iter().find(|d| d.key == "left").unwrap().lifetime,
+            StateLifetime::Host
+        );
+    }
+
+    #[test]
+    fn older_profiles_refuse_live_constructs() {
+        for result in [
+            parse_strict_gssh3(LIVE),
+            parse_strict_gssh2(LIVE),
+            parse_strict(LIVE),
+        ] {
+            let error = result.unwrap_err();
+            assert!(matches!(error.code, "GY-E1012" | "GY-E1006"), "{error}");
+        }
+        assert_eq!(parse_strict_gssh3(LIVE).unwrap_err().code, "GY-E1012");
+        // Host state alone, without any live property, is also refused.
+        let host_only = r#"@ontology app { @cell root { id: "root"; @button go { id: "go"; position_p: (0,0,0); extent_p: (1,1,0); } } @state { n: int = 0 host; m: int = 0 session; } @interaction r { id: "action.r"; trigger: button.go.activate; class: D1; state { read n: int; write m: int; } input { } set m = state.n; } }"#;
+        assert_eq!(parse_strict_gssh3(host_only).unwrap_err().code, "GY-E1012");
+    }
+
+    #[test]
+    fn interactions_may_not_write_host_state() {
+        let src = LIVE.replace("screen: int = 0 session", "screen: int = 0 host");
+        let error = parse_strict_gssh3_live(&src).unwrap_err();
+        assert_eq!(error.code, "GY-E1008", "{error}");
+        assert!(error.name.contains("writes host state"), "{error}");
+    }
+
+    #[test]
+    fn bindings_are_type_checked() {
+        let wrong_literal = LIVE.replace("state.screen is 1", "state.screen is \"one\"");
+        assert_eq!(
+            parse_strict_gssh3_live(&wrong_literal).unwrap_err().code,
+            "GY-E1013"
+        );
+        let undeclared = LIVE.replace("text-from: state.link_text", "text-from: state.nope");
+        assert_eq!(
+            parse_strict_gssh3_live(&undeclared).unwrap_err().code,
+            "GY-E1013"
+        );
+        let session_image = LIVE.replace("left: text = \"\" host", "left: text = \"\" session");
+        assert_eq!(
+            parse_strict_gssh3_live(&session_image).unwrap_err().code,
+            "GY-E1013"
+        );
+    }
+
+    #[test]
+    fn a_key_used_only_by_a_binding_counts_as_used() {
+        // link_text is never named by an interaction.
+        assert!(parse_strict_gssh3_live(LIVE).is_ok());
+        let unused = LIVE.replace(
+            "left: text = \"\" host;",
+            "left: text = \"\" host; spare: int = 0 host;",
+        );
+        assert_eq!(
+            parse_strict_gssh3_live(&unused).unwrap_err().code,
+            "GY-E1008"
+        );
+    }
+
+    #[test]
+    fn motion_properties_are_live_only_and_bounded() {
+        let moving = LIVE
+            .replace(
+                r#"@cell root { id: "root";"#,
+                r#"@cell root { id: "root"; fill: #f4f1ea; fill-to: #e9eef1; fill-period-s: 45;"#,
+            )
+            .replace(
+                r#"@cell home { id: "home";"#,
+                r#"@cell home { id: "home"; drift-p: (0.01, 0.01, 0); drift-period-s: 240;"#,
+            );
+        let parsed = parse_strict_gssh3_live(&moving).expect("motion admitted");
+        assert_eq!(
+            parsed.scene.find_node("root").unwrap().fill_to,
+            Some(0xe9eef1)
+        );
+        assert_eq!(
+            parsed.scene.find_node("home").unwrap().drift_period_s,
+            Some(240.0)
+        );
+        assert_eq!(parse_strict_gssh3(&moving).unwrap_err().code, "GY-E1012");
+        let appearing = moving.replace(
+            r#"present-when: state.screen is 1;"#,
+            r#"present-when: state.screen is 1; appear-s: 0.5; appear-from-p: (0, 0.05, 0);"#,
+        );
+        assert_eq!(
+            parse_strict_gssh3_live(&appearing)
+                .unwrap()
+                .scene
+                .find_node("viewer")
+                .unwrap()
+                .appear_s,
+            Some(0.5)
+        );
+        for bad in [
+            "appear-s: 3;",
+            "appear-from-p: (0, 0.05, 0);",
+            "appear-s: 0.5; appear-from-p: (0.9, 0, 0);",
+        ] {
+            let src = moving.replace(
+                r#"present-when: state.screen is 1;"#,
+                &format!("present-when: state.screen is 1; {bad}"),
+            );
+            assert_eq!(
+                parse_strict_gssh3_live(&src).unwrap_err().code,
+                "GY-E1013",
+                "{bad}"
+            );
+        }
+        for (from, to) in [
+            ("fill-period-s: 45", "fill-period-s: 0.5"),
+            ("fill-period-s: 45;", ""),
+            ("drift-p: (0.01, 0.01, 0)", "drift-p: (0.9, 0.01, 0)"),
+            ("drift-p: (0.01, 0.01, 0)", "drift-p: (0.01, 0.01, 1)"),
+            ("drift-period-s: 240", "drift-period-s: 7200"),
+        ] {
+            let src = moving.replace(from, to);
+            assert_eq!(
+                parse_strict_gssh3_live(&src).unwrap_err().code,
+                "GY-E1013",
+                "{from} -> {to}"
+            );
+        }
+        // fill-to without a fill to breathe from.
+        let src = moving.replace("fill: #f4f1ea; ", "");
+        assert_eq!(parse_strict_gssh3_live(&src).unwrap_err().code, "GY-E1013");
+    }
+
+    #[test]
+    fn links_bind_host_state_with_one_writer_each() {
+        let src = LIVE.replace(
+            "  @interaction show",
+            r#"  @link desktop { id: "link.desktop"; protocol: "goya.lanlink/0"; endpoint: "http://192.168.1.2:8770"; detail: state.link_text; slot main { image: state.left; } }
+      @interaction show"#,
+        );
+        let parsed = parse_strict_gssh3_live(&src).unwrap_or_else(|e| panic!("{e}"));
+        let link = &parsed.declarations.links[0];
+        assert_eq!(
+            (link.name.as_str(), link.protocol.as_str()),
+            ("desktop", "goya.lanlink/0")
+        );
+        assert_eq!(
+            link.roles,
+            vec![("detail".to_string(), "link_text".to_string())]
+        );
+        assert_eq!(link.slots[0].image, "left");
+        assert_eq!(parse_strict_gssh3(&src).unwrap_err().code, "GY-E1012");
+        // A host key nobody writes, once links are in play.
+        let orphan = src
+            .replace(
+                r#"left: text = "" host;"#,
+                r#"left: text = "" host; spare: text = "" host;"#,
+            )
+            .replace(
+                "image-from: state.left;",
+                "image-from: state.left; text-from: state.spare;",
+            );
+        assert_eq!(
+            parse_strict_gssh3_live(&orphan).unwrap_err().code,
+            "GY-E1013"
+        );
+        // A role bound to a key of the wrong type.
+        let wrong = src.replace("detail: state.link_text;", "status: state.link_text;");
+        assert_eq!(
+            parse_strict_gssh3_live(&wrong).unwrap_err().code,
+            "GY-E1013"
+        );
+        // Unknown roles do not parse.
+        assert!(parse_strict_gssh3_live(
+            &src.replace("detail: state.link_text;", "colour: state.link_text;")
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn lists_digits_fields_and_acts() {
+        let src = LIVE
+            .replace(r#"present-when: state.screen is 1;"#, r#"present-when: state.screen at-least 1;"#)
+            .replace(r#"@button back { id: "back";"#, r#"@button back { id: "back"; remote-digit: 7;"#)
+            .replace(
+                "  @interaction show",
+                r#"  @link desktop { id: "link.desktop"; protocol: "goya.lanlink/1"; endpoint: "http://192.168.1.2:8770"; detail: state.link_text; act web_next; field rows: state.rows; slot main { image: state.left; } }
+      @interaction show"#,
+            )
+            .replace(r#"left: text = "" host;"#, r#"left: text = "" host; rows: int = 0 host;"#);
+        let parsed = parse_strict_gssh3_live(&src).unwrap_or_else(|e| panic!("{e}"));
+        let viewer = parsed.scene.find_node("viewer").unwrap();
+        assert_eq!(
+            viewer.present_when.as_ref().unwrap().op,
+            crate::scene::ConditionOp::AtLeast
+        );
+        assert_eq!(
+            parsed.scene.find_node("back").unwrap().remote_digit,
+            Some(7)
+        );
+        let link = &parsed.declarations.links[0];
+        assert_eq!(link.acts, vec!["web_next".to_string()]);
+        assert_eq!(link.fields, vec![("rows".to_string(), "rows".to_string())]);
+        // at-least needs an int literal; remote-digit is 0-9 on buttons only.
+        assert_eq!(
+            parse_strict_gssh3_live(&src.replace("at-least 1", "at-least \"x\""))
+                .unwrap_err()
+                .code,
+            "GY-E1013"
+        );
+        assert!(
+            parse_strict_gssh3_live(&src.replace("remote-digit: 7", "remote-digit: 12")).is_err()
+        );
+        let on_cell = src.replace(
+            r#"@cell status { id: "status";"#,
+            r#"@cell status { id: "status"; remote-digit: 1;"#,
+        );
+        assert_eq!(
+            parse_strict_gssh3_live(&on_cell).unwrap_err().code,
+            "GY-E1013"
+        );
+        assert_eq!(parse_strict_gssh3(&src).unwrap_err().code, "GY-E1012");
+    }
+
+    const GRAPHIC: &str = r#"@ontology g {
+      @graphic badge { id: "graphic.badge"; canvas: (100, 100);
+    @shape disc { ellipse: (50, 50, 40, 40); fill: #2b4c7e; }
+    @shape mark { path: "M 30 50 L 45 65 L 72 36 Z"; fill: #ffffff; stroke: #000000; stroke-width: 2; }
+    @dimension state { step-s: 0.05; @value off { hide: mark; } @value half { scale: all (0.5, 1); } @value on { paint: disc #2e9e4f; } }
+      }
+      @state { lit: bool = false session; }
+      @cell root { id: "root";
+    @cell icon { id: "icon"; position_p: (0, 0, 0); extent_p: (0.2, 0.2, 0); @draw badge { state: "on" when state.lit is true; state: "off"; } }
+    @button go { id: "go"; position_p: (0.5, 0.5, 0); extent_p: (0.2, 0.2, 0); }
+      }
+      @interaction toggle { id: "action.toggle"; trigger: button.go.activate; class: D1; state { write lit: bool; } input { } set lit = true; }
+    }"#;
+
+    #[test]
+    fn graphics_are_live_only_and_validated() {
+        let parsed = parse_strict_gssh3_live(GRAPHIC).unwrap_or_else(|e| panic!("{e}"));
+        let g = &parsed.declarations.graphics[0];
+        assert_eq!(
+            (
+                g.name.as_str(),
+                g.shapes.len(),
+                g.dimensions[0].values.len()
+            ),
+            ("badge", 2, 3)
+        );
+        assert_eq!(g.dimensions[0].step_s, Some(0.05));
+        let draw = parsed
+            .scene
+            .find_node("icon")
+            .unwrap()
+            .draw
+            .as_ref()
+            .unwrap();
+        assert_eq!(draw.rules.len(), 2);
+        assert!(parse_strict_gssh4_live(GRAPHIC).is_ok());
+        for older in [parse_strict_gssh3(GRAPHIC), parse_strict_gssh4(GRAPHIC)] {
+            assert_eq!(older.unwrap_err().code, "GY-E1012");
+        }
+        // Targets that do not draw graphics refuse them rather than drop them.
+        let (what, _) = extended_live_construct(&parsed).unwrap();
+        assert!(
+            what.starts_with("graphic") || what.starts_with("draw"),
+            "{what}"
+        );
+        // A dimension without a final unconditional rule, an unknown value,
+        // a condition on an undeclared key and an unknown shape are refused.
+        for bad in [
+            GRAPHIC.replace(r#" state: "off";"#, ""),
+            GRAPHIC.replace(r#"state: "off";"#, r#"state: "dim";"#),
+            GRAPHIC.replace("state.lit is true", "state.nope is true"),
+            GRAPHIC.replace("hide: mark;", "hide: ghost;"),
+            GRAPHIC.replace("step-s: 0.05;", "step-s: 5;"),
+        ] {
+            assert_eq!(
+                parse_strict_gssh3_live(&bad).unwrap_err().code,
+                "GY-E1013",
+                "{bad}"
+            );
+        }
+        // Relative path commands are a syntax error.
+        assert_eq!(
+            parse_strict_gssh3_live(&GRAPHIC.replace("M 30 50 L 45 65", "m 30 50 l 45 65"))
+                .unwrap_err()
+                .code,
+            "GY-E1000"
+        );
+        // A key read only by a @draw rule counts as used.
+        let only_draw = GRAPHIC.replace("@button go { id: \"go\"; position_p: (0.5, 0.5, 0); extent_p: (0.2, 0.2, 0); }", "").replace("  @interaction toggle { id: \"action.toggle\"; trigger: button.go.activate; class: D1; state { write lit: bool; } input { } set lit = true; }\n", "");
+        assert!(parse_strict_gssh3_live(&only_draw).is_ok());
+    }
+
+    #[test]
+    fn live_profile_still_rejects_absolute_lengths() {
+        let src = LIVE.replace("extent_p: (1, 0.1, 0)", "extent: (100, 10, 0)");
+        assert_eq!(parse_strict_gssh3_live(&src).unwrap_err().code, "GY-E1009");
+    }
+}
+
+#[cfg(test)]
+mod gssh4_platform_tests {
+    use super::*;
+
+    const SOURCE: &str = r#"@ontology demo {
+        @persistence { cache_targets: null; }
+        @platform webos {
+            "media.playback": only-use("html.video");
+            "remote.input": choice-use("focus", "native.remote");
+        }
+        @cell root { id: "root"; }
+    }"#;
+
+    #[test]
+    fn live_scene_can_carry_platform_policy_without_legacy_silence() {
+        let parsed = parse_strict_gssh4_live(SOURCE).unwrap();
+        assert_eq!(parsed.declarations.platform_exceptions.len(), 2);
+        assert_eq!(parsed.declarations.platform_exceptions[0].platform, "webos");
+        assert_eq!(
+            parse_strict_gssh3_live(SOURCE).unwrap_err().code,
+            "GY-E1015"
+        );
+    }
+
+    #[test]
+    fn platform_policy_keeps_persistence_optional_and_choices_distinct() {
+        // Decision D11: @persistence is optional in GSSH/4; omitting it means
+        // each target's default local store (Arachnid's earlier draft made it
+        // mandatory, which D11 superseded).
+        assert!(parse_strict_gssh4_live(
+            &SOURCE.replace("@persistence { cache_targets: null; }", "")
+        )
+        .is_ok());
+        assert_eq!(
+            parse_strict_gssh4_live(&SOURCE.replace(
+                "choice-use(\"focus\", \"native.remote\")",
+                "choice-use(\"focus\")"
+            ))
+            .unwrap_err()
+            .code,
+            "GY-E1000"
+        );
     }
 }

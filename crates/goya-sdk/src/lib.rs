@@ -24,6 +24,8 @@ pub use android_button_preview::{
     kotlin_string_literal, AndroidRootButtonPreview, AndroidRootButtonPreviewError,
 };
 mod android_d1_runtime;
+mod android_gvi;
+mod android_live;
 mod android_scene;
 pub use android_scene::{
     compile_android_scene, compile_android_scene_with, AndroidScene, AndroidSceneError,

@@ -184,7 +184,15 @@ pub fn open_with_viewport(
         let handoff = handoff::admit_v4_live(source).map_err(diagnostic_from_strict)?;
         refuse_platform_rules(&handoff, "windows")?;
         refuse_desktop(handoff.parsed())?;
-        refuse_extended_live(handoff.parsed())?;
+        if let Some((what, range)) = goya_lang::extended_live_construct(handoff.parsed()) {
+            return Err(cap(
+                format!(
+                    "{what} is outside the Windows interactive slice: graphics, conditional presence, motion and host links are not implemented"
+                ),
+                "Remove it; Sash renders text-from only among live constructs.",
+                Some(range),
+            ));
+        }
         return crate::interactive::admit_parsed_live(handoff.parsed(), viewport)
             .map(SceneTarget::Interactive);
     }
@@ -244,19 +252,6 @@ fn refuse_desktop(parsed: &ParsedScene) -> Result<(), Diagnostic> {
     Ok(())
 }
 
-/// `@graphic`, `@draw`, `present-when` and `fill-to` are live-profile
-/// constructs. Admitting the scene and then ignoring them would stack every
-/// card and paint none of them.
-fn refuse_extended_live(parsed: &ParsedScene) -> Result<(), Diagnostic> {
-    if let Some(range) = goya_lang::first_extended_live(parsed) {
-        return Err(cap(
-            "graphics, conditional presence and entrance motion are not implemented by this profile",
-            "Remove @graphic, @draw, present-when, fill-to and appear-s. Sash does not paint them.",
-            Some(range),
-        ));
-    }
-    Ok(())
-}
 
 /// Refuse any exception for `platform`: none is implemented by Sash yet.
 fn refuse_platform_rules(

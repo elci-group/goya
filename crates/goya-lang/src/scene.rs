@@ -44,7 +44,8 @@ pub enum ConditionOp {
     /// `is`: equal to the literal (any type).
     #[default]
     Is,
-    /// `at-least`: an int key greater than or equal to the literal.
+    /// `at-least`: an int key greater than or equal to the literal. Lets a
+    /// fixed set of rows show as many as a count says.
     AtLeast,
 }
 
@@ -101,6 +102,11 @@ pub struct SceneCell {
     /// `text-from: state.key;` shows the current value of a declared state
     /// key as the element's text (GSSH/3 live admission only).
     pub text_from: Option<String>,
+    /// `image-from: state.key;` shows the verified image the platform host
+    /// publishes under a `host` text key (live profiles only).
+    pub image_from: Option<String>,
+    /// `remote-digit: N;` numeric remote shortcut on a button (live only).
+    pub remote_digit: Option<u8>,
     /// `present-when: state.key is <literal>;` (or `at-least <int>`) makes
     /// the element and its subtree present only while the condition holds
     /// (live profiles only). Nested conditions conjoin.
@@ -110,6 +116,12 @@ pub struct SceneCell {
     pub fill_to: Option<u32>,
     /// Seconds for one `fill` → `fill-to` transition.
     pub fill_period_s: Option<f64>,
+    /// `drift-p: (fx, fy, 0);` with `drift-period-s`: the element and its
+    /// subtree orbit an ellipse whose half-axes are these fractions of the
+    /// **parent's** resolved width and height, like `position_p`.
+    pub drift_p: Option<Vec3>,
+    /// Seconds for one full orbit.
+    pub drift_period_s: Option<f64>,
     /// `appear-s: N;` the subtree fades in over N seconds whenever it
     /// becomes present (and at launch if present then).
     pub appear_s: Option<f64>,

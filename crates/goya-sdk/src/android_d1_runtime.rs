@@ -162,6 +162,10 @@ pub(crate) fn emit_for_parsed(
     out.push_str("    init { if (initialState.keys != stateTypes.keys) throw IllegalArgumentException(\"STATE_SCHEMA\"); if (!validUnicode(initialState)) throw IllegalArgumentException(\"INVALID_TEXT\"); if (!withinTextLimit(initialState)) throw IllegalArgumentException(\"TEXT_LIMIT\"); if (mapSize(initialState) > MAX_SNAPSHOT_BYTES) throw IllegalArgumentException(\"SNAPSHOT_LIMIT\"); if (initialState.any { (k, v) -> kind(v) != stateTypes[k] }) throw IllegalArgumentException(\"STATE_TYPE\"); values = initialState.toMap() }\n");
     out.push_str("    @Synchronized fun dispatch(actionId: String, inputs: Map<String, Value>): DispatchResult {\n        return when (actionId) {\n");
     let mut generated_action_ranges = Vec::with_capacity(scene.interactions.len());
+    // Each action is its own function so no JVM method nears the 64 KB
+    // bytecode limit, however many actions a scene has.
+    let mut funcs = String::new();
+    let mut func_ranges: Vec<(usize, usize)> = Vec::with_capacity(scene.interactions.len());
     for i in &scene.interactions {
         let id = i
             .authored_id
@@ -169,33 +173,32 @@ pub(crate) fn emit_for_parsed(
             .ok_or(AndroidD1RuntimeError::Unsupported(
                 "actions without authored IDs",
             ))?;
-        let generated_start = out.len();
+        let action_index = generated_action_ranges.len();
         out.push_str("            ");
         out.push_str(&kotlin_string(id));
+        out.push_str(&format!(" -> action{action_index}(inputs)\n"));
         generated_action_ranges.push((
             id.clone(),
-            SourceRange {
-                start: generated_start,
-                end: 0,
-            },
+            SourceRange { start: 0, end: 0 },
         ));
-        out.push_str(" -> {\n");
+        let generated_start = funcs.len();
+        funcs.push_str(&format!("    private fun action{action_index}(inputs: Map<String, Value>): DispatchResult {{\n"));
         let input_types = i
             .inputs
             .iter()
             .map(|k| (k.name.as_str(), k.value_type))
             .collect::<std::collections::BTreeMap<_, _>>();
-        out.push_str("                if (inputs.keys != setOf<String>(");
+        funcs.push_str("                if (inputs.keys != setOf<String>(");
         for (n, key) in input_types.keys().enumerate() {
             if n > 0 {
-                out.push_str(", ");
+                funcs.push_str(", ");
             }
-            out.push_str(&kotlin_string(key));
+            funcs.push_str(&kotlin_string(key));
         }
-        out.push_str(")) return DispatchResult.Failure(ErrorCode.INPUT_SCHEMA)\n");
-        out.push_str("                if (!validUnicode(inputs)) return DispatchResult.Failure(ErrorCode.INVALID_TEXT)\n                if (!withinTextLimit(inputs)) return DispatchResult.Failure(ErrorCode.TEXT_LIMIT)\n");
+        funcs.push_str(")) return DispatchResult.Failure(ErrorCode.INPUT_SCHEMA)\n");
+        funcs.push_str("                if (!validUnicode(inputs)) return DispatchResult.Failure(ErrorCode.INVALID_TEXT)\n                if (!withinTextLimit(inputs)) return DispatchResult.Failure(ErrorCode.TEXT_LIMIT)\n");
         for (key, ty) in &input_types {
-            out.push_str(&format!("                if (kind(inputs[{}]!!) != {}) return DispatchResult.Failure(ErrorCode.INPUT_TYPE)\n", kotlin_string(key), kotlin_string(type_name(*ty))));
+            funcs.push_str(&format!("                if (kind(inputs[{}]!!) != {}) return DispatchResult.Failure(ErrorCode.INPUT_TYPE)\n", kotlin_string(key), kotlin_string(type_name(*ty))));
         }
         let touched = i
             .state_reads
@@ -204,16 +207,16 @@ pub(crate) fn emit_for_parsed(
             .map(|k| k.name.as_str())
             .collect::<std::collections::BTreeSet<_>>();
         for key in &touched {
-            out.push_str(&format!("                val s_{} = values[{}] ?: return DispatchResult.Failure(ErrorCode.STATE_SCHEMA)\n", safe_ident(key), kotlin_string(key)));
+            funcs.push_str(&format!("                val s_{} = values[{}] ?: return DispatchResult.Failure(ErrorCode.STATE_SCHEMA)\n", safe_ident(key), kotlin_string(key)));
         }
-        out.push_str("                val snapshot = mapOf<String, Value>(");
+        funcs.push_str("                val snapshot = mapOf<String, Value>(");
         for (n, key) in touched.iter().enumerate() {
             if n > 0 {
-                out.push_str(", ");
+                funcs.push_str(", ");
             }
-            out.push_str(&format!("{} to s_{}", kotlin_string(key), safe_ident(key)));
+            funcs.push_str(&format!("{} to s_{}", kotlin_string(key), safe_ident(key)));
         }
-        out.push_str(")\n                if (mapSize(snapshot) + mapSize(inputs) > MAX_SNAPSHOT_BYTES) return DispatchResult.Failure(ErrorCode.SNAPSHOT_LIMIT)\n");
+        funcs.push_str(")\n                if (mapSize(snapshot) + mapSize(inputs) > MAX_SNAPSHOT_BYTES) return DispatchResult.Failure(ErrorCode.SNAPSHOT_LIMIT)\n");
         let mut reg = 0usize;
         let mut statements = String::new();
         let mut assigned = Vec::new();
@@ -222,25 +225,29 @@ pub(crate) fn emit_for_parsed(
             assigned.push((assignment.key.as_str(), name));
         }
         if reg > 0 {
-            out.push_str("                var registerBytes = 0\n");
+            funcs.push_str("                var registerBytes = 0\n");
         }
-        out.push_str(&statements);
-        out.push_str("                val next = values.toMutableMap()\n");
+        funcs.push_str(&statements);
+        funcs.push_str("                val next = values.toMutableMap()\n");
         for (key, value) in assigned {
-            out.push_str(&format!(
+            funcs.push_str(&format!(
                 "                next[{}] = {}\n",
                 kotlin_string(key),
                 value
             ));
         }
-        out.push_str("                if (!validMap(next) || mapSize(next) > MAX_SNAPSHOT_BYTES) return DispatchResult.Failure(ErrorCode.SNAPSHOT_LIMIT)\n                if (revision == ULong.MAX_VALUE) return DispatchResult.Failure(ErrorCode.REVISION_OVERFLOW)\n                val nextRevision = revision + 1uL\n                values = next.toMap()\n                revision = nextRevision\n                DispatchResult.Success(revision)\n            }\n");
-        if let Some((_, range)) = generated_action_ranges.last_mut() {
-            range.end = out.len();
-        }
+        funcs.push_str("                if (!validMap(next) || mapSize(next) > MAX_SNAPSHOT_BYTES) return DispatchResult.Failure(ErrorCode.SNAPSHOT_LIMIT)\n                if (revision == ULong.MAX_VALUE) return DispatchResult.Failure(ErrorCode.REVISION_OVERFLOW)\n                val nextRevision = revision + 1uL\n                values = next.toMap()\n                revision = nextRevision\n                return DispatchResult.Success(revision)\n    }\n");
+        func_ranges.push((generated_start, funcs.len()));
     }
     out.push_str(
         "            else -> DispatchResult.Failure(ErrorCode.UNKNOWN_ACTION)\n        }\n    }\n",
     );
+    let funcs_at = out.len();
+    out.push_str(&funcs);
+    for ((_, range), (start, end)) in generated_action_ranges.iter_mut().zip(&func_ranges) {
+        range.start = funcs_at + start;
+        range.end = funcs_at + end;
+    }
     out.push_str("    private fun kind(v: Value): String = when (v) { is Value.IntValue -> \"int\"; is Value.TextValue -> \"text\"; is Value.BoolValue -> \"bool\" }\n");
     out.push_str("    private fun validUnicode(m: Map<String, Value>): Boolean = m.values.none { it is Value.TextValue && !wellFormedUtf16(it.value) }\n    private fun withinTextLimit(m: Map<String, Value>): Boolean = m.values.all { it !is Value.TextValue || it.value.toByteArray(Charsets.UTF_8).size <= MAX_TEXT_BYTES }\n    private fun validMap(m: Map<String, Value>): Boolean = validUnicode(m) && withinTextLimit(m)\n");
     out.push_str("    private fun wellFormedUtf16(s: String): Boolean { var i = 0; while (i < s.length) { val c = s[i++]; if (c in '\\uD800'..'\\uDBFF') { if (i >= s.length || s[i] !in '\\uDC00'..'\\uDFFF') return false; i++ } else if (c in '\\uDC00'..'\\uDFFF') return false }; return true }\n");

@@ -20,9 +20,9 @@ esac
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # Expected unsigned release APK SHA-256 per qualification scene.
-expected_static=cd3e6f15892278b35490a3d46cb90109d069e870d9b20ec7e506c6d584f9b06b
-expected_button=47af8d6c0932c4aa6e19b0ee7576d8887eda269f056a8e40934e71e1efbab89e
-expected_scene=c792e345cd5bfc3679a6476bbbe372c049f8d68ee70a057bf2942a0d29c73979
+expected_static=0b100c527fd01473800c09765437a4a769ef7bd727a30dda79b4e815ecedf280
+expected_button=53f482a25861780f733f30e00292dd1018adfea4f1b2508d7e9c3dab208bacf5
+expected_scene=6e2ccc85d8cea8413335460a482c048026cc6cd92b3781daa33f9057b7227b1a
 
 fail_toolchain() { echo "toolchain: $*" >&2; exit 2; }
 

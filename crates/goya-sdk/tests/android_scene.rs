@@ -187,6 +187,22 @@ fn source_map_verification_detects_edits_and_foreign_files() {
 
 /// Each refused construct must be reported at exactly its own source range.
 #[test]
+fn durable_state_uses_the_android_local_store() {
+    // Gate ARG-G07: durable state is stored in android.preferences.v1 (D8,
+    // D11) and saved before it is shown (D12).
+    let source = "@ontology t { @persistence { cache_targets: { android: \"android.preferences.v1\"; } } @state { n: int = 0 durable; } @cell root { id: \"root\"; @button go { id: \"go\"; text: \"Go\" } } @interaction go { id: \"action.go\"; trigger: button.go.activate; class: D1; state { write n: int; } input { } set n = 1; } }";
+    let scene = compile_android_scene(source).unwrap_or_else(|e| panic!("{e}"));
+    let view = scene.files.iter().find(|f| f.name == "GoyaSceneView.kt").unwrap();
+    assert!(view.text.contains("object GoyaDurable"));
+    assert!(view.text.contains("\"goya.state.v1/t\""));
+    assert!(view.text.contains("if (actionId in DURABLE_ACTIONS)"));
+    assert!(scene.warnings.is_empty(), "{:?}", scene.warnings);
+    // Naming a store Aragon does not implement is refused.
+    let sqlite = source.replace("android.preferences.v1", "android.sqlite.v1");
+    assert!(compile_android_scene(&sqlite).is_err());
+}
+
+#[test]
 fn every_unsupported_construct_is_rejected_at_its_exact_source_range() {
     let wrap = |cells: &str, extra: &str| {
         format!("@ontology t {{ @persistence {{ cache_targets: null; }} {extra} @cell root {{ id: \"root\"; {cells} }} }}")
@@ -210,10 +226,6 @@ fn every_unsupported_construct_is_rejected_at_its_exact_source_range() {
                 "",
             ),
             "@cell a { id: \"a\"; scroll: true; }",
-        ),
-        (
-            format!("@ontology t {{ @persistence {{ cache_targets: {{ android: \"android.preferences.v1\"; }} }} @state {{ n: int = 0 durable; }} @cell root {{ id: \"root\"; {button} }} @interaction go {{ id: \"action.go\"; trigger: button.go.activate; class: D1; state {{ write n: int; }} input {{ }} set n = 1; }} }}"),
-            "n: int = 0 durable;",
         ),
         (
             format!("@ontology t {{ @persistence {{ cache_targets: null; }} @state {{ count: int = 0 session; }} @cell root {{ id: \"root\"; {button} }} @interaction go {{ id: \"action.go\"; trigger: button.go.activate; class: D2; effects {{ network; }} requests {{ lookup: effect network capability \"network\" request \"static request\" result int64; }} state {{ write count: int; }} input {{ }} set count = effect.lookup; }} }}"),
