@@ -1,0 +1,945 @@
+{
+  "schema": "nebula.probe/0.1",
+  "nebula_version": "0.1.8",
+  "generated_utc": "2026-11-19T13:03:17Z",
+  "status": "OK",
+  "status_reasons": [],
+  "scope": {
+    "protocol_presence_only": true,
+    "window_opened": false,
+    "surfaces_created": false,
+    "single_host": true,
+    "release_qualification": false,
+    "compositor_matrix": "not run; EMP-M1-07 stays BLOCKED",
+    "statement": "Protocol presence only. No window was opened and no surface was created. One host. This is not a release qualification and not COSMIC compositor qualification: advertisement is not behaviour (GY-EMP-001 §4.3)."
+  },
+  "session": {
+    "env": {
+      "xdg_current_desktop": "COSMIC",
+      "xdg_session_type": "wayland",
+      "wayland_display": "wayland-1",
+      "display": ":1"
+    },
+    "is_cosmic_desktop": true,
+    "is_wayland_session": true,
+    "wayland_display_set": true,
+    "qualifies": true,
+    "reasons": [],
+    "x11_display": {
+      "display": ":1",
+      "kind": "xwayland",
+      "counts_as_cosmic_qualification": false,
+      "note": "DISPLAY inside a Wayland session is Xwayland; it is not native X11 and not COSMIC qualification"
+    }
+  },
+  "compositor": {
+    "package": "cosmic-comp",
+    "version": "0.1~1776708607~24.04~21679f2",
+    "method": "dpkg-query",
+    "command": "dpkg-query -W -f='${Version}' cosmic-comp",
+    "detail": null,
+    "note": "installed package version; not verified to be the running compositor process"
+  },
+  "protocols": {
+    "profile": "nebula.cosmic.app-profile/0.1",
+    "entries": [
+      {
+        "interface": "wl_compositor",
+        "need": "required",
+        "min_version": 1,
+        "advertised_version": 5,
+        "presence": "advertised",
+        "serves": "surface creation",
+        "fallback": "none: the host cannot create a surface",
+        "bound_by_goya_wayland": true,
+        "fallback_in_effect": false
+      },
+      {
+        "interface": "wl_shm",
+        "need": "required",
+        "min_version": 1,
+        "advertised_version": 2,
+        "presence": "advertised",
+        "serves": "software presentation (shared-memory frames)",
+        "fallback": "none: the only presentation path is wl_shm",
+        "bound_by_goya_wayland": true,
+        "fallback_in_effect": false
+      },
+      {
+        "interface": "wl_seat",
+        "need": "required",
+        "min_version": 1,
+        "advertised_version": 9,
+        "presence": "advertised",
+        "serves": "pointer and keyboard input",
+        "fallback": "none: an application without a seat receives no input",
+        "bound_by_goya_wayland": true,
+        "fallback_in_effect": false
+      },
+      {
+        "interface": "xdg_wm_base",
+        "need": "required",
+        "min_version": 1,
+        "advertised_version": 7,
+        "presence": "advertised",
+        "serves": "xdg_toplevel window creation, title, configure",
+        "fallback": "none: no toplevel can be created",
+        "bound_by_goya_wayland": true,
+        "fallback_in_effect": false
+      },
+      {
+        "interface": "wl_data_device_manager",
+        "need": "optional",
+        "min_version": 1,
+        "advertised_version": 3,
+        "presence": "advertised",
+        "serves": "CLIPBOARD copy and paste under the scene's clipboard policy",
+        "fallback": "in-process clipboard only; nothing crosses to other applications",
+        "bound_by_goya_wayland": true,
+        "fallback_in_effect": false
+      },
+      {
+        "interface": "zwp_text_input_manager_v3",
+        "need": "optional",
+        "min_version": 1,
+        "advertised_version": 1,
+        "presence": "advertised",
+        "serves": "input-method text input (disabled unless a caller enables it; IME is not qualified, EMP-M1-09)",
+        "fallback": "keyboard events only; no preedit or commit",
+        "bound_by_goya_wayland": true,
+        "fallback_in_effect": false
+      },
+      {
+        "interface": "wl_output",
+        "need": "optional",
+        "min_version": 2,
+        "advertised_version": 4,
+        "presence": "advertised",
+        "serves": "output scale and geometry",
+        "fallback": "assume buffer scale 1",
+        "bound_by_goya_wayland": false,
+        "fallback_in_effect": false
+      },
+      {
+        "interface": "zxdg_output_manager_v1",
+        "need": "optional",
+        "min_version": 3,
+        "advertised_version": 3,
+        "presence": "advertised",
+        "serves": "logical output size and name",
+        "fallback": "use wl_output geometry only",
+        "bound_by_goya_wayland": false,
+        "fallback_in_effect": false
+      },
+      {
+        "interface": "wp_fractional_scale_manager_v1",
+        "need": "optional",
+        "min_version": 1,
+        "advertised_version": 1,
+        "presence": "advertised",
+        "serves": "fractional scale (not qualified, EMP-M1-17)",
+        "fallback": "integer buffer scale",
+        "bound_by_goya_wayland": false,
+        "fallback_in_effect": false
+      },
+      {
+        "interface": "wp_viewporter",
+        "need": "optional",
+        "min_version": 1,
+        "advertised_version": 1,
+        "presence": "advertised",
+        "serves": "buffer-to-surface scaling for fractional scale",
+        "fallback": "integer buffer scale",
+        "bound_by_goya_wayland": false,
+        "fallback_in_effect": false
+      },
+      {
+        "interface": "zxdg_decoration_manager_v1",
+        "need": "optional",
+        "min_version": 1,
+        "advertised_version": 1,
+        "presence": "advertised",
+        "serves": "server-side decoration negotiation",
+        "fallback": "compositor default decoration mode; the host draws none",
+        "bound_by_goya_wayland": false,
+        "fallback_in_effect": false
+      },
+      {
+        "interface": "xdg_activation_v1",
+        "need": "optional",
+        "min_version": 1,
+        "advertised_version": 1,
+        "presence": "advertised",
+        "serves": "focus activation requests",
+        "fallback": "no activation request; the compositor decides focus (GY-EMP-001 §4.2)",
+        "bound_by_goya_wayland": false,
+        "fallback_in_effect": false
+      },
+      {
+        "interface": "wp_cursor_shape_manager_v1",
+        "need": "optional",
+        "min_version": 1,
+        "advertised_version": 2,
+        "presence": "advertised",
+        "serves": "named cursor shapes",
+        "fallback": "compositor default cursor",
+        "bound_by_goya_wayland": false,
+        "fallback_in_effect": false
+      },
+      {
+        "interface": "wp_presentation",
+        "need": "optional",
+        "min_version": 1,
+        "advertised_version": 2,
+        "presence": "advertised",
+        "serves": "presentation timing feedback",
+        "fallback": "frame callbacks only; no presented-at timestamps",
+        "bound_by_goya_wayland": false,
+        "fallback_in_effect": false
+      },
+      {
+        "interface": "wl_subcompositor",
+        "need": "optional",
+        "min_version": 1,
+        "advertised_version": 1,
+        "presence": "advertised",
+        "serves": "subsurfaces",
+        "fallback": "single surface per toplevel",
+        "bound_by_goya_wayland": false,
+        "fallback_in_effect": false
+      },
+      {
+        "interface": "zwp_linux_dmabuf_v1",
+        "need": "optional",
+        "min_version": 3,
+        "advertised_version": 5,
+        "presence": "advertised",
+        "serves": "GPU buffer import (Vulkan is not started, EMP-M1-08)",
+        "fallback": "wl_shm software buffers",
+        "bound_by_goya_wayland": false,
+        "fallback_in_effect": false
+      },
+      {
+        "interface": "zwp_primary_selection_device_manager_v1",
+        "need": "optional",
+        "min_version": 1,
+        "advertised_version": 1,
+        "presence": "advertised",
+        "serves": "PRIMARY selection (not used by Emperor)",
+        "fallback": "no PRIMARY selection",
+        "bound_by_goya_wayland": false,
+        "fallback_in_effect": false
+      },
+      {
+        "interface": "zwp_idle_inhibit_manager_v1",
+        "need": "optional",
+        "min_version": 1,
+        "advertised_version": 1,
+        "presence": "advertised",
+        "serves": "idle inhibition while a surface is visible",
+        "fallback": "no idle inhibition",
+        "bound_by_goya_wayland": false,
+        "fallback_in_effect": false
+      },
+      {
+        "interface": "zxdg_exporter_v2",
+        "need": "optional",
+        "min_version": 1,
+        "advertised_version": 1,
+        "presence": "advertised",
+        "serves": "exported toplevel handles for portal dialog parenting",
+        "fallback": "portal dialogs are not parented",
+        "bound_by_goya_wayland": false,
+        "fallback_in_effect": false
+      },
+      {
+        "interface": "xdg_toplevel_icon_manager_v1",
+        "need": "optional",
+        "min_version": 1,
+        "advertised_version": null,
+        "presence": "absent",
+        "serves": "per-window icon",
+        "fallback": "icon resolved by the compositor from the app_id and desktop entry",
+        "bound_by_goya_wayland": false,
+        "fallback_in_effect": true
+      },
+      {
+        "interface": "xdg_wm_dialog_v1",
+        "need": "optional",
+        "min_version": 1,
+        "advertised_version": null,
+        "presence": "absent",
+        "serves": "modal dialog hint",
+        "fallback": "xdg_toplevel.set_parent only; no modal hint",
+        "bound_by_goya_wayland": false,
+        "fallback_in_effect": true
+      },
+      {
+        "interface": "xdg_toplevel_tag_manager_v1",
+        "need": "optional",
+        "min_version": 1,
+        "advertised_version": null,
+        "presence": "absent",
+        "serves": "stable toplevel tags for session restore",
+        "fallback": "no toplevel tag",
+        "bound_by_goya_wayland": false,
+        "fallback_in_effect": true
+      },
+      {
+        "interface": "wp_color_manager_v1",
+        "need": "optional",
+        "min_version": 1,
+        "advertised_version": null,
+        "presence": "absent",
+        "serves": "colour management (HDR and wide gamut are not qualified, EMP-M1-26)",
+        "fallback": "sRGB assumed",
+        "bound_by_goya_wayland": false,
+        "fallback_in_effect": true
+      },
+      {
+        "interface": "cosmic_a11y_manager_v1",
+        "need": "cosmic-private-not-used",
+        "min_version": 0,
+        "advertised_version": 2,
+        "presence": "advertised",
+        "serves": "COSMIC shell accessibility settings (screen reader, magnifier toggles)",
+        "fallback": "not applicable: applications must not depend on COSMIC shell protocols",
+        "bound_by_goya_wayland": false,
+        "fallback_in_effect": false
+      },
+      {
+        "interface": "cosmic_corner_radius_manager_v1",
+        "need": "cosmic-private-not-used",
+        "min_version": 0,
+        "advertised_version": 1,
+        "presence": "advertised",
+        "serves": "libcosmic window corner-radius hints to the compositor",
+        "fallback": "not applicable: applications must not depend on COSMIC shell protocols",
+        "bound_by_goya_wayland": false,
+        "fallback_in_effect": false
+      },
+      {
+        "interface": "zcosmic_output_manager_v1",
+        "need": "cosmic-private-not-used",
+        "min_version": 0,
+        "advertised_version": 3,
+        "presence": "advertised",
+        "serves": "COSMIC output configuration extensions for cosmic-settings",
+        "fallback": "not applicable: applications must not depend on COSMIC shell protocols",
+        "bound_by_goya_wayland": false,
+        "fallback_in_effect": false
+      },
+      {
+        "interface": "zcosmic_overlap_notify_v1",
+        "need": "cosmic-private-not-used",
+        "min_version": 0,
+        "advertised_version": 1,
+        "presence": "advertised",
+        "serves": "panel autohide overlap notifications",
+        "fallback": "not applicable: applications must not depend on COSMIC shell protocols",
+        "bound_by_goya_wayland": false,
+        "fallback_in_effect": false
+      },
+      {
+        "interface": "zcosmic_toplevel_info_v1",
+        "need": "cosmic-private-not-used",
+        "min_version": 0,
+        "advertised_version": 3,
+        "presence": "advertised",
+        "serves": "panel and dock toplevel list",
+        "fallback": "not applicable: applications must not depend on COSMIC shell protocols",
+        "bound_by_goya_wayland": false,
+        "fallback_in_effect": false
+      },
+      {
+        "interface": "zcosmic_toplevel_manager_v1",
+        "need": "cosmic-private-not-used",
+        "min_version": 0,
+        "advertised_version": 4,
+        "presence": "advertised",
+        "serves": "panel and dock toplevel control",
+        "fallback": "not applicable: applications must not depend on COSMIC shell protocols",
+        "bound_by_goya_wayland": false,
+        "fallback_in_effect": false
+      },
+      {
+        "interface": "zcosmic_workspace_image_capture_source_manager_v1",
+        "need": "cosmic-private-not-used",
+        "min_version": 0,
+        "advertised_version": 1,
+        "presence": "advertised",
+        "serves": "workspace overview thumbnails",
+        "fallback": "not applicable: applications must not depend on COSMIC shell protocols",
+        "bound_by_goya_wayland": false,
+        "fallback_in_effect": false
+      },
+      {
+        "interface": "zcosmic_workspace_manager_v2",
+        "need": "cosmic-private-not-used",
+        "min_version": 0,
+        "advertised_version": 2,
+        "presence": "advertised",
+        "serves": "panel workspace indicator",
+        "fallback": "not applicable: applications must not depend on COSMIC shell protocols",
+        "bound_by_goya_wayland": false,
+        "fallback_in_effect": false
+      }
+    ],
+    "unlisted": [
+      {
+        "interface": "ext_data_control_manager_v1",
+        "version": 1
+      },
+      {
+        "interface": "ext_foreign_toplevel_image_capture_source_manager_v1",
+        "version": 1
+      },
+      {
+        "interface": "ext_foreign_toplevel_list_v1",
+        "version": 1
+      },
+      {
+        "interface": "ext_idle_notifier_v1",
+        "version": 2
+      },
+      {
+        "interface": "ext_image_copy_capture_manager_v1",
+        "version": 1
+      },
+      {
+        "interface": "ext_output_image_capture_source_manager_v1",
+        "version": 1
+      },
+      {
+        "interface": "ext_session_lock_manager_v1",
+        "version": 1
+      },
+      {
+        "interface": "ext_workspace_manager_v1",
+        "version": 1
+      },
+      {
+        "interface": "org_kde_kwin_server_decoration_manager",
+        "version": 1
+      },
+      {
+        "interface": "wl_drm",
+        "version": 2
+      },
+      {
+        "interface": "wl_fixes",
+        "version": 1
+      },
+      {
+        "interface": "wp_alpha_modifier_v1",
+        "version": 1
+      },
+      {
+        "interface": "wp_drm_lease_device_v1",
+        "version": 1
+      },
+      {
+        "interface": "wp_linux_drm_syncobj_manager_v1",
+        "version": 1
+      },
+      {
+        "interface": "wp_security_context_manager_v1",
+        "version": 1
+      },
+      {
+        "interface": "wp_single_pixel_buffer_manager_v1",
+        "version": 1
+      },
+      {
+        "interface": "zwlr_data_control_manager_v1",
+        "version": 2
+      },
+      {
+        "interface": "zwlr_layer_shell_v1",
+        "version": 5
+      },
+      {
+        "interface": "zwlr_output_manager_v1",
+        "version": 4
+      },
+      {
+        "interface": "zwlr_output_power_manager_v1",
+        "version": 1
+      },
+      {
+        "interface": "zwp_input_method_manager_v2",
+        "version": 1
+      },
+      {
+        "interface": "zwp_keyboard_shortcuts_inhibit_manager_v1",
+        "version": 1
+      },
+      {
+        "interface": "zwp_pointer_constraints_v1",
+        "version": 1
+      },
+      {
+        "interface": "zwp_pointer_gestures_v1",
+        "version": 3
+      },
+      {
+        "interface": "zwp_relative_pointer_manager_v1",
+        "version": 1
+      },
+      {
+        "interface": "zwp_tablet_manager_v2",
+        "version": 1
+      },
+      {
+        "interface": "zwp_virtual_keyboard_manager_v1",
+        "version": 1
+      },
+      {
+        "interface": "zxdg_importer_v2",
+        "version": 1
+      }
+    ],
+    "required_missing": [],
+    "counts": {
+      "required_total": 4,
+      "required_advertised": 4,
+      "optional_total": 19,
+      "optional_advertised": 15,
+      "cosmic_private_observed": 8,
+      "unlisted_observed": 28,
+      "globals_observed": 55
+    },
+    "observed": [
+      {
+        "interface": "cosmic_a11y_manager_v1",
+        "version": 2
+      },
+      {
+        "interface": "cosmic_corner_radius_manager_v1",
+        "version": 1
+      },
+      {
+        "interface": "ext_data_control_manager_v1",
+        "version": 1
+      },
+      {
+        "interface": "ext_foreign_toplevel_image_capture_source_manager_v1",
+        "version": 1
+      },
+      {
+        "interface": "ext_foreign_toplevel_list_v1",
+        "version": 1
+      },
+      {
+        "interface": "ext_idle_notifier_v1",
+        "version": 2
+      },
+      {
+        "interface": "ext_image_copy_capture_manager_v1",
+        "version": 1
+      },
+      {
+        "interface": "ext_output_image_capture_source_manager_v1",
+        "version": 1
+      },
+      {
+        "interface": "ext_session_lock_manager_v1",
+        "version": 1
+      },
+      {
+        "interface": "ext_workspace_manager_v1",
+        "version": 1
+      },
+      {
+        "interface": "org_kde_kwin_server_decoration_manager",
+        "version": 1
+      },
+      {
+        "interface": "wl_compositor",
+        "version": 5
+      },
+      {
+        "interface": "wl_data_device_manager",
+        "version": 3
+      },
+      {
+        "interface": "wl_drm",
+        "version": 2
+      },
+      {
+        "interface": "wl_fixes",
+        "version": 1
+      },
+      {
+        "interface": "wl_output",
+        "version": 4
+      },
+      {
+        "interface": "wl_seat",
+        "version": 9
+      },
+      {
+        "interface": "wl_shm",
+        "version": 2
+      },
+      {
+        "interface": "wl_subcompositor",
+        "version": 1
+      },
+      {
+        "interface": "wp_alpha_modifier_v1",
+        "version": 1
+      },
+      {
+        "interface": "wp_cursor_shape_manager_v1",
+        "version": 2
+      },
+      {
+        "interface": "wp_drm_lease_device_v1",
+        "version": 1
+      },
+      {
+        "interface": "wp_fractional_scale_manager_v1",
+        "version": 1
+      },
+      {
+        "interface": "wp_linux_drm_syncobj_manager_v1",
+        "version": 1
+      },
+      {
+        "interface": "wp_presentation",
+        "version": 2
+      },
+      {
+        "interface": "wp_security_context_manager_v1",
+        "version": 1
+      },
+      {
+        "interface": "wp_single_pixel_buffer_manager_v1",
+        "version": 1
+      },
+      {
+        "interface": "wp_viewporter",
+        "version": 1
+      },
+      {
+        "interface": "xdg_activation_v1",
+        "version": 1
+      },
+      {
+        "interface": "xdg_wm_base",
+        "version": 7
+      },
+      {
+        "interface": "zcosmic_output_manager_v1",
+        "version": 3
+      },
+      {
+        "interface": "zcosmic_overlap_notify_v1",
+        "version": 1
+      },
+      {
+        "interface": "zcosmic_toplevel_info_v1",
+        "version": 3
+      },
+      {
+        "interface": "zcosmic_toplevel_manager_v1",
+        "version": 4
+      },
+      {
+        "interface": "zcosmic_workspace_image_capture_source_manager_v1",
+        "version": 1
+      },
+      {
+        "interface": "zcosmic_workspace_manager_v2",
+        "version": 2
+      },
+      {
+        "interface": "zwlr_data_control_manager_v1",
+        "version": 2
+      },
+      {
+        "interface": "zwlr_layer_shell_v1",
+        "version": 5
+      },
+      {
+        "interface": "zwlr_output_manager_v1",
+        "version": 4
+      },
+      {
+        "interface": "zwlr_output_power_manager_v1",
+        "version": 1
+      },
+      {
+        "interface": "zwp_idle_inhibit_manager_v1",
+        "version": 1
+      },
+      {
+        "interface": "zwp_input_method_manager_v2",
+        "version": 1
+      },
+      {
+        "interface": "zwp_keyboard_shortcuts_inhibit_manager_v1",
+        "version": 1
+      },
+      {
+        "interface": "zwp_linux_dmabuf_v1",
+        "version": 5
+      },
+      {
+        "interface": "zwp_pointer_constraints_v1",
+        "version": 1
+      },
+      {
+        "interface": "zwp_pointer_gestures_v1",
+        "version": 3
+      },
+      {
+        "interface": "zwp_primary_selection_device_manager_v1",
+        "version": 1
+      },
+      {
+        "interface": "zwp_relative_pointer_manager_v1",
+        "version": 1
+      },
+      {
+        "interface": "zwp_tablet_manager_v2",
+        "version": 1
+      },
+      {
+        "interface": "zwp_text_input_manager_v3",
+        "version": 1
+      },
+      {
+        "interface": "zwp_virtual_keyboard_manager_v1",
+        "version": 1
+      },
+      {
+        "interface": "zxdg_decoration_manager_v1",
+        "version": 1
+      },
+      {
+        "interface": "zxdg_exporter_v2",
+        "version": 1
+      },
+      {
+        "interface": "zxdg_importer_v2",
+        "version": 1
+      },
+      {
+        "interface": "zxdg_output_manager_v1",
+        "version": 3
+      }
+    ],
+    "seats": [
+      {
+        "pointer": true,
+        "keyboard": true,
+        "touch": true
+      }
+    ],
+    "statement": "protocol advertisement only; no behaviour is inferred from presence (GY-EMP-001 §4.3)"
+  },
+  "protocol_error": null,
+  "caprichios": [
+    {
+      "id": "devices.input.keyboard",
+      "proposed_contract": "goya.devices.input.keyboard.v1",
+      "status": "candidate",
+      "basis": [
+        "wl_seat"
+      ],
+      "reason": "key events arrive through a wl_seat keyboard; a seat reports keyboard"
+    },
+    {
+      "id": "devices.input.pointer",
+      "proposed_contract": "goya.devices.input.pointer.v1",
+      "status": "candidate",
+      "basis": [
+        "wl_seat"
+      ],
+      "reason": "pointer events arrive through a wl_seat pointer; a seat reports pointer"
+    },
+    {
+      "id": "devices.input.touch",
+      "proposed_contract": "goya.devices.input.touch.v1",
+      "status": "candidate",
+      "basis": [
+        "wl_seat"
+      ],
+      "reason": "touch contacts arrive through a wl_seat touch; a seat reports touch"
+    },
+    {
+      "id": "display.surfaces",
+      "proposed_contract": "goya.display.surfaces.v1",
+      "status": "candidate",
+      "basis": [
+        "wl_output"
+      ],
+      "reason": "wl_output advertises output geometry and scale to clients"
+    },
+    {
+      "id": "display.color_profile",
+      "proposed_contract": "goya.display.color_profile.v1",
+      "status": "unavailable",
+      "basis": [
+        "wp_color_manager_v1"
+      ],
+      "reason": "not advertised: wp_color_manager_v1"
+    }
+  ],
+  "theme": {
+    "config_root": "~/.config",
+    "format": "v1",
+    "mode": {
+      "is_dark": true,
+      "selected": "dark",
+      "basis": "Mode/v1/is_dark = true",
+      "issues": []
+    },
+    "mode_error": null,
+    "variant": "dark",
+    "name": "cosmic-dark",
+    "other_versions_present": [
+      "v2"
+    ],
+    "issues": [],
+    "chroma": {
+      "polarity": "dark",
+      "polarity_basis": "is_dark = true",
+      "anchor": [
+        0.7993,
+        0.1017,
+        207.4
+      ],
+      "roles": {
+        "bg": "#1B1B1B",
+        "fg": "#E7E7E7",
+        "muted": "#777777",
+        "accent": "#63D0DF",
+        "border": "#444444",
+        "ok": "#92CF9C",
+        "err": "#FDA1A0",
+        "warning": "#F7E062",
+        "on_accent": "#000000",
+        "primary_container": "#272727",
+        "on_primary_container": "#F8F8F8",
+        "secondary_container": "#343434",
+        "on_secondary_container": "#C7C7C7"
+      },
+      "palette_complete": true,
+      "high_contrast": false,
+      "wcag_target": "AA",
+      "contrast": [
+        {
+          "pair": "fg/bg",
+          "ratio": 13.93,
+          "meets_target": true
+        },
+        {
+          "pair": "muted/bg",
+          "ratio": 3.85,
+          "meets_target": false
+        },
+        {
+          "pair": "accent/bg",
+          "ratio": 9.53,
+          "meets_target": true
+        },
+        {
+          "pair": "ok/bg",
+          "ratio": 9.54,
+          "meets_target": true
+        },
+        {
+          "pair": "err/bg",
+          "ratio": 8.84,
+          "meets_target": true
+        },
+        {
+          "pair": "warning/bg",
+          "ratio": 12.95,
+          "meets_target": true
+        },
+        {
+          "pair": "on_accent/accent",
+          "ratio": 11.62,
+          "meets_target": true
+        },
+        {
+          "pair": "on_primary/primary",
+          "ratio": 14.07,
+          "meets_target": true
+        }
+      ],
+      "unmapped": [],
+      "notes": [
+        "COSMIC colours are absolute; Chroma themes are relational. Values fill Chroma's Palette slots directly; no relations are synthesised.",
+        "Contrast is measured and reported, not enforced: COSMIC's colours are kept as authored.",
+        "muted uses Chroma's documented 55% fg-toward-bg blend; COSMIC has no muted key.",
+        "warning, on_accent and the primary/secondary containers have no Chroma Palette slot and are carried as extras.",
+        "Colours with alpha are composited over background.base; hover, pressed, selected and disabled states are not mapped."
+      ]
+    },
+    "geometry": {
+      "corner_radii": {
+        "radius_0": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "radius_xs": [
+          4.0,
+          4.0,
+          4.0,
+          4.0
+        ],
+        "radius_s": [
+          8.0,
+          8.0,
+          8.0,
+          8.0
+        ],
+        "radius_m": [
+          16.0,
+          16.0,
+          16.0,
+          16.0
+        ],
+        "radius_l": [
+          32.0,
+          32.0,
+          32.0,
+          32.0
+        ],
+        "radius_xl": [
+          160.0,
+          160.0,
+          160.0,
+          160.0
+        ]
+      },
+      "spacing": {
+        "space_none": 0,
+        "space_xxxs": 4,
+        "space_xxs": 8,
+        "space_xs": 12,
+        "space_s": 16,
+        "space_m": 24,
+        "space_l": 32,
+        "space_xl": 48,
+        "space_xxl": 64,
+        "space_xxxl": 128
+      },
+      "gaps": [
+        0,
+        8
+      ],
+      "active_hint": 3,
+      "is_frosted": false,
+      "note": "COSMIC values in logical pixels; recorded only, not yet consumed by Goya layout or paint"
+    },
+    "error": null
+  }
+}
