@@ -1,0 +1,56 @@
+{
+  "work_package": "GY-FAIR-001",
+  "title": "GY-FAIR/1 contract and goya-fair schema crate (Phase 0 — Disparates)",
+  "wave": "disparates-phase0",
+  "date": "2026-11-18",
+  "scope": {
+    "objective": "Author the FAIR contract and implement the schema, validation, canonical serialisation and coverage-summary crate. Extraction-only authority; no reconstruction, no extractor, no goya-ir coupling.",
+    "affected": [
+      "docs/disparates/contracts/fair-1.md",
+      "docs/disparates/roadmap.md",
+      "docs/contracts.md",
+      "crates/goya-fair",
+      "Cargo.toml"
+    ],
+    "exclusions": [
+      "No semantic extractor implemented (Phase 1, unstarted).",
+      "No reference corpus nominated (deferred by decision, selection criteria recorded in roadmap).",
+      "No FAIR-to-Goya reconstruction (authorisation explicitly withheld).",
+      "No representability status above `extracted` is producible under this revision; `verified` is unreachable."
+    ]
+  },
+  "repository_evidence": {
+    "tests": {
+      "command": "cargo test -p goya-fair",
+      "result": "12 passed; 0 failed",
+      "covers": [
+        "valid document passes validation",
+        "non-extracted and undetermined statuses require register-form reason codes",
+        "duplicate element IDs rejected",
+        "unknown kind requires recorded observed spelling (ignorance preserved, not dropped)",
+        "half-open byte spans rejected",
+        "missing source manifest rejected",
+        "canonical serialisation is order-independent and byte-stable",
+        "dynamic require() preserved as undetermined with DYNAMIC_REQUIRE_UNRESOLVED",
+        "coverage summary derived from element states",
+        "fixture round-trip through canonical JSON"
+      ]
+    },
+    "workspace_build": {
+      "command": "cargo build --workspace --offline",
+      "result": "SUCCESS after repairing the pre-existing c37f900 fallout in goya-caprichios: non-exhaustive Artifact::AcceleratorModel id match (registry.rs), test initializers missing new HostProfile/Request fields, accelerator lowering precedence (GPU-driver gate precedes UTF-8, per the inventory-ignores-gpu-driver doc), and snapdragon tests lowering int8-only models on non-int8 silicon (SD810 et al.) — those tests now use the first int8-capable generation and expect UnsupportedAccelerator for int8_accel=false SoCs. goya-caprichios: 255 passed, 0 failed.",
+      "residual_failures": {
+        "command": "cargo test -p emperor --test cli",
+        "result": "4 failed (appimage gate Null vs EMP-PACKAGE; dpkg-deb zstd checksum error; 2x artifact sha256 vs build-report mismatch)",
+        "attribution": "Pre-existing at HEAD and unrelated to this work: emperor's dependency closure (emperor-runtime, goya-lang, sash, serde_json, sha2) is untouched by this evidence. Not repaired here; belongs to the emperor/parity programme."
+      }
+    },
+    "determinism": {
+      "claim": "canonical_json sorts elements by ID and uses BTreeMap key ordering; byte-identical output asserted across input orders in tests. Extraction determinism (identical input bytes + extractor version -> identical document) is a property of future extractors, not evidenced here."
+    }
+  },
+  "honesty_notes": [
+    "Phase 0 deliverable only. The programme cannot yet extract, migrate or verify anything.",
+    "Coverage percentages remain prohibited; coverage_summary is a derived count, never persisted as authoritative."
+  ]
+}
