@@ -8,6 +8,11 @@
 //! needed. Keys arrive as evdev codes from every `wl_seat`, because webOS
 //! advertises one seat per input device.
 //!
+//! With the `gpu` feature the client is libwayland (loaded at run time),
+//! and frames are composited by OpenGL ES 2.0 on an EGL window surface
+//! ([`crate::gles`]). If EGL cannot start, or a swap fails, the host falls
+//! back to the software path above.
+//!
 //! Lifecycle: `wl_webos_shell_surface.state_changed` to minimised suspends
 //! the resolver instance, and any other state resumes it. `close`
 //! terminates it and the process exits.
@@ -425,6 +430,27 @@ pub fn summary_in(name: &str, unit: &str, sample: &[u128]) -> String {
     )
 }
 
+/// Open the GPU compositor on `surface`: a `wl_egl_window` of the frame
+/// size, then an EGL window surface on it.
+#[cfg(feature = "gpu")]
+fn gpu_surface(conn: &Connection, surface: &wl_surface::WlSurface, width: u32, height: u32) -> Result<crate::gles::Gpu, String> {
+    let lib = wayland_sys::egl::wayland_egl_option().ok_or("GY-VIUDA-GPU: cannot load libwayland-egl")?;
+    let display = conn.backend().display_ptr();
+    let proxy = surface.id().as_ptr();
+    if display.is_null() || proxy.is_null() {
+        return Err("GY-VIUDA-GPU: no libwayland display or surface".into());
+    }
+    // SAFETY: `proxy` is the live C wl_surface of this connection. The
+    // window is never destroyed: it lives as long as the surface, which
+    // lives until the process exits.
+    let window = unsafe { (lib.wl_egl_window_create)(proxy, width as i32, height as i32) };
+    if window.is_null() {
+        return Err("GY-VIUDA-GPU: wl_egl_window_create failed".into());
+    }
+    // SAFETY: both pointers are live and outlive the compositor, as above.
+    unsafe { crate::gles::Gpu::window(display.cast(), window.cast(), width, height) }
+}
+
 fn socket_path() -> PathBuf {
     let dir = std::env::var_os("XDG_RUNTIME_DIR").unwrap_or_else(|| "/tmp/xdg".into());
     let name = std::env::var_os("WAYLAND_DISPLAY").unwrap_or_else(|| "wayland-0".into());
@@ -469,6 +495,23 @@ pub fn run(mut viuda: Viuda, opts: Options, log: &mut dyn Write) -> Result<(), S
     webos_surface.set_property("appId".into(), opts.app_id.clone());
     webos_surface.set_property("title".into(), opts.title.clone());
     webos_surface.set_state(STATE_FULLSCREEN);
+
+    #[cfg(feature = "gpu")]
+    let mut gpu = match gpu_surface(&conn, &surface, opts.width, opts.height) {
+        Ok(g) => {
+            let _ = writeln!(log, "gpu {}", g.info);
+            Some(g)
+        }
+        Err(e) => {
+            let _ = writeln!(log, "gpu unavailable, rendering in software: {e}");
+            None
+        }
+    };
+    #[cfg(feature = "gpu")]
+    let mut last_ops: Option<Vec<crate::DrawOp>> = None;
+    #[cfg(feature = "gpu")]
+    let (mut gpu_submit, mut gpu_raster, mut gpu_swap, mut gpu_uploads): (Vec<u128>, Vec<u128>, Vec<u128>, usize) =
+        (Vec::new(), Vec::new(), Vec::new(), 0);
 
     let mut frames = Frames::new(&shm, opts.width, opts.height, &qh)?;
     // The retained frame, repainted in place, and per buffer the damage it
@@ -540,7 +583,51 @@ pub fn run(mut viuda: Viuda, opts: Options, log: &mut dyn Write) -> Result<(), S
         let animating = viuda.tick();
         let ambient = viuda.ambient_interval().map(|i| i.max(opts.ambient_interval));
         let ambient_due = ambient.is_some() && Instant::now() >= next_ambient;
-        if (dirty || animating || ambient_due) && host.frame_done && !host.minimized {
+        #[cfg(feature = "gpu")]
+        if let Some(g) = gpu.as_mut().filter(|_| (dirty || animating || ambient_due || first) && !host.minimized) {
+            let ops = viuda.display_list(ambient_due || first);
+            dirty = false;
+            if ambient_due {
+                next_ambient = Instant::now() + ambient.unwrap_or(opts.ambient_interval);
+            }
+            if last_ops.as_ref() == Some(&ops) {
+                pending_input = None;
+            } else {
+                let stats = g.draw(viuda.scene(), &ops);
+                let t = Instant::now();
+                let presented = g.present();
+                gpu_swap.push(t.elapsed().as_micros());
+                gpu_submit.push(stats.submit.as_micros());
+                if stats.uploads > 0 {
+                    gpu_raster.push(stats.raster.as_micros());
+                    gpu_uploads += stats.uploads;
+                }
+                if let Err(e) = presented {
+                    let _ = writeln!(log, "gpu failed, rendering in software from now on: {e}");
+                    gpu = None;
+                    dirty = true;
+                } else {
+                    last_ops = Some(ops);
+                    if let Some(at) = pending_input.take() {
+                        input_to_commit.push(at.elapsed().as_micros());
+                    }
+                    if first {
+                        first = false;
+                        let _ = writeln!(log, "first-frame committed_ms={} gpu=1", opts.started.elapsed().as_millis());
+                    }
+                    if gpu_submit.len().is_multiple_of(100) {
+                        let _ = writeln!(log, "{}", summary("gpu-submit", &gpu_submit));
+                        let _ = writeln!(log, "{}", summary("gpu-swap", &gpu_swap));
+                        let _ = writeln!(log, "{} uploads={gpu_uploads} resident_bytes={}", summary("gpu-raster", &gpu_raster), g.resident_bytes());
+                    }
+                }
+            }
+        }
+        #[cfg(feature = "gpu")]
+        let software = gpu.is_none();
+        #[cfg(not(feature = "gpu"))]
+        let software = true;
+        if software && (dirty || animating || ambient_due) && host.frame_done && !host.minimized {
             if let Some(index) = host.busy.iter().position(|b| !b) {
                 let t = Instant::now();
                 let damage = viuda.render_into(&mut retained, ambient_due);
@@ -588,6 +675,10 @@ pub fn run(mut viuda: Viuda, opts: Options, log: &mut dyn Write) -> Result<(), S
         }
         if Instant::now() >= next_status {
             let _ = writeln!(log, "status {}", self_status(opts.started));
+            // A platform kill (reinstall, remove) gives no final summary.
+            if !input_to_commit.is_empty() {
+                let _ = writeln!(log, "{}", summary("input-to-commit", &input_to_commit));
+            }
             next_status = Instant::now() + STATUS_EVERY;
         }
         let _ = log.flush();
@@ -627,6 +718,12 @@ pub fn run(mut viuda: Viuda, opts: Options, log: &mut dyn Write) -> Result<(), S
     let _ = writeln!(log, "{}", summary("render", &renders));
     let _ = writeln!(log, "{}", summary_in("damaged", "px", &damaged_px));
     let _ = writeln!(log, "{}", summary("present", &presents));
+    #[cfg(feature = "gpu")]
+    {
+        let _ = writeln!(log, "{}", summary("gpu-submit", &gpu_submit));
+        let _ = writeln!(log, "{}", summary("gpu-swap", &gpu_swap));
+        let _ = writeln!(log, "{} uploads={gpu_uploads}", summary("gpu-raster", &gpu_raster));
+    }
     let _ = writeln!(log, "{}", summary("dispatch", &dispatches));
     let _ = writeln!(log, "{}", summary("input-to-commit", &input_to_commit));
     let _ = log.flush();

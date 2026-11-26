@@ -28,6 +28,7 @@ use goya_resolver::{Instance, Resolver};
 use goya_scene_runtime::{GraphicSpec, Scene, SceneSpec};
 
 pub use goya_scene_runtime::tiny_skia::Pixmap;
+pub use goya_scene_runtime::{DrawOp, SpriteKey};
 
 /// Contract implemented by this crate.
 pub const CONTRACT: &str = "GY-VIUDA/0.1";
@@ -321,6 +322,13 @@ impl Viuda {
         self.scene.render_into(target, advance_ambient)
     }
 
+    /// The frame as drawing steps for the GPU compositor
+    /// ([`goya_scene_runtime::Scene::display_list`]). `advance_ambient` as
+    /// in [`Viuda::render_into`].
+    pub fn display_list(&mut self, advance_ambient: bool) -> Vec<DrawOp> {
+        self.scene.display_list(advance_ambient)
+    }
+
     /// Lifecycle: the surface is hidden. Input waits until [`Viuda::resume`].
     pub fn suspend(&mut self) -> Result<(), String> {
         self.instance.suspend().map_err(|d| d.to_string())
@@ -350,6 +358,9 @@ pub fn system_font() -> Result<(&'static [u8], String), String> {
 
 #[cfg(target_os = "linux")]
 pub mod webos;
+
+#[cfg(all(target_os = "linux", feature = "gpu"))]
+pub mod gles;
 
 #[cfg(test)]
 mod tests {

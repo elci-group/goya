@@ -21,9 +21,16 @@ wayland-client = "0.31"
 wayland-scanner = "0.31"
 wayland-backend = "0.3"
 rustix = { version = "0.38", features = ["fs", "mm", "event"] }
+# Feature `gpu`: libwayland, libwayland-egl, EGL and GLES2, all loaded with
+# dlopen at run time (the TV binary links glibc only).
+wayland-sys = { version = "0.31", features = ["client", "egl", "dlopen"], optional = true }
+libc = { version = "0.2", optional = true }
 
 [features]
 pack = ["dep:goya-arachnid"]
+# The GPU compositor (`gles`) and EGL presentation on webOS. Switches the
+# Wayland client to libwayland, which EGL needs.
+gpu = ["dep:libc", "dep:wayland-sys", "wayland-backend/client_system", "wayland-backend/dlopen"]
 
 [[bin]]
 name = "viuda"

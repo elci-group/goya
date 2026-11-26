@@ -113,18 +113,19 @@ a second.
 
 ## 6. Reproduce
 
-* `scripts/check-viuda.sh`: tests, clippy, the ARMv7 build and its hash.
-* `scripts/check-viuda.sh <tv> [scene]`: also a headless key script on
-  the TV, then install + launch as `com.goya.viuda.check`, and its log
-  after 35 s.
+* `scripts/check-viuda.sh`: tests and clippy (software and `gpu`), and
+  both ARMv7 runtimes with their hashes (§9).
+* `scripts/check-viuda.sh <tv> [scene]`: also both runtimes headless on
+  the TV, then the GPU runtime installed and launched as
+  `com.goya.viuda.check`, and its log after 35 s.
 * `viuda <scene> --headless --keys ok,right,…` runs anywhere, with no
-  compositor.
+  compositor. `--gpu` adds the GPU compositor offscreen and compares every
+  frame with the software composition.
 
 ## 7. Not done, in order of cost to the directive
 
-1. **Rendering.** Dirty regions are done (§8). Ambient frames of a scene
-   whose whole background breathes stay full repaints, and everything is
-   still drawn on the CPU. GLES2 through `wl_egl` is next.
+1. **Rendering.** Dirty regions are done (§8), and the GPU compositor runs
+   on the TV (§9). Input-to-frame latency on the TV is not measured yet.
 2. **Load time.** Graphics compile both encodings, as Arachnid does, to
    choose the smaller. A §9.3 cache keyed on source digest, resolver
    version and Viuda version would remove most of the 1 s.
@@ -190,3 +191,99 @@ idle, down from 4.7 %. RSS is 36 MB, up from 28 MB: that is the retained
 1080p frame (8.3 MB), the cost of partial repaints. Interactive latency
 on the live app has not been measured yet, because no keys were pressed
 during that run.
+
+## 9. GPU compositing (26 November 2026)
+
+The directive's rendering policy prefers the GPU where the platform has
+one. The TV has PowerVR GLES2 behind `libEGL`, `libGLESv2` and
+`libwayland-egl` (VIUDA-0 §2).
+
+**Display list.** `Scene::display_list` describes the frame that `render()`
+paints, in the same order, as two kinds of step:
+* `Rect`: a rect fill, with its exact edges and colour. The fragment
+  shader computes how much of each pixel lies inside, so fractional edges
+  are antialiased without a raster. A breathing background or a fading
+  card changes one uniform.
+* `Sprite`: a graphic at its shown dimension values, a stroke, text, or
+  the focus ring. `Scene::sprite` rasterizes it with the CPU code
+  `render()` uses, at opacity 1, cut to the frame. The key holds
+  everything that decides the pixels (node, kind, the box after motion,
+  the graphic state or the text), so the compositor keeps each texture
+  while its key is drawn. It drops idle textures, oldest first, above
+  48 MB.
+
+`Scene::compose` draws a display list in software. With a frozen clock it
+differs from `render()` by at most 2 per channel, except on 2 pixels of
+a 960×540 frame (at most 12): sprite opacity is applied to the raster as a
+whole, not to each path.
+
+**Compositor** (`goya-viuda`, feature `gpu`, module `gles`). It is OpenGL
+ES 2.0 with two programs, one unit quad and nearest-texel sprites in
+premultiplied alpha. `libEGL` and `libGLESv2` are opened with `dlopen`,
+so a runtime without them falls back to software. The webOS host creates
+a `wl_egl_window` on its surface and an EGL window surface with swap
+interval 1. If EGL fails to start, or a swap fails, it presents through
+`wl_shm` as before. EGL needs C `wl_display` and `wl_surface` pointers,
+so `gpu` switches the Wayland client to libwayland, also loaded with
+`dlopen`.
+
+**Off the TV** (Mesa Intel Graphics RPL-U, Mesa 25.2.8, surfaceless EGL, release build):
+* Every GPU frame of a Pairs game, read back, is within 2 per channel of
+  the software composition of its display list: 0 pixels over, worst 1.
+  The test asserts this when `VIUDA_REQUIRE_GPU` is set, which
+  `check-viuda.sh` does.
+* At 1080p the first frame uploads 26 sprites (12.9 MB resident), with
+  3.0 ms of rasterizing. After that, a focus move or a flip step uploads
+  1–4 sprites. Submit takes 0.5 ms median and `glFinish` 1.5 ms.
+
+**The TV binary.** The TV's userland uses the soft-float calling
+convention (`/lib/ld-linux.so.3`, Debian's *armel*), so the static
+hard-float runtime cannot load its graphics libraries. The GPU runtime is
+`armv7-unknown-linux-gnueabi`, built with
+`-C target-cpu=cortex-a53 -C target-feature=-soft-float`. That is
+*softfp*: float arguments pass in core registers, as the TV's libraries
+expect, while arithmetic uses VFP. The generated assembly confirms both.
+rustc warns that toggling `soft-float` is unstable.
+
+It links with clang and `rust-lld` against a glibc 2.24 sysroot
+(`scripts/viuda-armel-sysroot.sh`). The sysroot is built from four
+Debian stretch armel packages, pinned by the SHA-256 listed in Debian's stretch
+Packages index. The binary is 2,552,808 bytes and needs only glibc symbols up to
+`GLIBC_2.18`, plus `libgcc_s.so.1`.
+
+The static software runtime (2,504,292 bytes) stays as it was.
+
+**On the TV** (`scripts/check-viuda.sh 192.168.1.182`, load average about
+30; glibc 2.31):
+* **Driver**: `PowerVR Rogue BXE-4-32`, OpenGL ES 3.2 build
+  1.15@5986747, EGL 1.5 (Mesa front end).
+* **Headless** (`--headless --gpu`, offscreen, 13-key script, 46 frames):
+  every frame is within 2 per channel of the software composition (0
+  pixels over). Submit takes 1.2 ms median (p95 3.1 ms) and `glFinish`
+  5.4 ms median, against 5.5 ms for a software partial repaint and 67 ms
+  for a full one (§8). The first frame rasterizes 26 sprites in 57 ms.
+  Offscreen EGL works over SSH.
+* **Live**: PowerVR's EGL accepts a `wl_egl_window` on the `wl_shell`
+  surface. The app came up on the GPU path (`first-frame
+  committed_ms=1246 gpu=1`), and someone played it by hand: 97 keys, of
+  which the first 58 gave 21 published actions.
+
+| Live, 700 frames | median | p95 | max |
+| --- | --- | --- | --- |
+| Submit (GL calls, sprites already resident) | 2.9 ms | 5.4 ms | 76 ms |
+| `eglSwapBuffers` | 0.37 ms | 2.3 ms | 53 ms |
+| Sprite rasterizing, frames that upload | 0.59 ms | 7.2 ms | 105 ms |
+
+* **CPU**: 9–10 % of one core while being played (10 s windows; flips
+  upload about one sprite per frame). Idle, 30 ms over 20 s: about **0.15 %**, against
+  3 % for the software path with dirty regions and 4.7 % for full repaints.
+  An ambient frame only changes a fill colour uniform.
+* **Memory**: RSS 17.2 MB (peak 19.3 MB), against 36 MB for the software
+  path, which keeps an 8.3 MB frame plus two `wl_shm` buffers. Sprite
+  textures stay near the 48 MB budget during a game (50 MB resident).
+* **Package**: Goya Pairs 0.2.1 (`com.goya.viuda.pairs`) is installed with
+  the GPU runtime.
+
+**Not measured yet: input-to-frame latency.** The host summarized it
+only at exit, and a platform kill (reinstall, `dev/remove`) gives no
+exit. It is now also written with each 10 s status line.

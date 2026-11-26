@@ -30,7 +30,7 @@ The runtime moved to its own crate on 25 November 2026 so that Viuda
 (`docs/viuda/VIUDA-1.md`) can link it without `goya-wayland` and AT-SPI.
 AccessKit is its `a11y` feature, which Emperor's `scene` feature turns on.
 Generated apps still name `emperor_runtime::scene::…`.
-`Scene::render_into` adds retained, dirty-region repainting that is pixel-exact against `render()` (see `docs/viuda/VIUDA-1.md` §8). Emperor still calls `render()`.
+`Scene::render_into` adds retained, dirty-region repainting that is pixel-exact against `render()` (see `docs/viuda/VIUDA-1.md` §8). `Scene::display_list`, `Scene::sprite` and `Scene::compose` describe the same frame for a compositing (GPU) renderer (§9 there). Emperor still calls `render()`.
 
 
 * **Admission and layout.** The embedded source is admitted again at start

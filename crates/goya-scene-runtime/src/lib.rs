@@ -154,6 +154,49 @@ struct Clip {
     rects: Vec<(i32, i32, i32, i32)>,
 }
 
+/// One step of a frame for a compositing renderer, such as a GPU
+/// ([`Scene::display_list`]). Steps are drawn in order, source-over, onto
+/// white.
+#[derive(Debug, Clone, PartialEq)]
+pub enum DrawOp {
+    /// A solid rectangle `[x0, y0, x1, y1]` in pixels, with antialiased
+    /// fractional edges, in straight (not premultiplied) RGBA.
+    Rect { rect: [f32; 4], rgba: [u8; 4] },
+    /// The raster [`Scene::sprite`] makes for `key`, multiplied by `alpha`.
+    Sprite { key: SpriteKey, alpha: f32 },
+}
+
+/// Everything that decides a sprite's pixels. Two equal keys give the same
+/// raster, so a renderer can cache rasters by key.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SpriteKey {
+    pub node: usize,
+    pub kind: SpriteKind,
+    /// The node's box `x, y, w, h` after motion, as `f32` bits.
+    pub geometry: [u32; 4],
+}
+
+/// What a sprite shows of its node.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum SpriteKind {
+    /// The node's `@graphic`, at these dimension values.
+    Graphic(Vec<usize>),
+    /// The node's stroke.
+    Stroke,
+    /// The node's text: black coverage.
+    Text(String),
+    /// The focus ring around the node.
+    Focus,
+}
+
+/// A premultiplied RGBA raster whose top-left pixel is `(x, y)` of the
+/// frame.
+pub struct Sprite {
+    pub pixmap: tiny_skia::Pixmap,
+    pub x: i32,
+    pub y: i32,
+}
+
 fn overlaps(a: (i32, i32, i32, i32), b: (i32, i32, i32, i32)) -> bool {
     a.0 < b.2 && b.0 < a.2 && a.1 < b.3 && b.1 < a.3
 }
@@ -824,6 +867,146 @@ impl Scene {
         rects
     }
 
+    /// The frame as drawing steps for a compositing renderer: rect fills as
+    /// [`DrawOp::Rect`], and graphics, strokes, text and the focus ring as
+    /// [`DrawOp::Sprite`]s whose rasters [`Scene::sprite`] makes. The steps
+    /// follow [`Scene::render`]'s painting order. A sprite is the node's
+    /// content painted at opacity 1, so a renderer can keep it while only
+    /// opacity or a fill colour changes.
+    ///
+    /// Ambient motion is evaluated as in [`Scene::render_into`]: at the time
+    /// of the last call that passed `advance_ambient`.
+    pub fn display_list(&mut self, advance_ambient: bool) -> Vec<DrawOp> {
+        let now = self.now();
+        if advance_ambient {
+            self.ambient_at = now;
+        }
+        let ambient = self.ambient_at;
+        let present = self.presence();
+        let focused = self.focus.filter(|f| present[*f]);
+        let mut ops = Vec::new();
+        for i in 0..self.cells.len() {
+            let Some(look) = self.look(i, &present, focused, now, ambient) else { continue };
+            let [x, y, w, h, alpha] = look.geometry.map(f32::from_bits);
+            let geometry = [x, y, w, h].map(f32::to_bits);
+            let sprite = |kind| DrawOp::Sprite { key: SpriteKey { node: i, kind, geometry }, alpha };
+            if let Some(fill) = look.fill {
+                let a = (alpha * 255.0).round().clamp(0.0, 255.0) as u8;
+                let rgba = [(fill >> 16) as u8, (fill >> 8) as u8, fill as u8, a];
+                ops.push(DrawOp::Rect { rect: [x, y, x + w.max(0.01), y + h.max(0.01)], rgba });
+            }
+            if let Some(shown) = look.graphic {
+                ops.push(sprite(SpriteKind::Graphic(shown)));
+            }
+            let node = &self.frame.nodes[i];
+            if node.stroke.is_some() && node.stroke_width_mp.is_some() {
+                ops.push(sprite(SpriteKind::Stroke));
+            }
+            if !look.text.is_empty() {
+                ops.push(sprite(SpriteKind::Text(look.text)));
+            }
+            if look.focused {
+                ops.push(DrawOp::Sprite { key: SpriteKey { node: i, kind: SpriteKind::Focus, geometry }, alpha: 1.0 });
+            }
+        }
+        ops
+    }
+
+    /// The raster for `key`, cut to the frame, or `None` when it would be
+    /// empty. Painted with the same code as [`Scene::render`], shifted to
+    /// the raster's origin.
+    pub fn sprite(&self, key: &SpriteKey) -> Option<Sprite> {
+        let [x, y, w, h] = key.geometry.map(f32::from_bits);
+        let (cw, ch) = (self.width.max(1) as i32, self.height.max(1) as i32);
+        let node = self.frame.nodes.get(key.node)?;
+        let around = |pad: f32| ((x - pad).floor() as i32, (y - pad).floor() as i32, (x + w + pad).ceil() as i32, (y + h + pad).ceil() as i32);
+        let bounds = match &key.kind {
+            SpriteKind::Graphic(shown) => {
+                let ds = DrawState { graphic: self.draws.get(key.node)?.as_ref()?.graphic, shown: shown.clone(), target: Vec::new(), next_step: None };
+                let b = self.graphic_bounds(&ds, x, y, w, h)?;
+                (b.left().floor() as i32 - 2, b.top().floor() as i32 - 2, b.right().ceil() as i32 + 2, b.bottom().ceil() as i32 + 2)
+            }
+            SpriteKind::Stroke => around(2.0),
+            SpriteKind::Text(_) => Self::text_clip(x, y, w, h, cw, ch, (0, 0, cw, ch)),
+            SpriteKind::Focus => around(10.0),
+        };
+        let (x0, y0, x1, y1) = (bounds.0.max(0), bounds.1.max(0), bounds.2.min(cw), bounds.3.min(ch));
+        if x0 >= x1 || y0 >= y1 {
+            return None;
+        }
+        let mut pm = tiny_skia::Pixmap::new((x1 - x0) as u32, (y1 - y0) as u32)?;
+        // The node's box in raster coordinates.
+        let (lx, ly) = (x - x0 as f32, y - y0 as f32);
+        let ring = |pm: &mut tiny_skia::Pixmap, grow: f32, width: f32, colour: u32, alpha: f32| {
+            if let Some(r) = tiny_skia::Rect::from_xywh(lx - grow, ly - grow, w + 2.0 * grow, h + 2.0 * grow) {
+                let st = tiny_skia::Stroke { width, ..Default::default() };
+                pm.stroke_path(&tiny_skia::PathBuilder::from_rect(r), &Self::paint(colour, alpha), &st, tiny_skia::Transform::identity(), None);
+            }
+        };
+        match &key.kind {
+            SpriteKind::Graphic(shown) => {
+                let ds = DrawState { graphic: self.draws[key.node].as_ref()?.graphic, shown: shown.clone(), target: Vec::new(), next_step: None };
+                self.paint_graphic(&mut pm, &ds, lx, ly, w, h, 1.0);
+            }
+            SpriteKind::Stroke => {
+                let (stroke, sw) = (node.stroke?, node.stroke_width_mp? as f32 / 1000.0);
+                // The CPU path strokes the box inset by half the width.
+                ring(&mut pm, -sw / 2.0, sw, stroke, 1.0);
+            }
+            SpriteKind::Text(text) => {
+                let size = node.text_size_mp.map_or(16.0, |s| s as f32 / 1000.0);
+                let wrap = self.cells[key.node].text_from.is_some();
+                let pw = pm.width() as i32;
+                let pixels = pm.pixels_mut();
+                self.text_coverage(text, x, y, w, h, size, node.is_button, node.anchor, wrap, bounds, |px, py, cov| {
+                    let idx = ((py - y0) * pw + (px - x0)) as usize;
+                    let k = (cov.clamp(0.0, 1.0) * 255.0) as u32;
+                    let d = u32::from(pixels[idx].alpha());
+                    // Glyphs that overlap darken like successive blends.
+                    let a = (k + d * (255 - k) / 255) as u8;
+                    pixels[idx] = tiny_skia::PremultipliedColorU8::from_rgba(0, 0, 0, a).unwrap_or(pixels[idx]);
+                });
+            }
+            SpriteKind::Focus => {
+                for (grow, colour) in [(6.0f32, 0xffffffu32), (2.0, 0x000000)] {
+                    ring(&mut pm, grow, 4.0, colour, 1.0);
+                }
+            }
+        }
+        Some(Sprite { pixmap: pm, x: x0, y: y0 })
+    }
+
+    /// Draw `ops` in software: the reference a compositing renderer is
+    /// compared with.
+    pub fn compose(&self, ops: &[DrawOp]) -> tiny_skia::Pixmap {
+        let mut pm = tiny_skia::Pixmap::new(self.width.max(1), self.height.max(1)).expect("non-empty frame");
+        pm.fill(tiny_skia::Color::WHITE);
+        for op in ops {
+            match op {
+                DrawOp::Rect { rect, rgba } => {
+                    if let Some(r) = tiny_skia::Rect::from_ltrb(rect[0], rect[1], rect[2], rect[3]) {
+                        let mut p = tiny_skia::Paint::default();
+                        p.set_color_rgba8(rgba[0], rgba[1], rgba[2], rgba[3]);
+                        p.anti_alias = true;
+                        pm.fill_rect(r, &p, tiny_skia::Transform::identity(), None);
+                    }
+                }
+                DrawOp::Sprite { key, alpha } => {
+                    if let Some(s) = self.sprite(key) {
+                        let paint = tiny_skia::PixmapPaint { opacity: *alpha, ..Default::default() };
+                        pm.draw_pixmap(s.x, s.y, s.pixmap.as_ref(), &paint, tiny_skia::Transform::identity(), None);
+                    }
+                }
+            }
+        }
+        pm
+    }
+
+    /// The frame size.
+    pub fn size(&self) -> (u32, u32) {
+        (self.width.max(1), self.height.max(1))
+    }
+
     /// Where node `i` paints and with what, or `None` when it paints
     /// nothing.
     fn look(&self, i: usize, present: &[bool], focused: Option<usize>, now: Instant, ambient: Instant) -> Option<NodeLook> {
@@ -1020,8 +1203,36 @@ impl Scene {
         }
     }
 
+    /// The pixels text may touch: the node's box, cut to the frame
+    /// `(cw, ch)` and to `region`.
+    fn text_clip(x: f32, y: f32, w: f32, h: f32, cw: i32, ch: i32, region: (i32, i32, i32, i32)) -> (i32, i32, i32, i32) {
+        (
+            (x.max(0.0) as i32).max(region.0),
+            (y.max(0.0) as i32).max(region.1),
+            ((x + w) as i32).min(cw).min(region.2),
+            ((y + h) as i32).min(ch).min(region.3),
+        )
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn draw_text(&self, pm: &mut tiny_skia::Pixmap, text: &str, x: f32, y: f32, w: f32, h: f32, size: f32, centered: bool, anchor: goya_lang::Anchor, wrap: bool, alpha: f32, region: (i32, i32, i32, i32)) {
+        let cw = pm.width() as i32;
+        let clip = Self::text_clip(x, y, w, h, cw, pm.height() as i32, region);
+        let a = (alpha * 255.0) as u32;
+        let pixels = pm.pixels_mut();
+        self.text_coverage(text, x, y, w, h, size, centered, anchor, wrap, clip, |px, py, cov| {
+            let k = (cov.clamp(0.0, 1.0) * a as f32) as u32;
+            let idx = (py * cw + px) as usize;
+            let d = pixels[idx];
+            let blend = |dst: u8| ((u32::from(dst) * (255 - k)) / 255) as u8;
+            pixels[idx] = tiny_skia::PremultipliedColorU8::from_rgba(blend(d.red()), blend(d.green()), blend(d.blue()), 255).unwrap_or(d);
+        });
+    }
+
+    /// Lay out `text` in the box and report each glyph pixel's coverage
+    /// inside `clip`, glyph by glyph, in drawing order.
+    #[allow(clippy::too_many_arguments)]
+    fn text_coverage(&self, text: &str, x: f32, y: f32, w: f32, h: f32, size: f32, centered: bool, anchor: goya_lang::Anchor, wrap: bool, clip: (i32, i32, i32, i32), mut cover: impl FnMut(i32, i32, f32)) {
         use ab_glyph::{Font, ScaleFont};
         let font = self.font.as_scaled(ab_glyph::PxScale::from(size));
         let width_of = |s: &str| -> f32 { s.chars().map(|c| font.h_advance(font.glyph_id(c))).sum() };
@@ -1047,14 +1258,7 @@ impl Scene {
         let line_h = font.height() + font.line_gap();
         let block_h = line_h * lines.len() as f32;
         let mut top = if centered { y + (h - block_h) / 2.0 } else { y };
-        let (cw, ch) = (pm.width() as i32, pm.height() as i32);
-        let (clip_x0, clip_y0, clip_x1, clip_y1) = (
-            (x.max(0.0) as i32).max(region.0),
-            (y.max(0.0) as i32).max(region.1),
-            ((x + w) as i32).min(cw).min(region.2),
-            ((y + h) as i32).min(ch).min(region.3),
-        );
-        let a = (alpha * 255.0) as u32;
+        let (clip_x0, clip_y0, clip_x1, clip_y1) = clip;
         for line in &lines {
             let lw = width_of(line);
             let mut pen = if centered || anchor == goya_lang::Anchor::Middle {
@@ -1071,18 +1275,13 @@ impl Scene {
                 pen += font.h_advance(id);
                 let Some(outline) = self.font.outline_glyph(glyph) else { continue };
                 let b = outline.px_bounds();
-                let pixels = pm.pixels_mut();
                 outline.draw(|gx, gy, cov| {
                     let px = b.min.x as i32 + gx as i32;
                     let py = b.min.y as i32 + gy as i32;
                     if px < clip_x0 || py < clip_y0 || px >= clip_x1 || py >= clip_y1 {
                         return;
                     }
-                    let k = (cov.clamp(0.0, 1.0) * a as f32) as u32;
-                    let idx = (py * cw + px) as usize;
-                    let d = pixels[idx];
-                    let blend = |dst: u8| ((u32::from(dst) * (255 - k)) / 255) as u8;
-                    pixels[idx] = tiny_skia::PremultipliedColorU8::from_rgba(blend(d.red()), blend(d.green()), blend(d.blue()), 255).unwrap_or(d);
+                    cover(px, py, cov);
                 });
             }
             top += line_h;
@@ -1468,6 +1667,69 @@ mod tests {
         assert!(scene.render_into(&mut frame, false).is_empty());
         assert_eq!(scene.render_into(&mut frame, true), vec![(0, 0, 640, 360)]);
         assert_eq!(differing_bytes(&frame, &reference(&scene)), 0);
+    }
+
+    /// Pixels whose largest channel difference exceeds `tolerance`, and
+    /// the largest difference.
+    fn compare(a: &tiny_skia::Pixmap, b: &tiny_skia::Pixmap, tolerance: u8) -> (usize, u8) {
+        let mut over = 0;
+        let mut worst = 0;
+        for (p, q) in a.data().chunks(4).zip(b.data().chunks(4)) {
+            let d = p.iter().zip(q).map(|(x, y)| x.abs_diff(*y)).max().unwrap_or(0);
+            worst = worst.max(d);
+            over += usize::from(d > tolerance);
+        }
+        (over, worst)
+    }
+
+    #[test]
+    fn the_display_list_composes_to_the_rendered_frame() {
+        let Some((mut scene, t0)) = pairs(960, 540) else { return };
+        let mut clock = t0;
+        let mut frames = 0;
+        for step in ["none", "right", "ok", "right", "ok", "down", "ok"] {
+            match step {
+                "right" => scene.move_focus(1, 0),
+                "down" => scene.move_focus(0, 1),
+                "ok" => scene.activate_focused(),
+                _ => {}
+            }
+            loop {
+                let busy = scene.tick();
+                let ops = scene.display_list(true);
+                assert!(ops.iter().any(|o| matches!(o, DrawOp::Sprite { key: SpriteKey { kind: SpriteKind::Graphic(_), .. }, .. })));
+                let (over, worst) = compare(&scene.compose(&ops), &scene.render(), 2);
+                eprintln!("{step}: {over} pixels differ by more than 2, worst {worst}");
+                assert!(over <= 16, "after {step}: {over} pixels, worst {worst}");
+                frames += 1;
+                if !busy {
+                    break;
+                }
+                clock += Duration::from_millis(40);
+                scene.freeze_clock(Some(clock));
+            }
+        }
+        assert!(frames > 7);
+    }
+
+    #[test]
+    fn sprites_are_cut_to_the_frame_and_keyed_by_what_they_show() {
+        let Some((mut scene, _)) = pairs(640, 360) else { return };
+        let before = scene.display_list(true);
+        assert_eq!(before, scene.display_list(false), "an unchanged scene lists the same steps");
+        for op in &before {
+            if let DrawOp::Sprite { key, .. } = op {
+                if let Some(s) = scene.sprite(key) {
+                    assert!(s.x >= 0 && s.y >= 0);
+                    assert!(s.x + s.pixmap.width() as i32 <= 640 && s.y + s.pixmap.height() as i32 <= 360);
+                }
+            }
+        }
+        scene.move_focus(1, 0);
+        let after = scene.display_list(false);
+        let focus = |ops: &[DrawOp]| ops.iter().position(|o| matches!(o, DrawOp::Sprite { key: SpriteKey { kind: SpriteKind::Focus, .. }, .. }));
+        assert!(focus(&before).is_some() && focus(&after).is_some());
+        assert_ne!(before, after);
     }
 
     #[test]

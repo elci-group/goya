@@ -8,8 +8,12 @@
 //!
 //! ```text
 //! viuda [scene.gscene] [--size WxH] [--log FILE]
-//! viuda [scene.gscene] --headless [--keys ok,right,…] [--size WxH]
+//! viuda [scene.gscene] --headless [--keys ok,right,…] [--size WxH] [--gpu]
 //! ```
+//!
+//! `--gpu` (built with the `gpu` feature) also draws every frame with the
+//! GPU compositor offscreen and compares it with the software composition
+//! of the same display list.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -24,6 +28,7 @@ struct Args {
     keys: Vec<Key>,
     size: (u32, u32),
     log: Option<PathBuf>,
+    gpu: bool,
 }
 
 fn parse_key(s: &str) -> Result<Key, String> {
@@ -45,11 +50,13 @@ fn parse_args() -> Result<Args, String> {
         keys: Vec::new(),
         size: (1920, 1080),
         log: None,
+        gpu: false,
     };
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
         match a.as_str() {
             "--headless" => args.headless = true,
+            "--gpu" => args.gpu = true,
             "--keys" => {
                 let list = it.next().ok_or("--keys needs a list")?;
                 args.keys = list.split(',').filter(|s| !s.is_empty()).map(parse_key).collect::<Result<_, _>>()?;
@@ -173,6 +180,9 @@ fn run() -> Result<(), String> {
     };
     write_report(&mut *log, &font_path, viuda.report(), started.elapsed());
 
+    if args.headless && args.gpu {
+        return headless_gpu(viuda, &args.keys, &mut *log);
+    }
     if args.headless {
         return headless(viuda, &args.keys, &mut *log);
     }
@@ -259,6 +269,72 @@ fn headless(mut viuda: Viuda, keys: &[Key], log: &mut dyn Write) -> Result<(), S
     } else {
         Err(format!("{} resolver errors", viuda.errors.len()))
     }
+}
+
+#[cfg(not(all(target_os = "linux", feature = "gpu")))]
+fn headless_gpu(_: Viuda, _: &[Key], _: &mut dyn Write) -> Result<(), String> {
+    Err("GY-VIUDA-GPU: this runtime was built without the gpu feature".into())
+}
+
+/// Apply `keys` with the GPU compositor drawing offscreen. Every frame is
+/// read back and compared with the software composition of its display
+/// list: pixels differing by more than 2 in any channel are counted.
+#[cfg(all(target_os = "linux", feature = "gpu"))]
+fn headless_gpu(mut viuda: Viuda, keys: &[Key], log: &mut dyn Write) -> Result<(), String> {
+    let (w, h) = viuda.scene().size();
+    let mut gpu = goya_viuda::gles::Gpu::headless(w, h)?;
+    let _ = writeln!(log, "gpu {}", gpu.info);
+    let (mut submit, mut finish, mut raster) = (Vec::new(), Vec::new(), Vec::new());
+    let mut worst_frame = 0usize;
+    let mut frame = |viuda: &mut Viuda, label: &str, step: usize, log: &mut dyn Write| -> Result<(), String> {
+        let ops = viuda.display_list(step == 0 && label == "first");
+        let stats = gpu.draw(viuda.scene(), &ops);
+        let t = Instant::now();
+        gpu.present()?;
+        let fin = t.elapsed().as_micros();
+        submit.push(stats.submit.as_micros());
+        finish.push(fin);
+        if stats.uploads > 0 {
+            raster.push(stats.raster.as_micros());
+        }
+        let got = gpu.read().ok_or("GY-VIUDA-GPU: no offscreen frame")?;
+        let want = viuda.scene().compose(&ops);
+        let over = got
+            .data()
+            .chunks(4)
+            .zip(want.data().chunks(4))
+            .filter(|(p, q)| p.iter().zip(*q).any(|(x, y)| x.abs_diff(*y) > 2))
+            .count();
+        worst_frame = worst_frame.max(over);
+        let _ = writeln!(
+            log,
+            "gpu-frame key={label} step={step} ops={} uploads={} raster_us={} submit_us={} finish_us={fin} over2={over}",
+            stats.ops,
+            stats.uploads,
+            stats.raster.as_micros(),
+            stats.submit.as_micros()
+        );
+        Ok(())
+    };
+    frame(&mut viuda, "first", 0, log)?;
+    for &key in keys {
+        viuda.key(key);
+        let mut step = 0;
+        loop {
+            let busy = viuda.tick();
+            frame(&mut viuda, &format!("{key:?}"), step, log)?;
+            if !busy {
+                break;
+            }
+            step += 1;
+            std::thread::sleep(Duration::from_millis(40));
+        }
+    }
+    let _ = writeln!(log, "{}", goya_viuda::webos::summary("gpu-submit", &submit));
+    let _ = writeln!(log, "{}", goya_viuda::webos::summary("gpu-finish", &finish));
+    let _ = writeln!(log, "{}", goya_viuda::webos::summary("gpu-raster", &raster));
+    let _ = writeln!(log, "gpu-resident bytes={} worst_frame_over2={worst_frame}", gpu.resident_bytes());
+    Ok(())
 }
 
 fn main() -> ExitCode {
