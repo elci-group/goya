@@ -311,6 +311,16 @@ impl Viuda {
         self.scene.render()
     }
 
+    /// Repaint only what changed in `target`, the previous frame, and
+    /// return the changed rectangles `(x0, y0, x1, y1)`, end-exclusive and
+    /// disjoint. The result equals [`Viuda::render`] pixel for pixel.
+    /// `advance_ambient` moves ambient motion (a breathing fill, a drift)
+    /// to the current time; otherwise it stays where the last ambient
+    /// frame left it.
+    pub fn render_into(&mut self, target: &mut Pixmap, advance_ambient: bool) -> Vec<(i32, i32, i32, i32)> {
+        self.scene.render_into(target, advance_ambient)
+    }
+
     /// Lifecycle: the surface is hidden. Input waits until [`Viuda::resume`].
     pub fn suspend(&mut self) -> Result<(), String> {
         self.instance.suspend().map_err(|d| d.to_string())
@@ -443,6 +453,23 @@ mod tests {
         let v = load(1920, 1080);
         let i = v.ambient_interval().map(|d| d.as_millis());
         assert_eq!(i, Some(1364));
+    }
+
+    #[test]
+    fn partial_frames_track_published_state_exactly() {
+        let mut v = load(960, 540);
+        let mut frame = Pixmap::new(1, 1).unwrap_or_else(|| panic!("pixmap"));
+        assert_eq!(v.render_into(&mut frame, true), vec![(0, 0, 960, 540)]);
+        let mut partial = 0;
+        for k in [Key::Right, Key::Ok, Key::Down, Key::Ok, Key::Ok] {
+            v.key(k);
+            let damage = v.render_into(&mut frame, false);
+            if damage.len() < 2 && damage.first() == Some(&(0, 0, 960, 540)) {
+                continue;
+            }
+            partial += 1;
+        }
+        assert!(partial >= 3, "{partial}");
     }
 
     #[test]

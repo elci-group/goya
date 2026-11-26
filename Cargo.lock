@@ -1459,6 +1459,7 @@ dependencies = [
  "goya-graphics-ir",
  "goya-gvi",
  "goya-lang",
+ "goya-scene-graphics",
  "serde_json",
  "tiny-skia",
 ]

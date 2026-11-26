@@ -342,15 +342,32 @@ impl Frames {
         })
     }
 
-    fn write(&mut self, index: usize, rgba: &[u8]) {
-        let n = rgba.len().min(self.frame_bytes);
+    /// Copy the rectangles `rects` of `frame` into buffer `index`, row by
+    /// row. Rectangles are clamped to the frame.
+    fn copy_rects(&mut self, index: usize, frame: &crate::Pixmap, rects: &[(i32, i32, i32, i32)]) {
+        let (w, h) = (frame.width() as i32, frame.height() as i32);
+        let stride = w as usize * 4;
+        let src = frame.data();
+        if src.len() > self.frame_bytes {
+            return;
+        }
         // SAFETY: `index` is 0 or 1 and each frame is `frame_bytes` long
         // inside the mapping. The compositor has released this buffer, so
         // it is not reading it.
-        let frame = unsafe {
+        let dst = unsafe {
             std::slice::from_raw_parts_mut(self.map.add(index * self.frame_bytes), self.frame_bytes)
         };
-        frame[..n].copy_from_slice(&rgba[..n]);
+        for &(x0, y0, x1, y1) in rects {
+            let (x0, y0, x1, y1) = (x0.clamp(0, w), y0.clamp(0, h), x1.clamp(0, w), y1.clamp(0, h));
+            if x0 >= x1 {
+                continue;
+            }
+            for y in y0..y1 {
+                let a = y as usize * stride + x0 as usize * 4;
+                let b = y as usize * stride + x1 as usize * 4;
+                dst[a..b].copy_from_slice(&src[a..b]);
+            }
+        }
     }
 }
 
@@ -388,6 +405,11 @@ pub fn self_status(started: Instant) -> String {
 
 /// Order statistics of a sample, in microseconds.
 pub fn summary(name: &str, sample: &[u128]) -> String {
+    summary_in(name, "us", sample)
+}
+
+/// Order statistics of a sample in `unit`.
+pub fn summary_in(name: &str, unit: &str, sample: &[u128]) -> String {
     if sample.is_empty() {
         return format!("{name} n=0");
     }
@@ -395,7 +417,7 @@ pub fn summary(name: &str, sample: &[u128]) -> String {
     s.sort_unstable();
     let at = |q: f64| s[((s.len() - 1) as f64 * q).round() as usize];
     format!(
-        "{name} n={} median_us={} p95_us={} max_us={}",
+        "{name} n={} median_{unit}={} p95_{unit}={} max_{unit}={}",
         s.len(),
         at(0.5),
         at(0.95),
@@ -449,6 +471,12 @@ pub fn run(mut viuda: Viuda, opts: Options, log: &mut dyn Write) -> Result<(), S
     webos_surface.set_state(STATE_FULLSCREEN);
 
     let mut frames = Frames::new(&shm, opts.width, opts.height, &qh)?;
+    // The retained frame, repainted in place, and per buffer the damage it
+    // has not received yet (each buffer is two frames behind at most).
+    let mut retained = crate::Pixmap::new(1, 1).ok_or("GY-VIUDA-HOST: pixmap")?;
+    let whole = (0, 0, opts.width as i32, opts.height as i32);
+    let mut pending: [Vec<(i32, i32, i32, i32)>; 2] = [vec![whole], vec![whole]];
+    let mut damaged_px: Vec<u128> = Vec::new();
     let mut renders: Vec<u128> = Vec::new();
     let mut dispatches: Vec<u128> = Vec::new();
     let mut presents: Vec<u128> = Vec::new();
@@ -515,21 +543,34 @@ pub fn run(mut viuda: Viuda, opts: Options, log: &mut dyn Write) -> Result<(), S
         if (dirty || animating || ambient_due) && host.frame_done && !host.minimized {
             if let Some(index) = host.busy.iter().position(|b| !b) {
                 let t = Instant::now();
-                let pm = viuda.render();
+                let damage = viuda.render_into(&mut retained, ambient_due);
                 renders.push(t.elapsed().as_micros());
-                let t = Instant::now();
-                frames.write(index, pm.data());
-                surface.attach(Some(&frames.buffers[index]), 0, 0);
-                surface.damage(0, 0, opts.width as i32, opts.height as i32);
-                surface.frame(&qh, ());
-                surface.commit();
-                presents.push(t.elapsed().as_micros());
-                host.busy[index] = true;
-                host.frame_done = false;
                 dirty = false;
-                next_ambient = Instant::now() + ambient.unwrap_or(opts.ambient_interval);
-                if let Some(at) = pending_input.take() {
-                    input_to_commit.push(at.elapsed().as_micros());
+                if ambient_due {
+                    next_ambient = Instant::now() + ambient.unwrap_or(opts.ambient_interval);
+                }
+                if damage.is_empty() {
+                    pending_input = None;
+                } else {
+                    damaged_px.push(damage.iter().map(|r| ((r.2 - r.0) * (r.3 - r.1)) as u128).sum());
+                    let t = Instant::now();
+                    for p in pending.iter_mut() {
+                        p.extend_from_slice(&damage);
+                    }
+                    let rects = std::mem::take(&mut pending[index]);
+                    frames.copy_rects(index, &retained, &rects);
+                    surface.attach(Some(&frames.buffers[index]), 0, 0);
+                    for r in &damage {
+                        surface.damage(r.0, r.1, r.2 - r.0, r.3 - r.1);
+                    }
+                    surface.frame(&qh, ());
+                    surface.commit();
+                    presents.push(t.elapsed().as_micros());
+                    host.busy[index] = true;
+                    host.frame_done = false;
+                    if let Some(at) = pending_input.take() {
+                        input_to_commit.push(at.elapsed().as_micros());
+                    }
                 }
                 if first {
                     first = false;
@@ -541,6 +582,7 @@ pub fn run(mut viuda: Viuda, opts: Options, log: &mut dyn Write) -> Result<(), S
                 }
                 if renders.len().is_multiple_of(100) {
                     let _ = writeln!(log, "{}", summary("render", &renders));
+                    let _ = writeln!(log, "{}", summary_in("damaged", "px", &damaged_px));
                 }
             }
         }
@@ -583,6 +625,7 @@ pub fn run(mut viuda: Viuda, opts: Options, log: &mut dyn Write) -> Result<(), S
     let r = viuda.terminate();
     let _ = writeln!(log, "lifecycle terminate {r:?}");
     let _ = writeln!(log, "{}", summary("render", &renders));
+    let _ = writeln!(log, "{}", summary_in("damaged", "px", &damaged_px));
     let _ = writeln!(log, "{}", summary("present", &presents));
     let _ = writeln!(log, "{}", summary("dispatch", &dispatches));
     let _ = writeln!(log, "{}", summary("input-to-commit", &input_to_commit));

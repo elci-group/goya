@@ -119,6 +119,65 @@ pub struct Scene {
     start: Instant,
     font: ab_glyph::FontRef<'static>,
     reduce_motion: bool,
+    /// Time used for ambient motion (`fill-to`, `drift-p`) by
+    /// [`Scene::render_into`]. It moves only when the caller asks, so a
+    /// partial repaint matches the pixels around it.
+    ambient_at: Instant,
+    /// A fixed clock for deterministic tests and measurements.
+    clock: Option<Instant>,
+    /// What each node looked like in the last [`Scene::render_into`]
+    /// frame. `None` forces a full repaint.
+    painted: Option<Vec<Option<NodeLook>>>,
+}
+
+/// Everything that decides a node's pixels, apart from its static style.
+#[derive(Debug, Clone, PartialEq)]
+struct NodeLook {
+    /// Pixels the node can touch: `(x0, y0, x1, y1)`, end-exclusive.
+    bounds: (i32, i32, i32, i32),
+    geometry: [u32; 5],
+    fill: Option<u32>,
+    graphic: Option<Vec<usize>>,
+    text: String,
+    focused: bool,
+    /// The node draws a path, which must not be clipped.
+    path: bool,
+}
+
+/// The region a partial repaint touches: disjoint pixel rectangles. Every
+/// path a node draws (a graphic, a stroke, the focus ring) that reaches the
+/// region lies wholly inside one rectangle, so paths are drawn unclipped.
+/// Rect fills and text are clipped per rectangle. Each pixel is therefore
+/// computed exactly as in a full paint: a clip mask would round
+/// translucent fills differently.
+struct Clip {
+    rects: Vec<(i32, i32, i32, i32)>,
+}
+
+fn overlaps(a: (i32, i32, i32, i32), b: (i32, i32, i32, i32)) -> bool {
+    a.0 < b.2 && b.0 < a.2 && a.1 < b.3 && b.1 < a.3
+}
+
+/// Merge rectangles that overlap or touch until all are disjoint.
+fn merge(mut rects: Vec<(i32, i32, i32, i32)>) -> Vec<(i32, i32, i32, i32)> {
+    rects.retain(|r| r.0 < r.2 && r.1 < r.3);
+    loop {
+        let mut merged = false;
+        'outer: for i in 0..rects.len() {
+            for j in i + 1..rects.len() {
+                let (a, b) = (rects[i], rects[j]);
+                if a.0 <= b.2 && b.0 <= a.2 && a.1 <= b.3 && b.1 <= a.3 {
+                    rects[i] = (a.0.min(b.0), a.1.min(b.1), a.2.max(b.2), a.3.max(b.3));
+                    rects.swap_remove(j);
+                    merged = true;
+                    break 'outer;
+                }
+            }
+        }
+        if !merged {
+            return rects;
+        }
+    }
 }
 
 fn value_of(v: &InteractionValue) -> D1Value {
@@ -273,6 +332,9 @@ impl Scene {
             start: Instant::now(),
             font,
             reduce_motion: std::env::var_os("GOYA_REDUCE_MOTION").is_some(),
+            ambient_at: Instant::now(),
+            clock: None,
+            painted: None,
         };
         if spec.durable {
             let mut store = Store::open(&scene.parsed.scene.name);
@@ -304,7 +366,18 @@ impl Scene {
             self.width = width;
             self.height = height;
             self.frame = goya_lang::layout(&self.parsed.scene, f64::from(width), f64::from(height));
+            self.painted = None;
         }
+    }
+
+    fn now(&self) -> Instant {
+        self.clock.unwrap_or_else(Instant::now)
+    }
+
+    /// Fix the clock that animation and rendering read, or release it with
+    /// `None`. For deterministic tests and measurements only.
+    pub fn freeze_clock(&mut self, at: Option<Instant>) {
+        self.clock = at;
     }
 
     /// Presence of every node: its own condition and its ancestors'.
@@ -330,6 +403,7 @@ impl Scene {
 
     /// Choose each @draw's target state from its rules.
     fn retarget(&mut self, immediately: bool) {
+        let now = self.now();
         for i in 0..self.cells.len() {
             let Some(draw) = self.cells[i].draw.clone() else { continue };
             let Some(ds) = self.draws[i].as_mut() else { continue };
@@ -360,14 +434,14 @@ impl Scene {
                 ds.shown = ds.target.clone();
                 ds.next_step = None;
             } else if ds.shown != ds.target && ds.next_step.is_none() {
-                ds.next_step = Some(Instant::now());
+                ds.next_step = Some(now);
             }
         }
     }
 
     /// Advance stepping graphics; true while any animation is in progress.
     pub fn tick(&mut self) -> bool {
-        let now = Instant::now();
+        let now = self.now();
         let mut busy = false;
         for ds in self.draws.iter_mut().flatten() {
             let Some(due) = ds.next_step else { continue };
@@ -486,7 +560,7 @@ impl Scene {
     fn commit(&mut self, staged: BTreeMap<String, D1Value>) {
         let before = std::mem::replace(&mut self.state, staged);
         let present = self.presence();
-        let now = Instant::now();
+        let now = self.now();
         for j in 0..self.cells.len() {
             if present[j] && !self.was_present[j] && self.cells[j].appear_s.is_some() && !self.reduce_motion {
                 self.appear_from[j] = Some(now);
@@ -615,7 +689,7 @@ impl Scene {
     }
 
     /// Offset and opacity a node inherits from drift and appear motion.
-    fn motion(&self, i: usize, now: Instant) -> (f32, f32, f32) {
+    fn motion(&self, i: usize, now: Instant, ambient: Instant) -> (f32, f32, f32) {
         let mut dx = 0f32;
         let mut dy = 0f32;
         let mut alpha = 1f32;
@@ -626,7 +700,7 @@ impl Scene {
             let c = &self.cells[n];
             if !self.reduce_motion {
                 if let (Some(d), Some(period)) = (c.drift_p, c.drift_period_s) {
-                    let a = 2.0 * std::f64::consts::PI * (now.duration_since(self.start).as_secs_f64() / period).fract();
+                    let a = 2.0 * std::f64::consts::PI * (ambient.duration_since(self.start).as_secs_f64() / period).fract();
                     dx += (d.x * f64::from(pw) * a.cos()) as f32;
                     dy += (d.y * f64::from(ph) * a.sin()) as f32;
                 }
@@ -645,12 +719,12 @@ impl Scene {
         (dx, dy, alpha)
     }
 
-    fn fill_at(&self, i: usize, now: Instant) -> Option<u32> {
+    fn fill_at(&self, i: usize, ambient: Instant) -> Option<u32> {
         let c = &self.cells[i];
         let from = c.fill?;
         match (c.fill_to, c.fill_period_s) {
             (Some(to), Some(period)) if !self.reduce_motion => {
-                let t = now.duration_since(self.start).as_secs_f64() / period;
+                let t = ambient.duration_since(self.start).as_secs_f64() / period;
                 let k = 0.5 - 0.5 * (std::f64::consts::PI * t).cos();
                 let mix = |s: u32| {
                     let a = f64::from((from >> s) & 0xff);
@@ -670,30 +744,184 @@ impl Scene {
         p
     }
 
-    /// Render the current state into an RGBA frame.
+    /// Render the current state into a new RGBA frame. Ambient motion is
+    /// evaluated at the current time.
     pub fn render(&self) -> tiny_skia::Pixmap {
-        let now = Instant::now();
+        let now = self.now();
         let mut pm = tiny_skia::Pixmap::new(self.width.max(1), self.height.max(1)).expect("non-empty frame");
-        pm.fill(tiny_skia::Color::WHITE);
+        self.paint_frame(&mut pm, now, now, None);
+        pm
+    }
+
+    /// Bring `target`, the frame of the previous call, up to date by
+    /// repainting only the nodes whose pixels changed, and return the
+    /// changed rectangles `(x0, y0, x1, y1)`, end-exclusive and disjoint.
+    /// The first call, a resize, a `target` of another size, or a change
+    /// covering most of the frame repaints everything.
+    ///
+    /// Ambient motion is evaluated at the time of the last call that passed
+    /// `advance_ambient`, so a partial repaint never mixes two phases of a
+    /// breathing fill. The result equals [`Scene::render`] at the same
+    /// clocks.
+    pub fn render_into(&mut self, target: &mut tiny_skia::Pixmap, advance_ambient: bool) -> Vec<(i32, i32, i32, i32)> {
+        let now = self.now();
+        let full_size = (target.width(), target.height()) == (self.width.max(1), self.height.max(1));
+        if advance_ambient || self.painted.is_none() || !full_size {
+            self.ambient_at = now;
+        }
+        let ambient = self.ambient_at;
+        let looks = self.looks(now, ambient);
+        let (w, h) = (self.width.max(1) as i32, self.height.max(1) as i32);
+        let whole = vec![(0, 0, w, h)];
+        let rects = match (&self.painted, full_size) {
+            (Some(before), true) => {
+                let mut rects = Vec::new();
+                for (a, b) in before.iter().zip(&looks) {
+                    if a != b {
+                        rects.extend(a.iter().map(|l| l.bounds));
+                        rects.extend(b.iter().map(|l| l.bounds));
+                    }
+                }
+                let clamp = |(x0, y0, x1, y1): (i32, i32, i32, i32)| (x0.max(0), y0.max(0), x1.min(w), y1.min(h));
+                let mut rects = merge(rects.into_iter().map(clamp).collect());
+                // Grow the region until every path it reaches lies inside it.
+                loop {
+                    let grow: Vec<_> = looks
+                        .iter()
+                        .flatten()
+                        .filter(|l| l.path)
+                        .map(|l| clamp(l.bounds))
+                        .filter(|b| {
+                            rects.iter().any(|r| overlaps(*r, *b))
+                                && !rects.iter().any(|r| r.0 <= b.0 && r.1 <= b.1 && b.2 <= r.2 && b.3 <= r.3)
+                        })
+                        .collect();
+                    if grow.is_empty() {
+                        break;
+                    }
+                    rects.extend(grow);
+                    rects = merge(rects);
+                }
+                let area: i64 = rects.iter().map(|r| i64::from(r.2 - r.0) * i64::from(r.3 - r.1)).sum();
+                if area * 10 > i64::from(w) * i64::from(h) * 6 { whole } else { rects }
+            }
+            _ => whole,
+        };
+        if !full_size {
+            if let Some(pm) = tiny_skia::Pixmap::new(w as u32, h as u32) {
+                *target = pm;
+            }
+        }
+        self.painted = Some(looks);
+        if rects.is_empty() {
+            return rects;
+        }
+        if rects == [(0, 0, w, h)] {
+            self.paint_frame(target, now, ambient, None);
+        } else {
+            self.paint_frame(target, now, ambient, Some(&Clip { rects: rects.clone() }));
+        }
+        rects
+    }
+
+    /// Where node `i` paints and with what, or `None` when it paints
+    /// nothing.
+    fn look(&self, i: usize, present: &[bool], focused: Option<usize>, now: Instant, ambient: Instant) -> Option<NodeLook> {
+        if !present[i] {
+            return None;
+        }
+        let (dx, dy, alpha) = self.motion(i, now, ambient);
+        if alpha <= 0.0 {
+            return None;
+        }
+        let (x, y, w, h) = self.rect(i);
+        let (x, y) = (x + dx, y + dy);
+        let node = &self.frame.nodes[i];
+        let is_focused = Some(i) == focused;
+        // The focus ring reaches 8 px outside the node; antialiasing 1 more.
+        let grow = if is_focused { 10.0 } else { 2.0 };
+        let (mut x0, mut y0, mut x1, mut y1) = (x - grow, y - grow, x + w + grow, y + h + grow);
+        if let Some(ds) = &self.draws[i] {
+            if let Some(b) = self.graphic_bounds(ds, x, y, w, h) {
+                x0 = x0.min(b.left() - 2.0);
+                y0 = y0.min(b.top() - 2.0);
+                x1 = x1.max(b.right() + 2.0);
+                y1 = y1.max(b.bottom() + 2.0);
+            }
+        }
+        let mut text = node.text.clone().unwrap_or_default();
+        if let Some(key) = &self.cells[i].text_from {
+            text.push_str(&shown(self.state.get(key)));
+        }
+        let fill = self.fill_at(i, ambient);
+        let stroke = node.stroke.is_some() && node.stroke_width_mp.is_some();
+        if fill.is_none() && self.draws[i].is_none() && !stroke && text.is_empty() && !is_focused {
+            // A bare hit area (a stacked button, a grouping cell) paints no
+            // pixel, so its presence changes damage nothing.
+            return None;
+        }
+        Some(NodeLook {
+            bounds: (x0.floor() as i32, y0.floor() as i32, x1.ceil() as i32, y1.ceil() as i32),
+            geometry: [x.to_bits(), y.to_bits(), w.to_bits(), h.to_bits(), alpha.to_bits()],
+            fill,
+            graphic: self.draws[i].as_ref().map(|d| d.shown.clone()),
+            text,
+            focused: is_focused,
+            path: is_focused || self.draws[i].is_some() || stroke,
+        })
+    }
+
+    fn looks(&self, now: Instant, ambient: Instant) -> Vec<Option<NodeLook>> {
+        let present = self.presence();
+        let focused = self.focus.filter(|f| present[*f]);
+        (0..self.cells.len()).map(|i| self.look(i, &present, focused, now, ambient)).collect()
+    }
+
+    /// Paint every node, or with `clip` only the nodes that reach it (see
+    /// [`Clip`]).
+    fn paint_frame(&self, pm: &mut tiny_skia::Pixmap, now: Instant, ambient: Instant, clip: Option<&Clip>) {
+        let white = Self::paint(0xffffff, 1.0);
+        match clip {
+            None => pm.fill(tiny_skia::Color::WHITE),
+            Some(c) => {
+                for r in &c.rects {
+                    if let Some(rect) = tiny_skia::Rect::from_ltrb(r.0 as f32, r.1 as f32, r.2 as f32, r.3 as f32) {
+                        let mut p = white.clone();
+                        p.anti_alias = false;
+                        pm.fill_rect(rect, &p, tiny_skia::Transform::identity(), None);
+                    }
+                }
+            }
+        }
         let present = self.presence();
         let focused = self.focus.filter(|f| present[*f]);
         for i in 0..self.cells.len() {
-            if !present[i] {
+            let Some(look) = self.look(i, &present, focused, now, ambient) else { continue };
+            let hits: Vec<(i32, i32, i32, i32)> = match clip {
+                None => vec![(0, 0, pm.width() as i32, pm.height() as i32)],
+                Some(c) => c.rects.iter().copied().filter(|r| overlaps(*r, look.bounds)).collect(),
+            };
+            if hits.is_empty() {
                 continue;
             }
-            let (dx, dy, alpha) = self.motion(i, now);
-            if alpha <= 0.0 {
-                continue;
-            }
-            let (x, y, w, h) = self.rect(i);
-            let (x, y) = (x + dx, y + dy);
+            let [x, y, w, h, alpha] = look.geometry.map(f32::from_bits);
             let Some(rect) = tiny_skia::Rect::from_xywh(x, y, w.max(0.01), h.max(0.01)) else { continue };
             let node = &self.frame.nodes[i];
-            if let Some(fill) = self.fill_at(i, now) {
-                pm.fill_rect(rect, &Self::paint(fill, alpha), tiny_skia::Transform::identity(), None);
+            if let Some(fill) = look.fill {
+                for r in &hits {
+                    let part = tiny_skia::Rect::from_ltrb(
+                        rect.left().max(r.0 as f32),
+                        rect.top().max(r.1 as f32),
+                        rect.right().min(r.2 as f32),
+                        rect.bottom().min(r.3 as f32),
+                    );
+                    if let Some(part) = part {
+                        pm.fill_rect(part, &Self::paint(fill, alpha), tiny_skia::Transform::identity(), None);
+                    }
+                }
             }
             if let Some(ds) = &self.draws[i] {
-                self.paint_graphic(&mut pm, ds, x, y, w, h, alpha);
+                self.paint_graphic(pm, ds, x, y, w, h, alpha);
             }
             if let (Some(stroke), Some(sw)) = (node.stroke, node.stroke_width_mp) {
                 let sw = sw as f32 / 1000.0;
@@ -703,15 +931,13 @@ impl Scene {
                     pm.stroke_path(&path, &Self::paint(stroke, alpha), &st, tiny_skia::Transform::identity(), None);
                 }
             }
-            let mut text = node.text.clone().unwrap_or_default();
-            if let Some(key) = &self.cells[i].text_from {
-                text.push_str(&shown(self.state.get(key)));
-            }
-            if !text.is_empty() {
+            if !look.text.is_empty() {
                 let size = node.text_size_mp.map_or(16.0, |s| s as f32 / 1000.0);
-                self.draw_text(&mut pm, &text, x, y, w, h, size, node.is_button, node.anchor, self.cells[i].text_from.is_some(), alpha);
+                for r in &hits {
+                    self.draw_text(pm, &look.text, x, y, w, h, size, node.is_button, node.anchor, self.cells[i].text_from.is_some(), alpha, *r);
+                }
             }
-            if Some(i) == focused {
+            if look.focused {
                 for (grow, colour) in [(6.0f32, 0xffffffu32), (2.0, 0x000000)] {
                     if let Some(ring) = tiny_skia::Rect::from_xywh(x - grow, y - grow, w + 2.0 * grow, h + 2.0 * grow) {
                         let st = tiny_skia::Stroke { width: 4.0, ..Default::default() };
@@ -720,7 +946,37 @@ impl Scene {
                 }
             }
         }
-        pm
+    }
+
+    /// The transform that places item `k` of a graphic's projection.
+    fn item_transform(t: goya_graphics_ir::Affine, sx: f32, sy: f32, x: f32, y: f32) -> tiny_skia::Transform {
+        tiny_skia::Transform::from_row(
+            sx * t.a as f32 / 65536.0,
+            sy * t.b as f32 / 65536.0,
+            sx * t.c as f32 / 65536.0,
+            sy * t.d as f32 / 65536.0,
+            x + sx * t.e as f32,
+            y + sy * t.f as f32,
+        )
+    }
+
+    /// Bounds of a drawn graphic, strokes included. A `scale` or `move`
+    /// effect can reach outside the node.
+    fn graphic_bounds(&self, ds: &DrawState, x: f32, y: f32, w: f32, h: f32) -> Option<tiny_skia::Rect> {
+        let g = &self.graphics[ds.graphic];
+        let state: Vec<u16> = ds.shown.iter().map(|&v| v as u16).collect();
+        let p = g.inv.resolve(&state).ok()?;
+        let (gw, gh) = g.inv_size();
+        let (sx, sy) = (w / gw, h / gh);
+        let mut out: Option<(f32, f32, f32, f32)> = None;
+        for k in 0..p.len() {
+            let tr = Self::item_transform(p.transform(k), sx, sy, x, y);
+            let Some(b) = g.paths[p.geometry(k) as usize].clone().transform(tr).map(|path| path.bounds()) else { continue };
+            let pad = p.style(k).stroke.map_or(0.0, |s| s.width as f32 * sx.abs().max(sy.abs()) * tr.get_scale().0.max(tr.get_scale().1).max(1.0));
+            let b = (b.left() - pad, b.top() - pad, b.right() + pad, b.bottom() + pad);
+            out = Some(out.map_or(b, |o| (o.0.min(b.0), o.1.min(b.1), o.2.max(b.2), o.3.max(b.3))));
+        }
+        out.and_then(|o| tiny_skia::Rect::from_ltrb(o.0, o.1, o.2, o.3))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -731,15 +987,7 @@ impl Scene {
         let (gw, gh) = g.inv_size();
         let (sx, sy) = (w / gw, h / gh);
         for k in 0..p.len() {
-            let t = p.transform(k);
-            let tr = tiny_skia::Transform::from_row(
-                sx * t.a as f32 / 65536.0,
-                sy * t.b as f32 / 65536.0,
-                sx * t.c as f32 / 65536.0,
-                sy * t.d as f32 / 65536.0,
-                x + sx * t.e as f32,
-                y + sy * t.f as f32,
-            );
+            let tr = Self::item_transform(p.transform(k), sx, sy, x, y);
             let path = &g.paths[p.geometry(k) as usize];
             let style = p.style(k);
             let o = f32::from(p.opacity(k)) / 255.0 * alpha;
@@ -773,7 +1021,7 @@ impl Scene {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn draw_text(&self, pm: &mut tiny_skia::Pixmap, text: &str, x: f32, y: f32, w: f32, h: f32, size: f32, centered: bool, anchor: goya_lang::Anchor, wrap: bool, alpha: f32) {
+    fn draw_text(&self, pm: &mut tiny_skia::Pixmap, text: &str, x: f32, y: f32, w: f32, h: f32, size: f32, centered: bool, anchor: goya_lang::Anchor, wrap: bool, alpha: f32, region: (i32, i32, i32, i32)) {
         use ab_glyph::{Font, ScaleFont};
         let font = self.font.as_scaled(ab_glyph::PxScale::from(size));
         let width_of = |s: &str| -> f32 { s.chars().map(|c| font.h_advance(font.glyph_id(c))).sum() };
@@ -800,7 +1048,12 @@ impl Scene {
         let block_h = line_h * lines.len() as f32;
         let mut top = if centered { y + (h - block_h) / 2.0 } else { y };
         let (cw, ch) = (pm.width() as i32, pm.height() as i32);
-        let (clip_x0, clip_y0, clip_x1, clip_y1) = (x.max(0.0) as i32, y.max(0.0) as i32, ((x + w) as i32).min(cw), ((y + h) as i32).min(ch));
+        let (clip_x0, clip_y0, clip_x1, clip_y1) = (
+            (x.max(0.0) as i32).max(region.0),
+            (y.max(0.0) as i32).max(region.1),
+            ((x + w) as i32).min(cw).min(region.2),
+            ((y + h) as i32).min(ch).min(region.3),
+        );
         let a = (alpha * 255.0) as u32;
         for line in &lines {
             let lw = width_of(line);
@@ -1090,5 +1343,142 @@ impl A11y {
 
     pub fn drain(&mut self) -> Vec<accesskit::ActionRequest> {
         self.actions.try_iter().collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    const PAIRS: &str = include_str!("../../../apps/pairs.gscene");
+    const FONTS: [&str; 2] = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/LG_Smart_UI-Regular.ttf",
+    ];
+
+    fn leak<T>(v: Vec<T>) -> &'static [T] {
+        Box::leak(v.into_boxed_slice())
+    }
+
+    /// Goya Pairs, built the way Viuda builds it, on a frozen clock.
+    fn pairs(width: u32, height: u32) -> Option<(Scene, Instant)> {
+        let font = FONTS.iter().find_map(|p| std::fs::read(p).ok())?;
+        let parsed = goya_lang::handoff::admit_v4_live(PAIRS).ok()?.parsed().clone();
+        let mut graphics = Vec::new();
+        for g in &parsed.declarations.graphics {
+            let c = goya_scene_graphics::compile(&parsed.scene.name, g).ok()?;
+            let mut binding = [0u8; 32];
+            for (k, b) in binding.iter_mut().enumerate() {
+                *b = u8::from_str_radix(&c.binding[2 * k..2 * k + 2], 16).ok()?;
+            }
+            graphics.push(GraphicSpec {
+                name: Box::leak(c.name.clone().into_boxed_str()),
+                binding,
+                radices: leak(c.dims.iter().map(|d| d.1.len()).collect()),
+                steps_ms: leak(c.dims.iter().map(|d| d.2.unwrap_or(0)).collect()),
+                bytes: leak(c.bytes),
+            });
+        }
+        let spec = SceneSpec { source: "", title: "pairs", graphics: leak(graphics), durable: false, font: leak(font) };
+        let mut scene = Scene::from_parsed(parsed, &spec, width, height).ok()?;
+        // Ten seconds on, the scene's appear animations have finished.
+        let t0 = Instant::now() + Duration::from_secs(10);
+        scene.freeze_clock(Some(t0));
+        Some((scene, t0))
+    }
+
+    /// The frame a full paint gives at the clocks `render_into` last used.
+    fn reference(scene: &Scene) -> tiny_skia::Pixmap {
+        let mut pm = tiny_skia::Pixmap::new(scene.width, scene.height).expect("frame");
+        scene.paint_frame(&mut pm, scene.now(), scene.ambient_at, None);
+        pm
+    }
+
+    fn differing_bytes(a: &tiny_skia::Pixmap, b: &tiny_skia::Pixmap) -> usize {
+        a.data().iter().zip(b.data()).filter(|(x, y)| x != y).count()
+    }
+
+    fn area(rects: &[(i32, i32, i32, i32)]) -> i64 {
+        rects.iter().map(|r| i64::from(r.2 - r.0) * i64::from(r.3 - r.1)).sum()
+    }
+
+    #[test]
+    fn partial_repaints_equal_full_paints_through_a_game() {
+        let Some((mut scene, t0)) = pairs(960, 540) else { return };
+        let mut frame = tiny_skia::Pixmap::new(1, 1).expect("frame");
+        let first = scene.render_into(&mut frame, true);
+        assert_eq!(first, vec![(0, 0, 960, 540)]);
+        assert_eq!(differing_bytes(&frame, &scene.render()), 0);
+
+        let mut clock = t0;
+        let mut partial = 0;
+        for step in ["right", "ok", "right", "ok", "ok", "down", "ok", "left", "ok", "ok"] {
+            match step {
+                "right" => scene.move_focus(1, 0),
+                "left" => scene.move_focus(-1, 0),
+                "down" => scene.move_focus(0, 1),
+                _ => scene.activate_focused(),
+            }
+            // Play out stepped animations (the card flip) frame by frame.
+            loop {
+                let busy = scene.tick();
+                let damage = scene.render_into(&mut frame, false);
+                if !damage.is_empty() && area(&damage) < 960 * 540 {
+                    partial += 1;
+                }
+                assert_eq!(differing_bytes(&frame, &reference(&scene)), 0, "after {step}");
+                if !busy {
+                    break;
+                }
+                clock += Duration::from_millis(40);
+                scene.freeze_clock(Some(clock));
+            }
+        }
+        assert!(scene.errors.is_empty(), "{:?}", scene.errors);
+        assert!(partial >= 10, "only {partial} partial repaints");
+    }
+
+    #[test]
+    fn a_focus_move_repaints_two_small_areas() {
+        let Some((mut scene, _)) = pairs(1920, 1080) else { return };
+        let mut frame = tiny_skia::Pixmap::new(1, 1).expect("frame");
+        scene.render_into(&mut frame, true);
+        scene.move_focus(1, 0);
+        let damage = scene.render_into(&mut frame, false);
+        assert!(!damage.is_empty());
+        assert!(area(&damage) * 20 < 1920 * 1080, "{damage:?}");
+        assert_eq!(differing_bytes(&frame, &reference(&scene)), 0);
+    }
+
+    #[test]
+    fn nothing_changed_paints_nothing() {
+        let Some((mut scene, _)) = pairs(640, 360) else { return };
+        let mut frame = tiny_skia::Pixmap::new(1, 1).expect("frame");
+        scene.render_into(&mut frame, true);
+        assert!(scene.render_into(&mut frame, false).is_empty());
+    }
+
+    #[test]
+    fn the_breathing_background_moves_only_when_asked() {
+        let Some((mut scene, t0)) = pairs(640, 360) else { return };
+        let mut frame = tiny_skia::Pixmap::new(1, 1).expect("frame");
+        scene.render_into(&mut frame, true);
+        scene.freeze_clock(Some(t0 + Duration::from_secs(5)));
+        assert!(scene.render_into(&mut frame, false).is_empty());
+        assert_eq!(scene.render_into(&mut frame, true), vec![(0, 0, 640, 360)]);
+        assert_eq!(differing_bytes(&frame, &reference(&scene)), 0);
+    }
+
+    #[test]
+    fn merge_makes_rectangles_disjoint() {
+        let m = merge(vec![(0, 0, 10, 10), (5, 5, 20, 20), (30, 30, 40, 40), (20, 0, 25, 5)]);
+        for (i, a) in m.iter().enumerate() {
+            for b in &m[i + 1..] {
+                assert!(!overlaps(*a, *b), "{a:?} {b:?}");
+            }
+        }
+        assert!(m.contains(&(30, 30, 40, 40)));
+        assert_eq!(merge(vec![(5, 5, 5, 9)]), vec![]);
     }
 }

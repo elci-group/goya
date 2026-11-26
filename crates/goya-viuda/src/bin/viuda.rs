@@ -195,12 +195,19 @@ fn run() -> Result<(), String> {
     }
 }
 
+/// Apply `keys` with no compositor. After each key the frame is brought up
+/// to date twice: by a full paint (the old path, for comparison) and by a
+/// partial repaint of the retained frame. Stepped animations are played out
+/// at 40 ms per step with partial repaints only.
 fn headless(mut viuda: Viuda, keys: &[Key], log: &mut dyn Write) -> Result<(), String> {
-    let mut renders = Vec::new();
+    let mut full = Vec::new();
+    let mut partial = Vec::new();
     let mut dispatches = Vec::new();
+    let mut frame = goya_viuda::Pixmap::new(1, 1).ok_or("pixmap")?;
+    let pixels = |d: &[(i32, i32, i32, i32)]| -> i64 { d.iter().map(|r| i64::from(r.2 - r.0) * i64::from(r.3 - r.1)).sum() };
     let t = Instant::now();
-    let _ = viuda.render();
-    renders.push(t.elapsed().as_micros());
+    let _ = viuda.render_into(&mut frame, true);
+    let _ = writeln!(log, "first-paint us={}", t.elapsed().as_micros());
     for &key in keys {
         let out = viuda.key(key);
         if out.action.is_some() {
@@ -208,7 +215,28 @@ fn headless(mut viuda: Viuda, keys: &[Key], log: &mut dyn Write) -> Result<(), S
         }
         let t = Instant::now();
         let _ = viuda.render();
-        renders.push(t.elapsed().as_micros());
+        full.push(t.elapsed().as_micros());
+        let mut steps = 0;
+        loop {
+            let busy = viuda.tick();
+            let t = Instant::now();
+            let damage = viuda.render_into(&mut frame, false);
+            let us = t.elapsed().as_micros();
+            if !damage.is_empty() {
+                partial.push(us);
+                let _ = writeln!(
+                    log,
+                    "frame key={key:?} step={steps} rects={} pixels={} us={us}",
+                    damage.len(),
+                    pixels(&damage)
+                );
+            }
+            if !busy {
+                break;
+            }
+            steps += 1;
+            std::thread::sleep(Duration::from_millis(40));
+        }
         let _ = writeln!(
             log,
             "key {key:?} action={} revision={}",
@@ -222,7 +250,8 @@ fn headless(mut viuda: Viuda, keys: &[Key], log: &mut dyn Write) -> Result<(), S
     let _ = writeln!(log, "revision {} inert {}", viuda.revision(), viuda.inert_activations);
     #[cfg(target_os = "linux")]
     {
-        let _ = writeln!(log, "{}", goya_viuda::webos::summary("render", &renders));
+        let _ = writeln!(log, "{}", goya_viuda::webos::summary("render-full", &full));
+        let _ = writeln!(log, "{}", goya_viuda::webos::summary("render-partial", &partial));
         let _ = writeln!(log, "{}", goya_viuda::webos::summary("dispatch", &dispatches));
     }
     if viuda.errors.is_empty() {

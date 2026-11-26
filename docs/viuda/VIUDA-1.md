@@ -122,11 +122,9 @@ a second.
 
 ## 7. Not done, in order of cost to the directive
 
-1. **Rendering is the bottleneck.** 59 ms per full frame is about 17 fps
-   at best. The directive's rendering policy (§5.3: dirty regions,
-   retained structures, GPU) is not applied. Next steps: damage only
-   changed rectangles, which `wl_surface.damage` already supports, then
-   GLES2 through `wl_egl`.
+1. **Rendering.** Dirty regions are done (§8). Ambient frames of a scene
+   whose whole background breathes stay full repaints, and everything is
+   still drawn on the CPU. GLES2 through `wl_egl` is next.
 2. **Load time.** Graphics compile both encodings, as Arachnid does, to
    choose the smaller. A §9.3 cache keyed on source digest, resolver
    version and Viuda version would remove most of the 1 s.
@@ -143,3 +141,52 @@ a second.
    open. Viuda vs Arachnid on Pairs is possible now, but the web app's
    process is invisible to `prisoner`, so Arachnid's CPU and memory need
    another channel.
+
+## 8. Dirty-region rendering (25 November 2026, after the first commit)
+
+The directive's rendering policy (§5.3) asks for retained structures and
+dirty-region invalidation. `goya-scene-runtime` now has
+`Scene::render_into(target, advance_ambient)`:
+* **Retained frame.** The caller keeps the previous frame. For every node
+  the scene records what decides its pixels: geometry after motion,
+  opacity, fill, the graphic's shown state, text and focus. It also
+  records the pixels the node can reach, including the focus ring and
+  graphic overflow.
+* **Damage.** The old and new bounds of every node whose record changed
+  are merged into disjoint rectangles. Above 60 % of the frame, the whole
+  frame is repainted.
+* **Exactness.** Rect fills are intersected with each rectangle and text
+  is clipped to it. Paths (graphics, strokes, the focus ring) are never
+  clipped: the region grows until every path it reaches lies wholly
+  inside it. A clip mask was tried first and rejected, because it rounds
+  translucent fills by one level. Tests play a whole game, card flips
+  included, and compare every partial frame with a full paint: **0
+  differing bytes**.
+* **Bare hit areas.** A node that paints nothing, such as Pairs' stacked
+  buttons, produces no damage when its presence changes. This took the OK
+  frames from about 600k damaged pixels to about 100k.
+* **One ambient clock.** Ambient motion moves only on the frames the host
+  asks for (`advance_ambient`). A partial repaint therefore never mixes two
+  phases of a breathing fill.
+* **Host.** The webOS host copies only the damaged rows into each
+  `wl_shm` buffer, tracking each buffer's backlog, and sends the same
+  rectangles as `wl_surface.damage`.
+
+Emperor's `render()` goes through the same paint path. Its Pairs
+qualification still passes 15/15, and its mid-game PNG is byte-identical
+to the one rendered before the change.
+
+Measured on the TV, headless (`viuda --headless`), 3 runs of the same
+13-key script, load average about 30:
+
+| | median | p95 | max |
+| --- | --- | --- | --- |
+| Full paint after each key (old path, n=13 per run) | 66–70 ms | 75–103 ms | 77–118 ms |
+| Partial repaint, every frame including animation steps (n=62–63) | 5.2–5.5 ms | 9.7–10.7 ms | 16.9–17.5 ms |
+
+A focus move or a flip step damages one or two card-sized rectangles
+(60–100k pixels). The live app (0.1.3) runs at about 3 % of one core when
+idle, down from 4.7 %. RSS is 36 MB, up from 28 MB: that is the retained
+1080p frame (8.3 MB), the cost of partial repaints. Interactive latency
+on the live app has not been measured yet, because no keys were pressed
+during that run.
