@@ -161,10 +161,14 @@ fn finish(
         };
         return Err(Diagnostic::new("GY-RESOLVER-PLATFORM", message).with_range(rule.range));
     }
-    // Live constructs beyond `text-from` (host state, @link, @graphic/@draw,
-    // present-when, image-from, remote-digit, motion) are admitted by the
-    // live profiles but not executed here: refuse them, never drop them.
-    if let Some((what, range)) = goya_lang::extended_live_construct(&parsed) {
+    // Live constructs beyond `text-from`: host state and the presentation-only
+    // properties (@graphic/@draw, present-when, image-from, fill-to,
+    // appear-s, drift) carry no semantics here and are left to the host's
+    // presentation layer (Viuda paints them through goya-scene-runtime).
+    // @link and remote-digit drive state and actions this resolver does not
+    // execute: refuse them, never drop them.
+    let semantic_free = |name: &str| !matches!(name, "link" | "remote_digit");
+    if let Some((what, range)) = goya_lang::extended_live_constructs(&parsed, semantic_free).next() {
         return Err(Diagnostic::new(
             "GY-RESOLVER-LIVE",
             format!("{what} is a live construct the resolver does not execute"),

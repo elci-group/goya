@@ -1,8 +1,12 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/goya-resolver",
+    "crates/goya-viuda",
+    "crates/goya-scene-runtime",
     "crates/goya-caprichios",
     "crates/nevada",
+    "crates/arachnid",
     "crates/goya-scene-graphics",
     "crates/maja",
     "crates/maja-semantic",
@@ -19,7 +23,6 @@ members = [
     "crates/goya-romantico",
     "crates/goya-layout",
     "crates/goya-runtime",
-    "crates/goya-resolver",
     "crates/goya-resolver-host",
     "crates/goya-hello",
     "crates/goya-chroma",
@@ -77,7 +80,6 @@ members = [
     "crates/goya-graphics-ir",
     "crates/goya-gva",
     "crates/goya-gvi",
-    "crates/goya-scene-graphics",
     "crates/goya-gru",
     "crates/emperor",
     "crates/emperor-runtime",
@@ -97,12 +99,13 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
+goya-resolver = { path = "crates/goya-resolver" }
+goya-scene-runtime = { path = "crates/goya-scene-runtime" }
 goya-ir = { path = "crates/goya-ir" }
 goya-state = { path = "crates/goya-state" }
 goya-romantico = { path = "crates/goya-romantico" }
 goya-layout = { path = "crates/goya-layout" }
 goya-runtime = { path = "crates/goya-runtime" }
-goya-resolver = { path = "crates/goya-resolver" }
 goya-resolver-host = { path = "crates/goya-resolver-host" }
 goya-chroma = { path = "crates/goya-chroma" }
 goya-provenance = { path = "crates/goya-provenance" }

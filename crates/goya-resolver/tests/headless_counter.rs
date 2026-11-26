@@ -670,13 +670,20 @@ fn cli_dispatches_the_live_counter_and_rejects_unimplemented_flags() {
 
 #[test]
 fn extended_live_constructs_are_refused_not_dropped() {
+    // Presentation-only constructs load: Viuda runs Pairs through this
+    // resolver and paints @graphic/@draw, present-when, fill-to and appear-s.
     let pairs = include_str!("../../../apps/pairs.gscene");
-    match resolver().load(pairs) {
+    resolver().load(pairs).expect("presentation-only live constructs load");
+    // A construct that drives actions the resolver does not execute is
+    // refused at its range, never dropped.
+    let digit = LIVE.replacen("@button add {", "@button add {\n        remote-digit: 1;", 1);
+    assert_ne!(digit, LIVE);
+    match resolver().load(&digit) {
         Err(error) => {
             assert_eq!(error.code, "GY-RESOLVER-LIVE", "{error}");
             let range = error.range.expect("construct range");
-            assert!(range.start < range.end && range.end <= pairs.len());
+            assert!(digit[range.start..range.end].contains("remote-digit"));
         }
-        Ok(_) => panic!("a scene with live constructs the resolver does not execute was loaded"),
+        Ok(_) => panic!("remote-digit was loaded"),
     }
 }

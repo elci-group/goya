@@ -1,0 +1,12 @@
+@ontology lanlink_fixture {
+  @cell root { id: "root"; fill: #f4f1ea;
+    @cell status { id: "status"; position_p: (0.05, 0.05, 0); extent_p: (0.9, 0.1, 0); text-from: state.detail; text-size-p: 0.5; }
+    @cell picture { id: "picture"; position_p: (0.05, 0.2, 0); extent_p: (0.9, 0.5, 0); fill: #202326; image-from: state.main; present-when: state.link is 5; }
+    @button pair { id: "pair"; position_p: (0.05, 0.8, 0); extent_p: (0.3, 0.12, 0); text: "Pair"; text-size-p: 0.35; fill: #d9e2ec; }
+    @button approve { id: "approve"; position_p: (0.4, 0.8, 0); extent_p: (0.3, 0.12, 0); text: "Approve"; text-size-p: 0.35; fill: #d9e2ec; }
+  }
+  @state { link: int = 0 host; detail: text = "" host; main: text = "" host; notice: text = "" session; }
+  @link peer { id: "link.peer"; protocol: "goya.lanlink/0"; endpoint: "http://127.0.0.1:8771"; status: state.link; detail: state.detail; slot main { image: state.main; } }
+  @interaction pair_start { id: "action.pair"; trigger: button.pair.activate; class: D2; effects { network; } requests { r: effect network capability "network" request "peer pair" result text; } state { write notice: text; } input { } set notice = effect.r; }
+  @interaction approve_main { id: "action.approve"; trigger: button.approve.activate; class: D2; effects { network; } requests { r: effect network capability "network" request "peer decide APPROVE main" result text; } state { write notice: text; } input { } set notice = effect.r; }
+}

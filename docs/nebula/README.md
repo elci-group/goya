@@ -11,7 +11,7 @@ Nebula is the COSMIC desktop profile and qualification lane of Emperor. It is no
 3. Nebula narrows the order of qualification. It does not narrow Emperor's release gate. The four-compositor matrix in GY-EMP-001 §4.3 still governs Emperor release.
 4. COSMIC compositor optimisations are dropped until a measurement motivates one.
 5. Xwayland on the COSMIC session never counts as COSMIC qualification.
-6. The running App keeps capability `filesystem: none`. The COSMIC theme is resolved at build time and baked into the build. Live theme following is Unmet.
+6. The running App keeps capability `filesystem: none`, with one exception the owner approved on 25 November 2026: a scene App with durable state may read and atomically replace its own D8 record at `$XDG_STATE_HOME/goya/<ontology>.json` (`linux.xdg-state.v1`) and nothing else. The COSMIC theme is resolved at build time and baked into the build. Live theme following is Unmet.
 7. COSMIC-private protocols (`zcosmic_*`, `cosmic_*`) are observed and not used by applications.
 
 ## Architecture
@@ -71,6 +71,15 @@ exited with `count=17 revision=17 presented=19`. NEB-001 is Measured for this
 dirty working tree; later Nebula milestones and Emperor release are still open.
 
 EMP-M1-07, the four compositor matrix, stays Blocked.
+
+## Scene apps (25 November 2026)
+
+`emperor build SCENE --desktop cosmic` now also builds general GSSH/4 and
+GSSH/4-live scenes: [../emperor/scene-runtime.md](../emperor/scene-runtime.md).
+Goya Pairs (`apps/pairs.gscene`) was built this way and opened on this
+session's COSMIC compositor. Its headless qualification passed 15 of 15
+checks. Accessibility uses AT-SPI through AccessKit (an owner decision on
+25 November 2026).
 
 ## Where the rest of the contract lives
 

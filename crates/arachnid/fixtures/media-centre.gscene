@@ -1,0 +1,13 @@
+@ontology media_centre {
+  @cell root { id: "root"; fill: #f4f1ea;
+    @cell title { id: "title"; position_p: (0.05, 0.06, 0); extent_p: (0.9, 0.1, 0); text: "Goya Media Centre"; text-size-p: 0.6; }
+    @button films { id: "films"; position_p: (0.05, 0.25, 0); extent_p: (0.2, 0.28, 0); text: "Films"; text-size-p: 0.16; fill: #d9e2ec; stroke: #52606d; stroke-width-p: 0.01; }
+    @button television { id: "television"; position_p: (0.283, 0.25, 0); extent_p: (0.2, 0.28, 0); text: "Television"; text-size-p: 0.16; fill: #d9e2ec; stroke: #52606d; stroke-width-p: 0.01; }
+    @button music { id: "music"; position_p: (0.516, 0.25, 0); extent_p: (0.2, 0.28, 0); text: "Music"; text-size-p: 0.16; fill: #d9e2ec; stroke: #52606d; stroke-width-p: 0.01; }
+    @button photos { id: "photos"; position_p: (0.75, 0.25, 0); extent_p: (0.2, 0.28, 0); text: "Photos"; text-size-p: 0.16; fill: #d9e2ec; stroke: #52606d; stroke-width-p: 0.01; }
+    @button library { id: "library"; position_p: (0.05, 0.6, 0); extent_p: (0.2, 0.28, 0); text: "Library"; text-size-p: 0.16; fill: #d9e2ec; stroke: #52606d; stroke-width-p: 0.01; }
+    @button games { id: "games"; position_p: (0.283, 0.6, 0); extent_p: (0.2, 0.28, 0); text: "Games"; text-size-p: 0.16; fill: #d9e2ec; stroke: #52606d; stroke-width-p: 0.01; }
+    @button search { id: "search"; position_p: (0.516, 0.6, 0); extent_p: (0.2, 0.28, 0); text: "Search"; text-size-p: 0.16; fill: #d9e2ec; stroke: #52606d; stroke-width-p: 0.01; }
+    @button settings { id: "settings"; position_p: (0.75, 0.6, 0); extent_p: (0.2, 0.28, 0); text: "Settings"; text-size-p: 0.16; fill: #d9e2ec; stroke: #52606d; stroke-width-p: 0.01; }
+  }
+}

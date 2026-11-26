@@ -72,6 +72,8 @@ pub mod stream_caprichio;
 pub mod tensor_accelerator_caprichio;
 pub mod tensor_runtime;
 pub mod touch_id_caprichio;
+pub mod webos_engine_caprichio;
+pub mod webos_tv_models;
 pub mod windows_hello_caprichio;
 
 /// Exact policy entries a target compiler has implemented. A match includes

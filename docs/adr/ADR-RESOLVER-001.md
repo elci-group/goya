@@ -98,3 +98,15 @@ A resolver failure that names an authored declaration uses that declaration's UT
 ## Amendment 12 — the CLI suspends and resumes
 
 `--suspend` and `--resume` are ordered operations on the running instance. They do not need `--target`. `--suspend` prints `suspend suspended`. `--resume` prints `resume running`. Neither publishes a revision nor lays the scene out. Dispatch, point, enter, scroll, and edit while suspended stay `GY-RESOLVER-PHASE`. A second suspend, or a resume while running, is the same code. `present` still returns the closed frame. The summary `phase:` line is the phase after those operations and before terminate. With `--trace`, the lines are `trace suspend layout {g}` and `trace resume layout {g}`. They are not durations. `--validate-only` does not suspend or resume. Nothing is written to disk. `--benchmark` still exits 2. The contract string stays `GY-RESOLVER/0.1`.
+
+## Amendment 13 — `webos` is served by Viuda
+
+`webos` becomes a served target, and its host is Viuda (`crates/goya-viuda`, contract `GY-VIUDA/0.1`). This amendment does not add a variant to `goya-resolver-host::Target`: Viuda links `goya-resolver` directly and runs a real surface, whereas the closed-surface hosts of Amendment 3 do not.
+
+* Semantics stay in this crate. Viuda loads the source with `Resolver::load`, starts one `Instance`, and runs every action with `Instance::activate("button.<name>.activate")`. It shows what `Instance::state` publishes. It does not execute D1 itself, and it does not admit the source for semantics a second time.
+* Presentation is `goya-scene-runtime` in published mode (`Scene::show_published`). It admits the same source again only to build its own cell tree and to compile `@graphic`s with `goya_scene_graphics::compile`. That admission makes no semantic decision. A source this crate admits but presentation refuses is `GY-VIUDA-PRESENT`.
+* Lifecycle maps onto `Phase`: a minimised surface suspends the instance, restoring it resumes it, and a close terminates it.
+* Durable state remains classified only (Decision 5). Viuda does not write a D8 record yet.
+* Viuda is the first host that runs outside this repository's machines, on a 32-bit ARM webOS TV in Developer Mode. The resolver needed no change there except the `host` lifetime arm in the CLI on the Arachnid line.
+
+The contract string stays `GY-RESOLVER/0.1`. The note is `docs/viuda/VIUDA-1.md`.
