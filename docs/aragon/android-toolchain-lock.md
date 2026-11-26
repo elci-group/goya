@@ -63,14 +63,25 @@ fresh copies at different paths, offline, with strict verification, and
 requires both builds to be byte-identical to each other and to the SHA-256
 recorded in the script.
 
-Result on this host, 17 November 2026 (Linux x86-64):
+Result on this host, 26 November 2026 (Linux x86-64), branch
+`aragon/live-on-lantern`:
 
 ```text
-static: cd3e6f15892278b35490a3d46cb90109d069e870d9b20ec7e506c6d584f9b06b
-root-button: 47af8d6c0932c4aa6e19b0ee7576d8887eda269f056a8e40934e71e1efbab89e
-scene: c792e345cd5bfc3679a6476bbbe372c049f8d68ee70a057bf2942a0d29c73979
+static: 0b100c527fd01473800c09765437a4a769ef7bd727a30dda79b4e815ecedf280
+root-button: 53f482a25861780f733f30e00292dd1018adfea4f1b2508d7e9c3dab208bacf5
+scene: 6e2ccc85d8cea8413335460a482c048026cc6cd92b3781daa33f9057b7227b1a
 Locked-toolchain release APK builds are reproducible and match the recorded hashes.
 ```
+
+Re-recorded 26 November 2026. The 17/18 November hashes were
+`cd3e6f15…` (static), `47af8d6c…` (root-button) and `c792e345…` (scene).
+The static project's generated sources are byte-identical between Lantern
+(`b408ee19`) and the GSSH/4-live port, so its drift comes from emitter
+changes that landed between 17 November and `b408ee19`. Root-button and
+scene additionally change because the port emits one dispatch function
+per D1 action (`actionN(inputs)`) instead of inlining each action in the
+`when` arm; behaviour is unchanged. Both builds of every project were
+byte-identical before and after re-recording.
 
 Exit 0, offline with strict verification. Each hash is the same across both
 builds of that project. The root-button hash also equals an earlier
