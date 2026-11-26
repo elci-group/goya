@@ -86,6 +86,10 @@ pub fn check(parsed: &ParsedScene) -> Vec<Diagnostic> {
         if !endpoint_ok(&l.endpoint) {
             out.push(refuse(format!("link {} endpoint must be http://IPv4:port on the LAN, not {}", l.name, l.endpoint)).at(Some(l.range)));
         }
+        // Shared admission leaves slots to the protocol; this one needs one.
+        if l.slots.is_empty() {
+            out.push(refuse(format!("link {} declares no slot; {PROTOCOL} shows images in slots", l.name)).at(Some(l.range)));
+        }
     }
     for i in parsed.scene.interactions.iter().filter(|i| i.class == InteractionClass::D2) {
         for r in &i.requests {
@@ -577,6 +581,8 @@ mod tests {
         assert!(diags(&hostname)[0].contains("endpoint must be http://IPv4:port"));
         let protocol = FIXTURE.replace(r#"protocol: "goya.lanlink/0""#, r#"protocol: "acme.sync/9""#);
         assert!(diags(&protocol)[0].contains("Arachnid lowers only goya.lanlink/0"));
+        let slotless = FIXTURE.replace("slot main { image: state.main; }", "").replace("image-from: state.main; ", "").replace("main: text = \"\" host; ", "");
+        assert!(diags(&slotless)[0].contains("declares no slot"), "{:?}", diags(&slotless));
     }
 
     #[test]

@@ -90,7 +90,13 @@ impl AndroidSourceMap {
     /// generated range in bounds and on character boundaries, and every
     /// origin still resolving to its recorded source range.
     pub fn verify(&self, source: &str, files: &[KotlinFile]) -> Result<(), SourceMapError> {
-        let handoff = goya_lang::handoff::admit_v4(source).map_err(SourceMapError::Admission)?;
+        // Admit the way the compiler did: GSSH/4, or GSSH/4-live when the
+        // scene needs a live construct (GY-E1012).
+        let handoff = match goya_lang::handoff::admit_v4(source) {
+            Err(error) if error.code == "GY-E1012" => goya_lang::handoff::admit_v4_live(source),
+            other => other,
+        }
+        .map_err(SourceMapError::Admission)?;
         if handoff.parsed().source_digest != self.source_digest {
             return Err(SourceMapError::DigestMismatch);
         }
