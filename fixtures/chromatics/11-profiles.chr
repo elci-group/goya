@@ -1,0 +1,18 @@
+# §19: profiles never share allocations or dispatch.
+capacity red green
+intents play
+policy primary=preferential
+context owner/shows
+candidate o1 intent=play label="Owner 1" favourite=0
+candidate o2 intent=play label="Owner 2" favourite=1
+resolve
+expect red=o1 green=o2
+publish
+press red
+context family/shows
+clear
+candidate f1 intent=play label="Family 1" favourite=0
+resolve now=1
+expect red=f1 green=-
+publish
+release red expect=rejected:scope-inactive

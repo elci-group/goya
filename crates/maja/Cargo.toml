@@ -8,5 +8,6 @@ license.workspace = true
 maja-semantic = { path = "../maja-semantic" }
 maja-runtime = { path = "../maja-runtime" }
 goya-lang = { path = "../goya-lang" }
+goya-scene-graphics = { path = "../goya-scene-graphics" }
 goya-caprichios = { path = "../goya-caprichios" }
 sha2 = "0.10"

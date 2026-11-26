@@ -426,7 +426,8 @@ fn admit_with(
     )?;
     if let Some(viewport) = viewport {
         let root_rect = frame.nodes[0].rect;
-        if root_rect.x != 0 || root_rect.y != 0 || viewport.dimensions() != [width_dip, height_dip] {
+        if root_rect.x != 0 || root_rect.y != 0 || viewport.dimensions() != [width_dip, height_dip]
+        {
             return Err(admit::layout_error(
                 "the root cell must fill the viewport from its origin",
                 Some(extent_range),
@@ -495,7 +496,9 @@ fn admit_with(
                 disposition: "preserved",
                 detail: format!(
                     "UI Automation Name {label:?}{} set by dynamic annotation (IAccPropServices).",
-                    hint.as_ref().map_or(String::new(), |hint| format!(", HelpText and description {hint:?}"))
+                    hint.as_ref().map_or(String::new(), |hint| format!(
+                        ", HelpText and description {hint:?}"
+                    ))
                 ),
             });
         }
@@ -609,7 +612,9 @@ fn live_state(
         .bindings
         .iter()
         .find(|binding| binding.interaction == action.name && binding.input == input_key);
-    if bound.map(|binding| binding.field_id.as_str()) != Some(controls[input_index].semantic_id.as_str()) {
+    if bound.map(|binding| binding.field_id.as_str())
+        != Some(controls[input_index].semantic_id.as_str())
+    {
         return Err(admit::cap(
             format!("input.{input_key} is not bound to the edit"),
             "Bind it with `from \"<edit id>\"`.",
@@ -872,7 +877,11 @@ fn place_control(
     let text_range = admit::property_range_at(
         parsed,
         path,
-        if cell.text_from.is_some() { "text_from" } else { "text" },
+        if cell.text_from.is_some() {
+            "text_from"
+        } else {
+            "text"
+        },
     )
     .ok_or_else(|| {
         Diagnostic::new(
@@ -887,8 +896,8 @@ fn place_control(
         path,
         if proportional { "extent_p" } else { "extent" },
     )
-        .or(admit::cell_range(parsed, path))
-        .unwrap_or(SourceRange { start: 0, end: 0 });
+    .or(admit::cell_range(parsed, path))
+    .unwrap_or(SourceRange { start: 0, end: 0 });
     let (x_dip, y_dip) = admit::dips_pair(node.rect.x, node.rect.y, extent_range, "position")?;
     let (width_dip, height_dip) = admit::dips(node.rect.width, node.rect.height, extent_range)?;
     let control_id = match role {
@@ -922,8 +931,6 @@ pub fn generate(app: &AdmittedInteractive, floor: crate::api_floor::ApiFloor) ->
     let window_ir = crate::ir_lower::lower_interactive_window(app, floor);
     crate::ir_codegen::codegen_from_ir(&window_ir, floor)
 }
-
-
 
 #[cfg(test)]
 mod tests {
@@ -1050,9 +1057,8 @@ mod tests {
             String::from_utf8_lossy(&checked.stderr)
         );
         let _ = std::fs::remove_dir_all(&dir);
-        let body = crate::ir_codegen::emit_transition_from_ir(&crate::ir_lower::lower_int_expr(
-        &app.expr,
-    ));
+        let body =
+            crate::ir_codegen::emit_transition_from_ir(&crate::ir_lower::lower_int_expr(&app.expr));
         let program = format!(
             "{body}fn main() {{ assert_eq!(transition(1, 2), Some(3)); assert_eq!(transition(i64::MAX, 1), None); assert_eq!(transition(4, -4), Some(0)); }}\n"
         );
@@ -1409,7 +1415,15 @@ mod tests {
             .iter()
             .map(|c| [c.x_dip, c.y_dip, c.width_dip, c.height_dip])
             .collect();
-        assert_eq!(dips, [[0, 0, 320, 160], [20, 60, 120, 30], [160, 60, 80, 30], [20, 110, 160, 30]]);
+        assert_eq!(
+            dips,
+            [
+                [0, 0, 320, 160],
+                [20, 60, 120, 30],
+                [160, 60, 80, 30],
+                [20, 110, 160, 30]
+            ]
+        );
         assert!(app.dispositions.iter().any(|d| d.subject == "announcement"));
         // Different initial state comes from @state, never from an id.
         let seven = LIVE.replace("count: int = 0 session", "count: int = 7 session");
@@ -1439,7 +1453,12 @@ mod tests {
         for (source, expected) in cases {
             match live(&source) {
                 Ok(_) => panic!("admitted: {expected}"),
-                Err(error) => assert!(error.message.contains(expected), "{}: {}", expected, error.message),
+                Err(error) => assert!(
+                    error.message.contains(expected),
+                    "{}: {}",
+                    expected,
+                    error.message
+                ),
             }
         }
         // A text box without @iden is refused by GSSH/4 itself (GY-E1017).
@@ -1468,7 +1487,11 @@ mod tests {
         ] {
             assert_eq!(
                 int_change_announcement("count", old, new),
-                describe_change("count", &InteractionValue::Int(old), &InteractionValue::Int(new)),
+                describe_change(
+                    "count",
+                    &InteractionValue::Int(old),
+                    &InteractionValue::Int(new)
+                ),
                 "{old} -> {new}"
             );
         }

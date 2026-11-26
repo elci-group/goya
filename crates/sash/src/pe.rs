@@ -208,8 +208,8 @@ pub fn parse_pe(bytes: &[u8]) -> Result<PeInfo, String> {
         if section.raw_size != 0 && (section.raw_ptr as usize) < size_headers {
             return Err("section raw data overlaps the headers".into());
         }
-        let virtual_end = section.virtual_address as u64
-            + section.virtual_size.max(section.raw_size) as u64;
+        let virtual_end =
+            section.virtual_address as u64 + section.virtual_size.max(section.raw_size) as u64;
         if virtual_end > size_image {
             return Err("section virtual range exceeds the image size".into());
         }
@@ -632,18 +632,27 @@ pub fn presentation_profile(manifest: &[u8]) -> Option<&'static str> {
     }
     // The win8 API floor names its own assemblies, so the verifier can read
     // the floor the image was built for instead of guessing.
-    if static_legacy == 1 && interactive_name == 0 && interactive_legacy == 0
-        && version_001 == 1 && version_002 == 0
+    if static_legacy == 1
+        && interactive_name == 0
+        && interactive_legacy == 0
+        && version_001 == 1
+        && version_002 == 0
     {
         return Some(crate::admit::PROFILE_LEGACY);
     }
-    if static_name == 0 && static_legacy == 0 && interactive_legacy == 1
-        && version_001 == 1 && version_002 == 0
+    if static_name == 0
+        && static_legacy == 0
+        && interactive_legacy == 1
+        && version_001 == 1
+        && version_002 == 0
     {
         return Some(crate::interactive::PROFILE_LEGACY);
     }
-    if static_name == 0 && static_legacy == 0 && interactive_legacy == 1
-        && version_001 == 0 && version_002 == 1
+    if static_name == 0
+        && static_legacy == 0
+        && interactive_legacy == 1
+        && version_001 == 0
+        && version_002 == 1
     {
         return Some(crate::interactive::PROFILE_CLIPBOARD_LEGACY);
     }
@@ -652,8 +661,7 @@ pub fn presentation_profile(manifest: &[u8]) -> Option<&'static str> {
 
 /// True when the manifest names a win8-floor presentation profile.
 pub fn manifest_is_legacy(manifest: &[u8]) -> bool {
-    presentation_profile(manifest)
-        .is_some_and(|profile| profile.contains("-legacy"))
+    presentation_profile(manifest).is_some_and(|profile| profile.contains("-legacy"))
 }
 
 pub fn format_flags(characteristics: u16) -> String {
@@ -728,7 +736,10 @@ mod tests {
         // declared size at 0x664 controls how much the reader consumes.
         let declared = read_u32(&bytes, 0x664).unwrap() as usize;
         let manifest = manifest.as_bytes();
-        assert!(manifest.len() <= 0x800 - 0x720, "synthetic manifest too long");
+        assert!(
+            manifest.len() <= 0x800 - 0x720,
+            "synthetic manifest too long"
+        );
         bytes[0x720..0x720 + declared].fill(0);
         bytes[0x720..0x720 + manifest.len()].copy_from_slice(manifest);
         put_u32(&mut bytes, 0x664, manifest.len() as u32);

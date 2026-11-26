@@ -1,0 +1,61 @@
+# §10.3: hysteresis, residency, maximum deferral and interaction quiet.
+capacity red green
+intents act
+context marginal
+policy primary=utility min_improvement=100 min_residency=0 max_deferral=1000000
+candidate a intent=act label=A urgency=500
+candidate b intent=act label=B urgency=400
+candidate c intent=act label=C urgency=300
+resolve now=0
+expect red=a green=b
+set c urgency=450
+resolve trigger=background now=10
+expect red=a green=b
+expect-note retained
+expect-selection b retained
+set c urgency=600
+resolve trigger=background now=20
+expect red=a green=c
+expect-note displaced
+# An explicit policy change is immediate: no hysteresis.
+set c urgency=300
+set b urgency=310
+resolve trigger=policy now=21
+expect red=a green=b
+
+context residency
+policy min_improvement=1 min_residency=50
+set b urgency=400
+set c urgency=300
+resolve now=100
+expect red=a green=b
+set c urgency=450
+resolve trigger=background now=120
+expect red=a green=b
+resolve trigger=background now=150
+expect red=a green=c
+
+context deferral
+policy min_improvement=1000 min_residency=0 max_deferral=30
+set c urgency=300
+resolve now=0
+expect red=a green=b
+set c urgency=450
+resolve trigger=background now=10
+expect green=b
+resolve trigger=background now=30
+expect green=b
+resolve trigger=background now=40
+expect red=a green=c
+
+context quiet
+policy min_improvement=1 max_deferral=1000000
+set c urgency=300
+resolve now=0
+expect red=a green=b
+set c urgency=900
+resolve trigger=background now=5 interacting=yes
+expect red=a green=b
+expect-note deferred
+resolve trigger=background now=6
+expect red=a green=c

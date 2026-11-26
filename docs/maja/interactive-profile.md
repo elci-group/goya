@@ -31,7 +31,7 @@ errors before parsing.
 | Construct | Browser output | Reference it must match |
 | --- | --- | --- |
 | `@cell`, nesting | One absolutely positioned `div` per element, nested as authored, clipped | `goya_lang::layout` draw order |
-| `position_p`, `extent_p` | Millipoint rects from `layout.js`'s `resolve`; one point is one CSS pixel; the viewport is the root element's client size | `goya_lang::layout` (Node differential) |
+| `position_p`, `extent_p` | Millipoint rects from `layout.js`'s `resolve`; one point is one CSS pixel; the viewport is `#goya-scene`'s client size (the page in fullscreen; the area under the title bar when the window is framed) | `goya_lang::layout` (Node differential) |
 | `text-size-p` | `font-size` in CSS px | `DrawNode::text_size_mp` (Node differential) |
 | `stroke` with `stroke-width-p` | A border overlay inside the element, drawn above its content | `DrawNode::stroke_width_mp` (Node differential) |
 | `text` on `@cell` and `@button` | Literal text, `white-space: pre`, clipped | Reference frame text |
@@ -45,6 +45,7 @@ errors before parsing.
 | `@persistence` (GSSH/4) | Selects the browser store: `browser.local-storage.v1` (the default) or `browser.indexeddb.v1`, and the `migration` rule for the browser (default `copy`); other platforms' entries are ignored | Decisions D11, D13 |
 | `@iden` (GSSH/4, required on `@input`) | `label` → `aria-label` (a plain cell also gets `role="group"`); `hint` → `aria-describedby` pointing at a visually hidden element | Decision D14 |
 | `@platform` (GSSH/4) | Rules for other platforms are inert. `@platform browser` rules are refused (`GY-E1016`) until Maja implements one | Decision D10 |
+| `@desktop` (GSSH/4) | In-page window. Omission is fullscreen. See [Window controls](#window-controls) | Decision D16, `goya_lang::desktop::place` (Node differential) |
 | `scroll` | The element keeps its fill, text and stroke; its children live in an inner `overflow: auto` scroller with hidden scrollbars (wheel, touch and focused-keyboard scrolling are the browser's). Direct children may extend past it, clamped only to >= 0. | `goya_lang::layout` and `Frame::scroll_limits` (Node differential); `Frame::scrolled_nodes` translation and clipping (browser) |
 
 Refused at the construct's own range:
@@ -429,6 +430,35 @@ Browsers stop scroll offsets at whole pixels, so the maximum offset can be
 up to 1 px short of the reference limit (492 px vs 492.48 px in the run
 above). Keyboard and touch scrolling, and offset reconciliation on resize,
 are not verified.
+
+## Window controls
+
+`maja.web.local.v2` and `v3` put the scene in an in-page window
+(decision D16). Startup is fullscreen unless the scene says otherwise:
+the controls sit over the scene and the scene keeps the whole viewport.
+Maximised and windowed frames take 32 CSS pixels of that rect for the
+title bar, and the scene is laid out in what remains. Minimising leaves
+a chip at the bottom-left. Closing hides the window and says so in the
+status region. It does not close the browser. Escape leaves fullscreen
+unless the focused control is a text field. The title bar drags only
+while the window is windowed.
+
+```sh
+maja build app.gscene --profile maja.web.local.v2 --chrome goya.chrome.ink --out new-output-directory
+```
+
+`--chrome` selects `goya.chrome.plain` (the default), `goya.chrome.ink`,
+or `goya.chrome.night` at compile time. It is refused on `inspect` and on
+the static profiles (`MAJA-CLI-E0007`). If the scene authors `controls`,
+either a library name or a colour block, `--chrome` is refused
+(`MAJA-E0200`) even when the name matches. The colours are written into
+`scene.js`; `layout.js` exports `placeDesktop` and `minimizedChip`, the
+mirrors of `goya_lang::desktop::place` and `minimized_chip`.
+
+```text
+@desktop { state: windowed; position: center; extent_dip: (960, 640); }
+@desktop { controls: { bar: #1c1915; glyph: #f4f1ea; close: #8c2f39; close_glyph: #fffaf0; desk: #2a2622; }; }
+```
 
 ## Not qualified
 

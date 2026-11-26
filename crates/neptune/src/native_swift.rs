@@ -358,7 +358,8 @@ mod tests {
             })
             .expect("@iden is mapped");
         let g = &iden["swift_range"];
-        assert!(swift[g["start_byte"].as_u64().unwrap() as usize..g["end_byte"].as_u64().unwrap() as usize]
+        assert!(swift
+            [g["start_byte"].as_u64().unwrap() as usize..g["end_byte"].as_u64().unwrap() as usize]
             .starts_with(".accessibilityLabel("));
     }
 

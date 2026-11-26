@@ -1,0 +1,19 @@
+# §8 Manual, §8.3: pins hold their key; utility never supersedes them.
+capacity red green yellow blue
+intents open
+policy primary=utility
+context pins
+candidate fav intent=open label=Fav pinned=blue
+candidate hot intent=open label=Hot probability=1000 cost=9
+candidate x intent=open label=X urgency=10
+candidate y intent=open label=Y pinned=blue
+candidate z intent=open label=Z pinned=purple
+resolve
+expect red=hot green=x yellow=y blue=fav
+expect-selection fav pinned
+expect-note pin-ignored
+expect-rejected z over-capacity
+policy primary=manual
+resolve trigger=policy now=1
+expect red=- green=- yellow=- blue=fav
+expect-rejected hot not-supplied

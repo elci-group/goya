@@ -250,6 +250,60 @@ pub fn decide(dirty: &[PixelRect], model: &CostModel) -> Invalidation {
     }
 }
 
+/// Front-slot copy a retained presenter pays before painting damage.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PresentCopy {
+    /// RGBA8 byte size of one framebuffer slot.
+    pub frame_bytes: u64,
+    /// True when the presenter memcpy's the front slot before painting damage.
+    pub copies_front: bool,
+}
+
+/// Decide local vs full invalidation, adding the cost of a front-slot copy.
+/// Union first (one commit). `frame_bytes == 0` and `copies_front == false`
+/// matches [`decide`].
+pub fn decide_retained(dirty: &[PixelRect], model: &CostModel, copy: PresentCopy) -> Invalidation {
+    if dirty.is_empty() {
+        return Invalidation::FullFrame;
+    }
+    let mut total = dirty[0];
+    for r in &dirty[1..] {
+        total = total.union(r);
+    }
+    let full_pixels = copy.frame_bytes / 4;
+    let copy_pixels = if copy.copies_front { full_pixels } else { 0 };
+    let local = model.resolve
+        + model.commit
+        + (total.area() as f64 / 1000.0) * model.per_kpixel
+        + (copy_pixels as f64 / 1000.0) * model.per_kpixel;
+    let full = model.full + (full_pixels as f64 / 1000.0) * model.per_kpixel;
+    if local < full {
+        Invalidation::Local(total)
+    } else {
+        Invalidation::FullFrame
+    }
+}
+
+/// Damage argument for `present_dirty`.
+///
+/// `Some` is a local rectangle with positive area. `None` means pass no
+/// damage, so the presenter paints the whole frame. An empty dirty list is
+/// `None` for the same reason [`decide_retained`] returns
+/// [`Invalidation::FullFrame`]. A local rectangle with no positive area is
+/// also `None`: a zero clip would copy a front buffer and then paint nothing.
+pub fn present_damage(
+    dirty: &[PixelRect],
+    model: &CostModel,
+    copy: PresentCopy,
+) -> Option<(i32, i32, i32, i32)> {
+    match decide_retained(dirty, model, copy) {
+        Invalidation::Local(rect) if rect.width > 0 && rect.height > 0 => {
+            Some((rect.x, rect.y, rect.width, rect.height))
+        }
+        Invalidation::Local(_) | Invalidation::FullFrame => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -398,5 +452,133 @@ mod tests {
         assert_eq!(t.transition, "pressed");
         // The envelope revision is the truth anchor, independent of pixels.
         assert_eq!(r.envelope("btn_go").unwrap().revision, 7);
+    }
+
+    #[test]
+    fn decide_retained_matches_decide_without_frame_bytes() {
+        let model = CostModel::default();
+        let copy = PresentCopy {
+            frame_bytes: 0,
+            copies_front: false,
+        };
+        let small = [PixelRect {
+            x: 0,
+            y: 0,
+            width: 200,
+            height: 60,
+        }];
+        assert_eq!(
+            decide_retained(&small, &model, copy),
+            decide(&small, &model)
+        );
+        assert!(matches!(
+            decide_retained(&small, &model, copy),
+            Invalidation::Local(_)
+        ));
+        let big = [PixelRect {
+            x: 0,
+            y: 0,
+            width: 4000,
+            height: 2000,
+        }];
+        assert_eq!(decide_retained(&big, &model, copy), decide(&big, &model));
+        assert!(matches!(
+            decide_retained(&big, &model, copy),
+            Invalidation::FullFrame
+        ));
+    }
+
+    #[test]
+    fn decide_retained_full_frame_when_front_copy_dominates() {
+        // 1920×313 covers 600960 px. Copying a 1920×1080 front slot costs
+        // more than repainting the whole frame.
+        let dirty = [PixelRect {
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 313,
+        }];
+        let copy = PresentCopy {
+            frame_bytes: 1920 * 1080 * 4,
+            copies_front: true,
+        };
+        assert!(matches!(
+            decide_retained(&dirty, &CostModel::default(), copy),
+            Invalidation::FullFrame
+        ));
+        assert_eq!(present_damage(&dirty, &CostModel::default(), copy), None);
+    }
+
+    #[test]
+    fn present_damage_returns_the_local_rectangle() {
+        let dirty = [PixelRect {
+            x: 8,
+            y: 16,
+            width: 200,
+            height: 60,
+        }];
+        let copy = PresentCopy {
+            frame_bytes: 400 * 680 * 4,
+            copies_front: true,
+        };
+        assert_eq!(
+            present_damage(&dirty, &CostModel::default(), copy),
+            Some((8, 16, 200, 60))
+        );
+    }
+
+    #[test]
+    fn present_damage_zero_area_is_a_full_frame() {
+        let dirty = [PixelRect {
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 0,
+        }];
+        let copy = PresentCopy {
+            frame_bytes: 400 * 680 * 4,
+            copies_front: true,
+        };
+        assert!(matches!(
+            decide_retained(&dirty, &CostModel::default(), copy),
+            Invalidation::Local(_)
+        ));
+        assert_eq!(present_damage(&dirty, &CostModel::default(), copy), None);
+    }
+
+    #[test]
+    fn decide_retained_local_for_small_window_front_copy() {
+        let dirty = [PixelRect {
+            x: 0,
+            y: 0,
+            width: 200,
+            height: 60,
+        }];
+        let copy = PresentCopy {
+            frame_bytes: 400 * 680 * 4,
+            copies_front: true,
+        };
+        assert!(matches!(
+            decide_retained(&dirty, &CostModel::default(), copy),
+            Invalidation::Local(_)
+        ));
+    }
+
+    #[test]
+    fn decide_retained_local_when_front_is_not_copied() {
+        let dirty = [PixelRect {
+            x: 0,
+            y: 0,
+            width: 200,
+            height: 60,
+        }];
+        let copy = PresentCopy {
+            frame_bytes: 1920 * 1080 * 4,
+            copies_front: false,
+        };
+        assert!(matches!(
+            decide_retained(&dirty, &CostModel::default(), copy),
+            Invalidation::Local(_)
+        ));
     }
 }

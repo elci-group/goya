@@ -2,7 +2,7 @@
 fn test_admit_v2() {
     let source = include_str!("./native-button.gscene");
     println!("Source:\n{}", source);
-    
+
     match goya_lang::handoff::admit_v2(source) {
         Ok(handoff) => {
             println!("Admitted successfully!");

@@ -3,9 +3,8 @@
 
 mod interactive;
 pub use interactive::{
-    admit_local_interactive, DurableStore, InteractiveWebIr, WebCell, WebCellKind, WebIden,
-    INTERACTIVE_PROFILE,
-    LIVE_PROFILE,
+    admit_local_interactive, DurableStore, InteractiveWebIr, WebCell, WebCellKind, WebCondition,
+    WebDraw, WebIden, INTERACTIVE_PROFILE, LIVE_PROFILE,
 };
 
 use goya_lang::{handoff, SemanticHandoff, SourceRange, StrictParseError};

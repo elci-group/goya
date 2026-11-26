@@ -292,7 +292,10 @@ mod source_range_parity_tests {
             let ir = to_ir_range(lang);
             assert_eq!((ir.start, ir.end), (lang.start, lang.end));
             // Field-for-field lossless round trip implies identical layout.
-            let back = LangRange { start: ir.start, end: ir.end };
+            let back = LangRange {
+                start: ir.start,
+                end: ir.end,
+            };
             assert_eq!(back, lang);
         }
     }

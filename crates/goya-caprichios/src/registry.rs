@@ -59,6 +59,10 @@ use crate::catalog;
 use crate::checksum_caprichio::{
     Artifact as ChecksumArtifact, Declaration as ChecksumDeclaration, HostProfile as ChecksumHost,
 };
+use crate::colour_cue_caprichio::{
+    ColourCueArtifact, ColourCueDeclaration, RuntimeCapabilities as ColourCueHost,
+    Target as ColourCueTarget,
+};
 use crate::compression_caprichio::{
     Artifact as CompressionArtifact, Declaration as CompressionDeclaration,
     HostProfile as CompressionHost, Target as CompressionTarget,
@@ -231,6 +235,7 @@ pub struct Request {
     pub intel_mobile: Option<IntelMobileDeclaration>,
     pub intel_xeon: Option<IntelXeonDeclaration>,
     pub accelerator_model: Option<AcceleratorDeclaration>,
+    pub colour_cue: Option<ColourCueDeclaration>,
 }
 
 /// Host facts are supplied by the caller; the registry does not infer support
@@ -329,6 +334,8 @@ pub struct HostProfile {
     pub intel_xeon_host: IntelXeonHost,
     pub accelerator_model_target: AcceleratorModelTarget,
     pub accelerator_model_host: AcceleratorModelHost,
+    pub colour_cue_target: ColourCueTarget,
+    pub colour_cue_host: ColourCueHost,
 }
 
 #[path = "registry_artifact.rs"]
@@ -358,6 +365,7 @@ pub const fn supported_contracts() -> &'static [&'static str] {
         crate::csv_caprichio::CONTRACT,
         crate::stream_caprichio::CONTRACT,
         crate::filesystem_caprichio::CONTRACT,
+        crate::colour_cue_caprichio::CONTRACT,
         crate::face_id_caprichio::CONTRACT,
         crate::touch_id_caprichio::CONTRACT,
         crate::windows_hello_caprichio::CONTRACT,
@@ -447,6 +455,7 @@ pub enum NegotiationError {
     BluetoothContinuity(crate::bluetooth_continuity_caprichio::Diagnostic),
     BluetoothAccess(crate::bluetooth_access_caprichio::Diagnostic),
     BluetoothProfile(crate::bluetooth_profile_caprichio::Diagnostic),
+    ColourCue(crate::colour_cue_caprichio::Diagnostic),
 }
 
 impl fmt::Display for NegotiationError {
@@ -566,6 +575,7 @@ impl fmt::Display for NegotiationError {
             Self::BluetoothProfile(error) => {
                 write!(f, "Bluetooth profile negotiation failed: {error}")
             }
+            Self::ColourCue(error) => write!(f, "colour cue negotiation failed: {error}"),
         }
     }
 }

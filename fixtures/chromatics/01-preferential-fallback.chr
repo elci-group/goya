@@ -1,0 +1,22 @@
+# §8.1: two favourites, then the view ranking fills the rest without
+# repeating an entity already bound.
+capacity red green yellow blue
+intents show.resume
+policy primary=preferential fallback=ranked
+context owner/entertainment/shows
+candidate show.a intent=show.resume label="Show A" entity=a favourite=0 rank=5
+candidate show.b intent=show.resume label="Show B" entity=b favourite=1 rank=0
+candidate show.c intent=show.resume label="Show C" entity=c rank=1
+candidate show.d intent=show.resume label="Show D" entity=d rank=2
+candidate show.e intent=show.resume label="Show E" entity=e rank=3
+resolve
+expect red=show.a green=show.b yellow=show.c blue=show.d
+expect-selection show.a primary
+expect-selection show.b primary
+expect-selection show.c fallback
+expect-rejected show.e over-capacity
+# Without a fallback, unused slots stay empty rather than filled (§3.2).
+policy fallback=-
+resolve trigger=policy now=1
+expect red=show.a green=show.b yellow=- blue=-
+expect-rejected show.c not-supplied

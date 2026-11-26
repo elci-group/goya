@@ -113,6 +113,7 @@ gates for outstanding work; evidence files record the scope of individual checks
 | Area | Where to start |
 | --- | --- |
 | Core architecture and execution | [Contracts](docs/contracts.md), [Tov adapter](docs/goya-tov.md), [D1 VM](docs/goya-d1-vm.md), [D2 VM](docs/goya-d2-vm.md), [D1 replay](docs/goya-d1-replay.md), [D2 journal](docs/goya-d2-journal.md), [VEE adapter](docs/goya-vee.md) |
+| Graphics formats | [Programme](docs/graphics/README.md), [container](docs/graphics/container.md), [GVA and GIR](docs/graphics/gva.md), [GRU](docs/graphics/gru.md), [GVI](docs/graphics/gvi.md) |
 | Native and platform parity | [Parity programme](docs/parity/programme.md), [geometry](docs/parity/geometry.md), [platform differences](docs/parity/platform-differences.md), [integration gates](docs/integration-gates.md), [Swift bootstrap](docs/swift-bootstrap.md) |
 | ZCode frontend | [Original monitor](docs/goya-zcode.md), [native successor](docs/goya-zcode-native.md), [protocol parity](docs/protocol-parity.md), [GUI parity](docs/gui-parity.md), [host attachment](docs/host-attachment.md), [workflows](docs/native-workflows.md) |
 | Browser, documents and plugins | [Browser directive](docs/goya-browser-directive.md), [webview](docs/goya-webview.md), [document adapter](docs/goya-document.md), [plugin host](docs/goya-plugin-host.md) |

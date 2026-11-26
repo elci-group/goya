@@ -1823,11 +1823,13 @@ impl GoyaWindow {
         )
     }
 
-    /// LCPE-aware presentation: `damage` is the resolved dirty rect in
-    /// pixels (from goya-change's quantised envelope); None = full frame.
-    /// The slot is always fully rasterised (small surfaces); locality is
-    /// expressed to the compositor via partial damage. See [`GoyaWindow::present`]
-    /// for the `fills` and `fgs` contracts.
+    /// LCPE-aware presentation. `damage` is the dirty rectangle in pixels.
+    /// `None` clears, rasterises, and damages the whole surface.
+    ///
+    /// When `damage` is set and the chosen slot is not the front buffer, the
+    /// front slot is copied first. Only that rectangle is then cleared and
+    /// rasterised, and the compositor is damaged for the same rectangle.
+    /// See [`GoyaWindow::present`] for the `fills` and `fgs` contracts.
     // Parallel slices (fills/fgs) plus damage make this the one public
     // setter that legitimately exceeds the arity lint; the internal raster
     // paths carry the same allowance.
@@ -1896,6 +1898,7 @@ impl GoyaWindow {
         rgba_pixels: Option<&[u8]>,
         rgba_layer: Option<RgbaLayer<'_>>,
     ) -> Result<(), WaylandError> {
+        let damage = paint_damage(damage);
         self.state.frame_committed = false;
         self.state.background_rgb = bg;
         if self.state.buffers.is_none() {
@@ -2187,6 +2190,26 @@ impl GoyaWindow {
         (self.state.width, self.state.height)
     }
 
+    /// Whether the next present memcpy's the front slot before painting damage.
+    ///
+    /// A free slot other than the front is the usual choice, and that path
+    /// copies. Painting the released front slot does not. Before the first
+    /// buffer exists the first present copies. When every slot is busy the
+    /// present is skipped; this still reports a copy.
+    pub fn present_copies_front(&self) -> bool {
+        let Some(buffers) = &self.state.buffers else {
+            return true;
+        };
+        slot_copies_front(
+            [
+                buffers.slots[0].released,
+                buffers.slots[1].released,
+                buffers.slots[2].released,
+            ],
+            buffers.front,
+        )
+    }
+
     /// Version `xdg_wm_base` was bound at: `min(advertised, 7)`.
     pub fn xdg_wm_base_version(&self) -> u32 {
         self.state.xdg_wm_base_version
@@ -2436,6 +2459,40 @@ mod pixel_surface_tests {
             })
         );
     }
+}
+
+/// Expand colour-cue references into the `fills` slice [`GoyaWindow::present_dirty`]
+/// already takes. Each reference is resolved once, at this boundary.
+pub fn cue_fills(
+    palette: &goya_cue::Palette,
+    refs: &[goya_cue::ChromaticRef],
+) -> Vec<Option<u32>> {
+    goya_cue::fills_at_paint(palette, refs)
+}
+
+/// A non-positive damage rectangle paints the whole frame.
+///
+/// Width or height below 1 would copy a front slot and then clip the raster
+/// to nothing, so the new frame would never appear.
+fn paint_damage(damage: Option<(i32, i32, i32, i32)>) -> Option<(i32, i32, i32, i32)> {
+    match damage {
+        Some((x, y, w, h)) if w > 0 && h > 0 => Some((x, y, w, h)),
+        _ => None,
+    }
+}
+
+/// `released` is the three shm slots. `front` is the slot last presented.
+///
+/// A free non-front slot copies. The front slot alone does not. No free slot
+/// reports a copy, matching a later present that finds one.
+fn slot_copies_front(released: [bool; 3], front: usize) -> bool {
+    if !(0..3).contains(&front) {
+        return true;
+    }
+    if (0..3).any(|i| i != front && released[i]) {
+        return true;
+    }
+    !released[front]
 }
 
 /// Resolve a primitive's fill colour for its index `i` (GY-WAVE2 contract):
@@ -6207,6 +6264,62 @@ mod fill_tests {
             },
         );
         assert_eq!(buf[probe], default);
+    }
+
+    #[test]
+    fn cue_index_matches_direct_fill_pixels() {
+        let (width, height) = (64, 32);
+        let rect = Rect {
+            x: 0,
+            y: 0,
+            width: 20 * MP_PER_PX,
+            height: 20 * MP_PER_PX,
+        };
+        let primitives = [goya_runtime::Primitive::Button(rect, "C".to_string())];
+        let probe = 15 + 15 * width as usize;
+        let rgba = [0x1A, 0x2A, 0x3B, 0xFF];
+        let palette = goya_cue::Palette::from_colours(&[rgba]);
+        let indexed = super::cue_fills(&palette, &[goya_cue::ChromaticRef::Index(0)]);
+        let direct = [Some(0x1A2A3B)];
+        assert_eq!(indexed, direct);
+
+        let paint = |fills: &[Option<u32>]| {
+            let mut buf = vec![0u32; (width * height) as usize];
+            raster_serial(
+                &mut buf,
+                width,
+                height,
+                &primitives,
+                RasterConfig {
+                    fills,
+                    fgs: &[],
+                    fg: [255; 3],
+                    glyph_px: 1,
+                    clips: None,
+                    text_sizes_pt: None,
+                    clip: None,
+                },
+            );
+            buf
+        };
+        assert_eq!(paint(&indexed), paint(&direct));
+        assert_eq!(paint(&indexed)[probe], argb([0x1A, 0x2A, 0x3B]));
+    }
+
+    #[test]
+    fn non_positive_damage_paints_the_whole_frame() {
+        assert_eq!(super::paint_damage(None), None);
+        assert_eq!(super::paint_damage(Some((0, 0, 0, 0))), None);
+        assert_eq!(super::paint_damage(Some((1, 2, -4, 5))), None);
+        assert_eq!(super::paint_damage(Some((1, 2, 3, 4))), Some((1, 2, 3, 4)));
+    }
+
+    #[test]
+    fn slot_copy_follows_the_free_buffer() {
+        assert!(super::slot_copies_front([true, true, true], 0));
+        assert!(!super::slot_copies_front([true, false, false], 0));
+        assert!(super::slot_copies_front([false, false, false], 1));
+        assert!(super::slot_copies_front([true, true, true], 9));
     }
 }
 

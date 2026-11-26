@@ -162,6 +162,180 @@ fn counter_builds_deterministically_with_hashed_manifest() {
 }
 
 #[test]
+fn window_controls_default_to_plain_and_honour_chrome_selection() {
+    use goya_lang::desktop;
+    let dir = build(COUNTER, "chrome-plain");
+    let html = fs::read_to_string(dir.join("index.html")).unwrap();
+    assert!(html.contains("id=\"goya-min\""));
+    assert!(html.contains("id=\"goya-max\""));
+    assert!(html.contains("id=\"goya-close\""));
+    let scene = fs::read_to_string(dir.join("scene.js")).unwrap();
+    let plain = desktop::library(desktop::DEFAULT_CHROME).unwrap();
+    assert!(scene.contains(&format!("\"#{:06x}\"", plain.colours.bar)));
+    assert!(scene.contains("state: \"fullscreen\""));
+    assert!(scene.contains("authored: false"));
+    fs::remove_dir_all(dir).unwrap();
+
+    let src = temp("ink.gscene");
+    fs::write(&src, COUNTER).unwrap();
+    let out = temp("chrome-ink");
+    let _ = fs::remove_dir_all(&out);
+    let (code, _, stderr) = cli(&[
+        "build",
+        src.to_str().unwrap(),
+        "--profile",
+        "maja.web.local.v2",
+        "--chrome",
+        "goya.chrome.ink",
+        "--out",
+        out.to_str().unwrap(),
+    ]);
+    assert_eq!(code, 0, "{stderr}");
+    let ink = desktop::library("goya.chrome.ink").unwrap();
+    let scene = fs::read_to_string(out.join("scene.js")).unwrap();
+    assert!(scene.contains(&format!("\"#{:06x}\"", ink.colours.bar)));
+    assert!(scene.contains("chromeName: \"goya.chrome.ink\""));
+    fs::remove_dir_all(out).unwrap();
+
+    let (code, _, stderr) = cli(&[
+        "check",
+        src.to_str().unwrap(),
+        "--profile",
+        "maja.web.local.v1",
+        "--chrome",
+        "goya.chrome.ink",
+    ]);
+    assert_eq!(code, 4, "{stderr}");
+    assert!(stderr.contains("MAJA-CLI-E0007"), "{stderr}");
+
+    let authored = r#"@ontology demo {
+        @desktop { controls: { bar: #112233; glyph: #445566; close: #778899; close_glyph: #aabbcc; desk: #ddeeff; }; }
+        @cell root { id: "root"; text: "Hi"; }
+    }"#;
+    fs::write(&src, authored).unwrap();
+    let (code, _, stderr) = cli(&[
+        "check",
+        src.to_str().unwrap(),
+        "--profile",
+        "maja.web.local.v2",
+        "--chrome",
+        "goya.chrome.plain",
+    ]);
+    assert_eq!(code, 4, "{stderr}");
+    assert!(stderr.contains("MAJA-E0200"), "{stderr}");
+    assert!(stderr.contains("--chrome cannot override"), "{stderr}");
+    let painted = temp("painted");
+    let _ = fs::remove_dir_all(&painted);
+    let (code, _, stderr) = cli(&[
+        "build",
+        src.to_str().unwrap(),
+        "--profile",
+        "maja.web.local.v2",
+        "--out",
+        painted.to_str().unwrap(),
+    ]);
+    assert_eq!(code, 0, "{stderr}");
+    let scene = fs::read_to_string(painted.join("scene.js")).unwrap();
+    assert!(scene.contains("\"#112233\""));
+    assert!(scene.contains("chromeName: null"));
+    assert!(scene.contains("authored: true"));
+    fs::remove_file(src).unwrap();
+    fs::remove_dir_all(painted).unwrap();
+}
+
+#[test]
+fn place_desktop_matches_the_rust_mirror() {
+    if !node_available() {
+        return;
+    }
+    use goya_lang::desktop::{self, DesktopPosition, DesktopState, PlaceSpec};
+    let dir = build(COUNTER, "place-desktop");
+    let driver = r#"
+import { placeDesktop, minimizedChip } from "./layout.js";
+const cases = [
+  ["fs", placeDesktop({ state: "fullscreen", position: "center", extent: null }, 1920, 1080)],
+  ["center", placeDesktop({ state: "windowed", position: "center", extent: [960, 640] }, 1920, 1080)],
+  ["clamp", placeDesktop({ state: "windowed", position: [100, 50], extent: [900, 100] }, 800, 600)],
+  ["neg", placeDesktop({ state: "windowed", position: [-10, 900], extent: [200, 200] }, 1000, 800)],
+  ["max", placeDesktop({ state: "maximized", position: "center", extent: null }, 1920, 1080)],
+  ["chip", minimizedChip(1920, 1080)],
+  ["bad", placeDesktop({ state: "fullscreen", position: "center", extent: null }, 0, 100)],
+];
+for (const [name, value] of cases) console.log(name + " " + JSON.stringify(value));
+"#;
+    let output = run_node(&dir, driver);
+    let expect_place = |name: &str, spec: PlaceSpec, work_w, work_h| {
+        let placed = desktop::place(spec, work_w, work_h).unwrap();
+        let line = format!(
+            "{name} {{\"state\":\"{}\",\"x\":{},\"y\":{},\"width\":{},\"height\":{},\"frame\":{}}}",
+            placed.state.as_str(),
+            placed.x,
+            placed.y,
+            placed.width,
+            placed.height,
+            placed.frame
+        );
+        assert!(output.contains(&line), "missing {line} in {output}");
+    };
+    expect_place(
+        "fs",
+        PlaceSpec {
+            state: DesktopState::Fullscreen,
+            position: DesktopPosition::Center,
+            extent_dip: None,
+        },
+        1920,
+        1080,
+    );
+    expect_place(
+        "center",
+        PlaceSpec {
+            state: DesktopState::Windowed,
+            position: DesktopPosition::Center,
+            extent_dip: Some((960, 640)),
+        },
+        1920,
+        1080,
+    );
+    expect_place(
+        "clamp",
+        PlaceSpec {
+            state: DesktopState::Windowed,
+            position: DesktopPosition::Dip { x: 100, y: 50 },
+            extent_dip: Some((900, 100)),
+        },
+        800,
+        600,
+    );
+    expect_place(
+        "neg",
+        PlaceSpec {
+            state: DesktopState::Windowed,
+            position: DesktopPosition::Dip { x: -10, y: 900 },
+            extent_dip: Some((200, 200)),
+        },
+        1000,
+        800,
+    );
+    expect_place(
+        "max",
+        PlaceSpec {
+            state: DesktopState::Maximized,
+            position: DesktopPosition::Center,
+            extent_dip: None,
+        },
+        1920,
+        1080,
+    );
+    let (x, y, width, height) = desktop::minimized_chip(1920, 1080).unwrap();
+    assert!(output.contains(&format!(
+        "chip {{\"x\":{x},\"y\":{y},\"width\":{width},\"height\":{height}}}"
+    )));
+    assert!(output.contains("bad null"));
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn cli_refuses_with_source_ranges_and_rejects_release() {
     let src = temp("refuse.gscene");
     fs::write(
@@ -1002,13 +1176,122 @@ fn live_profile_builds_display_bindings() {
     fs::remove_file(src).unwrap();
     let scene = fs::read_to_string(out.join("scene.js")).unwrap();
     assert!(scene.starts_with("// Generated by Maja (maja.web.local.v3)."));
-    assert!(scene.contains(r#"text: "Count: ", scroll: false, textFrom: "count", iden: null }"#));
-    assert!(scene.contains(r#"text: "Add", scroll: false, textFrom: null, iden: null }"#));
+    assert!(scene.contains(
+        r#"text: "Count: ", scroll: false, textFrom: "count", iden: null, present: null, fillTo: null, draw: null, appear: null }"#
+    ));
+    assert!(scene.contains(
+        r#"text: "Add", scroll: false, textFrom: null, iden: null, present: null, fillTo: null, draw: null, appear: null }"#
+    ));
     let manifest = fs::read_to_string(out.join("manifest.json")).unwrap();
     assert!(manifest.contains("\"profile\": \"maja.web.local.v3\""));
     assert!(manifest.contains("\"handoff\": \"GSSH/4-live\""));
     assert!(out.join("storage.js").exists());
     fs::remove_dir_all(out).unwrap();
+}
+
+/// v3 lowers one `@graphic` to GY-GVI/0 and keeps `present-when` and `fill-to`.
+#[test]
+fn live_profile_paints_a_graphic() {
+    const CARD: &str = r#"@ontology deck {
+      @graphic card {
+        id: "graphic.card";
+        canvas: (40, 40);
+        @shape back { rect: (0, 0, 40, 40, 4); fill: #2b4c7e; }
+        @shape mark { ellipse: (20, 20, 6, 6); fill: #f4f1ea; }
+        @dimension face {
+          step-s: 0.05;
+          @value down { hide: mark; }
+          @value up { hide: back; }
+        }
+      }
+      @state { open: bool = false session; }
+      @cell root { id: "root"; fill: #f4f1ea; fill-to: #e6edf3; fill-period-s: 30;
+        @cell art { id: "art"; position_p: (0, 0, 0); extent_p: (1, 1, 0);
+          @draw card { face: "up" when state.open is true; face: "down"; }
+        }
+        @button flip { id: "flip"; present-when: state.open is false; position_p: (0, 0, 0); extent_p: (1, 1, 0); text: "Flip"; }
+      }
+      @interaction flip { id: "action.flip"; trigger: button.flip.activate; class: D1; state { write open: bool; } input { } set open = true; }
+    }"#;
+    let src = temp("card.gscene");
+    fs::write(&src, CARD).unwrap();
+    let (code, _, err) = cli(&["check", src.to_str().unwrap(), "--profile", "maja.web.local.v2"]);
+    assert_eq!(code, 4, "{err}");
+    assert!(err.starts_with("GY-E1012"), "{err}");
+    let out = temp("card");
+    let _ = fs::remove_dir_all(&out);
+    let (code, stdout, stderr) = cli(&[
+        "build",
+        src.to_str().unwrap(),
+        "--profile",
+        "maja.web.local.v3",
+        "--out",
+        out.to_str().unwrap(),
+    ]);
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(stdout, "built: experimental interactive subset\n");
+    fs::remove_file(src).unwrap();
+    let scene = fs::read_to_string(out.join("scene.js")).unwrap();
+    assert!(scene.contains(r#""card""#), "{scene}");
+    assert!(scene.contains("present: [\"open\", \"is\", false]"));
+    assert!(scene.contains("fillTo: [\"#e6edf3\", 30.0]"));
+    assert!(scene.contains(r#"draw: { g: "card""#));
+    assert!(out.join("gvi.js").is_file());
+    let index = fs::read_to_string(out.join("index.html")).unwrap();
+    assert!(index.contains("id=\"goya-min\""));
+    assert!(index.contains("src=\"gvi.js\""));
+    let app = fs::read_to_string(out.join("app.js")).unwrap();
+    assert!(app.contains("setupGraphics()"));
+    assert!(app.contains("goya-gv"));
+    fs::remove_dir_all(out).unwrap();
+}
+
+/// TV remote copy stays in the scene for Arachnid. The browser build does not
+/// tell the player to press OK or to move with the remote's arrow keys.
+#[test]
+fn browser_build_drops_tv_remote_instructions() {
+    const SCENE: &str = r#"@ontology pairs {
+      @cell root { id: "root";
+        text: "Find the eight pairs. Arrow keys move between cards; OK turns one over."; wrap: 46;
+        @cell mismatch { id: "mismatch"; text: "Not a match. Press OK to turn them back."; }
+        @button turn { id: "turn"; @iden { label: "Card 1, face down"; hint: "Press OK to turn it over"; } }
+        @button compare { id: "compare"; @iden { label: "Card 2, face down"; hint: "Press OK to turn it over and compare"; } }
+        @button back { id: "back"; @iden { label: "Card 3: not a match"; hint: "Press OK to turn the two cards back"; } }
+        @button again { id: "again"; text: "New game"; @iden { label: "New game"; hint: "Deal the cards again"; } }
+        @button confirm { id: "confirm"; text: "OK"; }
+      }
+    }"#;
+    let dir = build(SCENE, "remote-copy");
+    let scene = fs::read_to_string(dir.join("scene.js")).unwrap();
+    fs::remove_dir_all(&dir).unwrap();
+    assert!(!scene.contains("Press OK"), "{scene}");
+    assert!(!scene.contains("OK turns"), "{scene}");
+    assert!(!scene.contains("Arrow keys"), "{scene}");
+    assert!(
+        scene.contains(r#"text: "Find the eight pairs.""#),
+        "{scene}"
+    );
+    assert!(
+        scene.contains(r#"text: "Not a match. Turn them back.""#),
+        "{scene}"
+    );
+    assert!(
+        scene.contains(r#"iden: ["Card 1, face down", "Turn it over"]"#),
+        "{scene}"
+    );
+    assert!(
+        scene.contains(r#"iden: ["Card 2, face down", "Turn it over and compare"]"#),
+        "{scene}"
+    );
+    assert!(
+        scene.contains(r#"iden: ["Card 3: not a match", "Turn the two cards back"]"#),
+        "{scene}"
+    );
+    assert!(
+        scene.contains(r#"iden: ["New game", "Deal the cards again"]"#),
+        "{scene}"
+    );
+    assert!(scene.contains(r#"text: "OK""#), "{scene}");
 }
 
 /// `shownText`, `displayContext`, `describeChange` and `announcement` in

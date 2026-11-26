@@ -110,6 +110,8 @@ pub fn crates() -> &'static [Crate] {
         Crate { id: "goya-ecosystem", layer: "scene", contract: "companions", status: "implemented", role: "Capability-gated adapters for RUGID, 3form, Mesut, and Theosis. Missing grants and tool failures are errors." },
         Crate { id: "goya-determinism", layer: "execute", contract: "GY-DETERMINISM/1", status: "implemented", role: "Classifies a process as D0 pure, D1 state-deterministic, D2 effect-deterministic, or N. N is never compiled. D0 with effects is an unresolved claim." },
         Crate { id: "goya-executable", layer: "execute", contract: "GY-EXECUTABLE/1", status: "implemented", role: "D0 reference VM, bounded D1 transition VM, and D2 journal VM. Hashes are SHA-256. The VMs do not touch the live state store or host I/O." },
+        Crate { id: "goya-resolver", layer: "execute", contract: "GY-RESOLVER/0.1", status: "experimental", role: "Headless interpreter for an admitted .gscene. Reuses the GSSH handoff and the D1 publication rules. No window, Caprichio selection, GVI residency, or measured performance budget." },
+        Crate { id: "goya-resolver-host", layer: "execute", contract: "GY-RESOLVER/0.1", status: "experimental", role: "Typed hosts for android, android_tv, browser, ios, linux, and windows. Each reuses goya-resolver. No compiler crate is linked, and no surface is opened." },
         Crate { id: "goya-vee", layer: "execute", contract: "VEE", status: "implemented", role: "Builds a capability-empty Python worker after the Rust VM accepts the program, then POSTs it to /vee/submit and reads /vee/status." },
         Crate { id: "goya-hotswap", layer: "execute", contract: "GY-HOTSWAP/1", status: "implemented", role: "Ordered one-version state migration. The candidate activates only after stage_snapshot and commit both succeed." },
         Crate { id: "goya-change", layer: "efficiency", contract: "GY-CHANGE/1", status: "implemented", role: "Localised change-potential records used by rendering and accessibility updates." },
@@ -212,6 +214,9 @@ pub fn edges() -> &'static [(&'static str, &'static str)] {
         ("goya-bench", "goya-artifact"),
         ("goya-layout", "goya-ir"),
         ("goya-hotswap", "goya-executable"),
+        ("goya-resolver", "goya-lang"),
+        ("goya-resolver", "goya-executable"),
+        ("goya-resolver-host", "goya-resolver"),
         ("goya-hotswap", "goya-determinism"),
         ("goya-hotswap", "goya-state"),
         ("goya-runtime", "goya-ir"),
@@ -688,7 +693,7 @@ mod tests {
         let before = ids.len();
         ids.dedup();
         assert_eq!(before, ids.len());
-        assert_eq!(before, 52);
+        assert_eq!(before, 54);
     }
 
     #[test]

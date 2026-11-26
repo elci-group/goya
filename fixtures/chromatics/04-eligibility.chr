@@ -1,0 +1,29 @@
+# §7, §20, §21: what may never be bound.
+capacity red green yellow blue
+intents open files.delete broadcast.start
+policy primary=ranked
+context ops
+candidate gone intent=open label=Gone available=no rank=0
+candidate locked intent=open label=Locked authorised=no rank=1
+candidate stale intent=open label=Stale expires=5 rank=2
+candidate rogue intent=shell.exec label=Rogue rank=3
+candidate blank intent=open label="  " rank=4
+candidate wipe intent=files.delete label="Delete files" risk=destructive rank=5
+candidate wipe.ask intent=files.delete label="Delete files…" risk=destructive confirm=yes rank=6
+candidate live intent=broadcast.start label="Go live" risk=sensitive rank=7
+candidate twin intent=open label="Twin 1" rank=8
+candidate twin intent=open label="Twin 2" rank=9
+candidate tv.a intent=open label="TV (tile)" entity=tv rank=10
+candidate tv.b intent=open label="TV (list)" entity=tv rank=11
+candidate ok intent=open label=OK rank=12
+resolve now=5
+expect-rejected gone unavailable
+expect-rejected locked unauthorised
+expect-rejected stale expired
+expect-rejected rogue unregistered-intent
+expect-rejected blank empty-label
+expect-rejected wipe unsafe-without-confirmation
+expect-rejected live unsafe-without-confirmation
+expect-rejected twin duplicate-id
+expect-rejected tv.b duplicate-entity
+expect red=wipe.ask green=tv.a yellow=ok blue=-

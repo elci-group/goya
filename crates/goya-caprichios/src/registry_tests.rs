@@ -310,6 +310,10 @@ fn host() -> HostProfile {
         },
         bluetooth_profile_target: BluetoothProfileTarget::Ios,
         bluetooth_profile_host: BluetoothProfileHost { utf8_strings: true },
+        colour_cue_target: ColourCueTarget::CpuOnly,
+        colour_cue_host: ColourCueHost {
+            software_present: true,
+        },
     }
 }
 
@@ -2541,6 +2545,7 @@ fn mixed_request_is_sorted_and_artifacts_keep_contract_identity() {
         bluetooth_continuity: None,
         bluetooth_access: None,
         bluetooth_profile: None,
+        colour_cue: None,
     };
     let result = negotiate(&request, host()).unwrap();
     assert_eq!(
@@ -2656,6 +2661,7 @@ fn supported_contracts_lists_only_exact_implemented_contracts_in_order() {
             "goya.data.csv.bounded_crlf.v1",
             "goya.data.stream.process_local_bounded.v1",
             "goya.filesystem.read_file.v1",
+            "goya.graphics.colour_cue.placement.v1",
             "goya.hardware.biometry.face_id.v1",
             "goya.hardware.biometry.touch_id.v1",
             "goya.hardware.biometry.windows_hello.v1",
@@ -3766,6 +3772,7 @@ fn benchmark_negotiation() {
         bluetooth_continuity: None,
         bluetooth_access: None,
         bluetooth_profile: None,
+        colour_cue: None,
     };
     let start = Instant::now();
     let iterations = 10_000;
@@ -3776,4 +3783,31 @@ fn benchmark_negotiation() {
         "{iterations} mixed registry negotiations in {:?}",
         start.elapsed()
     );
+}
+
+#[test]
+fn colour_cue_placement_integrated_cheaper_uses_shared_memory_inventory() {
+    let contract = crate::colour_cue_caprichio::CONTRACT;
+    let mut profile = host();
+    profile.colour_cue_target = ColourCueTarget::IntegratedAmdIntel;
+    profile.colour_cue_host.software_present = true;
+    let request = Request {
+        capabilities: vec![contract.into()],
+        colour_cue: Some(ColourCueDeclaration {
+            target: ColourCueTarget::IntegratedAmdIntel,
+            indexed_cheaper: true,
+            request_device_local: false,
+        }),
+        ..Request::default()
+    };
+    let negotiated = negotiate(&request, profile).unwrap();
+    assert_eq!(negotiated.len(), 1);
+    assert_eq!(negotiated[0].id, contract);
+    assert_eq!(negotiated[0].artifact.contract(), contract);
+    assert_eq!(negotiated[0].artifact.recipe(), "colour-cue-placement");
+    assert!(negotiated[0]
+        .artifact
+        .canonical_ir()
+        .contains("strategy=SharedMemoryInventory\n"));
+    assert_eq!(negotiated, negotiate(&request, profile).unwrap());
 }

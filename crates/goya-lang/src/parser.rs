@@ -1,14 +1,16 @@
 //! Recursive-descent parser: tokens → Scene. Total on all inputs; every
 //! failure is a `ParseError` with a line and an exact UTF-8 byte range.
 
+use crate::desktop::{self, ChromeChoice, DesktopFault, DesktopPosition, DesktopState};
 use crate::lexer::{lex, Token, TokenKind};
 use crate::scene::{
-    Iden,
-    Anchor, CellKind, EffectRequestDecl, EffectValueType, GestureDecision, GesturePolicy,
-    IntentCategory, IntentDecl, InteractionClass, InteractionDecl, InteractionExpr,
-    InteractionType, InteractionValue, Scene, SceneCell, StateAssignment, TransportClass, TypedKey,
-    TypedSlot, Vec3,
+    Anchor, CellKind, ChromaticCandidate, ChromaticsDecl, Condition, ConditionOp,
+    EffectRequestDecl, EffectValueType, GestureDecision, GesturePolicy, Iden, IntentCategory,
+    IntentDecl, InteractionClass, InteractionDecl, InteractionExpr, InteractionType,
+    InteractionValue, Phrasing, Scene, SceneCell, StateAssignment, TransportClass, TypedKey,
+    TypedSlot, Vec3, MAX_PHRASE_TEXT_BYTES,
 };
+use goya_chromatics::{Risk, Stability, Strategy};
 use goya_determinism::EffectKind;
 use std::collections::BTreeMap;
 use std::fmt;
@@ -47,17 +49,33 @@ mod platform_policy_tests {
 
     #[test]
     fn exceptions_are_explicit_and_old_profiles_refuse_them() {
-        let any = parse_strict_gssh4("@ontology demo { @persistence { cache_targets: null; } @cell root { id: \"root\"; } }").unwrap();
+        let any = parse_strict_gssh4(
+            "@ontology demo { @persistence { cache_targets: null; } @cell root { id: \"root\"; } }",
+        )
+        .unwrap();
         assert!(any.declarations.platform_exceptions.is_empty());
         let parsed = parse_strict_gssh4(SCENE).unwrap();
         assert_eq!(parsed.declarations.platform_exceptions.len(), 7);
-        assert_eq!(parsed.declarations.platform_exceptions[1].options, ["remote", "keyboard"]);
-        assert_eq!(parsed.declarations.platform_exceptions[6].use_kind, PlatformUse::Cede);
+        assert_eq!(
+            parsed.declarations.platform_exceptions[1].options,
+            ["remote", "keyboard"]
+        );
+        assert_eq!(
+            parsed.declarations.platform_exceptions[6].use_kind,
+            PlatformUse::Cede
+        );
         assert!(parse(SCENE).is_err());
         assert_eq!(parse_strict_gssh3(SCENE).unwrap_err().code, "GY-E1015");
         assert_eq!(parse_strict_gssh3_live(SCENE).unwrap_err().code, "GY-E1015");
         let neutral = SCENE.replace("@platform android_tv {", "@platform webos {");
-        assert_eq!(parse_strict_gssh4(&neutral).unwrap().declarations.platform_exceptions[0].platform, "webos");
+        assert_eq!(
+            parse_strict_gssh4(&neutral)
+                .unwrap()
+                .declarations
+                .platform_exceptions[0]
+                .platform,
+            "webos"
+        );
         let live = "@ontology demo { @persistence { cache_targets: null; } @state { label: text = \"x\" session; } @cell root { id: \"root\"; text-from: state.label; } }";
         assert_eq!(parse_strict_gssh4(live).unwrap_err().code, "GY-E1012");
         // GSSH/4-live admits both (decision D12); GSSH/3-live still refuses
@@ -66,17 +84,36 @@ mod platform_policy_tests {
         assert_eq!(both.scene.root.text_from.as_deref(), Some("label"));
         assert_eq!(both.declarations.persistence_cache_targets, Some(None));
         assert_eq!(parse_strict_gssh3_live(live).unwrap_err().code, "GY-E1015");
-        assert_eq!(parse_strict_gssh4_live(SCENE).unwrap().declarations.platform_exceptions.len(), 7);
+        assert_eq!(
+            parse_strict_gssh4_live(SCENE)
+                .unwrap()
+                .declarations
+                .platform_exceptions
+                .len(),
+            7
+        );
         let unbound = live.replace("state.label", "state.missing");
-        assert_eq!(parse_strict_gssh4_live(&unbound).unwrap_err().code, "GY-E1013");
+        assert_eq!(
+            parse_strict_gssh4_live(&unbound).unwrap_err().code,
+            "GY-E1013"
+        );
     }
 
     #[test]
     fn exceptions_require_distinct_options_and_unique_scope() {
         for bad in [
-            SCENE.replace("choice-use(\"remote\", \"keyboard\")", "choice-use(\"remote\")"),
-            SCENE.replace("fallbacks(\"ethernet\", \"wifi\")", "fallbacks(\"ethernet\")"),
-            SCENE.replace("choice-use(\"remote\", \"keyboard\")", "choice-use(\"remote\", \"remote\")"),
+            SCENE.replace(
+                "choice-use(\"remote\", \"keyboard\")",
+                "choice-use(\"remote\")",
+            ),
+            SCENE.replace(
+                "fallbacks(\"ethernet\", \"wifi\")",
+                "fallbacks(\"ethernet\")",
+            ),
+            SCENE.replace(
+                "choice-use(\"remote\", \"keyboard\")",
+                "choice-use(\"remote\", \"remote\")",
+            ),
             SCENE.replace("\"gestures\": cede;", "\"media\": cede;"),
         ] {
             assert_eq!(parse_strict_gssh4(&bad).unwrap_err().code, "GY-E1000");
@@ -203,7 +240,9 @@ impl MigrationRule {
 }
 
 /// Platform keys `@persistence` accepts.
-const PERSISTENCE_PLATFORMS: &[&str] = &["android", "ios", "macos", "windows", "linux", "browser"];
+const PERSISTENCE_PLATFORMS: &[&str] = &[
+    "android", "ios", "macos", "windows", "linux", "browser", "webos",
+];
 
 /// `@iden` keys later profiles may define (decision D14). Accepted by the
 /// parser with a text value and refused by strict admission (`GY-E1017`).
@@ -231,6 +270,17 @@ pub enum PlatformUse {
     MustUse,
     Invade,
     Cede,
+}
+
+/// One `@desktop` block (decision D16). Absence on [`Declarations`] means the
+/// author omitted it; the resolved desktop is still fullscreen.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DesktopDecl {
+    pub state: Option<DesktopState>,
+    pub position: Option<DesktopPosition>,
+    pub extent_dip: Option<(i32, i32)>,
+    pub controls: Option<ChromeChoice>,
+    pub range: SourceRange,
 }
 
 /// A target compiler must resolve this rule for its own platform or refuse it.
@@ -262,6 +312,28 @@ pub struct Declarations {
     pub persistence_migration: Option<MigrationRule>,
     /// Absence means platform `any`; exceptions never change other targets.
     pub platform_exceptions: Vec<PlatformException>,
+    /// GSSH/4 `@desktop`. `None` is the enforced default: fullscreen.
+    pub desktop: Option<DesktopDecl>,
+    /// `@graphic` declarations (live profiles only).
+    pub graphics: Vec<crate::graphic::GraphicDecl>,
+}
+
+impl Declarations {
+    /// Initial desktop after GSSH/4 admission. Omission resolves to fullscreen
+    /// with plain chrome. A loose parse can hold a combination strict
+    /// admission rejects; this returns that fault instead of guessing.
+    pub fn resolved_desktop(&self) -> Result<desktop::ResolvedDesktop, DesktopFault> {
+        match &self.desktop {
+            None => desktop::resolve(false, None, None, None, None),
+            Some(decl) => desktop::resolve(
+                true,
+                decl.state,
+                decl.position,
+                decl.extent_dip,
+                decl.controls.as_ref(),
+            ),
+        }
+    }
 }
 
 /// A construct accepted for legacy compatibility but rejected by strict
@@ -288,11 +360,17 @@ impl fmt::Display for StrictParseError {
             "GY-E1009" => "absolute length in a proportional profile",
             "GY-E1010" => "intent declaration requires intent admission",
             "GY-E1011" => "invalid intent declaration",
-            "GY-E1012" => "live binding requires a live profile (GSSH/3-live or GSSH/4-live)",
+            "GY-E1012" => {
+                "live binding requires a live profile (GSSH/3-live, GSSH/4-live or GSSH/5-live)"
+            }
             "GY-E1013" => "invalid live binding",
             "GY-E1014" => "invalid persistence cache targets",
             "GY-E1015" => "declaration requires GSSH/4 admission",
             "GY-E1017" => "invalid accessible identity",
+            "GY-E1018" => "invalid desktop declaration",
+            "GY-E1019" => "invalid static phrasing",
+            "GY-E1020" => "chromatics declaration requires chromatics admission",
+            "GY-E1021" => "invalid chromatics declaration",
             _ => "strict parsing failed",
         };
         write!(f, "{}: {} '{}'", self.code, description, self.name)
@@ -305,15 +383,31 @@ impl std::error::Error for StrictParseError {}
 pub fn parse(source: &str) -> Result<Scene, ParseError> {
     let parsed = parse_with_source_map(source)?;
     // The compatibility API returns only Scene and would discard policy.
-    // Refuse instead of silently dropping a platform exception.
-    if let Some(rule) = parsed.declarations.platform_exceptions.first() {
+    // Refuse instead of silently dropping a platform exception, a desktop,
+    // a graphic the layout pass does not paint, or a phrase layout cannot
+    // select a class for.
+    let dropped = parsed
+        .declarations
+        .platform_exceptions
+        .first()
+        .map(|rule| rule.range)
+        .or_else(|| {
+            parsed
+                .declarations
+                .desktop
+                .as_ref()
+                .map(|desktop| desktop.range)
+        })
+        .or_else(|| first_extended_live(&parsed))
+        .or_else(|| first_phrasing_range(&parsed.scene.root));
+    if let Some(range) = dropped {
         return Err(ParseError {
-            line: source[..rule.range.start]
+            line: source[..range.start]
                 .bytes()
                 .filter(|byte| *byte == b'\n')
                 .count()
                 + 1,
-            range: rule.range,
+            range,
         });
     }
     Ok(parsed.scene)
@@ -338,6 +432,7 @@ pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
         i: 0,
         interactions: Vec::new(),
         intents: Vec::new(),
+        chromatics: None,
         entries: Vec::new(),
         source_len: source.len(),
         anchor: 0,
@@ -346,6 +441,8 @@ pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
         persistence_cache_targets: None,
         persistence_migration: None,
         platform_exceptions: Vec::new(),
+        desktop: None,
+        graphics: Vec::new(),
         bindings: Vec::new(),
         state_uses: Vec::new(),
         input_keys: Vec::new(),
@@ -396,6 +493,13 @@ pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
         && root.wrap.is_none()
         && root.gestures.is_none()
         && root.text_from.is_none()
+        && root.fill_to.is_none()
+        && root.present_when.is_none()
+        && root.appear_s.is_none()
+        && root.appear_from_p.is_none()
+        && root.draw.is_none()
+        && root.text_phrasing.is_none()
+        && root.placeholder_phrasing.is_none()
         && !root.scroll
         && !root.is_input;
     if collapse_root {
@@ -436,7 +540,10 @@ pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
                 path.remove(0);
             }
             entry.scene_path = Some(path);
-        } else if matches!(entry.kind.as_str(), "property" | "gestures" | "iden") {
+        } else if matches!(
+            entry.kind.as_str(),
+            "property" | "gestures" | "iden" | "draw"
+        ) {
             let mut path = stack
                 .last()
                 .map(|(_, path, _)| path.clone())
@@ -478,6 +585,7 @@ pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
             root,
             interactions: p.interactions,
             intents: p.intents,
+            chromatics: p.chromatics,
         },
         entries: p.entries,
         source_digest,
@@ -489,6 +597,8 @@ pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
             persistence_cache_targets: p.persistence_cache_targets,
             persistence_migration: p.persistence_migration,
             platform_exceptions: p.platform_exceptions,
+            desktop: p.desktop,
+            graphics: p.graphics,
         },
     })
 }
@@ -517,31 +627,61 @@ enum Profile {
     Gssh2,
     Gssh3,
     /// GSSH/3 plus live bindings. Proposed; admitted only by consumers that
-    /// render state. This branch carries only `text-from` from the
-    /// Arachnid proposal (`image-from`, `present-when`, `host` state and
-    /// `@link` are not here yet and stay unknown).
+    /// render state. This branch carries `text-from`, `present-when`,
+    /// `fill-to` and `@graphic` / `@draw`. `image-from`, `host` state and
+    /// `@link` are not here yet and stay unknown.
     Gssh3Live,
-    /// GSSH/3 plus `@platform` exceptions and `@persistence` targets
-    /// (decisions D10, D11). Live bindings stay gated by the live profiles.
+    /// GSSH/3 plus `@platform`, `@persistence`, `@iden` and `@desktop`
+    /// (decisions D10, D11, D14, D16). Live bindings stay gated by the live profiles.
     Gssh4,
     /// GSSH/4 plus live bindings (decision D12): `text-from` together with
-    /// `@platform` and `@persistence`.
+    /// the GSSH/4 declarations.
     Gssh4Live,
+    /// GSSH/4 plus enforced static phrasing (decision D17). Candidate.
+    Gssh5,
+    /// GSSH/5 plus the live bindings of GSSH/4-live.
+    Gssh5Live,
 }
 
 impl Profile {
     /// Admits live bindings (`text-from`).
     fn live(self) -> bool {
-        matches!(self, Self::Gssh3Live | Self::Gssh4Live)
+        matches!(self, Self::Gssh3Live | Self::Gssh4Live | Self::Gssh5Live)
     }
-    /// Admits GSSH/4 declarations (`@platform`, `@persistence`).
+    /// Admits GSSH/4 declarations (`@platform`, `@persistence`, `@iden`, `@desktop`).
+    /// GSSH/5 includes those declarations.
     fn gssh4(self) -> bool {
-        matches!(self, Self::Gssh4 | Self::Gssh4Live)
+        matches!(
+            self,
+            Self::Gssh4 | Self::Gssh4Live | Self::Gssh5 | Self::Gssh5Live
+        )
+    }
+    /// Admits static phrasing (`@universal` and the class specifiers).
+    fn gssh5(self) -> bool {
+        matches!(self, Self::Gssh5 | Self::Gssh5Live)
     }
 }
 
 /// Properties only GSSH/3 live admission accepts.
-const LIVE_PROPERTIES: &[&str] = &["text_from"];
+const LIVE_PROPERTIES: &[&str] = &[
+    "text_from",
+    "present_when",
+    "fill_to",
+    "fill_period_s",
+    "appear_s",
+    "appear_from_p",
+];
+
+/// Shortest fill cross-fade, in seconds.
+pub const MIN_ANIMATION_PERIOD_S: f64 = 1.0;
+/// Longest fill cross-fade, in seconds.
+pub const MAX_ANIMATION_PERIOD_S: f64 = 3600.0;
+/// Bounds of an `appear-s` duration, in seconds. A single fade-in is not a
+/// repeating flash, so it may be shorter than an ambient period.
+pub const MIN_APPEAR_S: f64 = 0.1;
+pub const MAX_APPEAR_S: f64 = 2.0;
+/// Largest `appear-from-p` offset component, as a fraction of the parent.
+pub const MAX_APPEAR_FRACTION: f64 = 0.5;
 
 /// Length properties GSSH/3 requires to be proportional, by canonical name,
 /// with their proportional replacement.
@@ -584,6 +724,7 @@ pub fn parse_strict_gssh3_live(source: &str) -> Result<ParsedScene, StrictParseE
 pub fn parse_strict_gssh4(source: &str) -> Result<ParsedScene, StrictParseError> {
     let parsed = strict(source, Profile::Gssh4)?;
     validate_idens(&parsed)?;
+    validate_desktop(&parsed)?;
     validate_declarations(&parsed)?;
     reject_absolute_lengths(&parsed)?;
     Ok(parsed)
@@ -595,6 +736,34 @@ pub fn parse_strict_gssh4(source: &str) -> Result<ParsedScene, StrictParseError>
 pub fn parse_strict_gssh4_live(source: &str) -> Result<ParsedScene, StrictParseError> {
     let parsed = strict(source, Profile::Gssh4Live)?;
     validate_idens(&parsed)?;
+    validate_desktop(&parsed)?;
+    let bound_keys = validate_live(&parsed)?;
+    validate_declarations_with(&parsed, Some(&bound_keys))?;
+    reject_absolute_lengths(&parsed)?;
+    Ok(parsed)
+}
+
+/// Strict GSSH/5 admission (decision D17, Candidate): everything
+/// [`parse_strict_gssh4`] admits and checks, plus enforced static phrasing.
+/// A bare string on `text`, `placeholder`, or an `@iden` label or hint is
+/// `GY-E1019`. Live bindings stay on [`parse_strict_gssh5_live`].
+pub fn parse_strict_gssh5(source: &str) -> Result<ParsedScene, StrictParseError> {
+    let parsed = strict(source, Profile::Gssh5)?;
+    validate_phrasing(&parsed)?;
+    validate_idens(&parsed)?;
+    validate_desktop(&parsed)?;
+    validate_declarations(&parsed)?;
+    reject_absolute_lengths(&parsed)?;
+    Ok(parsed)
+}
+
+/// Strict GSSH/5 live admission: GSSH/5 plus the live bindings of
+/// [`parse_strict_gssh4_live`]. `text-from` is data, not a phrasing site.
+pub fn parse_strict_gssh5_live(source: &str) -> Result<ParsedScene, StrictParseError> {
+    let parsed = strict(source, Profile::Gssh5Live)?;
+    validate_phrasing(&parsed)?;
+    validate_idens(&parsed)?;
+    validate_desktop(&parsed)?;
     let bound_keys = validate_live(&parsed)?;
     validate_declarations_with(&parsed, Some(&bound_keys))?;
     reject_absolute_lengths(&parsed)?;
@@ -627,10 +796,15 @@ fn validate_idens(parsed: &ParsedScene) -> Result<(), StrictParseError> {
             declaration_error(
                 "GY-E1017",
                 message,
-                range.or(element).unwrap_or(SourceRange { start: 0, end: 0 }),
+                range
+                    .or(element)
+                    .unwrap_or(SourceRange { start: 0, end: 0 }),
             )
         };
-        let name = cell.authored_id.clone().unwrap_or_else(|| cell.name.clone());
+        let name = cell
+            .authored_id
+            .clone()
+            .unwrap_or_else(|| cell.name.clone());
         match &cell.iden {
             None if cell.kind == CellKind::Input => {
                 return Err(error(
@@ -653,10 +827,26 @@ fn validate_idens(parsed: &ParsedScene) -> Result<(), StrictParseError> {
                         Some(*range),
                     ));
                 }
-                for (what, text, limit) in [
-                    ("label", Some(&iden.label), MAX_IDEN_LABEL_BYTES),
-                    ("hint", iden.hint.as_ref(), MAX_IDEN_HINT_BYTES),
+                for (what, text, phrased, limit) in [
+                    (
+                        "label",
+                        Some(&iden.label),
+                        iden.label_phrasing.is_some(),
+                        MAX_IDEN_LABEL_BYTES,
+                    ),
+                    (
+                        "hint",
+                        iden.hint.as_ref(),
+                        iden.hint_phrasing.is_some(),
+                        MAX_IDEN_HINT_BYTES,
+                    ),
                 ] {
+                    // GSSH/5 stores the sentences on the phrasing fields and
+                    // leaves the shared string empty. Those sentences are
+                    // checked by `validate_phrasing`.
+                    if phrased {
+                        continue;
+                    }
                     let Some(text) = text else { continue };
                     if text.trim().is_empty() {
                         return Err(error(format!("@iden {what} of '{name}' is blank"), at));
@@ -771,10 +961,123 @@ fn validate_live(
             }
             bound_keys.insert(key.clone());
         }
+        let find = |key: &str| decls.iter().find(|d| d.key == key);
+        let period_ok = |p: f64| {
+            p.is_finite() && (MIN_ANIMATION_PERIOD_S..=MAX_ANIMATION_PERIOD_S).contains(&p)
+        };
+        match (cell.fill_to, cell.fill_period_s) {
+            (None, None) => {}
+            (Some(_), Some(p)) if cell.fill.is_some() && period_ok(p) => {}
+            _ => {
+                return Err(bad(
+                    format!(
+                        "fill-to needs fill and fill-period-s between {MIN_ANIMATION_PERIOD_S} and {MAX_ANIMATION_PERIOD_S} seconds, and the reverse"
+                    ),
+                    property_range(
+                        path,
+                        if cell.fill_to.is_some() {
+                            "fill_to"
+                        } else {
+                            "fill_period_s"
+                        },
+                    ),
+                ))
+            }
+        }
+        if let Some(condition) = &cell.present_when {
+            let literal_type = match condition.value {
+                InteractionValue::Int(_) => InteractionType::Int,
+                InteractionValue::Text(_) => InteractionType::Text,
+                InteractionValue::Bool(_) => InteractionType::Bool,
+            };
+            if condition.op == ConditionOp::AtLeast && literal_type != InteractionType::Int {
+                return Err(bad(
+                    format!(
+                        "present-when {} at-least needs an int literal",
+                        condition.key
+                    ),
+                    property_range(path, "present_when"),
+                ));
+            }
+            match find(&condition.key) {
+                Some(d) if d.value_type == literal_type => {}
+                _ => {
+                    return Err(bad(
+                        format!(
+                            "present-when compares '{}' with a literal of another type or an undeclared key",
+                            condition.key
+                        ),
+                        property_range(path, "present_when"),
+                    ))
+                }
+            }
+            bound_keys.insert(condition.key.clone());
+        }
+        let appear_ok = |s: f64| s.is_finite() && (MIN_APPEAR_S..=MAX_APPEAR_S).contains(&s);
+        match (cell.appear_s, cell.appear_from_p) {
+            (None, None) => {}
+            (Some(s), None) if appear_ok(s) => {}
+            (Some(s), Some(v))
+                if appear_ok(s)
+                    && [v.x, v.y]
+                        .iter()
+                        .all(|f| f.is_finite() && f.abs() <= MAX_APPEAR_FRACTION)
+                    && v.z == 0.0 => {}
+            _ => {
+                return Err(bad(
+                    format!(
+                        "appear-s must lie in [{MIN_APPEAR_S}, {MAX_APPEAR_S}] seconds; appear-from-p needs appear-s, fractions within ±{MAX_APPEAR_FRACTION} and z = 0"
+                    ),
+                    property_range(
+                        path,
+                        if cell.appear_from_p.is_some() {
+                            "appear_from_p"
+                        } else {
+                            "appear_s"
+                        },
+                    ),
+                ))
+            }
+        }
         Ok(())
     };
     walk(&parsed.scene.root, &mut Vec::new(), &mut check)?;
+    let condition_ok = |c: &Condition| {
+        let literal_type = match c.value {
+            InteractionValue::Int(_) => InteractionType::Int,
+            InteractionValue::Text(_) => InteractionType::Text,
+            InteractionValue::Bool(_) => InteractionType::Bool,
+        };
+        (c.op == ConditionOp::Is || literal_type == InteractionType::Int)
+            && decls
+                .iter()
+                .any(|d| d.key == c.key && d.value_type == literal_type)
+    };
+    let draw_keys = crate::graphic::validate(
+        &parsed.declarations.graphics,
+        &parsed.scene.root,
+        &condition_ok,
+    )
+    .map_err(|(message, range)| bad(message, range))?;
+    bound_keys.extend(draw_keys);
     Ok(bound_keys)
+}
+
+/// The first `@graphic`, `@draw`, `present-when` or `fill-to` in source
+/// order. Live profiles admit these; every other consumer refuses them
+/// rather than painting a scene that ignores them.
+pub fn first_extended_live(parsed: &ParsedScene) -> Option<SourceRange> {
+    parsed.entries.iter().find_map(|entry| {
+        let hit = match entry.kind.as_str() {
+            "graphic" | "draw" => true,
+            "property" => matches!(
+                entry.name.replace('-', "_").as_str(),
+                "present_when" | "fill_to" | "fill_period_s" | "appear_s" | "appear_from_p"
+            ),
+            _ => false,
+        };
+        hit.then_some(entry.range)
+    })
 }
 
 /// Strict GSSH/2 admission: everything [`parse_strict`] admits and checks,
@@ -798,6 +1101,9 @@ fn strict(source: &str, profile: Profile) -> Result<ParsedScene, StrictParseErro
     let mut properties = std::collections::BTreeSet::new();
     for entry in &parsed.entries {
         let unsupported = match entry.kind.as_str() {
+            // `placeholder` is a GSSH/5 phrasing site. Earlier strict
+            // profiles keep the compatibility-only refusal.
+            "property" if entry.name == "placeholder" && !profile.gssh5() => Some("GY-E1001"),
             "property" if !is_known_property(&entry.name) => Some("GY-E1001"),
             "template" => Some("GY-E1002"),
             "state" | "binding" if profile == Profile::Gssh1 => Some("GY-E1006"),
@@ -807,12 +1113,17 @@ fn strict(source: &str, profile: Profile) -> Result<ParsedScene, StrictParseErro
             {
                 Some("GY-E1012")
             }
+            "graphic" | "draw" if !profile.live() => Some("GY-E1012"),
             // Intent declarations are Quitasol phase-0 experimental surface.
             // No strict GSSH consumer implements them, so none may admit one.
             "intent" => Some("GY-E1010"),
+            // Chromatics declarations are GY-CHROMATICS/0.1 draft surface.
+            // No strict GSSH consumer implements adaptive input allocation,
+            // so none may admit one until the contract is ratified.
+            "chromatics" => Some("GY-E1020"),
             // GSSH/4 declarations: earlier profiles refuse them rather than
             // drop them (decision D11 keeps approved profiles unchanged).
-            "platform" | "persistence" | "iden" if !profile.gssh4() => Some("GY-E1015"),
+            "platform" | "persistence" | "iden" | "desktop" if !profile.gssh4() => Some("GY-E1015"),
             // Proportional text and stroke lengths are GSSH/3 only, so older
             // consumers never receive a length they would ignore.
             "property"
@@ -864,6 +1175,13 @@ fn strict(source: &str, profile: Profile) -> Result<ParsedScene, StrictParseErro
         && root.wrap.is_none()
         && root.gestures.is_none()
         && root.text_from.is_none()
+        && root.fill_to.is_none()
+        && root.present_when.is_none()
+        && root.appear_s.is_none()
+        && root.appear_from_p.is_none()
+        && root.draw.is_none()
+        && root.text_phrasing.is_none()
+        && root.placeholder_phrasing.is_none()
         && !root.scroll
         && !root.is_input
         && root.children.len() > 1;
@@ -944,7 +1262,176 @@ fn strict(source: &str, profile: Profile) -> Result<ParsedScene, StrictParseErro
                 .unwrap_or(SourceRange { start: 0, end: 0 }),
         });
     }
+    if !profile.gssh5() {
+        if let Some(range) = first_phrasing_range(&parsed.scene.root) {
+            return Err(StrictParseError {
+                code: "GY-E1019",
+                name: "phrasing requires GSSH/5".into(),
+                range,
+            });
+        }
+    }
     Ok(parsed)
+}
+
+/// Earliest static phrasing value in the tree. Layout has no platform
+/// class, so a compatibility scene must not carry one silently.
+fn first_phrasing_range(cell: &SceneCell) -> Option<SourceRange> {
+    let mut best: Option<SourceRange> = None;
+    fn consider(best: &mut Option<SourceRange>, phrasing: &Phrasing) {
+        if best
+            .map(|range| phrasing.range.start < range.start)
+            .unwrap_or(true)
+        {
+            *best = Some(phrasing.range);
+        }
+    }
+    fn walk(cell: &SceneCell, best: &mut Option<SourceRange>) {
+        if let Some(phrasing) = &cell.text_phrasing {
+            consider(best, phrasing);
+        }
+        if let Some(phrasing) = &cell.placeholder_phrasing {
+            consider(best, phrasing);
+        }
+        if let Some(iden) = &cell.iden {
+            if let Some(phrasing) = &iden.label_phrasing {
+                consider(best, phrasing);
+            }
+            if let Some(phrasing) = &iden.hint_phrasing {
+                consider(best, phrasing);
+            }
+        }
+        for child in &cell.children {
+            walk(child, best);
+        }
+    }
+    walk(cell, &mut best);
+    best
+}
+
+/// GSSH/5 (decision D17): every static sentence names its classes.
+fn validate_phrasing(parsed: &ParsedScene) -> Result<(), StrictParseError> {
+    fn property_range(parsed: &ParsedScene, path: &[usize], name: &str) -> SourceRange {
+        parsed
+            .entries
+            .iter()
+            .find(|entry| {
+                entry.kind == "property"
+                    && entry.name.replace('-', "_") == name
+                    && entry.scene_path.as_deref() == Some(path)
+            })
+            .map_or(SourceRange { start: 0, end: 0 }, |entry| entry.range)
+    }
+    fn phrase_fault(phrasing: &Phrasing, limit: usize) -> Option<String> {
+        for (specifier, text) in [
+            ("@universal", phrasing.universal.as_deref()),
+            ("@desktop", phrasing.desktop.as_deref()),
+            ("@mobile", phrasing.mobile.as_deref()),
+            ("@tv", phrasing.tv.as_deref()),
+            ("@web", phrasing.web.as_deref()),
+        ] {
+            let Some(text) = text else { continue };
+            if text.trim().is_empty() {
+                return Some(format!("{specifier} phrase is blank"));
+            }
+            if text.chars().any(char::is_control) {
+                return Some(format!("{specifier} phrase contains a control character"));
+            }
+            if text.len() > limit {
+                return Some(format!(
+                    "{specifier} phrase is above {limit} bytes of UTF-8"
+                ));
+            }
+        }
+        phrasing
+            .missing_class()
+            .map(|class| format!("has no phrase for {}", class.specifier()))
+    }
+    fn require(
+        what: &str,
+        name: &str,
+        bare: bool,
+        phrasing: Option<&Phrasing>,
+        limit: usize,
+        bare_range: SourceRange,
+    ) -> Result<(), StrictParseError> {
+        match phrasing {
+            None if bare => Err(declaration_error(
+                "GY-E1019",
+                format!("{what} of '{name}' is not phrased"),
+                bare_range,
+            )),
+            None => Ok(()),
+            Some(phrasing) => match phrase_fault(phrasing, limit) {
+                Some(fault) => Err(declaration_error(
+                    "GY-E1019",
+                    format!("{what} of '{name}' {fault}"),
+                    phrasing.range,
+                )),
+                None => Ok(()),
+            },
+        }
+    }
+    fn walk(
+        parsed: &ParsedScene,
+        cell: &SceneCell,
+        path: &mut Vec<usize>,
+    ) -> Result<(), StrictParseError> {
+        let name = cell
+            .authored_id
+            .clone()
+            .unwrap_or_else(|| cell.name.clone());
+        require(
+            "text",
+            &name,
+            cell.text.is_some(),
+            cell.text_phrasing.as_ref(),
+            MAX_PHRASE_TEXT_BYTES,
+            property_range(parsed, path, "text"),
+        )?;
+        require(
+            "placeholder",
+            &name,
+            cell.placeholder.is_some(),
+            cell.placeholder_phrasing.as_ref(),
+            MAX_PHRASE_TEXT_BYTES,
+            property_range(parsed, path, "placeholder"),
+        )?;
+        if let Some(iden) = &cell.iden {
+            let iden_range = parsed
+                .entries
+                .iter()
+                .find(|entry| {
+                    entry.kind == "iden" && entry.scene_path.as_deref() == Some(path.as_slice())
+                })
+                .map_or(SourceRange { start: 0, end: 0 }, |entry| entry.range);
+            require(
+                "@iden label",
+                &name,
+                iden.label_phrasing.is_none(),
+                iden.label_phrasing.as_ref(),
+                MAX_IDEN_LABEL_BYTES,
+                iden_range,
+            )?;
+            require(
+                "@iden hint",
+                &name,
+                iden.hint.is_some(),
+                iden.hint_phrasing.as_ref(),
+                MAX_IDEN_HINT_BYTES,
+                iden_range,
+            )?;
+        }
+        for (index, child) in cell.children.iter().enumerate() {
+            path.push(index);
+            walk(parsed, child, path)?;
+            path.pop();
+        }
+        Ok(())
+    }
+    // The scene root is path `[]`. A multi-cell ontology addresses its
+    // children from that same root, which matches the stored entry paths.
+    walk(parsed, &parsed.scene.root, &mut Vec::new())
 }
 
 /// `0`, or an optional `-` and a digit string without a leading zero.
@@ -959,6 +1446,19 @@ pub(crate) fn is_canonical_decimal(text: &str) -> bool {
 
 fn declaration_error(code: &'static str, name: String, range: SourceRange) -> StrictParseError {
     StrictParseError { code, name, range }
+}
+
+/// GSSH/4 desktop combinations (decision D16). Syntax stays `GY-E1000`;
+/// these rules are `GY-E1018` and are not applied by the loose parser.
+fn validate_desktop(parsed: &ParsedScene) -> Result<(), StrictParseError> {
+    let Some(decl) = &parsed.declarations.desktop else {
+        return Ok(());
+    };
+    parsed
+        .declarations
+        .resolved_desktop()
+        .map(|_| ())
+        .map_err(|fault| declaration_error("GY-E1018", fault.message(), decl.range))
 }
 
 fn validate_declarations(parsed: &ParsedScene) -> Result<(), StrictParseError> {
@@ -1179,8 +1679,19 @@ fn is_known_property(name: &str) -> bool {
             | "text-anchor"
             | "text_anchor"
             | "id"
+            | "placeholder"
             | "text-from"
             | "text_from"
+            | "present-when"
+            | "present_when"
+            | "fill-to"
+            | "fill_to"
+            | "fill-period-s"
+            | "fill_period_s"
+            | "appear-s"
+            | "appear_s"
+            | "appear-from-p"
+            | "appear_from_p"
     )
 }
 
@@ -1232,11 +1743,41 @@ fn validate_authored_ids(
     None
 }
 
+struct DesktopBody {
+    state: Option<DesktopState>,
+    position: Option<DesktopPosition>,
+    extent_dip: Option<(i32, i32)>,
+    controls: Option<ChromeChoice>,
+}
+
+/// Canonical DIP integer text. `signed` allows a leading minus, never `+` or `-0`.
+fn canonical_dip(text: &str, signed: bool) -> bool {
+    let digits = if let Some(rest) = text.strip_prefix('-') {
+        if !signed {
+            return false;
+        }
+        rest
+    } else {
+        text
+    };
+    if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+        return false;
+    }
+    if digits.len() > 1 && digits.starts_with('0') {
+        return false;
+    }
+    if text.starts_with('-') && digits == "0" {
+        return false;
+    }
+    true
+}
+
 struct P {
     tokens: Vec<Token>,
     i: usize,
     interactions: Vec<InteractionDecl>,
     intents: Vec<IntentDecl>,
+    chromatics: Option<ChromaticsDecl>,
     entries: Vec<SourceEntry>,
     source_len: usize,
     /// Start of the construct currently being parsed; diagnostics span from
@@ -1248,6 +1789,8 @@ struct P {
     persistence_cache_targets: Option<Option<BTreeMap<String, String>>>,
     persistence_migration: Option<MigrationRule>,
     platform_exceptions: Vec<PlatformException>,
+    desktop: Option<DesktopDecl>,
+    graphics: Vec<crate::graphic::GraphicDecl>,
     bindings: Vec<InputBinding>,
     state_uses: Vec<KeyUse>,
     input_keys: Vec<KeyUse>,
@@ -1359,15 +1902,23 @@ impl P {
             stroke: None,
             stroke_width: None,
             text: None,
+            text_phrasing: None,
             text_size: None,
             anchor: None,
             wrap: None,
             scroll: false,
             gestures: None,
             text_from: None,
+            present_when: None,
+            fill_to: None,
+            fill_period_s: None,
+            appear_s: None,
+            appear_from_p: None,
+            draw: None,
             iden: None,
             children: Vec::new(),
             placeholder: None,
+            placeholder_phrasing: None,
             max_length: None,
         };
         if self.depth >= MAX_CELL_DEPTH {
@@ -1448,6 +1999,28 @@ impl P {
                             });
                             self.intents.push(intent);
                         }
+                        "chromatics" => {
+                            // Draft GY-CHROMATICS/0.1 surface: ontology body
+                            // only, at most once per scene. Semantic input
+                            // allocation is scene-level until views exist.
+                            if self.depth != 1 || self.chromatics.is_some() {
+                                return Err(self.err_prev());
+                            }
+                            let name = self.expect_ident()?;
+                            let decl = self.parse_chromatics(name)?;
+                            self.entries.push(SourceEntry {
+                                kind: word.clone(),
+                                name: decl.name.clone(),
+                                scene_path: None,
+                                semantic_id: None,
+                                range: SourceRange {
+                                    start: tok.byte_start,
+                                    end: self.tokens[self.i - 1].byte_end,
+                                },
+                                source_digest: [0; 32],
+                            });
+                            self.chromatics = Some(decl);
+                        }
                         "state" => {
                             // GSSH/2 state declarations live only in the
                             // ontology body, at most once.
@@ -1489,17 +2062,98 @@ impl P {
                             });
                             self.persistence_cache_targets = Some(targets);
                         }
+                        "desktop" => {
+                            if self.depth != 1 || self.desktop.is_some() {
+                                return Err(self.err_prev());
+                            }
+                            let body = self.parse_desktop_block()?;
+                            let range = SourceRange {
+                                start: tok.byte_start,
+                                end: self.tokens[self.i - 1].byte_end,
+                            };
+                            self.entries.push(SourceEntry {
+                                kind: "desktop".into(),
+                                name: "desktop".into(),
+                                scene_path: None,
+                                semantic_id: None,
+                                range,
+                                source_digest: [0; 32],
+                            });
+                            self.desktop = Some(DesktopDecl {
+                                state: body.state,
+                                position: body.position,
+                                extent_dip: body.extent_dip,
+                                controls: body.controls,
+                                range,
+                            });
+                        }
+                        "graphic" => {
+                            if self.depth != 1 {
+                                return Err(self.err_prev());
+                            }
+                            let name = self.expect_ident()?;
+                            let mut g = self.parse_graphic(name)?;
+                            let range = SourceRange {
+                                start: tok.byte_start,
+                                end: self.tokens[self.i - 1].byte_end,
+                            };
+                            g.range = range;
+                            self.entries.push(SourceEntry {
+                                kind: "graphic".into(),
+                                name: g.name.clone(),
+                                scene_path: None,
+                                semantic_id: g.authored_id.clone(),
+                                range,
+                                source_digest: [0; 32],
+                            });
+                            self.graphics.push(g);
+                        }
+                        "draw" => {
+                            if self.depth == 1 || cell.draw.is_some() {
+                                return Err(self.err_prev());
+                            }
+                            let graphic = self.expect_ident()?;
+                            let mut d = self.parse_draw(graphic)?;
+                            let range = SourceRange {
+                                start: tok.byte_start,
+                                end: self.tokens[self.i - 1].byte_end,
+                            };
+                            d.range = range;
+                            self.entries.push(SourceEntry {
+                                kind: "draw".into(),
+                                name: d.graphic.clone(),
+                                scene_path: None,
+                                semantic_id: None,
+                                range,
+                                source_digest: [0; 32],
+                            });
+                            cell.draw = Some(d);
+                        }
                         "platform" => {
                             if self.depth != 1 {
                                 return Err(self.err_prev());
                             }
                             let platform = self.expect_ident()?;
-                            if !matches!(platform.as_str(), "android" | "ios" | "macos" | "windows" | "linux" | "browser" | "webos" | "android_tv" | "tvos") {
+                            if !matches!(
+                                platform.as_str(),
+                                "android"
+                                    | "ios"
+                                    | "macos"
+                                    | "windows"
+                                    | "linux"
+                                    | "browser"
+                                    | "webos"
+                                    | "android_tv"
+                                    | "tvos"
+                            ) {
                                 return Err(self.err_prev());
                             }
                             let exceptions = self.parse_platform_block(&platform)?;
                             for exception in exceptions {
-                                if self.platform_exceptions.iter().any(|previous| previous.platform == exception.platform && previous.feature == exception.feature) {
+                                if self.platform_exceptions.iter().any(|previous| {
+                                    previous.platform == exception.platform
+                                        && previous.feature == exception.feature
+                                }) {
                                     return Err(self.err_prev());
                                 }
                                 self.entries.push(SourceEntry {
@@ -1929,6 +2583,271 @@ impl P {
         })
     }
 
+    /// `{ strategy … candidate Name { … } }` after `@chromatics`. The schema
+    /// is closed: an unknown key, a repeated key or an unknown keyword is a
+    /// parse error, never a defaulted field (§12: fail-closed declarations).
+    fn parse_chromatics(&mut self, name: String) -> Result<ChromaticsDecl, ParseError> {
+        let start = self.anchor;
+        self.expect(TokenKind::LBrace)?;
+        let mut primary: Option<Strategy> = None;
+        let mut fallback: Option<Strategy> = None;
+        let mut preserve_slots: Option<bool> = None;
+        let mut ordered_slots: Option<bool> = None;
+        let mut exclude_native: Option<bool> = None;
+        let mut exclude_duplicates: Option<bool> = None;
+        let mut stability = Stability::default();
+        let mut stability_seen: [bool; 3] = [false; 3];
+        let mut candidates: Vec<ChromaticCandidate> = Vec::new();
+        while !matches!(self.peek().map(|t| t.kind), Some(TokenKind::RBrace)) {
+            self.mark();
+            let key = self.expect_ident()?;
+            match self.peek().map(|t| t.kind) {
+                Some(TokenKind::Colon) => {
+                    self.bump();
+                    match key.as_str() {
+                        "strategy" | "fallback" => {
+                            let parsed = Strategy::parse(&self.expect_ident()?)
+                                .ok_or_else(|| self.err_prev())?;
+                            let slot = if key == "strategy" {
+                                &mut primary
+                            } else {
+                                &mut fallback
+                            };
+                            if slot.is_some() {
+                                return Err(self.err_prev());
+                            }
+                            *slot = Some(parsed);
+                        }
+                        "preserve-slots" | "ordered-slots"
+                        | "exclude-native-equivalents" | "exclude-duplicates" => {
+                            let parsed = self.parse_bool()?;
+                            let slot = match key.as_str() {
+                                "preserve-slots" => &mut preserve_slots,
+                                "ordered-slots" => &mut ordered_slots,
+                                "exclude-native-equivalents" => &mut exclude_native,
+                                _ => &mut exclude_duplicates,
+                            };
+                            if slot.is_some() {
+                                return Err(self.err_prev());
+                            }
+                            *slot = Some(parsed);
+                        }
+                        _ => return Err(self.err_prev()),
+                    }
+                }
+                // `stability { … }` and `candidate Name { … }` sub-blocks.
+                Some(TokenKind::LBrace) if key == "stability" => {
+                    self.bump();
+                    let mut index = 0usize;
+                    while !matches!(self.peek().map(|t| t.kind), Some(TokenKind::RBrace)) {
+                        let threshold = self.expect_ident()?;
+                        self.expect(TokenKind::Colon)?;
+                        let which = match threshold.as_str() {
+                            "min-improvement" => {
+                                stability.min_improvement = self.parse_i64()?;
+                                0
+                            }
+                            "min-residency" => {
+                                stability.min_residency = self.parse_u64()?;
+                                1
+                            }
+                            "max-deferral" => {
+                                stability.max_deferral = self.parse_u64()?;
+                                2
+                            }
+                            _ => return Err(self.err_prev()),
+                        };
+                        if stability_seen[which] {
+                            return Err(self.err_prev());
+                        }
+                        stability_seen[which] = true;
+                        index += 1;
+                        self.optional_semi();
+                    }
+                    self.expect(TokenKind::RBrace)?;
+                    // An empty stability block declares nothing; require at
+                    // least one threshold so a typo cannot silently keep the
+                    // defaults.
+                    if index == 0 {
+                        return Err(self.err());
+                    }
+                }
+                Some(TokenKind::Ident) if key == "candidate" => {
+                    let candidate_name = self.expect_ident()?;
+                    let candidate = self.parse_chromatic_candidate(candidate_name)?;
+                    if candidates.iter().any(|c| c.name == candidate.name) {
+                        return Err(self.err_prev());
+                    }
+                    candidates.push(candidate);
+                }
+                _ => return Err(self.err_prev()),
+            }
+            self.optional_semi();
+        }
+        self.expect(TokenKind::RBrace)?;
+        let Some(primary) = primary else {
+            return Err(self.err_prev());
+        };
+        self.anchor = start;
+        Ok(ChromaticsDecl {
+            name,
+            primary,
+            fallback,
+            preserve_slots: preserve_slots.unwrap_or(true),
+            ordered_slots: ordered_slots.unwrap_or(false),
+            exclude_native: exclude_native.unwrap_or(true),
+            exclude_duplicates: exclude_duplicates.unwrap_or(true),
+            stability,
+            candidates,
+            range: SourceRange {
+                start,
+                end: self.tokens[self.i - 1].byte_end,
+            },
+        })
+    }
+
+    /// Body of one `candidate Name { … }` declaration (§12.1).
+    fn parse_chromatic_candidate(&mut self, name: String) -> Result<ChromaticCandidate, ParseError> {
+        let start = self.anchor;
+        self.expect(TokenKind::LBrace)?;
+        let mut intent: Option<String> = None;
+        let mut label: Option<String> = None;
+        let mut symbol: Option<String> = None;
+        let mut description: Option<String> = None;
+        let mut entity: Option<String> = None;
+        let mut risk = Risk::default();
+        let mut risk_seen = false;
+        let mut confirmation = false;
+        let mut confirm_seen = false;
+        let mut native: Option<String> = None;
+        let mut pinned: Option<String> = None;
+        let mut rank: Option<u32> = None;
+        let mut favourite: Option<u32> = None;
+        let mut position: Option<u32> = None;
+        let mut cost: Option<u32> = None;
+        let mut probability: Option<u32> = None;
+        let mut contextual: Option<i64> = None;
+        let mut urgency: Option<i64> = None;
+        let mut preference: Option<i64> = None;
+        while !matches!(self.peek().map(|t| t.kind), Some(TokenKind::RBrace)) {
+            let key = self.expect_ident()?;
+            self.expect(TokenKind::Colon)?;
+            macro_rules! once {
+                ($slot:expr) => {
+                    if $slot.is_some() {
+                        return Err(self.err_prev());
+                    }
+                };
+            }
+            match key.as_str() {
+                "intent" => {
+                    once!(intent);
+                    intent = Some(self.expect_ident()?);
+                }
+                "label" => {
+                    once!(label);
+                    label = Some(self.expect(TokenKind::Str)?.text);
+                }
+                "symbol" => {
+                    once!(symbol);
+                    symbol = Some(self.expect_ident()?);
+                }
+                "describe" => {
+                    once!(description);
+                    let text = self.expect(TokenKind::Str)?.text;
+                    // An empty description is a typo, not a decision (§21:
+                    // supplementary to the label, never a placeholder).
+                    if text.is_empty() {
+                        return Err(self.err_prev());
+                    }
+                    description = Some(text);
+                }
+                "entity" | "native" => {
+                    let slot = if key == "entity" { &mut entity } else { &mut native };
+                    once!(slot);
+                    *slot = Some(self.expect(TokenKind::Str)?.text);
+                }
+                "risk" => {
+                    if risk_seen {
+                        return Err(self.err_prev());
+                    }
+                    risk_seen = true;
+                    let parsed =
+                        Risk::parse(&self.expect_ident()?).ok_or_else(|| self.err_prev())?;
+                    risk = parsed;
+                }
+                "confirm" => {
+                    if confirm_seen {
+                        return Err(self.err_prev());
+                    }
+                    confirm_seen = true;
+                    confirmation = self.parse_bool()?;
+                }
+                "pin" => {
+                    once!(pinned);
+                    pinned = Some(self.expect_ident()?);
+                }
+                "rank" | "favourite" | "position" | "cost" | "probability" => {
+                    let slot = match key.as_str() {
+                        "rank" => &mut rank,
+                        "favourite" => &mut favourite,
+                        "position" => &mut position,
+                        "cost" => &mut cost,
+                        _ => &mut probability,
+                    };
+                    once!(slot);
+                    *slot = Some(self.parse_u32()?);
+                }
+                "contextual" | "urgency" | "preference" => {
+                    let slot = match key.as_str() {
+                        "contextual" => &mut contextual,
+                        "urgency" => &mut urgency,
+                        _ => &mut preference,
+                    };
+                    once!(slot);
+                    *slot = Some(self.parse_i64()?);
+                }
+                _ => return Err(self.err_prev()),
+            }
+            self.optional_semi();
+        }
+        self.expect(TokenKind::RBrace)?;
+        // `intent` and `label` are the declaration's substance (§7, §21);
+        // everything else has an engine default. Missing either is a syntax
+        // error at the candidate, not a runtime surprise.
+        let Some(intent) = intent else {
+            return Err(self.err_prev());
+        };
+        let Some(label) = label.filter(|l| !l.is_empty()) else {
+            return Err(self.err_prev());
+        };
+        self.anchor = start;
+        Ok(ChromaticCandidate {
+            name,
+            intent,
+            label,
+            symbol,
+            description,
+            entity,
+            risk,
+            confirmation,
+            native,
+            rank,
+            favourite,
+            position,
+            cost,
+            probability,
+            contextual,
+            urgency,
+            preference,
+            pinned,
+            range: SourceRange {
+                start,
+                end: self.tokens[self.i - 1].byte_end,
+            },
+        })
+    }
+
     /// `{ key: type = literal session|durable; ... }` after `@state`.
     fn parse_state_block(&mut self) -> Result<Vec<StateDecl>, ParseError> {
         self.expect(TokenKind::LBrace)?;
@@ -1994,7 +2913,10 @@ impl P {
     /// `@platform android { "media.playback": choice-use("native", "web"); }`.
     /// Every entry is scoped to one named platform and one feature. The
     /// ontology otherwise remains platform `any`.
-    fn parse_platform_block(&mut self, platform: &str) -> Result<Vec<PlatformException>, ParseError> {
+    fn parse_platform_block(
+        &mut self,
+        platform: &str,
+    ) -> Result<Vec<PlatformException>, ParseError> {
         self.expect(TokenKind::LBrace)?;
         let mut exceptions = Vec::new();
         while !matches!(self.peek().map(|token| token.kind), Some(TokenKind::RBrace)) {
@@ -2004,7 +2926,11 @@ impl P {
                 Some(TokenKind::Str) => self.expect(TokenKind::Str)?.text,
                 _ => return Err(self.err()),
             };
-            if feature.is_empty() || exceptions.iter().any(|rule: &PlatformException| rule.feature == feature) {
+            if feature.is_empty()
+                || exceptions
+                    .iter()
+                    .any(|rule: &PlatformException| rule.feature == feature)
+            {
                 return Err(self.err_prev());
             }
             self.expect(TokenKind::Colon)?;
@@ -2056,6 +2982,190 @@ impl P {
         }
         self.expect(TokenKind::RBrace)?;
         Ok(exceptions)
+    }
+
+    /// `@desktop { ... }` (decision D16). Keys are optional. Semicolons are
+    /// required. Combination rules are checked later by [`validate_desktop`].
+    fn parse_desktop_block(&mut self) -> Result<DesktopBody, ParseError> {
+        self.expect(TokenKind::LBrace)?;
+        let mut state = None;
+        let mut position = None;
+        let mut extent_dip = None;
+        let mut controls = None;
+        while !matches!(self.peek().map(|token| token.kind), Some(TokenKind::RBrace)) {
+            let key = self.expect_ident()?.replace('-', "_");
+            match key.as_str() {
+                "state" => {
+                    if state.is_some() {
+                        return Err(self.err_prev());
+                    }
+                    self.expect(TokenKind::Colon)?;
+                    state = Some(match self.expect_ident()?.as_str() {
+                        "fullscreen" => DesktopState::Fullscreen,
+                        "maximized" => DesktopState::Maximized,
+                        "windowed" => DesktopState::Windowed,
+                        _ => return Err(self.err_prev()),
+                    });
+                }
+                "position" => {
+                    if position.is_some() {
+                        return Err(self.err_prev());
+                    }
+                    self.expect(TokenKind::Colon)?;
+                    position = Some(
+                        if self.peek().is_some_and(|token| {
+                            token.kind == TokenKind::Ident && token.text == "center"
+                        }) {
+                            self.bump();
+                            DesktopPosition::Center
+                        } else {
+                            let (x, y) = self.parse_dip_pair(true)?;
+                            DesktopPosition::Dip { x, y }
+                        },
+                    );
+                }
+                "extent_dip" => {
+                    if extent_dip.is_some() {
+                        return Err(self.err_prev());
+                    }
+                    self.expect(TokenKind::Colon)?;
+                    let (width, height) = self.parse_dip_pair(false)?;
+                    if !(1..=desktop::MAX_EXTENT_DIP).contains(&width)
+                        || !(1..=desktop::MAX_EXTENT_DIP).contains(&height)
+                    {
+                        return Err(self.err_prev());
+                    }
+                    extent_dip = Some((width, height));
+                }
+                "controls" => {
+                    if controls.is_some() {
+                        return Err(self.err_prev());
+                    }
+                    self.expect(TokenKind::Colon)?;
+                    controls = Some(self.parse_desktop_controls()?);
+                }
+                _ => return Err(self.err_prev()),
+            }
+            self.expect(TokenKind::Semicolon)?;
+        }
+        self.expect(TokenKind::RBrace)?;
+        Ok(DesktopBody {
+            state,
+            position,
+            extent_dip,
+            controls,
+        })
+    }
+
+    fn parse_desktop_controls(&mut self) -> Result<ChromeChoice, ParseError> {
+        if self
+            .peek()
+            .is_some_and(|token| token.kind == TokenKind::Ident && token.text == "library")
+        {
+            self.bump();
+            let name = self.expect(TokenKind::Str)?.text;
+            if name.is_empty() {
+                return Err(self.err_prev());
+            }
+            return Ok(ChromeChoice::Library(name));
+        }
+        self.expect(TokenKind::LBrace)?;
+        let mut draft = desktop::ChromeDraft::default();
+        while !matches!(self.peek().map(|token| token.kind), Some(TokenKind::RBrace)) {
+            let key = self.expect_ident()?.replace('-', "_");
+            self.expect(TokenKind::Colon)?;
+            let colour = self.parse_hex()?;
+            let slot = match key.as_str() {
+                "bar" => &mut draft.bar,
+                "glyph" => &mut draft.glyph,
+                "close" => &mut draft.close,
+                "close_glyph" => &mut draft.close_glyph,
+                "desk" => &mut draft.desk,
+                _ => return Err(self.err_prev()),
+            };
+            if slot.is_some() {
+                return Err(self.err_prev());
+            }
+            *slot = Some(colour);
+            self.expect(TokenKind::Semicolon)?;
+        }
+        self.expect(TokenKind::RBrace)?;
+        Ok(ChromeChoice::Colours(draft))
+    }
+
+    /// A canonical DIP integer: optional leading `-` when `signed`, digits
+    /// only, no `+`, `.`, `_`, leading zero or `-0`.
+    fn parse_dip_int(&mut self, signed: bool) -> Result<i32, ParseError> {
+        let Some(token) = self.peek() else {
+            return Err(self.err());
+        };
+        if token.kind != TokenKind::Number || !canonical_dip(&token.text, signed) {
+            return Err(self.err());
+        }
+        let text = self.bump().expect("invariant").text;
+        text.parse::<i32>().map_err(|_| self.err_prev())
+    }
+
+    fn parse_dip_pair(&mut self, signed: bool) -> Result<(i32, i32), ParseError> {
+        self.expect(TokenKind::LParen)?;
+        let x = self.parse_dip_int(signed)?;
+        self.expect(TokenKind::Comma)?;
+        let y = self.parse_dip_int(signed)?;
+        self.expect(TokenKind::RParen)?;
+        Ok((x, y))
+    }
+
+    /// Canonical integer digits on a Number token: at most one leading '-',
+    /// digits only, no leading zeros. Mirrors `canonical_dip`.
+    fn canonical_integer(text: &str) -> bool {
+        let digits = text.strip_prefix('-').unwrap_or(text);
+        !digits.is_empty()
+            && digits.bytes().all(|byte| byte.is_ascii_digit())
+            && (digits.len() == 1 || !digits.starts_with('0'))
+    }
+
+    fn parse_bool(&mut self) -> Result<bool, ParseError> {
+        let value = self.expect_ident()?;
+        match value.as_str() {
+            "true" => Ok(true),
+            "false" => Ok(false),
+            _ => Err(self.err_prev()),
+        }
+    }
+
+    /// Chromatics integers: canonical form, in range. Non-integral authored
+    /// numbers are refused so allocation stays exact and portable (§9).
+    fn parse_u32(&mut self) -> Result<u32, ParseError> {
+        let Some(token) = self.peek() else {
+            return Err(self.err());
+        };
+        if token.kind != TokenKind::Number || !Self::canonical_integer(&token.text) {
+            return Err(self.err());
+        }
+        let text = self.bump().expect("invariant").text;
+        text.parse::<u32>().map_err(|_| self.err_prev())
+    }
+
+    fn parse_u64(&mut self) -> Result<u64, ParseError> {
+        let Some(token) = self.peek() else {
+            return Err(self.err());
+        };
+        if token.kind != TokenKind::Number || !Self::canonical_integer(&token.text) {
+            return Err(self.err());
+        }
+        let text = self.bump().expect("invariant").text;
+        text.parse::<u64>().map_err(|_| self.err_prev())
+    }
+
+    fn parse_i64(&mut self) -> Result<i64, ParseError> {
+        let Some(token) = self.peek() else {
+            return Err(self.err());
+        };
+        if token.kind != TokenKind::Number || !Self::canonical_integer(&token.text) {
+            return Err(self.err());
+        }
+        let text = self.bump().expect("invariant").text;
+        text.parse::<i64>().map_err(|_| self.err_prev())
     }
 
     /// `@persistence { cache_targets: null; }` or an explicit platform map,
@@ -2150,17 +3260,43 @@ impl P {
     }
 
     /// `@iden { label: "..."; hint: "..."; }` (decision D14). `label` is
-    /// required; each key at most once. Reserved keys are kept with their
-    /// ranges for strict admission to refuse; any other key is an error.
+    /// required; each key at most once. On GSSH/5 the label and hint values
+    /// may be phrasing. Reserved keys are kept with their ranges for strict
+    /// admission to refuse; any other key is an error.
     fn parse_iden_block(&mut self) -> Result<Iden, ParseError> {
         self.expect(TokenKind::LBrace)?;
         let mut label = None;
         let mut hint = None;
+        let mut label_phrasing = None;
+        let mut hint_phrasing = None;
         let mut reserved: Vec<(String, SourceRange)> = Vec::new();
         while !matches!(self.peek().map(|token| token.kind), Some(TokenKind::RBrace)) {
             let start = self.peek().ok_or_else(|| self.err())?.byte_start;
             let key = self.expect_ident()?.replace('-', "_");
             self.expect(TokenKind::Colon)?;
+            let phrased = self.peek().is_some_and(|token| {
+                token.kind == TokenKind::AtWord || token.kind == TokenKind::LBrace
+            });
+            if phrased {
+                if !matches!(key.as_str(), "label" | "hint") {
+                    return Err(self.err());
+                }
+                let phrasing = self.parse_phrasing()?;
+                self.expect(TokenKind::Semicolon)?;
+                let (text_slot, phrase_slot) = match key.as_str() {
+                    "label" => (&mut label, &mut label_phrasing),
+                    "hint" => (&mut hint, &mut hint_phrasing),
+                    _ => return Err(self.err_prev()),
+                };
+                if text_slot.is_some() || phrase_slot.is_some() {
+                    return Err(self.err_prev());
+                }
+                *phrase_slot = Some(phrasing);
+                if key == "label" {
+                    *text_slot = Some(String::new());
+                }
+                continue;
+            }
             let value = self.expect(TokenKind::Str)?.text;
             let end = self.expect(TokenKind::Semicolon)?.byte_end;
             let slot = match key.as_str() {
@@ -2185,6 +3321,8 @@ impl P {
             return Err(self.err_prev());
         };
         let mut iden = Iden::new(label, hint);
+        iden.label_phrasing = label_phrasing;
+        iden.hint_phrasing = hint_phrasing;
         iden.reserved = reserved;
         Ok(iden)
     }
@@ -2336,10 +3474,7 @@ impl P {
             "fill" => cell.fill = Some(self.parse_hex()?),
             "stroke" => cell.stroke = Some(self.parse_hex()?),
             "stroke-width" | "stroke_width" => cell.stroke_width = Some(self.parse_number()?),
-            "text" => match self.expect(TokenKind::Str) {
-                Ok(t) => cell.text = Some(t.text),
-                Err(e) => return Err(e),
-            },
+            "text" => self.parse_static_copy(&mut cell.text, &mut cell.text_phrasing)?,
             "text-size" | "text_size" => cell.text_size = Some(self.parse_number()?),
             "text-size-p" | "text_size_p" => cell.text_size_p = Some(self.parse_number()?),
             "stroke-width-p" | "stroke_width_p" => cell.stroke_width_p = Some(self.parse_number()?),
@@ -2376,8 +3511,17 @@ impl P {
                     _ => return Err(self.err_prev()),
                 });
             }
-            "placeholder" => cell.placeholder = Some(self.expect(TokenKind::Str)?.text),
+            "placeholder" => {
+                self.parse_static_copy(&mut cell.placeholder, &mut cell.placeholder_phrasing)?
+            }
             "text-from" | "text_from" => cell.text_from = Some(self.parse_state_ref()?),
+            "present-when" | "present_when" => {
+                cell.present_when = Some(self.parse_condition()?);
+            }
+            "fill-to" | "fill_to" => cell.fill_to = Some(self.parse_hex()?),
+            "fill-period-s" | "fill_period_s" => cell.fill_period_s = Some(self.parse_number()?),
+            "appear-s" | "appear_s" => cell.appear_s = Some(self.parse_number()?),
+            "appear-from-p" | "appear_from_p" => cell.appear_from_p = Some(self.parse_vec3()?),
             "max-length" | "max_length" => {
                 let text = match self.peek() {
                     Some(token) if token.kind == TokenKind::Number => {
@@ -2402,6 +3546,90 @@ impl P {
             self.bump();
         }
         Ok(())
+    }
+
+    /// A static string, or GSSH/5 phrasing. The two are mutually exclusive:
+    /// phrasing leaves the shared string empty so layout does not pick a class.
+    fn parse_static_copy(
+        &mut self,
+        text: &mut Option<String>,
+        phrasing: &mut Option<Phrasing>,
+    ) -> Result<(), ParseError> {
+        if self
+            .peek()
+            .is_some_and(|token| token.kind == TokenKind::Str)
+        {
+            *text = Some(self.expect(TokenKind::Str)?.text);
+        } else {
+            *phrasing = Some(self.parse_phrasing()?);
+        }
+        Ok(())
+    }
+
+    /// `@universal "..."`, or `{ @universal "..."; @tv "..."; }`.
+    /// A class specifier outside a group, a duplicate, an unknown specifier
+    /// and an empty group are syntax errors.
+    fn parse_phrasing(&mut self) -> Result<Phrasing, ParseError> {
+        let start = self.peek().ok_or_else(|| self.err())?.byte_start;
+        if self
+            .peek()
+            .is_some_and(|token| token.kind == TokenKind::AtWord && token.text == "universal")
+        {
+            self.bump();
+            let text = self.expect(TokenKind::Str)?.text;
+            let end = self.tokens[self.i - 1].byte_end;
+            return Ok(Phrasing {
+                universal: Some(text),
+                desktop: None,
+                mobile: None,
+                tv: None,
+                web: None,
+                range: SourceRange { start, end },
+            });
+        }
+        self.expect(TokenKind::LBrace)?;
+        let mut phrasing = Phrasing {
+            universal: None,
+            desktop: None,
+            mobile: None,
+            tv: None,
+            web: None,
+            range: SourceRange { start, end: start },
+        };
+        if self
+            .peek()
+            .is_some_and(|token| token.kind == TokenKind::RBrace)
+        {
+            self.bump();
+            return Err(self.err_prev());
+        }
+        while !matches!(self.peek().map(|token| token.kind), Some(TokenKind::RBrace)) {
+            let word = match self.peek() {
+                Some(token) if token.kind == TokenKind::AtWord => {
+                    let word = token.text.clone();
+                    self.bump();
+                    word
+                }
+                _ => return Err(self.err()),
+            };
+            let slot = match word.as_str() {
+                "universal" => &mut phrasing.universal,
+                "desktop" => &mut phrasing.desktop,
+                "mobile" => &mut phrasing.mobile,
+                "tv" => &mut phrasing.tv,
+                "web" => &mut phrasing.web,
+                _ => return Err(self.err_prev()),
+            };
+            if slot.is_some() {
+                return Err(self.err_prev());
+            }
+            let text = self.expect(TokenKind::Str)?.text;
+            self.expect(TokenKind::Semicolon)?;
+            *slot = Some(text);
+        }
+        let end = self.expect(TokenKind::RBrace)?.byte_end;
+        phrasing.range.end = end;
+        Ok(phrasing)
     }
 
     fn parse_state_ref(&mut self) -> Result<String, ParseError> {
@@ -2466,6 +3694,288 @@ impl P {
         }
     }
 
+    /// `state.<key> is <literal>` or `state.<key> at-least <int>`.
+    fn parse_condition(&mut self) -> Result<Condition, ParseError> {
+        let key = self.parse_state_ref()?;
+        let op = match self.expect_ident()?.as_str() {
+            "is" => ConditionOp::Is,
+            "at-least" | "at_least" => ConditionOp::AtLeast,
+            _ => return Err(self.err_prev()),
+        };
+        let value = match self.peek().map(|t| t.kind) {
+            Some(TokenKind::Number) => {
+                let text = self.bump().ok_or_else(|| self.err())?.text;
+                if !is_canonical_decimal(&text) {
+                    return Err(self.err_prev());
+                }
+                InteractionValue::Int(text.parse().map_err(|_| self.err_prev())?)
+            }
+            Some(TokenKind::Str) => {
+                InteractionValue::Text(self.bump().ok_or_else(|| self.err())?.text)
+            }
+            Some(TokenKind::Ident) => match self.expect_ident()?.as_str() {
+                "true" => InteractionValue::Bool(true),
+                "false" => InteractionValue::Bool(false),
+                _ => return Err(self.err_prev()),
+            },
+            _ => return Err(self.err()),
+        };
+        Ok(Condition { key, op, value })
+    }
+
+    /// `(n, n, ...)` with between `min` and `max` numbers.
+    fn parse_numbers(&mut self, min: usize, max: usize) -> Result<Vec<f64>, ParseError> {
+        self.expect(TokenKind::LParen)?;
+        let mut v = vec![self.parse_number()?];
+        while matches!(self.peek().map(|t| t.kind), Some(TokenKind::Comma)) {
+            self.bump();
+            v.push(self.parse_number()?);
+        }
+        self.expect(TokenKind::RParen)?;
+        if v.len() < min || v.len() > max {
+            return Err(self.err_prev());
+        }
+        Ok(v)
+    }
+
+    fn parse_path_string(&mut self) -> Result<Vec<crate::graphic::PathCmd>, ParseError> {
+        let text = self.expect(TokenKind::Str)?.text;
+        crate::graphic::parse_path_data(&text).ok_or_else(|| self.err_prev())
+    }
+
+    /// `@graphic name { id; canvas; @shape ...; @dimension ... }`.
+    fn parse_graphic(&mut self, name: String) -> Result<crate::graphic::GraphicDecl, ParseError> {
+        use crate::graphic::*;
+        self.expect(TokenKind::LBrace)?;
+        let mut g = GraphicDecl {
+            name,
+            authored_id: None,
+            canvas: (0.0, 0.0),
+            shapes: Vec::new(),
+            dimensions: Vec::new(),
+            range: SourceRange { start: 0, end: 0 },
+        };
+        let mut canvas = false;
+        while !matches!(self.peek().map(|t| t.kind), Some(TokenKind::RBrace)) {
+            match self.peek().map(|t| t.kind) {
+                Some(TokenKind::AtWord) => {
+                    let word = self.bump().ok_or_else(|| self.err())?.text;
+                    let item = self.expect_ident()?;
+                    match word.as_str() {
+                        "shape" => g.shapes.push(self.parse_shape(item)?),
+                        "dimension" => g.dimensions.push(self.parse_graphic_dimension(item)?),
+                        _ => return Err(self.err_prev()),
+                    }
+                }
+                _ => {
+                    let key = self.expect_ident()?;
+                    self.expect(TokenKind::Colon)?;
+                    match key.as_str() {
+                        "id" if g.authored_id.is_none() => {
+                            g.authored_id = Some(self.expect(TokenKind::Str)?.text)
+                        }
+                        "canvas" if !canvas => {
+                            let v = self.parse_numbers(2, 2)?;
+                            g.canvas = (v[0], v[1]);
+                            canvas = true;
+                        }
+                        _ => return Err(self.err_prev()),
+                    }
+                    self.expect(TokenKind::Semicolon)?;
+                }
+            }
+        }
+        self.expect(TokenKind::RBrace)?;
+        if !canvas {
+            return Err(self.err_prev());
+        }
+        Ok(g)
+    }
+
+    fn parse_shape(&mut self, name: String) -> Result<crate::graphic::ShapeDecl, ParseError> {
+        use crate::graphic::*;
+        self.expect(TokenKind::LBrace)?;
+        let mut geometry = None;
+        let (mut fill, mut stroke, mut stroke_width) = (None, None, None);
+        while !matches!(self.peek().map(|t| t.kind), Some(TokenKind::RBrace)) {
+            let key = self.expect_ident()?;
+            self.expect(TokenKind::Colon)?;
+            let dup = match key.as_str() {
+                "path" => geometry
+                    .replace(Geometry::Path(self.parse_path_string()?))
+                    .is_some(),
+                "rect" => {
+                    let v = self.parse_numbers(4, 5)?;
+                    let r = v.get(4).copied().unwrap_or(0.0);
+                    geometry
+                        .replace(Geometry::Rect {
+                            x: v[0],
+                            y: v[1],
+                            w: v[2],
+                            h: v[3],
+                            r,
+                        })
+                        .is_some()
+                }
+                "ellipse" => {
+                    let v = self.parse_numbers(4, 4)?;
+                    geometry
+                        .replace(Geometry::Ellipse {
+                            cx: v[0],
+                            cy: v[1],
+                            rx: v[2],
+                            ry: v[3],
+                        })
+                        .is_some()
+                }
+                "fill" => fill.replace(self.parse_hex()?).is_some(),
+                "stroke" => stroke.replace(self.parse_hex()?).is_some(),
+                "stroke-width" | "stroke_width" => {
+                    stroke_width.replace(self.parse_number()?).is_some()
+                }
+                _ => return Err(self.err_prev()),
+            };
+            if dup {
+                return Err(self.err_prev());
+            }
+            self.expect(TokenKind::Semicolon)?;
+        }
+        self.expect(TokenKind::RBrace)?;
+        let geometry = geometry.ok_or_else(|| self.err_prev())?;
+        Ok(ShapeDecl {
+            name,
+            geometry,
+            fill,
+            stroke,
+            stroke_width,
+        })
+    }
+
+    fn parse_selector(&mut self) -> Result<crate::graphic::Selector, ParseError> {
+        let first = self.expect_ident()?;
+        if first == "all" {
+            return Ok(crate::graphic::Selector::All);
+        }
+        let mut names = vec![first];
+        while matches!(self.peek().map(|t| t.kind), Some(TokenKind::Comma))
+            && self
+                .tokens
+                .get(self.i + 1)
+                .is_some_and(|t| t.kind == TokenKind::Ident)
+        {
+            self.bump();
+            names.push(self.expect_ident()?);
+        }
+        Ok(crate::graphic::Selector::Shapes(names))
+    }
+
+    fn parse_graphic_dimension(
+        &mut self,
+        name: String,
+    ) -> Result<crate::graphic::GraphicDimension, ParseError> {
+        use crate::graphic::*;
+        self.expect(TokenKind::LBrace)?;
+        let mut d = GraphicDimension {
+            name,
+            step_s: None,
+            values: Vec::new(),
+        };
+        while !matches!(self.peek().map(|t| t.kind), Some(TokenKind::RBrace)) {
+            if matches!(self.peek().map(|t| t.kind), Some(TokenKind::AtWord)) {
+                let word = self.bump().ok_or_else(|| self.err())?.text;
+                if word != "value" {
+                    return Err(self.err_prev());
+                }
+                let vname = self.expect_ident()?;
+                self.expect(TokenKind::LBrace)?;
+                let mut effects = Vec::new();
+                while !matches!(self.peek().map(|t| t.kind), Some(TokenKind::RBrace)) {
+                    let key = self.expect_ident()?;
+                    self.expect(TokenKind::Colon)?;
+                    let e = match key.as_str() {
+                        "hide" => GraphicEffect::Hide(self.parse_selector()?),
+                        "scale" => {
+                            let s = self.parse_selector()?;
+                            let v = self.parse_numbers(2, 2)?;
+                            GraphicEffect::Scale(s, v[0], v[1])
+                        }
+                        "move" => {
+                            let s = self.parse_selector()?;
+                            let v = self.parse_numbers(2, 2)?;
+                            GraphicEffect::Move(s, v[0], v[1])
+                        }
+                        "fade" => {
+                            let s = self.parse_selector()?;
+                            GraphicEffect::Fade(s, self.parse_number()?)
+                        }
+                        "paint" => {
+                            let s = self.parse_selector()?;
+                            GraphicEffect::Paint(s, self.parse_hex()?)
+                        }
+                        "morph" => {
+                            let shape = self.expect_ident()?;
+                            let target = self.parse_path_string()?;
+                            GraphicEffect::Morph(shape, target, self.parse_number()?)
+                        }
+                        _ => return Err(self.err_prev()),
+                    };
+                    effects.push(e);
+                    self.expect(TokenKind::Semicolon)?;
+                }
+                self.expect(TokenKind::RBrace)?;
+                d.values.push(GraphicValue {
+                    name: vname,
+                    effects,
+                });
+            } else {
+                let key = self.expect_ident()?;
+                self.expect(TokenKind::Colon)?;
+                if (key != "step-s" && key != "step_s")
+                    || d.step_s.is_some()
+                    || !d.values.is_empty()
+                {
+                    return Err(self.err_prev());
+                }
+                d.step_s = Some(self.parse_number()?);
+                self.expect(TokenKind::Semicolon)?;
+            }
+        }
+        self.expect(TokenKind::RBrace)?;
+        Ok(d)
+    }
+
+    /// `@draw graphic { dimension: "value" [when <condition>]; ... }`.
+    fn parse_draw(&mut self, graphic: String) -> Result<crate::graphic::DrawDecl, ParseError> {
+        self.expect(TokenKind::LBrace)?;
+        let mut rules = Vec::new();
+        while !matches!(self.peek().map(|t| t.kind), Some(TokenKind::RBrace)) {
+            let dimension = self.expect_ident()?;
+            self.expect(TokenKind::Colon)?;
+            let value = self.expect(TokenKind::Str)?.text;
+            let when = if self
+                .peek()
+                .is_some_and(|t| t.kind == TokenKind::Ident && t.text == "when")
+            {
+                self.bump();
+                Some(self.parse_condition()?)
+            } else {
+                None
+            };
+            self.expect(TokenKind::Semicolon)?;
+            rules.push(crate::graphic::DrawRule {
+                dimension,
+                value,
+                when,
+            });
+        }
+        self.expect(TokenKind::RBrace)?;
+        Ok(crate::graphic::DrawDecl {
+            graphic,
+            rules,
+            range: SourceRange { start: 0, end: 0 },
+        })
+    }
+
     fn skip_value(&mut self) -> Result<(), ParseError> {
         match self.peek().map(|t| t.kind) {
             Some(TokenKind::LParen) => {
@@ -2490,5 +4000,406 @@ impl P {
             }
             _ => Err(self.err()),
         }
+    }
+}
+
+#[cfg(test)]
+mod desktop_tests {
+    use super::*;
+
+    fn scene(body: &str) -> String {
+        format!("@ontology demo {{\n{body}\n  @cell root {{ id: \"root\"; text: \"Hi\"; }}\n}}\n")
+    }
+
+    #[test]
+    fn omission_resolves_to_fullscreen_and_an_empty_block_is_authored() {
+        let omitted =
+            parse_strict_gssh4("@ontology demo { @cell root { id: \"root\"; } }").unwrap();
+        let resolved = omitted.declarations.resolved_desktop().unwrap();
+        assert!(omitted.declarations.desktop.is_none());
+        assert!(!resolved.authored);
+        assert_eq!(resolved.state, DesktopState::Fullscreen);
+        assert_eq!(resolved.library_id, Some(desktop::DEFAULT_CHROME));
+
+        let empty = parse_strict_gssh4(&scene("@desktop {}")).unwrap();
+        let resolved = empty.declarations.resolved_desktop().unwrap();
+        assert!(resolved.authored);
+        assert!(!resolved.controls_authored);
+        assert_eq!(resolved.state, DesktopState::Fullscreen);
+        assert!(parse(&scene("@desktop {}")).is_err());
+        assert_eq!(
+            parse_strict_gssh3(&scene("@desktop {}")).unwrap_err().code,
+            "GY-E1015"
+        );
+    }
+
+    #[test]
+    fn windowed_placement_colours_and_rejections() {
+        let windowed = scene(
+            "@desktop { state: windowed; position: (-4, 8); extent_dip: (960, 640); controls: library \"goya.chrome.ink\"; }",
+        );
+        let parsed = parse_strict_gssh4(&windowed).unwrap();
+        let resolved = parsed.declarations.resolved_desktop().unwrap();
+        assert_eq!(resolved.state, DesktopState::Windowed);
+        assert_eq!(resolved.position, DesktopPosition::Dip { x: -4, y: 8 });
+        assert_eq!(resolved.extent_dip, Some((960, 640)));
+        assert_eq!(resolved.library_id, Some("goya.chrome.ink"));
+        assert!(resolved.controls_authored);
+
+        let colours = scene(
+            "@desktop { controls: { bar: #112233; glyph: #445566; close: #778899; close-glyph: #aabbcc; desk: #ddeeff; }; }",
+        );
+        let painted = parse_strict_gssh4(&colours)
+            .unwrap()
+            .declarations
+            .resolved_desktop()
+            .unwrap();
+        assert!(painted.library_id.is_none());
+        assert_eq!(painted.colours.bar, 0x112233);
+        assert_eq!(painted.colours.close_glyph, 0xaabbcc);
+
+        let windowed_gap = scene("@desktop { state: windowed; }");
+        assert_eq!(
+            parse_strict_gssh4(&windowed_gap).unwrap_err().code,
+            "GY-E1018"
+        );
+        assert!(parse_with_source_map(&windowed_gap).is_ok());
+        let positioned = scene("@desktop { position: center; }");
+        assert_eq!(
+            parse_strict_gssh4(&positioned).unwrap_err().code,
+            "GY-E1018"
+        );
+        let extent = scene("@desktop { extent_dip: (200, 100); }");
+        assert_eq!(parse_strict_gssh4(&extent).unwrap_err().code, "GY-E1018");
+        let unknown = scene("@desktop { controls: library \"goya.chrome.missing\"; }");
+        assert_eq!(parse_strict_gssh4(&unknown).unwrap_err().code, "GY-E1018");
+        let partial = scene("@desktop { controls: { bar: #112233; }; }");
+        assert_eq!(parse_strict_gssh4(&partial).unwrap_err().code, "GY-E1018");
+        assert!(parse_with_source_map(&partial).is_ok());
+
+        for bad in [
+            "@desktop { extent_dip: (01, 10); state: windowed; }",
+            "@desktop { extent_dip: (+10, 10); state: windowed; }",
+            "@desktop { position: (-0, 1); state: windowed; extent_dip: (10, 10); }",
+            "@desktop { extent_dip: (1.5, 10); state: windowed; }",
+            "@desktop { extent_dip: (0, 10); state: windowed; }",
+            "@desktop { extent_dip: (8193, 10); state: windowed; }",
+            "@desktop { state: windowed; state: fullscreen; }",
+            "@desktop { @cell nested { id: \"no\"; } }",
+            "@desktop { controls: { bar: #112233; bar: #000000; glyph: #111111; close: #222222; close_glyph: #333333; desk: #444444; }; }",
+        ] {
+            assert!(parse_with_source_map(&scene(bad)).is_err(), "{bad}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod graphic_tests {
+    use super::*;
+
+    const CARD: &str = r#"@ontology deck {
+      @graphic card {
+        id: "graphic.card";
+        canvas: (40, 40);
+        @shape back { rect: (0, 0, 40, 40, 4); fill: #2b4c7e; }
+        @shape mark { ellipse: (20, 20, 6, 6); fill: #f4f1ea; }
+        @dimension face {
+          step-s: 0.05;
+          @value down { hide: mark; }
+          @value up { hide: back; }
+        }
+      }
+      @state { open: bool = false session; }
+      @cell root { id: "root"; fill: #f4f1ea; fill-to: #e6edf3; fill-period-s: 30;
+        @cell art { id: "art"; position_p: (0, 0, 0); extent_p: (1, 1, 0);
+          @draw card { face: "up" when state.open is true; face: "down"; }
+        }
+        @button flip { id: "flip"; present-when: state.open is false; position_p: (0, 0, 0); extent_p: (1, 1, 0); text: "Flip"; }
+      }
+      @interaction flip { id: "action.flip"; trigger: button.flip.activate; class: D1; state { write open: bool; } input { } set open = true; }
+    }"#;
+
+    #[test]
+    fn live_profile_admits_a_graphic_and_static_profiles_refuse_it() {
+        let parsed = parse_strict_gssh4_live(CARD).expect("live admission");
+        assert_eq!(parsed.declarations.graphics.len(), 1);
+        assert_eq!(
+            parsed
+                .scene
+                .find_node("art")
+                .unwrap()
+                .draw
+                .as_ref()
+                .unwrap()
+                .graphic,
+            "card"
+        );
+        assert!(parsed
+            .scene
+            .find_node("flip")
+            .unwrap()
+            .present_when
+            .is_some());
+        assert_eq!(parsed.scene.root.fill_to, Some(0xe6edf3));
+        let error = parse_strict_gssh4(CARD).unwrap_err();
+        assert_eq!(error.code, "GY-E1012");
+        assert!(
+            parse(CARD).is_err(),
+            "compatibility parse must not drop the graphic"
+        );
+    }
+}
+
+#[cfg(test)]
+mod phrasing_tests {
+    use super::*;
+    use crate::handoff::{admit_v5, admit_v5_live};
+    use crate::scene::{layout, PhrasingClass};
+
+    fn scene(body: &str) -> String {
+        format!("@ontology demo {{\n{body}\n}}\n")
+    }
+
+    #[test]
+    fn gssh4_keeps_bare_sentences_and_refuses_specifiers() {
+        let bare = scene(
+            r#"@cell root { id: "root"; text: "Find the eight pairs."; @iden { label: "Card"; hint: "Press OK"; } }"#,
+        );
+        let admitted = parse_strict_gssh4(&bare).unwrap();
+        assert_eq!(
+            admitted.scene.root.text.as_deref(),
+            Some("Find the eight pairs.")
+        );
+        assert!(admitted.scene.root.text_phrasing.is_none());
+        assert_eq!(
+            admitted.scene.root.iden.as_ref().unwrap().hint.as_deref(),
+            Some("Press OK")
+        );
+
+        let universal =
+            scene(r#"@cell root { id: "root"; text: @universal "Find the eight pairs."; }"#);
+        let refused = parse_strict_gssh4(&universal).unwrap_err();
+        assert_eq!(refused.code, "GY-E1019");
+        assert!(refused.name.contains("GSSH/5"), "{}", refused.name);
+        assert_eq!(
+            parse_strict_gssh4_live(&universal).unwrap_err().code,
+            "GY-E1019"
+        );
+        assert_eq!(parse_strict(&universal).unwrap_err().code, "GY-E1019");
+        assert!(parse(&universal).is_err());
+        let kept = parse_with_source_map(&universal).unwrap();
+        assert!(kept.scene.root.text.is_none());
+        assert_eq!(
+            kept.scene
+                .root
+                .text_phrasing
+                .as_ref()
+                .unwrap()
+                .universal
+                .as_deref(),
+            Some("Find the eight pairs.")
+        );
+        let frame = layout(&kept.scene, 320.0, 180.0);
+        let node = frame.nodes.iter().find(|node| node.name == "root").unwrap();
+        assert!(node.text.is_none());
+
+        let group = scene(
+            r#"@cell root { id: "root"; text: { @universal "Find the eight pairs."; @tv "Press OK"; }; }"#,
+        );
+        assert_eq!(parse_strict_gssh4(&group).unwrap_err().code, "GY-E1019");
+        assert_eq!(parse_strict_gssh5(&bare).unwrap_err().code, "GY-E1019");
+    }
+
+    #[test]
+    fn gssh5_admits_universal_and_a_complete_override_set() {
+        let universal =
+            scene(r#"@cell root { id: "root"; text: @universal "Find the eight pairs."; }"#);
+        let parsed = parse_strict_gssh5(&universal).unwrap();
+        let phrasing = parsed.scene.root.text_phrasing.as_ref().unwrap();
+        assert!(phrasing.complete());
+        assert_eq!(
+            phrasing.phrase(PhrasingClass::Web),
+            Some("Find the eight pairs.")
+        );
+        assert_eq!(admit_v5(&universal).unwrap().contract(), "GSSH/5");
+
+        let mixed = scene(
+            r#"@cell root { id: "root"; text: { @universal "Find the eight pairs."; @tv "Find the eight pairs. Arrow keys move between cards; OK turns one over."; }; }"#,
+        );
+        let phrasing = parse_strict_gssh5(&mixed)
+            .unwrap()
+            .scene
+            .root
+            .text_phrasing
+            .unwrap();
+        assert!(phrasing.complete());
+        assert_eq!(
+            phrasing.phrase(PhrasingClass::Tv),
+            Some("Find the eight pairs. Arrow keys move between cards; OK turns one over.")
+        );
+        assert_eq!(
+            phrasing.phrase(PhrasingClass::Desktop),
+            Some("Find the eight pairs.")
+        );
+        assert_eq!(
+            phrasing.phrase(PhrasingClass::Web),
+            Some("Find the eight pairs.")
+        );
+
+        let each = scene(
+            r#"@cell root { id: "root"; text: { @desktop "Click a card."; @mobile "Tap a card."; @tv "Press OK to turn a card."; @web "Choose a card."; }; }"#,
+        );
+        let phrasing = parse_strict_gssh5(&each)
+            .unwrap()
+            .scene
+            .root
+            .text_phrasing
+            .unwrap();
+        assert!(phrasing.universal.is_none());
+        assert!(phrasing.complete());
+        assert_eq!(phrasing.phrase(PhrasingClass::Mobile), Some("Tap a card."));
+        assert_eq!(
+            phrasing.phrase(PhrasingClass::Tv),
+            Some("Press OK to turn a card.")
+        );
+    }
+
+    #[test]
+    fn a_single_class_without_universal_is_incomplete() {
+        let tv_only = scene(r#"@cell root { id: "root"; text: { @tv "Press OK"; }; }"#);
+        let error = parse_strict_gssh5(&tv_only).unwrap_err();
+        assert_eq!(error.code, "GY-E1019");
+        assert!(error.name.contains("has no phrase"), "{}", error.name);
+    }
+
+    #[test]
+    fn duplicate_unknown_and_empty_groups_are_syntax() {
+        for bad in [
+            r#"@cell root { id: "root"; text: { @tv "a"; @tv "b"; }; }"#,
+            r#"@cell root { id: "root"; text: { @phone "a"; }; }"#,
+            r#"@cell root { id: "root"; text: {}; }"#,
+            r#"@cell root { id: "root"; text: @tv "a"; }"#,
+        ] {
+            assert_eq!(
+                parse_strict_gssh5(&scene(bad)).unwrap_err().code,
+                "GY-E1000",
+                "{bad}"
+            );
+            assert!(parse_with_source_map(&scene(bad)).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn iden_and_placeholder_are_phrasing_sites() {
+        let iden = scene(
+            r#"@cell root { id: "root"; @iden { label: @universal "Card 1, face down"; hint: { @universal "Turn it over"; @tv "Press OK to turn it over"; }; } }"#,
+        );
+        let parsed = parse_strict_gssh5(&iden).unwrap();
+        let iden_value = parsed.scene.root.iden.as_ref().unwrap();
+        assert_eq!(iden_value.label, "");
+        assert!(iden_value.hint.is_none());
+        let hint = iden_value.hint_phrasing.as_ref().unwrap();
+        assert_eq!(
+            hint.phrase(PhrasingClass::Tv),
+            Some("Press OK to turn it over")
+        );
+        assert_eq!(hint.phrase(PhrasingClass::Web), Some("Turn it over"));
+        assert_eq!(parse_strict_gssh4(&iden).unwrap_err().code, "GY-E1019");
+
+        let label_only = scene(r#"@cell root { id: "root"; @iden { label: @universal "Card"; } }"#);
+        let admitted = parse_strict_gssh5(&label_only).unwrap();
+        assert!(admitted.scene.root.iden.as_ref().unwrap().hint.is_none());
+        assert!(admitted
+            .scene
+            .root
+            .iden
+            .as_ref()
+            .unwrap()
+            .hint_phrasing
+            .is_none());
+
+        let bare_hint = scene(
+            r#"@cell root { id: "root"; @iden { label: @universal "Card"; hint: "Press OK"; } }"#,
+        );
+        assert_eq!(parse_strict_gssh5(&bare_hint).unwrap_err().code, "GY-E1019");
+
+        let legacy = scene(r#"@cell root { id: "root"; @iden { label: "Card"; } }"#);
+        assert!(parse_strict_gssh4(&legacy).is_ok());
+        assert_eq!(parse_strict_gssh5(&legacy).unwrap_err().code, "GY-E1019");
+
+        let field = scene(
+            r#"@input field { id: "field"; placeholder: @universal "0"; @iden { label: @universal "Amount"; } }"#,
+        );
+        let input = parse_strict_gssh5(&field).unwrap();
+        assert!(input.scene.root.placeholder.is_none());
+        assert!(input.scene.root.placeholder_phrasing.is_some());
+        assert_eq!(parse_strict_gssh4(&field).unwrap_err().code, "GY-E1001");
+
+        let bare_placeholder =
+            scene(r#"@input field { id: "field"; placeholder: "0"; @iden { label: "Amount"; } }"#);
+        assert_eq!(
+            parse_strict_gssh5(&bare_placeholder).unwrap_err().code,
+            "GY-E1019"
+        );
+        assert_eq!(
+            parse_strict_gssh4(&bare_placeholder).unwrap_err().code,
+            "GY-E1001"
+        );
+    }
+
+    #[test]
+    fn blank_and_control_phrases_are_refused() {
+        let blank = scene(r#"@cell root { id: "root"; text: @universal "  "; }"#);
+        let error = parse_strict_gssh5(&blank).unwrap_err();
+        assert_eq!(error.code, "GY-E1019");
+        assert!(error.name.contains("blank"), "{}", error.name);
+
+        let control =
+            "@ontology demo { @cell root { id: \"root\"; text: @universal \"line\ntwo\"; } }";
+        let error = parse_strict_gssh5(control).unwrap_err();
+        assert_eq!(error.code, "GY-E1019");
+        assert!(error.name.contains("control"), "{}", error.name);
+
+        let big = "a".repeat(MAX_PHRASE_TEXT_BYTES + 1);
+        let source = format!(
+            "@ontology demo {{ @cell root {{ id: \"root\"; text: @universal \"{big}\"; }} }}"
+        );
+        let error = parse_strict_gssh5(&source).unwrap_err();
+        assert_eq!(error.code, "GY-E1019");
+        assert!(error.name.contains("above"), "{}", error.name);
+    }
+
+    #[test]
+    fn live_bindings_stay_on_gssh5_live_and_phrasing_text_is_a_root_property() {
+        let live = "@ontology demo { @state { label: text = \"Press OK\" session; } @cell root { id: \"root\"; text-from: state.label; } }";
+        assert_eq!(parse_strict_gssh5(live).unwrap_err().code, "GY-E1012");
+        let admitted = parse_strict_gssh5_live(live).unwrap();
+        assert_eq!(admitted.scene.root.text_from.as_deref(), Some("label"));
+        assert_eq!(admit_v5_live(live).unwrap().contract(), "GSSH/5-live");
+
+        let both = "@ontology demo { @state { label: text = \"x\" session; } @cell root { id: \"root\"; text: @universal \"Caption\"; text-from: state.label; } }";
+        assert!(parse_strict_gssh5_live(both).is_ok());
+        assert_eq!(parse_strict_gssh5(both).unwrap_err().code, "GY-E1012");
+
+        let rooted = "@ontology demo { id: \"title\"; text: @universal \"Title\"; @cell child { id: \"child\"; text: @universal \"Child\"; } }";
+        let parsed = parse_strict_gssh5(rooted).unwrap();
+        assert_eq!(parsed.scene.root.name, "demo");
+        assert_eq!(parsed.scene.root.authored_id.as_deref(), Some("title"));
+        assert!(parsed.scene.root.text_phrasing.is_some());
+        assert_eq!(parsed.scene.root.children.len(), 1);
+        assert_eq!(
+            parsed.scene.root.children[0]
+                .text_phrasing
+                .as_ref()
+                .unwrap()
+                .phrase(PhrasingClass::Web),
+            Some("Child")
+        );
+
+        let absolute =
+            scene(r#"@cell root { id: "root"; position: (1, 2); text: @universal "Hi"; }"#);
+        assert_eq!(parse_strict_gssh5(&absolute).unwrap_err().code, "GY-E1009");
+        let desktop = scene(r#"@desktop {} @cell root { id: "root"; text: @universal "Hi"; }"#);
+        assert!(parse_strict_gssh5(&desktop).is_ok());
     }
 }

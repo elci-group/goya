@@ -1,0 +1,27 @@
+{
+  "name": "disparates-electron-file-explorer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DEL-B01-REACT: Electron + React file explorer for Disparates Phase 1 corpus",
+  "license": "MIT OR Apache-2.0",
+  "main": "dist/main.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "33.2.1",
+    "electron-builder": "24.13.3",
+    "typescript": "5.4.5",
+    "vite": "5.2.11",
+    "@vitejs/plugin-react": "4.2.1",
+    "@types/react": "18.3.3",
+    "@types/react-dom": "18.3.0",
+    "@types/node": "20.12.12"
+  },
+  "dependencies": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  }
+}

@@ -127,6 +127,11 @@ fn persistence_targets_are_gssh4_only_optional_and_closed() {
         "@persistence { cache_targets: { playstation: \"custom\"; }; }",
     );
     assert_eq!(parse_strict_gssh4(&unknown).unwrap_err().code, "GY-E1000");
+    let webos = declared(
+        root,
+        "@persistence { cache_targets: { webos: \"webos.local-storage.v1\"; }; }",
+    );
+    assert!(parse_strict_gssh4(&webos).is_ok());
 }
 
 #[test]

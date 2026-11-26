@@ -1,0 +1,70 @@
+{
+  "work_package": "GY-FAIR-002",
+  "title": "GY-FAIR/2: relationships, four kinds, project record, reason-code register",
+  "wave": "disparates-phase1",
+  "date": "2026-11-26",
+  "branch": "nebula/v0.1 (uncommitted working tree)",
+  "authority": "Owner approved the FAIR/2 draft on 2026-11-26 and asked that its blast radius be adapted when implemented.",
+  "scope": {
+    "objective": "Implement GY-FAIR/2 in goya-fair, keep FAIR/1 readable with unchanged canonical bytes, and move every consumer and document on this branch to FAIR/2.",
+    "contract": "docs/disparates/contracts/fair-2.md",
+    "exclusions": [
+      "No FAIR-to-Goya reconstruction (still withheld by GY-ENT-001).",
+      "No inferred basis (DELECTABLE-0 owner decision 3 is open).",
+      "Other branches were not modified (see blast_radius.not_adapted)."
+    ]
+  },
+  "blast_radius": {
+    "method": "Searched the working tree for goya-fair, goya_fair, GY-FAIR, FairDocument and FAIR/1, and checked every local and remote branch for crates/goya-fair and for crates that depend on it.",
+    "adapted": [
+      {"path": "crates/goya-fair/src/lib.rs", "change": "FAIR/2 schema, validation, upgrade(), canonical output; FAIR_CONTRACT is GY-FAIR/2, FAIR_1_CONTRACT added"},
+      {"path": "crates/goya-fair/src/register.rs", "change": "new: REASON_CODES and is_registered"},
+      {"path": "crates/goya-fair/fixtures/example.fair2.json", "change": "new FAIR/2 fixture; example.fair.json kept unchanged as the FAIR/1 compatibility fixture"},
+      {"path": "crates/goya-fair/Cargo.toml", "change": "description names GY-FAIR/2"},
+      {"path": "crates/goya-disparate-electron", "change": "the only code consumer: v0.2.0 emits FAIR/2 (new kinds, relate.rs for relationships, entry points and framework detection; reads tracking), uses the shared register instead of its own list; tests, golden file and README updated"},
+      {"path": "fixtures/disparates/electron-counter/README.md", "change": "oracle kinds and counts updated"},
+      {"path": "docs/disparates/contracts/fair-2.md", "change": "replaces fair-2-draft.md; records decisions made during implementation"},
+      {"path": "docs/disparates/contracts/reason-codes.md", "change": "new register; kept equal to the code by a test"},
+      {"path": "docs/disparates/contracts/fair-1.md", "change": "superseded notice; rules unchanged"},
+      {"path": "docs/disparates/roadmap.md", "change": "Phase 0 row and Phase 1 progress name FAIR/2"},
+      {"path": "docs/contracts.md", "change": "entry rewritten as GY-FAIR/2, consumers listed"},
+      {"path": "docs/delectable/DELECTABLE-0.md", "change": "steps, DEG row and DEL-G02 updated"}
+    ],
+    "not_adapted": [
+      {"ref": "main, origin/main", "holds": "goya-fair at FAIR/1", "consumers": "none (workspace registration only)", "effect": "A FAIR/1 reader there rejects a FAIR/2 document at validate with CONTRACT_MISMATCH; nothing drops data silently. Needs this change when nebula/v0.1 merges."},
+      {"ref": "arachnid/v0.1 and the nested arachnid/ checkout", "holds": "goya-fair at FAIR/1, plus arachnid/evidence/GY-FAIR-001.json", "consumers": "none", "effect": "As for main. Not touched: it is a separate checkout on another branch."},
+      {"ref": ".kaptaind/, .uni/", "holds": "tool caches that mention goya-fair", "effect": "Generated, not source. Left for their tools to refresh."}
+    ]
+  },
+  "repository_evidence": {
+    "tests": [
+      {"command": "cargo test -p goya-fair --offline", "result": "25 passed; 0 failed", "covers": [
+        "FAIR/1 rules unchanged (12 original cases, adapted)",
+        "FAIR/1 fixture round-trips byte for byte under the FAIR/2 schema",
+        "FAIR/1 may not use FAIR/2 kinds, relationships or the project record",
+        "upgrade() converts FAIR/1, refuses unregistered codes and refuses FAIR/2 input",
+        "unregistered codes refused under FAIR/2; register sorted, unique and equal to reason-codes.md",
+        "dangling, duplicate and self-citing relationships refused; derived relationships need evidence",
+        "project record checks (manifest membership, role, evidence)",
+        "canonical output sorts relationships, entry points, detections and evidence lists"
+      ]},
+      {"command": "cargo test -p goya-disparate-electron --offline", "result": "18 passed; 0 failed", "covers": [
+        "golden FAIR/2 output for DEL-B01 (39 elements, all extracted; 30 relationships; 5 entry points; Electron 33.2.1 detected)",
+        "click handler -> button, bridge -> counter:add -> main handler -> reads and mutates count; counter:get reads only",
+        "ambiguous DOM-ID joins produce no relationship",
+        "every emitted reason code is registered"
+      ]}
+    ],
+    "lint": "cargo clippy -p goya-disparate-electron -p goya-fair --all-targets -- -D warnings: clean",
+    "workspace_build": "cargo check --workspace --offline: finished",
+    "uni": [
+      {"target": "crates/goya-fair", "score": 91},
+      {"target": "crates/goya-disparate-electron", "score": 73, "below_gate": true, "drivers": "traci telemetry rules, ferret unwrap findings in tests, viva-palestina excludes oxc_parser and oxc_allocator; a probe showed it excludes any crate named *_parser or *_allocator"}
+    ]
+  },
+  "honesty_notes": [
+    "Uncommitted. Nothing was pushed.",
+    "Relationships are as good as the joins behind them: literal channels, bridge keys, DOM IDs and binding names. reads and mutates inherit the extractor's lack of scope analysis.",
+    "No element on DEL-B01 is undetermined any more because FAIR/2 has kinds for them, not because more of the application is understood."
+  ]
+}

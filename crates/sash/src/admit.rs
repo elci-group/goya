@@ -148,7 +148,7 @@ pub fn open_for_platform(source: &str, platform: &str) -> Result<SceneTarget, Di
 
 /// The contract a `--viewport-dip` scene is admitted under: GSSH/4-live for
 /// the interactive counter; for a static scene GSSH/4 when it uses a GSSH/4
-/// declaration (`@platform`, `@iden`, `@persistence`), else GSSH/3.
+/// declaration (`@platform`, `@iden`, `@persistence`, `@desktop`), else GSSH/3.
 pub fn viewport_contract(source: &str) -> &'static str {
     if viewport_interactive(source) {
         return handoff::CONTRACT_V4_LIVE;
@@ -161,6 +161,7 @@ pub fn viewport_contract(source: &str) -> &'static str {
 
 fn uses_gssh4(handoff: &handoff::SemanticHandoffV2) -> bool {
     !handoff.platform_exceptions().is_empty()
+        || handoff.parsed().declarations.desktop.is_some()
         || handoff
             .parsed()
             .entries
@@ -182,6 +183,8 @@ pub fn open_with_viewport(
     if viewport_interactive(source) {
         let handoff = handoff::admit_v4_live(source).map_err(diagnostic_from_strict)?;
         refuse_platform_rules(&handoff, "windows")?;
+        refuse_desktop(handoff.parsed())?;
+        refuse_extended_live(handoff.parsed())?;
         return crate::interactive::admit_parsed_live(handoff.parsed(), viewport)
             .map(SceneTarget::Interactive);
     }
@@ -210,7 +213,9 @@ fn parsed_for_platform(
         // profiles refuse.
         if uses_gssh4(&handoff) {
             refuse_platform_rules(&handoff, platform)?;
-            return Ok(handoff.parsed().clone());
+            let parsed = handoff.parsed().clone();
+            refuse_desktop(&parsed)?;
+            return Ok(parsed);
         }
     }
 
@@ -223,6 +228,34 @@ fn parsed_for_platform(
             .map(|handoff| handoff.parsed.clone())
             .map_err(diagnostic_from_strict)
     }
+}
+
+/// Authored `@desktop` is a GSSH/4 declaration Sash does not place yet.
+/// Omitting it stays the contract's fullscreen default, which this profile
+/// does not apply to the Win32 frame: a `--viewport-dip` window keeps that size.
+fn refuse_desktop(parsed: &ParsedScene) -> Result<(), Diagnostic> {
+    if let Some(desktop) = &parsed.declarations.desktop {
+        return Err(cap(
+            "desktop placement is not implemented by this profile",
+            "Remove @desktop. Sash does not apply GSSH/4 initial desktop state yet.",
+            Some(desktop.range),
+        ));
+    }
+    Ok(())
+}
+
+/// `@graphic`, `@draw`, `present-when` and `fill-to` are live-profile
+/// constructs. Admitting the scene and then ignoring them would stack every
+/// card and paint none of them.
+fn refuse_extended_live(parsed: &ParsedScene) -> Result<(), Diagnostic> {
+    if let Some(range) = goya_lang::first_extended_live(parsed) {
+        return Err(cap(
+            "graphics, conditional presence and entrance motion are not implemented by this profile",
+            "Remove @graphic, @draw, present-when, fill-to and appear-s. Sash does not paint them.",
+            Some(range),
+        ));
+    }
+    Ok(())
 }
 
 /// Refuse any exception for `platform`: none is implemented by Sash yet.
@@ -247,9 +280,8 @@ fn refuse_platform_rules(
 /// it has a control or an interaction (decided on the loose parse, so a
 /// strict refusal is reported by the profile that would admit the scene).
 fn viewport_interactive(source: &str) -> bool {
-    goya_lang::parse_with_source_map(source).is_ok_and(|parsed| {
-        !parsed.scene.interactions.is_empty() || control_in(&parsed.scene.root)
-    })
+    goya_lang::parse_with_source_map(source)
+        .is_ok_and(|parsed| !parsed.scene.interactions.is_empty() || control_in(&parsed.scene.root))
 }
 
 fn control_in(cell: &SceneCell) -> bool {
@@ -1102,10 +1134,9 @@ mod tests {
             panic!("expected a static window");
         };
         assert_eq!(window.labels[0].iden.as_ref().unwrap().0, "Headline");
-        assert!(window
-            .dispositions
-            .iter()
-            .any(|d| d.subject == "label.headline @iden" && d.detail.contains("UI Automation Name")));
+        assert!(window.dispositions.iter().any(
+            |d| d.subject == "label.headline @iden" && d.detail.contains("UI Automation Name")
+        ));
         // The group has no text, so it becomes no control to name.
         let container = source.replace(
             "id: \"panel.group\";",
@@ -1115,12 +1146,80 @@ mod tests {
             Err(error) => error,
             Ok(_) => panic!("a text-less @iden was admitted"),
         };
-        assert!(error.message.contains("no Win32 control to name"), "{}", error.message);
+        assert!(
+            error.message.contains("no Win32 control to name"),
+            "{}",
+            error.message
+        );
         assert_eq!(
             &container[error.start.unwrap()..error.end.unwrap()],
             "@iden { label: \"Panel\"; }"
         );
         assert_eq!(viewport_contract(source), "GSSH/4");
+    }
+
+    #[test]
+    fn authored_desktop_is_refused_on_the_static_and_live_paths() {
+        let source =
+            "@ontology demo {\n  @desktop {}\n  @cell root { id: \"root\"; text: \"Hi\"; }\n}\n";
+        let Err(error) = open(source) else {
+            panic!("authored desktop was admitted");
+        };
+        assert!(
+            error.message.contains("desktop placement"),
+            "{}",
+            error.message
+        );
+        assert_eq!(
+            &source[error.start.unwrap()..error.end.unwrap()],
+            "@desktop {}"
+        );
+        let live = "@ontology demo {\n  @desktop {}\n  @cell root { id: \"root\"; @button go { id: \"go\"; text: \"Go\"; } }\n}\n";
+        let Err(error) = open_with_viewport(live, ViewportDip::new(320, 160)) else {
+            panic!("authored desktop was admitted");
+        };
+        assert!(
+            error.message.contains("desktop placement"),
+            "{}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn graphics_and_presence_are_refused_on_the_live_path() {
+        let live = r#"@ontology demo {
+  @state { open: bool = false session; }
+  @cell root {
+    id: "root";
+    @button go {
+      id: "go";
+      text: "Go";
+      present-when: state.open is false;
+    }
+  }
+  @interaction press {
+    id: "action.press";
+    trigger: button.go.activate;
+    class: D1;
+    state { write open: bool; }
+    input { }
+    set open = true;
+  }
+}
+"#;
+        let Err(error) = open_with_viewport(live, ViewportDip::new(320, 160)) else {
+            panic!("conditional presence was admitted");
+        };
+        assert!(
+            error.message.contains("conditional presence"),
+            "{}",
+            error.message
+        );
+        let span = &live[error.start.unwrap()..error.end.unwrap()];
+        assert!(
+            span.contains("present-when"),
+            "span was {span:?}"
+        );
     }
 
     #[test]
@@ -1131,7 +1230,11 @@ mod tests {
             @platform windows { "media": only-use("native.player"); }
         }"#;
         let error = parsed_for_platform(source, "windows", false).unwrap_err();
-        assert!(error.message.contains("windows platform exception"), "{}", error.message);
+        assert!(
+            error.message.contains("windows platform exception"),
+            "{}",
+            error.message
+        );
         assert_eq!(
             &source[error.start.unwrap()..error.end.unwrap()],
             "\"media\": only-use(\"native.player\");"

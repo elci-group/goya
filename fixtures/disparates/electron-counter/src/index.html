@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'">
+    <title>Count</title>
+    <link rel="stylesheet" href="style.css">
+  </head>
+  <body>
+    <main id="window-root">
+      <span class="caption">Count</span>
+      <input id="window-amount" type="text" value="1"
+             aria-label="Amount" aria-description="A whole number to add to the count">
+      <button id="window-add" type="button" aria-label="Add amount">Add</button>
+      <output id="window-total" aria-live="polite">0</output>
+    </main>
+    <script src="renderer.js"></script>
+  </body>
+</html>

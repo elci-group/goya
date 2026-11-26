@@ -60,6 +60,15 @@ pub struct WebCell {
     pub text_from: Option<String>,
     /// `@iden`: accessible name and description (decision D14).
     pub iden: Option<WebIden>,
+    /// `present-when`. Ancestors conjoin at runtime.
+    pub present: Option<WebCondition>,
+    /// `fill-to` colour and `fill-period-s` seconds, together.
+    pub fill_to: Option<(u32, f64)>,
+    /// `@draw` of a declared `@graphic`.
+    pub draw: Option<WebDraw>,
+    /// `appear-s` seconds and the `appear-from-p` offset, as fractions of
+    /// the parent. The offset is zero when the author omitted it.
+    pub appear: Option<(f64, [f64; 2])>,
     pub range: SourceRange,
 }
 
@@ -69,6 +78,30 @@ pub struct WebCell {
 pub struct WebIden {
     pub label: String,
     pub hint: Option<String>,
+}
+
+/// A `present-when` or `@draw` condition. `at_least` is `at-least`; otherwise
+/// the comparison is equality.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WebCondition {
+    pub key: String,
+    pub at_least: bool,
+    pub value: InteractionValue,
+}
+
+/// One `@draw` rule. The value is the dimension's authored label.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WebDrawRule {
+    pub dimension: String,
+    pub value: String,
+    pub when: Option<WebCondition>,
+}
+
+/// `@draw`: the graphic name and its rules, in source order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WebDraw {
+    pub graphic: String,
+    pub rules: Vec<WebDrawRule>,
 }
 
 /// Browser store for durable state (decision D11): `localStorage` unless the
@@ -246,6 +279,10 @@ pub fn admit_local_interactive(
             "persistence" => true,
             // Rendered as the native accessible name and description (D14).
             "iden" => true,
+            // Initial desktop state. Omission has no entry and is fullscreen (D16).
+            "desktop" => true,
+            // Live profile only: the parser refuses these on v2 (`GY-E1012`).
+            "graphic" | "draw" => true,
             "property" => {
                 let element = entry
                     .scene_path
@@ -263,7 +300,8 @@ pub fn admit_local_interactive(
                     // (decision D3); line breaks are checked per element.
                     "text" => true,
                     // Admitted only by GSSH/3-live; checked per element below.
-                    "text_from" => true,
+                    "text_from" | "present_when" | "fill_to" | "fill_period_s" | "appear_s"
+                    | "appear_from_p" => true,
                     // Checked per element below.
                     "scroll" => true,
                     "text_anchor" => {
@@ -408,6 +446,24 @@ pub fn admit_local_interactive(
                 label: iden.label.clone(),
                 hint: iden.hint.clone(),
             }),
+            present: cell.present_when.as_ref().map(web_condition),
+            fill_to: cell.fill_to.zip(cell.fill_period_s),
+            draw: cell.draw.as_ref().map(|draw| WebDraw {
+                graphic: draw.graphic.clone(),
+                rules: draw
+                    .rules
+                    .iter()
+                    .map(|rule| WebDrawRule {
+                        dimension: rule.dimension.clone(),
+                        value: rule.value.clone(),
+                        when: rule.when.as_ref().map(web_condition),
+                    })
+                    .collect(),
+            }),
+            appear: cell.appear_s.map(|seconds| {
+                let from = cell.appear_from_p.unwrap_or_default();
+                (seconds, [from.x, from.y])
+            }),
             range: at(&element).unwrap_or(whole),
         });
     }
@@ -528,6 +584,14 @@ fn out_scroll(cells: &[WebCell], index: usize) -> bool {
 
 fn out_parent(cells: &[WebCell], index: usize) -> Option<usize> {
     cells[index].parent
+}
+
+fn web_condition(condition: &goya_lang::Condition) -> WebCondition {
+    WebCondition {
+        key: condition.key.clone(),
+        at_least: condition.op == goya_lang::ConditionOp::AtLeast,
+        value: condition.value.clone(),
+    }
 }
 
 fn collect<'a>(

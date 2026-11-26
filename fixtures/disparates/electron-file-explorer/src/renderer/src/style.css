@@ -1,0 +1,144 @@
+html, body {
+  margin: 0;
+  height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 14px;
+  color: #1a1a1a;
+  background-color: #f3f3f3;
+}
+
+#window-root {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+#window-header {
+  position: relative;
+  height: 6.25%;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2.5%;
+  background-color: #fff;
+  border-bottom: 1px solid #d1d1d1;
+  box-sizing: border-box;
+}
+
+#window-title {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+#window-open-btn {
+  height: 62.5%;
+  padding: 0 1.25%;
+  font-size: 0.875rem;
+  border: 1px solid #0078d4;
+  border-radius: 4px;
+  background-color: #0078d4;
+  color: #fff;
+  cursor: pointer;
+  transition: background-color 0.1s;
+}
+
+#window-open-btn:hover:not(:disabled) {
+  background-color: #106ebe;
+}
+
+#window-open-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+#window-error {
+  position: relative;
+  height: 3.75%;
+  min-height: 24px;
+  padding: 0 2.5%;
+  display: flex;
+  align-items: center;
+  background-color: #fde7e9;
+  color: #d13438;
+  font-size: 0.875rem;
+  box-sizing: border-box;
+}
+
+#window-content {
+  position: relative;
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+#window-sidebar {
+  position: relative;
+  width: 30%;
+  min-width: 200px;
+  max-width: 40%;
+  background-color: #fff;
+  border-right: 1px solid #d1d1d1;
+  overflow-y: auto;
+}
+
+#window-tree {
+  padding: 1.25%;
+}
+
+#window-empty {
+  padding: 2.5%;
+  color: #666;
+  text-align: center;
+}
+
+#window-main {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background-color: #fff;
+  overflow: hidden;
+}
+
+#window-file-header {
+  position: relative;
+  height: 5%;
+  min-height: 32px;
+  padding: 0 1.25%;
+  display: flex;
+  align-items: center;
+  background-color: #f3f3f3;
+  border-bottom: 1px solid #d1d1d1;
+  box-sizing: border-box;
+}
+
+#window-file-path {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.875rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#window-no-file {
+  color: #666;
+  font-style: italic;
+}
+
+#window-file-content {
+  position: relative;
+  flex: 1;
+  margin: 0;
+  padding: 1.25%;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow: auto;
+  box-sizing: border-box;
+}

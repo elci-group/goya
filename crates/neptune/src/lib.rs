@@ -65,6 +65,13 @@ pub(crate) fn admit_ios(
             })
         }
     };
+    if let Some(desktop) = &handoff.parsed().declarations.desktop {
+        return Err(IosAdmissionError {
+            code: "GY-E1018",
+            message: "desktop placement is not implemented by Neptune".into(),
+            range: desktop.range,
+        });
+    }
     let exceptions = handoff.platform_exceptions().iter().map(|rule| {
         let use_kind = match rule.use_kind {
             goya_lang::PlatformUse::OnlyUse => "only-use",
@@ -493,6 +500,12 @@ mod tests {
             &matching[error.range.start..error.range.end],
             "\"media\": only-use(\"native.player\");"
         );
+
+        let desktop = base.replace("@cell root", "@desktop {}\n @cell root");
+        let error = admit_ios(&desktop).unwrap_err();
+        assert_eq!(error.code, "GY-E1018");
+        assert!(error.message.contains("desktop placement"));
+        assert_eq!(&desktop[error.range.start..error.range.end], "@desktop {}");
     }
 
     #[test]
@@ -561,7 +574,10 @@ mod tests {
         assert!(preview
             .swift
             .contains("Text(verbatim: \"Hi\").accessibilityLabel(Text(verbatim: \"Greeting\"))"));
-        assert_eq!(&preview.swift[preview.swift_range.start..preview.swift_range.end], "Text(verbatim: \"Hi\")");
+        assert_eq!(
+            &preview.swift[preview.swift_range.start..preview.swift_range.end],
+            "Text(verbatim: \"Hi\")"
+        );
     }
 
     #[test]

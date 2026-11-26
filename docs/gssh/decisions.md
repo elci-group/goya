@@ -380,8 +380,9 @@ transaction, so another window cannot write between them; with
 Maja emits durable state yet (Aragon refuses it, gate ARG-G07). (b) Whether
 a later profile should migrate records between stores. (c) Persistence
 targets in a live profile: resolved by D12 (GSSH/4-live). (d) Persistence keys for
-`android_tv`, `tvos` and `webos`, which `@platform` names but
-`@persistence` does not.
+`android_tv` and `tvos`, which `@platform` names but `@persistence` does
+not. (`webos` was added on 25 November 2026 for Arachnid: default
+`webos.local-storage.v1`, database `webos.indexeddb.v1`.)
 
 ## D12 — Live state with persistence: live, staged and source (GSSH/4-live)
 
@@ -459,3 +460,89 @@ GSSH/4-live directly. Sash admits GSSH/4 (static) and GSSH/4-live (the
 counter) for `--viewport-dip` scenes and keeps GSSH/1 for its absolute-length
 scenes. Neptune and Emperor still try earlier profiles first; Neptune maps
 `@iden` where it admits it.
+
+## D16 — Initial desktop state (GSSH/4)
+
+**Decision.** Every GSSH/4 scene has an enforced initial desktop state
+and position. The default is fullscreen. An author may override it with
+one `@desktop` block in the ontology body. Window controls are either
+colours written in that block or a named style from the chrome library
+(`goya.chrome.plain`, `goya.chrome.ink`, `goya.chrome.night`). Plain is
+the default. A compile-time library selection may fill an omission and
+must not override authored controls. Rules:
+[Initial desktop state](GSSH-2.md#initial-desktop-state).
+
+**Design.** `goya_lang::desktop::place` is the shared geometry, so every
+target that implements the desktop computes the same origin. Fullscreen
+has no frame: its controls overlay the scene. Maximised and windowed
+frames include a 32 DIP title bar inside the rect. A windowed extent
+larger than the work area is clamped at placement, because the work area
+is unknown at compile time. Older profiles reject `@desktop` with
+`GY-E1015`. Combination mistakes are `GY-E1018`. `parse()` refuses an
+authored block so the compatibility API cannot drop it.
+
+**Status by target (25 November 2026).** Maja `maja.web.local.v2` and
+`v3` place the desktop in the page and emit minimise, maximise or
+restore, close, and title-bar drag. `--chrome NAME` selects a library
+style when the scene does not author controls. The browser's Fullscreen
+API is not used: fullscreen is the in-page state, including at startup,
+without a user gesture. Sash, Aragon, Nevada, Neptune and Emperor refuse
+an authored `@desktop`. Omitting it still resolves to fullscreen, which
+those targets do not apply: Sash keeps its `--viewport-dip` window at
+that size.
+
+## D17 — Static phrasing (GSSH/5)
+
+**Decision** (25 November 2026). Static sentences name the platform class
+they are written for. The profile is GSSH/5, a Candidate, with GSSH/5-live
+for the live bindings GSSH/4-live already admits. GSSH/4, including what
+D15 and D16 decided, stays as it was decided. Phrasing work targets GSSH/5.
+
+**Why.** One authored sentence was shown on every target. A television
+remote instruction ("Press OK") reached the browser. A compiler rewrite
+can hide that sentence on one target and still leave the source
+unqualified. The author states the class.
+
+**Classes.** The specifiers are `@universal`, `@desktop`, `@mobile`, `@tv`
+and `@web`. They are classes, separate from `@platform` names (`android`,
+`ios`, `macos`, `windows`, `linux`, `browser`, `webos`, `android_tv`,
+`tvos`). `@web` is a browser page, including Maja's in-page desktop.
+`@tv` is a remote, including webOS. `@desktop` is a native window.
+`@mobile` is a touch phone or tablet. `@web` and `@desktop` stay distinct.
+webOS is `@tv`.
+
+**Sites.** `text`, `placeholder`, and `@iden` `label` and `hint`. A hint
+may be omitted; a hint that is present is phrased. `text-from`, state
+initial values and interaction string literals are data. D9 announcement
+wording is unchanged.
+
+**Form.** A phrasing value is `@universal "..."` or a brace group of the
+five specifiers. `@universal` may sit beside overrides and covers every
+class without its own sentence. A class with neither its own sentence nor
+`@universal` is refused (`GY-E1019`). A duplicate or unknown specifier,
+and an empty group, are syntax (`GY-E1000`). A bare string on a phrasing
+site is `GY-E1019`. A phrase is non-blank, free of control characters,
+and within 16 KiB for `text` and `placeholder`, 512 bytes for a label and
+2048 bytes for a hint.
+
+**Compiler.** The compiler selects its class with `Phrasing::phrase` and
+shows that sentence. It does not invent or rewrite wording. Layout reads
+`text` and does not choose a phrase; a GSSH/5 phrase stays beside the
+cell until the adopting compiler wraps the sentence it selected. Earlier
+profiles reject the syntax with `GY-E1019`. `parse()` refuses it so the
+compatibility scene cannot drop it. `placeholder` stays unknown
+(`GY-E1001`) on those earlier strict profiles; GSSH/5 admits it as a
+phrasing site.
+
+**Classes recorded for adopting compilers.** Maja `@web`. Arachnid `@tv`.
+Sash `@desktop`. Aragon handheld `@mobile`. Aragon television `@tv`.
+Neptune iOS `@mobile`. Emperor, and Neptune on macOS, record a class when
+they adopt. This decision does not switch any compiler onto GSSH/5.
+Compilers keep admitting GSSH/4 until that adoption.
+
+**Accommodation.** Maja's removal of television remote instructions from
+a GSSH/4 scene is a pre-GSSH/5 accommodation for sources that have not
+adopted this profile. It is not a phrasing selector and does not satisfy
+GSSH/5.
+
+Rules: [Static phrasing](GSSH-2.md#gssh5--static-phrasing).

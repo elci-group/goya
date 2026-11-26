@@ -24,6 +24,11 @@ represent more cheaply.
 | 3: GVI | **Core done (2026-11-25).** [GY-GVI/0](gvi.md) and the `goya-gvi` crate cover KFBM assessment, reachable-state enumeration (product with exclusions, or transition closure), merging of identical projections, parent binding, certificate verification at open, and runtime lookup that rejects invalid and unreachable states. Baked projections and integer-exact path morphs are included. Differential geometry (GVI-D) with packed projection rows and a packed index bring the baked morph inventory from 119.6 KB to 11.3 KB (−91%) and the TV menu inventory from 47.9 KB to 4.9 KB (−90%). Lookup drops from about 60 ns to 27 ns, and drawing construction is about 9% slower. Expanded residency makes drawing construction 43% faster, at the cost of more heap. GVI-A trajectory records ([gvi-albit.md](gvi-albit.md), opt-in) cut a further 23–72% below the best GVI-D configuration on morph workloads, and rebuild any single shape 4–14× faster. GVI-L ([gvi-lineless.md](gvi-lineless.md)) stores the style pool as a shared colour palette when that section is strictly smaller than `STYL`; the decoded styles are the same pool. GVI-O operative encoding ([gvi-operative.md](gvi-operative.md), opt-in) removes derivable metadata on top of that: −23% to −98.5% against the strongest configuration, with lookup unchanged. Exit gate met with the state model declared through the API. Deriving it from `.gscene` is Phase 5. |
 | 4–7 | Not started. |
 
+Colour Cueing is an execution policy, not a new section.
+[colour-cue.md](colour-cue.md) and `crates/goya-cue` price full-frame,
+front-buffer-copy, and in-place damage, keep a palette index until the
+fill, and refuse a device-local GPU placement while Vulkan is blocked.
+
 Measured so far (size only, synthetic; see [gva.md](gva.md) §8): 10,000
 repeated circles are 69.5% smaller than SVG text, while a single icon is
 about 5× larger because of the envelope. GVI lookup was measured on the B04 TV menu: p99 85 ns against the 100 µs

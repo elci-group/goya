@@ -34,6 +34,9 @@ before). This is generated and source-mapped but not yet run on a device.
 The rule is that every construct GSSH/4 admits is either emitted or refused
 with the exact source range of that construct, through
 `AndroidSceneError { reason, origin, range }`. Nothing is ignored.
+An authored `@desktop` is refused (`desktop window`, decision D16) until
+Aragon places it. Omitting `@desktop` stays the contract's fullscreen
+default, which this compiler does not apply to the Android window.
 
 ## Construct coverage
 

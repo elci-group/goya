@@ -1,0 +1,10 @@
+[package]
+name = "goya-cue"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Colour Cueing execution policy: indexed paint, damage accounting, and fail-closed GPU placement."
+
+[dependencies]
+goya-change = { path = "../goya-change" }

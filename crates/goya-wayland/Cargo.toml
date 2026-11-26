@@ -8,6 +8,7 @@ license.workspace = true
 goya-runtime.workspace = true
 goya-layout.workspace = true
 goya-change.workspace = true
+goya-cue.workspace = true
 goya-csr.workspace = true
 goya-hcar.workspace = true
 goya-window-management.workspace = true

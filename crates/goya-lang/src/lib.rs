@@ -10,8 +10,11 @@
 //! Contract: parsing and layout are total (never panic on any input) and
 //! deterministic. See docs/contracts.md GY-LANG/1.
 
+pub mod chromatics;
+pub mod desktop;
 pub mod display_binding;
 pub mod gestures;
+pub mod graphic;
 pub mod handoff;
 mod hotswap;
 pub mod intents;
@@ -25,6 +28,10 @@ mod transition;
 pub use handoff::{SemanticHandoff, CONTRACT as SEMANTIC_HANDOFF_CONTRACT};
 
 pub use hotswap::SceneStore;
+pub use chromatics::{
+    allocation_candidates, allocation_policy, validate_chromatics, validate_decl,
+    ChromaticDiagnostic,
+};
 pub use intents::{
     utterance_error, utterance_slots, validate_intent_decl, validate_intents, IntentDiagnostic,
     UTTERANCE_GRAMMAR_V0,
@@ -32,15 +39,17 @@ pub use intents::{
 pub use lexer::{lex, LexError, Token, TokenKind};
 pub use lowering::{lower, LowerError, Lowered, NodeKey, NodeRecord, NodeTable, Role};
 pub use parser::{
-    parse, parse_strict, parse_strict_gssh2, parse_strict_gssh3, parse_strict_gssh3_live,
-    parse_strict_gssh4, parse_strict_gssh4_live, parse_with_source_map, Declarations, InputBinding, KeyUse, ParseError,
-    Migration, MigrationRule, ParsedScene, PlatformException, PlatformUse, SourceEntry, SourceRange, StateDecl,
-    StateLifetime, StrictParseError,
+    first_extended_live, parse, parse_strict, parse_strict_gssh2, parse_strict_gssh3,
+    parse_strict_gssh3_live, parse_strict_gssh4, parse_strict_gssh4_live, parse_strict_gssh5,
+    parse_strict_gssh5_live, parse_with_source_map, Declarations, DesktopDecl, InputBinding,
+    KeyUse, Migration, MigrationRule, ParseError, ParsedScene, PlatformException, PlatformUse,
+    SourceEntry, SourceRange, StateDecl, StateLifetime, StrictParseError,
 };
 pub use scene::{
-    hit_test, hit_test_scrolled, layout, Anchor, CellKind, DrawNode, Frame, GestureDecision,
-    GesturePolicy, Iden, IntentCategory, IntentDecl, RectMp, Scene, SceneCell, ScrollOffsets,
-    TransportClass, TypedSlot, Vec3,
+    hit_test, hit_test_scrolled, layout, Anchor, CellKind, ChromaticCandidate, ChromaticsDecl,
+    Condition, ConditionOp, DrawNode, Frame, GestureDecision, GesturePolicy, Iden, IntentCategory,
+    IntentDecl, Phrasing, PhrasingClass, RectMp, Scene, SceneCell, ScrollOffsets, TransportClass,
+    TypedSlot, Vec3, MAX_PHRASE_TEXT_BYTES,
 };
 pub use scene::{
     EffectRequestDecl, EffectValueType, InteractionClass, InteractionDecl, InteractionExpr,

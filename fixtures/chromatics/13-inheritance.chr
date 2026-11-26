@@ -1,0 +1,59 @@
+# §6: nested scopes with declared inheritance (§14 conformance: context
+# inheritance). Show Details and its confirmation modal inherit the
+# Television Shows pool; a child's own candidates win their slots.
+
+capacity red green yellow blue
+intents confirm.play show.a show.b show.c dismiss
+policy primary=ranked
+
+# The Television Shows view resolves three ranked favourites. The fourth
+# input stays unallocated (§3.2).
+push shows
+candidate fav-a intent=show.a label="Show A" rank=2
+candidate fav-b intent=show.b label="Show B" rank=3
+candidate fav-c intent=show.c label="Show C" rank=4
+resolve now=1
+expect red=fav-a green=fav-b yellow=fav-c blue=-
+expect-generation 1
+
+# Show Details inherits the view's pool and adds confirm, which outranks
+# the favourites.
+push details inherits
+candidate confirm intent=confirm.play label="Confirm" rank=1
+resolve now=2
+expect red=confirm green=fav-a yellow=fav-b blue=fav-c
+expect-generation 2
+
+# The confirmation modal inherits again: the chain composes, so the modal
+# sees its own dismiss, details' confirm and the view's favourites.
+push modal inherits
+candidate dismiss intent=dismiss label="Dismiss" rank=0
+resolve now=3
+expect red=dismiss green=confirm yellow=fav-a blue=fav-b
+expect-generation 3
+
+# Leaving the modal re-resolves its parent scope (§6).
+pop
+resolve now=4
+expect red=confirm green=fav-a yellow=fav-b blue=fav-c
+expect-generation 4
+
+# Leaving Show Details restores the view's own resolution.
+pop
+resolve now=5
+expect red=fav-a green=fav-b yellow=fav-c blue=-
+expect-generation 5
+
+# A child without the declaration replaces the pool: the §6 confirmation
+# modal reduces the allocation to one action and leaves the rest unassigned.
+push pinch
+candidate confirm intent=confirm.play label="Confirm" rank=0
+resolve now=6
+expect red=confirm green=- yellow=- blue=-
+expect-generation 6
+
+# And the engine's history for the replaced view still stands underneath.
+pop
+resolve now=7
+expect red=fav-a green=fav-b yellow=fav-c blue=-
+expect-generation 7

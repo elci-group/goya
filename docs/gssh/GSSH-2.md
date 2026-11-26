@@ -3,7 +3,9 @@
 Contract identifier: `GSSH/2`. Status: **Approved** by the project owner,
 21 November 2026 (Candidate from 17 November). Targets may cite it as a
 frozen contract (`docs/contracts.md`); changes need a new profile or a
-recorded decision. GSSH/3 below is still a Candidate. Decisions and their rationale are in
+recorded decision. GSSH/3 below is still a Candidate. GSSH/5, recorded in
+decision D17 on 25 November 2026, is a Candidate for static phrasing.
+Decisions and their rationale are in
 [`decisions.md`](decisions.md). Implementation: `crates/goya-lang`
 (`parse_strict_gssh2`, `handoff::admit_v2`); conformance corpus:
 `crates/goya-lang/tests/strict_corpus.rs` and `tests/corpus/`.
@@ -21,8 +23,10 @@ declarations from one parse of one source revision.
 | `GSSH/1` | `handoff::admit`, `parse_strict` | The GY-LANG/1 strict profile. Any GSSH/2 declaration is rejected with `GY-E1006`. |
 | `GSSH/2` | `handoff::admit_v2`, `parse_strict_gssh2` | Everything GSSH/1 admits and checks, plus `@state` declarations and `from` input bindings, with the coverage rules below. |
 | `GSSH/3` | `handoff::admit_v3`, `parse_strict_gssh3` | GSSH/2 with proportional lengths only: absolute `position`, `extent`, `text-size` and `stroke-width` are rejected (`GY-E1009`); `text-size-p` and `stroke-width-p` are admitted. See [GSSH/3](#gssh3--proportional-lengths) and decision D7. |
-| `GSSH/4` | `handoff::admit_v4`, `parse_strict_gssh4` | GSSH/3 plus explicit platform exceptions (D10), optional persistence targets and migration (D11, D13), and accessible identity `@iden`, required on every `@input` (D14). Earlier profiles reject these declarations (`GY-E1015`); live bindings remain gated separately. The latest profile: new work targets it (D15). |
+| `GSSH/4` | `handoff::admit_v4`, `parse_strict_gssh4` | GSSH/3 plus explicit platform exceptions (D10), optional persistence targets and migration (D11, D13), accessible identity `@iden`, required on every `@input` (D14), and an enforced initial desktop state (D16). Earlier profiles reject these declarations (`GY-E1015`); live bindings remain gated separately. D15 named this the profile new work targets. Static phrasing targets GSSH/5 under D17, and this profile stays as D15 and D16 decided it. |
 | `GSSH/4-live` | `handoff::admit_v4_live`, `parse_strict_gssh4_live` | GSSH/4 plus the live bindings of GSSH/3-live (`text-from`, same rules and codes), committed by the live / staged / source model (D12). GSSH/3-live is unchanged and still rejects GSSH/4 declarations. |
+| `GSSH/5` | `handoff::admit_v5`, `parse_strict_gssh5` | GSSH/4 plus enforced static phrasing (D17). `text`, `placeholder`, and `@iden` `label` and `hint` name the classes they are written for. Earlier profiles reject those specifiers (`GY-E1019`). Live bindings remain gated separately. Candidate. |
+| `GSSH/5-live` | `handoff::admit_v5_live`, `parse_strict_gssh5_live` | GSSH/5 plus the live bindings of GSSH/4-live. `text-from` is live data and is not a phrasing site. |
 
 ## GSSH/4 — platform ambiguity and explicit exceptions
 
@@ -82,7 +86,7 @@ ontology body, at most once:
   store (for the browser, `localStorage`).
 * **A target map:** each entry names the adapter one platform must use.
   Platforms not listed keep their default local store. Platform keys are
-  `android`, `ios`, `macos`, `windows`, `linux` and `browser`; an unknown
+  `android`, `ios`, `macos`, `windows`, `linux`, `browser` and `webos`; an unknown
   key, a repeated key, an empty adapter string or an empty map is a syntax
   error (`GY-E1000`).
 * **`null`:** persistence is disabled. Declaring `durable` state as well is
@@ -104,6 +108,7 @@ adapter is never accepted for another:
 | `macos` | `macos.preferences.v1` (UserDefaults) | `macos.sqlite.v1` (the system SQLite) |
 | `windows` | `windows.local-settings.v1` (ApplicationData local settings) | `windows.sqlite.v1` (the SQLite Windows ships) |
 | `linux` | `linux.xdg-state.v1` (a file under `$XDG_STATE_HOME`) | `linux.sqlite.v1` (SQLite under `$XDG_STATE_HOME`) |
+| `webos` | `webos.local-storage.v1` (the app's `localStorage`) | `webos.indexeddb.v1` (IndexedDB in the platform Chromium) |
 
 A compiler **warns** when durable state uses its platform's default because
 the scene named no adapter for it (no `@persistence`, or a map that does not
@@ -141,6 +146,75 @@ platform at most once. Anything else is a syntax error (`GY-E1000`);
 `migration` with `cache_targets: null` is `GY-E1014`. An old record that
 fails to decode is reported as a failed restore and left where it is. A
 record already in the scene's store always wins; nothing is merged.
+
+### Initial desktop state
+
+Every GSSH/4 ontology has one initial desktop (decision D16). The author
+may omit it. Omission and an empty `@desktop {}` both resolve to
+fullscreen. The empty block is still authored, so a compiler that cannot
+place a desktop must refuse it. Omission is not a declaration to drop:
+the resolved state is fullscreen, and a compiler that cannot apply that
+state leaves its existing window unchanged and records the gap. Sash's
+`--viewport-dip` window stays that size; it does not become an operating
+system fullscreen window.
+
+The block sits directly in the ontology body, at most once. Semicolons
+are required. The keys are optional except for the combinations below.
+
+```text
+@desktop {
+  state: windowed;
+  position: center;
+  extent_dip: (960, 640);
+  controls: library "goya.chrome.ink";
+}
+@desktop {
+  controls: { bar: #1c1915; glyph: #f4f1ea; close: #8c2f39; close_glyph: #fffaf0; desk: #2a2622; };
+}
+```
+
+| Key | Meaning |
+| --- | --- |
+| `state` | `fullscreen` (default), `maximized`, or `windowed`. |
+| `position` | `center`, or a DIP pair `(x, y)`. Only with `windowed`. Omission is `center`. |
+| `extent_dip` | Window size in DIP, required when `windowed`, forbidden otherwise. Each edge is an integer from 1 to 8192. |
+| `controls` | `library "goya.chrome.plain"`, `goya.chrome.ink`, or `goya.chrome.night`, or a colour block. One `controls` key. Omission is plain. |
+
+A DIP integer has no `+`, `.`, `_`, leading zero, or `-0`. A position may
+be negative. Anything else in the block is a syntax error (`GY-E1000`).
+`windowed` without `extent_dip`, `position` or `extent_dip` on another
+state, an unknown library name, and a colour block missing any of `bar`,
+`glyph`, `close`, `close_glyph` (`close-glyph`) and `desk` are `GY-E1018`.
+Older profiles reject the block with `GY-E1015`. `parse()` returns only a
+scene, so it refuses an authored `@desktop` rather than dropping it.
+
+Placement is `goya_lang::desktop::place`. The work area is in DIP, origin
+at the top-left, y growing down. Each edge must be at least 1 or `place`
+returns an error. A browser that measures a hidden document as 0
+substitutes 1 before calling it.
+
+| State | Rectangle | Frame |
+| --- | --- | --- |
+| `fullscreen` | The work area, from `(0, 0)`. | No. Controls overlay the scene and do not shrink it. |
+| `maximized` | The work area, from `(0, 0)`. | Yes. The 32 DIP title bar is inside the rect. |
+| `windowed` | `extent_dip`, clamped down to the work area. `center` is toward-zero division of the leftover space. A DIP origin is clamped into `[0, work - size]`. | Yes. The title bar is inside the rect. |
+
+Leaving fullscreen or maximised with no windowed rect yet uses a centered
+960 by 640 window, clamped the same way. Maximising remembers the last
+windowed rect. Minimising remembers the previous state and returns to it.
+The minimised chip is 240 by 32 DIP, 8 DIP from the left and bottom,
+clamped inside the work area, and is not draggable. Closing removes the
+window from the desktop. It does not quit the host process.
+
+Chrome is the title bar and the minimise, maximise or restore, and close
+controls. A scene that authors `controls` is the only source of that
+style. A compile-time library selection may fill an omission. It must not
+override an authored `controls` key, even when the name matches.
+
+Maja applies this inside the page (`maja.web.local.v2` and `v3`). Its
+`--chrome NAME` flag is that compile-time selection. Sash, Aragon,
+Nevada, Neptune and Emperor refuse an authored `@desktop` until they
+place it (`desktop placement is not implemented`, or `desktop window`).
 
 ### Accessible identity: `@iden`
 
@@ -265,6 +339,8 @@ half-open UTF-8 byte range in the exact source:
   source length. Line-only ranges are no longer produced.
 * `GY-E1001`–`GY-E1003` span the property or declaration entry.
 * `GY-E1006`–`GY-E1008` span the construct named above.
+* `GY-E1019` spans the phrasing value, or the whole bare property when
+  GSSH/5 requires a phrase. See [GSSH/5](#gssh5--static-phrasing).
 
 `ParseError` from the compatibility parser carries the same `range`.
 
@@ -385,6 +461,80 @@ Normative for every target that admits GSSH/3-live:
   how it looks), exactly as `goya_lang::display_binding::announcement`
   words it. Start, restore and failed transitions are not announced.
 
+## GSSH/5 — static phrasing
+
+Candidate, 25 November 2026 ([decision D17](decisions.md#d17--static-phrasing-gssh5)).
+Entry points `parse_strict_gssh5` and `handoff::admit_v5`; `contract()`
+returns `"GSSH/5"`. Everything in GSSH/4 applies, including proportional
+lengths and the GSSH/4 declarations. Live bindings stay on GSSH/5-live
+(`parse_strict_gssh5_live`, `handoff::admit_v5_live`, contract
+`"GSSH/5-live"`), with the same rules and codes as GSSH/4-live. A live
+binding on plain GSSH/5 is `GY-E1012`.
+
+A static phrase names the classes it is written for. The specifiers are
+classes, separate from `@platform` names. `@web` is a browser page,
+including an in-page desktop. `@desktop` is a native window. `@mobile` is
+a touch phone or tablet. `@tv` is a remote. webOS is `@tv`. `@web` and
+`@desktop` stay distinct.
+
+```text
+text: @universal "Find the eight pairs.";
+text: {
+  @universal "Find the eight pairs.";
+  @tv "Find the eight pairs. Arrow keys move between cards; OK turns one over.";
+};
+@iden {
+  label: @universal "Card 1, face down";
+  hint: { @universal "Turn it over"; @tv "Press OK to turn it over"; };
+}
+placeholder: @universal "Amount";
+```
+
+Phrasing sites are `text`, `placeholder`, and `@iden` `label` and `hint`.
+`text-from`, a state initial value, and an interaction string literal are
+data. D9 announcement wording is unchanged. A hint may be omitted; a hint
+that is present is phrased. `label` is phrased whenever `@iden` is present.
+
+A phrasing value is either `@universal "..."` or a brace group whose
+entries are `@universal`, `@desktop`, `@mobile`, `@tv` and `@web`, each
+with one string and a semicolon. `@universal` may sit beside overrides.
+It covers every class that has no sentence of its own. A class with
+neither its own sentence nor `@universal` is `GY-E1019`. A duplicate
+specifier, an unknown specifier, a class specifier outside a group, and
+an empty group are syntax (`GY-E1000`). A bare string on a phrasing site
+is `GY-E1019`. Earlier profiles, including GSSH/4 and GSSH/4-live, reject
+any phrasing value with `GY-E1019` (`phrasing requires GSSH/5`).
+`placeholder` remains `GY-E1001` on those profiles. `parse()` refuses a
+phrasing value so the compatibility scene cannot drop it.
+`parse_with_source_map` retains it.
+
+Each phrase is non-blank after trimming, free of control characters, and
+at most 16 KiB of UTF-8 for `text` and `placeholder`, 512 bytes for a
+label and 2048 bytes for a hint. A breach is `GY-E1019` at the phrasing
+value.
+
+`Phrasing::phrase(class)` is the class's own sentence, or `@universal`
+when that class has none. The sentence is complete when every class
+resolves. Layout reads `text` and `placeholder` only. It does not choose
+a class, so a GSSH/5 phrase leaves the draw-node text empty until the
+adopting compiler wraps the sentence it selected. The compiler shows that
+sentence. It does not invent or rewrite wording.
+
+| Class | Adopting compiler |
+| --- | --- |
+| `@web` | Maja, a browser page, including the in-page desktop of D16 |
+| `@tv` | Arachnid (webOS) and Aragon television |
+| `@desktop` | Sash, a native window |
+| `@mobile` | Aragon handheld and Neptune on iOS |
+
+Emperor, and Neptune on macOS, record a class when they adopt. No
+compiler switches to GSSH/5 as part of this profile: each keeps admitting
+GSSH/4 until it adopts GSSH/5 explicitly.
+
+Maja's removal of television remote instructions from a GSSH/4 scene is an
+accommodation for sources that have not adopted GSSH/5. It is not a
+phrasing selector and does not satisfy this profile.
+
 ## Not in GSSH/2
 
 Explicitly outside this contract; scenes cannot express them, and targets
@@ -392,4 +542,6 @@ must not invent them: adaptive layout beyond GY-LANG/1 absolute and
 proportional geometry; display bindings from state to element text;
 host-supplied inputs; `bool` field bindings; D2 effects at targets that lack
 capability adapters; sensitive or secure storage; durable-state migrations;
-`placeholder:` and `max-length:` (compatibility parser only).
+`placeholder:` and `max-length:` (compatibility parser only through GSSH/4;
+GSSH/5 admits `placeholder` as a phrasing site, and `max-length` stays
+compatibility-only).

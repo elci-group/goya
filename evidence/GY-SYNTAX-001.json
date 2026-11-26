@@ -1,0 +1,60 @@
+{
+  "work_package": "GY-SYNTAX-001",
+  "title": "Goya-owned HTML tokenizer and CSS syntax parser; html5ever and cssparser removed from the Electron extractor",
+  "date": "2026-11-26",
+  "branch": "nebula/v0.1 (uncommitted working tree)",
+  "authority": "On 2026-11-26 the owner approved building our own CSS parser and HTML tokenizer, after this session compared the options.",
+  "scope": {
+    "added": ["crates/goya-html-tokenizer", "crates/goya-css-syntax"],
+    "changed": [
+      "crates/goya-disparate-electron (src/html.rs, src/css.rs, Cargo.toml, tests, golden file, README)",
+      "Cargo.toml (workspace members and dependencies)",
+      "Cargo.lock (html5ever, markup5ever, cssparser and their trees removed)",
+      "docs/contracts.md",
+      "docs/delectable/DELECTABLE-0.md"
+    ],
+    "kept": "Oxc 0.146 for JavaScript/JSX/TypeScript for now (owner decision, 2026-11-26). A Goya-owned replacement is high priority in forward planning; implementation has not started. See docs/disparates/roadmap.md#forward-planning-replace-oxc-high-priority."
+  },
+  "naming": "The crate names avoid the *_parser and *_allocator suffixes, because viva-palestina excludes any crate with them (shown with the made-up names foo_parser and my_allocator).",
+  "conformance": {
+    "goya-html-tokenizer": {
+      "suite": "html5lib-tests tokenizer, commit c5495c539ca8a79c3c5107f5f14010bcff9a35d5 (MIT), vendored",
+      "tokens": "7042 of 7042 runs match",
+      "error_codes": "7042 of 7042 runs match (multisets; positions not compared)",
+      "skipped": "4 tests whose input contains a lone UTF-16 surrogate",
+      "first_run": "7014 of 7042. The 28 failures were all processing instructions, which the HTML Standard added in 2025 (sections 13.2.5.72-76). They were implemented from the current spec text and then passed."
+    },
+    "goya-css-syntax": {
+      "suite": "css-parsing-tests, commit 203ce36bffd617db7f118c551e32794561fb273d (CC0), vendored",
+      "result": "136 of 136 cases in component_value_list, one_component_value, declaration_list, one_declaration, one_rule, rule_list and stylesheet",
+      "not_vendored": "blocks_contents.json (CSS Nesting), colour and An+B files: out of scope"
+    },
+    "entity_table": "Generated from WHATWG entities.json (sha256 d741d877ac77c4194c4ad526b5b4a19aef8dfe411ab840a466891cdbb9f362e6, 2231 entries), CC BY 4.0, attributed in the crate README and the generated file header."
+  },
+  "extractor_effect": {
+    "method": "Compared the canonical FAIR output for DEL-B01 before and after the swap, structurally.",
+    "unchanged": "element IDs, kinds, semantics, representability, the source manifest, the project record, all 30 relationships, and every CSS element (byte-identical)",
+    "changed": "provenance of the 13 HTML components: approximate tag-end lines with fallback_origin=true and no spans became exact start-tag spans with fallback_origin=false. Example: the two-line <input> moved from line 13 to line 12, bytes 347-482. The 12 contains relationships that copy a child's provenance changed with it.",
+    "added_behaviour": [
+      "a tag the input ends inside is recorded as html_unterminated_tag (PARSE_FAILED) instead of being dropped",
+      "CSS declarations the specification discards are kept as unparsed text",
+      "a qualified rule cut off by the end of input is a style_rule with PARSE_FAILED"
+    ]
+  },
+  "repository_evidence": {
+    "tests": [
+      {"command": "cargo test -p goya-html-tokenizer --offline", "result": "2 conformance + 5 span tests + README doctest passed"},
+      {"command": "cargo test -p goya-css-syntax --offline", "result": "7 conformance + 4 span tests + README doctest passed"},
+      {"command": "cargo test -p goya-disparate-electron --offline", "result": "18 passed (golden regenerated after the structural comparison above)"},
+      {"command": "cargo test -p goya-fair --offline", "result": "25 passed"}
+    ],
+    "lint": "cargo clippy (all four crates, --all-targets, -D warnings): exit 0; cargo fmt --check: clean",
+    "lockfile": "Cargo.lock adds 48 packages against HEAD, all from Oxc (previously 68)",
+    "uni": "73/100 for each of the three crates. Drivers: traci telemetry rules; ferret unwrap findings in test files; lwoodz, scrawny and isopod findings that cover the whole repository and working tree."
+  },
+  "honesty_notes": [
+    "Uncommitted. Nothing was pushed.",
+    "Neither crate builds a tree. The extractor's HTML parents follow literal tag nesting, as before.",
+    "Conformance covers the suites named above. Byte spans are covered only by this session's own span tests."
+  ]
+}

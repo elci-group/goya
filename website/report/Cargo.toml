@@ -1,0 +1,10 @@
+[package]
+name = "goya-report"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "A plain-language report on what Goya is for"
+
+# Own workspace so this page stays out of the Goya workspace build.
+[workspace]

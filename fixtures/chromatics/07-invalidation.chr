@@ -1,0 +1,21 @@
+# §10.2, §10.5: an unavailable candidate goes at once; the other keys stay.
+capacity red green yellow
+intents open
+policy primary=ranked preserve=yes
+context owner/devices
+candidate d1 intent=open label=Desktop rank=0
+candidate d2 intent=open label=Laptop rank=1
+candidate d3 intent=open label=Phone rank=2
+candidate d4 intent=open label=Tablet rank=3
+resolve
+expect red=d1 green=d2 yellow=d3
+set d2 available=no
+resolve trigger=invalidation now=1
+expect red=d1 green=d4 yellow=d3
+expect-rejected d2 unavailable
+# While the user is navigating, a freed key is left empty rather than
+# given a new meaning.
+set d3 authorised=no
+resolve trigger=invalidation now=2 interacting=yes
+expect red=d1 green=d4 yellow=-
+expect-rejected d3 unauthorised

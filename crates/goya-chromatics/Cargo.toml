@@ -1,0 +1,13 @@
+[package]
+name = "goya-chromatics"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Chromatics core: deterministic allocation of scarce physical inputs to semantic actions, with generations and safe dispatch (GY-CHROMATICS/0.1, draft)."
+
+[dependencies]
+
+[[example]]
+name = "chromatics_bench"
+path = "examples/chromatics_bench.rs"

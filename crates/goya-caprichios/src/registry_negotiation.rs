@@ -26,6 +26,7 @@ pub fn negotiate(
             && *id != crate::checksum_caprichio::CONTRACT
             && *id != crate::retry_caprichio::CONTRACT
             && *id != crate::filesystem_caprichio::CONTRACT
+            && *id != crate::colour_cue_caprichio::CONTRACT
             && *id != crate::http_caprichio::CONTRACT
             && *id != crate::stream_caprichio::CONTRACT
             && *id != crate::compression_caprichio::CONTRACT
@@ -80,6 +81,7 @@ pub fn negotiate(
     let needs_checksum = ordered.contains(crate::checksum_caprichio::CONTRACT);
     let needs_retry = ordered.contains(crate::retry_caprichio::CONTRACT);
     let needs_filesystem = ordered.contains(crate::filesystem_caprichio::CONTRACT);
+    let needs_colour_cue = ordered.contains(crate::colour_cue_caprichio::CONTRACT);
     let needs_http = ordered.contains(crate::http_caprichio::CONTRACT);
     let needs_stream = ordered.contains(crate::stream_caprichio::CONTRACT);
     let needs_compression = ordered.contains(crate::compression_caprichio::CONTRACT);
@@ -146,6 +148,9 @@ pub fn negotiate(
     }
     if request.filesystem.is_some() && !needs_filesystem {
         return Err(NegotiationError::UnexpectedDeclaration { kind: "filesystem" });
+    }
+    if request.colour_cue.is_some() && !needs_colour_cue {
+        return Err(NegotiationError::UnexpectedDeclaration { kind: "colour_cue" });
     }
     if request.http.is_some() && !needs_http {
         return Err(NegotiationError::UnexpectedDeclaration { kind: "http" });
@@ -417,6 +422,21 @@ pub fn negotiate(
                 Artifact::Filesystem(
                     ir.lower_checked(host.filesystem_target, host.filesystem_host)
                         .map_err(NegotiationError::Filesystem)?,
+                )
+            }
+            crate::colour_cue_caprichio::CONTRACT => {
+                let declaration =
+                    request
+                        .colour_cue
+                        .ok_or(NegotiationError::MissingDeclaration {
+                            capability: crate::colour_cue_caprichio::CONTRACT,
+                        })?;
+                let ir = declaration
+                    .normalize()
+                    .map_err(NegotiationError::ColourCue)?;
+                Artifact::ColourCue(
+                    ir.lower(host.colour_cue_target, host.colour_cue_host)
+                        .map_err(NegotiationError::ColourCue)?,
                 )
             }
             crate::http_caprichio::CONTRACT => {

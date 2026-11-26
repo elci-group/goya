@@ -50,6 +50,7 @@ pub enum Artifact {
     IntelDesktop(IntelDesktopArtifact),
     IntelMobile(IntelMobileArtifact),
     IntelXeon(IntelXeonArtifact),
+    ColourCue(ColourCueArtifact),
 }
 
 impl Artifact {
@@ -102,6 +103,7 @@ impl Artifact {
             Self::IntelMobile(_) => crate::intel_mobile_caprichio::CONTRACT,
             Self::IntelXeon(_) => crate::intel_xeon_caprichio::CONTRACT,
             Self::AcceleratorModel(a) => a.contract,
+            Self::ColourCue(a) => a.contract,
         }
     }
 
@@ -154,6 +156,7 @@ impl Artifact {
             Self::IntelMobile(_) => "intel-mobile-bounded-worker-plan",
             Self::IntelXeon(_) => "intel-xeon-bounded-worker-plan",
             Self::AcceleratorModel(_) => "per-model-device-accelerator",
+            Self::ColourCue(a) => a.recipe,
         }
     }
 
@@ -206,6 +209,7 @@ impl Artifact {
             Self::IntelMobile(a) => a.recipe_version,
             Self::IntelXeon(a) => a.recipe_version,
             Self::AcceleratorModel(a) => a.recipe_version,
+            Self::ColourCue(a) => a.recipe_version,
         }
     }
 
@@ -258,6 +262,7 @@ impl Artifact {
             Self::IntelMobile(a) => &a.canonical_ir,
             Self::IntelXeon(a) => &a.canonical_ir,
             Self::AcceleratorModel(a) => &a.canonical_ir,
+            Self::ColourCue(a) => &a.canonical_ir,
         }
     }
 
@@ -310,6 +315,7 @@ impl Artifact {
             Self::IntelMobile(a) => &a.source,
             Self::IntelXeon(a) => &a.source,
             Self::AcceleratorModel(a) => &a.source,
+            Self::ColourCue(a) => &a.source,
         }
     }
 }

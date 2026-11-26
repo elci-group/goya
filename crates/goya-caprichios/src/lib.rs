@@ -23,6 +23,7 @@ pub mod bluetooth_runtime;
 pub mod bluetooth_stream_caprichio;
 pub mod catalog;
 pub mod checksum_caprichio;
+pub mod colour_cue_caprichio;
 pub mod compression_caprichio;
 pub mod compute_caprichio;
 pub mod compute_runtime;

@@ -150,10 +150,15 @@ fn host_can_link() -> Option<String> {
             .join(triple)
             .is_dir()
         {
-            return Some(format!("rustc standard library for {triple} is not installed"));
+            return Some(format!(
+                "rustc standard library for {triple} is not installed"
+            ));
         }
     }
-    let xwin = Command::new("cargo").args(["xwin", "--version"]).output().ok()?;
+    let xwin = Command::new("cargo")
+        .args(["xwin", "--version"])
+        .output()
+        .ok()?;
     if !xwin.status.success() {
         return Some("cargo-xwin is not installed".to_string());
     }
@@ -162,8 +167,7 @@ fn host_can_link() -> Option<String> {
         return Some("llvm-rc is not installed".to_string());
     }
     if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
-        let done = std::path::Path::new(&home)
-            .join(".cache/xwin/windows-msvc-sysroot/DONE");
+        let done = std::path::Path::new(&home).join(".cache/xwin/windows-msvc-sysroot/DONE");
         if !done.is_file() {
             return Some("the pinned windows-msvc-sysroot is not marked DONE".to_string());
         }
@@ -233,7 +237,10 @@ fn link_and_check(link: &RecordedLink) -> Result<(), String> {
         ));
     }
     if verified.json["pe_structure"] != "PASS" {
-        return Err(format!("{}: verify did not report pe_structure PASS", link.key));
+        return Err(format!(
+            "{}: verify did not report pe_structure PASS",
+            link.key
+        ));
     }
     if verified.json["target"] != link.triple {
         return Err(format!(
@@ -258,7 +265,11 @@ fn link_and_check(link: &RecordedLink) -> Result<(), String> {
             link.key, verified.json["presentation_profile"], expected_profile
         ));
     }
-    let expected_floor = if link.floor == "win8" { "win8" } else { "win10" };
+    let expected_floor = if link.floor == "win8" {
+        "win8"
+    } else {
+        "win10"
+    };
     if verified.json["api_floor"] != expected_floor {
         return Err(format!(
             "{}: verify reported api floor {}, expected {}",

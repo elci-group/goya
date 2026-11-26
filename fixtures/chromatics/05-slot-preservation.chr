@@ -1,0 +1,27 @@
+# §10.4: the same favourites exchanging places keep their keys, unless
+# the policy asks for ordered slots.
+capacity red green yellow blue
+intents show.resume
+policy primary=preferential preserve=yes ordered=no
+context owner/shows
+candidate s1 intent=show.resume label=S1 entity=s1 favourite=0
+candidate s2 intent=show.resume label=S2 entity=s2 favourite=1
+candidate s3 intent=show.resume label=S3 entity=s3 favourite=2
+candidate s4 intent=show.resume label=S4 entity=s4 favourite=3
+resolve
+expect red=s1 green=s2 yellow=s3 blue=s4
+set s1 favourite=3
+set s4 favourite=0
+resolve trigger=background now=1
+expect red=s1 green=s2 yellow=s3 blue=s4
+resolve trigger=policy now=2
+expect red=s1 green=s2 yellow=s3 blue=s4
+# A new favourite replaces the one that dropped out, on its key.
+candidate s5 intent=show.resume label=S5 entity=s5 favourite=1
+set s3 favourite=4
+resolve trigger=policy now=3
+expect red=s1 green=s2 yellow=s5 blue=s4
+# Ordered slots: red is always the top favourite.
+policy ordered=yes
+resolve trigger=policy now=4
+expect red=s4 green=s2 yellow=s5 blue=s1

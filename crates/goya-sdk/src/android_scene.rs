@@ -179,6 +179,13 @@ fn compile_scene(
             origin: None,
         });
     }
+    if let Some(desktop) = &handoff.parsed().declarations.desktop {
+        return Err(AndroidSceneError {
+            range: desktop.range,
+            reason: AndroidSceneReason::Unsupported("desktop window"),
+            origin: None,
+        });
+    }
     let refuse = |origin: Origin, what: &'static str| AndroidSceneError {
         range: handoff.origin(&origin).unwrap_or(whole),
         reason: AndroidSceneReason::Unsupported(what),

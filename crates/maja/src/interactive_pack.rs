@@ -5,8 +5,8 @@
 //!
 //! * `index.html`, `app.css`: the document and its static styles.
 //! * `scene.js`: generated data — elements, initial state, activations.
-//! * `layout.js`: static mirror of `goya_lang::layout` (no scroll) and of
-//!   `handoff::convert_field`.
+//! * `layout.js`: static mirror of `goya_lang::layout` (no scroll), of
+//!   `handoff::convert_field`, and of `goya_lang::desktop::place`.
 //! * `d1.js`: the canonical D1 runtime (only when the scene has interactions).
 //! * `storage.js`: the durable state adapter (only when a state key is
 //!   `durable`), over `localStorage` or, when the scene declares it,
@@ -17,9 +17,11 @@
 //! * `manifest.json`: hashes and source origins.
 
 use maja_runtime::{emit_d1_runtime, D1Runtime};
-use maja_semantic::{Diagnostic, DurableStore, InteractiveWebIr, WebCellKind};
+use maja_semantic::{
+    Diagnostic, DurableStore, InteractiveWebIr, WebCell, WebCellKind, WebCondition,
+};
 use sha2::{Digest, Sha256};
-use std::{fmt::Write as _, fs, io, io::Write, path::Path};
+use std::{borrow::Cow, fmt::Write as _, fs, io, io::Write, path::Path};
 
 /// Schema of `manifest.json`.
 pub const MANIFEST_SCHEMA: &str = "MAJA-INTERACTIVE/1-draft";
@@ -30,8 +32,13 @@ pub struct InteractivePackage {
 }
 
 /// Generate every file in memory. Fails only if the D1 runtime emitter
-/// refuses the scene; the diagnostic carries the interaction's range.
-pub fn generate(ir: &InteractiveWebIr) -> Result<InteractivePackage, Diagnostic> {
+/// refuses the scene, or if `chrome` names an unknown library or overrides
+/// controls the scene already authors. The diagnostic carries a source range
+/// when the scene has one.
+pub fn generate(
+    ir: &InteractiveWebIr,
+    chrome: Option<&str>,
+) -> Result<InteractivePackage, Diagnostic> {
     let parsed = ir.handoff().parsed();
     let runtime = if parsed.scene.interactions.is_empty() {
         None
@@ -50,7 +57,8 @@ pub fn generate(ir: &InteractiveWebIr) -> Result<InteractivePackage, Diagnostic>
             }
         })?)
     };
-    let scene = scene_js(ir, runtime.as_ref())?;
+    let graphics = bake_graphics(parsed)?;
+    let scene = scene_js(ir, runtime.as_ref(), chrome, &graphics)?;
     let durable = ir.handoff().durable_keys().next().is_some();
     let app = format!(
         "{}\n{}\n{APP_JS}",
@@ -65,8 +73,16 @@ pub fn generate(ir: &InteractiveWebIr) -> Result<InteractivePackage, Diagnostic>
             "const restore = null, persister = null;"
         },
     );
+    let index = if graphics.is_empty() {
+        INDEX_HTML.to_owned()
+    } else {
+        INDEX_HTML.replace(
+            "<script type=\"module\" src=\"app.js\"></script>",
+            "<script src=\"gvi.js\"></script><script type=\"module\" src=\"app.js\"></script>",
+        )
+    };
     let mut files = vec![
-        ("index.html", INDEX_HTML.to_owned()),
+        ("index.html", index),
         ("app.css", APP_CSS.to_owned()),
         ("scene.js", scene),
         ("layout.js", LAYOUT_JS.to_owned()),
@@ -77,10 +93,176 @@ pub fn generate(ir: &InteractiveWebIr) -> Result<InteractivePackage, Diagnostic>
     if durable {
         files.push(("storage.js", storage_js(ir.durable_store(), ir.migration())));
     }
+    if !graphics.is_empty() {
+        files.push(("gvi.js", include_str!("gvi.js").to_owned()));
+    }
     files.push(("app.js", app));
     let manifest = manifest(ir, runtime.as_ref(), &files);
     files.push(("manifest.json", manifest));
     Ok(InteractivePackage { files })
+}
+
+/// webOS names the remote's select key OK. Maja's page is a browser, where a
+/// button is activated by clicking it, so instructions that name that key are
+/// rewritten into the visible text and `@iden` hints. Arachnid still emits
+/// the scene's words.
+///
+/// Layout has already wrapped the authored line, so a sentence can contain
+/// newlines. Phrases are matched across those breaks. Other line breaks stay.
+fn browser_copy(value: &str) -> Cow<'_, str> {
+    // Longest first. A bare "Press OK" must not eat the start of "OKAY".
+    const PHRASES: &[(&str, bool, bool)] = &[
+        ("Arrow keys move between cards; OK turns one over.", false, false),
+        ("Arrow keys move between cards", false, false),
+        ("OK turns one over.", false, false),
+        ("OK turns one over", false, false),
+        ("Press OK to ", true, false),
+        ("press OK to ", true, false),
+        ("Press OK", false, true),
+        ("press OK", false, true),
+    ];
+    if !mentions_remote(value) {
+        return Cow::Borrowed(value);
+    }
+    let mut text = value.to_owned();
+    let mut changed = false;
+    loop {
+        let hit = PHRASES.iter().find_map(|(phrase, capitalize, boundary)| {
+            find_flex(&text, phrase, *boundary).map(|(start, end)| (start, end, *capitalize))
+        });
+        let Some((start, end, capitalize)) = hit else {
+            break;
+        };
+        text.replace_range(start..end, "");
+        if capitalize {
+            capitalize_at(&mut text, start);
+        }
+        changed = true;
+    }
+    if !changed {
+        return Cow::Borrowed(value);
+    }
+    let tidy = tidy_copy(&text);
+    if tidy == value {
+        Cow::Borrowed(value)
+    } else {
+        Cow::Owned(tidy)
+    }
+}
+
+fn mentions_remote(value: &str) -> bool {
+    let folded = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    folded.contains("Press OK")
+        || folded.contains("press OK")
+        || folded.contains("Arrow keys move between cards")
+        || folded.contains("OK turns one over")
+}
+
+/// Byte span of `phrase` in `haystack`. A space in the phrase matches any
+/// whitespace run, including a wrap newline. When `boundary` is set, the
+/// match must not be the prefix of a longer word.
+fn find_flex(haystack: &str, phrase: &str, boundary: bool) -> Option<(usize, usize)> {
+    let h: Vec<(usize, char)> = haystack.char_indices().collect();
+    let p: Vec<char> = phrase.chars().collect();
+    if p.is_empty() || h.is_empty() {
+        return None;
+    }
+    for i in 0..h.len() {
+        let Some(next) = match_at(&h, i, &p) else {
+            continue;
+        };
+        if boundary && h.get(next).is_some_and(|(_, c)| c.is_alphanumeric()) {
+            continue;
+        }
+        let start = h[i].0;
+        let end = h.get(next).map(|(at, _)| *at).unwrap_or(haystack.len());
+        return Some((start, end));
+    }
+    None
+}
+
+fn match_at(haystack: &[(usize, char)], start: usize, phrase: &[char]) -> Option<usize> {
+    let mut hi = start;
+    for &pc in phrase {
+        if pc.is_whitespace() {
+            if hi >= haystack.len() || !haystack[hi].1.is_whitespace() {
+                return None;
+            }
+            while hi < haystack.len() && haystack[hi].1.is_whitespace() {
+                hi += 1;
+            }
+            continue;
+        }
+        if hi >= haystack.len() || haystack[hi].1 != pc {
+            return None;
+        }
+        hi += 1;
+    }
+    Some(hi)
+}
+
+fn capitalize_at(text: &mut String, at: usize) {
+    let rest = &text[at..];
+    let Some((rel, ch)) = rest.char_indices().find(|(_, c)| !c.is_whitespace()) else {
+        return;
+    };
+    let upper: String = ch.to_uppercase().collect();
+    if upper.chars().eq(std::iter::once(ch)) {
+        return;
+    }
+    let abs = at + rel;
+    text.replace_range(abs..abs + ch.len_utf8(), &upper);
+}
+
+fn tidy_copy(text: &str) -> String {
+    let mut out = String::new();
+    for line in text.split('\n') {
+        let line = tidy_line(line);
+        if line.is_empty() {
+            continue;
+        }
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str(&line);
+    }
+    let core = out.trim_matches(|c: char| matches!(c, '.' | ',' | ';' | ':' | ' '));
+    if core.is_empty() {
+        String::new()
+    } else {
+        out
+    }
+}
+
+fn tidy_line(line: &str) -> String {
+    let mut out = String::new();
+    let mut pending_space = false;
+    for c in line.chars() {
+        if c.is_whitespace() {
+            pending_space = !out.is_empty();
+            continue;
+        }
+        if matches!(c, '.' | ',' | ';' | ':') {
+            pending_space = false;
+        } else if pending_space {
+            out.push(' ');
+            pending_space = false;
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// Visible text and hints. An instruction that was only the remote key
+/// becomes no text, so the page does not render an empty line or an empty
+/// description.
+fn js_browser_text(value: &str) -> String {
+    let copy = browser_copy(value);
+    if copy.is_empty() {
+        "null".into()
+    } else {
+        js_string(&copy)
+    }
 }
 
 fn js_string(value: &str) -> String {
@@ -112,7 +294,12 @@ fn js_number(value: f64, origin: &str) -> Result<String, Diagnostic> {
     Ok(format!("{value:?}"))
 }
 
-fn scene_js(ir: &InteractiveWebIr, runtime: Option<&D1Runtime>) -> Result<String, Diagnostic> {
+fn scene_js(
+    ir: &InteractiveWebIr,
+    runtime: Option<&D1Runtime>,
+    chrome: Option<&str>,
+    graphics: &[BakedGraphic],
+) -> Result<String, Diagnostic> {
     let mut out = format!("// Generated by Maja ({}). Do not edit.\n", ir.profile());
     out.push_str("export const CELLS = [\n");
     for cell in ir.cells() {
@@ -122,9 +309,27 @@ fn scene_js(ir: &InteractiveWebIr, runtime: Option<&D1Runtime>) -> Result<String
                 None => "null".into(),
             })
         };
+        let present = cell.present.as_ref().map(condition_js).unwrap_or_else(|| "null".into());
+        let appear = match cell.appear {
+            Some((seconds, [x, y])) => format!(
+                "{{ s: {}, from: [{}, {}] }}",
+                js_number(seconds, &cell.id)?,
+                js_number(x, &cell.id)?,
+                js_number(y, &cell.id)?
+            ),
+            None => "null".into(),
+        };
+        let fill_to = match cell.fill_to {
+            Some((colour, period)) => format!(
+                "[{}, {}]",
+                js_string(&format!("#{colour:06x}")),
+                js_number(period, &cell.id)?
+            ),
+            None => "null".into(),
+        };
         let _ = writeln!(
             out,
-            "  {{ id: {}, kind: {}, parent: {}, position: {}, extent: {}, fill: {}, stroke: {}, textSize: {}, text: {}, scroll: {}, textFrom: {}, iden: {} }},",
+            "  {{ id: {}, kind: {}, parent: {}, position: {}, extent: {}, fill: {}, stroke: {}, textSize: {}, text: {}, scroll: {}, textFrom: {}, iden: {}, present: {present}, fillTo: {fill_to}, draw: {}, appear: {appear} }},",
             js_string(&cell.id),
             js_string(match cell.kind {
                 WebCellKind::Cell => "cell",
@@ -147,14 +352,15 @@ fn scene_js(ir: &InteractiveWebIr, runtime: Option<&D1Runtime>) -> Result<String
                 .map(|v| js_number(v, &cell.id))
                 .transpose()?
                 .unwrap_or_else(|| "null".into()),
-            cell.text.as_deref().map_or("null".into(), js_string),
+            cell.text.as_deref().map_or("null".into(), js_browser_text),
             cell.scroll,
             cell.text_from.as_deref().map_or("null".into(), js_string),
             cell.iden.as_ref().map_or("null".into(), |iden| format!(
                 "[{}, {}]",
-                js_string(&iden.label),
-                iden.hint.as_deref().map_or("null".into(), js_string)
+                js_browser_text(&iden.label),
+                iden.hint.as_deref().map_or("null".into(), js_browser_text)
             )),
+            draw_js(ir, cell)?,
         );
     }
     out.push_str("];\n");
@@ -228,7 +434,209 @@ fn scene_js(ir: &InteractiveWebIr, runtime: Option<&D1Runtime>) -> Result<String
         }
     }
     out.push_str("];\n");
+    out.push_str(&desktop_js(ir, chrome)?);
+    out.push_str(&graphics_js(graphics));
     Ok(out)
+}
+
+struct BakedGraphic {
+    name: String,
+    data: String,
+    sha: String,
+    radices: Vec<usize>,
+    steps: Vec<u32>,
+}
+
+fn bake_graphics(parsed: &goya_lang::ParsedScene) -> Result<Vec<BakedGraphic>, Diagnostic> {
+    parsed
+        .declarations
+        .graphics
+        .iter()
+        .map(|graphic| {
+            let compiled = goya_scene_graphics::compile(&parsed.scene.name, graphic).map_err(
+                |message| Diagnostic {
+                    code: "MAJA-E0200",
+                    message: format!("graphic {}: {message}", graphic.name),
+                    range: Some(graphic.range),
+                },
+            )?;
+            Ok(BakedGraphic {
+                name: graphic.name.clone(),
+                data: base64(&compiled.bytes),
+                sha: compiled.sha256,
+                radices: compiled.dims.iter().map(|dim| dim.1.len()).collect(),
+                steps: compiled.dims.iter().map(|dim| dim.2.unwrap_or(0)).collect(),
+            })
+        })
+        .collect()
+}
+
+fn graphics_js(graphics: &[BakedGraphic]) -> String {
+    let mut out = String::from("export const GRAPHICS = {\n");
+    for graphic in graphics {
+        let radices = graphic
+            .radices
+            .iter()
+            .map(u32_or_usize_string)
+            .collect::<Vec<_>>()
+            .join(", ");
+        let steps = graphic
+            .steps
+            .iter()
+            .map(|step| step.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let _ = writeln!(
+            out,
+            "  {}: {{ data: {}, sha: {}, radices: [{radices}], steps: [{steps}] }},",
+            js_string(&graphic.name),
+            js_string(&graphic.data),
+            js_string(&graphic.sha)
+        );
+    }
+    out.push_str("};\n");
+    out
+}
+
+fn u32_or_usize_string(value: &usize) -> String {
+    value.to_string()
+}
+
+fn condition_js(condition: &WebCondition) -> String {
+    let op = if condition.at_least { "ge" } else { "is" };
+    let value = match &condition.value {
+        goya_lang::InteractionValue::Int(n) => n.to_string(),
+        goya_lang::InteractionValue::Bool(b) => b.to_string(),
+        goya_lang::InteractionValue::Text(text) => js_string(text),
+    };
+    format!("[{}, \"{op}\", {value}]", js_string(&condition.key))
+}
+
+fn draw_js(ir: &InteractiveWebIr, cell: &WebCell) -> Result<String, Diagnostic> {
+    let Some(draw) = &cell.draw else {
+        return Ok("null".into());
+    };
+    let graphic = ir
+        .handoff()
+        .parsed()
+        .declarations
+        .graphics
+        .iter()
+        .find(|candidate| candidate.name == draw.graphic)
+        .ok_or_else(|| Diagnostic {
+            code: "MAJA-E0200",
+            message: format!("@draw names unknown graphic {}", draw.graphic),
+            range: Some(cell.range),
+        })?;
+    let mut dims = Vec::new();
+    for dimension in &graphic.dimensions {
+        let mut rules = Vec::new();
+        for rule in draw.rules.iter().filter(|rule| rule.dimension == dimension.name) {
+            let index = dimension
+                .values
+                .iter()
+                .position(|value| value.name == rule.value)
+                .ok_or_else(|| Diagnostic {
+                    code: "MAJA-E0200",
+                    message: format!(
+                        "graphic {} dimension {} has no value {}",
+                        graphic.name, dimension.name, rule.value
+                    ),
+                    range: Some(cell.range),
+                })?;
+            let when = rule
+                .when
+                .as_ref()
+                .map(condition_js)
+                .unwrap_or_else(|| "null".into());
+            rules.push(format!("[{when}, {index}]"));
+        }
+        dims.push(format!("[{}]", rules.join(", ")));
+    }
+    Ok(format!(
+        "{{ g: {}, dims: [{}] }}",
+        js_string(&draw.graphic),
+        dims.join(", ")
+    ))
+}
+
+fn base64(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let n = (u32::from(chunk[0]) << 16)
+            | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8)
+            | u32::from(*chunk.get(2).unwrap_or(&0));
+        out.push(ALPHABET[((n >> 18) & 63) as usize] as char);
+        out.push(ALPHABET[((n >> 12) & 63) as usize] as char);
+        if chunk.len() > 1 {
+            out.push(ALPHABET[((n >> 6) & 63) as usize] as char);
+        } else {
+            out.push('=');
+        }
+        if chunk.len() > 2 {
+            out.push(ALPHABET[(n & 63) as usize] as char);
+        } else {
+            out.push('=');
+        }
+    }
+    out
+}
+
+fn desktop_js(ir: &InteractiveWebIr, chrome: Option<&str>) -> Result<String, Diagnostic> {
+    use goya_lang::desktop::{self, DesktopPosition, DesktopState};
+    let declarations = &ir.handoff().parsed().declarations;
+    let range = declarations.desktop.as_ref().map(|desktop| desktop.range);
+    let resolved = declarations
+        .resolved_desktop()
+        .map_err(|fault| Diagnostic {
+            code: "MAJA-E0200",
+            message: fault.message(),
+            range,
+        })?;
+    if chrome.is_some() && resolved.controls_authored {
+        return Err(Diagnostic {
+            code: "MAJA-E0200",
+            message: "scene authors window controls; --chrome cannot override them".into(),
+            range,
+        });
+    }
+    let (colours, library_id) = if let Some(name) = chrome {
+        let style = desktop::library(name).ok_or_else(|| Diagnostic {
+            code: "MAJA-E0200",
+            message: format!("unknown window chrome library '{name}'"),
+            range,
+        })?;
+        (style.colours, Some(style.id))
+    } else {
+        (resolved.colours, resolved.library_id)
+    };
+    let position = match resolved.position {
+        DesktopPosition::Center => "\"center\"".to_owned(),
+        DesktopPosition::Dip { x, y } => format!("[{x}, {y}]"),
+    };
+    let extent = match resolved.extent_dip {
+        None => "null".to_owned(),
+        Some((width, height)) => format!("[{width}, {height}]"),
+    };
+    let library = library_id.map(js_string).unwrap_or_else(|| "null".into());
+    Ok(format!(
+        "export const DESKTOP = {{ state: \"{}\", position: {position}, extent: {extent}, frame: {}, chromeName: {library}, chrome: {{ bar: \"#{:06x}\", glyph: \"#{:06x}\", close: \"#{:06x}\", closeGlyph: \"#{:06x}\", desk: \"#{:06x}\" }}, title: {}, titleBar: {}, chipWidth: {}, chipMargin: {}, fallbackExtent: [{}, {}], authored: {} }};\n",
+        resolved.state.as_str(),
+        resolved.state != DesktopState::Fullscreen,
+        colours.bar,
+        colours.glyph,
+        colours.close,
+        colours.close_glyph,
+        colours.desk,
+        js_string(&ir.handoff().parsed().scene.name),
+        desktop::TITLE_BAR_DIP,
+        desktop::CHIP_WIDTH_DIP,
+        desktop::CHIP_MARGIN_DIP,
+        desktop::DEFAULT_WINDOW_DIP.0,
+        desktop::DEFAULT_WINDOW_DIP.1,
+        resolved.authored,
+    ))
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -362,15 +770,45 @@ const INDEX_HTML: &str = concat!(
     "<link rel=\"icon\" href=\"data:,\">",
     "<link rel=\"stylesheet\" href=\"app.css\"><title>Goya application</title>",
     "<script type=\"module\" src=\"app.js\"></script></head>",
-    "<body><main id=\"goya-scene\"></main><p id=\"goya-status\" role=\"status\" aria-live=\"polite\"></p></body></html>\n"
+    "<body><div id=\"goya-desktop\"><div id=\"goya-window\">",
+    "<div id=\"goya-titlebar\"><span id=\"goya-title\"></span><div id=\"goya-window-controls\">",
+    "<button type=\"button\" id=\"goya-min\" aria-label=\"Minimise\"><svg viewBox=\"0 0 12 12\" aria-hidden=\"true\"><path d=\"M2 6h8\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.2\"></path></svg></button>",
+    "<button type=\"button\" id=\"goya-max\" aria-label=\"Maximise\"><svg class=\"goya-glyph-max\" viewBox=\"0 0 12 12\" aria-hidden=\"true\"><rect x=\"2.5\" y=\"2.5\" width=\"7\" height=\"7\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.2\"></rect></svg><svg class=\"goya-glyph-restore\" viewBox=\"0 0 12 12\" aria-hidden=\"true\" hidden><path d=\"M4 2.5h5.5V8M2.5 4.5h5.5V10\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.2\"></path></svg></button>",
+    "<button type=\"button\" id=\"goya-close\" aria-label=\"Close\"><svg viewBox=\"0 0 12 12\" aria-hidden=\"true\"><path d=\"M3 3l6 6M9 3L3 9\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.2\"></path></svg></button>",
+    "</div></div><main id=\"goya-scene\"></main></div></div>",
+    "<p id=\"goya-status\" role=\"status\" aria-live=\"polite\"></p></body></html>\n"
 );
 
 const APP_CSS: &str = "\
 html,body{margin:0;width:100%;height:100%;overflow:hidden}
-#goya-scene{position:absolute;inset:0}
+#goya-desktop{position:absolute;inset:0;overflow:hidden}
+#goya-window{position:absolute;display:flex;flex-direction:column;box-sizing:border-box;min-width:0;min-height:0}
+#goya-titlebar{flex:0 0 32px;display:flex;align-items:center;height:32px;background:var(--goya-bar);color:var(--goya-glyph);user-select:none;touch-action:none}
+#goya-title{flex:1 1 auto;padding:0 10px;font:13px/32px system-ui,sans-serif;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+#goya-window-controls{display:flex;flex:0 0 auto}
+#goya-window-controls button{width:32px;height:32px;padding:0;border:0;background:transparent;color:inherit;cursor:pointer}
+#goya-window-controls button:focus-visible{outline:2px solid currentColor;outline-offset:-2px}
+#goya-window-controls svg{width:12px;height:12px;margin:10px auto}
+#goya-window-controls svg[hidden]{display:none}
+#goya-close{background:var(--goya-close)!important;color:var(--goya-close-glyph)!important}
+#goya-scene{position:relative;flex:1 1 auto;min-height:0;overflow:hidden}
+#goya-window[data-mode=fullscreen] #goya-titlebar{position:absolute;top:0;right:0;width:auto;background:transparent;z-index:2}
+#goya-window[data-mode=fullscreen] #goya-title{display:none}
+#goya-window[data-mode=fullscreen] #goya-scene{position:absolute;inset:0}
+#goya-window[data-mode=minimized] #goya-scene{display:none}
+#goya-window[data-mode=closed]{display:none}
 .goya-el{position:absolute;box-sizing:border-box;overflow:hidden;margin:0}
+.goya-el[hidden]{display:none}
 .goya-text{display:block;white-space:pre;margin:0}
+.goya-gv{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.goya-breathe{position:absolute;inset:0;pointer-events:none;opacity:0;animation:goya-breathe 1s ease-in-out infinite alternate}
+@keyframes goya-breathe{from{opacity:0}to{opacity:1}}
+@media (prefers-reduced-motion:reduce){.goya-breathe{animation:none}}
+.goya-appear{animation:goya-appear var(--goya-appear,0.4s) ease-out both}
+@keyframes goya-appear{from{opacity:0;transform:translate(var(--goya-dx,0px),var(--goya-dy,0px))}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.goya-appear{animation:none}}
 .goya-control{position:absolute;inset:0;width:100%;height:100%;box-sizing:border-box;margin:0;font:inherit;font-size:inherit}
+button.goya-control{background:transparent;border:0;color:inherit;padding:0;appearance:none;cursor:pointer}
 .goya-scroller{position:absolute;inset:0;overflow:auto;scrollbar-width:none}
 .goya-stroke{position:absolute;inset:0;box-sizing:border-box;border-style:solid;border-width:var(--goya-stroke-width);border-color:var(--goya-stroke);pointer-events:none}
 #goya-status{position:fixed;left:0;right:0;bottom:0;margin:0;padding:4px 8px;font:13px/1.4 system-ui,sans-serif;background:#222;color:#fff}
@@ -517,6 +955,48 @@ export function convertField(type, text) {
     return { ok: true, value: Object.freeze({ type: "text", value: text }) };
   }
   return { ok: false, error: "UNSUPPORTED" };
+}
+// Mirror of goya_lang::desktop::place and minimized_chip. A hidden document
+// can report a 0 client size; the shell substitutes 1 before calling these.
+// placeDesktop itself returns null when a work-area edge is below 1.
+export const DESKTOP_LIMITS = Object.freeze({
+  maxExtent: 8192,
+  titleBar: 32,
+  chipWidth: 240,
+  chipMargin: 8,
+  fallbackExtent: Object.freeze([960, 640]),
+});
+const workOk = (workW, workH) => Number.isInteger(workW) && Number.isInteger(workH) && workW >= 1 && workH >= 1;
+export function placeDesktop(spec, workW, workH) {
+  if (!workOk(workW, workH)) return null;
+  if (spec.state === "fullscreen" || spec.state === "maximized") {
+    return { state: spec.state, x: 0, y: 0, width: workW, height: workH, frame: spec.state !== "fullscreen" };
+  }
+  if (spec.state !== "windowed" || !Array.isArray(spec.extent)) return null;
+  const extentW = spec.extent[0], extentH = spec.extent[1];
+  if (!Number.isInteger(extentW) || !Number.isInteger(extentH) || extentW < 1 || extentH < 1 || extentW > DESKTOP_LIMITS.maxExtent || extentH > DESKTOP_LIMITS.maxExtent) return null;
+  const width = Math.min(extentW, workW);
+  const height = Math.min(extentH, workH);
+  let x, y;
+  if (spec.position === "center") {
+    x = trunc((workW - width) / 2);
+    y = trunc((workH - height) / 2);
+  } else {
+    x = Math.min(Math.max(spec.position[0], 0), workW - width);
+    y = Math.min(Math.max(spec.position[1], 0), workH - height);
+  }
+  return { state: "windowed", x, y, width, height, frame: true };
+}
+export function minimizedChip(workW, workH) {
+  if (!workOk(workW, workH)) return null;
+  const width = Math.min(DESKTOP_LIMITS.chipWidth, workW);
+  const height = Math.min(DESKTOP_LIMITS.titleBar, workH);
+  return {
+    x: Math.min(DESKTOP_LIMITS.chipMargin, workW - width),
+    y: Math.max(workH - height - DESKTOP_LIMITS.chipMargin, 0),
+    width,
+    height,
+  };
 }
 "#;
 
@@ -776,11 +1256,129 @@ fn migration_name(migration: goya_lang::Migration) -> &'static str {
 }
 
 const APP_JS: &str = r#"// Maja application shell (maja.web.local.v2/v3). Do not edit.
-import { CELLS, ONTOLOGY, INITIAL_STATE, ACTIVATIONS } from "./scene.js";
-import { resolve, convertField, shownText, displayContext, announcement } from "./layout.js";
+import { CELLS, ONTOLOGY, INITIAL_STATE, ACTIVATIONS, DESKTOP, GRAPHICS } from "./scene.js";
+import { resolve, convertField, shownText, displayContext, announcement, placeDesktop, minimizedChip } from "./layout.js";
 
 const root = document.getElementById("goya-scene");
 const status = document.getElementById("goya-status");
+const desktop = document.getElementById("goya-desktop");
+const win = document.getElementById("goya-window");
+const titlebar = document.getElementById("goya-titlebar");
+const title = document.getElementById("goya-title");
+const minBtn = document.getElementById("goya-min");
+const maxBtn = document.getElementById("goya-max");
+const closeBtn = document.getElementById("goya-close");
+const maxGlyph = maxBtn.querySelector(".goya-glyph-max");
+const restoreGlyph = maxBtn.querySelector(".goya-glyph-restore");
+document.title = DESKTOP.title;
+title.textContent = DESKTOP.title;
+desktop.style.setProperty("--goya-bar", DESKTOP.chrome.bar);
+desktop.style.setProperty("--goya-glyph", DESKTOP.chrome.glyph);
+desktop.style.setProperty("--goya-close", DESKTOP.chrome.close);
+desktop.style.setProperty("--goya-close-glyph", DESKTOP.chrome.closeGlyph);
+desktop.style.background = DESKTOP.chrome.desk;
+// A hidden document can report 0. The contract rejects that work area, so
+// the shell measures at least 1 DIP. placeDesktop stays a pure mirror.
+function workSize() {
+  return [Math.max(document.documentElement.clientWidth, 1), Math.max(document.documentElement.clientHeight, 1)];
+}
+let mode = DESKTOP.state;
+let beforeMinimize = mode;
+let windowed = null;
+if (DESKTOP.state === "windowed" && DESKTOP.extent !== null) {
+  const [workW, workH] = workSize();
+  const placed = placeDesktop({ state: "windowed", position: DESKTOP.position, extent: DESKTOP.extent }, workW, workH);
+  if (placed !== null) windowed = { x: placed.x, y: placed.y, width: placed.width, height: placed.height };
+}
+function remember(placed) {
+  windowed = { x: placed.x, y: placed.y, width: placed.width, height: placed.height };
+}
+function applyFrame() {
+  const [workW, workH] = workSize();
+  win.dataset.mode = mode;
+  if (mode === "closed") return;
+  let rect;
+  if (mode === "minimized") {
+    rect = minimizedChip(workW, workH);
+  } else if (mode === "windowed") {
+    // Display is clamped. The remembered extent stays, so a larger work area
+    // restores it. Drag writes the intended origin; this call reclamps it.
+    rect = placeDesktop({ state: "windowed", position: [windowed.x, windowed.y], extent: [windowed.width, windowed.height] }, workW, workH);
+  } else {
+    rect = placeDesktop({ state: mode, position: "center", extent: null }, workW, workH);
+  }
+  win.style.left = `${rect.x}px`;
+  win.style.top = `${rect.y}px`;
+  win.style.width = `${rect.width}px`;
+  win.style.height = `${rect.height}px`;
+  const restoring = mode === "fullscreen" || mode === "maximized";
+  maxGlyph.hidden = restoring;
+  restoreGlyph.hidden = !restoring;
+  maxBtn.setAttribute("aria-label", mode === "fullscreen" ? "Exit fullscreen" : mode === "windowed" ? "Maximise" : "Restore");
+  if (mode === "minimized") minBtn.setAttribute("aria-disabled", "true");
+  else minBtn.removeAttribute("aria-disabled");
+}
+function show() {
+  applyFrame();
+  layout();
+}
+minBtn.addEventListener("click", () => {
+  if (mode === "minimized" || mode === "closed") return;
+  beforeMinimize = mode;
+  mode = "minimized";
+  show();
+});
+maxBtn.addEventListener("click", () => {
+  if (mode === "closed") return;
+  if (mode === "minimized") {
+    mode = beforeMinimize;
+  } else if (mode === "windowed") {
+    mode = "maximized";
+  } else {
+    if (windowed === null) {
+      const [workW, workH] = workSize();
+      remember(placeDesktop({ state: "windowed", position: "center", extent: DESKTOP.fallbackExtent }, workW, workH));
+    }
+    mode = "windowed";
+  }
+  show();
+});
+closeBtn.addEventListener("click", () => {
+  mode = "closed";
+  applyFrame();
+  status.textContent = "The window is closed.";
+});
+titlebar.addEventListener("pointerdown", (event) => {
+  if (mode !== "windowed" || event.target.closest("button")) return;
+  const origin = { ...windowed };
+  const startX = event.clientX;
+  const startY = event.clientY;
+  titlebar.setPointerCapture(event.pointerId);
+  const move = (ev) => {
+    windowed = { ...origin, x: origin.x + Math.trunc(ev.clientX - startX), y: origin.y + Math.trunc(ev.clientY - startY) };
+    show();
+  };
+  const stop = () => {
+    titlebar.removeEventListener("pointermove", move);
+    titlebar.removeEventListener("pointerup", stop);
+    titlebar.removeEventListener("pointercancel", stop);
+  };
+  titlebar.addEventListener("pointermove", move);
+  titlebar.addEventListener("pointerup", stop);
+  titlebar.addEventListener("pointercancel", stop);
+});
+addEventListener("keydown", (event) => {
+  if (event.key !== "Escape" || mode !== "fullscreen") return;
+  if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
+  event.preventDefault();
+  if (windowed === null) {
+    const [workW, workH] = workSize();
+    remember(placeDesktop({ state: "windowed", position: "center", extent: DESKTOP.fallbackExtent }, workW, workH));
+  }
+  mode = "windowed";
+  show();
+});
+applyFrame();
 // Durable keys are restored before the scene is built, so its first frame
 // already shows them. An IndexedDB restore is asynchronous and awaited here.
 const restored = restore === null ? null : await restore(ONTOLOGY, INITIAL_STATE);
@@ -806,7 +1404,8 @@ function identify(target, cell, index) {
   const [label, hint] = cell.iden;
   // A plain container gets a name only with a role that takes one.
   if (cell.kind === "cell") target.setAttribute("role", "group");
-  target.setAttribute("aria-label", label);
+  // A remote-only instruction is omitted rather than named as "Press OK".
+  if (label !== null && label !== "") target.setAttribute("aria-label", label);
   if (hint !== null) {
     const described = document.createElement("span");
     described.id = `goya-hint-${index}`;
@@ -850,6 +1449,19 @@ for (const [index, cell] of CELLS.entries()) {
     el.append(text);
   }
   if (cell.kind === "cell") identify(el, cell, index);
+  let canvas = null;
+  if (cell.draw !== null) {
+    canvas = document.createElement("canvas");
+    canvas.className = "goya-gv";
+    el.append(canvas);
+  }
+  if (cell.fillTo !== null && cell.fill !== null) {
+    const veil = document.createElement("div");
+    veil.className = "goya-breathe";
+    veil.style.background = `linear-gradient(115deg, ${cell.fillTo[0]}, ${cell.fill})`;
+    veil.style.animationDuration = `${cell.fillTo[1]}s`;
+    el.append(veil);
+  }
   let stroke = null;
   if (cell.stroke !== null) {
     stroke = document.createElement("div");
@@ -864,14 +1476,17 @@ for (const [index, cell] of CELLS.entries()) {
     container.className = "goya-scroller";
     el.append(container);
   }
-  elements.push({ el, stroke, container });
+  elements.push({ el, stroke, container, canvas });
   (cell.parent === null ? root : elements[cell.parent].container).append(el);
 }
 // Stroke overlays are appended after children so they draw above content.
 for (const { el, stroke } of elements) if (stroke !== null) el.append(stroke);
 
+// Declared before the first layout. The painter is attached later, after
+// durable state is restored, so this first pass only sizes the canvases.
+let graphicsReady = false;
 function layout() {
-  const resolved = resolve(CELLS, document.documentElement.clientWidth, document.documentElement.clientHeight);
+  const resolved = resolve(CELLS, root.clientWidth, root.clientHeight);
   resolved.forEach(({ rect, textSize, strokeWidth }, i) => {
     const parent = CELLS[i].parent === null ? { x: 0, y: 0 } : resolved[CELLS[i].parent].rect;
     const style = elements[i].el.style;
@@ -881,10 +1496,29 @@ function layout() {
     style.height = `${rect.height / 1000}px`;
     if (textSize !== null) style.fontSize = `${textSize / 1000}px`;
     if (strokeWidth !== null) elements[i].stroke.style.setProperty("--goya-stroke-width", `${strokeWidth / 1000}px`);
+    const appear = CELLS[i].appear;
+    if (appear !== null) {
+      const parentRect = CELLS[i].parent === null
+        ? { width: root.clientWidth * 1000, height: root.clientHeight * 1000 }
+        : resolved[CELLS[i].parent].rect;
+      style.setProperty("--goya-dx", `${appear.from[0] * parentRect.width / 1000}px`);
+      style.setProperty("--goya-dy", `${appear.from[1] * parentRect.height / 1000}px`);
+      style.setProperty("--goya-appear", `${appear.s}s`);
+    }
+    const canvas = elements[i].canvas;
+    if (canvas !== null) {
+      const width = Math.max(1, Math.round(rect.width / 1000));
+      const height = Math.max(1, Math.round(rect.height / 1000));
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+      }
+    }
   });
+  if (graphicsReady) renderDraws(state, true);
 }
 layout();
-addEventListener("resize", layout);
+addEventListener("resize", () => { applyFrame(); layout(); });
 
 function publish(detail) {
   document.dispatchEvent(new CustomEvent("goya:transition", { detail: Object.freeze(detail) }));
@@ -892,11 +1526,131 @@ function publish(detail) {
 function render(value) {
   return value.type === "int" ? String(value.value) : value.value;
 }
+function holds(cond, value) {
+  if (cond === null) return true;
+  const cur = value.get(cond[0]);
+  if (cur === undefined) return false;
+  if (cond[1] === "ge") return cur.type === "int" && cur.value >= BigInt(cond[2]);
+  if (cur.type === "int") return cur.value === BigInt(cond[2]);
+  return cur.value === cond[2];
+}
+function presentAt(index, value) {
+  let cursor = index;
+  while (cursor !== null) {
+    if (!holds(CELLS[cursor].present, value)) return false;
+    cursor = CELLS[cursor].parent;
+  }
+  return true;
+}
+const wasPresent = elements.map(() => false);
+function replayAppear(index) {
+  const spec = CELLS[index].appear;
+  if (spec === null) return;
+  const el = elements[index].el;
+  if (reduceMotion) {
+    el.style.opacity = "";
+    el.classList.remove("goya-appear");
+    return;
+  }
+  el.classList.remove("goya-appear");
+  el.style.opacity = "0";
+  void el.offsetWidth;
+  el.style.opacity = "";
+  el.classList.add("goya-appear");
+}
+function applyPresence(value) {
+  for (let i = 0; i < elements.length; i++) {
+    const on = presentAt(i, value);
+    elements[i].el.hidden = !on;
+    if (on && !wasPresent[i]) replayAppear(i);
+    wasPresent[i] = on;
+  }
+}
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const inventories = {};
+const painters = [];
+function setupGraphics() {
+  if (typeof GoyaGvi === "undefined") return;
+  for (const name of Object.keys(GRAPHICS)) {
+    const graphic = GRAPHICS[name];
+    inventories[name] = GoyaGvi.open(graphic.data, graphic.sha, graphic.radices);
+  }
+  for (let i = 0; i < elements.length; i++) {
+    const canvas = elements[i].canvas;
+    const draw = CELLS[i].draw;
+    if (canvas === null || draw === null) continue;
+    painters.push({
+      canvas,
+      ctx: canvas.getContext("2d"),
+      draw,
+      inv: inventories[draw.g] || null,
+      shown: null,
+      target: null,
+      timer: null,
+    });
+  }
+  graphicsReady = painters.length === 0 || painters.every((painter) => painter.inv !== null);
+}
+function sameState(left, right) {
+  if (left === null || right === null || left.length !== right.length) return false;
+  for (let i = 0; i < left.length; i++) if (left[i] !== right[i]) return false;
+  return true;
+}
+function chooseDraw(draw, value) {
+  const chosen = [];
+  for (const rules of draw.dims) {
+    let picked = 0;
+    for (const rule of rules) {
+      if (holds(rule[0], value)) { picked = rule[1]; break; }
+    }
+    chosen.push(picked);
+  }
+  return chosen;
+}
+function paintDraw(painter) {
+  if (painter.inv === null || painter.shown === null || painter.canvas.width < 1) return;
+  painter.inv.paint(
+    painter.ctx,
+    painter.shown,
+    painter.canvas.width / painter.inv.width,
+    painter.canvas.height / painter.inv.height,
+  );
+}
+function stepDraw(painter) {
+  painter.timer = null;
+  const steps = GRAPHICS[painter.draw.g].steps;
+  let wait = 0;
+  for (let k = 0; k < painter.shown.length; k++) {
+    if (painter.shown[k] === painter.target[k]) continue;
+    if (steps[k] > 0 && !reduceMotion) {
+      painter.shown[k] += painter.target[k] > painter.shown[k] ? 1 : -1;
+      wait = wait ? Math.min(wait, steps[k]) : steps[k];
+    } else painter.shown[k] = painter.target[k];
+  }
+  paintDraw(painter);
+  if (!sameState(painter.shown, painter.target)) painter.timer = setTimeout(() => stepDraw(painter), wait);
+}
+function renderDraws(value, snap) {
+  for (const painter of painters) {
+    const next = chooseDraw(painter.draw, value);
+    if (snap || painter.shown === null) {
+      if (painter.timer !== null) { clearTimeout(painter.timer); painter.timer = null; }
+      painter.shown = next.slice();
+      painter.target = next;
+      paintDraw(painter);
+      continue;
+    }
+    painter.target = next;
+    if (painter.timer === null && !sameState(painter.shown, next)) stepDraw(painter);
+  }
+}
 function showState(state) {
   for (const [span, key] of displays) {
     const text = shownText(state.get(key));
     if (span.textContent !== text) span.textContent = text;
   }
+  applyPresence(state);
+  if (graphicsReady) renderDraws(state, false);
 }
 // Changes of shown values are announced to assistive technology (D9): what
 // changed and how, in a visually hidden polite live region. Nothing is
@@ -949,6 +1703,7 @@ if (restored !== null) {
   if (!restored.ok) notice = `Saved state could not be restored (${restored.code}); starting from initial values.`;
   persist = persister(ONTOLOGY, INITIAL_STATE, restored.preserved, restored.seen);
 }
+setupGraphics();
 showState(state);
 status.textContent = notice;
 // Run one activation. With durable state the transition is prepared, its
@@ -1015,3 +1770,55 @@ if (createRuntime !== null) {
   }
 }
 "#;
+
+#[cfg(test)]
+mod remote_copy_tests {
+    use super::browser_copy;
+
+    #[test]
+    fn tv_remote_instructions_are_not_browser_copy() {
+        let cases = [
+            (
+                "Find the eight pairs. Arrow keys move between cards; OK turns one over.",
+                "Find the eight pairs.",
+            ),
+            (
+                "Not a match. Press OK to turn them back.",
+                "Not a match. Turn them back.",
+            ),
+            ("Press OK to turn it over", "Turn it over"),
+            (
+                "Press OK to turn it over and compare",
+                "Turn it over and compare",
+            ),
+            (
+                "Press OK to turn the two cards back",
+                "Turn the two cards back",
+            ),
+            ("press OK to flip the card", "Flip the card"),
+            (
+                "Find the eight pairs. Arrow keys move between\ncards; OK turns one over.",
+                "Find the eight pairs.",
+            ),
+            (
+                "Not a match. Press\nOK to turn them back.",
+                "Not a match. Turn them back.",
+            ),
+            (
+                "Line one stays.\nPress OK to go on.",
+                "Line one stays.\nGo on.",
+            ),
+            ("Keep\nthis wrap.", "Keep\nthis wrap."),
+            ("Arrow keys move between cards; OK turns one over.", ""),
+            ("Press OK", ""),
+            ("Already matched", "Already matched"),
+            ("OK", "OK"),
+            ("Press OKAY to save", "Press OKAY to save"),
+            ("New game", "New game"),
+            ("Pick a card.", "Pick a card."),
+        ];
+        for (from, to) in cases {
+            assert_eq!(browser_copy(from).as_ref(), to, "{from}");
+        }
+    }
+}

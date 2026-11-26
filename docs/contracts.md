@@ -461,6 +461,58 @@ nothing is admitted. Design record:
 - Stability: draft. GY-IR/1 is untouched — no intent nodes exist in
   `goya-ir`; a future IR home for intents requires a contract revision.
 
+## GY-CHROMATICS-LANG/0.1-draft — Chromatics scene declarations (`crates/goya-lang`)
+
+Status: **draft — proposed, not ratified**. The shape may change; no strict
+profile admits it. Directive: GOYA-INT-CHR-001 §12. Engine contract:
+GY-CHROMATICS/0.1 (below). Design record:
+[`docs/chromatics/CHROMATICS-1.md`](chromatics/CHROMATICS-1.md).
+
+- Provides: `@chromatics <name> { strategy: <keyword>; [fallback:
+  <keyword>;] [preserve-slots: bool;] [ordered-slots: bool;]
+  [exclude-native-equivalents: bool;] [exclude-duplicates: bool;] [stability
+  { min-improvement: int; min-residency: int; max-deferral: int; }] candidate
+  <Name> { intent: <interaction>; label: "..."; [entity: "...";] [risk:
+  <class>;] [confirm: bool;] [native: "...";] [pin: <slot>;] [rank:
+  uint;] [favourite: uint;] [position: uint;] [cost: uint;] [probability:
+  uint;] [contextual: int;] [urgency: int;] [preference: int;] [symbol:
+  <ident>;] [describe: "...";] } }`
+  authoring syntax, parsed by the compatibility parser only — every strict
+  profile rejects `@chromatics` with `GY-E1020` ("chromatics declaration
+  requires chromatics admission"). At most one block per scene, in the
+  ontology body. The schema is closed: unknown keys, repeated keys, unknown
+  keywords, missing `strategy`/`intent`/non-empty `label`, an empty
+  `describe`, non-canonical or out-of-range integers are parse errors,
+  never defaults. Strategy and risk
+  keywords are parsed by `goya_chromatics::Strategy::parse` /
+  `Risk::parse`, so the scene grammar and the engine share one keyword set
+  by construction. `ChromaticsDecl` and `ChromaticCandidate` are carried on
+  `Scene::chromatics`.
+- `goya_lang::chromatics` validates the statically determinable §12.3
+  invariants, emitting `GY-E1021` ("invalid chromatics declaration")
+  diagnostics: a candidate's intent must name a declared `@interaction`
+  (the admitted unit of behaviour — not the experimental `@intent`),
+  duplicate explicit slot pins and duplicate entities are refused,
+  sensitive/destructive/privileged candidates must declare `confirm: true`
+  (§20: a shortcut may enter a confirmation workflow, never bypass one),
+  `probability` stays in 0..=1000 per mille and `cost` is at least 1.
+  Capability requirements and scope inheritance are not statically
+  representable in this grammar revision and are not checked.
+- Canonical lowering: `allocation_policy` and `allocation_candidates` map a
+  declaration to the engine's `Policy` and `Candidate` list, so every
+  compiler and resolver lowers one declaration the same way. Authored
+  numbers pass through unchanged; runtime statistics (`last_used`, `uses`,
+  `expires`) are not authored and start neutral.
+- Conformance: `crates/goya-lang/tests/chromatics_corpus.rs` — end-to-end
+  allocation through the engine (including §10.4 slot preservation across a
+  favourite swap and §19 profile isolation), §21 `symbol`/`describe`
+  pass-through into the published binding, the six GY-E1021 invariants,
+  fourteen closed-schema refusals, and GY-E1020 strict refusal under GSSH/1
+  and GSSH/5.
+- Stability: draft. No target lowers `@chromatics` yet; Arachnid's
+  precomputed and generated-JavaScript lowerings (CHROMATICS-0 §5, decision
+  2) are the intended first consumer.
+
 ## SASH-WIN-IR/1 — Sash Windows emission IR (`crates/sash-ir`)
 
 Status: Candidate, 2026-11-18. Architecture approval is required before a
@@ -1088,3 +1140,115 @@ self-test gate, fixed in the same commit.
     for that slot, and is atomic.
   - Hit-testing and focus use geometry, never pixels.
 - Golden fixture: `fixtures/graphics/gru/dashboard.gru`.
+
+---
+
+# GY-FAIR/2 — Foreign Application Intermediate Representation (`crates/goya-fair`)
+
+Status: Candidate (Disparates programme, extraction-only authority). It
+supersedes GY-FAIR/1 (owner approval, 26 November 2026). Full contract:
+[docs/disparates/contracts/fair-2.md](disparates/contracts/fair-2.md); register:
+[reason-codes.md](disparates/contracts/reason-codes.md); previous revision:
+[fair-1.md](disparates/contracts/fair-1.md); programme roadmap:
+[docs/disparates/roadmap.md](disparates/roadmap.md).
+
+- **Provides**: `FairDocument` (manifest, extractor, `project`, elements,
+  `relationships`), `FairElement` (kind, provenance, representability, open
+  semantics payload), `FairRelationship` (subject, `Relation`, object, `Basis`,
+  evidence, provenance), `FairProject` (entry points, framework detections),
+  `Representability` (frozen seven-state evidence progression: extracted /
+  representable / translated / verified / remediation_required /
+  unrepresentable / undetermined), `REASON_CODES` / `is_registered`, `validate`,
+  `upgrade` (FAIR/1 → FAIR/2), `canonical_json`, `coverage_summary`.
+  `FAIR_CONTRACT` is `GY-FAIR/2`; `FAIR_1_CONTRACT` is `GY-FAIR/1`.
+- **Consumes**: none. Serde-only; no `goya-ir` types. The FAIR→Goya boundary is a
+  future contract; reconstruction authorisation is withheld.
+- **Consumers**: `crates/goya-disparate-electron` (emits FAIR/2).
+- **Invariants**: FAIR preserves ignorance — unresolved constructs are recorded,
+  never dropped; every non-`extracted` element carries a reason code, which under
+  FAIR/2 must be registered; relationships point at existing elements, and
+  derived ones name their evidence; there is no `inferred` basis; canonical
+  serialisation is byte-stable (elements and relationships sorted by ID, sorted
+  map keys, empty FAIR/2 fields omitted, so FAIR/1 bytes are unchanged);
+  extraction is deterministic, offline and static; `verified` is unreachable
+  under this revision and compilation alone never implies equivalence.
+- **Stability**: the element-kind vocabulary, relation vocabulary and
+  reason-code register grow by contract revision only and are never renamed.
+  FAIR/1 documents remain readable.
+
+## Ownership
+| Path | Owner |
+|---|---|
+| crates/goya-fair, docs/disparates | Disparates programme |
+| crates/goya-disparate-electron, fixtures/disparates | Disparates programme (Electron extractor, DEL-TD-001) |
+
+---
+
+# GY-HTML-TOKENS/1 — HTML tokenizer (`crates/goya-html-tokenizer`)
+
+Status: Candidate (26 November 2026). It was built to replace html5ever in
+`goya-disparate-electron`, on the owner's decision.
+
+- **Provides**: `Tokenizer` (`next_token`, `set_state`, `set_last_start_tag`,
+  `html_content_model`, `cdata_allowed`, `errors`), `tokenize_document`, `Token`
+  (doctype, start tag, end tag, comment, processing instruction, text),
+  `Attribute` (with name and value spans), `Span`, `ParseError` (HTML Standard
+  code and byte offset).
+- **Consumes**: none (no dependencies).
+- **Consumers**: `crates/goya-disparate-electron`.
+- **Invariants**: follows the HTML Standard §13.2.5 tokenizer, including the
+  processing-instruction states; spans are byte offsets into the original
+  input; CR LF and CR read as LF; no tree construction. Conformance: every
+  html5lib-tests tokenizer case (7,042 runs), for both tokens and error codes;
+  4 lone-surrogate cases are skipped.
+
+# GY-CSS-SYNTAX/1 — CSS Syntax Level 3 (`crates/goya-css-syntax`)
+
+Status: Candidate (26 November 2026). It was built to replace cssparser
+(MPL-2.0) in `goya-disparate-electron`, on the owner's decision.
+
+- **Provides**: `tokenize`, `parse_component_values`, `parse_stylesheet`,
+  `parse_rule_list`, `parse_declaration_list`, `block_declarations`,
+  `parse_one_rule`, `parse_one_declaration`, `parse_one_component_value`;
+  `Token`, `ComponentValue`, `Block`, `Rule`, `AtRule`, `QualifiedRule`,
+  `Declaration`, `DeclarationItem`, `Span`.
+- **Consumes**: none (no dependencies).
+- **Consumers**: `crates/goya-disparate-electron`.
+- **Invariants**: follows the 2021 CR draft of CSS Syntax Level 3; spans are
+  byte offsets into the original input; input the specification discards is
+  returned as `Invalid` with its span, never silently dropped. Conformance:
+  all 136 cases of seven css-parsing-tests files. CSS Nesting block contents
+  are not implemented.
+
+| Path | Owner |
+|---|---|
+| crates/goya-html-tokenizer, crates/goya-css-syntax | Disparates programme (shared Goya libraries) |
+
+# GY-CHROMATICS/0.1 — Chromatics core (`crates/goya-chromatics`)
+
+Status: Draft (26 November 2026), not ratified. Directive GOYA-INT-CHR-001,
+Phase 1 and the logic of Phase 2, plus the §12 language surface. See
+`docs/chromatics/CHROMATICS-0.md` and `CHROMATICS-1.md`. Unrelated to
+GY-CHROMA/1 (colour themes) and goya-cue (colour cueing).
+
+- **Provides**: `Engine::allocate` (eligibility → ordering → Chromatic
+  Inertia → placement → verification), `verify`, `Registry` (staged and
+  committed generations, `press`/`release` dispatch, `revoke`), `Scopes`
+  (nested scopes; a scope may declare that it inherits its parent's
+  candidate pool — `compose`, §6), `Candidate`/`Binding` accessibility
+  metadata (`symbol`, `description`, §21) with an `Unlabelled` publication
+  refusal, and `fixture::run` for the shared conformance scripts.
+- **Consumes**: none (no dependencies, no clock, no I/O).
+- **Consumers**: `crates/goya-lang` (authoring surface
+  GY-CHROMATICS-LANG/0.1-draft above: strategy and risk keywords and the
+  canonical `allocation_policy`/`allocation_candidates` lowering).
+  Arachnid and the resolver are the intended further consumers, through a
+  generated runtime that passes the same fixtures.
+- **Invariants**: allocation is a pure function of capability, intents,
+  policy, candidates, trigger, tick and the context's previous generation;
+  candidate order never matters; ties break by candidate id; all arithmetic
+  is integer. A generation that fails verification is not recorded. A press
+  executes the intent it had when the key went down, or is refused; it is
+  never redirected. A binding without a text label is never published.
+  Conformance: `fixtures/chromatics/*.chr` (14 fixtures, including §6
+  declared inheritance and §21 identification).

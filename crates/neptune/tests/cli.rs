@@ -1027,7 +1027,10 @@ fn bluetooth_privacy_cli_matches_service() {
     assert_eq!(subset["status"], "PASS");
     let entries = subset["result"]["capability_entries"].as_array().unwrap();
     assert_eq!(entries.len(), 2);
-    assert_eq!(entries[0]["semantic_id"], "goya.hardware.bluetooth.guard.v1");
+    assert_eq!(
+        entries[0]["semantic_id"],
+        "goya.hardware.bluetooth.guard.v1"
+    );
     assert_eq!(
         entries[1]["semantic_id"],
         "goya.hardware.bluetooth.central.v1"
@@ -1035,7 +1038,11 @@ fn bluetooth_privacy_cli_matches_service() {
 
     // A generic description fails closed exactly like the service.
     let generic = expect(
-        &["plan-bluetooth-privacy", "--usage-description", "uses bluetooth"],
+        &[
+            "plan-bluetooth-privacy",
+            "--usage-description",
+            "uses bluetooth",
+        ],
         serde_json::json!({
             "schema_version": "1",
             "job_id": "cli",
@@ -1081,7 +1088,12 @@ fn sideload_is_blocked_without_open_i() {
 #[test]
 fn sideload_blocked_report_is_machine_readable() {
     let output = Command::new(env!("CARGO_BIN_EXE_neptune"))
-        .args(["sideload", "/definitely/missing/app.ipa", "--format", "json"])
+        .args([
+            "sideload",
+            "/definitely/missing/app.ipa",
+            "--format",
+            "json",
+        ])
         .env("PATH", "")
         .output()
         .unwrap();
@@ -1127,12 +1139,7 @@ fn sideload_succeeds_with_mock_open_i() {
     let artifact = std::env::temp_dir().join("neptune-sideload-mock.ipa");
     std::fs::write(&artifact, b"mock").unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_neptune"))
-        .args([
-            "sideload",
-            artifact.to_str().unwrap(),
-            "--format",
-            "json",
-        ])
+        .args(["sideload", artifact.to_str().unwrap(), "--format", "json"])
         .env("NEPTUNE_OPEN_I_BIN", &mock)
         .output()
         .unwrap();
@@ -1151,12 +1158,7 @@ fn sideload_fails_when_mock_open_i_fails() {
     let artifact = std::env::temp_dir().join("neptune-sideload-mock-fail.ipa");
     std::fs::write(&artifact, b"mock").unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_neptune"))
-        .args([
-            "sideload",
-            artifact.to_str().unwrap(),
-            "--format",
-            "json",
-        ])
+        .args(["sideload", artifact.to_str().unwrap(), "--format", "json"])
         .env("NEPTUNE_OPEN_I_BIN", &mock)
         .output()
         .unwrap();
@@ -1170,7 +1172,12 @@ fn sideload_fails_when_mock_open_i_fails() {
 fn sideload_fails_for_missing_artifact_before_invoking_open_i() {
     let mock = write_mock_open_i("#!/bin/sh\nexit 0\n");
     let output = Command::new(env!("CARGO_BIN_EXE_neptune"))
-        .args(["sideload", "/definitely/missing/app.ipa", "--format", "json"])
+        .args([
+            "sideload",
+            "/definitely/missing/app.ipa",
+            "--format",
+            "json",
+        ])
         .env("NEPTUNE_OPEN_I_BIN", &mock)
         .output()
         .unwrap();

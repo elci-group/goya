@@ -1,0 +1,24 @@
+# §3.3: a function a dedicated native key already performs is excluded,
+# unless the policy turns exclusion off as an accessibility accommodation.
+capacity red green yellow blue
+native volume mute
+intents audio.volume_up audio.mute show.open
+policy primary=ranked
+context player
+candidate vol intent=audio.volume_up label="Volume up" native=volume rank=0
+candidate mute intent=audio.mute label=Mute native=mute rank=1
+candidate show intent=show.open label="Open show" rank=2
+resolve
+expect red=show green=- yellow=- blue=-
+expect-rejected vol native-equivalent
+expect-rejected mute native-equivalent
+policy exclude_native=no
+resolve trigger=policy now=1
+# show keeps red (§10.4); the newly admitted keys take the free slots.
+expect red=show green=vol yellow=mute
+# This remote has no mute key: only volume is covered natively.
+native volume
+policy exclude_native=yes
+resolve trigger=capability now=2
+expect-rejected vol native-equivalent
+expect red=show green=- yellow=mute

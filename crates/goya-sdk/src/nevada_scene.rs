@@ -104,6 +104,13 @@ pub fn lower_nevada_scene(source: &str) -> Result<NevadaScene, NevadaSceneError>
             reason: NevadaSceneReason::UnsupportedPlatformException(rule.clone()),
         });
     }
+    if let Some(desktop) = &handoff.parsed().declarations.desktop {
+        return Err(NevadaSceneError {
+            range: desktop.range,
+            origin: None,
+            reason: NevadaSceneReason::Unsupported("desktop window"),
+        });
+    }
     let parsed = handoff.parsed();
     let scene = &parsed.scene;
     let range = |origin: &Origin| {
@@ -244,6 +251,27 @@ mod tests {
             set count = state.count + input.amount;
         }
     }"#;
+
+    #[test]
+    fn authored_desktop_is_refused_by_nevada_and_aragon() {
+        let source =
+            "@ontology demo {\n  @desktop {}\n  @cell root { id: \"root\"; text: \"Hi\"; }\n}\n";
+        let nevada = lower_nevada_scene(source).unwrap_err();
+        assert!(matches!(
+            nevada.reason,
+            NevadaSceneReason::Unsupported("desktop window")
+        ));
+        assert_eq!(&source[nevada.range.start..nevada.range.end], "@desktop {}");
+        let android = crate::compile_android_scene(source).unwrap_err();
+        assert!(matches!(
+            android.reason,
+            crate::AndroidSceneReason::Unsupported("desktop window")
+        ));
+        assert_eq!(
+            &source[android.range.start..android.range.end],
+            "@desktop {}"
+        );
+    }
 
     #[test]
     fn produces_aragon_aligned_geometry_and_source_bound_interactions() {

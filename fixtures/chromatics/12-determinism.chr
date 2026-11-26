@@ -1,0 +1,14 @@
+# §9: ties break by candidate id, whatever the input order.
+capacity red green
+intents open
+policy primary=ranked
+context ties
+candidate zeta intent=open label=Zeta rank=0
+candidate alpha intent=open label=Alpha rank=0
+candidate mid intent=open label=Mid rank=0
+resolve
+expect red=alpha green=mid
+expect-rejected zeta over-capacity
+policy primary=utility
+resolve trigger=policy now=1
+expect red=alpha green=mid

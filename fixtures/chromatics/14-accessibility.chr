@@ -1,0 +1,28 @@
+# §21: colour never identifies a binding. Every binding carries its text
+# label, and optional symbol and accessible description pass through to the
+# published generation. A candidate without a label is never bound.
+
+capacity red green
+intents i.a i.b
+policy primary=ranked
+
+candidate a intent=i.a label="Alpha" rank=0 symbol=star describe="Opens the alpha view"
+candidate b intent=i.b label="" rank=1
+resolve now=1
+publish
+expect red=a green=-
+expect-rejected b empty-label
+expect-symbol red=star
+expect-describe red="Opens the alpha view"
+
+# The published binding is dispatchable, and the label is what names it.
+press red
+release red expect=execute:a
+
+# Symbol and description are optional: absence is carried as absence.
+candidate c intent=i.b label="Gamma" rank=2
+resolve now=2
+publish
+expect red=a green=c
+expect-symbol green=-
+expect-describe green=-

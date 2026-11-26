@@ -21,6 +21,7 @@ goya-hcar.workspace = true
 goya-csr.workspace = true
 goya-rars.workspace = true
 goya-change.workspace = true
+goya-cue.workspace = true
 goya-spatial-audio.workspace = true
 goya-audio-dsp.workspace = true
 goya-audio-linux.workspace = true

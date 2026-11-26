@@ -1,6 +1,6 @@
 //! In-process semantic handoff from GY-LANG source to target compilers.
 //!
-//! Two profiles are provided; see `docs/gssh/GSSH-2.md`.
+//! Profiles are separate entry points; see `docs/gssh/GSSH-2.md`.
 //!
 //! * GSSH/1 ([`admit`]) wraps a strictly admitted GY-LANG/1 scene and its
 //!   source entries. It rejects GSSH/2 declarations (`GY-E1006`), so
@@ -9,14 +9,16 @@
 //!   lifetimes, input-to-field bindings with a fixed conversion, and stable
 //!   origins for elements, properties, interactions, state keys and bindings.
 //!
-//! Neither profile is a serialized format. GSSH/2 is a Candidate contract
-//! awaiting architecture approval; it is not evidence of target support.
+//! Neither profile is a serialized format. GSSH/2 is Approved. Later profiles
+//! are separate entry points; GSSH/5 ([`admit_v5`], [`admit_v5_live`]) is a
+//! Candidate that requires static text to name its phrasing class. GSSH/4
+//! and earlier reject that syntax. See `docs/gssh/GSSH-2.md`.
 
 use crate::{
     parse_strict, parse_strict_gssh2, parse_strict_gssh3, parse_strict_gssh3_live,
-    parse_strict_gssh4, parse_strict_gssh4_live, InputBinding, PlatformException,
-    InteractionType, InteractionValue, ParsedScene, SourceRange, StateDecl, StateLifetime,
-    StrictParseError,
+    parse_strict_gssh4, parse_strict_gssh4_live, parse_strict_gssh5, parse_strict_gssh5_live,
+    InputBinding, InteractionType, InteractionValue, ParsedScene, PlatformException, SourceRange,
+    StateDecl, StateLifetime, StrictParseError,
 };
 use std::collections::BTreeMap;
 use std::ops::Deref;
@@ -36,6 +38,10 @@ pub const CONTRACT_V3_LIVE: &str = "GSSH/3-live";
 pub const CONTRACT_V4: &str = "GSSH/4";
 /// GSSH/4 with live bindings (decision D12).
 pub const CONTRACT_V4_LIVE: &str = "GSSH/4-live";
+/// GSSH/4 with enforced static phrasing (decision D17). Candidate.
+pub const CONTRACT_V5: &str = "GSSH/5";
+/// GSSH/5 with live bindings.
+pub const CONTRACT_V5_LIVE: &str = "GSSH/5-live";
 
 /// Largest UTF-8 text value a bound field may supply (the D1 text limit).
 pub const MAX_FIELD_TEXT_BYTES: usize = 64 * 1024;
@@ -307,15 +313,31 @@ pub fn admit_v4_live(source: &str) -> Result<SemanticHandoffV2, StrictParseError
     ))
 }
 
+/// Admit GSSH/5 (decision D17, Candidate): GSSH/4 plus static phrasing.
+/// Callers keep using [`admit_v4`] until they adopt this profile.
+pub fn admit_v5(source: &str) -> Result<SemanticHandoffV2, StrictParseError> {
+    Ok(with_origins(CONTRACT_V5, parse_strict_gssh5(source)?))
+}
+
+/// Admit GSSH/5-live: GSSH/5 plus the live bindings of GSSH/4-live.
+pub fn admit_v5_live(source: &str) -> Result<SemanticHandoffV2, StrictParseError> {
+    Ok(with_origins(
+        CONTRACT_V5_LIVE,
+        parse_strict_gssh5_live(source)?,
+    ))
+}
+
 fn with_origins(contract: &'static str, parsed: ParsedScene) -> SemanticHandoffV2 {
     let mut origins = BTreeMap::new();
     for entry in &parsed.entries {
         let origin = match entry.kind.as_str() {
             "cell" | "button" | "input" => entry.semantic_id.clone().map(Origin::Element),
-            "property" | "gestures" | "iden" => entry.semantic_id.clone().map(|element| Origin::Property {
-                element,
-                property: canonical_property(&entry.name),
-            }),
+            "property" | "gestures" | "iden" => {
+                entry.semantic_id.clone().map(|element| Origin::Property {
+                    element,
+                    property: canonical_property(&entry.name),
+                })
+            }
             "interaction" => entry.semantic_id.clone().map(Origin::Interaction),
             "state-key" => Some(Origin::State(entry.name.clone())),
             "binding" => entry

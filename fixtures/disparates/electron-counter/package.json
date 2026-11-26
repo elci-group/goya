@@ -1,0 +1,14 @@
+{
+  "name": "disparates-electron-counter",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DEL-B01: Electron counter paired with crates/sash/fixtures/interactive-live.gscene",
+  "license": "MIT OR Apache-2.0",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "33.2.1"
+  }
+}

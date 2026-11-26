@@ -1,0 +1,28 @@
+# §13.1 / CHR-G12: allocation follows the negotiated capacity, 0 to 4.
+capacity red green yellow blue
+unsupported red green yellow blue
+intents open
+policy primary=ranked
+context launcher
+candidate a intent=open label=A rank=0
+candidate b intent=open label=B rank=1
+candidate c intent=open label=C rank=2
+resolve
+expect-empty
+expect-rejected a over-capacity
+publish
+press red
+release red expect=unassigned
+# Two keys appear.
+available red green
+resolve trigger=capability now=1
+expect red=a green=b yellow=- blue=-
+# The platform reserves green: never bound, nothing redirected onto it.
+reserved green
+resolve trigger=capability now=2
+expect red=a green=- yellow=- blue=-
+expect-rejected b over-capacity
+# All four.
+available green yellow blue
+resolve trigger=capability now=3
+expect red=a green=b yellow=c blue=-

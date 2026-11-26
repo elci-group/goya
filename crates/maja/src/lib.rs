@@ -557,7 +557,7 @@ fn read_source(path: &std::path::Path) -> std::io::Result<String> {
     Ok(source)
 }
 
-const USAGE: &str = "usage: maja inspect SOURCE | maja check SOURCE [--target web] --profile PROFILE | maja build SOURCE --profile PROFILE [--release] --out NEW_DIR | maja package grow --input EXISTING_DIR --out NEW_DIR --name NAME --version VERSION";
+const USAGE: &str = "usage: maja inspect SOURCE | maja check SOURCE [--target web] --profile PROFILE [--chrome NAME] | maja build SOURCE --profile PROFILE [--chrome NAME] [--release] --out NEW_DIR | maja package grow --input EXISTING_DIR --out NEW_DIR --name NAME --version VERSION";
 
 /// Runs the CLI with injectable arguments and output streams.
 /// Exit codes: 0 success, 2 usage, 3 input error, 4 rejection, 5 output error.
@@ -586,6 +586,7 @@ where
     let mut target: Option<&str> = None;
     let mut output: Option<&std::ffi::OsStr> = None;
     let mut release = false;
+    let mut chrome: Option<&str> = None;
     let mut i = 2;
     while i < args.len() {
         match args[i].to_str() {
@@ -611,11 +612,22 @@ where
                 release = true;
                 i += 1;
             }
+            Some("--chrome") if chrome.is_none() && i + 1 < args.len() => {
+                chrome = args[i + 1].to_str();
+                if chrome.is_none() {
+                    return usage(err);
+                }
+                i += 2;
+            }
             _ => return usage(err),
         }
     }
     if (command == "inspect"
-        && (profile.is_some() || target.is_some() || output.is_some() || release))
+        && (profile.is_some()
+            || target.is_some()
+            || output.is_some()
+            || release
+            || chrome.is_some()))
         || (command == "check" && (output.is_some() || release))
         || (command == "build" && output.is_none())
         || (command != "inspect" && profile.is_none())
@@ -653,21 +665,30 @@ where
             return 3;
         }
     };
-    if let Some(p) = profile
-        .filter(|p| *p == maja_semantic::INTERACTIVE_PROFILE || *p == maja_semantic::LIVE_PROFILE)
-    {
-        return interactive_source(&source, p, command, output, out, err);
+    let interactive = profile.is_some_and(|p| {
+        p == maja_semantic::INTERACTIVE_PROFILE || p == maja_semantic::LIVE_PROFILE
+    });
+    if chrome.is_some() && !interactive {
+        let _ = writeln!(
+            err,
+            "MAJA-CLI-E0007: window chrome is part of the interactive profiles"
+        );
+        return 4;
+    }
+    if let Some(p) = profile.filter(|_| interactive) {
+        return interactive_source(&source, p, command, output, chrome, out, err);
     }
     inspect_source(&source, command, profile, output, out, err)
 }
 
 /// Check or build under an experimental interactive profile
-/// (`maja.web.local.v2` on GSSH/3, `maja.web.local.v3` on GSSH/3-live).
+/// (`maja.web.local.v2` on GSSH/4, `maja.web.local.v3` on GSSH/4-live).
 fn interactive_source(
     source: &str,
     profile: &str,
     command: &str,
     output: Option<&std::ffi::OsStr>,
+    chrome: Option<&str>,
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> i32 {
@@ -676,7 +697,7 @@ fn interactive_source(
         Err(diagnostic) => return reject(err, &diagnostic),
     };
     // Generate before reporting success so runtime refusals surface on check.
-    let package = match interactive_pack::generate(&ir) {
+    let package = match interactive_pack::generate(&ir, chrome) {
         Ok(package) => package,
         Err(diagnostic) => return reject(err, &diagnostic),
     };

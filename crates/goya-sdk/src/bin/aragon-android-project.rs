@@ -71,9 +71,11 @@ fn validate_layout(files: &[(&str, Vec<u8>)]) -> Result<(), (PathBuf, std::io::E
         // folds ASCII path case. Reject those collisions on every host so the
         // same generated layout is either accepted or refused everywhere.
         let key = layout_path_key(relative);
-        if paths.contains(&key) || paths.iter().any(|path: &String| {
-            path.starts_with(&key) && path.as_bytes().get(key.len()) == Some(&b'/')
-        }) {
+        if paths.contains(&key)
+            || paths.iter().any(|path: &String| {
+                path.starts_with(&key) && path.as_bytes().get(key.len()) == Some(&b'/')
+            })
+        {
             return Err((
                 relative.to_path_buf(),
                 std::io::Error::new(

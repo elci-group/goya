@@ -1,0 +1,51 @@
+# §11: atomic publication, never-redirected presses, single execution.
+capacity red green yellow
+intents play open
+policy primary=ranked preserve=yes
+context tv
+candidate a intent=play label=A rank=0
+candidate b intent=play label=B rank=1
+candidate c intent=open label=C rank=2
+resolve
+expect-generation 1
+expect red=a green=b yellow=c
+publish
+press red
+press red repeat
+release red expect=execute:a
+release red expect=rejected:not-held
+# Generation 2 replaces red; it is staged but not yet on screen.
+remove a
+candidate d intent=play label=D rank=0
+resolve now=1
+expect-generation 2
+expect red=d green=b yellow=c
+stage
+press red
+release red expect=rejected:transition
+press green
+release green expect=execute:b
+present
+press red
+release red expect=execute:d
+# A press keeps its meaning across a reallocation that lands before release.
+press green
+set b rank=9
+candidate e intent=play label=E rank=1
+resolve trigger=policy now=2
+expect red=d green=e yellow=c
+publish
+release green expect=execute:b
+# Revocation between press and release wins.
+press red
+revoke d
+release red expect=rejected:revoked
+# Permission is checked again at execution.
+deny open
+press yellow
+release yellow expect=rejected:not-authorised
+allow open
+# Suspension drops held keys.
+press yellow
+cancel-presses
+release yellow expect=rejected:not-held

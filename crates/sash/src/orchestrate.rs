@@ -177,8 +177,7 @@ pub(crate) fn legacy_dispositions(
     if !floor.is_legacy() {
         return dispositions;
     }
-    const WIN10_BACKGROUND_CLAIM: &str =
-        "recreated when that DPI changes";
+    const WIN10_BACKGROUND_CLAIM: &str = "recreated when that DPI changes";
     const LEGACY_BACKGROUND_CLAIM: &str =
         "laid out at the process DPI, which is system DPI aware and read once; Windows scales the rendered window on other monitors and no per-monitor message exists to handle";
     for disposition in dispositions.iter_mut() {
@@ -917,8 +916,7 @@ mod tests {
         let win10 = super::legacy_dispositions(window.dispositions.clone(), ApiFloor::Win10);
         assert_eq!(win10, window.dispositions);
         assert!(win10.iter().any(|item| {
-            item.subject == "background"
-                && item.detail.contains("recreated when that DPI changes")
+            item.subject == "background" && item.detail.contains("recreated when that DPI changes")
         }));
         assert!(!win10.iter().any(|item| item.subject == "dpi"));
 
@@ -927,7 +925,9 @@ mod tests {
             .iter()
             .find(|item| item.subject == "background")
             .expect("background disposition");
-        assert!(!background.detail.contains("recreated when that DPI changes"));
+        assert!(!background
+            .detail
+            .contains("recreated when that DPI changes"));
         assert!(background.detail.contains("system DPI aware"));
         let dpi = legacy
             .iter()

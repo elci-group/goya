@@ -1,0 +1,44 @@
+# §6: a modal narrows the allocation; presses from a covered scope are
+# refused; leaving the modal restores the parent's keys.
+capacity red green yellow blue
+intents show.resume show.details favourite.toggle episodes.open dialog.confirm
+policy primary=utility preserve=yes
+context owner/shows/details
+candidate resume intent=show.resume label=Resume urgency=40
+candidate episodes intent=episodes.open label=Episodes urgency=30
+candidate fav intent=favourite.toggle label=Favourite urgency=20
+candidate info intent=show.details label=Information urgency=10
+resolve
+expect red=resume green=episodes yellow=fav blue=info
+publish
+press red
+context owner/shows/details/confirm
+clear
+candidate ok intent=dialog.confirm label=Confirm
+resolve now=1
+expect red=ok green=- yellow=- blue=-
+publish
+release red expect=rejected:scope-inactive
+press red
+release red expect=execute:ok
+# Back to the parent: re-resolved, slots preserved from its history.
+context owner/shows/details
+clear
+candidate resume intent=show.resume label=Resume urgency=40
+candidate episodes intent=episodes.open label=Episodes urgency=30
+candidate fav intent=favourite.toggle label=Favourite urgency=20
+candidate info intent=show.details label=Information urgency=100
+resolve now=2
+expect red=resume green=episodes yellow=fav blue=info
+publish
+press blue
+release blue expect=execute:info
+# A key pressed while the parent is covered (the modal is active but has
+# published nothing yet) is refused, even if the parent is active again
+# by the time the key comes up.
+activate owner/shows/details/confirm
+press red
+activate owner/shows/details
+release red expect=rejected:scope-inactive
+press red
+release red expect=execute:resume

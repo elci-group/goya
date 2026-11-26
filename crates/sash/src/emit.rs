@@ -288,7 +288,6 @@ END
     )
 }
 
-
 #[cfg(test)]
 mod tests {
     use crate::admit::admit;

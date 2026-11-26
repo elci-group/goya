@@ -164,6 +164,13 @@ pub fn lower(source: &str) -> Result<Lowered, Fault> {
 /// so the Linux exception is resolved by Sash's platform-aware admission.
 fn admit_contract(source: &str) -> Result<&'static str, goya_lang::StrictParseError> {
     if let Ok(handoff) = goya_lang::handoff::admit_v4(source) {
+        if let Some(desktop) = &handoff.parsed().declarations.desktop {
+            return Err(goya_lang::StrictParseError {
+                code: "GY-E1018",
+                name: "desktop placement is not implemented by Emperor".into(),
+                range: desktop.range,
+            });
+        }
         if !handoff.platform_exceptions().is_empty() {
             return Ok(handoff.contract());
         }
@@ -304,6 +311,18 @@ mod tests {
 
     const COUNTER: &str = include_str!("../../sash/fixtures/interactive-counter.gscene");
     const STATIC: &str = include_str!("../../sash/fixtures/static-window.gscene");
+
+    #[test]
+    fn authored_desktop_is_refused() {
+        let source =
+            "@ontology demo {\n  @desktop {}\n  @cell root { id: \"root\"; text: \"Hi\"; }\n}\n";
+        let error = lower(source).unwrap_err();
+        assert!(
+            error.message.contains("desktop placement"),
+            "{}",
+            error.message
+        );
+    }
 
     #[test]
     fn counter_lowers_to_the_admitted_rectangles() {

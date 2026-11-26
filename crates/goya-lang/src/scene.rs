@@ -1,5 +1,6 @@
 //! Scene AST and deterministic absolute/proportional layout.
 
+use goya_chromatics::{Risk, Stability, Strategy};
 use goya_determinism::EffectKind;
 use std::collections::BTreeMap;
 
@@ -29,6 +30,24 @@ pub enum Anchor {
     End,
 }
 
+/// A `present-when` test on one declared state key (live profiles).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Condition {
+    pub key: String,
+    pub op: ConditionOp,
+    pub value: InteractionValue,
+}
+
+/// How a `present-when` condition compares.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ConditionOp {
+    /// `is`: equal to the literal (any type).
+    #[default]
+    Is,
+    /// `at-least`: an int key greater than or equal to the literal.
+    AtLeast,
+}
+
 /// A scene element: RUGID-style cell or button.
 #[derive(Debug, Clone)]
 pub struct SceneCell {
@@ -41,6 +60,9 @@ pub struct SceneCell {
     pub is_input: bool,
     /// Input field properties: placeholder text and max character limit.
     pub placeholder: Option<String>,
+    /// GSSH/5 static phrasing for `placeholder`. When set, `placeholder`
+    /// stays `None` for the same reason as [`SceneCell::text_phrasing`].
+    pub placeholder_phrasing: Option<Phrasing>,
     pub max_length: Option<i64>,
     /// Absolute position in points, parent-origin-relative.
     pub position: Option<Vec3>,
@@ -62,6 +84,10 @@ pub struct SceneCell {
     pub stroke: Option<u32>,
     pub stroke_width: Option<f64>,
     pub text: Option<String>,
+    /// GSSH/5 static phrasing for `text`. When set, `text` stays `None`:
+    /// layout does not choose a class, and the adopting compiler wraps the
+    /// sentence [`Phrasing::phrase`] returns for its class.
+    pub text_phrasing: Option<Phrasing>,
     pub text_size: Option<f64>,
     pub anchor: Option<Anchor>,
     /// `wrap: <positive integer columns>` — greedy word-wrap width applied
@@ -75,6 +101,24 @@ pub struct SceneCell {
     /// `text-from: state.key;` shows the current value of a declared state
     /// key as the element's text (GSSH/3 live admission only).
     pub text_from: Option<String>,
+    /// `present-when: state.key is <literal>;` (or `at-least <int>`) makes
+    /// the element and its subtree present only while the condition holds
+    /// (live profiles only). Nested conditions conjoin.
+    pub present_when: Option<Condition>,
+    /// `fill-to: #rrggbb;` with `fill-period-s`: the fill breathes between
+    /// `fill` and this colour (live profiles only).
+    pub fill_to: Option<u32>,
+    /// Seconds for one `fill` → `fill-to` transition.
+    pub fill_period_s: Option<f64>,
+    /// `appear-s: N;` the subtree fades in over N seconds whenever it
+    /// becomes present (and at launch if present then).
+    pub appear_s: Option<f64>,
+    /// `appear-from-p: (fx, fy, 0);` with `appear-s`: it also slides in from
+    /// this offset, as fractions of the parent's resolved extent.
+    pub appear_from_p: Option<Vec3>,
+    /// `@draw graphic { ... }`: the element draws a declared `@graphic` in
+    /// the state its rules choose (live profiles only).
+    pub draw: Option<crate::graphic::DrawDecl>,
     /// `@iden { ... }`: the element's accessible identity (GSSH/4, decision
     /// D14). Required on every `@input` under GSSH/4.
     pub iden: Option<Iden>,
@@ -90,10 +134,15 @@ pub struct SceneCell {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Iden {
-    /// Accessible name. Required.
+    /// Accessible name. Required. Empty when [`Self::label_phrasing`] carries
+    /// the GSSH/5 sentences; GSSH/4 stores the authored string here.
     pub label: String,
+    /// GSSH/5 phrasing of the accessible name.
+    pub label_phrasing: Option<Phrasing>,
     /// Accessible description: what the element is for or how to use it.
     pub hint: Option<String>,
+    /// GSSH/5 phrasing of the accessible description.
+    pub hint_phrasing: Option<Phrasing>,
     /// Reserved keys the author wrote, with their source ranges. Strict
     /// admission refuses them, so nothing reserved is silently dropped.
     pub reserved: Vec<(String, crate::parser::SourceRange)>,
@@ -104,8 +153,88 @@ impl Iden {
         Self {
             label,
             hint,
+            label_phrasing: None,
+            hint_phrasing: None,
             reserved: Vec::new(),
         }
+    }
+}
+
+/// Platform class a static sentence is written for (GSSH/5, decision D17).
+///
+/// These are not `@platform` names. `@web` is a browser page. `@desktop` is
+/// a native window. `@mobile` is a touch phone or tablet. `@tv` is a remote,
+/// including webOS.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PhrasingClass {
+    Desktop,
+    Mobile,
+    Tv,
+    Web,
+}
+
+impl PhrasingClass {
+    /// Desktop, mobile, television, web. Completeness uses this order.
+    pub const ALL: [PhrasingClass; 4] = [
+        PhrasingClass::Desktop,
+        PhrasingClass::Mobile,
+        PhrasingClass::Tv,
+        PhrasingClass::Web,
+    ];
+
+    /// Source specifier, including the `@`.
+    pub fn specifier(self) -> &'static str {
+        match self {
+            Self::Desktop => "@desktop",
+            Self::Mobile => "@mobile",
+            Self::Tv => "@tv",
+            Self::Web => "@web",
+        }
+    }
+}
+
+/// Largest `text` or `placeholder` phrase, in UTF-8 bytes.
+/// Labels and hints keep the `@iden` limits.
+pub const MAX_PHRASE_TEXT_BYTES: usize = 16 * 1024;
+
+/// Static sentences for one phrasing site (GSSH/5, decision D17).
+///
+/// [`Self::phrase`] returns that class's sentence, or `@universal` when the
+/// class has none of its own. A compiler shows that sentence unchanged.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Phrasing {
+    pub universal: Option<String>,
+    pub desktop: Option<String>,
+    pub mobile: Option<String>,
+    pub tv: Option<String>,
+    pub web: Option<String>,
+    /// Source range of the phrasing value.
+    pub range: crate::parser::SourceRange,
+}
+
+impl Phrasing {
+    /// The sentence for `class`: its own override, otherwise `@universal`.
+    pub fn phrase(&self, class: PhrasingClass) -> Option<&str> {
+        let own = match class {
+            PhrasingClass::Desktop => &self.desktop,
+            PhrasingClass::Mobile => &self.mobile,
+            PhrasingClass::Tv => &self.tv,
+            PhrasingClass::Web => &self.web,
+        };
+        own.as_deref().or(self.universal.as_deref())
+    }
+
+    /// Every class resolves to a sentence.
+    pub fn complete(&self) -> bool {
+        self.missing_class().is_none()
+    }
+
+    /// The first class, in [`PhrasingClass::ALL`] order, with neither its
+    /// own sentence nor `@universal`.
+    pub fn missing_class(&self) -> Option<PhrasingClass> {
+        PhrasingClass::ALL
+            .into_iter()
+            .find(|class| self.phrase(*class).is_none())
     }
 }
 
@@ -141,6 +270,10 @@ pub struct Scene {
     /// ratified). Empty unless the source authors them. Validated by
     /// [`crate::intents`], not by layout.
     pub intents: Vec<IntentDecl>,
+    /// Draft `@chromatics` declaration (GY-CHROMATICS/0.1 draft). At most
+    /// one per scene. Validated by [`crate::chromatics`], not by layout;
+    /// refused by every strict admission until ratified.
+    pub chromatics: Option<ChromaticsDecl>,
 }
 
 /// One experimental `@intent` declaration (Quitasol phase 0).
@@ -363,6 +496,94 @@ pub enum InteractionExpr {
 pub struct StateAssignment {
     pub key: String,
     pub value: InteractionExpr,
+}
+
+/// One draft `@chromatics` declaration (directive GOYA-INT-CHR-001 §12,
+/// contract GY-CHROMATICS/0.1 draft).
+///
+/// Chromatics assigns the scene's scarce physical inputs to the semantic
+/// actions most worth one press in this scene. The declaration is semantic:
+/// strategy, eligibility and stability policy plus explicit candidates that
+/// name declared `@interaction`s. It never names key codes; the target maps
+/// abstract slot names (for example `red`) to its own hardware.
+///
+/// Quarantine surface like `@intent`: parsed and retained on
+/// [`Scene::chromatics`], validated by [`crate::chromatics`], and refused by
+/// every strict admission until the contract is ratified.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChromaticsDecl {
+    /// Authored block name; the scene's chromatic scope label.
+    pub name: String,
+    /// Primary allocation strategy (§8).
+    pub primary: Strategy,
+    /// Fills slots the primary leaves empty; never repeats an entity (§8.1).
+    pub fallback: Option<Strategy>,
+    /// Keep a still-selected candidate on its previous slot (§10.4).
+    pub preserve_slots: bool,
+    /// Assign slots strictly in selection order (overrides preservation).
+    pub ordered_slots: bool,
+    /// Drop candidates a dedicated native input already covers (§3.3).
+    /// Turning this off is the explicit accessibility accommodation.
+    pub exclude_native: bool,
+    /// At most one binding per entity.
+    pub exclude_duplicates: bool,
+    /// Chromatic Inertia thresholds (§10.3).
+    pub stability: Stability,
+    /// Explicitly declared candidates (§12.1). Bounded by the validator.
+    pub candidates: Vec<ChromaticCandidate>,
+    /// Source range of the whole declaration.
+    pub range: crate::parser::SourceRange,
+}
+
+/// One explicitly declared Chromatic candidate (§7, §12.1).
+///
+/// All numeric fields are authored integers; allocation stays exact. The
+/// runtime statistics fields (`last_used`, `uses`, `expires`) are not
+/// authored: they belong to the target's runtime state, not the scene.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChromaticCandidate {
+    /// Stable semantic candidate id (§7). Never a position.
+    pub name: String,
+    /// The declared `@interaction` activation executes (§20: registered
+    /// handlers only).
+    pub intent: String,
+    /// Text label. Required and non-empty: colour alone never identifies a
+    /// binding (§21).
+    pub label: String,
+    /// Semantic symbol or marker shape for non-colour identification
+    /// (§21). Optional; the target maps it to its own iconography.
+    pub symbol: Option<String>,
+    /// Accessible description of what the action is for (§21). Optional;
+    /// supplementary to the required label.
+    pub description: Option<String>,
+    /// Associated entity, if entity-oriented (§7.1).
+    pub entity: Option<String>,
+    /// Consequence class (§20). Defaults to navigational.
+    pub risk: Risk,
+    /// The intent enters a confirmation workflow rather than acting.
+    /// Required for sensitive, destructive and privileged candidates.
+    pub confirmation: bool,
+    /// Native-equivalence key a dedicated input may already cover (§3.3).
+    pub native: Option<String>,
+    /// Application ranking, 0 best.
+    pub rank: Option<u32>,
+    /// Favourite order, 0 best.
+    pub favourite: Option<u32>,
+    /// Visible position, 0 first.
+    pub position: Option<u32>,
+    /// Conventional inputs needed to reach and activate it (≥ 1). Defaults
+    /// to 1 (§9 InteractionSavings).
+    pub cost: Option<u32>,
+    /// Estimated likelihood of need, per mille 0..=1000 (§9).
+    pub probability: Option<u32>,
+    /// Authored utility terms in milli-inputs (§9).
+    pub contextual: Option<i64>,
+    pub urgency: Option<i64>,
+    pub preference: Option<i64>,
+    /// Explicit slot reservation, by abstract slot name (Manual, §8).
+    pub pinned: Option<String>,
+    /// Source range of the whole candidate declaration.
+    pub range: crate::parser::SourceRange,
 }
 
 /// A D1 transition explicitly bound to one button activation.

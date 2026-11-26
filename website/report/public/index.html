@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Goya — a report in plain language</title>
+  <meta name="description" content="What Goya is, how its habits differ from ordinary frontend work, and the kinds of software that shape can carry.">
+  <meta name="theme-color" content="#1a1714">
+  <link rel="stylesheet" href="/report.css">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+</head>
+<body>
+  <a class="skip" href="#report">Skip to the report</a>
+
+  <div class="sheet" id="top">
+    <header class="open">
+      <div class="open-top">
+        <a class="brand" href="#top">Goya</a>
+        <p class="eyebrow">A report in plain language</p>
+        <p class="date">25 November 2026</p>
+      </div>
+
+      <div class="open-main">
+        <h1>The picture<br>holds still.</h1>
+        <div class="open-copy">
+          <p class="deck">Goya is a way to describe a desktop program so the picture can be repeated, a change can be accepted or refused as a whole, and the result can live as a native application rather than as a page inside a browser.</p>
+          <p class="release"><strong>No official release has been published.</strong> What follows is the habit the code is built to keep. Where a piece is only partly built, the report says so.</p>
+        </div>
+      </div>
+
+      <nav class="toc" aria-label="Contents">
+        <a href="#what"><span class="n">01</span><span class="t">What Goya is</span></a>
+        <a href="#typical"><span class="n">02</span><span class="t">A typical frontend</span></a>
+        <a href="#promises"><span class="n">03</span><span class="t">The promises</span></a>
+        <a href="#possible"><span class="n">04</span><span class="t">What becomes possible</span></a>
+        <a href="#map"><span class="n">05</span><span class="t">The parts</span></a>
+        <a href="#ahead"><span class="n">06</span><span class="t">Still ahead</span></a>
+      </nav>
+    </header>
+
+    <article id="report">
+      <section id="what">
+        <p class="sec-no">01</p>
+        <div class="sec-body">
+          <h2>What Goya is</h2>
+          <p>Goya is a native desktop platform. You describe a window as a <em>scene</em>: the arrangement of panels, words, and buttons, and where each one sits relative to its parent. A small companion program, the <em>host</em>, owns the behaviour. The calculator knows arithmetic. The chess board knows whose move it is. The music player knows the playlist. The scene does not have to become that program.</p>
+          <p>The engine is written in Rust. The first real window opens on Linux, through Wayland, which is the modern way Linux desktops put pixels on a screen. Sample applications already live in the repository: a calculator, a calendar, a clock, a file browser, a music player, chess, mail, and a messenger. Each one can check itself with no window open. Adding <code>--live</code> opens the window.</p>
+          <p>Around that core are compilers aimed at other places. Sash is the Windows path. Neptune is iOS. Aragon is Android. Maja is a careful web path. Dockyard is a Linux program that answers HTTP, the ordinary language of web services. They are separate gates. A gate can accept a description, or it can say that this target is not ready.</p>
+        </div>
+      </section>
+
+      <section id="typical">
+        <p class="sec-no">02</p>
+        <div class="sec-body">
+          <h2>How a typical frontend is put together</h2>
+          <p>Most new software that a person sees is a web page, even when it sits in its own window. The page is a tree of boxes. A second language, CSS, decides how those boxes look. A third language, usually JavaScript, can change any of it, at any moment, from many places at once. On the desktop, the common shortcut is to ship a whole browser inside the application so the page has somewhere to run.</p>
+          <p>That stack won for a good reason. One description can reach a phone, a laptop, and a kiosk in the same week. Designers and programmers share a huge set of tools. A button can be restyled without rebuilding the world.</p>
+          <p>The cost shows up later, when someone has to keep a promise.</p>
+          <ul class="ledger">
+            <li>The same source can look different on two machines, because layout depends on fonts, the browser's engine, the size of the window, and sometimes the clock or the language settings.</li>
+            <li>A change can land halfway. One part of the screen has the new fact. Another part still has the old one. The person in front of it cannot tell which revision they are looking at.</li>
+            <li>The program may do almost anything: open the network, read files, talk to a device. Finding the real list means reading a great deal of code and a great many libraries.</li>
+            <li>An animation, a theme, or a menu with many legal states is often worked out again on every frame. That is fine on a large computer. It is a poor fit for a sign, a vehicle display, or a quiet kiosk that must stay on budget.</li>
+            <li>Next year, a browser update or a framework update can move a pixel, change a default, or retire an API. The picture was never a record. It was a performance.</li>
+          </ul>
+          <p>None of this makes the web a mistake. It makes the web a poor place to promise that a form, a label, a control panel, or a public terminal will mean the same thing in ten years, on a machine you can name.</p>
+        </div>
+      </section>
+
+      <section id="promises">
+        <p class="sec-no">03</p>
+        <div class="sec-body">
+          <h2>The promises Goya is built to keep</h2>
+          <p class="lede">Goya's difference is not a new coat of paint on the same page. It is a shorter list of promises, each one small enough to check.</p>
+
+          <div class="plate">
+            <h3>The picture stays a description</h3>
+            <div>
+              <p>A scene says what is on the window and how the pieces nest. Where the scene itself carries a reaction, that reaction is a short, checked sequence: a button, a few named facts, a straight line of assignments, and, when a request leaves the machine, a journal of what came back. It is not an invitation to grow loops, branches, and a second application inside the layout. The host remains the place for the real rules, and the host can test those rules with the window closed.</p>
+              <p>A reviewer can finish reading the window. That is a modest sentence, and it is the start of software a clinic, a workshop, or a public office can hand to the next person.</p>
+            </div>
+          </div>
+
+          <div class="plate">
+            <h3>The same ingredients make the same frame</h3>
+            <div>
+              <p>Layout is a pure function. Give it the scene and the size, and you get the same frame. Positions are whole numbers of millipoints, a point divided into a thousand, so the arithmetic does not wander the way decimal pixels do. The calculation does not consult the time, a random number, or the mood of a font engine.</p>
+              <p>Colour works as a relationship. A theme says how light and dark roles sit against each other. Contrast is measured on the colours a person would actually see, against a published standard. If that pair cannot reach the contrast it was asked for, the resolver reports the failure. It does not invent a passing grade.</p>
+            </div>
+          </div>
+
+          <div class="plate">
+            <h3>A change lands whole, or the previous one remains</h3>
+            <div>
+              <p>Facts live in a store with a revision number. One writer works at a time. A transaction either commits, and the revision moves, or it is dropped, and readers still see the last accepted snapshot. Nothing is edited in place underneath them.</p>
+              <p>Replacing the scene follows the same habit. A proposed window can bring a migration of the saved facts: rename a key, drop a key, fill in a default. If the chain has a gap, or the commit is refused, the running description stays where it was. A public screen does not have to survive in a half-swapped state.</p>
+            </div>
+          </div>
+
+          <div class="plate">
+            <h3>Rights are a list</h3>
+            <div>
+              <p>The vocabulary of permission is named: a window, typing, the network, files, speech, motion, sensors, three-dimensional graphics. A copy of selected text and a copy that also carries history are different grants. A scene can allow one and refuse the other. Sound attached to an old layout is rejected rather than guessed. The habit is the same in each case. The program says what it may do, and a stale or ungranted action does not get a polite approximation.</p>
+            </div>
+          </div>
+
+          <div class="plate">
+            <h3>Spend the closed work before anyone is waiting</h3>
+            <div>
+              <blockquote class="rule">
+                <p>Never compute at runtime what can be resolved at build time.</p>
+                <p>Never precompute what a bounded reconstruction can represent more cheaply.</p>
+              </blockquote>
+              <p>Some pictures have a state space that is known, finite, and small enough to finish. A menu of themes. A control with a handful of sizes. A morph from one shape to another across a fixed set of frames. Goya can draw every reachable state ahead of time, merge the ones that look the same, and store a lookup with a certificate that the set is complete. At runtime the work is: check the state, find the picture, draw it. A state that was never reachable is refused. It is not replaced by a neighbour that happens to be close.</p>
+              <p>Pictures that stay open-ended keep a different contract. A reusable drawing exposes typed slots. A local change touches the parts that slot is allowed to affect, and it does so as a whole. The geometry is not rebuilt from scratch for a change that did not ask for that.</p>
+              <p>On the samples measured in this repository, a menu lookup sat far under a tenth of a millisecond, and a local dashboard update was on the order of hundreds of times cheaper than reconstructing the whole drawing. Those figures belong to those samples, on one machine. They are evidence of the habit, not a universal speed claim.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="possible">
+        <p class="sec-no">04</p>
+        <div class="sec-body">
+          <h2>What becomes possible</h2>
+          <p class="lede">Some software is rare because the problem is hard. Some is rare because the usual tools will not hold still long enough to promise it. Goya is shaped for the second kind. The items below are kinds of software, services, and shared ecosystems this architecture can carry. They are not a catalogue of finished products you can download today.</p>
+
+          <div class="plate">
+            <h3>Tools a new person can still read</h3>
+            <div>
+              <p>A workshop terminal, a clinic check-in, a council form, a bench instrument. The window stays a scene. The rules stay in a thin host with a self-test that does not need a display. Years later, the question "what does this window do, and what is it allowed to touch?" has an answer that fits in an afternoon. Ordinary frontends can be maintained. They are rarely maintainable in that narrow sense, because the picture, the permissions, and the history are spread through a program that can change any of them from anywhere.</p>
+            </div>
+          </div>
+          <div class="plate">
+            <h3>Records that can be shown again</h3>
+            <div>
+              <p>A filed form, a training screen, a label, a dashboard state used as evidence. If layout is a function of the scene and the size, a stored scene and a stored size are a stored frame. That is the difference between "it looked like this on my laptop" and "this is the frame." Browsers are excellent at publishing. They are awkward as archives, because the performance depends on an engine that will change.</p>
+              <p>The same habit covers how a result was made. A diagnostic bundle can carry a bounded history of a selection, with secrets stripped and the reason for each redaction written down. A copied passage can travel as the words alone, or as the words plus that history, and those are separate permissions. Signing and watermarking give a file a checkable identity beside the bytes. A real publisher key and a large library of real photographs are still open work. The opening is that identity lives with the artifact, inside a stated limit, rather than in a note that can be lost.</p>
+            </div>
+          </div>
+          <div class="plate">
+            <h3>Interfaces that refuse to invent an answer</h3>
+            <div>
+              <p>Money, medicine, a signature, a setting on a machine that must not drift. The useful behaviour is a refusal. The contrast pair cannot meet the standard, so the build says so. The new scene does not fit the saved facts, so the old revision remains. The graphic's state was not in the certified set, so it is not shown. The sound belongs to a layout revision that is no longer current, so it is dropped. Systems that must not offer a plausible substitute can be built on that refusal. A typical frontend's kindness is to keep going. Goya's kindness, in these places, is to stop.</p>
+            </div>
+          </div>
+          <div class="plate">
+            <h3>One description, more than one honest host</h3>
+            <div>
+              <p>The aim of the parity programme is one source becoming a Linux application and a Windows application. The intent matches. The manners belong to each platform: Wayland on Linux, the Windows desktop on Windows. The point of the split is to avoid shipping a browser inside every tool just to get a window.</p>
+              <p>That programme is in progress, and it is careful about what it will say. The scored scene today is a small counter. A Windows build can still report that release admission is blocked until someone launches it on Windows. Wine and a virtual machine do not count as that launch. Maja's ordinary web profile stays closed. The experimental local profile is a single static panel. An ecosystem that can say "not yet" is slower than a package install. It is also an ecosystem whose members do not silently diverge.</p>
+              <p>Dockyard is the service-shaped member of the same family: a Linux program that speaks HTTP. A status board, a form, or a counter can be a window a person uses and a reply a machine gives, from one description of the work. Secrets, health checks, and containers are still deferred. The architectural room is a shared description with hosts that are allowed to be unfinished in public.</p>
+            </div>
+          </div>
+          <div class="plate">
+            <h3>Quiet machines, and rooms you can hear</h3>
+            <div>
+              <p>A transit board, a kiosk, a vehicle display, a status wall. When every legal state of a graphic is known, the pictures can be made before the device boots. Changing state is a check and a lookup. The device does not re-decide the animation while a person is watching. That is how a small computer keeps a frame budget for years without growing a browser's worth of machinery.</p>
+              <p>Sound can follow the same geometry. A warning can sit to the left because the control is on the left. The path from a rectangle on the screen to a stereo position is a function, with a floor so distance does not blow up, and with a fold-down to mono for someone who needs it. The included head-related profile is one listener and 64 directions. A fuller set is supplied by whoever needs it. What the architecture adds is a place where sound belongs to the layout, and where a stale layout cannot keep speaking.</p>
+            </div>
+          </div>
+          <div class="plate">
+            <h3>Repair that leaves a whole window behind it</h3>
+            <div>
+              <p>Live replacement of a scene, with an explicit migration of the saved facts, is a maintenance tool as much as a developer convenience. A studio can try a new description. A terminal in a lobby can take a correction. If the new version fails its checks, the previous revision is still the one on screen, still a single committed snapshot. Long-lived services rarely die from a lack of features. They die from updates that cannot be undone into a known-good whole.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="map">
+        <p class="sec-no">05</p>
+        <div class="sec-body">
+          <h2>A plain map of the parts</h2>
+          <table class="map">
+            <thead>
+              <tr><th scope="col">Part</th><th scope="col">In ordinary words</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Scene</td><td>The window's structure: panels, words, buttons, and how they sit inside one another.</td></tr>
+              <tr><td>Host</td><td>The behaviour, and a self-test that runs with no window.</td></tr>
+              <tr><td>State</td><td>The accepted facts, with a revision that moves only when a change commits.</td></tr>
+              <tr><td>Layout</td><td>The frame you get from a scene plus a size. Same ingredients, same frame.</td></tr>
+              <tr><td>Colour</td><td>Relationships between roles, checked for contrast, with failure reported.</td></tr>
+              <tr><td>Graphics</td><td>Drawings that are either finished ahead of time, when every state is knowable, or updated locally when they are not.</td></tr>
+              <tr><td>Window</td><td>A real Linux window today. Other desktops and phones are separate compilers with their own gates.</td></tr>
+              <tr><td>Record</td><td>A bounded history, a signature, or a mark, kept with the work and stripped of secrets.</td></tr>
+              <tr><td>Service</td><td>Dockyard: the same family of descriptions, answering HTTP on Linux.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="ahead" class="close">
+        <p class="sec-no">06</p>
+        <div class="sec-body">
+          <h2>What is still ahead</h2>
+          <p>This report is a reading of the architecture, written so a person outside the codebase can see what it is for. It is not a claim that the destination has been reached.</p>
+          <ul class="limits">
+            <li>No official release has been published.</li>
+            <li>The Windows programme has not been launched. A successful build is not a launch.</li>
+            <li>The production web profile stays closed. The local web experiment is a static panel.</li>
+            <li>A screen-reader bridge exists. A formal accessibility sign-off does not.</li>
+            <li>The browser view is an experiment inside a Goya window. It is not a full browser, and the editor is a start rather than a design studio.</li>
+            <li>Sandbox coverage depends on the operating system it is actually running on.</li>
+            <li>A publisher key, a trusted list of signers, a full set of spatial-audio subjects, and a large real photo library are still caller-supplied or unfinished.</li>
+          </ul>
+          <p class="tail">The scene language is kept smaller than a general-purpose programming language on purpose. The room for new software is in the promises above: a frame you can repeat, a change you can accept or refuse, a right you can name, and a host that is allowed to say it is not ready.</p>
+        </div>
+      </section>
+    </article>
+
+    <footer class="colophon">
+      <p>Served from <code>website/report</code> in the Goya repository. The contracts behind this reading live in <code>docs/contracts.md</code>, <code>docs/parity/programme.md</code>, and <code>docs/graphics/README.md</code>.</p>
+    </footer>
+  </div>
+</body>
+</html>

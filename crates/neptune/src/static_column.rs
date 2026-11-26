@@ -540,9 +540,8 @@ mod tests {
         assert!(swift.contains(
             "}.accessibilityElement(children: .contain).accessibilityLabel(Text(verbatim: \"Greeting\")).accessibilityHint(Text(verbatim: \"Read me first\"))"
         ), "{swift}");
-        assert!(swift.contains(
-            "Text(verbatim: \"Note\").accessibilityLabel(Text(verbatim: \"Footnote\"))"
-        ));
+        assert!(swift
+            .contains("Text(verbatim: \"Note\").accessibilityLabel(Text(verbatim: \"Footnote\"))"));
         // Each @iden is mapped back to its declaration.
         let json = preview.to_json();
         let mapped: Vec<_> = json["source_map"]["mappings"]
@@ -551,7 +550,8 @@ mod tests {
             .iter()
             .map(|m| {
                 let s = &m["source_range"];
-                &source[s["start_byte"].as_u64().unwrap() as usize..s["end_byte"].as_u64().unwrap() as usize]
+                &source[s["start_byte"].as_u64().unwrap() as usize
+                    ..s["end_byte"].as_u64().unwrap() as usize]
             })
             .filter(|span| span.starts_with("@iden"))
             .collect();

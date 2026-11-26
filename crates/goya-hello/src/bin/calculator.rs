@@ -16,9 +16,10 @@
 use goya_audio_dsp::{limit, Limiter, Tap};
 use goya_audio_linux::{AudioOutput, PwCatOutput};
 use goya_change::{
-    decide, CausalResolver, ChangeEnvelope, CostModel, EventRule, Invalidation, PixelRect,
-    PropertyMask,
+    CausalResolver, ChangeEnvelope, CostModel, EventRule, PixelRect, PresentCopy,
+    PropertyMask, present_damage,
 };
+use goya_cue::{millipoints_to_pixels, MillipointRect};
 
 use goya_lang::{hit_test, layout, Anchor, DrawNode, RectMp, SceneStore};
 use goya_rars::{
@@ -359,38 +360,7 @@ fn main() {
     // ---- LCPE (GY-CHANGE/1): compile change envelopes for the display
     // panel and every button from the resolved scene geometry ------------
     let frame0 = layout(store.get(), 100.0, 170.0);
-    let mut resolver = CausalResolver::default();
-    for node in &frame0.nodes {
-        let persistent = if node.is_button {
-            PropertyMask(PropertyMask::TEXT | PropertyMask::GEOMETRY)
-        } else {
-            PropertyMask(PropertyMask::GEOMETRY)
-        };
-        resolver.register(ChangeEnvelope {
-            object: node.name.clone(),
-            revision: store.generation(),
-            persistent,
-            mutable: PropertyMask(PropertyMask::ALL),
-            event_rules: if node.is_button {
-                vec![EventRule {
-                    event: "pointer.press".into(),
-                    causes: vec!["pressed".into(), "hover".into()],
-                }]
-            } else {
-                vec![EventRule {
-                    event: "state.value".into(),
-                    causes: vec!["value".into()],
-                }]
-            },
-            spatial_bounds: PixelRect {
-                x: node.rect.x as i32 / goya_wayland::MP_PER_PX as i32,
-                y: node.rect.y as i32 / goya_wayland::MP_PER_PX as i32,
-                width: node.rect.width as i32 / goya_wayland::MP_PER_PX as i32,
-                height: node.rect.height as i32 / goya_wayland::MP_PER_PX as i32,
-            },
-            resolution_tile: 8,
-        });
-    }
+    let mut resolver = compile_envelopes(&frame0.nodes, store.generation());
     let cost_model = CostModel::default();
 
     // ---- RARS (GY-RARS/1): glyph fidelity from the projected resolution
@@ -435,7 +405,11 @@ fn main() {
     let mut frames = 0u32;
     let mut presents = 0u32;
     let mut dirty = true; // first frame always paints
-    let mut lcpe_damage: Option<(i32, i32, i32, i32)> = None;
+    // Presses in one turn share a single damage rectangle. Resize and
+    // hot-swap cover the whole window, and a press in that turn must not
+    // shrink it.
+    let mut pressed: Vec<String> = Vec::new();
+    let mut structural = false;
     let mut last_shown = String::new();
     while frames < max_frames && !win.close_requested() {
         if watch {
@@ -454,7 +428,10 @@ fn main() {
                         Ok(src) => match store.swap(&src) {
                             Ok(gen) => {
                                 println!("goya-calculator: hot-swapped to generation {gen}");
+                                let frame = layout(store.get(), 100.0, 170.0);
+                                resolver = compile_envelopes(&frame.nodes, gen);
                                 dirty = true;
+                                structural = true;
                             }
                             Err(e) => println!(
                                 "goya-calculator: swap rejected ({e}) — running calculator retained"
@@ -478,37 +455,8 @@ fn main() {
                             let rect = frame.find(&name).map(|n| n.rect);
                             calc.press(&name);
                             dirty = true;
-                            // LCPE: event → authorised transitions →
-                            // quantised dirty regions → local vs full cost
-                            // decision. The display cell changes via the
-                            // "value" transition; the button via "pressed".
-                            let mut dirty_rects: Vec<PixelRect> = Vec::new();
-                            for t in resolver.resolve(&name, "pointer.press", "pressed") {
-                                if let Some(d) = t.dirty {
-                                    dirty_rects.push(d);
-                                }
-                            }
-                            for t in resolver.resolve("result_text", "state.value", "value") {
-                                if let Some(d) = t.dirty {
-                                    dirty_rects.push(d);
-                                }
-                            }
-                            let px_rects: Vec<PixelRect> = dirty_rects
-                                .iter()
-                                .map(|r| PixelRect {
-                                    x: r.x,
-                                    y: r.y,
-                                    width: r.width,
-                                    height: r.height,
-                                })
-                                .collect();
-                            match decide(&px_rects, &cost_model) {
-                                Invalidation::Local(r) => {
-                                    lcpe_damage = Some((r.x, r.y, r.width, r.height));
-                                }
-                                Invalidation::FullFrame => {
-                                    lcpe_damage = None;
-                                }
+                            if !structural {
+                                pressed.push(name);
                             }
                             if let Some(r) = rect {
                                 play_tap(&mut audio, &mut pan, r);
@@ -520,6 +468,9 @@ fn main() {
                     if let Some(btn) = key_to_button(c) {
                         calc.press(btn);
                         dirty = true;
+                        if !structural {
+                            pressed.push(btn.to_string());
+                        }
                         if let Some(n) = frame_find(store.get(), btn) {
                             play_tap(&mut audio, &mut pan, n.rect);
                         }
@@ -528,6 +479,7 @@ fn main() {
                 goya_wayland::PlatformEvent::Resized(w, h) => {
                     println!("goya-calculator: resized {w}x{h}");
                     dirty = true;
+                    structural = true;
                 }
                 _ => {}
             }
@@ -539,24 +491,53 @@ fn main() {
             let nodes = with_result(nodes, &calc.shown());
             let prims = present_nodes(&nodes);
             let fills: Vec<Option<u32>> = nodes.iter().map(|node| node.fill).collect();
-            let _ = win.present_dirty(
+            let names: Vec<&str> = pressed.iter().map(String::as_str).collect();
+            let (frame_w, frame_h) = win.size();
+            let priced = press_damages(
+                &resolver,
+                &names,
+                &cost_model,
+                PresentCopy {
+                    frame_bytes: frame_bytes(frame_w, frame_h),
+                    copies_front: win.present_copies_front(),
+                },
+            );
+            let frame_damage = present_frame_damage(structural, priced);
+            let presented = win.present_dirty(
                 &prims,
                 &fills,
                 &[],
                 [235, 235, 240],
                 [20, 20, 28],
                 fidelity.glyph_px.max(2),
-                lcpe_damage,
+                frame_damage,
             );
-            if let Some((dx, dy, dw, dh)) = lcpe_damage {
-                println!(
-                    "goya-calculator: LCPE local invalidation {}x{} @ {},{}",
-                    dw, dh, dx, dy
-                );
+            // A busy compositor returns Ok without attaching a buffer. The
+            // damage and the presses stay until a later pump frees a slot.
+            match classify_present(presented.is_ok(), win.frame_committed()) {
+                PresentAttempt::Landed => {
+                    structural = false;
+                    pressed.clear();
+                    if let Some((dx, dy, dw, dh)) = frame_damage {
+                        println!(
+                            "goya-calculator: LCPE local invalidation {}x{} @ {},{}",
+                            dw, dh, dx, dy
+                        );
+                    }
+                    last_shown = calc.shown();
+                    presents += 1;
+                    dirty = false;
+                }
+                PresentAttempt::Retry => {}
+                PresentAttempt::Drop => {
+                    if let Err(e) = presented {
+                        eprintln!("goya-calculator: present failed ({e})");
+                    }
+                    structural = false;
+                    pressed.clear();
+                    dirty = false;
+                }
             }
-            last_shown = calc.shown();
-            presents += 1;
-            dirty = false;
         }
         win.pump(1);
         frames += 1;
@@ -566,6 +547,142 @@ fn main() {
         last_shown,
         store.generation()
     );
+}
+
+/// Device-pixel bounds of a half-open millipoint rect.
+///
+/// `millipoints_to_pixels` takes an exclusive max. A span that only covers
+/// the tail of a pixel still produces a non-zero cover.
+fn pixel_bounds(rect: RectMp) -> PixelRect {
+    let sat = |v: i64| -> i32 { v.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32 };
+    millipoints_to_pixels(
+        MillipointRect {
+            min_x: sat(rect.x),
+            min_y: sat(rect.y),
+            max_x: sat(rect.x.saturating_add(rect.width)),
+            max_y: sat(rect.y.saturating_add(rect.height)),
+        },
+        goya_wayland::MP_PER_PX,
+    )
+}
+
+fn compile_envelopes(nodes: &[DrawNode], generation: u64) -> CausalResolver {
+    let mut resolver = CausalResolver::default();
+    for node in nodes {
+        let persistent = if node.is_button {
+            PropertyMask(PropertyMask::TEXT | PropertyMask::GEOMETRY)
+        } else {
+            PropertyMask(PropertyMask::GEOMETRY)
+        };
+        resolver.register(ChangeEnvelope {
+            object: node.name.clone(),
+            revision: generation,
+            persistent,
+            mutable: PropertyMask(PropertyMask::ALL),
+            event_rules: if node.is_button {
+                vec![EventRule {
+                    event: "pointer.press".into(),
+                    causes: vec!["pressed".into(), "hover".into()],
+                }]
+            } else {
+                vec![EventRule {
+                    event: "state.value".into(),
+                    causes: vec!["value".into()],
+                }]
+            },
+            spatial_bounds: pixel_bounds(node.rect),
+            resolution_tile: 8,
+        });
+    }
+    resolver
+}
+
+/// Price one button press plus the display cell.
+///
+/// A keyboard character uses the same `pointer.press` → `pressed` rule as
+/// a click: both call `Calc::press` on that button.
+fn frame_bytes(width: i32, height: i32) -> u64 {
+    u64::try_from(width.max(0))
+        .unwrap_or(0)
+        .saturating_mul(u64::try_from(height.max(0)).unwrap_or(0))
+        .saturating_mul(4)
+}
+
+/// The startup window, priced as a front-slot copy.
+fn startup_copy() -> PresentCopy {
+    PresentCopy {
+        frame_bytes: frame_bytes(WIN_W_PX, WIN_H_PX),
+        copies_front: true,
+    }
+}
+
+fn press_damage(
+    resolver: &CausalResolver,
+    button: &str,
+    model: &CostModel,
+) -> Option<(i32, i32, i32, i32)> {
+    press_damages(resolver, &[button], model, startup_copy())
+}
+
+/// Price every press in one turn, plus the display cell once.
+///
+/// An empty list is a full frame. The rectangles are unioned inside
+/// `present_damage`, so a click and a key in the same turn share one area.
+/// `copy` is the frame that is about to be presented: its byte size, and
+/// whether that present memcpy's the front slot.
+fn press_damages(
+    resolver: &CausalResolver,
+    buttons: &[&str],
+    model: &CostModel,
+    copy: PresentCopy,
+) -> Option<(i32, i32, i32, i32)> {
+    if buttons.is_empty() {
+        return None;
+    }
+    let mut dirty = Vec::new();
+    for button in buttons {
+        for transition in resolver.resolve(button, "pointer.press", "pressed") {
+            if let Some(rect) = transition.dirty {
+                dirty.push(rect);
+            }
+        }
+    }
+    for transition in resolver.resolve("result_text", "state.value", "value") {
+        if let Some(rect) = transition.dirty {
+            dirty.push(rect);
+        }
+    }
+    present_damage(&dirty, model, copy)
+}
+
+/// What the live loop does with one `present_dirty` result.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PresentAttempt {
+    /// The surface committed. The damage and the press list are retired.
+    Landed,
+    /// Every slot is still owned. Keep the damage and try again after `pump`.
+    Retry,
+    /// The present failed. Drop this frame so a permanent error does not spin.
+    Drop,
+}
+
+/// `committed` is [`goya_wayland::GoyaWindow::frame_committed`] after an `Ok` present.
+fn classify_present(ok: bool, committed: bool) -> PresentAttempt {
+    if !ok {
+        PresentAttempt::Drop
+    } else if committed {
+        PresentAttempt::Landed
+    } else {
+        PresentAttempt::Retry
+    }
+}
+
+/// `structural` is a resize or a hot-swap: the present paints the whole frame.
+fn present_frame_damage(
+    structural: bool,
+    priced: Option<(i32, i32, i32, i32)>,
+) -> Option<(i32, i32, i32, i32)> {
+    if structural { None } else { priced }
 }
 
 fn frame_find(scene: &goya_lang::Scene, name: &str) -> Option<DrawNode> {
@@ -839,5 +956,269 @@ fn ddh_acceptance(store: &mut SceneStore) -> Result<(), String> {
         Ok(())
     } else {
         Err("ddh acceptance failed".into())
+    }
+}
+
+#[cfg(test)]
+mod damage_tests {
+    use super::{
+        classify_present, compile_envelopes, frame_bytes, pixel_bounds, present_frame_damage,
+        press_damage, press_damages, startup_copy, PresentAttempt, WIN_H_PX, WIN_W_PX,
+    };
+    use goya_change::{
+        CausalResolver, ChangeEnvelope, CostModel, EventRule, PixelRect, PresentCopy,
+        PropertyMask,
+    };
+    use goya_lang::{Anchor, DrawNode, RectMp};
+
+    fn node(name: &str, button: bool, rect: RectMp) -> DrawNode {
+        DrawNode {
+            name: name.into(),
+            parent: None,
+            is_button: button,
+            is_input: false,
+            placeholder: None,
+            max_length: None,
+            rect,
+            clip: None,
+            fill: None,
+            stroke: None,
+            stroke_width: None,
+            text: None,
+            text_size: None,
+            text_size_mp: None,
+            stroke_width_mp: None,
+            anchor: Anchor::Start,
+            scroll: false,
+        }
+    }
+
+    fn envelope(object: &str, bounds: PixelRect, button: bool) -> ChangeEnvelope {
+        ChangeEnvelope {
+            object: object.into(),
+            revision: 1,
+            persistent: PropertyMask(if button {
+                PropertyMask::TEXT | PropertyMask::GEOMETRY
+            } else {
+                PropertyMask::GEOMETRY
+            }),
+            mutable: PropertyMask(PropertyMask::ALL),
+            event_rules: if button {
+                vec![EventRule {
+                    event: "pointer.press".into(),
+                    causes: vec!["pressed".into()],
+                }]
+            } else {
+                vec![EventRule {
+                    event: "state.value".into(),
+                    causes: vec!["value".into()],
+                }]
+            },
+            spatial_bounds: bounds,
+            resolution_tile: 8,
+        }
+    }
+
+    #[test]
+    fn key_and_pointer_share_the_press_rectangle() {
+        let mut resolver = CausalResolver::default();
+        resolver.register(envelope(
+            "btn_1",
+            PixelRect {
+                x: 16,
+                y: 16,
+                width: 32,
+                height: 32,
+            },
+            true,
+        ));
+        resolver.register(envelope(
+            "result_text",
+            PixelRect {
+                x: 16,
+                y: 64,
+                width: 32,
+                height: 16,
+            },
+            false,
+        ));
+        assert_eq!(
+            press_damage(&resolver, "btn_1", &CostModel::default()),
+            Some((16, 16, 32, 64))
+        );
+    }
+
+    #[test]
+    fn unknown_press_is_a_full_frame() {
+        let resolver = CausalResolver::default();
+        assert_eq!(
+            press_damage(&resolver, "btn_missing", &CostModel::default()),
+            None
+        );
+    }
+
+    #[test]
+    fn structural_change_drops_a_priced_rectangle() {
+        assert_eq!(present_frame_damage(true, Some((1, 2, 3, 4))), None);
+        assert_eq!(
+            present_frame_damage(false, Some((1, 2, 3, 4))),
+            Some((1, 2, 3, 4))
+        );
+        assert_eq!(present_frame_damage(false, None), None);
+    }
+
+    #[test]
+    fn partial_pixel_span_keeps_a_cover() {
+        // Integer division of 249 and 2 by 250 is zero. The cover is not.
+        assert_eq!(
+            pixel_bounds(RectMp {
+                x: 249,
+                y: 0,
+                width: 2,
+                height: 1,
+            }),
+            PixelRect {
+                x: 0,
+                y: 0,
+                width: 2,
+                height: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn recompiled_geometry_prices_the_new_rectangle() {
+        let old = compile_envelopes(
+            &[node(
+                "btn_1",
+                true,
+                RectMp {
+                    x: 0,
+                    y: 0,
+                    width: 250,
+                    height: 250,
+                },
+            )],
+            1,
+        );
+        let new = compile_envelopes(
+            &[node(
+                "btn_1",
+                true,
+                RectMp {
+                    x: 2000,
+                    y: 0,
+                    width: 250,
+                    height: 250,
+                },
+            )],
+            2,
+        );
+        assert_eq!(
+            press_damage(&old, "btn_1", &CostModel::default()),
+            Some((0, 0, 8, 8))
+        );
+        assert_eq!(
+            press_damage(&new, "btn_1", &CostModel::default()),
+            Some((8, 0, 8, 8))
+        );
+        assert_eq!(old.envelope("btn_1").unwrap().revision, 1);
+        assert_eq!(new.envelope("btn_1").unwrap().revision, 2);
+    }
+
+    #[test]
+    fn presses_in_one_turn_share_one_rectangle() {
+        let mut resolver = CausalResolver::default();
+        resolver.register(envelope(
+            "btn_1",
+            PixelRect {
+                x: 16,
+                y: 16,
+                width: 32,
+                height: 32,
+            },
+            true,
+        ));
+        resolver.register(envelope(
+            "btn_add",
+            PixelRect {
+                x: 200,
+                y: 16,
+                width: 32,
+                height: 32,
+            },
+            true,
+        ));
+        resolver.register(envelope(
+            "result_text",
+            PixelRect {
+                x: 16,
+                y: 64,
+                width: 32,
+                height: 16,
+            },
+            false,
+        ));
+        assert_eq!(
+            press_damages(
+                &resolver,
+                &["btn_1", "btn_add"],
+                &CostModel::default(),
+                startup_copy()
+            ),
+            Some((16, 16, 216, 64))
+        );
+        assert_eq!(
+            press_damages(&resolver, &[], &CostModel::default(), startup_copy()),
+            None
+        );
+    }
+
+    #[test]
+    fn in_place_paint_keeps_a_rectangle_the_copy_rejects() {
+        let mut resolver = CausalResolver::default();
+        resolver.register(envelope(
+            "btn_wide",
+            PixelRect {
+                x: 0,
+                y: 0,
+                width: 400,
+                height: 160,
+            },
+            true,
+        ));
+        let bytes = frame_bytes(WIN_W_PX, WIN_H_PX);
+        assert_eq!(
+            press_damages(
+                &resolver,
+                &["btn_wide"],
+                &CostModel::default(),
+                PresentCopy {
+                    frame_bytes: bytes,
+                    copies_front: true,
+                }
+            ),
+            None
+        );
+        assert_eq!(
+            press_damages(
+                &resolver,
+                &["btn_wide"],
+                &CostModel::default(),
+                PresentCopy {
+                    frame_bytes: bytes,
+                    copies_front: false,
+                }
+            ),
+            Some((0, 0, 400, 160))
+        );
+    }
+
+    #[test]
+    fn busy_slot_keeps_the_damage_for_the_next_pump() {
+        assert_eq!(classify_present(true, true), PresentAttempt::Landed);
+        assert_eq!(classify_present(true, false), PresentAttempt::Retry);
+        assert_eq!(classify_present(false, false), PresentAttempt::Drop);
+        assert_eq!(classify_present(false, true), PresentAttempt::Drop);
     }
 }
