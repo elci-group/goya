@@ -1,3 +1,5 @@
+<p align="center"><img src="../../assets/arachnid-logo.png" alt="Arachnid — webOS app compiler" width="180"></p>
+
 # webOS TV web engines — quick lookup
 
 Generated from `arachnid models` on 20 November 2026. The data is

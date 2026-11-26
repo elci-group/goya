@@ -28,18 +28,32 @@ pub enum Code {
     GesturesNotLowered = 614,
     /// Scrollable cells are not lowered to webOS yet.
     ScrollNotLowered = 615,
+    /// An integer literal lies outside the runtime's exact range (±2^53−1).
+    IntegerOutOfRange = 616,
     /// A node falls outside the 1920×1080 ontology limit.
     OutsideOntologyLimit = 620,
+    /// A drawn node leaves the ontology limit while it drifts.
+    MotionOutsideLimit = 621,
+    /// Text over a breathing or moving background falls below WCAG AA
+    /// contrast, or cannot be verified.
+    TextContrast = 622,
     /// An actionable element has no area at the ontology limit.
     ActionableWithoutArea = 630,
     /// Two actionable elements overlap, so a pointer click is ambiguous.
     ActionableOverlap = 631,
     /// More actionable elements than the bounded focus resolver accepts.
     TooManyActionable = 632,
+    /// A drift carries some buttons but not all of them.
+    IndependentMotion = 633,
     /// An actionable element cannot be reached by directional navigation.
     FocusUnreachable = 640,
     /// Directional navigation can enter a region it cannot leave.
     FocusTrap = 641,
+    /// Presence conditions produce more configurations than the bound.
+    TooManyConfigurations = 642,
+    /// Host state or a D2 request has no platform service to serve it, or
+    /// a `@link` is not one Arachnid lowers.
+    HostContract = 650,
     /// Generated code needs a web feature the target engine lacks.
     FeatureUnsupported = 660,
     /// Package metadata violates LG's `appinfo.json` rules.

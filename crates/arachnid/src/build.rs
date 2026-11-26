@@ -61,26 +61,67 @@ pub fn feature_gate(target: &Target, required: &[WebFeature]) -> Result<(), Vec<
     }
 }
 
-/// Admit and gate without emitting anything.
+/// Minimum Chromium the scene's platform services need (0 when none).
+fn min_chromium(o: &Ontology) -> u16 {
+    if o.parsed.declarations.links.is_empty() {
+        0
+    } else {
+        crate::lanlink::MIN_CHROMIUM
+    }
+}
+
+/// Admit, check platform services and gate, without emitting anything.
 pub fn check(source: &str, target: &Target) -> Result<Ontology, Vec<Diagnostic>> {
     let o = ontology::admit(source)?;
+    let services = crate::lanlink::check(&o.parsed);
+    if !services.is_empty() {
+        return Err(services);
+    }
     feature_gate(target, emit::REQUIRED_FEATURES)?;
+    let have = target.platform.engine().chromium_major;
+    let need = min_chromium(&o);
+    if have < need {
+        return Err(vec![Diagnostic::new(
+            Code::FeatureUnsupported,
+            format!(
+                "{} needs Chromium {need}; {} ships Chromium {have}",
+                crate::lanlink::PROTOCOL,
+                target.platform
+            ),
+        )]);
+    }
     Ok(o)
 }
 
-fn compatibility_report(target: &Target) -> String {
+fn compatibility_report(target: &Target, min: u16) -> String {
     let p = target.platform;
     let supported: Vec<String> = caps::WebosPlatform::ALL
         .iter()
         .filter(|q| emit::REQUIRED_FEATURES.iter().all(|f| q.supports(*f)))
+        .filter(|q| q.engine().chromium_major >= min)
         .map(|q| json_string(q.id()))
         .collect();
     let features: Vec<String> = emit::REQUIRED_FEATURES
         .iter()
         .map(|f| json_string(f.name()))
         .collect();
+    let codes = |h: crate::remote::Handling| {
+        crate::remote::KEYS
+            .iter()
+            .filter(|k| k.handling == h)
+            .map(|k| k.code.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let input = format!(
+        "{{\"remote_contract\": \"{}\", \"five_way\": \"required\", \"pointer\": \"optional\", \"navigate_keys\": [{}], \"activate_keys\": [{}], \"platform_keys\": [{}]}}",
+        crate::remote::CONTRACT,
+        codes(crate::remote::Handling::Navigate),
+        codes(crate::remote::Handling::Activate),
+        codes(crate::remote::Handling::Platform)
+    );
     format!(
-        "{{\n  \"engine_caprichio\": \"{}\",\n  \"series_caprichio\": {},\n  \"requested\": {},\n  \"resolved\": {},\n  \"platform\": {},\n  \"chromium\": {},\n  \"required_features\": [{}],\n  \"runs_on_platforms\": [{}]\n}}\n",
+        "{{\n  \"engine_caprichio\": \"{}\",\n  \"series_caprichio\": {},\n  \"requested\": {},\n  \"resolved\": {},\n  \"platform\": {},\n  \"chromium\": {},\n  \"required_features\": [{}],\n  \"runs_on_platforms\": [{}],\n  \"input\": {}\n}}\n",
         caps::CONTRACT,
         target.series_contract.map_or("null".into(), json_string),
         json_string(&target.requested),
@@ -88,7 +129,8 @@ fn compatibility_report(target: &Target) -> String {
         json_string(p.id()),
         p.engine().chromium_major,
         features.join(", "),
-        supported.join(", ")
+        supported.join(", "),
+        input
     )
 }
 
@@ -107,6 +149,8 @@ pub fn build(source: &str, opts: &BuildOptions) -> Result<BuildOutput, Vec<Diagn
         None => emit::default_icon(),
     };
     let o = check(source, &opts.target)?;
+    let link_runtime = crate::lanlink::runtime_js(&o.parsed);
+    let service_script = link_runtime.as_ref().map(|_| crate::lanlink::FILE);
 
     let mut app_files = vec![
         ("app.css".to_string(), emit::app_css().into_bytes()),
@@ -115,9 +159,14 @@ pub fn build(source: &str, opts: &BuildOptions) -> Result<BuildOutput, Vec<Diagn
         (appinfo::ICON.to_string(), icon),
         (
             appinfo::MAIN.to_string(),
-            emit::index_html(&o, &opts.app).into_bytes(),
+            emit::index_html(&o, &opts.app, service_script).into_bytes(),
         ),
     ];
+    // Enforced: every build carries the Arachnid splash (splash.rs).
+    app_files.push((crate::splash::FILE.to_string(), crate::splash::LOGO.to_vec()));
+    if let Some(js) = link_runtime {
+        app_files.push((crate::lanlink::FILE.to_string(), js.into_bytes()));
+    }
     app_files.sort_by(|a, b| a.0.cmp(&b.0));
     let ipk = ipk::package(&opts.app, &app_files)
         .map_err(|e| vec![Diagnostic::new(Code::OutputFailed, e.to_string())])?;
@@ -127,7 +176,7 @@ pub fn build(source: &str, opts: &BuildOptions) -> Result<BuildOutput, Vec<Diagn
         .map(|(p, b)| format!("    {}: \"{}\"", json_string(p), sha256(b)))
         .collect();
     let manifest = format!(
-        "{{\n  \"contract\": \"{}\",\n  \"compiler\": \"goya-arachnid {}\",\n  \"ontology_contract\": \"{}\",\n  \"ontology_limit_pt\": [{}, {}],\n  \"source_sha256\": \"{}\",\n  \"caprichio_ir_sha256\": \"{}\",\n  \"target_platform\": {},\n  \"app_id\": {},\n  \"app_version\": {},\n  \"ipk\": {},\n  \"ipk_sha256\": \"{}\",\n  \"files\": {{\n{}\n  }}\n}}\n",
+        "{{\n  \"contract\": \"{}\",\n  \"compiler\": \"goya-arachnid {}\",\n  \"ontology_contract\": \"{}\",\n  \"ontology_limit_pt\": [{}, {}],\n  \"source_sha256\": \"{}\",\n  \"caprichio_ir_sha256\": \"{}\",\n  \"target_platform\": {},\n  \"app_id\": {},\n  \"app_version\": {},\n  \"ipk\": {},\n  \"ipk_sha256\": \"{}\",\n  \"splash\": {{\"contract\": \"{}\", \"file\": \"{}\", \"sha256\": \"{}\", \"hold_ms\": {}, \"fade_ms\": {}}},\n  \"files\": {{\n{}\n  }}\n}}\n",
         crate::CONTRACT,
         env!("CARGO_PKG_VERSION"),
         ontology::CONTRACT,
@@ -140,12 +189,17 @@ pub fn build(source: &str, opts: &BuildOptions) -> Result<BuildOutput, Vec<Diagn
         json_string(&opts.app.version),
         json_string(&ipk.file_name),
         sha256(&ipk.bytes),
+        crate::splash::CONTRACT,
+        crate::splash::FILE,
+        sha256(crate::splash::LOGO),
+        crate::splash::HOLD_MS,
+        crate::splash::FADE_MS,
         file_hashes.join(",\n")
     );
     let reports = vec![
         (
             "compatibility.json".to_string(),
-            compatibility_report(&opts.target).into_bytes(),
+            compatibility_report(&opts.target, min_chromium(&o)).into_bytes(),
         ),
         (
             "compilation-manifest.json".to_string(),
@@ -250,13 +304,25 @@ mod tests {
         let html = file("index.html");
         assert!(html.contains(r#"<div id="n2" class="n b" role="button" data-focus="0" data-goya-id="films" style="left:96px;top:324px;width:480px;height:270px;background:#d9e2ec;font-size:54px">Films</div>"#), "{html}");
         let js = file("app.js");
-        assert!(js.contains(r#"var GRAPH = {"0":[null,null,null,1],"1":[null,null,0,2],"2":[null,null,1,null]};"#), "{js}");
-        assert!(js.contains("var INITIAL = 0;"));
+        assert!(js.contains(r#"var CONFIGS = {"0,1,2":{graph:{"0":[null,null,null,1],"1":[null,null,0,2],"2":[null,null,1,null]},initial:0}};"#), "{js}");
         let nav = String::from_utf8(out.reports[2].1.clone()).unwrap();
         assert!(nav.contains(r#""initial": "films""#), "{nav}");
+        assert!(nav.contains(r#""max_presses": 2"#), "{nav}");
+        assert!(nav.contains(r#""max_presses_home": 2"#), "{nav}");
+        assert!(
+            nav.contains(r#""id": "films", "presses": 0, "presses_home": 0"#),
+            "{nav}"
+        );
+        // Stock remote: only the platform's cursor report enters pointer mode.
+        assert!(!js.contains("mousemove"), "{js}");
+        assert!(js.contains("pointerMode = !!(e.detail && e.detail.visibility);"));
         let compat = String::from_utf8(out.reports[0].1.clone()).unwrap();
         assert!(
             compat.contains(r#""platform": "4.0""#) && compat.contains(r#""chromium": 53"#),
+            "{compat}"
+        );
+        assert!(
+            compat.contains(r#""navigate_keys": [37, 38, 39, 40], "activate_keys": [13], "platform_keys": [461, 403, 404, 405, 406]"#),
             "{compat}"
         );
     }

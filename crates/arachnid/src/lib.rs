@@ -18,7 +18,12 @@ pub mod diagnostics;
 pub mod emit;
 pub mod focus;
 pub mod ipk;
+pub mod lanlink;
+pub mod live;
+pub mod motion;
 pub mod ontology;
+pub mod remote;
+pub mod splash;
 pub mod target;
 pub mod traps;
 

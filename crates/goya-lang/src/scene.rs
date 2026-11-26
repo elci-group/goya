@@ -72,7 +72,56 @@ pub struct SceneCell {
     /// Element clipboard decisions. `None` means the element authors no policy.
     /// This is not the experimental scope resolver in [`crate::gestures`].
     pub gestures: Option<GesturePolicy>,
+    /// `text-from: state.key;` shows the current value of a declared state
+    /// key as the element's text (GSSH/3 live admission only).
+    pub text_from: Option<String>,
+    /// `image-from: state.key;` shows the verified image the platform host
+    /// publishes under a `host` text key (GSSH/3 live admission only).
+    pub image_from: Option<String>,
+    /// Optional numeric remote shortcut on a button.
+    pub remote_digit: Option<u8>,
+    /// `present-when: state.key is <literal>;` makes the element and its
+    /// subtree present only while the condition holds (GSSH/3 live
+    /// admission only). Nested conditions conjoin.
+    pub present_when: Option<Condition>,
+    /// `fill-to: #rrggbb;` with `fill-period-s`: the fill breathes between
+    /// `fill` and this colour (GSSH/3 live admission only).
+    pub fill_to: Option<u32>,
+    /// Seconds for one `fill` → `fill-to` transition.
+    pub fill_period_s: Option<f64>,
+    /// `drift-p: (fx, fy, 0);` with `drift-period-s`: the element and its
+    /// subtree orbit an ellipse whose half-axes are these fractions of the
+    /// **parent's** resolved width and height, like `position_p` (the
+    /// ontology limit for the root). GSSH/3 live admission only.
+    pub drift_p: Option<Vec3>,
+    /// Seconds for one full orbit.
+    pub drift_period_s: Option<f64>,
+    /// `appear-s: N;` the subtree fades in over N seconds whenever it
+    /// becomes present (and at launch if present then). GSSH/3 live only.
+    pub appear_s: Option<f64>,
+    /// `appear-from-p: (fx, fy, 0);` with `appear-s`: it also slides in from
+    /// this offset, as fractions of the parent's resolved extent.
+    pub appear_from_p: Option<Vec3>,
     pub children: Vec<SceneCell>,
+}
+
+/// An equality test on one declared state key.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Condition {
+    pub key: String,
+    pub op: ConditionOp,
+    pub value: InteractionValue,
+}
+
+/// How a `present-when` condition compares.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ConditionOp {
+    /// `is`: equal to the literal (any type).
+    #[default]
+    Is,
+    /// `at-least`: an int key greater than or equal to the literal. Lets a
+    /// fixed set of rows show as many as a count says.
+    AtLeast,
 }
 
 /// One explicit allow or deny. An omitted operation is not a decision.

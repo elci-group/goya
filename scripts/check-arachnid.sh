@@ -21,7 +21,8 @@ cargo test -q -p goya-caprichios --lib webos
 cargo build -q -p goya-arachnid
 bin="$root/target/debug/arachnid"
 fixture="crates/arachnid/fixtures/media-centre.gscene"
-args=(--id com.goya.arachnid.media --version 0.1.0 --title "Goya Media Centre" --vendor Goya --target model:OLED65C3PUA)
+args=(--id com.goya.arachnid.media --version 0.1.0 --title "Goya Media Centre" --vendor Goya --target model:OLED65C3PUA
+      --icon crates/arachnid/assets/icon-80.png)
 
 "$bin" build "$fixture" "${args[@]}" --out "$work/a" >/dev/null
 "$bin" build "$fixture" "${args[@]}" --out "$work/b" >/dev/null
@@ -36,11 +37,23 @@ mkdir "$work/x"
   ar x "../a/$ipk"
   [ "$(cat debian-binary)" = "2.0" ]
   gzip -t control.tar.gz data.tar.gz
-  tar tzf control.tar.gz | grep -qx control
-  tar tzf data.tar.gz | grep -qx "usr/palm/packages/com.goya.arachnid.media/packageinfo.json"
-  tar tzf data.tar.gz | grep -qx "usr/palm/applications/com.goya.arachnid.media/appinfo.json"
+  # List to files first: `grep -q` exits early, and under pipefail the
+  # SIGPIPE it gives a still-writing tar would fail the check.
+  tar tzf control.tar.gz > control.list
+  tar tzf data.tar.gz > data.list
+  grep -qx control control.list
+  grep -qx "usr/palm/packages/com.goya.arachnid.media/packageinfo.json" data.list
+  grep -qx "usr/palm/applications/com.goya.arachnid.media/appinfo.json" data.list
+  grep -qx "usr/palm/applications/com.goya.arachnid.media/arachnid-splash.png" data.list
 )
 echo "ipk format: accepted by ar, gzip and tar"
+
+# Enforced splash: the logo is packaged byte-for-byte, the page shows it and
+# the manifest records it.
+cmp "$work/a/app/arachnid-splash.png" assets/arachnid-logo.png
+grep -q '<div id="arachnid-splash"' "$work/a/app/index.html"
+grep -q '"splash": {"contract": "arachnid.splash/0.0.1"' "$work/a/reports/compilation-manifest.json"
+echo "splash: enforced (logo packaged, shown, recorded)"
 
 chrome="$(command -v google-chrome || command -v chromium || command -v chromium-browser || true)"
 if [ -z "$chrome" ]; then
@@ -51,8 +64,17 @@ cp -r "$work/a/app" "$work/h"
 cp crates/arachnid/tests/runtime/remote.js "$work/h/test.js"
 sed -i 's#<script src="app.js"></script>#<script src="app.js"></script>\n<script src="test.js"></script>#' "$work/h/index.html"
 results="$(timeout 60 "$chrome" --headless=new --disable-gpu --no-first-run \
-  --user-data-dir="$work/profile" --dump-dom "file://$work/h/index.html" 2>/dev/null |
+  --user-data-dir="$work/profile" --virtual-time-budget=5000 --dump-dom "file://$work/h/index.html" 2>/dev/null |
   sed -n '/<pre id="results">/,/<\/pre>/p' | sed 's#<[^>]*>##g')"
 echo "$results"
 [ -n "$results" ] && ! grep -q '^FAIL' <<<"$results"
 echo "remote runtime: PASS ($(grep -c '^PASS' <<<"$results") checks, $("$chrome" --version))"
+
+# goya.lanlink/0: the generated link runtime must reproduce the golden
+# vector pinned in tapestry-desktop (ring).
+"$bin" build crates/arachnid/fixtures/lanlink.gscene --id com.goya.arachnid.lanlink --version 0.1.0 --title "Lanlink fixture" --target reported:7.5.8 --out "$work/l" >/dev/null
+mkdir "$work/v"
+cp "$work/l/app/lanlink.js" crates/arachnid/tests/runtime/lanlink-vectors.html "$work/v/"
+vectors="$(timeout 60 "$chrome" --headless=new --disable-gpu --allow-file-access-from-files --virtual-time-budget=5000 --dump-dom "file://$work/v/lanlink-vectors.html" 2>/dev/null | sed -n '/<pre id="results">/,/<\/pre>/p')"
+[ -n "$vectors" ] && ! grep -q 'FAIL' <<<"$vectors" && grep -q 'PASS sealed confirm' <<<"$vectors"
+echo "lanlink vectors: PASS ($(grep -c 'PASS' <<<"$vectors") checks)"

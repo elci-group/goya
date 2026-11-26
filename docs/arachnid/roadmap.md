@@ -1,3 +1,5 @@
+<p align="center"><img src="../../assets/arachnid-logo.png" alt="Arachnid — webOS app compiler" width="180"></p>
+
 # Arachnid roadmap — webOS TV compiler target
 
 Status: **in progress**, 20 November 2026, on branch `arachnid/v0.1`.

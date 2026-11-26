@@ -71,6 +71,9 @@ pub enum StateLifetime {
     Session,
     /// Restored across process death by a platform storage adapter.
     Durable,
+    /// Written only by the platform host (GSSH/3 live admission). The scene
+    /// may read and display it; no interaction may write it.
+    Host,
 }
 
 /// One `@state` entry: `key: type = initial lifetime;`.
@@ -107,6 +110,49 @@ pub struct KeyUse {
     pub range: SourceRange,
 }
 
+/// One image slot of a `@link`: where the platform publishes a verified
+/// image and its label.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinkSlot {
+    pub name: String,
+    /// `host` text key the image handle is published under.
+    pub image: String,
+    /// `host` text key for the slot's label.
+    pub label: Option<String>,
+}
+
+/// `@link name { ... }` (GSSH/3 live admission, proposed): a platform link
+/// to a peer, for example a desktop, that writes `host` state. The scene
+/// says which keys each protocol role writes; the compiler supplies the
+/// protocol. D2 `network` requests whose first word is the link name are
+/// addressed to it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinkDecl {
+    pub name: String,
+    pub authored_id: Option<String>,
+    pub protocol: String,
+    pub endpoint: String,
+    /// (role, `host` key) pairs: `status` (int), `code`, `detail`, `error`,
+    /// `outbox` and `mode` (text).
+    pub roles: Vec<(String, String)>,
+    pub slots: Vec<LinkSlot>,
+    /// `field NAME: state.k;` values the peer sets by name (any type).
+    pub fields: Vec<(String, String)>,
+    /// `act NAME;` actions the scene may send to the peer.
+    pub acts: Vec<String>,
+    pub range: SourceRange,
+}
+
+/// Roles a `@link` may bind, with the type the key must have.
+pub const LINK_ROLES: &[(&str, InteractionType)] = &[
+    ("status", InteractionType::Int),
+    ("code", InteractionType::Text),
+    ("detail", InteractionType::Text),
+    ("error", InteractionType::Text),
+    ("outbox", InteractionType::Text),
+    ("mode", InteractionType::Text),
+];
+
 /// GSSH/2 declarations retained beside the GY-LANG/1 scene, plus the
 /// interaction key ranges used to report them precisely.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -118,6 +164,32 @@ pub struct Declarations {
     pub state_uses: Vec<KeyUse>,
     /// Every input key of every interaction, in source order.
     pub input_keys: Vec<KeyUse>,
+    /// `@link` declarations (GSSH/3 live admission only).
+    pub links: Vec<LinkDecl>,
+    /// Explicit platform exceptions; absence means platform `any`.
+    pub platform_exceptions: Vec<PlatformException>,
+    /// GSSH/4 requires an explicit cache target decision.
+    pub persistence_cache_targets: Option<Option<BTreeMap<String, String>>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlatformUse {
+    OnlyUse,
+    ChoiceUse,
+    Fallback,
+    Fallbacks,
+    MustUse,
+    Invade,
+    Cede,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlatformException {
+    pub platform: String,
+    pub feature: String,
+    pub use_kind: PlatformUse,
+    pub options: Vec<String>,
+    pub range: SourceRange,
 }
 
 /// A construct accepted for legacy compatibility but rejected by strict
@@ -144,6 +216,10 @@ impl fmt::Display for StrictParseError {
             "GY-E1009" => "absolute length in a proportional profile",
             "GY-E1010" => "intent declaration requires intent admission",
             "GY-E1011" => "invalid intent declaration",
+            "GY-E1012" => "live binding requires GSSH/3 live admission",
+            "GY-E1013" => "invalid live binding",
+            "GY-E1014" => "missing or invalid persistence cache targets",
+            "GY-E1015" => "platform exception requires GSSH/4 admission",
             _ => "strict parsing failed",
         };
         write!(f, "{}: {} '{}'", self.code, description, self.name)
@@ -154,7 +230,14 @@ impl std::error::Error for StrictParseError {}
 
 /// Parse a scene document.
 pub fn parse(source: &str) -> Result<Scene, ParseError> {
-    parse_with_source_map(source).map(|parsed| parsed.scene)
+    let parsed = parse_with_source_map(source)?;
+    if let Some(rule) = parsed.declarations.platform_exceptions.first() {
+        return Err(ParseError {
+            line: source[..rule.range.start].bytes().filter(|byte| *byte == b'\n').count() + 1,
+            range: rule.range,
+        });
+    }
+    Ok(parsed.scene)
 }
 
 /// Parse a scene and retain the locations of authored declarations and properties.
@@ -181,9 +264,12 @@ pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
         anchor: 0,
         depth: 0,
         state: None,
+        persistence_cache_targets: None,
+        platform_exceptions: Vec::new(),
         bindings: Vec::new(),
         state_uses: Vec::new(),
         input_keys: Vec::new(),
+        links: Vec::new(),
     };
     p.expect_at_word("ontology")?;
     let ontology_start = p.tokens[p.i - 1].byte_start;
@@ -230,6 +316,10 @@ pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
         && root.authored_id.is_none()
         && root.wrap.is_none()
         && root.gestures.is_none()
+        && root.fill_to.is_none()
+        && root.drift_p.is_none()
+        && root.appear_s.is_none()
+        && root.present_when.is_none()
         && !root.scroll
         && !root.is_input;
     if collapse_root {
@@ -320,6 +410,9 @@ pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
             bindings: p.bindings,
             state_uses: p.state_uses,
             input_keys: p.input_keys,
+            links: p.links,
+            platform_exceptions: p.platform_exceptions,
+            persistence_cache_targets: p.persistence_cache_targets,
         },
     })
 }
@@ -347,7 +440,41 @@ enum Profile {
     Gssh1,
     Gssh2,
     Gssh3,
+    /// GSSH/3 plus live bindings: `text-from`, `image-from`, `present-when`
+    /// and `host` state. Proposed; admitted only by consumers that render
+    /// state (Arachnid).
+    Gssh3Live,
+    Gssh4Live,
 }
+
+/// Properties only GSSH/3 live admission accepts.
+const LIVE_PROPERTIES: &[&str] = &[
+    "text_from",
+    "image_from",
+    "remote_digit",
+    "present_when",
+    "fill_to",
+    "fill_period_s",
+    "drift_p",
+    "drift_period_s",
+    "appear_s",
+    "appear_from_p",
+];
+
+/// Shortest animation period, in seconds. One period holds at most one
+/// luminance swing each way, far below WCAG 2.3.1's three flashes per
+/// second.
+pub const MIN_ANIMATION_PERIOD_S: f64 = 1.0;
+/// Longest animation period, in seconds.
+pub const MAX_ANIMATION_PERIOD_S: f64 = 3600.0;
+/// Largest drift half-axis, as a fraction of the parent's extent.
+pub const MAX_DRIFT_FRACTION: f64 = 0.5;
+/// Bounds of an `appear-s` duration, in seconds. A single fade-in is not a
+/// repeating flash, so it may be shorter than an ambient period.
+pub const MIN_APPEAR_S: f64 = 0.1;
+pub const MAX_APPEAR_S: f64 = 2.0;
+/// Largest `appear-from-p` offset component, as a fraction of the parent.
+pub const MAX_APPEAR_FRACTION: f64 = 0.5;
 
 /// Length properties GSSH/3 requires to be proportional, by canonical name,
 /// with their proportional replacement.
@@ -381,6 +508,293 @@ pub fn parse_strict_gssh3(source: &str) -> Result<ParsedScene, StrictParseError>
     Ok(parsed)
 }
 
+/// Strict GSSH/3 live admission (proposed): everything
+/// [`parse_strict_gssh3`] admits and checks, plus live bindings.
+///
+/// * `text-from: state.key;` shows a declared key's value as text.
+/// * `image-from: state.key;` shows the image the host publishes under a
+///   `host` text key.
+/// * `present-when: state.key is <literal>;` makes a subtree present only
+///   while the key equals the literal; the literal's type must match.
+/// * `@state` keys may have lifetime `host`: the platform host writes them,
+///   interactions may only read them.
+///
+/// A declared key counts as used when an interaction or a binding uses it.
+/// Errors: `GY-E1013` for an invalid binding, `GY-E1008` for state misuse.
+pub fn parse_strict_gssh3_live(source: &str) -> Result<ParsedScene, StrictParseError> {
+    let parsed = strict(source, Profile::Gssh3Live)?;
+    validate_live(&parsed)?;
+    validate_declarations_with(&parsed, true)?;
+    reject_absolute_lengths(&parsed)?;
+    Ok(parsed)
+}
+
+/// GSSH/4 platform policy combined with Arachnid's live scene extension.
+/// The platform policy does not change the authored live behavior.
+pub fn parse_strict_gssh4_live(source: &str) -> Result<ParsedScene, StrictParseError> {
+    let parsed = strict(source, Profile::Gssh4Live)?;
+    validate_live(&parsed)?;
+    validate_declarations_with(&parsed, true)?;
+    reject_absolute_lengths(&parsed)?;
+    if parsed.declarations.persistence_cache_targets.is_none() {
+        let range = parsed.entries.iter().find(|entry| entry.kind == "ontology")
+            .map_or(SourceRange { start: 0, end: 0 }, |entry| entry.range);
+        return Err(StrictParseError {
+            code: "GY-E1014",
+            name: "missing @persistence cache_targets (write null to disable persistence)".into(),
+            range,
+        });
+    }
+    Ok(parsed)
+}
+
+fn reject_absolute_lengths(parsed: &ParsedScene) -> Result<(), StrictParseError> {
+    if let Some((entry, replacement)) = parsed.entries.iter().find_map(|entry| {
+        let canonical = entry.name.replace('-', "_");
+        (entry.kind == "property")
+            .then(|| ABSOLUTE_LENGTHS.iter().find(|(name, _)| *name == canonical))
+            .flatten()
+            .map(|(_, replacement)| (entry, *replacement))
+    }) {
+        return Err(StrictParseError {
+            code: "GY-E1009",
+            name: format!("{}; use {replacement}", entry.name),
+            range: entry.range,
+        });
+    }
+    Ok(())
+}
+
+/// Every live binding names a declared key of a compatible type, and no
+/// interaction writes a `host` key.
+fn validate_live(parsed: &ParsedScene) -> Result<(), StrictParseError> {
+    let empty = Vec::new();
+    let decls = parsed
+        .declarations
+        .state
+        .as_ref()
+        .map_or(&empty, |(decls, _)| decls);
+    let property_range = |path: &[usize], name: &str| {
+        parsed
+            .entries
+            .iter()
+            .find(|e| {
+                e.kind == "property"
+                    && e.name.replace('-', "_") == name
+                    && e.scene_path.as_deref() == Some(path)
+            })
+            .map_or(SourceRange { start: 0, end: 0 }, |e| e.range)
+    };
+    type Visit<'v> = dyn FnMut(&SceneCell, &[usize]) -> Result<(), StrictParseError> + 'v;
+    fn walk(cell: &SceneCell, path: &mut Vec<usize>, f: &mut Visit<'_>) -> Result<(), StrictParseError> {
+        f(cell, path)?;
+        for (i, child) in cell.children.iter().enumerate() {
+            path.push(i);
+            walk(child, path, f)?;
+            path.pop();
+        }
+        Ok(())
+    }
+    let bad = |message: String, range: SourceRange| StrictParseError {
+        code: "GY-E1013",
+        name: message,
+        range,
+    };
+    let mut check = |cell: &SceneCell, path: &[usize]| -> Result<(), StrictParseError> {
+        let find = |key: &str| decls.iter().find(|d| d.key == key);
+        if let Some(key) = &cell.text_from {
+            if find(key).is_none() {
+                return Err(bad(
+                    format!("text-from names undeclared state '{key}'"),
+                    property_range(path, "text_from"),
+                ));
+            }
+        }
+        if cell.remote_digit.is_some() && cell.kind != CellKind::Button {
+            return Err(bad(
+                format!("remote-digit belongs on a @button, not on {}", cell.name),
+                property_range(path, "remote_digit"),
+            ));
+        }
+        if let Some(key) = &cell.image_from {
+            match find(key) {
+                Some(d) if d.value_type == InteractionType::Text && d.lifetime == StateLifetime::Host => {}
+                _ => {
+                    return Err(bad(
+                        format!("image-from needs a declared `host` text key, not '{key}'"),
+                        property_range(path, "image_from"),
+                    ))
+                }
+            }
+        }
+        let period_ok = |p: f64| p.is_finite() && (MIN_ANIMATION_PERIOD_S..=MAX_ANIMATION_PERIOD_S).contains(&p);
+        match (cell.fill_to, cell.fill_period_s) {
+            (None, None) => {}
+            (Some(_), Some(p)) if cell.fill.is_some() && period_ok(p) => {}
+            _ => {
+                return Err(bad(
+                    format!(
+                        "fill-to needs fill and fill-period-s between {MIN_ANIMATION_PERIOD_S} and {MAX_ANIMATION_PERIOD_S} seconds, and the reverse"
+                    ),
+                    property_range(path, if cell.fill_to.is_some() { "fill_to" } else { "fill_period_s" }),
+                ))
+            }
+        }
+        match (cell.drift_p, cell.drift_period_s) {
+            (None, None) => {}
+            (Some(v), Some(p))
+                if period_ok(p)
+                    && [v.x, v.y].iter().all(|f| f.is_finite() && (0.0..=MAX_DRIFT_FRACTION).contains(f))
+                    && v.z == 0.0 => {}
+            _ => {
+                return Err(bad(
+                    format!(
+                        "drift-p needs fractions in [0, {MAX_DRIFT_FRACTION}] with z = 0, and drift-period-s between {MIN_ANIMATION_PERIOD_S} and {MAX_ANIMATION_PERIOD_S} seconds, and the reverse"
+                    ),
+                    property_range(path, if cell.drift_p.is_some() { "drift_p" } else { "drift_period_s" }),
+                ))
+            }
+        }
+        let appear_ok = |s: f64| s.is_finite() && (MIN_APPEAR_S..=MAX_APPEAR_S).contains(&s);
+        match (cell.appear_s, cell.appear_from_p) {
+            (None, None) => {}
+            (Some(s), None) if appear_ok(s) => {}
+            (Some(s), Some(v))
+                if appear_ok(s)
+                    && [v.x, v.y].iter().all(|f| f.is_finite() && f.abs() <= MAX_APPEAR_FRACTION)
+                    && v.z == 0.0 => {}
+            _ => {
+                return Err(bad(
+                    format!(
+                        "appear-s must lie in [{MIN_APPEAR_S}, {MAX_APPEAR_S}] seconds; appear-from-p needs appear-s, fractions within ±{MAX_APPEAR_FRACTION} and z = 0"
+                    ),
+                    property_range(path, if cell.appear_from_p.is_some() { "appear_from_p" } else { "appear_s" }),
+                ))
+            }
+        }
+        if let Some(condition) = &cell.present_when {
+            let literal_type = match condition.value {
+                InteractionValue::Int(_) => InteractionType::Int,
+                InteractionValue::Text(_) => InteractionType::Text,
+                InteractionValue::Bool(_) => InteractionType::Bool,
+            };
+            if condition.op == crate::scene::ConditionOp::AtLeast && literal_type != InteractionType::Int {
+                return Err(bad(
+                    format!("present-when {} at-least needs an int literal", condition.key),
+                    property_range(path, "present_when"),
+                ));
+            }
+            match find(&condition.key) {
+                Some(d) if d.value_type == literal_type => {}
+                _ => {
+                    return Err(bad(
+                        format!(
+                            "present-when compares '{}' with a literal of another type or an undeclared key",
+                            condition.key
+                        ),
+                        property_range(path, "present_when"),
+                    ))
+                }
+            }
+        }
+        Ok(())
+    };
+    // The collapsed ontology wrapper shifts paths; source entries already
+    // account for that, and the root walk starts at the scene root.
+    walk(&parsed.scene.root, &mut Vec::new(), &mut check)?;
+
+    // @link: every binding names a host key of the role's type, and every
+    // host key has exactly one writer.
+    let mut writers: BTreeMap<&str, usize> = BTreeMap::new();
+    for link in &parsed.declarations.links {
+        let range = link.range;
+        if link.authored_id.is_none() {
+            return Err(StrictParseError { code: "GY-E1005", name: format!("missing ID for link {}", link.name), range });
+        }
+        if link.protocol.is_empty() || link.endpoint.is_empty() {
+            return Err(bad(format!("link {} needs a protocol and an endpoint", link.name), range));
+        }
+        if link.slots.is_empty() {
+            return Err(bad(format!("link {} declares no slot", link.name), range));
+        }
+        let mut bound: Vec<(&str, &str, InteractionType)> = Vec::new();
+        for (role, key) in &link.roles {
+            let ty = LINK_ROLES.iter().find(|(r, _)| r == role).map(|(_, t)| *t).expect("parser admits known roles");
+            bound.push((role.as_str(), key.as_str(), ty));
+        }
+        for (i, slot) in link.slots.iter().enumerate() {
+            if link.slots[..i].iter().any(|s| s.name == slot.name) {
+                return Err(bad(format!("link {} declares slot {} twice", link.name, slot.name), range));
+            }
+            bound.push(("slot image", slot.image.as_str(), InteractionType::Text));
+            if let Some(l) = &slot.label {
+                bound.push(("slot label", l.as_str(), InteractionType::Text));
+            }
+        }
+        for (name, key) in &link.fields {
+            match decls.iter().find(|d| d.key == *key) {
+                Some(d) if d.lifetime == StateLifetime::Host => {
+                    *writers.entry(key.as_str()).or_default() += 1;
+                }
+                _ => {
+                    return Err(bad(
+                        format!("link {} binds field {name} to '{key}', which must be a declared `host` key", link.name),
+                        range,
+                    ))
+                }
+            }
+        }
+        for (role, key, ty) in bound {
+            match decls.iter().find(|d| d.key == key) {
+                Some(d) if d.lifetime == StateLifetime::Host && d.value_type == ty => {}
+                _ => {
+                    return Err(bad(
+                        format!("link {} binds {role} to '{key}', which must be a declared `host` key of the role's type", link.name),
+                        range,
+                    ))
+                }
+            }
+            *writers.entry(key).or_default() += 1;
+        }
+    }
+    for d in decls.iter().filter(|d| d.lifetime == StateLifetime::Host) {
+        match writers.get(d.key.as_str()) {
+            Some(1) => {}
+            Some(_) => return Err(bad(format!("host state '{}' is written by more than one link binding", d.key), d.range)),
+            None if parsed.declarations.links.is_empty() => {}
+            None => return Err(bad(format!("host state '{}' has no writer: bind it in a @link", d.key), d.range)),
+        }
+    }
+    for interaction in &parsed.scene.interactions {
+        for key in &interaction.state_writes {
+            if let Some(d) = decls
+                .iter()
+                .find(|d| d.key == key.name && d.lifetime == StateLifetime::Host)
+            {
+                return Err(declaration_error(
+                    "GY-E1008",
+                    format!(
+                        "interaction '{}' writes host state '{}'; only the platform host may",
+                        interaction.name, key.name
+                    ),
+                    d.range,
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Keys named by live bindings anywhere in the tree.
+fn live_keys(cell: &SceneCell, out: &mut std::collections::BTreeSet<String>) {
+    out.extend(cell.text_from.iter().cloned());
+    out.extend(cell.image_from.iter().cloned());
+    out.extend(cell.present_when.iter().map(|c| c.key.clone()));
+    for child in &cell.children {
+        live_keys(child, out);
+    }
+}
+
 /// Strict GSSH/2 admission: everything [`parse_strict`] admits and checks,
 /// plus `@state` declarations and `from` input bindings. When a scene has
 /// interactions, every state key they use must be declared exactly once with
@@ -405,6 +819,14 @@ fn strict(source: &str, profile: Profile) -> Result<ParsedScene, StrictParseErro
             "property" if !is_known_property(&entry.name) => Some("GY-E1001"),
             "template" => Some("GY-E1002"),
             "state" | "binding" if profile == Profile::Gssh1 => Some("GY-E1006"),
+            "property"
+                if profile < Profile::Gssh3Live
+                    && LIVE_PROPERTIES.contains(&entry.name.replace('-', "_").as_str()) =>
+            {
+                Some("GY-E1012")
+            }
+            "link" if profile < Profile::Gssh3Live => Some("GY-E1012"),
+            "platform" if profile != Profile::Gssh4Live => Some("GY-E1015"),
             // Intent declarations are Quitasol phase-0 experimental surface.
             // No strict GSSH consumer implements them, so none may admit one.
             "intent" => Some("GY-E1010"),
@@ -458,6 +880,10 @@ fn strict(source: &str, profile: Profile) -> Result<ParsedScene, StrictParseErro
         && root.anchor.is_none()
         && root.wrap.is_none()
         && root.gestures.is_none()
+        && root.fill_to.is_none()
+        && root.drift_p.is_none()
+        && root.appear_s.is_none()
+        && root.present_when.is_none()
         && !root.scroll
         && !root.is_input
         && root.children.len() > 1;
@@ -556,7 +982,38 @@ fn declaration_error(code: &'static str, name: String, range: SourceRange) -> St
 }
 
 fn validate_declarations(parsed: &ParsedScene) -> Result<(), StrictParseError> {
+    validate_declarations_with(parsed, false)
+}
+
+fn validate_declarations_with(parsed: &ParsedScene, live: bool) -> Result<(), StrictParseError> {
     let scene = &parsed.scene;
+    if !live {
+        if let Some(decl) = parsed
+            .declarations
+            .state
+            .iter()
+            .flat_map(|(decls, _)| decls)
+            .find(|d| d.lifetime == StateLifetime::Host)
+        {
+            return Err(declaration_error(
+                "GY-E1012",
+                format!("host state '{}'", decl.key),
+                decl.range,
+            ));
+        }
+    }
+    let mut bound = std::collections::BTreeSet::new();
+    if live {
+        live_keys(&scene.root, &mut bound);
+        for link in &parsed.declarations.links {
+            bound.extend(link.roles.iter().map(|(_, k)| k.clone()));
+            bound.extend(link.fields.iter().map(|(_, k)| k.clone()));
+            for s in &link.slots {
+                bound.insert(s.image.clone());
+                bound.extend(s.label.iter().cloned());
+            }
+        }
+    }
     let declared = &parsed.declarations;
     let key_range = |uses: &[KeyUse], interaction: &str, key: &str| {
         uses.iter()
@@ -679,7 +1136,7 @@ fn validate_declarations(parsed: &ParsedScene) -> Result<(), StrictParseError> {
     }
     if let Some(decl) = decls
         .iter()
-        .find(|decl| !used.contains_key(decl.key.as_str()))
+        .find(|decl| !used.contains_key(decl.key.as_str()) && !bound.contains(&decl.key))
     {
         return Err(declaration_error(
             "GY-E1008",
@@ -734,6 +1191,26 @@ fn is_known_property(name: &str) -> bool {
             | "text-anchor"
             | "text_anchor"
             | "id"
+            | "text-from"
+            | "text_from"
+            | "remote-digit"
+            | "image-from"
+            | "image_from"
+            | "remote_digit"
+            | "present-when"
+            | "present_when"
+            | "fill-to"
+            | "fill_to"
+            | "fill-period-s"
+            | "fill_period_s"
+            | "drift-p"
+            | "drift_p"
+            | "drift-period-s"
+            | "drift_period_s"
+            | "appear-s"
+            | "appear_s"
+            | "appear-from-p"
+            | "appear_from_p"
     )
 }
 
@@ -798,9 +1275,12 @@ struct P {
     /// Cell-body nesting depth. The ontology body is depth 1.
     depth: usize,
     state: Option<(Vec<StateDecl>, SourceRange)>,
+    persistence_cache_targets: Option<Option<BTreeMap<String, String>>>,
+    platform_exceptions: Vec<PlatformException>,
     bindings: Vec<InputBinding>,
     state_uses: Vec<KeyUse>,
     input_keys: Vec<KeyUse>,
+    links: Vec<LinkDecl>,
 }
 
 impl P {
@@ -914,6 +1394,16 @@ impl P {
             wrap: None,
             scroll: false,
             gestures: None,
+            text_from: None,
+            image_from: None,
+            remote_digit: None,
+            present_when: None,
+            fill_to: None,
+            fill_period_s: None,
+            drift_p: None,
+            drift_period_s: None,
+            appear_s: None,
+            appear_from_p: None,
             children: Vec::new(),
             placeholder: None,
             max_length: None,
@@ -1013,6 +1503,70 @@ impl P {
                                 source_digest: [0; 32],
                             });
                             self.state = Some((decls, range));
+                        }
+                        "persistence" => {
+                            if self.depth != 1 || self.persistence_cache_targets.is_some() {
+                                return Err(self.err_prev());
+                            }
+                            let targets = self.parse_persistence_block()?;
+                            let range = SourceRange {
+                                start: tok.byte_start,
+                                end: self.tokens[self.i - 1].byte_end,
+                            };
+                            self.entries.push(SourceEntry {
+                                kind: "persistence".into(),
+                                name: "persistence".into(),
+                                scene_path: None,
+                                semantic_id: None,
+                                range,
+                                source_digest: [0; 32],
+                            });
+                            self.persistence_cache_targets = Some(targets);
+                        }
+                        "platform" => {
+                            if self.depth != 1 {
+                                return Err(self.err_prev());
+                            }
+                            let platform = self.expect_ident()?;
+                            if !matches!(platform.as_str(), "android" | "android_tv" | "ios" | "tvos" | "macos" | "windows" | "linux" | "browser" | "webos") {
+                                return Err(self.err_prev());
+                            }
+                            let exceptions = self.parse_platform_block(&platform)?;
+                            for exception in exceptions {
+                                if self.platform_exceptions.iter().any(|previous| previous.platform == exception.platform && previous.feature == exception.feature) {
+                                    return Err(self.err_prev());
+                                }
+                                self.entries.push(SourceEntry {
+                                    kind: "platform".into(),
+                                    name: format!("{}:{}", exception.platform, exception.feature),
+                                    scene_path: None,
+                                    semantic_id: None,
+                                    range: exception.range,
+                                    source_digest: [0; 32],
+                                });
+                                self.platform_exceptions.push(exception);
+                            }
+                        }
+                        "link" => {
+                            if self.depth != 1 {
+                                return Err(self.err_prev());
+                            }
+                            let name = self.expect_ident()?;
+                            let mut link = self.parse_link(name)?;
+                            let range = SourceRange {
+                                start: tok.byte_start,
+                                end: self.tokens[self.i - 1].byte_end,
+                            };
+                            link.range = range;
+                            self.entries.push(SourceEntry {
+                                kind: "link".into(),
+                                name: link.name.clone(),
+                                scene_path: None,
+                                semantic_id: link.authored_id.clone(),
+                                range,
+                                source_digest: [0; 32],
+                            });
+                            self.links.push(link);
                         }
                         "template" => {
                             // Recognised and skipped with its block: visual
@@ -1347,6 +1901,110 @@ impl P {
         })
     }
 
+    /// Target-scoped implementation choices. Other platforms retain `any`.
+    fn parse_platform_block(&mut self, platform: &str) -> Result<Vec<PlatformException>, ParseError> {
+        self.expect(TokenKind::LBrace)?;
+        let mut exceptions = Vec::new();
+        while !matches!(self.peek().map(|token| token.kind), Some(TokenKind::RBrace)) {
+            let start = self.peek().ok_or_else(|| self.err())?.byte_start;
+            let feature = match self.peek().map(|token| token.kind) {
+                Some(TokenKind::Ident) => self.expect_ident()?,
+                Some(TokenKind::Str) => self.expect(TokenKind::Str)?.text,
+                _ => return Err(self.err()),
+            };
+            if feature.is_empty() || exceptions.iter().any(|rule: &PlatformException| rule.feature == feature) {
+                return Err(self.err_prev());
+            }
+            self.expect(TokenKind::Colon)?;
+            let use_kind = match self.expect_ident()?.as_str() {
+                "only-use" => PlatformUse::OnlyUse,
+                "choice-use" => PlatformUse::ChoiceUse,
+                "fallback" => PlatformUse::Fallback,
+                "fallbacks" => PlatformUse::Fallbacks,
+                "must-use" => PlatformUse::MustUse,
+                "invade" => PlatformUse::Invade,
+                "cede" => PlatformUse::Cede,
+                _ => return Err(self.err_prev()),
+            };
+            let mut options = Vec::new();
+            if use_kind != PlatformUse::Cede {
+                self.expect(TokenKind::LParen)?;
+                loop {
+                    let option = self.expect(TokenKind::Str)?.text;
+                    if option.is_empty() || options.contains(&option) {
+                        return Err(self.err_prev());
+                    }
+                    options.push(option);
+                    if !matches!(self.peek().map(|token| token.kind), Some(TokenKind::Comma)) {
+                        break;
+                    }
+                    self.bump();
+                }
+                self.expect(TokenKind::RParen)?;
+            }
+            let valid_count = match use_kind {
+                PlatformUse::ChoiceUse | PlatformUse::Fallbacks => options.len() >= 2,
+                PlatformUse::Cede => options.is_empty(),
+                _ => options.len() == 1,
+            };
+            if !valid_count {
+                return Err(self.err_prev());
+            }
+            let end = self.expect(TokenKind::Semicolon)?.byte_end;
+            exceptions.push(PlatformException {
+                platform: platform.to_owned(),
+                feature,
+                use_kind,
+                options,
+                range: SourceRange { start, end },
+            });
+        }
+        if exceptions.is_empty() {
+            return Err(self.err());
+        }
+        self.expect(TokenKind::RBrace)?;
+        Ok(exceptions)
+    }
+
+    /// GSSH/4's required persistence decision (no durable Tapestry state).
+    fn parse_persistence_block(&mut self) -> Result<Option<BTreeMap<String, String>>, ParseError> {
+        self.expect(TokenKind::LBrace)?;
+        self.expect_ident_value("cache_targets")?;
+        self.expect(TokenKind::Colon)?;
+        let targets = match self.peek().map(|token| token.kind) {
+            Some(TokenKind::Ident) if self.peek().is_some_and(|token| token.text == "null") => {
+                self.bump();
+                None
+            }
+            Some(TokenKind::LBrace) => {
+                self.bump();
+                let mut targets = BTreeMap::new();
+                while !matches!(self.peek().map(|token| token.kind), Some(TokenKind::RBrace)) {
+                    let platform = self.expect_ident()?;
+                    if !matches!(platform.as_str(), "android" | "ios" | "macos" | "windows" | "linux" | "browser") || targets.contains_key(&platform) {
+                        return Err(self.err_prev());
+                    }
+                    self.expect(TokenKind::Colon)?;
+                    let adapter = self.expect(TokenKind::Str)?.text;
+                    if adapter.is_empty() {
+                        return Err(self.err_prev());
+                    }
+                    targets.insert(platform, adapter);
+                    self.expect(TokenKind::Semicolon)?;
+                }
+                self.expect(TokenKind::RBrace)?;
+                if targets.is_empty() {
+                    return Err(self.err_prev());
+                }
+                Some(targets)
+            }
+            _ => return Err(self.err()),
+        };
+        self.optional_semi();
+        self.expect(TokenKind::RBrace)?;
+        Ok(targets)
+    }
+
     /// `{ key: type = literal session|durable; ... }` after `@state`.
     fn parse_state_block(&mut self) -> Result<Vec<StateDecl>, ParseError> {
         self.expect(TokenKind::LBrace)?;
@@ -1385,6 +2043,7 @@ impl P {
             let lifetime = match self.expect_ident()?.as_str() {
                 "session" => StateLifetime::Session,
                 "durable" => StateLifetime::Durable,
+                "host" => StateLifetime::Host,
                 _ => return Err(self.err_prev()),
             };
             let end = self.expect(TokenKind::Semicolon)?.byte_end;
@@ -1598,6 +2257,49 @@ impl P {
                     _ => return Err(self.err_prev()),
                 });
             }
+            "text-from" | "text_from" => cell.text_from = Some(self.parse_state_ref()?),
+            "remote-digit" => {
+                let token = self.expect(TokenKind::Number)?;
+                let bytes = token.text.as_bytes();
+                if cell.remote_digit.is_some() || bytes.len() != 1 || !bytes[0].is_ascii_digit() {
+                    return Err(self.err_prev());
+                }
+                cell.remote_digit = Some(bytes[0] - b'0');
+            }
+            "image-from" | "image_from" => cell.image_from = Some(self.parse_state_ref()?),
+            "present-when" | "present_when" => {
+                let key = self.parse_state_ref()?;
+                let op = match self.expect_ident()?.as_str() {
+                    "is" => crate::scene::ConditionOp::Is,
+                    "at-least" | "at_least" => crate::scene::ConditionOp::AtLeast,
+                    _ => return Err(self.err_prev()),
+                };
+                let value = match self.peek().map(|t| t.kind) {
+                    Some(TokenKind::Number) => {
+                        let text = self.bump().ok_or_else(|| self.err())?.text;
+                        if !is_canonical_decimal(&text) {
+                            return Err(self.err_prev());
+                        }
+                        InteractionValue::Int(text.parse().map_err(|_| self.err_prev())?)
+                    }
+                    Some(TokenKind::Str) => {
+                        InteractionValue::Text(self.bump().ok_or_else(|| self.err())?.text)
+                    }
+                    Some(TokenKind::Ident) => match self.expect_ident()?.as_str() {
+                        "true" => InteractionValue::Bool(true),
+                        "false" => InteractionValue::Bool(false),
+                        _ => return Err(self.err_prev()),
+                    },
+                    _ => return Err(self.err()),
+                };
+                cell.present_when = Some(crate::scene::Condition { key, op, value });
+            }
+            "fill-to" | "fill_to" => cell.fill_to = Some(self.parse_hex()?),
+            "fill-period-s" | "fill_period_s" => cell.fill_period_s = Some(self.parse_number()?),
+            "drift-p" | "drift_p" => cell.drift_p = Some(self.parse_vec3()?),
+            "drift-period-s" | "drift_period_s" => cell.drift_period_s = Some(self.parse_number()?),
+            "appear-s" | "appear_s" => cell.appear_s = Some(self.parse_number()?),
+            "appear-from-p" | "appear_from_p" => cell.appear_from_p = Some(self.parse_vec3()?),
             "placeholder" => cell.placeholder = Some(self.expect(TokenKind::Str)?.text),
             "max-length" | "max_length" => {
                 let text = match self.peek() {
@@ -1623,6 +2325,96 @@ impl P {
             self.bump();
         }
         Ok(())
+    }
+
+    /// `@link` body: `id`, `protocol` and `endpoint` strings, role bindings
+    /// `role: state.key;`, and `slot name { image: state.k; label: state.k; }`.
+    fn parse_link(&mut self, name: String) -> Result<LinkDecl, ParseError> {
+        self.expect(TokenKind::LBrace)?;
+        let mut link = LinkDecl {
+            name,
+            authored_id: None,
+            protocol: String::new(),
+            endpoint: String::new(),
+            roles: Vec::new(),
+            slots: Vec::new(),
+            fields: Vec::new(),
+            acts: Vec::new(),
+            range: SourceRange { start: 0, end: 0 },
+        };
+        while !matches!(self.peek().map(|t| t.kind), Some(TokenKind::RBrace)) {
+            let key = self.expect_ident()?;
+            if key == "act" {
+                let name = self.expect_ident()?;
+                if link.acts.contains(&name) {
+                    return Err(self.err_prev());
+                }
+                link.acts.push(name);
+                self.optional_semi();
+                continue;
+            }
+            if key == "field" {
+                let name = self.expect_ident()?;
+                self.expect(TokenKind::Colon)?;
+                let v = self.parse_state_ref()?;
+                if link.fields.iter().any(|(n, _)| *n == name) {
+                    return Err(self.err_prev());
+                }
+                link.fields.push((name, v));
+                self.optional_semi();
+                continue;
+            }
+            if key == "slot" {
+                let slot_name = self.expect_ident()?;
+                self.expect(TokenKind::LBrace)?;
+                let (mut image, mut label) = (None, None);
+                while !matches!(self.peek().map(|t| t.kind), Some(TokenKind::RBrace)) {
+                    let k = self.expect_ident()?;
+                    self.expect(TokenKind::Colon)?;
+                    let v = self.parse_state_ref()?;
+                    let slot = match k.as_str() {
+                        "image" => &mut image,
+                        "label" => &mut label,
+                        _ => return Err(self.err_prev()),
+                    };
+                    if slot.replace(v).is_some() {
+                        return Err(self.err_prev());
+                    }
+                    self.optional_semi();
+                }
+                self.expect(TokenKind::RBrace)?;
+                self.optional_semi();
+                let image = image.ok_or_else(|| self.err_prev())?;
+                link.slots.push(LinkSlot { name: slot_name, image, label });
+                continue;
+            }
+            self.expect(TokenKind::Colon)?;
+            match key.as_str() {
+                "id" => link.authored_id = Some(self.expect(TokenKind::Str)?.text),
+                "protocol" => link.protocol = self.expect(TokenKind::Str)?.text,
+                "endpoint" => link.endpoint = self.expect(TokenKind::Str)?.text,
+                role if LINK_ROLES.iter().any(|(r, _)| *r == role) => {
+                    if link.roles.iter().any(|(r, _)| r == role) {
+                        return Err(self.err_prev());
+                    }
+                    let v = self.parse_state_ref()?;
+                    link.roles.push((role.to_string(), v));
+                }
+                _ => return Err(self.err_prev()),
+            }
+            self.optional_semi();
+        }
+        self.expect(TokenKind::RBrace)?;
+        Ok(link)
+    }
+
+    /// `state.<key>`.
+    fn parse_state_ref(&mut self) -> Result<String, ParseError> {
+        if self.expect_ident()? != "state" {
+            return Err(self.err_prev());
+        }
+        self.expect(TokenKind::Dot)?;
+        self.expect_ident()
     }
 
     fn parse_vec3(&mut self) -> Result<Vec3, ParseError> {
@@ -1703,5 +2495,191 @@ impl P {
             }
             _ => Err(self.err()),
         }
+    }
+}
+
+#[cfg(test)]
+mod live_tests {
+    use super::*;
+
+    const LIVE: &str = r#"@ontology app {
+  @cell root { id: "root";
+    @cell status { id: "status"; position_p: (0, 0, 0); extent_p: (1, 0.1, 0); text-from: state.link_text; }
+    @cell home { id: "home"; position_p: (0, 0.1, 0); extent_p: (1, 0.9, 0); present-when: state.screen is 0;
+      @button open { id: "open"; position_p: (0.1, 0.1, 0); extent_p: (0.2, 0.2, 0); text: "Open"; }
+    }
+    @cell viewer { id: "viewer"; position_p: (0, 0.1, 0); extent_p: (1, 0.9, 0); present-when: state.screen is 1;
+      @cell picture { id: "picture"; position_p: (0, 0, 0); extent_p: (1, 0.8, 0); image-from: state.left; }
+      @button back { id: "back"; position_p: (0.1, 0.85, 0); extent_p: (0.2, 0.1, 0); text: "Back"; }
+    }
+  }
+  @state { screen: int = 0 session; link_text: text = "unpaired" host; left: text = "" host; }
+  @interaction show { id: "action.show"; trigger: button.open.activate; class: D1; state { write screen: int; } input { } set screen = 1; }
+  @interaction hide { id: "action.hide"; trigger: button.back.activate; class: D1; state { write screen: int; } input { } set screen = 0; }
+}"#;
+
+    #[test]
+    fn live_profile_admits_bindings_and_host_state() {
+        let parsed = parse_strict_gssh3_live(LIVE).expect("live admission");
+        let viewer = parsed.scene.find_node("viewer").unwrap();
+        assert_eq!(
+            viewer.present_when,
+            Some(crate::scene::Condition { key: "screen".into(), op: crate::scene::ConditionOp::Is, value: InteractionValue::Int(1) })
+        );
+        assert_eq!(parsed.scene.find_node("picture").unwrap().image_from.as_deref(), Some("left"));
+        assert_eq!(parsed.scene.find_node("status").unwrap().text_from.as_deref(), Some("link_text"));
+        let (decls, _) = parsed.declarations.state.as_ref().unwrap();
+        assert_eq!(decls.iter().find(|d| d.key == "left").unwrap().lifetime, StateLifetime::Host);
+    }
+
+    #[test]
+    fn older_profiles_refuse_live_constructs() {
+        for result in [parse_strict_gssh3(LIVE), parse_strict_gssh2(LIVE), parse_strict(LIVE)] {
+            let error = result.unwrap_err();
+            assert!(matches!(error.code, "GY-E1012" | "GY-E1006"), "{error}");
+        }
+        assert_eq!(parse_strict_gssh3(LIVE).unwrap_err().code, "GY-E1012");
+        // Host state alone, without any live property, is also refused.
+        let host_only = r#"@ontology app { @cell root { id: "root"; @button go { id: "go"; position_p: (0,0,0); extent_p: (1,1,0); } } @state { n: int = 0 host; m: int = 0 session; } @interaction r { id: "action.r"; trigger: button.go.activate; class: D1; state { read n: int; write m: int; } input { } set m = state.n; } }"#;
+        assert_eq!(parse_strict_gssh3(host_only).unwrap_err().code, "GY-E1012");
+    }
+
+    #[test]
+    fn interactions_may_not_write_host_state() {
+        let src = LIVE.replace("screen: int = 0 session", "screen: int = 0 host");
+        let error = parse_strict_gssh3_live(&src).unwrap_err();
+        assert_eq!(error.code, "GY-E1008", "{error}");
+        assert!(error.name.contains("writes host state"), "{error}");
+    }
+
+    #[test]
+    fn bindings_are_type_checked() {
+        let wrong_literal = LIVE.replace("state.screen is 1", "state.screen is \"one\"");
+        assert_eq!(parse_strict_gssh3_live(&wrong_literal).unwrap_err().code, "GY-E1013");
+        let undeclared = LIVE.replace("text-from: state.link_text", "text-from: state.nope");
+        assert_eq!(parse_strict_gssh3_live(&undeclared).unwrap_err().code, "GY-E1013");
+        let session_image = LIVE.replace("left: text = \"\" host", "left: text = \"\" session");
+        assert_eq!(parse_strict_gssh3_live(&session_image).unwrap_err().code, "GY-E1013");
+    }
+
+    #[test]
+    fn a_key_used_only_by_a_binding_counts_as_used() {
+        // link_text is never named by an interaction.
+        assert!(parse_strict_gssh3_live(LIVE).is_ok());
+        let unused = LIVE.replace("left: text = \"\" host;", "left: text = \"\" host; spare: int = 0 host;");
+        assert_eq!(parse_strict_gssh3_live(&unused).unwrap_err().code, "GY-E1008");
+    }
+
+    #[test]
+    fn motion_properties_are_live_only_and_bounded() {
+        let moving = LIVE
+            .replace(r#"@cell root { id: "root";"#, r#"@cell root { id: "root"; fill: #f4f1ea; fill-to: #e9eef1; fill-period-s: 45;"#)
+            .replace(r#"@cell home { id: "home";"#, r#"@cell home { id: "home"; drift-p: (0.01, 0.01, 0); drift-period-s: 240;"#);
+        let parsed = parse_strict_gssh3_live(&moving).expect("motion admitted");
+        assert_eq!(parsed.scene.find_node("root").unwrap().fill_to, Some(0xe9eef1));
+        assert_eq!(parsed.scene.find_node("home").unwrap().drift_period_s, Some(240.0));
+        assert_eq!(parse_strict_gssh3(&moving).unwrap_err().code, "GY-E1012");
+        let appearing = moving.replace(r#"present-when: state.screen is 1;"#, r#"present-when: state.screen is 1; appear-s: 0.5; appear-from-p: (0, 0.05, 0);"#);
+        assert_eq!(parse_strict_gssh3_live(&appearing).unwrap().scene.find_node("viewer").unwrap().appear_s, Some(0.5));
+        for bad in ["appear-s: 3;", "appear-from-p: (0, 0.05, 0);", "appear-s: 0.5; appear-from-p: (0.9, 0, 0);"] {
+            let src = moving.replace(r#"present-when: state.screen is 1;"#, &format!("present-when: state.screen is 1; {bad}"));
+            assert_eq!(parse_strict_gssh3_live(&src).unwrap_err().code, "GY-E1013", "{bad}");
+        }
+        for (from, to) in [
+            ("fill-period-s: 45", "fill-period-s: 0.5"),
+            ("fill-period-s: 45;", ""),
+            ("drift-p: (0.01, 0.01, 0)", "drift-p: (0.9, 0.01, 0)"),
+            ("drift-p: (0.01, 0.01, 0)", "drift-p: (0.01, 0.01, 1)"),
+            ("drift-period-s: 240", "drift-period-s: 7200"),
+        ] {
+            let src = moving.replace(from, to);
+            assert_eq!(parse_strict_gssh3_live(&src).unwrap_err().code, "GY-E1013", "{from} -> {to}");
+        }
+        // fill-to without a fill to breathe from.
+        let src = moving.replace("fill: #f4f1ea; ", "");
+        assert_eq!(parse_strict_gssh3_live(&src).unwrap_err().code, "GY-E1013");
+    }
+
+    #[test]
+    fn links_bind_host_state_with_one_writer_each() {
+        let src = LIVE.replace(
+            "  @interaction show",
+            r#"  @link desktop { id: "link.desktop"; protocol: "goya.lanlink/0"; endpoint: "http://192.168.1.2:8770"; detail: state.link_text; slot main { image: state.left; } }
+  @interaction show"#,
+        );
+        let parsed = parse_strict_gssh3_live(&src).unwrap_or_else(|e| panic!("{e}"));
+        let link = &parsed.declarations.links[0];
+        assert_eq!((link.name.as_str(), link.protocol.as_str()), ("desktop", "goya.lanlink/0"));
+        assert_eq!(link.roles, vec![("detail".to_string(), "link_text".to_string())]);
+        assert_eq!(link.slots[0].image, "left");
+        assert_eq!(parse_strict_gssh3(&src).unwrap_err().code, "GY-E1012");
+        // A host key nobody writes, once links are in play.
+        let orphan = src.replace(r#"left: text = "" host;"#, r#"left: text = "" host; spare: text = "" host;"#).replace("image-from: state.left;", "image-from: state.left; text-from: state.spare;");
+        assert_eq!(parse_strict_gssh3_live(&orphan).unwrap_err().code, "GY-E1013");
+        // A role bound to a key of the wrong type.
+        let wrong = src.replace("detail: state.link_text;", "status: state.link_text;");
+        assert_eq!(parse_strict_gssh3_live(&wrong).unwrap_err().code, "GY-E1013");
+        // Unknown roles do not parse.
+        assert!(parse_strict_gssh3_live(&src.replace("detail: state.link_text;", "colour: state.link_text;")).is_err());
+    }
+
+    #[test]
+    fn lists_digits_fields_and_acts() {
+        let src = LIVE
+            .replace(r#"present-when: state.screen is 1;"#, r#"present-when: state.screen at-least 1;"#)
+            .replace(r#"@button back { id: "back";"#, r#"@button back { id: "back"; remote-digit: 7;"#)
+            .replace(
+                "  @interaction show",
+                r#"  @link desktop { id: "link.desktop"; protocol: "goya.lanlink/1"; endpoint: "http://192.168.1.2:8770"; detail: state.link_text; act web_next; field rows: state.rows; slot main { image: state.left; } }
+  @interaction show"#,
+            )
+            .replace(r#"left: text = "" host;"#, r#"left: text = "" host; rows: int = 0 host;"#);
+        let parsed = parse_strict_gssh3_live(&src).unwrap_or_else(|e| panic!("{e}"));
+        let viewer = parsed.scene.find_node("viewer").unwrap();
+        assert_eq!(viewer.present_when.as_ref().unwrap().op, crate::scene::ConditionOp::AtLeast);
+        assert_eq!(parsed.scene.find_node("back").unwrap().remote_digit, Some(7));
+        let link = &parsed.declarations.links[0];
+        assert_eq!(link.acts, vec!["web_next".to_string()]);
+        assert_eq!(link.fields, vec![("rows".to_string(), "rows".to_string())]);
+        // at-least needs an int literal; remote-digit is 0-9 on buttons only.
+        assert_eq!(parse_strict_gssh3_live(&src.replace("at-least 1", "at-least \"x\"")).unwrap_err().code, "GY-E1013");
+        assert!(parse_strict_gssh3_live(&src.replace("remote-digit: 7", "remote-digit: 12")).is_err());
+        let on_cell = src.replace(r#"@cell status { id: "status";"#, r#"@cell status { id: "status"; remote-digit: 1;"#);
+        assert_eq!(parse_strict_gssh3_live(&on_cell).unwrap_err().code, "GY-E1013");
+        assert_eq!(parse_strict_gssh3(&src).unwrap_err().code, "GY-E1012");
+    }
+
+    #[test]
+    fn live_profile_still_rejects_absolute_lengths() {
+        let src = LIVE.replace("extent_p: (1, 0.1, 0)", "extent: (100, 10, 0)");
+        assert_eq!(parse_strict_gssh3_live(&src).unwrap_err().code, "GY-E1009");
+    }
+}
+
+#[cfg(test)]
+mod gssh4_platform_tests {
+    use super::*;
+
+    const SOURCE: &str = r#"@ontology demo {
+        @persistence { cache_targets: null; }
+        @platform webos {
+            "media.playback": only-use("html.video");
+            "remote.input": choice-use("focus", "native.remote");
+        }
+        @cell root { id: "root"; }
+    }"#;
+
+    #[test]
+    fn live_scene_can_carry_platform_policy_without_legacy_silence() {
+        let parsed = parse_strict_gssh4_live(SOURCE).unwrap();
+        assert_eq!(parsed.declarations.platform_exceptions.len(), 2);
+        assert_eq!(parsed.declarations.platform_exceptions[0].platform, "webos");
+        assert_eq!(parse_strict_gssh3_live(SOURCE).unwrap_err().code, "GY-E1015");
+    }
+
+    #[test]
+    fn platform_policy_requires_explicit_persistence_and_distinct_choices() {
+        assert_eq!(parse_strict_gssh4_live(&SOURCE.replace("@persistence { cache_targets: null; }", "")).unwrap_err().code, "GY-E1014");
+        assert_eq!(parse_strict_gssh4_live(&SOURCE.replace("choice-use(\"focus\", \"native.remote\")", "choice-use(\"focus\")")).unwrap_err().code, "GY-E1000");
     }
 }
