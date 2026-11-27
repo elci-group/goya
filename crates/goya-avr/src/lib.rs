@@ -19,6 +19,7 @@
 
 pub mod canonical;
 pub mod certification;
+pub mod composition;
 pub mod delta;
 pub mod derivation;
 pub mod domain;
@@ -41,6 +42,11 @@ pub const DIRECTIVE_ID: &str = "GOYA-GFX-AVR-001";
 pub const CONTRACT_VERSION: &str = "avr-contract/0.0.1";
 
 pub use certification::{CertificationClass, VerificationClass};
+pub use composition::{
+    CompositionClass, CompositionError, CompositionNode, CompositionTree, LifecyclePolicy,
+    LiveFallback, RenderingPolicy, SimulationPolicy, SpatialContentKind, SpatialElement,
+    MAX_SPATIAL_NESTING_DEPTH,
+};
 pub use delta::{DeltaError, DELTA_HEADER};
 pub use derivation::{DerivationProfile, IndexPolicy, ReconstructionPolicy, ResidencyPolicy};
 pub use engine::{EngineError, OpOutcome, ReconstructionEngine};

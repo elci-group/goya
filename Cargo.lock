@@ -1586,6 +1586,8 @@ name = "goya-avr-rugid"
 version = "0.0.1"
 dependencies = [
  "goya-avr",
+ "goya-escene",
+ "goya-lang",
  "rugid",
  "sha2",
 ]

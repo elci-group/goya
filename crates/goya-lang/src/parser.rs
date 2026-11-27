@@ -6,8 +6,11 @@ use crate::scene::{
     Iden,
     Anchor, CellKind, EffectRequestDecl, EffectValueType, GestureDecision, GesturePolicy,
     IntentCategory, IntentDecl, InteractionClass, InteractionDecl, InteractionExpr,
-    InteractionType, InteractionValue, Scene, SceneCell, StateAssignment, TransportClass, TypedKey,
-    TypedSlot, Vec3,
+    InteractionType, InteractionValue, Scene, SceneCell, SpatialContent, SpatialDomain,
+    SpatialFallback, SpatialFidelity, SpatialInteraction, SpatialLifecycle, SpatialModel,
+    SpatialMovement, SpatialObservation, SpatialRendering, SpatialRenderingPolicy,
+    SpatialSimulation, SpatialStrategy, SpatialViewport, StateAssignment, TransportClass,
+    TypedKey, TypedSlot, Vec3,
 };
 use goya_determinism::EffectKind;
 use std::collections::BTreeMap;
@@ -293,6 +296,7 @@ impl fmt::Display for StrictParseError {
             "GY-E1014" => "invalid persistence cache targets",
             "GY-E1015" => "declaration requires GSSH/4 admission",
             "GY-E1017" => "invalid accessible identity",
+            "GY-E1019" => "invalid spatial declaration",
             _ => "strict parsing failed",
         };
         write!(f, "{}: {} '{}'", self.code, description, self.name)
@@ -396,6 +400,7 @@ pub fn parse_with_source_map(source: &str) -> Result<ParsedScene, ParseError> {
         && root.wrap.is_none()
         && root.gestures.is_none()
         && root.text_from.is_none()
+        && root.spatial.is_none()
         && !root.scroll
         && !root.is_input;
     if collapse_root {
@@ -813,6 +818,10 @@ fn strict(source: &str, profile: Profile) -> Result<ParsedScene, StrictParseErro
             // GSSH/4 declarations: earlier profiles refuse them rather than
             // drop them (decision D11 keeps approved profiles unchanged).
             "platform" | "persistence" | "iden" if !profile.gssh4() => Some("GY-E1015"),
+            // Rugid spatial content is GSSH/4 surface (AVR Phase 4 WS-02):
+            // earlier profiles refuse it rather than silently flattening a
+            // spatial element into an ordinary one (§4.3).
+            "spatial" if !profile.gssh4() => Some("GY-E1019"),
             // Proportional text and stroke lengths are GSSH/3 only, so older
             // consumers never receive a length they would ignore.
             "property"
@@ -1369,6 +1378,7 @@ impl P {
             children: Vec::new(),
             placeholder: None,
             max_length: None,
+            spatial: None,
         };
         if self.depth >= MAX_CELL_DEPTH {
             return Err(self.err());
@@ -1530,6 +1540,27 @@ impl P {
                                 source_digest: [0; 32],
                             });
                         }
+                        "spatial" => {
+                            // Rugid spatial content (AVR directive §5.2/§5.3):
+                            // `@spatial.model` or `@spatial.viewport`.
+                            if cell.spatial.is_some() {
+                                return Err(self.err_prev());
+                            }
+                            self.expect(TokenKind::Dot)?;
+                            let sub_kind = self.expect_ident()?;
+                            cell.spatial = Some(self.parse_spatial(&sub_kind)?);
+                            self.entries.push(SourceEntry {
+                                kind: "spatial".into(),
+                                name: sub_kind,
+                                scene_path: None,
+                                semantic_id: None,
+                                range: SourceRange {
+                                    start: tok.byte_start,
+                                    end: self.tokens[self.i - 1].byte_end,
+                                },
+                                source_digest: [0; 32],
+                            });
+                        }
                         "iden" => {
                             if cell.iden.is_some() {
                                 return Err(self.err_prev());
@@ -1588,6 +1619,310 @@ impl P {
                 Some(_) => return Err(self.err()),
             }
         }
+    }
+
+    /// Parse one `@spatial.model` / `@spatial.viewport` block. Unknown keys
+    /// and values are refused at the narrowest range: a scene that misstates
+    /// its spatial intent must not parse into a silently different one
+    /// (§4.3). Composition-correctness (AVR-C13) is checked by
+    /// `goya-avr::composition` against this AST.
+    fn parse_spatial(&mut self, kind: &str) -> Result<SpatialContent, ParseError> {
+        self.expect(TokenKind::LBrace)?;
+        let content = match kind {
+            "model" => {
+                let mut source: Option<String> = None;
+                let mut observation: Option<SpatialObservation> = None;
+                let mut rendering: Option<SpatialRendering> = None;
+                self.spatial_keys(&mut |key, parser| {
+                    match key {
+                        "source" => {
+                            parser.expect(TokenKind::Colon)?;
+                            source = Some(parser.expect(TokenKind::Str)?.text);
+                            parser.optional_semi();
+                        }
+                        "observation" => {
+                            if observation.is_some() {
+                                return Err(parser.err_prev());
+                            }
+                            observation = Some(parser.parse_spatial_observation(true)?);
+                        }
+                        "rendering" => {
+                            if rendering.is_some() {
+                                return Err(parser.err_prev());
+                            }
+                            rendering = Some(parser.parse_spatial_rendering(true)?);
+                        }
+                        _ => return Err(parser.err_prev()),
+                    }
+                    Ok(())
+                })?;
+                let source = match source {
+                    Some(source) => source,
+                    None => return Err(self.err_prev()),
+                };
+                SpatialContent::Model(SpatialModel {
+                    source,
+                    observation: observation.ok_or_else(|| self.err_prev())?,
+                    rendering: rendering.ok_or_else(|| self.err_prev())?,
+                })
+            }
+            "viewport" => {
+                let mut environment: Option<String> = None;
+                let mut camera: Option<String> = None;
+                let mut observation: Option<SpatialObservation> = None;
+                let mut rendering: Option<SpatialRendering> = None;
+                let mut lifecycle: Option<SpatialLifecycle> = None;
+                self.spatial_keys(&mut |key, parser| {
+                    match key {
+                        "environment" => {
+                            parser.expect(TokenKind::Colon)?;
+                            environment = Some(parser.expect(TokenKind::Str)?.text);
+                            parser.optional_semi();
+                        }
+                        "camera" => {
+                            parser.expect(TokenKind::Colon)?;
+                            camera = Some(parser.expect(TokenKind::Str)?.text);
+                            parser.optional_semi();
+                        }
+                        "observation" => {
+                            if observation.is_some() {
+                                return Err(parser.err_prev());
+                            }
+                            observation = Some(parser.parse_spatial_observation(false)?);
+                        }
+                        "rendering" => {
+                            if rendering.is_some() {
+                                return Err(parser.err_prev());
+                            }
+                            rendering = Some(parser.parse_spatial_rendering(false)?);
+                        }
+                        "lifecycle" => {
+                            if lifecycle.is_some() {
+                                return Err(parser.err_prev());
+                            }
+                            lifecycle = Some(parser.parse_spatial_lifecycle()?);
+                        }
+                        _ => return Err(parser.err_prev()),
+                    }
+                    Ok(())
+                })?;
+                SpatialContent::Viewport(SpatialViewport {
+                    environment: environment.ok_or_else(|| self.err_prev())?,
+                    camera: camera.ok_or_else(|| self.err_prev())?,
+                    observation: observation.ok_or_else(|| self.err_prev())?,
+                    rendering: rendering.ok_or_else(|| self.err_prev())?,
+                    lifecycle: lifecycle.ok_or_else(|| self.err_prev())?,
+                })
+            }
+            _ => return Err(self.err_prev()),
+        };
+        Ok(content)
+    }
+
+    /// Run `per_key` for each top-level key of the current block, then
+    /// consume the closing brace. Total on all inputs.
+    fn spatial_keys(
+        &mut self,
+        per_key: &mut dyn FnMut(&str, &mut Self) -> Result<(), ParseError>,
+    ) -> Result<(), ParseError> {
+        loop {
+            match self.peek().map(|t| t.kind) {
+                Some(TokenKind::RBrace) => {
+                    self.bump();
+                    return Ok(());
+                }
+                None => return Err(self.err()),
+                Some(TokenKind::Ident) => {
+                    let key = self.expect_ident()?;
+                    per_key(&key, self)?;
+                }
+                Some(_) => return Err(self.err()),
+            }
+        }
+    }
+
+    /// `observation { domain: …; interaction|movement: …; zoom: …; }`.
+    /// A model declares object interaction; a viewport declares movement.
+    fn parse_spatial_observation(&mut self, model: bool) -> Result<SpatialObservation, ParseError> {
+        self.expect(TokenKind::LBrace)?;
+        let mut domain: Option<SpatialDomain> = None;
+        let mut interaction: Option<SpatialInteraction> = None;
+        let mut movement: Option<SpatialMovement> = None;
+        let mut zoom = false;
+        self.spatial_keys(&mut |key, parser| {
+            match key {
+                "domain" => {
+                    parser.expect(TokenKind::Colon)?;
+                    let value = parser.expect_ident()?;
+                    let parsed = match value.as_str() {
+                        "spherical" => SpatialDomain::Spherical,
+                        "hemispherical" => SpatialDomain::Hemispherical,
+                        "orbital" => SpatialDomain::Orbital,
+                        "navigation_graph" => SpatialDomain::NavigationGraph,
+                        _ => return Err(parser.err_prev()),
+                    };
+                    if domain.replace(parsed).is_some() {
+                        return Err(parser.err_prev());
+                    }
+                    parser.optional_semi();
+                }
+                "interaction" if model => {
+                    parser.expect(TokenKind::Colon)?;
+                    let value = parser.expect_ident()?;
+                    if value != "orbit" {
+                        return Err(parser.err_prev());
+                    }
+                    if interaction.replace(SpatialInteraction::Orbit).is_some() {
+                        return Err(parser.err_prev());
+                    }
+                    parser.optional_semi();
+                }
+                "movement" if !model => {
+                    parser.expect(TokenKind::Colon)?;
+                    let value = parser.expect_ident()?;
+                    if value != "constrained" {
+                        return Err(parser.err_prev());
+                    }
+                    if movement.replace(SpatialMovement::Constrained).is_some() {
+                        return Err(parser.err_prev());
+                    }
+                    parser.optional_semi();
+                }
+                "zoom" => {
+                    parser.expect(TokenKind::Colon)?;
+                    let value = parser.expect_ident()?;
+                    match value.as_str() {
+                        "enabled" => zoom = true,
+                        "disabled" => zoom = false,
+                        _ => return Err(parser.err_prev()),
+                    }
+                    parser.optional_semi();
+                }
+                _ => return Err(parser.err_prev()),
+            }
+            Ok(())
+        })?;
+        let domain = domain.ok_or_else(|| self.err_prev())?;
+        Ok(SpatialObservation {
+            domain,
+            interaction,
+            movement,
+            zoom,
+        })
+    }
+
+    /// `rendering { strategy: …; fidelity|anticipation: …; fallback: …; }`.
+    fn parse_spatial_rendering(&mut self, model: bool) -> Result<SpatialRendering, ParseError> {
+        self.expect(TokenKind::LBrace)?;
+        let mut strategy: Option<SpatialStrategy> = None;
+        let mut fidelity: Option<SpatialFidelity> = None;
+        let mut anticipation = false;
+        let mut fallback: Option<SpatialFallback> = None;
+        self.spatial_keys(&mut |key, parser| {
+            match key {
+                "strategy" => {
+                    parser.expect(TokenKind::Colon)?;
+                    let value = parser.expect_ident()?;
+                    let parsed = match value.as_str() {
+                        "anticipatory" => SpatialStrategy::Anticipatory,
+                        "hybrid" => SpatialStrategy::Hybrid,
+                        _ => return Err(parser.err_prev()),
+                    };
+                    if strategy.replace(parsed).is_some() {
+                        return Err(parser.err_prev());
+                    }
+                    parser.optional_semi();
+                }
+                "fidelity" if model => {
+                    parser.expect(TokenKind::Colon)?;
+                    let value = parser.expect_ident()?;
+                    let parsed = match value.as_str() {
+                        "high" => SpatialFidelity::High,
+                        "standard" => SpatialFidelity::Standard,
+                        "low" => SpatialFidelity::Low,
+                        _ => return Err(parser.err_prev()),
+                    };
+                    if fidelity.replace(parsed).is_some() {
+                        return Err(parser.err_prev());
+                    }
+                    parser.optional_semi();
+                }
+                "anticipation" if !model => {
+                    parser.expect(TokenKind::Colon)?;
+                    let value = parser.expect_ident()?;
+                    match value.as_str() {
+                        "enabled" => anticipation = true,
+                        "disabled" => anticipation = false,
+                        _ => return Err(parser.err_prev()),
+                    }
+                    parser.optional_semi();
+                }
+                "fallback" => {
+                    parser.expect(TokenKind::Colon)?;
+                    let value = parser.expect_ident()?;
+                    let parsed = match value.as_str() {
+                        "live" => Some(SpatialFallback::Live),
+                        "none" => None,
+                        _ => return Err(parser.err_prev()),
+                    };
+                    fallback = parsed;
+                    parser.optional_semi();
+                }
+                _ => return Err(parser.err_prev()),
+            }
+            Ok(())
+        })?;
+        Ok(SpatialRendering {
+            strategy: strategy.ok_or_else(|| self.err_prev())?,
+            fidelity,
+            anticipation,
+            fallback,
+        })
+    }
+
+    /// `lifecycle { simulation: …; rendering: …; }` (§5.3). Both halves are
+    /// required: the simulation/rendering split must be an explicit
+    /// developer decision.
+    fn parse_spatial_lifecycle(&mut self) -> Result<SpatialLifecycle, ParseError> {
+        self.expect(TokenKind::LBrace)?;
+        let mut simulation: Option<SpatialSimulation> = None;
+        let mut rendering: Option<SpatialRenderingPolicy> = None;
+        self.spatial_keys(&mut |key, parser| {
+            match key {
+                "simulation" => {
+                    parser.expect(TokenKind::Colon)?;
+                    let value = parser.expect_ident()?;
+                    let parsed = match value.as_str() {
+                        "independent" => SpatialSimulation::Independent,
+                        "bound" => SpatialSimulation::Bound,
+                        _ => return Err(parser.err_prev()),
+                    };
+                    if simulation.replace(parsed).is_some() {
+                        return Err(parser.err_prev());
+                    }
+                    parser.optional_semi();
+                }
+                "rendering" => {
+                    parser.expect(TokenKind::Colon)?;
+                    let value = parser.expect_ident()?;
+                    let parsed = match value.as_str() {
+                        "visibility_bound" => SpatialRenderingPolicy::VisibilityBound,
+                        "continuous" => SpatialRenderingPolicy::Continuous,
+                        _ => return Err(parser.err_prev()),
+                    };
+                    if rendering.replace(parsed).is_some() {
+                        return Err(parser.err_prev());
+                    }
+                    parser.optional_semi();
+                }
+                _ => return Err(parser.err_prev()),
+            }
+            Ok(())
+        })?;
+        Ok(SpatialLifecycle {
+            simulation: simulation.ok_or_else(|| self.err_prev())?,
+            rendering: rendering.ok_or_else(|| self.err_prev())?,
+        })
     }
 
     fn parse_interaction(&mut self, name: String) -> Result<InteractionDecl, ParseError> {

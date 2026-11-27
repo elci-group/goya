@@ -11,6 +11,10 @@ goya-avr = { path = "../goya-avr" }
 sha2 = "0.10"
 rugid = { path = "../../../RUGID", optional = true, default-features = false }
 
+[dev-dependencies]
+goya-lang = { path = "../goya-lang" }
+goya-escene = { path = "../goya-escene" }
+
 [features]
 default = []
 rugid = ["dep:rugid"]
