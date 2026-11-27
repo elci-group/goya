@@ -50,8 +50,8 @@ pub use colour::{
 pub use compile::{compile, CompileError, CompileStats, CompiledVideo, RowId};
 pub use delta::{ContentId, PixelChange, RowDelta};
 pub use ingestion::{
-    DecodedFrame, DecodedFrameFormat, IngestionError, IngestionParameters, RgbPixels, SourceError,
-    VideoSource, LINEAR_UNITY,
+    srgb8_to_linear_q24_8, DecodedFrame, DecodedFrameFormat, IngestionError, IngestionParameters,
+    RgbPixels, SourceError, VideoSource, LINEAR_UNITY,
 };
 pub use instructions::{
     Instruction, InstructionBudget, ProgramError, RegionRect, Target, MAX_DELTA_DEPTH,

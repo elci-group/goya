@@ -148,3 +148,22 @@ Contract decisions:
 6. **`CompileStats.light_events`** counts `SET_LIGHT` emissions, keeping the persistent-vs-naïve write accounting honest (a light event is a span-wide presentation change at one instruction's cost).
 
 Verification at POC scale: sRGB gray 200 → 146 is an *exact* Q24.8 half-light scaling (linear 148 → 74); the lossless profile takes the light path for it and the replay is pixel-exact with brightness restored on the following frame. Runtime tests cover: inexact light events mark exactly their span's pixels (`pixel_exact`), region light touches only the region, light on an undeclared row is rejected, checkpoint payloads round-trip `(content, light)` pairs, and `from_checkpoint` presents the dimmed state.
+
+## Amendment 6 — POC-scale economics measured; checkpoint state-point bug found and fixed
+
+The acceptance targets' economics claims are now **measured, not asserted**, at POC scale. `crates/goya-avc/tests/poc_economics.rs` compiles a deterministic synthetic screen recording — 320×180, 240 frames at 30 FPS, a 96×64 window drifting 1 px/frame, a 3×3 cursor on a wrapping diagonal — under the lossless profile, verifies **pixel-exact replay of every frame** against the source, deterministic repeat playback, and checkpointed mid-timeline seek reconstructing the full replay's final state, then measures the model's economics:
+
+| Measure | Value |
+| --- | --- |
+| Colour entries (closure) | 4 |
+| Distinct rows | 661 (from 43,200 frame-row slots — 65× dedup) |
+| Events: `SET_ROW` / `SET_RUN` / `APPLY_DELTA` | 355 / 1,135 / 13,281 |
+| Naïve pixel writes (re-declare every pixel every frame) | 13,824,000 |
+| Persistent-state pixel writes | 143,508 (**96.3× fewer**) |
+| Raw source bytes | 41,472,000 |
+| Modelled binary size (fixed-width arithmetic floor, no framing — the Phase-2 encoder does not exist) | 695,700 bytes (**59.6× smaller**) |
+| Checkpoints | 2 (90-tick interval = 3 s) |
+
+This is **not** a codec comparison: no H.264/AV1 baseline was run (Phase 2, per the Consequences section), and the size model is instruction/payload arithmetic, not a serialised binary. What it does establish is the §5/§10 claim's mechanism at POC scale: on screen-recording-like content the persistent-state model reduces issued pixel writes by two orders of magnitude, and content deduplication collapses temporal row redundancy.
+
+**Contract-level finding (the Amendment 4 pattern, third occurrence): checkpoint payloads named the wrong state point.** The checkpoint emitted at frame *i* stored frame *i*'s target content — but a runtime restoring at that checkpoint still executes frame *i*'s differential events (same tick), so every `APPLY_DELTA` after every checkpointed seek failed its precondition (`DeltaPrecondition`). The Phase-0/Amendment-4 POC never exercised checkpointed playback against a compiled timeline (3 frames never cross the 90-tick interval), so the bug was invisible until the economics workload played 240 frames. Fixed: a checkpoint payload now names the **previous frame's effective content and its light state** — the state the runtime is actually in when it reaches that tick. The economics test is the regression test for this: it fails on the old compiler with `DeltaPrecondition` and passes with the fix.

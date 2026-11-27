@@ -222,11 +222,22 @@ pub fn compile(
         // cannot drift between compiler and runtime (Amendment 4).
         let since_checkpoint = at.ticks() - last_checkpoint_tick;
         if frame_index > 0 && since_checkpoint >= profile.budgets.max_checkpoint_interval.ticks() {
+            // The checkpoint must name the state the runtime is in when
+            // it *reaches* this tick — i.e. the previous frame's effective
+            // content plus its light — not this frame's target: a runtime
+            // restoring here still executes this frame's differential
+            // events (same tick), so a target-state payload would already
+            // have applied them (found by the POC economics workload,
+            // Amendment 6 — delta preconditions failed on every
+            // checkpointed seek).
+            let previous_rows = previous
+                .as_ref()
+                .expect("checkpoint guard requires frame_index > 0, so a previous frame exists");
             // Checkpoints carry light as well as chroma content:
             // a dimmed row restored from a checkpoint must stay dimmed
             // (Amendment 5 — light is part of the visual state).
             let payload = crate::runtime::encode_checkpoint_payload(
-                &rows
+                &previous_rows
                     .iter()
                     .enumerate()
                     .map(|(y, &r)| crate::runtime::CheckpointRow {
