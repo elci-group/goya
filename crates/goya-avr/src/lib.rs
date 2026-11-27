@@ -17,13 +17,17 @@
 
 #![forbid(unsafe_code)]
 
+pub mod canonical;
 pub mod certification;
 pub mod derivation;
 pub mod domain;
 pub mod encoding;
 pub mod graph;
+pub mod ingestion;
 pub mod inventory;
 pub mod representation;
+pub mod retrieval;
+pub mod sampling;
 pub mod tags;
 
 /// Directive that defined this contract family.
@@ -41,6 +45,7 @@ pub use graph::{
     ObservationCoordinates, ReconstructionGraph, ReconstructionNode, ResidencyGraph,
     MAX_DEPENDENCY_DEPTH,
 };
+pub use ingestion::{Observer, ObservationPayload, SourceError, SpatialSource};
 pub use inventory::{
     FidelityClass, FidelityRecord, Neighbourhood, ObservationInventory, ObservationRecord,
     ProvenanceId, ProvenanceRecord, ProvenanceRelation, RelationalAnchor, RepresentationId,

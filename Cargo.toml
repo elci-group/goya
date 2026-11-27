@@ -76,6 +76,7 @@ members = [
     "crates/goya-graphics-ir",
     "crates/goya-gva",
     "crates/goya-avr",
+    "crates/goya-avr-rugid",
     "crates/goya-gvi",
     "crates/goya-gru",
     "crates/emperor",
