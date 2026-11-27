@@ -1567,6 +1567,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "goya-avc-decode"
+version = "0.0.1"
+dependencies = [
+ "goya-avc",
+ "sha2",
+]
+
+[[package]]
 name = "goya-avr"
 version = "0.0.1"
 dependencies = [
@@ -2002,6 +2010,14 @@ name = "goya-layout"
 version = "0.1.8"
 dependencies = [
  "goya-ir",
+]
+
+[[package]]
+name = "goya-manuscrito"
+version = "0.1.8"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

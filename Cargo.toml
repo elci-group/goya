@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/goya-injerto",
     "crates/goya-cortados",
+    "crates/goya-manuscrito",
     "crates/goya-caprichios",
     "crates/nevada",
     "crates/maja",
@@ -78,6 +79,7 @@ members = [
     "crates/goya-avr",
     "crates/goya-avr-rugid",
     "crates/goya-avc",
+    "crates/goya-avc-decode",
     "crates/goya-gvi",
     "crates/goya-gru",
     "crates/emperor",

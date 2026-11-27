@@ -98,3 +98,16 @@ The proposal's §9 profile table (embedded/mobile/TV/desktop/archival/interactiv
 Proof-of-concept evidence (deterministic synthetic screen recording, 8×4, 3 frames, 3 colours): the persistent-state model issues 56 pixel writes against a naive 96 (the §5 baseline), the timeline compiles deterministically (byte-identical repeat builds), and an over-bound source fails closed with the remediation diagnostic. One quantisation finding: the sRGB EOTF maps near-black levels onto the same Q24.8 value (byte 1 → 0), so closure operates post-quantisation by design — palette counts are canonical-entry counts, not source-byte counts.
 
 Gate status: the Phase-1 gate is satisfied **at the contract level**. Canonical compilation of real sources additionally requires a decoder adapter for the MP4/MKV/WebM/MOV container families (process boundary, mirroring `goya-tov`'s adapter pattern); that adapter is Phase-1 implementation work, not a contract renegotiation.
+
+## Amendment 2 — decoder adapter exists (`goya-avc-decode`); audio sidecar descriptor implemented
+
+`crates/goya-avc-decode` implements the decoder adapter as a **process boundary around the ffmpeg/ffprobe CLI** (the `goya-tov` pattern, contract `avc-decode/0.1.0`): every path and filter expression is passed as its own OS argument, never through a shell; the tools are external and never vendored; absence is `ToolUnavailable` with the attempted path. The adapter's sole conversion responsibility — chroma and format normalisation — happens *inside the decoder process*: frames are always delivered as rawvideo RGB8, the family the ingestion contract accepts, so the visual-state contract never sees YUV or container semantics (decision 4, Amendment 1).
+
+Two contract completions accompany it:
+
+- **Audio sidecar descriptor (decision 4).** `AudioSidecar { codec, duration_ts, time_base, start_pts }` is the `AUDS` section's logical form: opaque codec name, integer duration and start timestamp in the stream's own time base — no floating-point timestamps enter even the sidecar descriptor (F5's lesson applied fully). A silent container yields no descriptor.
+- **Frame-count fallback.** Containers without `nb_frames` (many MKV/WebM) are probed with `-count_packets` and fall back to `nb_read_packets`; sources with neither are rejected as `UnsupportedSource` with the reason attached.
+
+The full pipeline is exercised end-to-end (`tests/container_round_trip.rs`): a deterministic rawvideo fixture is encoded to lossless FFV1 MKV, probed, decoded frame-by-frame through the adapter, and compiled through the reference pipeline — closure sees exactly the fixture's three colours, the persistent-state write counts hold, and repeat decode+compile runs are identical. The test self-skips on hosts without ffmpeg (it is never vendored), so the real-container round-trip must be re-executed on a host with the tools present; the hermetic surface (probe parsing, rational rates, filtergraph argument construction, tool-absence handling) is verified everywhere.
+
+Adapter scope remains deliberately narrow: per-frame `select=eq(n,i)` decoding is correct-but-slow and adequate for canonical compilation, which is an offline, compile-time cost. Batched or seeking decode strategies are runtime performance work, gated on the §18 benchmarking programme, and change nothing in this contract.
