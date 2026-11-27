@@ -18,6 +18,7 @@
 #![forbid(unsafe_code)]
 
 pub mod canonical;
+pub mod caprichio;
 pub mod certification;
 pub mod composition;
 pub mod delta;
@@ -30,6 +31,7 @@ pub mod ingestion;
 pub mod inventory;
 pub mod relational;
 pub mod representation;
+pub mod residency;
 pub mod retrieval;
 pub mod sampling;
 pub mod tags;
@@ -41,6 +43,7 @@ pub const DIRECTIVE_ID: &str = "GOYA-GFX-AVR-001";
 /// Logical contract version. Not a binary format version.
 pub const CONTRACT_VERSION: &str = "avr-contract/0.0.1";
 
+pub use caprichio::{select_strategy, Capabilities, LatencyRequirement, StrategyDecision};
 pub use certification::{CertificationClass, VerificationClass};
 pub use composition::{
     CompositionClass, CompositionError, CompositionNode, CompositionTree, LifecyclePolicy,
@@ -64,5 +67,6 @@ pub use inventory::{
 };
 pub use representation::RepresentationClass;
 pub use relational::{RelationalLayout, LayoutError};
+pub use residency::{RequestOutcome, ResidencyError, ResidencyLimits, ResidencyManager, RuntimeTier};
 pub use target::{Derivation, DerivationError, DerivationMetrics, Tier};
 pub use tags::{ProposedTag, EXISTING_GVI_TAGS};
