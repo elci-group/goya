@@ -97,6 +97,10 @@ Relational GVI (directive §22 Phase 2, WS-06/WS-07), implemented in `goya-avr` 
 
 Phase 2 status: 62 contract tests in `goya-avr`, 8 bridge tests in `goya-avr-rugid` (relational derivation over a real 256-observation Rugid cube: 16 hot anchors + 240 cold members, all resolving bit-identically to direct renders), clippy clean. Still open: compression/reconstruction (Phase 3), binary format (Phase 2 §13.1 tags remain a reviewed proposal), `.escene` emission (WS-12).
 
+## Deferred proposals (recorded, not adopted)
+
+- **Differential break ruling (BR-D)** ([gvi-brd.md](../graphics/gvi-brd.md), proposed 2026-11-27): hierarchical differential curves over exceptional pixels — an exceptional luminance curve stored as a differential of the global curve, individual break diffs as differentials of that, recursively. This is the GVI-D record shape hosted in the AVR reconstruction graph (empty in Phase 2), not new machinery; the only new contract is deterministic greedy grouping. Adoption is gated on Phase 3 existing, the grouping contract being specified, and §18 benchmark evidence over the candidate scene classes (glitter, fireworks, rain, ocean reflections, cooling sparks). Any future adoption must accept the note's two conditions: exact reconstruction stores the correction root rather than deriving it (approximate derivation loses the exact bit per AVR-C09), and `max_break_diff_depth` is a non-default profile parameter (Decision 2).
+
 ## Consequences
 
 - `crates/goya-avr` is added as the contract home for AVR/GVI-R (Phase 0 scope only: domains, representations, encoding classes, logical data model, graph separation, tags, verification classes, derivation profile).
