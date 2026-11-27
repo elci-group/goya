@@ -728,6 +728,10 @@ fn lex(src: &str) -> Result<Vec<(usize, Tok)>, ScenarioError> {
             }
             c if c.is_ascii_alphabetic() || c == '_' || c == '@' => {
                 let start = i;
+                // The first character is already accepted; `@` would not pass
+                // the continuation test below, and leaving it unconsumed
+                // would loop forever emitting empty identifiers.
+                i += 1;
                 while i < chars.len()
                     && (chars[i].is_ascii_alphanumeric() || chars[i] == '_' || chars[i] == '-' || chars[i] == '.')
                 {
@@ -803,7 +807,7 @@ impl Parser {
     fn expect_int(&mut self, what: &str) -> Result<i64, ScenarioError> {
         match self.bump() {
             None => Err(self.eof(what)),
-            Some((l, Tok::Int(n))) => Ok(n),
+            Some((_l, Tok::Int(n))) => Ok(n),
             Some((l, t)) => Err(ScenarioError::syntax(l, format!("expected {what}, found {t:?}"))),
         }
     }
@@ -893,6 +897,7 @@ impl Parser {
                 if d.target.is_some() {
                     return Err(ScenarioError::new("DUPLICATE_PROPERTY", Some(line), None, "`target` declared twice"));
                 }
+                self.expect_tok(&Tok::Colon, "`:` after `target`")?;
                 let v = self.collect_value("target")?;
                 d.target = Some(single_name(&v, "target")?);
                 self.expect_terminator("target")?;
@@ -901,6 +906,7 @@ impl Parser {
                 if d.format.is_some() {
                     return Err(ScenarioError::new("DUPLICATE_PROPERTY", Some(line), None, "`format` declared twice"));
                 }
+                self.expect_tok(&Tok::Colon, "`:` after `format`")?;
                 let v = self.collect_value("format")?;
                 let s = single_name(&v, "format")?;
                 if s != REPLAY_CONTRACT {
@@ -918,6 +924,7 @@ impl Parser {
                 if d.revision.is_some() {
                     return Err(ScenarioError::new("DUPLICATE_PROPERTY", Some(line), None, "`revision` declared twice"));
                 }
+                self.expect_tok(&Tok::Colon, "`:` after `revision`")?;
                 let v = self.collect_value("revision")?;
                 let n = single_int(&v, "revision")?;
                 if n != FORMAT_REVISION as i64 {
@@ -969,6 +976,7 @@ impl Parser {
                             if s.state.is_some() {
                                 return Err(ScenarioError::new("DUPLICATE_PROPERTY", Some(l), None, "`state` declared twice"));
                             }
+                            self.expect_tok(&Tok::Colon, "`:` after `state`")?;
                             let v = self.collect_value("state")?;
                             let val = single_name(&v, "state")?;
                             if val != "fresh" {
@@ -1170,6 +1178,7 @@ impl Parser {
                                     "a step has exactly one trigger",
                                 ));
                             }
+                            self.expect_tok(&Tok::Colon, "`:` after `trigger`")?;
                             let v = self.collect_value("trigger")?;
                             st.trigger = Some(interpret_trigger(&v)?);
                             self.expect_terminator("trigger")?;
@@ -1421,10 +1430,10 @@ impl Parser {
     fn expect_scalar(&mut self) -> Result<Scalar, ScenarioError> {
         match self.bump() {
             None => Err(self.eof("a scalar value")),
-            Some((l, Tok::Str(s))) => Ok(Scalar::Str(s)),
-            Some((l, Tok::Int(n))) => Ok(Scalar::Int(n)),
-            Some((l, Tok::Ident(s))) if s == "true" => Ok(Scalar::Bool(true)),
-            Some((l, Tok::Ident(s))) if s == "false" => Ok(Scalar::Bool(false)),
+            Some((_l, Tok::Str(s))) => Ok(Scalar::Str(s)),
+            Some((_l, Tok::Int(n))) => Ok(Scalar::Int(n)),
+            Some((_l, Tok::Ident(s))) if s == "true" => Ok(Scalar::Bool(true)),
+            Some((_l, Tok::Ident(s))) if s == "false" => Ok(Scalar::Bool(false)),
             Some((l, t)) => Err(ScenarioError::syntax(l, format!("expected a string, integer or boolean scalar, found {t:?}"))),
         }
     }
@@ -1894,13 +1903,18 @@ impl Trace {
                 ));
                 continue;
             }
-            if !seen.insert((r.step, r.element.clone(), r.occurrence)) {
+            // The alignment key includes the record kind: one element may
+            // carry a UI record and a persistence record at the same barrier.
+            if !seen.insert((r.step, r.kind.tag(), r.element.clone(), r.occurrence)) {
                 errs.push(TraceError::new(
                     "DUPLICATE_RECORD_KEY",
                     Some(r.element.clone()),
                     format!(
-                        "record (step {}, element {:?}, occurrence {}) appears more than once",
-                        r.step, r.element, r.occurrence
+                        "record (step {}, kind {}, element {:?}, occurrence {}) appears more than once",
+                        r.step,
+                        r.kind.tag(),
+                        r.element,
+                        r.occurrence
                     ),
                 ));
                 continue;
@@ -2094,7 +2108,9 @@ pub struct ComparisonReport {
     pub actual_only: usize,
     /// Per-record mismatch detail, in alignment-key order.
     pub mismatches: Vec<MismatchDetail>,
-    /// Per-record unaligned detail, in alignment-key order.
+    /// Per-record unaligned detail, both sides interleaved in canonical
+    /// record order (step, occurrence, kind, element), expected before
+    /// actual on a tie.
     pub unaligned: Vec<UnalignedDetail>,
 }
 
@@ -2111,7 +2127,9 @@ impl ComparisonReport {
     /// the report under exactly one classification, so this equals
     /// `expected.records.len() + actual.records.len()` for valid traces.
     pub fn records_classified(&self) -> usize {
-        self.matched + self.mismatched + self.expected_only + self.actual_only
+        // An aligned pair (matched or mismatched) classifies one record from
+        // each trace.
+        2 * (self.matched + self.mismatched) + self.expected_only + self.actual_only
     }
 }
 
@@ -2132,9 +2150,10 @@ impl ComparisonReport {
 /// contract is deferred with the (unimplemented) normalisation register:
 /// nothing is excluded here, every record is classified exactly once.
 pub fn compare(expected: &Trace, actual: &Trace) -> ComparisonReport {
-    let mut index: BTreeMap<(u64, &str, u64), &TraceRecord> = BTreeMap::new();
+    // Alignment key: (step, kind, element, occurrence), as in validation.
+    let mut index: BTreeMap<(u64, &'static str, &str, u64), &TraceRecord> = BTreeMap::new();
     for r in &actual.records {
-        index.insert((r.step, r.element.as_str(), r.occurrence), r);
+        index.insert((r.step, r.kind.tag(), r.element.as_str(), r.occurrence), r);
     }
     let mut report = ComparisonReport {
         scenario: expected.scenario.clone(),
@@ -2155,7 +2174,7 @@ pub fn compare(expected: &Trace, actual: &Trace) -> ComparisonReport {
         ))
     });
     for rec in expected_sorted {
-        match index.remove(&(rec.step, rec.element.as_str(), rec.occurrence)) {
+        match index.remove(&(rec.step, rec.kind.tag(), rec.element.as_str(), rec.occurrence)) {
             Some(a) if a.kind == rec.kind && record_values_equal(&rec.value, &a.value) => report.matched += 1,
             Some(a) => {
                 report.mismatches.push(MismatchDetail {
@@ -2180,7 +2199,7 @@ pub fn compare(expected: &Trace, actual: &Trace) -> ComparisonReport {
             }
         }
     }
-    for ((step, element, occurrence), a) in &index {
+    for ((step, _, element, occurrence), a) in &index {
         report.unaligned.push(UnalignedDetail {
             step: *step,
             element: (*element).to_string(),
@@ -2191,6 +2210,16 @@ pub fn compare(expected: &Trace, actual: &Trace) -> ComparisonReport {
         });
         report.actual_only += 1;
     }
+    let side_rank = |u: &UnalignedDetail| u.side != UnalignedSide::ExpectedOnly;
+    report.unaligned.sort_by(|a, b| {
+        (a.step, a.occurrence, a.kind.tag(), a.element.as_str(), side_rank(a)).cmp(&(
+            b.step,
+            b.occurrence,
+            b.kind.tag(),
+            b.element.as_str(),
+            side_rank(b),
+        ))
+    });
     report
 }
 
@@ -2462,6 +2491,9 @@ mod tests {
   setup {
     state: fresh   // fresh sandbox profile, every run
     window { size: (1280, 800); }
+    seed {
+      file "arc/config.json" = payload "seed/config.json"
+    }
   }
   bindings {
     input.filter: input-0002;
@@ -2471,8 +2503,10 @@ mod tests {
   step filter_styles {
     trigger: input.filter.commit; input { value: text "styles"; }
     expect {
-      store { file "arc/filters.json" contains key "styles" = true; }
+      // expectation order is authored order; the draft does not
+      // canonicalise it, so it is kept the same as SOURCE
       ui { input "filter" = "styles"; }
+      store { file "arc/filters.json" contains key "styles" = true; }
     }
   }
 }
@@ -2621,7 +2655,7 @@ mod tests {
         assert_eq!(canonical, shuffled.canonical_json());
         // JSON round-trip.
         let reparsed: Trace = serde_json::from_str(&canonical).unwrap();
-        assert_eq!(reparsed, t);
+        assert_eq!(reparsed.canonical_json(), canonical);
     }
 
     #[test]
@@ -2831,8 +2865,16 @@ mod tests {
         let keys = |r: &ComparisonReport| -> Vec<(u64, String, u64)> {
             r.unaligned.iter().map(|u| (u.step, u.element.clone(), u.occurrence)).collect()
         };
-        assert_eq!(keys(&r1), vec![(0, "ui-0001".to_string(), 0), (2, "ui-0001".to_string(), 0)]);
-        assert_eq!(keys(&r2), vec![(1, "ui-0002".to_string(), 1), (1, "ui-0003".to_string(), 3)]);
+        // Canonical record order: (step, occurrence, kind, element).
+        let want = vec![
+            (0, "ui-0001".to_string(), 0),
+            (1, "ui-0003".to_string(), 1),
+            (1, "ui-0002".to_string(), 3),
+            (2, "ui-0001".to_string(), 0),
+        ];
+        assert_eq!(keys(&r1), want);
+        assert_eq!(keys(&r2), want, "order does not depend on which trace is expected");
+        assert_eq!(compare(&expected, &actual), r1, "comparison is repeatable");
         assert_eq!(r1.records_classified(), 4);
         assert_eq!(r2.records_classified(), 4);
     }
