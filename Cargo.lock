@@ -1478,6 +1478,7 @@ dependencies = [
  "goya-caprichios",
  "goya-chroma",
  "goya-determinism",
+ "goya-escene",
  "goya-executable",
  "goya-graphics-ir",
  "goya-gru",
@@ -1497,6 +1498,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "tempfile",
  "thiserror 1.0.69",
 ]
 

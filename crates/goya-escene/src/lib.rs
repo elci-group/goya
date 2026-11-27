@@ -12,6 +12,7 @@
 pub mod canonical;
 pub mod evidence;
 pub mod model;
+pub mod producer;
 pub mod registry;
 pub mod render;
 pub mod rules;
@@ -30,4 +31,5 @@ pub use render::{render_projection, RenderProfile, RENDERER_VERSION};
 pub use rules::{classify, CaprichioApplication, RuleRegistry};
 pub use source::{Precision, SourceSnapshot, Span};
 pub use build::Builder;
+pub use producer::{Collector, CompilationEvent, EmitOutcome, EsceneEvent, InterpretationEvent, SubstitutionEvent};
 pub use validate::validate;

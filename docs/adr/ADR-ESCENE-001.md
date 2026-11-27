@@ -74,6 +74,14 @@ Phase ESC-1 core infrastructure is implemented in `crates/goya-escene`, consolid
 
 Golden fixture `fixtures/escene/Doom-Arachnid.escene` is locked to deterministic regeneration (ESC-G01/G02/G03/G06/G07 exercised in `crates/goya-escene/tests/golden.rs`). Compiler and resolver integration (Phases ESC-2/ESC-3) remains open; no target crate emits events yet.
 
+## Amendment 2 — §11 producer contract and the first Diablos integration (Phase ESC-2, first slice)
+
+`crates/goya-escene::producer` implements the §11 contract: typed `EsceneEvent`s (compilation, interpretation, substitution), deterministic event→evidence conversion, a bounded `Collector` that discloses every budget-dropped event, and an inert disabled path that allocates nothing and returns `Disabled`.
+
+`crates/goya-diablos::escene` integrates the shared Diablos pipeline. Because lowering, code generation and linking remain blocked in the Diablos Phase-0 skeleton, the artefact is honest by construction: Compilation coverage is `partial` with that limitation stated, Interpretation is `not_applicable`, Substitution is `complete` with "no Caprichios applied", and no `C.NATIVE_LOWERING` annotation is emitted for work that did not happen (ESC-INV-009; test-enforced).
+
+`diablo-free build/check` generates `<out>/escene/<Scene>-<Target>.escene` by default (ESC-INV-003), with `--no-escene` to disable, atomic tmp-then-rename persistence (§19.2), and generation failure reduced to a warning that never invalidates the build (ESC-INV-012). Blocked builds still emit their partial artefact per §6.1; admission rejections skip generation. End-to-end verified: the artefact validates and `extract` reproduces `calculator.gscene` byte-for-byte.
+
 ## Consequences
 
 - `.escene` becomes the shared evidence artefact for agent-driven diagnosis, cross-target comparison, and closed-loop toolchain improvement.

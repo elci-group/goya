@@ -54,6 +54,7 @@ pub fn default_invocation(kind: CommandKind, scene: Option<PathBuf>, target: Str
         window: "auto".to_string(),
         desktop: None,
         config_root: None,
+        escene_disabled: false,
     }
 }
 

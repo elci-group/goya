@@ -60,12 +60,17 @@ struct Cli {
     #[arg(long, global = true)]
     config_root: Option<PathBuf>,
 
+    /// Disable .escene artefact generation (enabled by default)
+    #[arg(long, global = true)]
+    no_escene: bool,
+
     /// Output format
     #[arg(long, global = true, value_enum, default_value = "text")]
     format: OutputFormat,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
+#[derive(PartialEq, Eq)]
 enum OutputFormat {
     Text,
     Json,
@@ -111,6 +116,11 @@ enum Commands {
 
 pub fn main() {
     let cli = Cli::parse();
+    let escene_enabled = !cli.no_escene;
+    let escene_out = cli.out.clone();
+    let escene_target = cli.target.clone();
+    let escene_format_text = matches!(cli.format, OutputFormat::Text);
+    let escene_scene = cli_scene_path(&cli.command);
 
     let run = match cli.command {
         Commands::Inspect { scene } => execute(default_invocation(
@@ -125,6 +135,7 @@ pub fn main() {
         )),
         Commands::Build { scene } => {
             let mut inv = default_invocation(CommandKind::Build, Some(scene), cli.target.clone());
+            inv.escene_disabled = cli.no_escene;
             inv.release = cli.release;
             inv.out = cli.out;
             inv.evidence = cli.evidence;
@@ -168,6 +179,27 @@ pub fn main() {
         }
     };
 
+    // ESCENE generation (GOYA-ESCENE-001 §6.2): on by default for scene
+    // commands. Failure never invalidates the build result (ESC-INV-012).
+    if escene_enabled {
+        if let Some(scene) = escene_scene {
+            // §6.1: failed and blocked compilations still generate a partial
+            // artefact where feasible; only admission rejection skips it.
+            if run.code != goya_diablos::fault::exit::ADMISSION_FAILED {
+                let inv = default_invocation(CommandKind::Build, Some(scene), escene_target);
+                let out_dir = escene_out.unwrap_or_else(|| PathBuf::from("dist"));
+                match goya_diablos::escene::generate_for_invocation(&inv, &out_dir) {
+                    Ok(path) => {
+                        if escene_format_text {
+                            println!("escene: {}", path.display());
+                        }
+                    }
+                    Err(e) => eprintln!("warning: escene generation failed (build unaffected): {e}"),
+                }
+            }
+        }
+    }
+
     match cli.format {
         OutputFormat::Json => {
             println!("{}", serde_json::to_string_pretty(&run.json).unwrap());
@@ -181,6 +213,15 @@ pub fn main() {
     }
 
     std::process::exit(run.code as i32);
+}
+
+fn cli_scene_path(command: &Commands) -> Option<PathBuf> {
+    match command {
+        Commands::Inspect { scene } | Commands::Check { scene } | Commands::Build { scene } => {
+            Some(scene.clone())
+        }
+        _ => None,
+    }
 }
 
 fn print_targets() {

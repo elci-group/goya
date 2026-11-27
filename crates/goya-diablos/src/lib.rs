@@ -9,6 +9,7 @@
 pub mod abi;
 pub mod capabilities;
 pub mod certification;
+pub mod escene;
 pub mod fault;
 pub mod graphics;
 pub mod packaging;

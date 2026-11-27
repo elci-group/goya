@@ -43,6 +43,8 @@ pub struct Invocation {
     pub desktop: Option<String>,
     /// Optional XDG config root for deterministic desktop theme input
     pub config_root: Option<PathBuf>,
+    /// Disable .escene artefact generation (enabled by default, ESC-INV-003)
+    pub escene_disabled: bool,
 }
 
 /// Result of executing a Diablos command.
