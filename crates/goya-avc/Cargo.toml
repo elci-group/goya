@@ -1,0 +1,10 @@
+[package]
+name = "goya-avc"
+version = "0.0.1"
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Ahead-of-Time Video Compilation (AOT-VC) contracts (GOYA-GFX-AVC-001). Phase 0: logical contract only, no binary format."
+
+[dependencies]
+sha2 = "0.10"

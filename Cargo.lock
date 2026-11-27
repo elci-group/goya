@@ -1068,11 +1068,13 @@ name = "emperor"
 version = "0.1.8"
 dependencies = [
  "emperor-runtime",
+ "goya-escene",
  "goya-lang",
  "nebula",
  "sash",
  "serde_json",
  "sha2",
+ "tempfile",
 ]
 
 [[package]]
@@ -1555,6 +1557,13 @@ name = "goya-audio-linux"
 version = "0.1.8"
 dependencies = [
  "goya-audio-dsp",
+]
+
+[[package]]
+name = "goya-avc"
+version = "0.0.1"
+dependencies = [
+ "sha2",
 ]
 
 [[package]]
