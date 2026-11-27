@@ -1,6 +1,8 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/goya-injerto",
+    "crates/goya-cortados",
     "crates/goya-caprichios",
     "crates/nevada",
     "crates/maja",
@@ -42,6 +44,10 @@ members = [
     "crates/goya-wayland",
     "crates/goya-kumimanu",
     "crates/goya-window-management",
+    "crates/goya-diablos",
+    "crates/goya-escene",
+    "crates/goya-diablo-free",
+    "crates/goya-diablo-free-runtime",
     "crates/goya-lang",
     "crates/goya-change",
     "crates/goya-rars",
@@ -117,6 +123,7 @@ goya-watermark = { path = "crates/goya-watermark" }
 goya-wayland = { path = "crates/goya-wayland" }
 goya-kumimanu = { path = "crates/goya-kumimanu" }
 goya-window-management = { path = "crates/goya-window-management" }
+sash = { path = "crates/sash" }
 goya-lang = { path = "crates/goya-lang" }
 goya-caprichios = { path = "crates/goya-caprichios" }
 goya-change = { path = "crates/goya-change" }
@@ -142,6 +149,9 @@ goya-graphics-ir = { path = "crates/goya-graphics-ir" }
 goya-gva = { path = "crates/goya-gva" }
 goya-gvi = { path = "crates/goya-gvi" }
 goya-gru = { path = "crates/goya-gru" }
+goya-diablos = { path = "crates/goya-diablos" }
+goya-diablo-free = { path = "crates/goya-diablo-free" }
+goya-diablo-free-runtime = { path = "crates/goya-diablo-free-runtime" }
 emperor-runtime = { path = "crates/emperor-runtime" }
 goya-freedesktop = { path = "crates/goya-freedesktop" }
 nebula = { path = "crates/nebula" }
