@@ -62,6 +62,8 @@ pub enum SheetScope {
 pub enum CasaRule {
     Style(StyleRule),
     Media(MediaRule),
+    Layer(LayerRule),
+    Supports(SupportsRule),
     /// `@import` recorded at its source position; `resolved` names the
     /// sheet it was replaced by, when resolution succeeded.
     Import(ImportRule),
@@ -98,6 +100,27 @@ pub struct DeclaredProperty {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MediaRule {
+    pub condition: String,
+    pub rules: Vec<CasaRule>,
+    pub start: usize,
+    pub end: usize,
+}
+
+/// `@layer name { rules }` or an ordering statement `@layer a, b;`.
+/// Cascade layer order is first-encounter order across the sheets.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LayerRule {
+    /// Layer names in statement order; empty for an anonymous layer.
+    pub names: Vec<String>,
+    /// Rules for the block form; empty for an ordering statement.
+    pub rules: Vec<CasaRule>,
+    pub start: usize,
+    pub end: usize,
+}
+
+/// `@supports condition { rules }`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SupportsRule {
     pub condition: String,
     pub rules: Vec<CasaRule>,
     pub start: usize,
@@ -247,6 +270,45 @@ impl<'a> Lowering<'a> {
                     None
                 }
             },
+            "layer" => {
+                let names: Vec<String> = at
+                    .prelude
+                    .iter()
+                    .filter(|value| {
+                        !matches!(
+                            value,
+                            ComponentValue::Token(Token::Whitespace | Token::Comma, _)
+                        )
+                    })
+                    .map(|value| {
+                        let span = value.span();
+                        self.slice(span.start, span.end).trim().to_string()
+                    })
+                    .collect();
+                let rules = match &at.block {
+                    Some(block) => self.group_contents(&block.contents),
+                    None => Vec::new(),
+                };
+                Some(CasaRule::Layer(LayerRule {
+                    names,
+                    rules,
+                    start: at.span.start,
+                    end: at.span.end,
+                }))
+            }
+            "supports" => {
+                let condition = self.prelude_text(&at.prelude);
+                let rules = match &at.block {
+                    Some(block) => self.group_contents(&block.contents),
+                    None => Vec::new(),
+                };
+                Some(CasaRule::Supports(SupportsRule {
+                    condition,
+                    rules,
+                    start: at.span.start,
+                    end: at.span.end,
+                }))
+            }
             "font-face" => {
                 let declarations = match &at.block {
                     Some(block) => self.declarations(block),

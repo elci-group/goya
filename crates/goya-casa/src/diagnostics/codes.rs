@@ -81,6 +81,30 @@ pub const IR_UNSUPPORTED: DiagnosticCode = entry(
     Severity::Info,
 );
 
+// Cascade (CASA-CAS)
+pub const CASCADE_PROPERTY_CYCLE: DiagnosticCode = entry(
+    "CASA-CAS-001",
+    "custom property cycle detected; the value is invalid at computed-value time",
+    Severity::Error,
+);
+pub const CASCADE_INVALID_AT_COMPUTED_VALUE_TIME: DiagnosticCode = entry(
+    "CASA-CAS-002",
+    "var() references an undefined custom property without a fallback",
+    Severity::Warning,
+);
+pub const CASCADE_UNEVALUABLE: DiagnosticCode = entry(
+    "CASA-CAS-003",
+    "conditional rule could not be evaluated and was excluded",
+    Severity::Warning,
+);
+
+// Selectors (CASA-SEL)
+pub const SELECTOR_UNMATCHABLE: DiagnosticCode = entry(
+    "CASA-SEL-001",
+    "selector cannot be compiled for matching; its rule is excluded",
+    Severity::Warning,
+);
+
 // Shadow DOM (CASA-SHD)
 pub const SHADOW_HOST_OUTSIDE_SHADOW_ROOT: DiagnosticCode = entry(
     "CASA-SHD-001",
@@ -98,6 +122,10 @@ pub const ALL: &[DiagnosticCode] = &[
     IR_SCHEMA_MISMATCH,
     IR_DEPENDENCY_CYCLE,
     IR_UNSUPPORTED,
+    CASCADE_PROPERTY_CYCLE,
+    CASCADE_INVALID_AT_COMPUTED_VALUE_TIME,
+    CASCADE_UNEVALUABLE,
+    SELECTOR_UNMATCHABLE,
     SHADOW_HOST_OUTSIDE_SHADOW_ROOT,
 ];
 

@@ -106,8 +106,14 @@ pub fn capabilities(args: CapabilitiesArgs) -> Result<(), Box<dyn std::error::Er
             "implemented: model, value categories, dependency graph, serialization",
         ),
         ("diagnostics", "implemented: code registry, JSON reporter"),
-        ("cascade", "planned (Phase 2)"),
-        ("context", "planned (Phase 2)"),
+        (
+            "cascade",
+            "implemented: origins, layers, specificity, importance, custom properties, conditions",
+        ),
+        (
+            "context",
+            "implemented: scene tree, selector matching, computed styles",
+        ),
         ("geometry", "planned (Phase 3)"),
         ("appearance", "planned (Phase 3)"),
         ("typography", "planned (Phase 3)"),

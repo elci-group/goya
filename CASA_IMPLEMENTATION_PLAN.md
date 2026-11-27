@@ -257,15 +257,15 @@ selectors = "0.24"        # For selector matching
 ### Phase 2: Cascade & Structural Resolution (Week 4-6)
 **Goal**: Selectors, specificity, inheritance, custom properties, context binding
 
-- [ ] Implement `cascade/engine.rs` - Full cascade resolution (origin, importance, specificity, layers, scoping, source order)
-- [ ] Implement `cascade/inheritance.rs` - Property inheritance and defaulting
-- [ ] Implement `cascade/custom_properties.rs` - Custom property substitution with cycle detection
-- [ ] Implement `cascade/conditional.rs` - Media/container/supports condition evaluation
-- [ ] Implement `context/structural.rs` - DOM/scene tree representation and binding
-- [ ] Implement `context/selector_matching.rs` - Selector matching against structure (using `selectors` crate)
-- [ ] Implement `context/computed_style.rs` - Per-element computed style resolution
-- [ ] Integrate with `goya-fair` for structural context from Delectable
-- [ ] Cascade conformance tests (specificity, precedence, inheritance)
+- [x] Implement `cascade/engine.rs` - Full cascade resolution (origin, importance, specificity, layers, scoping, source order)
+- [x] Implement `cascade/inheritance.rs` - Property inheritance and defaulting
+- [x] Implement `cascade/custom_properties.rs` - Custom property substitution with cycle detection
+- [x] Implement `cascade/conditional.rs` - Media/container/supports condition evaluation
+- [x] Implement `context/structural.rs` - DOM/scene tree representation and binding
+- [x] Implement `context/selector_matching.rs` - Selector matching against structure (using `selectors` crate)
+- [x] Implement `context/computed_style.rs` - Per-element computed style resolution
+- [x] Integrate with `goya-fair` for structural context from Delectable
+- [x] Cascade conformance tests (specificity, precedence, inheritance)
 
 **Exit Criteria**: Full cascade resolution with structural context; selector matching validated against test suite
 
