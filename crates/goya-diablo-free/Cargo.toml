@@ -1,0 +1,26 @@
+[package]
+name = "goya-diablo-free"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Diablo Free: FreeBSD native compiler for Goya."
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "diablo-free"
+path = "src/main.rs"
+
+[dependencies]
+goya-diablos = { path = "../goya-diablos" }
+goya-diablo-free-runtime = { path = "../goya-diablo-free-runtime" }
+goya-lang.workspace = true
+sash.workspace = true
+goya-ir.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+thiserror = "1"
+clap = { version = "4", features = ["derive"] }
