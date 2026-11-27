@@ -238,17 +238,17 @@ selectors = "0.24"        # For selector matching
 ### Phase 1: Foundational Ingestion & CasaIR (Week 2-4)
 **Goal**: CSS parsing, tokenization, declaration representation, CasaIR, diagnostics
 
-- [ ] Implement `ingestion/parser.rs` - wrap goya-css-syntax for stylesheet parsing
-- [ ] Implement `ingestion/resources.rs` - font/asset discovery and ingestion
-- [ ] Implement `ingestion/imports.rs` - @import dependency resolution with cycle detection
-- [ ] Implement `ingestion/shadow_dom.rs` - Shadow DOM encapsulation handling
-- [ ] Define `ir/casa_ir.rs` - Canonical semantic model with all value categories
-- [ ] Implement `ir/value_categories.rs` - Declared/Cascaded/Specified/Computed/Used/Actual/Conditional/Native
-- [ ] Implement `ir/dependency_graph.rs` - Property-level dependency graphs
-- [ ] Implement `ir/serialization.rs` - Deterministic IR serialization with schema versioning
-- [ ] Implement `diagnostics/codes.rs` - Diagnostic code registry
-- [ ] Implement `diagnostics/reporter.rs` - Machine-readable diagnostic output
-- [ ] Unit tests for parsing, IR round-tripping
+- [x] Implement `ingestion/parser.rs` - wrap goya-css-syntax for stylesheet parsing
+- [x] Implement `ingestion/resources.rs` - font/asset discovery and ingestion
+- [x] Implement `ingestion/imports.rs` - @import dependency resolution with cycle detection
+- [x] Implement `ingestion/shadow_dom.rs` - Shadow DOM encapsulation handling
+- [x] Define `ir/casa_ir.rs` - Canonical semantic model with all value categories
+- [x] Implement `ir/value_categories.rs` - Declared/Cascaded/Specified/Computed/Used/Actual/Conditional/Native
+- [x] Implement `ir/dependency_graph.rs` - Property-level dependency graphs
+- [x] Implement `ir/serialization.rs` - Deterministic IR serialization with schema versioning
+- [x] Implement `diagnostics/codes.rs` - Diagnostic code registry
+- [x] Implement `diagnostics/reporter.rs` - Machine-readable diagnostic output
+- [x] Unit tests for parsing, IR round-tripping
 
 **Exit Criteria**: CSS → CasaIR round-trip with deterministic serialization; all parser conformance tests pass
 

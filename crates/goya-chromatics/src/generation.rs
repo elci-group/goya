@@ -90,7 +90,10 @@ pub enum Violation {
     SlotNotAvailable(String),
     SlotNameMismatch(SlotId),
     SlotReused(String),
-    OverCapacity { bound: usize, capacity: usize },
+    OverCapacity {
+        bound: usize,
+        capacity: usize,
+    },
     UnknownCandidate(String),
     DuplicateCandidate(String),
     DuplicateEntity(String),
@@ -100,7 +103,10 @@ pub enum Violation {
     /// A binding with no text label (§21: colour never identifies a
     /// binding, so the accessible floor is mandatory at publication).
     Unlabelled(String),
-    ContextMismatch { expected: String, found: String },
+    ContextMismatch {
+        expected: String,
+        found: String,
+    },
 }
 
 impl fmt::Display for Violation {

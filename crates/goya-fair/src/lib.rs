@@ -326,7 +326,12 @@ fn error(errors: &mut Vec<ValidationError>, element: Option<&str>, code: &str, m
 
 fn check_provenance(errors: &mut Vec<ValidationError>, id: &str, p: &ElementProvenance) {
     if p.line == 0 {
-        error(errors, Some(id), "ZERO_LINE", "provenance lines are 1-based".into());
+        error(
+            errors,
+            Some(id),
+            "ZERO_LINE",
+            "provenance lines are 1-based".into(),
+        );
     }
     match (p.span_start, p.span_end) {
         (None, None) => {}
@@ -335,7 +340,8 @@ fn check_provenance(errors: &mut Vec<ValidationError>, id: &str, p: &ElementProv
             errors,
             Some(id),
             "BAD_SPAN",
-            "spans are end-exclusive UTF-8; both bounds present with start < end, or neither".into(),
+            "spans are end-exclusive UTF-8; both bounds present with start < end, or neither"
+                .into(),
         ),
     }
 }
@@ -392,7 +398,12 @@ impl FairDocument {
         let mut element_ids = BTreeSet::new();
         for element in &self.elements {
             if element.id.trim().is_empty() {
-                error(&mut errors, None, "EMPTY_ELEMENT_ID", "element IDs must be non-empty".into());
+                error(
+                    &mut errors,
+                    None,
+                    "EMPTY_ELEMENT_ID",
+                    "element IDs must be non-empty".into(),
+                );
                 continue;
             }
             let id = element.id.as_str();
@@ -419,7 +430,8 @@ impl FairDocument {
                     &mut errors,
                     Some(id),
                     "UNKNOWN_KIND_UNRECORDED",
-                    "kind `unknown` requires the observed spelling under semantics `observed`".into(),
+                    "kind `unknown` requires the observed spelling under semantics `observed`"
+                        .into(),
                 );
             }
             check_provenance(&mut errors, id, &element.provenance);
@@ -458,12 +470,18 @@ impl FairDocument {
             );
         }
 
-        let relationship_ids: BTreeSet<&str> = self.relationships.iter().map(|r| r.id.as_str()).collect();
+        let relationship_ids: BTreeSet<&str> =
+            self.relationships.iter().map(|r| r.id.as_str()).collect();
         let mut seen = BTreeSet::new();
         for rel in &self.relationships {
             let id = rel.id.as_str();
             if id.trim().is_empty() {
-                error(&mut errors, None, "EMPTY_RELATIONSHIP_ID", "relationship IDs must be non-empty".into());
+                error(
+                    &mut errors,
+                    None,
+                    "EMPTY_RELATIONSHIP_ID",
+                    "relationship IDs must be non-empty".into(),
+                );
                 continue;
             }
             if !seen.insert(id) {
@@ -489,11 +507,14 @@ impl FairDocument {
                     &mut errors,
                     Some(id),
                     "MISSING_EVIDENCE",
-                    "a derived relationship must name the elements or relationships it rests on".into(),
+                    "a derived relationship must name the elements or relationships it rests on"
+                        .into(),
                 );
             }
             for e in &rel.evidence {
-                if e == id || !(element_ids.contains(e.as_str()) || relationship_ids.contains(e.as_str())) {
+                if e == id
+                    || !(element_ids.contains(e.as_str()) || relationship_ids.contains(e.as_str()))
+                {
                     error(
                         &mut errors,
                         Some(id),
@@ -509,17 +530,32 @@ impl FairDocument {
         for entry in &self.project.entry_points {
             let label = format!("entry point {:?}", entry.path);
             if !manifest.contains(entry.path.as_str()) {
-                error(&mut errors, None, "ENTRY_POINT_NOT_IN_MANIFEST", format!("{label} is not in the source manifest"));
+                error(
+                    &mut errors,
+                    None,
+                    "ENTRY_POINT_NOT_IN_MANIFEST",
+                    format!("{label} is not in the source manifest"),
+                );
             }
             if entry.role.trim().is_empty() {
-                error(&mut errors, None, "EMPTY_ROLE", format!("{label} has no role"));
+                error(
+                    &mut errors,
+                    None,
+                    "EMPTY_ROLE",
+                    format!("{label} has no role"),
+                );
             }
             check_evidence(&mut errors, &label, &entry.evidence, &element_ids);
         }
         for detection in &self.project.framework_detections {
             let label = format!("framework detection {:?}", detection.framework);
             if detection.framework.trim().is_empty() {
-                error(&mut errors, None, "EMPTY_FRAMEWORK", "framework names must be non-empty".into());
+                error(
+                    &mut errors,
+                    None,
+                    "EMPTY_FRAMEWORK",
+                    "framework names must be non-empty".into(),
+                );
             }
             check_evidence(&mut errors, &label, &detection.evidence, &element_ids);
         }
@@ -569,7 +605,13 @@ impl FairDocument {
             .entry_points
             .iter_mut()
             .map(|e| &mut e.evidence)
-            .chain(sorted.project.framework_detections.iter_mut().map(|d| &mut d.evidence))
+            .chain(
+                sorted
+                    .project
+                    .framework_detections
+                    .iter_mut()
+                    .map(|d| &mut d.evidence),
+            )
             .chain(sorted.relationships.iter_mut().map(|r| &mut r.evidence))
         {
             list.sort();
@@ -590,13 +632,28 @@ impl FairDocument {
     }
 }
 
-fn check_evidence(errors: &mut Vec<ValidationError>, label: &str, evidence: &[String], ids: &BTreeSet<&str>) {
+fn check_evidence(
+    errors: &mut Vec<ValidationError>,
+    label: &str,
+    evidence: &[String],
+    ids: &BTreeSet<&str>,
+) {
     if evidence.is_empty() {
-        error(errors, None, "MISSING_EVIDENCE", format!("{label} names no evidence"));
+        error(
+            errors,
+            None,
+            "MISSING_EVIDENCE",
+            format!("{label} names no evidence"),
+        );
     }
     for e in evidence {
         if !ids.contains(e.as_str()) {
-            error(errors, None, "DANGLING_EVIDENCE", format!("{label}: evidence {e:?} is not an element ID"));
+            error(
+                errors,
+                None,
+                "DANGLING_EVIDENCE",
+                format!("{label}: evidence {e:?} is not an element ID"),
+            );
         }
     }
 }
@@ -604,12 +661,16 @@ fn check_evidence(errors: &mut Vec<ValidationError>, label: &str, evidence: &[St
 /// Uppercase snake case, no leading digit, non-empty.
 fn is_reason_code(code: &str) -> bool {
     !code.is_empty()
-        && code.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+        && code
+            .chars()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
         && !code.chars().next().is_some_and(|c| c.is_ascii_digit())
 }
 
 fn is_lower_hex_sha256(s: &str) -> bool {
-    s.len() == 64 && s.chars().all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
+    s.len() == 64
+        && s.chars()
+            .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
 }
 
 #[cfg(test)]
@@ -677,7 +738,13 @@ mod tests {
         }
     }
 
-    fn rel(id: &str, subject: &str, object: &str, basis: Basis, evidence: &[&str]) -> FairRelationship {
+    fn rel(
+        id: &str,
+        subject: &str,
+        object: &str,
+        basis: Basis,
+        evidence: &[&str],
+    ) -> FairRelationship {
         FairRelationship {
             id: id.into(),
             subject: subject.into(),
@@ -690,15 +757,26 @@ mod tests {
     }
 
     fn codes(result: Result<(), Vec<ValidationError>>) -> Vec<String> {
-        result.err().unwrap_or_default().into_iter().map(|e| e.code).collect()
+        result
+            .err()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|e| e.code)
+            .collect()
     }
 
     // ---- FAIR/1 rules, unchanged ------------------------------------------
 
     #[test]
     fn valid_document_passes() {
-        assert_eq!(doc(vec![element("ui-0001", Extracted, None)]).validate(), Ok(()));
-        assert_eq!(doc1(vec![element("ui-0001", Extracted, None)]).validate(), Ok(()));
+        assert_eq!(
+            doc(vec![element("ui-0001", Extracted, None)]).validate(),
+            Ok(())
+        );
+        assert_eq!(
+            doc1(vec![element("ui-0001", Extracted, None)]).validate(),
+            Ok(())
+        );
     }
 
     #[test]
@@ -716,8 +794,16 @@ mod tests {
     #[test]
     fn reason_codes_must_be_register_form() {
         for d in [
-            doc(vec![element("ui-0001", Unrepresentable, Some("no capability"))]),
-            doc1(vec![element("ui-0001", Unrepresentable, Some("no capability"))]),
+            doc(vec![element(
+                "ui-0001",
+                Unrepresentable,
+                Some("no capability"),
+            )]),
+            doc1(vec![element(
+                "ui-0001",
+                Unrepresentable,
+                Some("no capability"),
+            )]),
         ] {
             assert!(codes(d.validate()).contains(&"BAD_REASON_CODE".to_string()));
         }
@@ -726,7 +812,11 @@ mod tests {
     #[test]
     fn duplicate_ids_rejected() {
         let errors = codes(
-            doc(vec![element("ui-0001", Extracted, None), element("ui-0001", Extracted, None)]).validate(),
+            doc(vec![
+                element("ui-0001", Extracted, None),
+                element("ui-0001", Extracted, None),
+            ])
+            .validate(),
         );
         assert!(errors.contains(&"DUPLICATE_ELEMENT_ID".to_string()));
     }
@@ -735,9 +825,13 @@ mod tests {
     fn unknown_kind_requires_observed_spelling() {
         let mut e = element("x-0001", Undetermined, Some("NO_FAIR_KIND"));
         e.kind = ElementKind::Unknown;
-        assert!(codes(doc(vec![e.clone()]).validate()).contains(&"UNKNOWN_KIND_UNRECORDED".to_string()));
-        e.semantics
-            .insert("observed".into(), SemanticsValue::Str("WidgetFactory".into()));
+        assert!(
+            codes(doc(vec![e.clone()]).validate()).contains(&"UNKNOWN_KIND_UNRECORDED".to_string())
+        );
+        e.semantics.insert(
+            "observed".into(),
+            SemanticsValue::Str("WidgetFactory".into()),
+        );
         assert_eq!(doc(vec![e]).validate(), Ok(()));
     }
 
@@ -764,18 +858,30 @@ mod tests {
 
     #[test]
     fn canonical_output_is_sorted_and_stable() {
-        let a = doc(vec![element("ui-0002", Extracted, None), element("ui-0001", Extracted, None)]);
-        let b = doc(vec![element("ui-0001", Extracted, None), element("ui-0002", Extracted, None)]);
+        let a = doc(vec![
+            element("ui-0002", Extracted, None),
+            element("ui-0001", Extracted, None),
+        ]);
+        let b = doc(vec![
+            element("ui-0001", Extracted, None),
+            element("ui-0002", Extracted, None),
+        ]);
         assert_eq!(a.canonical_json(), b.canonical_json());
         assert!(a.canonical_json().ends_with('\n'));
     }
 
     #[test]
     fn dynamic_require_is_preserved_not_dropped() {
-        let mut e = element("node-0042", Undetermined, Some("DYNAMIC_REQUIRE_UNRESOLVED"));
+        let mut e = element(
+            "node-0042",
+            Undetermined,
+            Some("DYNAMIC_REQUIRE_UNRESOLVED"),
+        );
         e.kind = ElementKind::DynamicModuleResolution;
-        e.semantics
-            .insert("resolution".into(), SemanticsValue::Str("unresolved".into()));
+        e.semantics.insert(
+            "resolution".into(),
+            SemanticsValue::Str("unresolved".into()),
+        );
         let d = doc(vec![e]);
         assert_eq!(d.validate(), Ok(()));
         let json = d.canonical_json();
@@ -797,8 +903,11 @@ mod tests {
 
     #[test]
     fn fair1_fixture_round_trips_byte_for_byte() {
-        let raw = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/example.fair.json"))
-            .expect("fixture present");
+        let raw = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/fixtures/example.fair.json"
+        ))
+        .expect("fixture present");
         let parsed: FairDocument = serde_json::from_str(&raw).expect("fixture parses");
         assert_eq!(parsed.contract, FAIR_1_CONTRACT);
         assert_eq!(parsed.validate(), Ok(()));
@@ -819,19 +928,29 @@ mod tests {
         let mut e = element("m", Extracted, None);
         e.kind = ElementKind::ModuleImport;
         assert!(codes(doc1(vec![e]).validate()).contains(&"FAIR2_FEATURE_IN_FAIR1".to_string()));
-        let mut d = doc1(vec![element("a", Extracted, None), element("b", Extracted, None)]);
-        d.relationships.push(rel("r", "a", "b", Basis::Extracted, &[]));
+        let mut d = doc1(vec![
+            element("a", Extracted, None),
+            element("b", Extracted, None),
+        ]);
+        d.relationships
+            .push(rel("r", "a", "b", Basis::Extracted, &[]));
         assert!(codes(d.validate()).contains(&"FAIR2_FEATURE_IN_FAIR1".to_string()));
     }
 
     #[test]
     fn fair1_upgrades_to_fair2() {
-        let raw = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/example.fair.json"))
-            .expect("fixture present");
+        let raw = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/fixtures/example.fair.json"
+        ))
+        .expect("fixture present");
         let parsed: FairDocument = serde_json::from_str(&raw).expect("fixture parses");
         let upgraded = parsed.upgrade().expect("upgrades");
         assert_eq!(upgraded.contract, FAIR_CONTRACT);
-        assert!(doc(vec![]).upgrade().is_err(), "FAIR/2 is not upgraded again");
+        assert!(
+            doc(vec![]).upgrade().is_err(),
+            "FAIR/2 is not upgraded again"
+        );
     }
 
     // ---- FAIR/2 -----------------------------------------------------------
@@ -844,8 +963,13 @@ mod tests {
 
     #[test]
     fn register_is_sorted_unique_and_well_formed() {
-        assert!(REASON_CODES.windows(2).all(|w| w[0].0 < w[1].0), "register must be sorted and unique");
-        assert!(REASON_CODES.iter().all(|(c, m)| is_reason_code(c) && !m.is_empty()));
+        assert!(
+            REASON_CODES.windows(2).all(|w| w[0].0 < w[1].0),
+            "register must be sorted and unique"
+        );
+        assert!(REASON_CODES
+            .iter()
+            .all(|(c, m)| is_reason_code(c) && !m.is_empty()));
     }
 
     #[test]
@@ -867,27 +991,41 @@ mod tests {
     #[test]
     fn relationships_must_point_at_elements() {
         let mut d = doc(vec![element("a", Extracted, None)]);
-        d.relationships.push(rel("r", "a", "missing", Basis::Extracted, &[]));
+        d.relationships
+            .push(rel("r", "a", "missing", Basis::Extracted, &[]));
         assert!(codes(d.validate()).contains(&"DANGLING_RELATIONSHIP".to_string()));
     }
 
     #[test]
     fn derived_relationships_need_existing_evidence() {
-        let mut d = doc(vec![element("a", Extracted, None), element("b", Extracted, None)]);
-        d.relationships.push(rel("r1", "a", "b", Basis::Derived, &[]));
+        let mut d = doc(vec![
+            element("a", Extracted, None),
+            element("b", Extracted, None),
+        ]);
+        d.relationships
+            .push(rel("r1", "a", "b", Basis::Derived, &[]));
         assert!(codes(d.validate()).contains(&"MISSING_EVIDENCE".to_string()));
         d.relationships[0].evidence = vec!["r1".into()];
-        assert!(codes(d.validate()).contains(&"DANGLING_EVIDENCE".to_string()), "self-evidence refused");
-        d.relationships.push(rel("r0", "b", "a", Basis::Extracted, &[]));
+        assert!(
+            codes(d.validate()).contains(&"DANGLING_EVIDENCE".to_string()),
+            "self-evidence refused"
+        );
+        d.relationships
+            .push(rel("r0", "b", "a", Basis::Extracted, &[]));
         d.relationships[0].evidence = vec!["r0".into(), "a".into()];
         assert_eq!(d.validate(), Ok(()));
     }
 
     #[test]
     fn duplicate_relationship_ids_rejected() {
-        let mut d = doc(vec![element("a", Extracted, None), element("b", Extracted, None)]);
-        d.relationships.push(rel("r", "a", "b", Basis::Extracted, &[]));
-        d.relationships.push(rel("r", "b", "a", Basis::Extracted, &[]));
+        let mut d = doc(vec![
+            element("a", Extracted, None),
+            element("b", Extracted, None),
+        ]);
+        d.relationships
+            .push(rel("r", "a", "b", Basis::Extracted, &[]));
+        d.relationships
+            .push(rel("r", "b", "a", Basis::Extracted, &[]));
         assert!(codes(d.validate()).contains(&"DUPLICATE_RELATIONSHIP_ID".to_string()));
     }
 
@@ -905,7 +1043,12 @@ mod tests {
             evidence: vec!["nope".into()],
         });
         let errors = codes(d.validate());
-        for code in ["ENTRY_POINT_NOT_IN_MANIFEST", "EMPTY_ROLE", "MISSING_EVIDENCE", "DANGLING_EVIDENCE"] {
+        for code in [
+            "ENTRY_POINT_NOT_IN_MANIFEST",
+            "EMPTY_ROLE",
+            "MISSING_EVIDENCE",
+            "DANGLING_EVIDENCE",
+        ] {
             assert!(errors.contains(&code.to_string()), "{code} not raised");
         }
     }
@@ -913,7 +1056,10 @@ mod tests {
     #[test]
     fn fair2_canonical_output_sorts_everything() {
         let base = || {
-            let mut d = doc(vec![element("a", Extracted, None), element("b", Extracted, None)]);
+            let mut d = doc(vec![
+                element("a", Extracted, None),
+                element("b", Extracted, None),
+            ]);
             d.project.entry_points.push(EntryPoint {
                 path: "src/main.ts".into(),
                 role: "main".into(),
@@ -922,11 +1068,15 @@ mod tests {
             d
         };
         let mut x = base();
-        x.relationships.push(rel("r2", "a", "b", Basis::Derived, &["b", "a"]));
-        x.relationships.push(rel("r1", "b", "a", Basis::Extracted, &[]));
+        x.relationships
+            .push(rel("r2", "a", "b", Basis::Derived, &["b", "a"]));
+        x.relationships
+            .push(rel("r1", "b", "a", Basis::Extracted, &[]));
         let mut y = base();
-        y.relationships.push(rel("r1", "b", "a", Basis::Extracted, &[]));
-        y.relationships.push(rel("r2", "a", "b", Basis::Derived, &["a", "b"]));
+        y.relationships
+            .push(rel("r1", "b", "a", Basis::Extracted, &[]));
+        y.relationships
+            .push(rel("r2", "a", "b", Basis::Derived, &["a", "b"]));
         assert_eq!(x.validate(), Ok(()));
         assert_eq!(x.canonical_json(), y.canonical_json());
         let reparsed: FairDocument = serde_json::from_str(&x.canonical_json()).expect("parses");
@@ -935,8 +1085,11 @@ mod tests {
 
     #[test]
     fn fair2_fixture_round_trips() {
-        let raw = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/example.fair2.json"))
-            .expect("fixture present");
+        let raw = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/fixtures/example.fair2.json"
+        ))
+        .expect("fixture present");
         let parsed: FairDocument = serde_json::from_str(&raw).expect("fixture parses");
         assert_eq!(parsed.validate(), Ok(()));
         assert_eq!(parsed.canonical_json(), raw);

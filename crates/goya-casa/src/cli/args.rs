@@ -115,7 +115,7 @@ pub struct CapabilitiesArgs {
     pub format: OutputFormat,
 }
 
-#[derive(Copy, Clone, ValueEnum, Debug)]
+#[derive(Copy, Clone, ValueEnum, Debug, PartialEq, Eq)]
 pub enum OutputFormat {
     Text,
     Json,
