@@ -109,7 +109,8 @@ fn benchmark_measures_oracle_and_elf_latency_with_machine_context() {
         "--target",
         "x86_64-unknown-linux-gnu",
     ]);
-    assert_eq!(build.code, 0, "{}", build.text);
+    // Exit 3: the post-build smoke run is BLOCKED without a display.
+    assert!(matches!(build.code, 0 | 3), "{}", build.text);
 
     let bench = run(&[
         "benchmark",
@@ -141,8 +142,24 @@ fn benchmark_measures_oracle_and_elf_latency_with_machine_context() {
     let rustc = context["rustc"].as_str().unwrap_or("");
     assert!(rustc.starts_with("rustc "), "rustc context: {rustc}");
 
-    // Frame rate is never claimed, with or without a display.
-    assert_eq!(bench.json["frame_rate"]["status"], "BLOCKED");
+    // Frame rate is measured only from presented frames of a live pump on
+    // a ready display; without one it is BLOCKED with a reason, never
+    // estimated.
+    let frame_rate = &bench.json["frame_rate"];
+    match frame_rate["status"].as_str() {
+        Some("MEASURED") => {
+            let runs = frame_rate["runs_fps"].as_array().expect("fps runs");
+            assert!(!runs.is_empty(), "{frame_rate}");
+            assert_eq!(frame_rate["runs"].as_u64(), Some(runs.len() as u64));
+            assert_eq!(frame_rate["frames_per_run"], 120);
+            assert!(runs.iter().all(|fps| fps.as_f64().is_some_and(|v| v > 0.0)));
+        }
+        Some("BLOCKED") => {
+            let reason = frame_rate["reason"].as_str().unwrap_or("");
+            assert!(!reason.is_empty(), "{frame_rate}");
+        }
+        other => panic!("unexpected frame_rate status {other:?}: {frame_rate}"),
+    }
     let smoke = &bench.json["smoke_latency"];
     if smoke.get("runs_seconds").is_some() {
         assert_eq!(
@@ -320,7 +337,8 @@ fn package_deb_builds_a_real_debian_archive() {
         "--target",
         "x86_64-unknown-linux-gnu",
     ]);
-    assert_eq!(build.code, 0, "{}", build.text);
+    // Exit 3: the post-build smoke run is BLOCKED without a display.
+    assert!(matches!(build.code, 0 | 3), "{}", build.text);
 
     let packaged = run(&["package", "--format", "deb", &out_str]);
     assert_eq!(packaged.code, 0, "{}", packaged.text);
