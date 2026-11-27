@@ -29,6 +29,9 @@ pub struct Checkpoint {
     /// SHA-256 of the canonical checkpoint payload (digest fixed at
     /// construction so certification cannot be inferred after the fact).
     pub digest: [u8; 32],
+    /// The exact payload the digest was computed over (Amendment 4: a
+    /// runtime restores state from this; the digest proves it unchanged).
+    payload: Vec<u8>,
 }
 
 impl Checkpoint {
@@ -41,7 +44,36 @@ impl Checkpoint {
             state,
             at,
             digest: hasher.finalize().into(),
+            payload: payload.to_vec(),
         }
+    }
+
+    /// The payload the digest was computed over.
+    pub fn payload_bytes(&self) -> &[u8] {
+        &self.payload
+    }
+
+    /// Reassemble a checkpoint from serialised parts (Phase-2 binary
+    /// deserialisation). The digest is *not* recomputed: callers must
+    /// confirm `digest_is_intact` before trusting the payload.
+    pub fn from_parts(
+        state: TemporalStateId,
+        at: MediaClock,
+        payload: Vec<u8>,
+        digest: [u8; 32],
+    ) -> Self {
+        Self {
+            state,
+            at,
+            digest,
+            payload,
+        }
+    }
+
+    /// Recompute the digest and compare: detects payload tampering after
+    /// the fact (AVC-C05).
+    pub fn digest_is_intact(&self) -> bool {
+        Self::new(self.state, self.at, &self.payload).digest == self.digest
     }
 }
 

@@ -63,9 +63,10 @@ pub enum Instruction {
     SetRegion { region: Target, state: PixelState },
     /// `COPY_REGION` — reuse an existing visual region at another position.
     CopyRegion { from: Target, to: Target },
-    /// `APPLY_DELTA` — apply a precomputed state difference; resolution
-    /// depth is bounded by `MAX_DELTA_DEPTH`.
-    ApplyDelta { delta_id: u32 },
+    /// `APPLY_DELTA` — apply a precomputed state difference to one row;
+    /// resolution depth is bounded by `MAX_DELTA_DEPTH` and the
+    /// precondition (the row's current content) is checkable (AVC-C13).
+    ApplyDelta { row: u32, delta_id: u32 },
     /// `LOAD_STATE` — restore a complete visual checkpoint.
     LoadState { checkpoint_id: u32 },
     /// `SYNC` — synchronise with the media clock.
@@ -166,7 +167,16 @@ mod tests {
                 ..
             }
         ));
-        let delta = Instruction::ApplyDelta { delta_id: 7 };
-        assert!(matches!(delta, Instruction::ApplyDelta { delta_id: 7 }));
+        let delta = Instruction::ApplyDelta {
+            row: 3,
+            delta_id: 7,
+        };
+        assert!(matches!(
+            delta,
+            Instruction::ApplyDelta {
+                delta_id: 7,
+                row: 3
+            }
+        ));
     }
 }

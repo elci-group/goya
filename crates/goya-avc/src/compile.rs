@@ -208,9 +208,13 @@ pub fn compile(
         .map_err(|_| CompileError::EmptySource)?;
 
         // Checkpoint at or beyond the interval: the seek entry point.
+        // Payload encoding lives in the runtime module so the format
+        // cannot drift between compiler and runtime (Amendment 4).
         let since_checkpoint = at.ticks() - last_checkpoint_tick;
         if frame_index > 0 && since_checkpoint >= profile.budgets.max_checkpoint_interval.ticks() {
-            let payload = checkpoint_payload(rows);
+            let payload = crate::runtime::encode_checkpoint_payload(
+                &rows.iter().map(|&r| ContentId(r)).collect::<Vec<_>>(),
+            );
             timeline
                 .push_checkpoint(Checkpoint::new(
                     TemporalStateId(frame_index as u64),
@@ -253,7 +257,10 @@ pub fn compile(
                             &mut timeline,
                             &mut event_id,
                             at,
-                            Instruction::ApplyDelta { delta_id },
+                            Instruction::ApplyDelta {
+                                row: y as u32,
+                                delta_id,
+                            },
                         )?;
                         stats.delta_events += 1;
                         persistent_writes += deltas[delta_id as usize].write_count();
@@ -310,19 +317,19 @@ pub fn compile(
             }
         }
         previous = Some(rows);
-    }
 
-    // `PRESENT`: atomically present the completed visual state.
-    let last_tick = frame_duration.ticks() * (frame_count as u64 - 1);
-    let at = MediaClock::new(last_tick, params.ticks_per_second)
-        .map_err(|_| CompileError::EmptySource)?;
-    emit(&mut timeline, &mut event_id, at, Instruction::Present)?;
+        // `PRESENT`: atomically present the completed visual state —
+        // once per frame (directive §4; a runtime presents every frame,
+        // not only the last).
+        emit(&mut timeline, &mut event_id, at, Instruction::Present)?;
+    }
 
     // Budget validation before any emission (AVC-C10). Delta
     // applications are bounded by the transition count (upper bound:
-    // one per row per differential frame).
+    // one per row per differential frame). Event bound: per frame, at
+    // most one event per row plus one PRESENT.
     let budget = InstructionBudget {
-        max_events: frame_count as usize * (height as usize + 1) + 1,
+        max_events: frame_count as usize * (height as usize + 1),
         max_delta_applications: frame_count as usize * height as usize,
     };
     timeline.validate(&budget).map_err(CompileError::Budget)?;
@@ -399,14 +406,6 @@ fn instruction_write_count(instruction: &Instruction) -> u64 {
 
 fn fill_states(row: &[ColourIndex]) -> Vec<PixelState> {
     row.iter().map(|&c| PixelState::exact_fill(c)).collect()
-}
-
-fn checkpoint_payload(rows: &[u32]) -> Vec<u8> {
-    let mut payload = Vec::with_capacity(rows.len() * 4);
-    for row in rows {
-        payload.extend_from_slice(&row.to_le_bytes());
-    }
-    payload
 }
 
 #[cfg(test)]

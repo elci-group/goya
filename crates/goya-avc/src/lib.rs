@@ -30,6 +30,7 @@ pub mod ingestion;
 pub mod instructions;
 pub mod pixel;
 pub mod profile;
+pub mod runtime;
 pub mod tags;
 pub mod temporal;
 pub mod topology;
@@ -57,6 +58,10 @@ pub use instructions::{
 };
 pub use pixel::{ApproximationCause, ColourIndex, Exactness, Light, PixelState, MAX_TRIMS};
 pub use profile::{CompilationBudgets, CompilationProfile, ProfileKind};
+pub use runtime::{
+    decode_checkpoint_payload, encode_checkpoint_payload, play, play_from, PresentedFrame,
+    ReferenceRuntime, RuntimeError,
+};
 pub use tags::{ProposedTag, EXISTING_CONTAINER_TAGS};
 pub use temporal::{Checkpoint, EventId, ScheduledEvent, TemporalStateId, Timeline, TimelineError};
 pub use topology::{TopologyError, TrimDefinitionId, TrimDirection};
