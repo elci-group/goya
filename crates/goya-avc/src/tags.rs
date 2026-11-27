@@ -56,6 +56,7 @@ pub const EXISTING_CONTAINER_TAGS: &[ProposedTag] = &[
 
 /// Proposed AOT-VC inventory sections (ADR-AVC-001 F6).
 pub const TIML: ProposedTag = ProposedTag::new(*b"TIML");
+pub const DELT: ProposedTag = ProposedTag::new(*b"DELT");
 pub const EVNT: ProposedTag = ProposedTag::new(*b"EVNT");
 pub const CHKP: ProposedTag = ProposedTag::new(*b"CHKP");
 pub const PALT: ProposedTag = ProposedTag::new(*b"PALT");
@@ -66,8 +67,9 @@ pub const TRIM: ProposedTag = ProposedTag::new(*b"TRIM");
 pub const EXCT: ProposedTag = ProposedTag::new(*b"EXCT");
 pub const AUDS: ProposedTag = ProposedTag::new(*b"AUDS");
 
-pub const PROPOSED_AVC_TAGS: &[ProposedTag] =
-    &[TIML, EVNT, CHKP, PALT, PIXS, ROWS, REGN, TRIM, EXCT, AUDS];
+pub const PROPOSED_AVC_TAGS: &[ProposedTag] = &[
+    TIML, EVNT, CHKP, PALT, PIXS, ROWS, REGN, TRIM, EXCT, AUDS, DELT,
+];
 
 /// Every byte of every tag is `A–Z` or `0–9` (GY-GFXC/1 E1014).
 pub fn is_tag_charset_valid(tag: &ProposedTag) -> bool {
@@ -113,7 +115,10 @@ mod tests {
             .collect();
         assert_eq!(
             ids,
-            vec!["TIML", "EVNT", "CHKP", "PALT", "PIXS", "ROWS", "REGN", "TRIM", "EXCT", "AUDS"]
+            vec![
+                "TIML", "EVNT", "CHKP", "PALT", "PIXS", "ROWS", "REGN", "TRIM", "EXCT", "AUDS",
+                "DELT"
+            ]
         );
     }
 }

@@ -25,6 +25,7 @@ pub mod certification;
 pub mod clock;
 pub mod colour;
 pub mod compile;
+mod container;
 pub mod delta;
 pub mod ingestion;
 pub mod instructions;
@@ -48,6 +49,7 @@ pub use colour::{
     RejectionDiagnostic, Tolerance, WorkingSpace,
 };
 pub use compile::{compile, CompileError, CompileStats, CompiledVideo, RowId};
+pub use container::{decode_container, encode_container, ContainerError};
 pub use delta::{ContentId, PixelChange, RowDelta};
 pub use ingestion::{
     srgb8_to_linear_q24_8, DecodedFrame, DecodedFrameFormat, IngestionError, IngestionParameters,

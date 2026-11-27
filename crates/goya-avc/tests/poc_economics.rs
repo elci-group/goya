@@ -203,7 +203,19 @@ fn poc_screen_recording_economics() {
         assert_eq!(decoded.len(), video.dimensions.1 as usize);
     }
 
-    // --- The measured table (recorded in ADR-AVC-001 Amendment 6) ---
+    // --- Container round trip at scale (Phase 2, Amendment 7) ---
+    let bytes = goya_avc::encode_container(&video);
+    let decoded = goya_avc::decode_container(&bytes).unwrap();
+    assert_eq!(decoded, video, "decode(encode(v)) must equal v at scale");
+    assert_eq!(
+        goya_avc::encode_container(&decoded),
+        bytes,
+        "encode is idempotent at scale: byte-identical repeat builds"
+    );
+    // And the decoded video still plays identically.
+    assert_eq!(play(&decoded).unwrap(), frames);
+
+    // --- The measured table (recorded in ADR-AVC-001 Amendment 6/7) ---
     let raw_bytes = (source.frames * source.width * source.height * 3) as usize;
     println!(
         "=== AOT-VC POC screen-recording economics (320×180 @ 30 FPS, 240 frames, lossless) ==="
@@ -240,6 +252,11 @@ fn poc_screen_recording_economics() {
         "modelled binary size (floor)  : {modelled} bytes ({:.2}× raw)",
         raw_bytes as f64 / modelled_bytes(&video) as f64,
         modelled = modelled_bytes(&video)
+    );
+    println!(
+        "GYAV container size (real)    : {} bytes ({:.2}× raw)",
+        bytes.len(),
+        raw_bytes as f64 / bytes.len() as f64
     );
     println!("compile time (this host)      : {compile_time:?} (non-deterministic, informational)");
     println!("replay time (this host)       : {play_time:?} (non-deterministic, informational)");
