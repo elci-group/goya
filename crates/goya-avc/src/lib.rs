@@ -24,6 +24,8 @@
 pub mod certification;
 pub mod clock;
 pub mod colour;
+pub mod compile;
+pub mod ingestion;
 pub mod instructions;
 pub mod pixel;
 pub mod profile;
@@ -42,6 +44,11 @@ pub use clock::MediaClock;
 pub use colour::{
     ClosureVerdict, ColourEntry, ColourInventory, PaletteBound, RejectionDiagnostic, Tolerance,
     WorkingSpace,
+};
+pub use compile::{compile, CompileError, CompileStats, CompiledVideo, RowId};
+pub use ingestion::{
+    DecodedFrame, DecodedFrameFormat, IngestionError, IngestionParameters, RgbPixels, SourceError,
+    VideoSource, LINEAR_UNITY,
 };
 pub use instructions::{
     Instruction, InstructionBudget, ProgramError, RegionRect, Target, MAX_DELTA_DEPTH,

@@ -84,3 +84,17 @@ The proposal's §9 profile table (embedded/mobile/TV/desktop/archival/interactiv
 | Trim interpolation darkening boundaries (gamma-space averaging) | Medium | F8 — linear working space fixed by decision 6 |
 | Timeline/audio drift on non-integer frame rates | Medium | F5 — rational timescale represents NTSC rates exactly |
 | New runtime surface (schedule/resolve/dispatch/present) duplicating GVI presentation | Medium | F1 — runtime consumes the shared inventory contract; presentation cost model is GVI's internal baseline |
+
+## Amendment 1 — source-ingestion contract exists; Phase-1 gate satisfied (contract level)
+
+`crates/goya-avc/src/ingestion.rs` implements decision 8's gate as executable contract, following the AVR `SpatialSource` pattern (ADR-AVR-001 F1):
+
+- **Accepted formats.** Byte-packed RGB-family frames (`Rgb8`, `Rgba8`, `Bgra8`). YUV-family decode output is rejected at the contract boundary with an actionable hint naming the required conversion: chroma resampling and matrix decisions belong to a decoder adapter, not to the visual-state contract. Malformed frame payloads (length vs declared geometry) are rejected structurally.
+- **Conversion rule.** sRGB EOTF decoded to scene-linear Rec. 709 (decision 6's working space) and quantised to Q24.8 with round-half-to-even (the GVI arithmetic convention). This is the contract's one floating-point stage, declared like AVR's f32 lesson: byte-identical output is claimable per host build, cross-host is tolerance-class.
+- **Closure parameters.** `IngestionParameters` (working space + media-clock timescale) binds explicitly; no `Default` (AVC-C09).
+
+`crates/goya-avc/src/compile.rs` implements the reference compilation sequence as executable contract: decode → working-space conversion → colour closure (fail-closed with the F2 diagnostic) → row decomposition and first-use-order deduplication → temporal optimisation (differential `SET_ROW` events over persistent state, per-frame positions at exact tick multiples) → interval-bounded `LOAD_STATE` checkpoints → `PRESENT` → budget validation. It also records the measurement the §5 bandwidth model needs: `CompileStats` carries naive vs persistent pixel-write counts for benchmark baselines.
+
+Proof-of-concept evidence (deterministic synthetic screen recording, 8×4, 3 frames, 3 colours): the persistent-state model issues 56 pixel writes against a naive 96 (the §5 baseline), the timeline compiles deterministically (byte-identical repeat builds), and an over-bound source fails closed with the remediation diagnostic. One quantisation finding: the sRGB EOTF maps near-black levels onto the same Q24.8 value (byte 1 → 0), so closure operates post-quantisation by design — palette counts are canonical-entry counts, not source-byte counts.
+
+Gate status: the Phase-1 gate is satisfied **at the contract level**. Canonical compilation of real sources additionally requires a decoder adapter for the MP4/MKV/WebM/MOV container families (process boundary, mirroring `goya-tov`'s adapter pattern); that adapter is Phase-1 implementation work, not a contract renegotiation.

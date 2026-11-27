@@ -38,7 +38,7 @@ pub struct PaletteBound(pub u32);
 
 /// An entry in the compiled colour inventory: the canonical linear-light
 /// RGB triple after decode conversion.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ColourEntry {
     /// Linear Rec. 709, 32-bit fixed point per component (Q24.8).
     pub linear_rgb: [u32; 3],
@@ -71,7 +71,7 @@ pub enum ClosureVerdict {
 
 /// The compiled colour inventory: a deduplicated, deterministically
 /// ordered set of canonical colours (directive §6, colour inventory).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ColourInventory {
     entries: Vec<ColourEntry>,
     bound: PaletteBound,
