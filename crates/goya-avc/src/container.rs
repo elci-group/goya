@@ -16,6 +16,7 @@
 //! are re-derived and compared so a tampered payload is rejected at
 //! decode, not at playback.
 
+use crate::audio::AudioSidecar;
 use crate::clock::MediaClock;
 use crate::colour::{ColourEntry, PaletteBound, Tolerance, WorkingSpace};
 use crate::compile::CompiledVideo;
@@ -36,6 +37,7 @@ const TAG_ROWS: [u8; 4] = tags::ROWS.0;
 const TAG_DELT: [u8; 4] = tags::DELT.0;
 const TAG_EVNT: [u8; 4] = tags::EVNT.0;
 const TAG_CHKP: [u8; 4] = tags::CHKP.0;
+const TAG_AUDS: [u8; 4] = tags::AUDS.0;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ContainerError {
@@ -103,10 +105,6 @@ impl core::fmt::Display for ContainerError {
     }
 }
 
-/// The five section payloads, in container order: PALT, ROWS, DELT,
-/// EVNT, CHKP.
-type SectionPayloads = (Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>);
-
 // ---------------------------------------------------------------- encode
 
 /// Encode a compiled video into the canonical container bytes.
@@ -121,20 +119,27 @@ pub fn encode_container(video: &CompiledVideo) -> Vec<u8> {
     out.extend_from_slice(&video.dimensions.0.to_le_bytes());
     out.extend_from_slice(&video.dimensions.1.to_le_bytes());
 
-    let (palt, rows, delt, evnt, chkp) = encode_sections(video);
-    for (tag, payload) in [
-        (TAG_PALT, &palt),
-        (TAG_ROWS, &rows),
-        (TAG_DELT, &delt),
-        (TAG_EVNT, &evnt),
-        (TAG_CHKP, &chkp),
-    ] {
+    let (palt, rows, delt, evnt, chkp, auds) = encode_sections(video);
+    // AUDS is present only when the video carries an audio sidecar
+    // descriptor; a silent container has no AUDS section at all.
+    let auds = auds.map(|payload| (TAG_AUDS, payload));
+    let sections = [
+        Some((TAG_PALT, &palt)),
+        Some((TAG_ROWS, &rows)),
+        Some((TAG_DELT, &delt)),
+        Some((TAG_EVNT, &evnt)),
+        Some((TAG_CHKP, &chkp)),
+        auds.as_ref().map(|(tag, payload)| (*tag, payload)),
+    ];
+    for (tag, payload) in sections.into_iter().flatten() {
         out.extend_from_slice(&tag);
         out.extend_from_slice(&(payload.len() as u32).to_le_bytes());
         out.extend_from_slice(payload);
     }
     out
 }
+
+type SectionPayloads = (Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, Option<Vec<u8>>);
 
 fn encode_sections(video: &CompiledVideo) -> SectionPayloads {
     // PALT — the colour inventory, with the bound and tolerance the
@@ -199,7 +204,20 @@ fn encode_sections(video: &CompiledVideo) -> SectionPayloads {
         chkp.extend_from_slice(&checkpoint.digest);
     }
 
-    (palt, rows, delt, evnt, chkp)
+    // AUDS — the audio sidecar descriptor, verbatim (AVC-C07: never
+    // samples).
+    let auds = video.audio.as_ref().map(|audio| {
+        let mut section = Vec::new();
+        section.extend_from_slice(&(audio.codec.len() as u32).to_le_bytes());
+        section.extend_from_slice(audio.codec.as_bytes());
+        section.extend_from_slice(&audio.duration_ts.to_le_bytes());
+        section.extend_from_slice(&audio.time_base.0.to_le_bytes());
+        section.extend_from_slice(&audio.time_base.1.to_le_bytes());
+        section.extend_from_slice(&audio.start_ts.to_le_bytes());
+        section
+    });
+
+    (palt, rows, delt, evnt, chkp, auds)
 }
 
 fn encode_target(out: &mut Vec<u8>, target: &Target) {
@@ -361,6 +379,7 @@ pub fn decode_container(bytes: &[u8]) -> Result<CompiledVideo, ContainerError> {
     let mut delt: Option<Vec<u8>> = None;
     let mut evnt: Option<Vec<u8>> = None;
     let mut chkp: Option<Vec<u8>> = None;
+    let mut auds: Option<Vec<u8>> = None;
     while r.pos + 8 <= r.bytes.len() {
         let mut tag = [0u8; 4];
         tag.copy_from_slice(r.take(4, b"SECT")?);
@@ -372,6 +391,7 @@ pub fn decode_container(bytes: &[u8]) -> Result<CompiledVideo, ContainerError> {
             t if *t == TAG_DELT => &mut delt,
             t if *t == TAG_EVNT => &mut evnt,
             t if *t == TAG_CHKP => &mut chkp,
+            t if *t == TAG_AUDS => &mut auds,
             _ => return Err(ContainerError::UnknownSectionTag { tag }),
         };
         if slot.is_some() {
@@ -390,6 +410,39 @@ pub fn decode_container(bytes: &[u8]) -> Result<CompiledVideo, ContainerError> {
     let delt = delt.ok_or(ContainerError::MissingSection { tag: TAG_DELT })?;
     let evnt = evnt.ok_or(ContainerError::MissingSection { tag: TAG_EVNT })?;
     let chkp = chkp.ok_or(ContainerError::MissingSection { tag: TAG_CHKP })?;
+    let audio = match auds {
+        Some(section) => {
+            let mut ar = Reader {
+                bytes: &section,
+                pos: 0,
+            };
+            let codec_len = ar.read_u32()? as usize;
+            let codec_bytes = ar.take(codec_len, &TAG_AUDS)?;
+            let codec = String::from_utf8(codec_bytes.to_vec())
+                .map_err(|_| ContainerError::Malformed("audio codec name is not UTF-8"))?;
+            let duration_ts = i64::from_le_bytes(ar.read_u64()?.to_le_bytes());
+            let num = ar.read_u32()?;
+            let den = ar.read_u32()?;
+            if den == 0 {
+                return Err(ContainerError::Malformed(
+                    "audio time base denominator is zero",
+                ));
+            }
+            let start_ts = i64::from_le_bytes(ar.read_u64()?.to_le_bytes());
+            if ar.pos != ar.bytes.len() {
+                return Err(ContainerError::Malformed(
+                    "audio sidecar section has trailing bytes",
+                ));
+            }
+            Some(AudioSidecar {
+                codec,
+                duration_ts,
+                time_base: (num, den),
+                start_ts,
+            })
+        }
+        None => None,
+    };
 
     // PALT → ColourInventory (revalidated through the constructor).
     let mut pr = Reader {
@@ -533,6 +586,7 @@ pub fn decode_container(bytes: &[u8]) -> Result<CompiledVideo, ContainerError> {
         deltas,
         timeline,
         dimensions,
+        audio,
     })
 }
 
@@ -921,5 +975,73 @@ mod tests {
             decode_container(&zero_tps),
             Err(ContainerError::Malformed(_))
         ));
+    }
+
+    #[test]
+    fn audio_sidecar_round_trips_verbatim() {
+        let mut video = compile_dimming();
+        video.audio = Some(AudioSidecar {
+            codec: "aac".to_string(),
+            duration_ts: 1_024,
+            time_base: (1, 48_000),
+            start_ts: -1_024, // edit-list shift: negative, still integer (F5)
+        });
+        let bytes = encode_container(&video);
+        let decoded = decode_container(&bytes).unwrap();
+        assert_eq!(decoded, video);
+        let audio = decoded
+            .audio
+            .as_ref()
+            .expect("descriptor survives the round trip");
+        assert_eq!(audio.codec, "aac");
+        assert_eq!(audio.duration_ts, 1_024);
+        assert_eq!(audio.time_base, (1, 48_000));
+        assert_eq!(audio.start_ts, -1_024);
+        assert_eq!(encode_container(&decoded), bytes, "idempotent");
+    }
+
+    #[test]
+    fn silent_container_has_no_auds_section() {
+        let video = compile_dimming();
+        assert!(video.audio.is_none());
+        let bytes = encode_container(&video);
+        // The tag must not appear even inside section bodies: AUDS is
+        // absent, not empty (AVC-C07 — no descriptor, no section).
+        assert!(!bytes.windows(4).any(|w| w == TAG_AUDS));
+        let decoded = decode_container(&bytes).unwrap();
+        assert!(decoded.audio.is_none());
+    }
+
+    #[test]
+    fn malformed_audio_descriptors_are_rejected() {
+        let mut video = compile_dimming();
+        video.audio = Some(AudioSidecar {
+            codec: "opus".to_string(),
+            duration_ts: 960,
+            time_base: (1, 48_000),
+            start_ts: 0,
+        });
+        let bytes = encode_container(&video);
+        // Locate the time-base denominator: AUDS is the final section
+        // (codec len 4 + "opus" 4 + duration 8 + num 4) and den is
+        // followed only by start_ts (8).
+        let den_offset = bytes.len() - 8 - 4;
+        let mut zero_den = bytes.clone();
+        zero_den[den_offset..den_offset + 4].copy_from_slice(&0u32.to_le_bytes());
+        assert!(matches!(
+            decode_container(&zero_den),
+            Err(ContainerError::Malformed(
+                "audio time base denominator is zero"
+            ))
+        ));
+
+        // A trailing byte inside the section is rejected: the descriptor
+        // is fixed-shape, so appending anything is malformed.
+        let mut trailing = bytes.clone();
+        let digest_start = trailing.len() - 32;
+        trailing.insert(digest_start, 0);
+        // The AUDS section length no longer matches its payload layout;
+        // the digest region now shifts — decode must reject, not panic.
+        assert!(decode_container(&trailing).is_err());
     }
 }

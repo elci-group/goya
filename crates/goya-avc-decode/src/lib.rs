@@ -47,19 +47,10 @@ pub struct SourceMetadata {
 }
 
 /// The opaque audio sidecar descriptor (decision 4, `AUDS`). The visual
-/// contract knows nothing about audio beyond this.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AudioSidecar {
-    /// Container codec name (e.g. `aac`, `opus`) — opaque.
-    pub codec: String,
-    /// Stream duration in `time_base` units.
-    pub duration_ts: i64,
-    /// Stream time base as a rational (`numerator / denominator`).
-    pub time_base: (u32, u32),
-    /// Presentation timestamp of the first sample, in `time_base` units
-    /// (may be negative for edit lists).
-    pub start_ts: i64,
-}
+/// contract knows nothing about audio beyond this. Owned by `goya-avc`
+/// (the container encodes it); re-exported here so the adapter's public
+/// surface is unchanged.
+pub use goya_avc::AudioSidecar;
 
 #[derive(Debug)]
 pub enum DecodeError {

@@ -67,6 +67,10 @@ pub struct CompiledVideo {
     pub deltas: Vec<RowDelta>,
     pub timeline: Timeline,
     pub dimensions: (u32, u32),
+    /// The opaque audio sidecar descriptor (F4, decision 4): attached by
+    /// the pipeline that probed the source (never derived from visual
+    /// compilation), carried verbatim by the container's `AUDS` section.
+    pub audio: Option<crate::audio::AudioSidecar>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -437,6 +441,7 @@ pub fn compile(
             deltas,
             timeline,
             dimensions: (width, height),
+            audio: None,
         },
         stats,
     ))

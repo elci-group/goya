@@ -21,6 +21,7 @@
 
 #![forbid(unsafe_code)]
 
+mod audio;
 pub mod certification;
 pub mod clock;
 pub mod colour;
@@ -42,6 +43,7 @@ pub const DIRECTIVE_ID: &str = "GOYA-GFX-AVC-001";
 /// Logical contract version. Not a binary format version.
 pub const CONTRACT_VERSION: &str = "avc-contract/0.0.1";
 
+pub use audio::AudioSidecar;
 pub use certification::VerificationClass;
 pub use clock::MediaClock;
 pub use colour::{
