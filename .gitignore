@@ -11,3 +11,7 @@ evidence/**/execution/
 
 # Large installer archives (e.g. Xcode .xip) must never be committed.
 *.xip
+
+# Local build cache and session worktree pointers (never published)
+/.build/
+/.claude/
