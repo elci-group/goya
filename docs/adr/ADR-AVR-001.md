@@ -8,9 +8,22 @@ GOYA-GFX-AVR-001 proposes a spatial graphics architecture: Rugid models and envi
 
 ## Audit findings
 
-### F1 — Rugid does not exist
+### F1 — Rugid exists as a standalone workspace (`~/RUGID`), not a Goya crate
 
-`Rugid` appears nowhere in the codebase (`crates/`, `docs/`). The directive's §3 positions Rugid as existing spatial infrastructure (models, environments, geometry, materials, cameras); it is in fact a proposed system. WS-01 ("Rugid spatial contract audit") therefore has no present subject: it becomes **define** the Rugid spatial contract, not audit one. All phases that depend on it (WS-01–WS-14) inherit this prerequisite. Phase 1 cannot begin until a minimal Rugid model format (geometry, materials, cameras, environments) exists or is imported.
+`Rugid` is a separate Rust workspace (`~/RUGID`, crate `rugid 0.1.0`, edition 2024): a vector physics engine and GUI framework with the RDF scene language (`.rdf`, `type:::key[value]` syntax, lexer→parser→AST→converter) and multiple backends (headless SVG, wgpu, TUI, experimental rgpum). Its spatial contract, as audited:
+
+| Directive assumption | Rugid reality | Gap |
+| --- | --- | --- |
+| Geometry `G` | `geometry3d::Point3D` (f32), `Rotation3D`, transforms; `shapes3d` (2 390 lines) with normals, back-face culling, tessellation | Arbitrary mesh import absent: geometry comes from a fixed `ShapeType` enum (`Cube, Torus, F1Car, MercedesW14, CornellBox, …`) — the §20 vehicle POC is directly served (F1Car, MercedesW14), general meshes are not |
+| Cameras `C` / projection `P` | Hard-coded perspective (`focal_length = 400.0`, camera fixed on the −Z axis in `shapes3d`); the closest camera abstraction is `ocrs::ObserverCone` (position, target, fov, distance) | No general camera node; spherical/orbital observation domains need either a camera model or a parametrised `ObserverCone` |
+| Materials `M` | `physics::light::OpticalMaterial` (metal/matte/plastic, `TextureType` incl. checkerboard and image) | View-dependent appearance exists only through per-face gradients; reflective sampling (§24) must build on this |
+| Lighting `L` | `Scene { faces, lights, ambient_light, indirect_light }` (`physics::optics`) | Deterministic and explicit — good for canonical compilation |
+| State `S` | `motion3d::{Translation3DState, Orbit3DState}`, RDF `AnimationSpec`, FSM, OCRS weight lattice | Reachable-state enumeration must factor rotation/translation orbits; OCRS weight-space is a custom observation-domain candidate (§6.2) |
+| Environments | `physics::optics::Scene` + `.rdf` document; `cornell_box_physics`, `nested_boxes` demos | No environment composition, no navigation graph, no viewport concept — directive §5.3/§6.2 navigation domains are greenfield in Rugid too |
+
+Two properties matter for AVR. First, Rugid's headless render path **already emits vector output**: `Platform::render(svg: String)`, and `render_shape` produces SVG faces with gradients — the `VEC` representation class (§4.2) is Rugid-native, and rasterisation becomes a downstream step (consistent with GVI's GIR/GVA pipeline). Second, the spatial pipeline is `f32`-based throughout, so byte-identical canonical output is only claimable per-host/per-build: the directive's §7.3 split between reproducible derivation and tolerance-based rendering reproducibility is mandatory, not optional, and `goya-avr`'s integer `ObservationState` coordinates must be mapped from Rugid's f32 state through a declared quantisation rule in the ingestion contract.
+
+Consequence: WS-01 keeps its original name (Rugid spatial contract audit) but its output is an **ingestion contract** — which subset of `Runtime`/`Scene`/`ShapeType` state a canonical AVR compiler consumes, the f32→fixed-point quantisation rule, and the camera model gap (either a Rugid camera node or an AVR-side parametrised observer). Phase 1 is gated on that contract, not on building Rugid.
 
 ### F2 — GVI (`GY-GVI/0`) exists and is compatible in spirit, different in scope
 
@@ -54,13 +67,13 @@ The scene grammar in `goya-lang` has no `element`/`rugid.*` composition blocks. 
 1. **Adopt** AVR and GVI-R as specified in GOYA-GFX-AVR-001, with the reconciliations above. The directive's schemas (§13), encoding classes (§8.5), verification classes (§15.1) and profile contract (§9.3) are accepted as the Phase-0 logical contract, implemented in a new `crates/goya-avr` (workspace member, `#![forbid(unsafe_code)]`, no runtime deps).
 2. **Never-default derivation budgets.** §9.3's numeric values are illustrative. `DerivationProfile` is deliberately constructed without `Default`; every derivation must state its budgets explicitly, so no value can silently become a universal default before the §18 benchmarking programme produces evidence.
 3. **Reconstruction graphs are acyclic and checked.** The contract type enforces maximum dependency depth and rejects cycles at construction, matching AVR-C04/C05 rather than deferring them to Inquisition alone.
-4. **Phase 1 gate.** Phase 1 (canonical anticipatory rendering) begins only after a minimal Rugid spatial contract exists (F1) and `goya-avr`'s observation-domain machinery (WS-03) is ready to consume it. The vehicle POC (§20) proceeds against a synthetic minimal Rugid model if the full format is not yet settled.
+4. **Phase 1 gate.** Phase 1 (canonical anticipatory rendering) begins only after the AVR→Rugid ingestion contract exists (F1): the consumed `Runtime`/`Scene`/`ShapeType` state subset, the f32→fixed-point `ObservationState` quantisation rule, and the camera-model decision (Rugid camera node vs. AVR-side parametrised observer). The vehicle POC (§20) can start against `ShapeType::F1Car`/`MercedesW14` immediately, since those already exist in Rugid.
 5. **Compatibility gates carried forward:** existing `.gvi` files remain readable (§13.2); GVI colour semantics unchanged (§12.4); all Inquisition classes AVR-C01–C14 apply to every emitted inventory.
 
 ## Consequences
 
 - `crates/goya-avr` is added as the contract home for AVR/GVI-R (Phase 0 scope only: domains, representations, encoding classes, logical data model, graph separation, tags, verification classes, derivation profile).
-- WS-01 is re-scoped from "audit Rugid" to "define the Rugid spatial contract" — the single largest prerequisite and the directive's principal unmitigated risk.
+- WS-01 produces the AVR→Rugid ingestion contract against the real `~/RUGID` workspace (F1): state subset, f32→fixed-point quantisation, camera-model decision. Rugid's vector-native headless output makes `VEC` observations the natural Phase 1 target, and its existing vehicle shapes serve the §20 POC.
 - Binary format work (§13.1 sections) is deferred until Phase 2 and gated on the tag review test plus `.gvi` version negotiation.
 - Benchmarking baselines (§18) must include the existing flat-GVI path; the F2 cost model (`validation + lookup + presentation`) is the internal baseline for lookup latency.
 
@@ -68,7 +81,8 @@ The scene grammar in `goya-lang` has no `element`/`rugid.*` composition blocks. 
 
 | Risk | Severity | Audit adjustment |
 | --- | --- | --- |
-| Rugid absent (new) | Critical | F1 — blocks Phases 1–7; define contract before any rendering work |
+| Rugid contract gaps (no camera model, no mesh import, no navigation graphs) | High | F1 — ingestion contract first; navigation/environment domains (§5.3, §6.2) are greenfield in Rugid as well |
+| `f32` spatial pipeline blocks byte-identical canonical output | High | F1 — §7.3 reproducibility split is mandatory; quantisation rule fixed in the ingestion contract |
 | Observation state explosion | Critical | Directive §24 mitigation; discretisation per F2 |
 | Unauthorised substitution of look-alike reconstructions | High | F4 — exact bit + AVR-C09 enforcement in Phase 3 |
 | Device-specific renderer divergence | High | Directive §24; F5/F6 give per-device Caprichio provenance through `.escene` |
