@@ -1,13 +1,47 @@
 //! CLI command implementations.
 
 use crate::cli::args::*;
-use std::path::PathBuf;
+use crate::diagnostics::codes::Severity;
+use crate::ingestion::imports::{resolve_entry, FileSystemLoader};
 
 pub fn analyse(args: AnalyseArgs) -> Result<(), Box<dyn std::error::Error>> {
-    println!("CASA analyse - not yet implemented");
-    println!("Input files: {:?}", args.input);
-    println!("Format: {:?}", args.format);
-    println!("Strict: {}", args.strict);
+    let mut exit_code = 0;
+    for path in &args.input {
+        let path = path.display().to_string();
+        let resolved = resolve_entry(&path, &FileSystemLoader);
+        let ir = &resolved.ir;
+        if args.format == OutputFormat::Json {
+            println!("{}", ir.to_json());
+        } else {
+            println!(
+                "{}: {} sheets, {} resources",
+                path,
+                ir.sheets.len(),
+                ir.resources.len()
+            );
+            for sheet in &ir.sheets {
+                println!("  {}: {} rules", sheet.name, sheet.rules.len());
+            }
+        }
+        if !resolved.reporter.is_empty() {
+            match args.format {
+                OutputFormat::Json => println!("{}", resolved.reporter.to_json()),
+                _ => println!("{}", resolved.reporter.render_text()),
+            }
+        }
+        if args.strict
+            && resolved
+                .reporter
+                .diagnostics()
+                .iter()
+                .any(|d| d.severity != Severity::Info)
+        {
+            exit_code = 1;
+        }
+    }
+    if exit_code != 0 {
+        std::process::exit(exit_code);
+    }
     Ok(())
 }
 
@@ -60,7 +94,67 @@ pub fn explain(args: ExplainArgs) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 pub fn capabilities(args: CapabilitiesArgs) -> Result<(), Box<dyn std::error::Error>> {
-    println!("CASA capabilities - not yet implemented");
-    println!("Format: {:?}", args.format);
+    // Phase 1 (GOYA-DIS-CASA-001): ingestion and CasaIR are live; every
+    // later stage still reports below.
+    let stages = [
+        (
+            "ingestion",
+            "implemented: parse, imports, resources, shadow audit",
+        ),
+        (
+            "casa_ir",
+            "implemented: model, value categories, dependency graph, serialization",
+        ),
+        ("diagnostics", "implemented: code registry, JSON reporter"),
+        (
+            "cascade",
+            "implemented: origins, layers, specificity, importance, custom properties, conditions",
+        ),
+        (
+            "context",
+            "implemented: scene tree, selector matching, computed styles",
+        ),
+        (
+            "geometry",
+            "implemented: proportional conversion, dimensional units, calc()/min()/max()/clamp(), block/flex/grid/table/float/multicol/absolute/fixed/sticky layout",
+        ),
+        (
+            "appearance",
+            "implemented: colors, gradients, borders, shadows, transforms, filters, masks, backgrounds, style pooling",
+        ),
+        ("typography", "planned (Phase 3)"),
+        (
+            "animation",
+            "implemented: keyframes, easing, interpolation, trajectories, precomputed/runtime classification",
+        ),
+        (
+            "adaptive",
+            "implemented: environment registry, media queries, container deferral, breakpoint economy, interaction affordances",
+        ),
+        (
+            "behavioural",
+            "implemented: state extraction, state space, explosion prevention, transitions",
+        ),
+        ("optimisation", "planned (Phase 5)"),
+        (
+            "emission",
+            "implemented: .gscene scene emission, transformation manifest, CSS provenance (compatibility pending, Phase 5)",
+        ),
+        ("validation", "planned (Phase 7)"),
+    ];
+    match args.format {
+        OutputFormat::Json => {
+            let entries: Vec<serde_json::Value> = stages
+                .iter()
+                .map(|(stage, status)| serde_json::json!({ "stage": stage, "status": status }))
+                .collect();
+            println!("{}", serde_json::to_string_pretty(&entries)?);
+        }
+        _ => {
+            for (stage, status) in stages {
+                println!("{stage}: {status}");
+            }
+        }
+    }
     Ok(())
 }

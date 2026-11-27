@@ -238,17 +238,17 @@ selectors = "0.24"        # For selector matching
 ### Phase 1: Foundational Ingestion & CasaIR (Week 2-4)
 **Goal**: CSS parsing, tokenization, declaration representation, CasaIR, diagnostics
 
-- [ ] Implement `ingestion/parser.rs` - wrap goya-css-syntax for stylesheet parsing
-- [ ] Implement `ingestion/resources.rs` - font/asset discovery and ingestion
-- [ ] Implement `ingestion/imports.rs` - @import dependency resolution with cycle detection
-- [ ] Implement `ingestion/shadow_dom.rs` - Shadow DOM encapsulation handling
-- [ ] Define `ir/casa_ir.rs` - Canonical semantic model with all value categories
-- [ ] Implement `ir/value_categories.rs` - Declared/Cascaded/Specified/Computed/Used/Actual/Conditional/Native
-- [ ] Implement `ir/dependency_graph.rs` - Property-level dependency graphs
-- [ ] Implement `ir/serialization.rs` - Deterministic IR serialization with schema versioning
-- [ ] Implement `diagnostics/codes.rs` - Diagnostic code registry
-- [ ] Implement `diagnostics/reporter.rs` - Machine-readable diagnostic output
-- [ ] Unit tests for parsing, IR round-tripping
+- [x] Implement `ingestion/parser.rs` - wrap goya-css-syntax for stylesheet parsing
+- [x] Implement `ingestion/resources.rs` - font/asset discovery and ingestion
+- [x] Implement `ingestion/imports.rs` - @import dependency resolution with cycle detection
+- [x] Implement `ingestion/shadow_dom.rs` - Shadow DOM encapsulation handling
+- [x] Define `ir/casa_ir.rs` - Canonical semantic model with all value categories
+- [x] Implement `ir/value_categories.rs` - Declared/Cascaded/Specified/Computed/Used/Actual/Conditional/Native
+- [x] Implement `ir/dependency_graph.rs` - Property-level dependency graphs
+- [x] Implement `ir/serialization.rs` - Deterministic IR serialization with schema versioning
+- [x] Implement `diagnostics/codes.rs` - Diagnostic code registry
+- [x] Implement `diagnostics/reporter.rs` - Machine-readable diagnostic output
+- [x] Unit tests for parsing, IR round-tripping
 
 **Exit Criteria**: CSS → CasaIR round-trip with deterministic serialization; all parser conformance tests pass
 
@@ -257,15 +257,15 @@ selectors = "0.24"        # For selector matching
 ### Phase 2: Cascade & Structural Resolution (Week 4-6)
 **Goal**: Selectors, specificity, inheritance, custom properties, context binding
 
-- [ ] Implement `cascade/engine.rs` - Full cascade resolution (origin, importance, specificity, layers, scoping, source order)
-- [ ] Implement `cascade/inheritance.rs` - Property inheritance and defaulting
-- [ ] Implement `cascade/custom_properties.rs` - Custom property substitution with cycle detection
-- [ ] Implement `cascade/conditional.rs` - Media/container/supports condition evaluation
-- [ ] Implement `context/structural.rs` - DOM/scene tree representation and binding
-- [ ] Implement `context/selector_matching.rs` - Selector matching against structure (using `selectors` crate)
-- [ ] Implement `context/computed_style.rs` - Per-element computed style resolution
-- [ ] Integrate with `goya-fair` for structural context from Delectable
-- [ ] Cascade conformance tests (specificity, precedence, inheritance)
+- [x] Implement `cascade/engine.rs` - Full cascade resolution (origin, importance, specificity, layers, scoping, source order)
+- [x] Implement `cascade/inheritance.rs` - Property inheritance and defaulting
+- [x] Implement `cascade/custom_properties.rs` - Custom property substitution with cycle detection
+- [x] Implement `cascade/conditional.rs` - Media/container/supports condition evaluation
+- [x] Implement `context/structural.rs` - DOM/scene tree representation and binding
+- [x] Implement `context/selector_matching.rs` - Selector matching against structure (using `selectors` crate)
+- [x] Implement `context/computed_style.rs` - Per-element computed style resolution
+- [x] Integrate with `goya-fair` for structural context from Delectable
+- [x] Cascade conformance tests (specificity, precedence, inheritance)
 
 **Exit Criteria**: Full cascade resolution with structural context; selector matching validated against test suite
 
@@ -274,32 +274,32 @@ selectors = "0.24"        # For selector matching
 ### Phase 3: Native Geometry & Appearance (Week 6-10)
 **Goal**: First usable CSS-to-.gscene pipeline with core layout, proportional conversion, appearance
 
-- [ ] Implement `geometry/proportional.rs` - Proportional geometry conversion (§9.1)
-- [ ] Implement `geometry/dimensional.rs` - CSS units → proportional constraints
-- [ ] Implement `geometry/calc.rs` - calc()/min()/max()/clamp() symbolic handling
-- [ ] Implement layout systems (progressive):
-  - [ ] `layout_systems/block.rs` - Block layout (flow, margins, containment)
-  - [ ] `layout_systems/flexbox.rs` - Flexbox (axis alignment, wrapping, growth/shrinkage)
-  - [ ] `layout_systems/grid.rs` - Grid (tracks, placement, spanning, fractional allocation)
-  - [ ] `layout_systems/absolute.rs` - Absolute positioning
-  - [ ] `layout_systems/fixed.rs` - Fixed positioning
-  - [ ] `layout_systems/sticky.rs` - Sticky positioning
-  - [ ] `layout_systems/table.rs` - Table layout
-  - [ ] `layout_systems/float.rs` - Float layout
-  - [ ] `layout_systems/multicol.rs` - Multi-column layout
-- [ ] Implement `appearance/colors.rs` - Color parsing and native mapping
-- [ ] Implement `appearance/gradients.rs` - Linear/radial/conic gradient mapping
-- [ ] Implement `appearance/borders.rs` - Border and border-radius mapping
-- [ ] Implement `appearance/shadows.rs` - Box/text shadow mapping
-- [ ] Implement `appearance/transforms.rs` - Transform mapping
-- [ ] Implement `appearance/filters.rs` - Filter/blend mode mapping
-- [ ] Implement `appearance/masks.rs` - Clip-path/mask mapping
-- [ ] Implement `appearance/backgrounds.rs` - Background image/color mapping
-- [ ] Implement `appearance/deduplication.rs` - Style pooling and appearance deduplication
-- [ ] Implement `emission/gscene.rs` - .gscene emission
-- [ ] Implement `emission/manifest.rs` - Transformation manifest
-- [ ] Implement `emission/provenance.rs` - Source provenance tracking
-- [ ] Layout conformance tests
+- [x] Implement `geometry/proportional.rs` - Proportional geometry conversion (§9.1)
+- [x] Implement `geometry/dimensional.rs` - CSS units → proportional constraints
+- [x] Implement `geometry/calc.rs` - calc()/min()/max()/clamp() symbolic handling
+- [x] Implement layout systems (progressive):
+  - [x] `layout_systems/block.rs` - Block layout (flow, margins, containment)
+  - [x] `layout_systems/flexbox.rs` - Flexbox (axis alignment, wrapping, growth/shrinkage)
+  - [x] `layout_systems/grid.rs` - Grid (tracks, placement, spanning, fractional allocation)
+  - [x] `layout_systems/absolute.rs` - Absolute positioning
+  - [x] `layout_systems/fixed.rs` - Fixed positioning
+  - [x] `layout_systems/sticky.rs` - Sticky positioning
+  - [x] `layout_systems/table.rs` - Table layout
+  - [x] `layout_systems/float.rs` - Float layout
+  - [x] `layout_systems/multicol.rs` - Multi-column layout
+- [x] Implement `appearance/colors.rs` - Color parsing and native mapping
+- [x] Implement `appearance/gradients.rs` - Linear/radial/conic gradient mapping
+- [x] Implement `appearance/borders.rs` - Border and border-radius mapping
+- [x] Implement `appearance/shadows.rs` - Box/text shadow mapping
+- [x] Implement `appearance/transforms.rs` - Transform mapping
+- [x] Implement `appearance/filters.rs` - Filter/blend mode mapping
+- [x] Implement `appearance/masks.rs` - Clip-path/mask mapping
+- [x] Implement `appearance/backgrounds.rs` - Background image/color mapping
+- [x] Implement `appearance/deduplication.rs` - Style pooling and appearance deduplication
+- [x] Implement `emission/gscene.rs` - .gscene emission
+- [x] Implement `emission/manifest.rs` - Transformation manifest
+- [x] Implement `emission/provenance.rs` - Source provenance tracking
+- [x] Layout conformance tests
 
 **Exit Criteria**: Basic CSS → .gscene conversion working for core layout and appearance properties
 
@@ -308,20 +308,20 @@ selectors = "0.24"        # For selector matching
 ### Phase 4: Adaptive Presentation (Week 10-13)
 **Goal**: Responsive and conditional semantics, media queries, container queries, interaction states
 
-- [ ] Implement `adaptive/media_queries.rs` - Media query evaluation and native mapping
-- [ ] Implement `adaptive/container_queries.rs` - Container query handling
-- [ ] Implement `adaptive/env_registry.rs` - Environmental condition registry (§13.1)
-- [ ] Implement `adaptive/breakpoint.rs` - Breakpoint economy (§13.2)
-- [ ] Implement `adaptive/interaction_adaptation.rs` - Platform-native interaction adaptation (§12.1)
-- [ ] Implement `behavioural/state_extraction.rs` - Interaction state extraction (hover, focus, active, etc.)
-- [ ] Implement `behavioural/state_space.rs` - State-space extraction (§11.1)
-- [ ] Implement `behavioural/explosion_prevention.rs` - State explosion prevention (§11.2)
-- [ ] Implement `behavioural/transitions.rs` - CSS transition handling
-- [ ] Implement `animation/keyframes.rs` - Keyframe parsing and classification
-- [ ] Implement `animation/easing.rs` - Easing function mapping
-- [ ] Implement `animation/interpolation.rs` - Interpolation semantics
-- [ ] Implement `animation/trajectory.rs` - GVI-A trajectory encoding
-- [ ] Implement `animation/classification.rs` - Precomputation vs runtime classification
+- [x] Implement `adaptive/media_queries.rs` - Media query evaluation and native mapping
+- [x] Implement `adaptive/container_queries.rs` - Container query handling
+- [x] Implement `adaptive/env_registry.rs` - Environmental condition registry (§13.1)
+- [x] Implement `adaptive/breakpoint.rs` - Breakpoint economy (§13.2)
+- [x] Implement `adaptive/interaction_adaptation.rs` - Platform-native interaction adaptation (§12.1)
+- [x] Implement `behavioural/state_extraction.rs` - Interaction state extraction (hover, focus, active, etc.)
+- [x] Implement `behavioural/state_space.rs` - State-space extraction (§11.1)
+- [x] Implement `behavioural/explosion_prevention.rs` - State explosion prevention (§11.2)
+- [x] Implement `behavioural/transitions.rs` - CSS transition handling
+- [x] Implement `animation/keyframes.rs` - Keyframe parsing and classification
+- [x] Implement `animation/easing.rs` - Easing function mapping
+- [x] Implement `animation/interpolation.rs` - Interpolation semantics
+- [x] Implement `animation/trajectory.rs` - GVI-A trajectory encoding
+- [x] Implement `animation/classification.rs` - Precomputation vs runtime classification
 
 **Exit Criteria**: Responsive CSS converts to adaptive .gscene with conditional constraints; interaction states preserved
 
@@ -550,8 +550,8 @@ debug = true
 
 ## 11. Open Questions
 
-1. **Selector matching**: Use `selectors` crate (Servo's) or implement custom? The `selectors` crate is well-tested but adds dependency.
-2. **CSS values parsing**: `cssparser` crate for values (colors, lengths, etc.) or extend `goya-css-syntax`?
+1. **Selector matching**: ✅ **Resolved** — use servo's `selectors` crate (already declared in `goya-casa/Cargo.toml`, version 0.24 pinned in `Cargo.lock`). Rationale: spec-correct specificity/pseudo-class handling without reimplementing CSS matching; supply-chain cost already accepted in `deny.toml` (fxhash advisory waived for `selectors (goya-casa)`). In-house matching is deferred unless profile-size constraints emerge.
+2. **CSS values parsing**: ✅ **Resolved** — use `cssparser` (0.29, already declared) for the primitive token/value layer required by `selectors`; keep `goya-css-syntax` (zero-dep, in-house) as the structural parse layer and extend it for high-level value types. Casa consumes both: cssparser at the selector/value boundary, goya-css-syntax everywhere else.
 3. **Font shaping integration**: Which Goya typography crate handles shaping? Need to identify.
 4. **Inquisition integration**: What's the current Inquisition API for validation?
 5. **Delectable API**: What's the exact interface Delectable expects for CSS transformation delegation?
