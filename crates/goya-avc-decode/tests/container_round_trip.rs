@@ -134,11 +134,15 @@ fn container_round_trip_through_aot_vc_compile() {
     // FFV1 is lossless: closure sees exactly the three source colours.
     assert_eq!(video.inventory.entries().len(), 3);
     assert_eq!(stats.frames, FRAMES as usize);
-    // Temporal persistence: frame 0 declares 32 pixels; frames 1 and 2
-    // each re-declare only the two rows the cursor touches.
+    // Temporal persistence: frame 0 declares 32 pixels via SET_ROW;
+    // frame 1 re-declares the cursor's row by one SET_RUN; frame 2
+    // materialises the leave-transition (SET_RUN) and applies the
+    // precomputed enter-transition delta (position-independent reuse).
     assert_eq!(stats.naive_pixel_writes, 96);
-    assert_eq!(stats.persistent_pixel_writes, 32 + 8 + 16);
-    assert_eq!(stats.row_events, 4 + 3 + 1);
+    assert_eq!(stats.persistent_pixel_writes, 32 + 1 + 1 + 1);
+    assert_eq!(stats.row_events, 4);
+    assert_eq!(stats.run_events, 2);
+    assert_eq!(stats.delta_events, 1);
 
     // The timeline's first events are the initial row declarations; the
     // last event is PRESENT.

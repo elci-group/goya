@@ -25,6 +25,7 @@ pub mod certification;
 pub mod clock;
 pub mod colour;
 pub mod compile;
+pub mod delta;
 pub mod ingestion;
 pub mod instructions;
 pub mod pixel;
@@ -46,6 +47,7 @@ pub use colour::{
     WorkingSpace,
 };
 pub use compile::{compile, CompileError, CompileStats, CompiledVideo, RowId};
+pub use delta::{ContentId, PixelChange, RowDelta};
 pub use ingestion::{
     DecodedFrame, DecodedFrameFormat, IngestionError, IngestionParameters, RgbPixels, SourceError,
     VideoSource, LINEAR_UNITY,

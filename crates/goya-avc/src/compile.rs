@@ -20,6 +20,7 @@ use std::collections::HashMap;
 
 use crate::clock::MediaClock;
 use crate::colour::{ClosureVerdict, ColourEntry, ColourInventory, RejectionDiagnostic};
+use crate::delta::{ContentId, RowDelta};
 use crate::ingestion::{srgb8_to_colour_entry, IngestionParameters, SourceError, VideoSource};
 use crate::instructions::{Instruction, InstructionBudget, Target};
 use crate::pixel::{ColourIndex, PixelState};
@@ -48,24 +49,33 @@ pub enum CompileError {
 }
 
 /// The compiled video contract: canonical colour inventory, row
-/// inventory, and the executable visual timeline (directive §6/§7).
+/// inventory, delta registry, and the executable visual timeline
+/// (directive §6/§7).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompiledVideo {
     pub source_digest: String,
     pub inventory: ColourInventory,
     /// Deduplicated rows in first-use order; `timeline` events reference
     /// rows by index into this vector's *deduplication*, addressed
-    /// positionally by `SetRow` targets.
+    /// positionally by `SetRow` targets. Index = `ContentId`.
     pub row_inventory: Vec<Vec<ColourIndex>>,
+    /// Precomputed row-content differences (Amendment 3): first
+    /// occurrences materialise and register; repeats apply by id.
+    pub deltas: Vec<RowDelta>,
     pub timeline: Timeline,
     pub dimensions: (u32, u32),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct CompileStats {
     pub frames: usize,
     pub distinct_rows: usize,
+    /// `SET_ROW` events (whole-row declarations).
     pub row_events: usize,
+    /// `SET_RUN` events (packed runs within rows).
+    pub run_events: usize,
+    /// `APPLY_DELTA` events (repeated transitions).
+    pub delta_events: usize,
     pub checkpoints: usize,
     /// Naïve cost of re-declaring every pixel of every frame (the §5
     /// baseline), for benchmark comparison.
@@ -159,6 +169,10 @@ pub fn compile(
     }
 
     // 6. Temporal optimisation: persistent state, differential events.
+    // Repeated content transitions are precomputed as deltas (Amendment
+    // 3): the first occurrence materialises and registers; later
+    // occurrences apply by id. Delta reuse is position-independent — the
+    // same content transition on any row shares one delta.
     let (rate_num, rate_den) = source.frame_rate();
     let frame_duration = MediaClock::frame_duration(rate_num, rate_den, params.ticks_per_second)
         .map_err(|_| CompileError::EmptySource)?;
@@ -167,6 +181,9 @@ pub fn compile(
     let mut checkpoints = 0usize;
     let mut last_checkpoint_tick = 0u64;
     let mut persistent_writes = 0u64;
+    let mut deltas: Vec<RowDelta> = Vec::new();
+    let mut delta_index: HashMap<(u32, u32), u32> = HashMap::new();
+    let mut stats = CompileStats::default();
 
     let emit = |timeline: &mut Timeline,
                 event_id: &mut u32,
@@ -219,22 +236,75 @@ pub fn compile(
                         },
                     )?;
                     persistent_writes += width as u64;
+                    stats.row_events += 1;
                 }
             }
             Some(prev) => {
                 // Differential: only rows whose content changed are re-declared.
                 for (y, row_id) in rows.iter().enumerate() {
-                    if prev[y] != *row_id {
+                    if prev[y] == *row_id {
+                        continue;
+                    }
+                    let from = prev[y];
+                    let to = *row_id;
+                    // Repeated transition: apply the precomputed delta.
+                    if let Some(&delta_id) = delta_index.get(&(from, to)) {
                         emit(
                             &mut timeline,
                             &mut event_id,
                             at,
-                            Instruction::SetRow {
-                                target: Target::Row { row: y as u32 },
-                                states: fill_states(&row_inventory[*row_id as usize]),
-                            },
+                            Instruction::ApplyDelta { delta_id },
                         )?;
-                        persistent_writes += width as u64;
+                        stats.delta_events += 1;
+                        persistent_writes += deltas[delta_id as usize].write_count();
+                        continue;
+                    }
+                    // First occurrence: materialise, register the delta.
+                    let changes =
+                        row_changes(&row_inventory[from as usize], &row_inventory[to as usize]);
+                    let runs = group_runs(&changes);
+                    let materialising: Vec<Instruction> = if changes.len() == width as usize {
+                        vec![Instruction::SetRow {
+                            target: Target::Row { row: y as u32 },
+                            states: fill_states(&row_inventory[to as usize]),
+                        }]
+                    } else if runs.len() >= 3 {
+                        // Scattered wide changes: one whole-row declaration
+                        // beats many fragments (deterministic rule).
+                        vec![Instruction::SetRow {
+                            target: Target::Row { row: y as u32 },
+                            states: fill_states(&row_inventory[to as usize]),
+                        }]
+                    } else {
+                        runs.iter()
+                            .map(|run| Instruction::SetRun {
+                                row: y as u32,
+                                start: run.start,
+                                len: run.len,
+                                state: PixelState::exact_fill(run.to),
+                            })
+                            .collect()
+                    };
+                    let delta_id = deltas.len() as u32;
+                    deltas.push(
+                        RowDelta::between(
+                            delta_id,
+                            ContentId(from),
+                            ContentId(to),
+                            &row_inventory[from as usize],
+                            &row_inventory[to as usize],
+                        )
+                        .ok_or(CompileError::EmptySource)?,
+                    );
+                    delta_index.insert((from, to), delta_id);
+                    for instruction in materialising {
+                        persistent_writes += instruction_write_count(&instruction);
+                        if matches!(instruction, Instruction::SetRow { .. }) {
+                            stats.row_events += 1;
+                        } else {
+                            stats.run_events += 1;
+                        }
+                        emit(&mut timeline, &mut event_id, at, instruction)?;
                     }
                 }
             }
@@ -248,32 +318,83 @@ pub fn compile(
         .map_err(|_| CompileError::EmptySource)?;
     emit(&mut timeline, &mut event_id, at, Instruction::Present)?;
 
-    // Budget validation before any emission (AVC-C10).
+    // Budget validation before any emission (AVC-C10). Delta
+    // applications are bounded by the transition count (upper bound:
+    // one per row per differential frame).
     let budget = InstructionBudget {
         max_events: frame_count as usize * (height as usize + 1) + 1,
-        max_delta_applications: 0,
+        max_delta_applications: frame_count as usize * height as usize,
     };
     timeline.validate(&budget).map_err(CompileError::Budget)?;
 
-    let stats = CompileStats {
-        frames: frames.len(),
-        distinct_rows: row_inventory.len(),
-        row_events: event_id as usize,
-        checkpoints,
-        naive_pixel_writes: frames.len() as u64 * u64::from(width) * u64::from(height),
-        persistent_pixel_writes: persistent_writes,
-    };
+    stats.frames = frames.len();
+    stats.distinct_rows = row_inventory.len();
+    stats.checkpoints = checkpoints;
+    stats.naive_pixel_writes = frames.len() as u64 * u64::from(width) * u64::from(height);
+    stats.persistent_pixel_writes = persistent_writes;
 
     Ok((
         CompiledVideo {
             source_digest: source.source_digest(),
             inventory,
             row_inventory,
+            deltas,
             timeline,
             dimensions: (width, height),
         },
         stats,
     ))
+}
+
+/// The changed pixel offsets between two row contents, ascending.
+fn row_changes(from: &[ColourIndex], to: &[ColourIndex]) -> Vec<(u32, ColourIndex)> {
+    from.iter()
+        .zip(to.iter())
+        .enumerate()
+        .filter(|(_, (a, b))| a != b)
+        .map(|(offset, (_, b))| (offset as u32, *b))
+        .collect()
+}
+
+/// A contiguous run of changed pixels sharing one destination colour.
+struct Run {
+    start: u32,
+    len: u32,
+    to: ColourIndex,
+}
+
+/// Group changed offsets into maximal contiguous same-colour runs.
+fn group_runs(changes: &[(u32, ColourIndex)]) -> Vec<Run> {
+    let mut runs: Vec<Run> = Vec::new();
+    for &(offset, to) in changes {
+        match runs.last_mut() {
+            Some(run) if run.start + run.len == offset && run.to == to => {
+                run.len += 1;
+            }
+            _ => {
+                runs.push(Run {
+                    start: offset,
+                    len: 1,
+                    to,
+                });
+            }
+        }
+    }
+    runs
+}
+
+/// Pixel writes an instruction performs (the persistent-write metric).
+fn instruction_write_count(instruction: &Instruction) -> u64 {
+    match instruction {
+        Instruction::SetRow { states, .. } => states.len() as u64,
+        Instruction::SetRun { len, .. } => u64::from(*len),
+        Instruction::SetRegion {
+            region: Target::Region { height, width, .. },
+            ..
+        } => u64::from(*height) * u64::from(*width),
+        Instruction::ApplyDelta { .. } => 0, // counted via the delta registry
+        _ => 0,
+    }
 }
 
 fn fill_states(row: &[ColourIndex]) -> Vec<PixelState> {
@@ -398,6 +519,46 @@ mod tests {
         .unwrap()
     }
 
+    /// A minimal frame-array source for targeted optimisation tests.
+    struct ArraySource {
+        frames: Vec<Vec<[u8; 3]>>,
+        width: u32,
+        height: u32,
+    }
+
+    impl VideoSource for ArraySource {
+        fn source_digest(&self) -> String {
+            format!("array-{}x{}-{}", self.width, self.height, self.frames.len())
+        }
+        fn dimensions(&self) -> (u32, u32) {
+            (self.width, self.height)
+        }
+        fn frame_rate(&self) -> (u32, u32) {
+            (30, 1)
+        }
+        fn frame_count(&self) -> u32 {
+            self.frames.len() as u32
+        }
+        fn decode_frame(
+            &self,
+            i: u32,
+            p: &IngestionParameters,
+        ) -> Result<DecodedFrame, SourceError> {
+            let fd = MediaClock::frame_duration(30, 1, p.ticks_per_second).unwrap();
+            let mut data = Vec::new();
+            for px in &self.frames[i as usize] {
+                data.extend_from_slice(px.as_slice());
+            }
+            Ok(DecodedFrame {
+                format: DecodedFrameFormat::Rgb8,
+                width: self.width,
+                height: self.height,
+                at: MediaClock::new(fd.ticks() * i as u64, p.ticks_per_second).unwrap(),
+                data,
+            })
+        }
+    }
+
     fn profile(bound: PaletteBound) -> CompilationProfile {
         CompilationProfile {
             kind: ProfileKind::Desktop,
@@ -426,20 +587,24 @@ mod tests {
             stats.persistent_pixel_writes,
             stats.naive_pixel_writes
         );
-        // Frames 1 and 2 move the cursor: frame 1 changes one row, frame 2
-        // changes two rows (the cursor leaves row 1 and enters row 2),
-        // plus PRESENT.
-        assert_eq!(
-            stats.row_events,
-            4 /* init rows */ + 3 /* differential rows */ + 1 /* PRESENT */
-        );
-        assert_eq!(stats.persistent_pixel_writes, 32 + 8 + 16);
-        // Timeline is well-formed and validated.
+        // Frames 1 and 2 move the cursor. Frame 1: one row changes by one
+        // pixel → one SET_RUN. Frame 2: the cursor leaves row 1 (one SET_RUN)
+        // and enters row 2 — the same content transition as frame 1's row 1,
+        // so it applies the precomputed delta (position-independent reuse).
+        assert_eq!(stats.row_events, 4 /* init rows */);
+        assert_eq!(stats.run_events, 2);
+        assert_eq!(stats.delta_events, 1);
+        assert_eq!(video.deltas.len(), 2); // window→cursor, cursor→window
+        assert_eq!(stats.persistent_pixel_writes, 32 + 1 + 1 + 1);
+        // The delta was registered at the first occurrence and reused.
+        assert_eq!(video.deltas[0].changes.len(), 1);
+        assert_eq!(video.deltas[0].depth(), 1);
+        // Timeline is well-formed and validated (1 delta application).
         assert!(video
             .timeline
             .validate(&InstructionBudget {
                 max_events: 100,
-                max_delta_applications: 0,
+                max_delta_applications: 1,
             })
             .is_ok());
     }
@@ -466,6 +631,47 @@ mod tests {
             }
             other => panic!("expected closure rejection, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn scattered_wide_changes_collapse_to_one_row_declaration() {
+        // A source whose frame alternates between two contents that differ
+        // in four scattered pixels of a short row: the fragment rule
+        // (>= 3 runs) materialises one whole-row declaration instead.
+        let frames: Vec<Vec<[u8; 3]>> = vec![
+            vec![[0, 0, 0]; 12],
+            vec![
+                [255, 0, 0],
+                [0, 0, 0],
+                [255, 0, 0],
+                [0, 0, 0],
+                [0, 0, 0],
+                [255, 0, 0],
+                [0, 0, 0],
+                [0, 0, 0],
+                [0, 0, 0],
+                [0, 0, 0],
+                [0, 0, 0],
+                [255, 0, 0],
+            ],
+            vec![[0, 0, 0]; 12],
+        ];
+        let source = ArraySource {
+            frames,
+            width: 12,
+            height: 1,
+        };
+        let (video, stats) = compile(&source, &params(), &profile(PaletteBound(16))).unwrap();
+        // The A→B and B→A transitions each materialised once as SET_ROW.
+        assert_eq!(stats.row_events, 1 /* init */ + 2 /* materialised */);
+        assert_eq!(stats.run_events, 0);
+        // Repeats of both transitions apply deltas, never re-materialise.
+        assert_eq!(
+            stats.delta_events, 0,
+            "3 frames contain no repeated transition"
+        );
+        assert_eq!(video.deltas.len(), 2);
+        assert_eq!(stats.persistent_pixel_writes, 12 + 12 + 12);
     }
 
     #[test]

@@ -47,6 +47,10 @@ pub enum VerificationClass {
     /// AVC-C12 — Rejected sources are routed to a conventional codec with
     /// the diagnostic attached; silent palette reduction never occurs (F2).
     FailClosedRouting,
+    /// AVC-C13 — Deltas are applied only against matching content
+    /// preconditions; a delta applied to unmatched row content is a
+    /// contract violation, never a best-effort patch (Amendment 3).
+    DeltaPrecondition,
 }
 
 impl VerificationClass {
@@ -65,6 +69,7 @@ impl VerificationClass {
             VerificationClass::BudgetValidation => "AVC-C10",
             VerificationClass::LinearLightTrim => "AVC-C11",
             VerificationClass::FailClosedRouting => "AVC-C12",
+            VerificationClass::DeltaPrecondition => "AVC-C13",
         }
     }
 }
@@ -88,6 +93,7 @@ mod tests {
             VerificationClass::BudgetValidation,
             VerificationClass::LinearLightTrim,
             VerificationClass::FailClosedRouting,
+            VerificationClass::DeltaPrecondition,
         ];
         let mut ids: Vec<&str> = all.iter().map(VerificationClass::id).collect();
         let len = ids.len();
@@ -95,6 +101,6 @@ mod tests {
         ids.dedup();
         assert_eq!(ids.len(), len, "verification class ids must be unique");
         assert_eq!(all[0].id(), "AVC-C01");
-        assert_eq!(all[len - 1].id(), "AVC-C12");
+        assert_eq!(all[len - 1].id(), "AVC-C13");
     }
 }
