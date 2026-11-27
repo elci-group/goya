@@ -308,20 +308,20 @@ selectors = "0.24"        # For selector matching
 ### Phase 4: Adaptive Presentation (Week 10-13)
 **Goal**: Responsive and conditional semantics, media queries, container queries, interaction states
 
-- [ ] Implement `adaptive/media_queries.rs` - Media query evaluation and native mapping
-- [ ] Implement `adaptive/container_queries.rs` - Container query handling
-- [ ] Implement `adaptive/env_registry.rs` - Environmental condition registry (§13.1)
-- [ ] Implement `adaptive/breakpoint.rs` - Breakpoint economy (§13.2)
-- [ ] Implement `adaptive/interaction_adaptation.rs` - Platform-native interaction adaptation (§12.1)
-- [ ] Implement `behavioural/state_extraction.rs` - Interaction state extraction (hover, focus, active, etc.)
-- [ ] Implement `behavioural/state_space.rs` - State-space extraction (§11.1)
-- [ ] Implement `behavioural/explosion_prevention.rs` - State explosion prevention (§11.2)
-- [ ] Implement `behavioural/transitions.rs` - CSS transition handling
-- [ ] Implement `animation/keyframes.rs` - Keyframe parsing and classification
-- [ ] Implement `animation/easing.rs` - Easing function mapping
-- [ ] Implement `animation/interpolation.rs` - Interpolation semantics
-- [ ] Implement `animation/trajectory.rs` - GVI-A trajectory encoding
-- [ ] Implement `animation/classification.rs` - Precomputation vs runtime classification
+- [x] Implement `adaptive/media_queries.rs` - Media query evaluation and native mapping
+- [x] Implement `adaptive/container_queries.rs` - Container query handling
+- [x] Implement `adaptive/env_registry.rs` - Environmental condition registry (§13.1)
+- [x] Implement `adaptive/breakpoint.rs` - Breakpoint economy (§13.2)
+- [x] Implement `adaptive/interaction_adaptation.rs` - Platform-native interaction adaptation (§12.1)
+- [x] Implement `behavioural/state_extraction.rs` - Interaction state extraction (hover, focus, active, etc.)
+- [x] Implement `behavioural/state_space.rs` - State-space extraction (§11.1)
+- [x] Implement `behavioural/explosion_prevention.rs` - State explosion prevention (§11.2)
+- [x] Implement `behavioural/transitions.rs` - CSS transition handling
+- [x] Implement `animation/keyframes.rs` - Keyframe parsing and classification
+- [x] Implement `animation/easing.rs` - Easing function mapping
+- [x] Implement `animation/interpolation.rs` - Interpolation semantics
+- [x] Implement `animation/trajectory.rs` - GVI-A trajectory encoding
+- [x] Implement `animation/classification.rs` - Precomputation vs runtime classification
 
 **Exit Criteria**: Responsive CSS converts to adaptive .gscene with conditional constraints; interaction states preserved
 

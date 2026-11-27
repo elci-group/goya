@@ -123,9 +123,18 @@ pub fn capabilities(args: CapabilitiesArgs) -> Result<(), Box<dyn std::error::Er
             "implemented: colors, gradients, borders, shadows, transforms, filters, masks, backgrounds, style pooling",
         ),
         ("typography", "planned (Phase 3)"),
-        ("animation", "planned (Phase 4)"),
-        ("adaptive", "planned (Phase 4)"),
-        ("behavioural", "planned (Phase 4)"),
+        (
+            "animation",
+            "implemented: keyframes, easing, interpolation, trajectories, precomputed/runtime classification",
+        ),
+        (
+            "adaptive",
+            "implemented: environment registry, media queries, container deferral, breakpoint economy, interaction affordances",
+        ),
+        (
+            "behavioural",
+            "implemented: state extraction, state space, explosion prevention, transitions",
+        ),
         ("optimisation", "planned (Phase 5)"),
         (
             "emission",

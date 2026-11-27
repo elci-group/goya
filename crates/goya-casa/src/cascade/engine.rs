@@ -249,6 +249,24 @@ impl CascadeEngine {
                         .map_err(|error| ("@supports", format!("{}: {error}", supports.condition))),
                 );
             }
+            CasaRule::Container(container) => {
+                // The container's size is a runtime property: the query
+                // cannot be judged at transform time, so the group is
+                // excluded here and recorded as a deferred constraint.
+                reporter.emit(
+                    codes::ADAPTIVE_CONTAINER_DEFERRED,
+                    format!(
+                        "@container {}({}) is deferred to runtime evaluation",
+                        container
+                            .name
+                            .as_deref()
+                            .map(|name| format!("{name} "))
+                            .unwrap_or_default(),
+                        container.condition
+                    ),
+                    None,
+                );
+            }
             CasaRule::Layer(layer_rule) => {
                 let inner = layer_rule.names.first().map(|name| name.as_str());
                 for (nested_index, nested) in layer_rule.rules.iter().enumerate() {

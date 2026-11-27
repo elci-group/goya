@@ -157,6 +157,20 @@ fn eval_feature(contents: &[ComponentValue], env: &Environment) -> Result<bool, 
                 ("light", ColorScheme::Light) | ("dark", ColorScheme::Dark)
             ))
         }
+        "orientation" => {
+            let expected = single_ident(value, &feature)?;
+            match (env.viewport_width, env.viewport_height) {
+                (Some(width), Some(height)) => {
+                    let landscape = width > height;
+                    Ok(matches!(
+                        (expected.as_str(), landscape),
+                        ("landscape", true) | ("portrait", false)
+                    ))
+                }
+                // Known feature, unknown environment.
+                _ => Ok(false),
+            }
+        }
         other => Err(format!("unsupported media feature: {other}")),
     }
 }

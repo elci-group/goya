@@ -9,7 +9,9 @@
 use crate::diagnostics::codes;
 use crate::diagnostics::reporter::{Location, Reporter};
 use crate::ir::value_categories::ValueCategory;
-use goya_css_syntax::{AtRule, Block, ComponentValue, DeclarationItem, Rule, Token};
+use goya_css_syntax::{
+    parse_stylesheet, AtRule, Block, ComponentValue, DeclarationItem, Rule, Token,
+};
 use serde::{Deserialize, Serialize};
 
 /// Bumped on any breaking change to the serialized shape.
@@ -62,6 +64,10 @@ pub enum SheetScope {
 pub enum CasaRule {
     Style(StyleRule),
     Media(MediaRule),
+    /// `@container [name] (condition) { rules }` — recorded faithfully,
+    /// but excluded from cascade-time matching: the container's size is
+    /// a runtime property. Adaptive consumers re-evaluate the condition.
+    Container(ContainerRule),
     Layer(LayerRule),
     Supports(SupportsRule),
     /// `@import` recorded at its source position; `resolved` names the
@@ -100,6 +106,17 @@ pub struct DeclaredProperty {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MediaRule {
+    pub condition: String,
+    pub rules: Vec<CasaRule>,
+    pub start: usize,
+    pub end: usize,
+}
+
+/// `@container [name] (condition) { rules }`. `name` is the container
+/// name when authored; the condition keeps the parenthesised form.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ContainerRule {
+    pub name: Option<String>,
     pub condition: String,
     pub rules: Vec<CasaRule>,
     pub start: usize,
@@ -254,6 +271,31 @@ impl<'a> Lowering<'a> {
                     end: at.span.end,
                 }))
             }
+            "container" => {
+                let prelude = self.prelude_text(&at.prelude);
+                // `@container name (condition)` or `@container (condition)`.
+                let (name, condition) = match prelude.find('(') {
+                    Some(index) => {
+                        let name = prelude[..index].trim();
+                        (
+                            (!name.is_empty()).then(|| name.to_string()),
+                            prelude[index..].trim().to_string(),
+                        )
+                    }
+                    None => (None, prelude.trim().to_string()),
+                };
+                let rules = match &at.block {
+                    Some(block) => self.group_contents(&block.contents),
+                    None => Vec::new(),
+                };
+                Some(CasaRule::Container(ContainerRule {
+                    name,
+                    condition,
+                    rules,
+                    start: at.span.start,
+                    end: at.span.end,
+                }))
+            }
             "import" => match self.import_url(&at.prelude) {
                 Some(url) => Some(CasaRule::Import(ImportRule {
                     url,
@@ -349,6 +391,43 @@ impl<'a> Lowering<'a> {
             match value {
                 ComponentValue::Token(Token::Whitespace, _) => {}
                 ComponentValue::Block(block) => {
+                    // A nested at-rule (`@media` in `@media`, `@container`
+                    // in `@media`, ...) reaches here as an AtKeyword
+                    // prelude plus `{}` block; re-parse the spliced source
+                    // text so it lowers through the full at-rule path
+                    // instead of masquerading as a qualified rule. Only
+                    // `{}` blocks close a rule: a parenthesised group such
+                    // as the condition of `@container (min-width: ...)`
+                    // is itself a Block component and stays in the prelude.
+                    if block.open == '{'
+                        && prelude.iter().any(|value| {
+                            matches!(value, ComponentValue::Token(Token::AtKeyword(_), _))
+                        })
+                    {
+                        let start = prelude
+                            .first()
+                            .map(|value| value.span().start)
+                            .unwrap_or(block.span.start);
+                        let text = self.slice(start, block.span.end).to_string();
+                        // The nested rule's spans are relative to the
+                        // spliced text, so it lowers against that source.
+                        let mut nested = Lowering::new(
+                            self.sheet,
+                            &text,
+                            &mut *self.reporter,
+                            &mut *self.resources,
+                        );
+                        rules.extend(nested.rules(parse_stylesheet(&text)));
+                        prelude.clear();
+                        continue;
+                    }
+                    if block.open != '{' {
+                        // Parenthesised or bracketed group inside a prelude
+                        // (e.g. a nested at-rule's condition) — not a rule
+                        // terminator.
+                        prelude.push(value);
+                        continue;
+                    }
                     let selectors = self.prelude_selectors(&prelude);
                     rules.push(CasaRule::Style(StyleRule {
                         selectors,

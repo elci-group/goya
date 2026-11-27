@@ -124,6 +124,37 @@ pub const SHADOW_HOST_OUTSIDE_SHADOW_ROOT: DiagnosticCode = entry(
     Severity::Warning,
 );
 
+// Adaptive (CASA-ADP)
+pub const ADAPTIVE_FEATURE_UNSUPPORTED: DiagnosticCode = entry(
+    "CASA-ADP-001",
+    "a media/container feature has no evaluator; the rule is excluded and recorded as a deferred constraint",
+    Severity::Warning,
+);
+pub const ADAPTIVE_CONTAINER_DEFERRED: DiagnosticCode = entry(
+    "CASA-ADP-002",
+    "a container query cannot be evaluated at transform time (container size is a runtime property)",
+    Severity::Warning,
+);
+
+// Behavioural (CASA-BHV)
+pub const BEHAVIOURAL_STATE_OVERFLOW: DiagnosticCode = entry(
+    "CASA-BHV-001",
+    "a state space exceeded its budget; least-distinct combinations were merged",
+    Severity::Warning,
+);
+
+// Animation (CASA-ANI)
+pub const ANIMATION_UNINTERPOLABLE: DiagnosticCode = entry(
+    "CASA-ANI-001",
+    "a keyframe property cannot be interpolated; it steps discretely at 50%",
+    Severity::Warning,
+);
+pub const ANIMATION_RUNTIME_DEFERRED: DiagnosticCode = entry(
+    "CASA-ANI-002",
+    "an animation depends on a runtime-resolvable value; it is classified for runtime evaluation",
+    Severity::Warning,
+);
+
 /// Every registered code, in subsystem order.
 pub const ALL: &[DiagnosticCode] = &[
     SYNTAX_INVALID,
@@ -141,6 +172,11 @@ pub const ALL: &[DiagnosticCode] = &[
     GEOMETRY_UNRESOLVABLE,
     GEOMETRY_CALC_INVALID,
     SHADOW_HOST_OUTSIDE_SHADOW_ROOT,
+    ADAPTIVE_FEATURE_UNSUPPORTED,
+    ADAPTIVE_CONTAINER_DEFERRED,
+    BEHAVIOURAL_STATE_OVERFLOW,
+    ANIMATION_UNINTERPOLABLE,
+    ANIMATION_RUNTIME_DEFERRED,
 ];
 
 pub fn lookup(code: &str) -> Option<&'static DiagnosticCode> {
