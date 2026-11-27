@@ -274,32 +274,32 @@ selectors = "0.24"        # For selector matching
 ### Phase 3: Native Geometry & Appearance (Week 6-10)
 **Goal**: First usable CSS-to-.gscene pipeline with core layout, proportional conversion, appearance
 
-- [ ] Implement `geometry/proportional.rs` - Proportional geometry conversion (§9.1)
-- [ ] Implement `geometry/dimensional.rs` - CSS units → proportional constraints
-- [ ] Implement `geometry/calc.rs` - calc()/min()/max()/clamp() symbolic handling
-- [ ] Implement layout systems (progressive):
-  - [ ] `layout_systems/block.rs` - Block layout (flow, margins, containment)
-  - [ ] `layout_systems/flexbox.rs` - Flexbox (axis alignment, wrapping, growth/shrinkage)
-  - [ ] `layout_systems/grid.rs` - Grid (tracks, placement, spanning, fractional allocation)
-  - [ ] `layout_systems/absolute.rs` - Absolute positioning
-  - [ ] `layout_systems/fixed.rs` - Fixed positioning
-  - [ ] `layout_systems/sticky.rs` - Sticky positioning
-  - [ ] `layout_systems/table.rs` - Table layout
-  - [ ] `layout_systems/float.rs` - Float layout
-  - [ ] `layout_systems/multicol.rs` - Multi-column layout
-- [ ] Implement `appearance/colors.rs` - Color parsing and native mapping
-- [ ] Implement `appearance/gradients.rs` - Linear/radial/conic gradient mapping
-- [ ] Implement `appearance/borders.rs` - Border and border-radius mapping
-- [ ] Implement `appearance/shadows.rs` - Box/text shadow mapping
-- [ ] Implement `appearance/transforms.rs` - Transform mapping
-- [ ] Implement `appearance/filters.rs` - Filter/blend mode mapping
-- [ ] Implement `appearance/masks.rs` - Clip-path/mask mapping
-- [ ] Implement `appearance/backgrounds.rs` - Background image/color mapping
-- [ ] Implement `appearance/deduplication.rs` - Style pooling and appearance deduplication
-- [ ] Implement `emission/gscene.rs` - .gscene emission
-- [ ] Implement `emission/manifest.rs` - Transformation manifest
-- [ ] Implement `emission/provenance.rs` - Source provenance tracking
-- [ ] Layout conformance tests
+- [x] Implement `geometry/proportional.rs` - Proportional geometry conversion (§9.1)
+- [x] Implement `geometry/dimensional.rs` - CSS units → proportional constraints
+- [x] Implement `geometry/calc.rs` - calc()/min()/max()/clamp() symbolic handling
+- [x] Implement layout systems (progressive):
+  - [x] `layout_systems/block.rs` - Block layout (flow, margins, containment)
+  - [x] `layout_systems/flexbox.rs` - Flexbox (axis alignment, wrapping, growth/shrinkage)
+  - [x] `layout_systems/grid.rs` - Grid (tracks, placement, spanning, fractional allocation)
+  - [x] `layout_systems/absolute.rs` - Absolute positioning
+  - [x] `layout_systems/fixed.rs` - Fixed positioning
+  - [x] `layout_systems/sticky.rs` - Sticky positioning
+  - [x] `layout_systems/table.rs` - Table layout
+  - [x] `layout_systems/float.rs` - Float layout
+  - [x] `layout_systems/multicol.rs` - Multi-column layout
+- [x] Implement `appearance/colors.rs` - Color parsing and native mapping
+- [x] Implement `appearance/gradients.rs` - Linear/radial/conic gradient mapping
+- [x] Implement `appearance/borders.rs` - Border and border-radius mapping
+- [x] Implement `appearance/shadows.rs` - Box/text shadow mapping
+- [x] Implement `appearance/transforms.rs` - Transform mapping
+- [x] Implement `appearance/filters.rs` - Filter/blend mode mapping
+- [x] Implement `appearance/masks.rs` - Clip-path/mask mapping
+- [x] Implement `appearance/backgrounds.rs` - Background image/color mapping
+- [x] Implement `appearance/deduplication.rs` - Style pooling and appearance deduplication
+- [x] Implement `emission/gscene.rs` - .gscene emission
+- [x] Implement `emission/manifest.rs` - Transformation manifest
+- [x] Implement `emission/provenance.rs` - Source provenance tracking
+- [x] Layout conformance tests
 
 **Exit Criteria**: Basic CSS → .gscene conversion working for core layout and appearance properties
 

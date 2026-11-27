@@ -2293,7 +2293,6 @@ version = "0.0.1"
 dependencies = [
  "goya-caprichios",
  "goya-lang",
- "proptest",
  "sha2",
 ]
 

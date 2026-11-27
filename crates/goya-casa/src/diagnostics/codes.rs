@@ -105,6 +105,18 @@ pub const SELECTOR_UNMATCHABLE: DiagnosticCode = entry(
     Severity::Warning,
 );
 
+// Geometry (CASA-GEO)
+pub const GEOMETRY_UNRESOLVABLE: DiagnosticCode = entry(
+    "CASA-GEO-001",
+    "a length or percentage could not be resolved; the property keeps its initial geometry",
+    Severity::Warning,
+);
+pub const GEOMETRY_CALC_INVALID: DiagnosticCode = entry(
+    "CASA-GEO-002",
+    "a calc()/min()/max()/clamp() expression is invalid or divides by zero",
+    Severity::Warning,
+);
+
 // Shadow DOM (CASA-SHD)
 pub const SHADOW_HOST_OUTSIDE_SHADOW_ROOT: DiagnosticCode = entry(
     "CASA-SHD-001",
@@ -126,6 +138,8 @@ pub const ALL: &[DiagnosticCode] = &[
     CASCADE_INVALID_AT_COMPUTED_VALUE_TIME,
     CASCADE_UNEVALUABLE,
     SELECTOR_UNMATCHABLE,
+    GEOMETRY_UNRESOLVABLE,
+    GEOMETRY_CALC_INVALID,
     SHADOW_HOST_OUTSIDE_SHADOW_ROOT,
 ];
 

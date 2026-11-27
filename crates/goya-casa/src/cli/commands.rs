@@ -114,14 +114,23 @@ pub fn capabilities(args: CapabilitiesArgs) -> Result<(), Box<dyn std::error::Er
             "context",
             "implemented: scene tree, selector matching, computed styles",
         ),
-        ("geometry", "planned (Phase 3)"),
-        ("appearance", "planned (Phase 3)"),
+        (
+            "geometry",
+            "implemented: proportional conversion, dimensional units, calc()/min()/max()/clamp(), block/flex/grid/table/float/multicol/absolute/fixed/sticky layout",
+        ),
+        (
+            "appearance",
+            "implemented: colors, gradients, borders, shadows, transforms, filters, masks, backgrounds, style pooling",
+        ),
         ("typography", "planned (Phase 3)"),
         ("animation", "planned (Phase 4)"),
         ("adaptive", "planned (Phase 4)"),
         ("behavioural", "planned (Phase 4)"),
         ("optimisation", "planned (Phase 5)"),
-        ("emission", "planned (Phase 5)"),
+        (
+            "emission",
+            "implemented: .gscene scene emission, transformation manifest, CSS provenance (compatibility pending, Phase 5)",
+        ),
         ("validation", "planned (Phase 7)"),
     ];
     match args.format {
