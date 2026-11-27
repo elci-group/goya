@@ -716,6 +716,7 @@ mod tests {
             appear_s: None,
             appear_from_p: None,
             draw: None,
+            spatial: None,
             children: Vec::new(),
             placeholder: None,
             placeholder_phrasing: None,

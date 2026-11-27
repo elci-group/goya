@@ -77,12 +77,12 @@ fn spatial_content_requires_gssh4_admission() {
         parse_strict as fn(&str) -> Result<goya_lang::ParsedScene, goya_lang::StrictParseError>,
         parse_strict_gssh3,
     ] {
-        assert_eq!(parse(MODEL_SCENE).unwrap_err().code, "GY-E1019");
-        assert_eq!(parse(VIEWPORT_SCENE).unwrap_err().code, "GY-E1019");
+        assert_eq!(parse(MODEL_SCENE).unwrap_err().code, "GY-E1022");
+        assert_eq!(parse(VIEWPORT_SCENE).unwrap_err().code, "GY-E1022");
     }
     assert_eq!(
         parse_strict_gssh3_live(MODEL_SCENE).unwrap_err().code,
-        "GY-E1019"
+        "GY-E1022"
     );
     // GSSH/4 profiles admit it.
     parse_strict_gssh4(MODEL_SCENE).expect("gssh4 admits model");
