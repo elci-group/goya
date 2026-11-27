@@ -27,6 +27,11 @@ pub fn negotiate(
             && *id != crate::retry_caprichio::CONTRACT
             && *id != crate::filesystem_caprichio::CONTRACT
             && *id != crate::colour_cue_caprichio::CONTRACT
+            && *id != crate::google_sso_caprichio::CONTRACT
+            && *id != crate::microsoft_sso_caprichio::CONTRACT
+            && *id != crate::github_sso_caprichio::CONTRACT
+            && *id != crate::x_sso_caprichio::CONTRACT
+            && *id != crate::meta_sso_caprichio::CONTRACT
             && *id != crate::http_caprichio::CONTRACT
             && *id != crate::stream_caprichio::CONTRACT
             && *id != crate::compression_caprichio::CONTRACT
@@ -82,6 +87,11 @@ pub fn negotiate(
     let needs_retry = ordered.contains(crate::retry_caprichio::CONTRACT);
     let needs_filesystem = ordered.contains(crate::filesystem_caprichio::CONTRACT);
     let needs_colour_cue = ordered.contains(crate::colour_cue_caprichio::CONTRACT);
+    let needs_sso_google = ordered.contains(crate::google_sso_caprichio::CONTRACT);
+    let needs_sso_microsoft = ordered.contains(crate::microsoft_sso_caprichio::CONTRACT);
+    let needs_sso_github = ordered.contains(crate::github_sso_caprichio::CONTRACT);
+    let needs_sso_x = ordered.contains(crate::x_sso_caprichio::CONTRACT);
+    let needs_sso_meta = ordered.contains(crate::meta_sso_caprichio::CONTRACT);
     let needs_http = ordered.contains(crate::http_caprichio::CONTRACT);
     let needs_stream = ordered.contains(crate::stream_caprichio::CONTRACT);
     let needs_compression = ordered.contains(crate::compression_caprichio::CONTRACT);
@@ -151,6 +161,21 @@ pub fn negotiate(
     }
     if request.colour_cue.is_some() && !needs_colour_cue {
         return Err(NegotiationError::UnexpectedDeclaration { kind: "colour_cue" });
+    }
+    if request.sso_google.is_some() && !needs_sso_google {
+        return Err(NegotiationError::UnexpectedDeclaration { kind: "sso_google" });
+    }
+    if request.sso_microsoft.is_some() && !needs_sso_microsoft {
+        return Err(NegotiationError::UnexpectedDeclaration { kind: "sso_microsoft" });
+    }
+    if request.sso_github.is_some() && !needs_sso_github {
+        return Err(NegotiationError::UnexpectedDeclaration { kind: "sso_github" });
+    }
+    if request.sso_x.is_some() && !needs_sso_x {
+        return Err(NegotiationError::UnexpectedDeclaration { kind: "sso_x" });
+    }
+    if request.sso_meta.is_some() && !needs_sso_meta {
+        return Err(NegotiationError::UnexpectedDeclaration { kind: "sso_meta" });
     }
     if request.http.is_some() && !needs_http {
         return Err(NegotiationError::UnexpectedDeclaration { kind: "http" });
@@ -977,6 +1002,66 @@ pub fn negotiate(
                 Artifact::BluetoothProfile(
                     ir.lower_checked(host.bluetooth_profile_target, host.bluetooth_profile_host)
                         .map_err(NegotiationError::BluetoothProfile)?,
+                )
+            }
+            crate::google_sso_caprichio::CONTRACT => {
+                let declaration = request.sso_google.clone().ok_or(
+                    NegotiationError::MissingDeclaration {
+                        capability: crate::google_sso_caprichio::CONTRACT,
+                    },
+                )?;
+                let ir = declaration.normalize().map_err(NegotiationError::GoogleSso)?;
+                Artifact::GoogleSso(
+                    ir.lower_checked(host.sso_google_target, host.sso_google_host)
+                        .map_err(NegotiationError::GoogleSso)?,
+                )
+            }
+            crate::microsoft_sso_caprichio::CONTRACT => {
+                let declaration = request.sso_microsoft.clone().ok_or(
+                    NegotiationError::MissingDeclaration {
+                        capability: crate::microsoft_sso_caprichio::CONTRACT,
+                    },
+                )?;
+                let ir = declaration.normalize().map_err(NegotiationError::MicrosoftSso)?;
+                Artifact::MicrosoftSso(
+                    ir.lower_checked(host.sso_microsoft_target, host.sso_microsoft_host)
+                        .map_err(NegotiationError::MicrosoftSso)?,
+                )
+            }
+            crate::github_sso_caprichio::CONTRACT => {
+                let declaration = request.sso_github.clone().ok_or(
+                    NegotiationError::MissingDeclaration {
+                        capability: crate::github_sso_caprichio::CONTRACT,
+                    },
+                )?;
+                let ir = declaration.normalize().map_err(NegotiationError::GithubSso)?;
+                Artifact::GithubSso(
+                    ir.lower_checked(host.sso_github_target, host.sso_github_host)
+                        .map_err(NegotiationError::GithubSso)?,
+                )
+            }
+            crate::x_sso_caprichio::CONTRACT => {
+                let declaration = request.sso_x.clone().ok_or(
+                    NegotiationError::MissingDeclaration {
+                        capability: crate::x_sso_caprichio::CONTRACT,
+                    },
+                )?;
+                let ir = declaration.normalize().map_err(NegotiationError::XSso)?;
+                Artifact::XSso(
+                    ir.lower_checked(host.sso_x_target, host.sso_x_host)
+                        .map_err(NegotiationError::XSso)?,
+                )
+            }
+            crate::meta_sso_caprichio::CONTRACT => {
+                let declaration = request.sso_meta.clone().ok_or(
+                    NegotiationError::MissingDeclaration {
+                        capability: crate::meta_sso_caprichio::CONTRACT,
+                    },
+                )?;
+                let ir = declaration.normalize().map_err(NegotiationError::MetaSso)?;
+                Artifact::MetaSso(
+                    ir.lower_checked(host.sso_meta_target, host.sso_meta_host)
+                        .map_err(NegotiationError::MetaSso)?,
                 )
             }
             _ => unreachable!("request IDs validated before lowering"),

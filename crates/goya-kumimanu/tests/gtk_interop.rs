@@ -3,7 +3,8 @@
 //! These tests need `DISPLAY`, `python3`, and PyGObject with GTK 3. They
 //! fail, not skip, when run without them: an absent peer is not a pass.
 //! The selection is `GOYA_KUMIMANU_TEST_*`, so the desktop clipboard is not
-//! read or replaced.
+//! read or replaced. The PRIMARY tests are the exception: PRIMARY is always
+//! the real atom, so they briefly borrow the desktop primary selection.
 
 use std::io::{BufRead, BufReader, Read};
 use std::path::PathBuf;
@@ -48,10 +49,24 @@ fn window(name: &str) -> (Session, WindowId) {
     (session, id)
 }
 
-/// Start GTK as owner of `lines` of text and wait until it says so.
-fn gtk_owner(name: &str, lines: usize) -> Child {
+/// Like [`window`], but on the default connection. The PRIMARY tests have no
+/// private name to swap in: PRIMARY is always the real atom.
+fn default_window() -> (Session, WindowId) {
+    let mut session = Session::connect().expect("connect");
+    let mut config = WindowConfig::new("kumimanu-gtk", 8, 8);
+    config.override_redirect = true;
+    config.x = -80;
+    config.y = -80;
+    let id = session.create_window(config).expect("create");
+    session.show_window(id).expect("map");
+    (session, id)
+}
+
+/// Start GTK as owner of a selection (`own` or `own-primary` plus its
+/// arguments) and wait until it says so.
+fn gtk_owner(args: &[&str]) -> Child {
     let mut child = peer()
-        .args(["own", name, &lines.to_string()])
+        .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
@@ -84,6 +99,25 @@ fn kumimanu_reads(name: &str) -> (Option<String>, bool) {
     panic!("no clipboard answer from GTK");
 }
 
+/// The PRIMARY text Kumimanu sees from whoever currently owns the atom.
+fn kumimanu_reads_primary() -> Option<String> {
+    let (mut session, id) = default_window();
+    session.request_primary_text(id).expect("request");
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while Instant::now() < deadline {
+        for event in session
+            .poll_events(Duration::from_millis(20))
+            .expect("poll")
+        {
+            if let Event::PrimaryText(text) = event {
+                session.close_window(id).unwrap();
+                return text;
+            }
+        }
+    }
+    panic!("no primary answer from GTK");
+}
+
 fn finish(mut child: Child) {
     drop(child.stdin.take());
     let status = child.wait().expect("peer exit");
@@ -97,7 +131,7 @@ fn kumimanu_reads_small_and_incr_text_from_gtk() {
     // because it is over GTK's 262144-byte single-property bound.
     for (tag, lines) in [("small", 10usize), ("incr", 100_000)] {
         let name = selection(tag);
-        let child = gtk_owner(&name, lines);
+        let child = gtk_owner(&["own", &name, &lines.to_string()]);
         let (got, incr) = kumimanu_reads(&name);
         finish(child);
         assert_eq!(incr, tag == "incr", "{tag}: INCR use");
@@ -112,7 +146,7 @@ fn kumimanu_reads_small_and_incr_text_from_gtk() {
 fn kumimanu_refuses_gtk_text_over_the_cap() {
     let lines = MAX_CLIPBOARD_BYTES / 9 + 100;
     let name = selection("over");
-    let child = gtk_owner(&name, lines);
+    let child = gtk_owner(&["own", &name, &lines.to_string()]);
     let (got, incr) = kumimanu_reads(&name);
     assert_eq!(got, None);
     assert!(
@@ -160,4 +194,57 @@ fn gtk_reads_small_and_incr_text_from_kumimanu() {
         assert_eq!(incr, tag == "own-incr", "{tag}: INCR use");
         session.close_window(id).unwrap();
     }
+}
+
+#[test]
+#[ignore = "needs DISPLAY and PyGObject GTK 3; run with --ignored"]
+fn kumimanu_reads_primary_text_from_gtk() {
+    // PRIMARY is always the real atom, so this briefly replaces whatever
+    // the desktop currently has selected; the peer releases it when it
+    // exits. 1000 lines is about 9 KB, comfortably inside GTK's
+    // single-property bound, so no INCR is involved.
+    let lines = 1000;
+    let child = gtk_owner(&["own-primary", &lines.to_string()]);
+    let got = kumimanu_reads_primary();
+    finish(child);
+    let want = text_for(lines);
+    assert_eq!(got.as_deref(), Some(want.as_str()), "primary text differs");
+}
+
+#[test]
+#[ignore = "needs DISPLAY and PyGObject GTK 3; run with --ignored"]
+fn gtk_reads_primary_text_from_kumimanu() {
+    // This borrows the desktop PRIMARY for the test's duration: Kumimanu
+    // owns the real atom until close_window releases it, and CLIPBOARD is
+    // never touched. That is acceptable for a local display test.
+    let lines = 1000;
+    let want = text_for(lines);
+    let (mut session, id) = default_window();
+    assert!(session.set_primary_text(id, &want).expect("own"));
+    let mut child = peer()
+        .args(["read-primary"])
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("python3 with GTK 3");
+    let mut stdout = child.stdout.take().unwrap();
+    let reader = std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        stdout.read_to_end(&mut bytes).map(|_| bytes)
+    });
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let status = loop {
+        // Kumimanu serves from its own event stream, so keep pumping.
+        let _ = session
+            .poll_events(Duration::from_millis(10))
+            .expect("poll");
+        if let Some(status) = child.try_wait().expect("peer") {
+            break status;
+        }
+        assert!(Instant::now() < deadline, "GTK did not finish");
+    };
+    assert!(status.success(), "GTK read no primary text ({status})");
+    let got = reader.join().unwrap().expect("peer stdout");
+    assert_eq!(got.len(), want.len());
+    assert!(got == want.as_bytes(), "primary text differs");
+    session.close_window(id).unwrap();
 }

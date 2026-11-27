@@ -85,7 +85,11 @@ jobs:
       - name: Kumimanu GTK interop under Xvfb
         run: xvfb-run -a cargo test -p goya-kumimanu --test gtk_interop -- --ignored --offline
       - name: Kumimanu-hosted counter under Xvfb
-        run: xvfb-run -a cargo test -p emperor-runtime --features kumimanu --lib -- --ignored --offline
+        # Only the kumimanu test: the Wayland exercise test needs
+        # WAYLAND_DISPLAY and the two live tests interfere when run in
+        # parallel on one display, so the filter and single thread are
+        # load-bearing.
+        run: xvfb-run -a cargo test -p emperor-runtime --features kumimanu --lib kumimanu_counter -- --ignored --test-threads=1 --offline
 
   frontend-contract-tests:
     needs: [quality-gates, unit-and-property-tests]

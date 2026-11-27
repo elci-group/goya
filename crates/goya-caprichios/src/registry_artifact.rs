@@ -51,6 +51,11 @@ pub enum Artifact {
     IntelMobile(IntelMobileArtifact),
     IntelXeon(IntelXeonArtifact),
     ColourCue(ColourCueArtifact),
+    GoogleSso(GoogleSsoArtifact),
+    MicrosoftSso(MicrosoftSsoArtifact),
+    GithubSso(GithubSsoArtifact),
+    XSso(XSsoArtifact),
+    MetaSso(MetaSsoArtifact),
 }
 
 impl Artifact {
@@ -104,6 +109,11 @@ impl Artifact {
             Self::IntelXeon(_) => crate::intel_xeon_caprichio::CONTRACT,
             Self::AcceleratorModel(a) => a.contract,
             Self::ColourCue(a) => a.contract,
+            Self::GoogleSso(a) => a.contract,
+            Self::MicrosoftSso(a) => a.contract,
+            Self::GithubSso(a) => a.contract,
+            Self::XSso(a) => a.contract,
+            Self::MetaSso(a) => a.contract,
         }
     }
 
@@ -157,6 +167,11 @@ impl Artifact {
             Self::IntelXeon(_) => "intel-xeon-bounded-worker-plan",
             Self::AcceleratorModel(_) => "per-model-device-accelerator",
             Self::ColourCue(a) => a.recipe,
+            Self::GoogleSso(_) => "google-sso-authorization-code-pkce",
+            Self::MicrosoftSso(_) => "microsoft-sso-authorization-code-pkce",
+            Self::GithubSso(_) => "github-sso-authorization-code-pkce",
+            Self::XSso(_) => "x-sso-authorization-code-pkce",
+            Self::MetaSso(_) => "meta-sso-authorization-code-pkce",
         }
     }
 
@@ -210,6 +225,11 @@ impl Artifact {
             Self::IntelXeon(a) => a.recipe_version,
             Self::AcceleratorModel(a) => a.recipe_version,
             Self::ColourCue(a) => a.recipe_version,
+            Self::GoogleSso(a) => a.recipe_version,
+            Self::MicrosoftSso(a) => a.recipe_version,
+            Self::GithubSso(a) => a.recipe_version,
+            Self::XSso(a) => a.recipe_version,
+            Self::MetaSso(a) => a.recipe_version,
         }
     }
 
@@ -263,6 +283,11 @@ impl Artifact {
             Self::IntelXeon(a) => &a.canonical_ir,
             Self::AcceleratorModel(a) => &a.canonical_ir,
             Self::ColourCue(a) => &a.canonical_ir,
+            Self::GoogleSso(a) => &a.canonical_ir,
+            Self::MicrosoftSso(a) => &a.canonical_ir,
+            Self::GithubSso(a) => &a.canonical_ir,
+            Self::XSso(a) => &a.canonical_ir,
+            Self::MetaSso(a) => &a.canonical_ir,
         }
     }
 
@@ -316,6 +341,11 @@ impl Artifact {
             Self::IntelXeon(a) => &a.source,
             Self::AcceleratorModel(a) => &a.source,
             Self::ColourCue(a) => &a.source,
+            Self::GoogleSso(a) => &a.source,
+            Self::MicrosoftSso(a) => &a.source,
+            Self::GithubSso(a) => &a.source,
+            Self::XSso(a) => &a.source,
+            Self::MetaSso(a) => &a.source,
         }
     }
 }

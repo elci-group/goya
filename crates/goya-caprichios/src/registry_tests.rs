@@ -314,6 +314,41 @@ fn host() -> HostProfile {
         colour_cue_host: ColourCueHost {
             software_present: true,
         },
+        sso_google_target: GoogleSsoTarget::Browser,
+        sso_google_host: GoogleSsoHost {
+            https_client: true,
+            external_user_agent: true,
+            secure_storage: true,
+            utf8_strings: true,
+        },
+        sso_microsoft_target: MicrosoftSsoTarget::Browser,
+        sso_microsoft_host: MicrosoftSsoHost {
+            https_client: true,
+            external_user_agent: true,
+            secure_storage: true,
+            utf8_strings: true,
+        },
+        sso_github_target: GithubSsoTarget::Browser,
+        sso_github_host: GithubSsoHost {
+            https_client: true,
+            external_user_agent: true,
+            secure_storage: true,
+            utf8_strings: true,
+        },
+        sso_x_target: XSsoTarget::Browser,
+        sso_x_host: XSsoHost {
+            https_client: true,
+            external_user_agent: true,
+            secure_storage: true,
+            utf8_strings: true,
+        },
+        sso_meta_target: MetaSsoTarget::Browser,
+        sso_meta_host: MetaSsoHost {
+            https_client: true,
+            external_user_agent: true,
+            secure_storage: true,
+            utf8_strings: true,
+        },
     }
 }
 
@@ -2546,6 +2581,11 @@ fn mixed_request_is_sorted_and_artifacts_keep_contract_identity() {
         bluetooth_access: None,
         bluetooth_profile: None,
         colour_cue: None,
+        sso_google: None,
+        sso_microsoft: None,
+        sso_github: None,
+        sso_x: None,
+        sso_meta: None,
     };
     let result = negotiate(&request, host()).unwrap();
     assert_eq!(
@@ -2690,6 +2730,11 @@ fn supported_contracts_lists_only_exact_implemented_contracts_in_order() {
             "goya.hardware.payments.google_pay.v1",
             "goya.hardware.payments.samsung_pay.v1",
             "goya.hardware.secure_storage.keychain.v1",
+            "goya.identity.sso.github.v1",
+            "goya.identity.sso.google.v1",
+            "goya.identity.sso.meta.v1",
+            "goya.identity.sso.microsoft.v1",
+            "goya.identity.sso.x.v1",
             "goya.input.ascii_set_validation.process_local.v1",
             "goya.memory.buffers.process_local.v1",
             "goya.network.fetch.v1",
@@ -3773,6 +3818,11 @@ fn benchmark_negotiation() {
         bluetooth_access: None,
         bluetooth_profile: None,
         colour_cue: None,
+        sso_google: None,
+        sso_microsoft: None,
+        sso_github: None,
+        sso_x: None,
+        sso_meta: None,
     };
     let start = Instant::now();
     let iterations = 10_000;
@@ -3811,3 +3861,229 @@ fn colour_cue_placement_integrated_cheaper_uses_shared_memory_inventory() {
         .contains("strategy=SharedMemoryInventory\n"));
     assert_eq!(negotiated, negotiate(&request, profile).unwrap());
 }
+
+// ---- SSO provider contracts (ported from sash/phase0-smoke) ----
+
+fn sso_google() -> GoogleSsoDeclaration {
+    GoogleSsoDeclaration {
+        client_id: "goya-client.apps.googleusercontent.com".into(),
+        redirect_uri: "https://app.example/oauth/callback".into(),
+        state: "state-1234567890ab".into(),
+        scopes: vec!["openid".into(), "profile".into()],
+        pkce_verifier: Some("v".repeat(64)),
+    }
+}
+
+fn sso_microsoft() -> MicrosoftSsoDeclaration {
+    MicrosoftSsoDeclaration {
+        client_id: "goya-client.example".into(),
+        redirect_uri: "https://app.example/oauth/callback".into(),
+        state: "state-1234567890ab".into(),
+        scopes: vec!["openid".into(), "User.Read".into()],
+        pkce_verifier: Some("m".repeat(48)),
+    }
+}
+
+fn sso_github() -> GithubSsoDeclaration {
+    GithubSsoDeclaration {
+        client_id: "goya-client.example".into(),
+        redirect_uri: "https://app.example/oauth/callback".into(),
+        state: "state-1234567890ab".into(),
+        scopes: vec!["read:user".into(), "user:email".into()],
+        pkce_verifier: Some("g".repeat(56)),
+    }
+}
+
+fn sso_x() -> XSsoDeclaration {
+    XSsoDeclaration {
+        client_id: "goya-client.example".into(),
+        redirect_uri: "https://app.example/oauth/callback".into(),
+        state: "state-1234567890ab".into(),
+        scopes: vec!["tweet.read".into(), "users.read".into()],
+        pkce_verifier: Some("x".repeat(64)),
+    }
+}
+
+fn sso_meta() -> MetaSsoDeclaration {
+    MetaSsoDeclaration {
+        client_id: "goya-client.example".into(),
+        redirect_uri: "https://app.example/oauth/callback".into(),
+        state: "state-1234567890ab".into(),
+        scopes: vec!["public_profile".into(), "email".into()],
+        pkce_verifier: None,
+    }
+}
+
+#[test]
+fn sso_google_contract_registers_exactly_and_fails_closed() {
+    let contract = crate::google_sso_caprichio::CONTRACT;
+    assert_eq!(contract, "goya.identity.sso.google.v1");
+    assert!(supported_contracts().contains(&contract));
+    assert!(!supported_contracts().contains(&"identity.sso"));
+    assert!(!supported_contracts().contains(&"goya.identity.sso.v1"));
+
+    let request = Request {
+        capabilities: vec![contract.into()],
+        sso_google: Some(sso_google()),
+        ..Request::default()
+    };
+    let negotiated = negotiate(&request, host()).unwrap();
+    assert_eq!(negotiated.len(), 1);
+    assert_eq!(negotiated[0].id, contract);
+    assert_eq!(negotiated[0].artifact.contract(), contract);
+    assert_eq!(
+        negotiated[0].artifact.recipe(),
+        "google-sso-authorization-code-pkce"
+    );
+    assert!(negotiated[0]
+        .artifact
+        .canonical_ir()
+        .contains("provider=google\n"));
+    assert!(negotiated[0]
+        .artifact
+        .canonical_ir()
+        .contains("token_exchange=none\n"));
+    assert_eq!(negotiated, negotiate(&request, host()).unwrap());
+
+    let missing = Request {
+        capabilities: vec![contract.into()],
+        ..Request::default()
+    };
+    assert_eq!(
+        negotiate(&missing, host()),
+        Err(NegotiationError::MissingDeclaration {
+            capability: contract
+        })
+    );
+    let unexpected = Request {
+        sso_google: Some(sso_google()),
+        ..Request::default()
+    };
+    assert_eq!(
+        negotiate(&unexpected, host()),
+        Err(NegotiationError::UnexpectedDeclaration {
+            kind: "sso_google"
+        })
+    );
+
+    let mut unsupported_target = host();
+    unsupported_target.sso_google_target = GoogleSsoTarget::Node;
+    assert_eq!(
+        negotiate(&request, unsupported_target),
+        Err(NegotiationError::GoogleSso(
+            crate::google_sso_caprichio::Diagnostic::UnsupportedTarget
+        ))
+    );
+    let mut no_agent = host();
+    no_agent.sso_google_host.external_user_agent = false;
+    assert_eq!(
+        negotiate(&request, no_agent),
+        Err(NegotiationError::GoogleSso(
+            crate::google_sso_caprichio::Diagnostic::MissingExternalUserAgent
+        ))
+    );
+
+    let draft = Request {
+        capabilities: vec!["identity.sso".into()],
+        ..Request::default()
+    };
+    assert_eq!(
+        negotiate(&draft, host()),
+        Err(NegotiationError::UnknownCapability("identity.sso".into()))
+    );
+}
+
+#[test]
+fn sso_provider_contracts_negotiate_deterministically_and_fail_closed() {
+    let providers = [
+        (
+            crate::microsoft_sso_caprichio::CONTRACT,
+            "goya.identity.sso.microsoft.v1",
+            "microsoft-sso-authorization-code-pkce",
+            "provider=microsoft\n",
+            Request {
+                capabilities: vec![crate::microsoft_sso_caprichio::CONTRACT.into()],
+                sso_microsoft: Some(sso_microsoft()),
+                ..Request::default()
+            },
+            NegotiationError::MicrosoftSso(
+                crate::microsoft_sso_caprichio::Diagnostic::UnsupportedTarget
+            ),
+        ),
+        (
+            crate::github_sso_caprichio::CONTRACT,
+            "goya.identity.sso.github.v1",
+            "github-sso-authorization-code-pkce",
+            "provider=github\n",
+            Request {
+                capabilities: vec![crate::github_sso_caprichio::CONTRACT.into()],
+                sso_github: Some(sso_github()),
+                ..Request::default()
+            },
+            NegotiationError::GithubSso(
+                crate::github_sso_caprichio::Diagnostic::UnsupportedTarget
+            ),
+        ),
+        (
+            crate::x_sso_caprichio::CONTRACT,
+            "goya.identity.sso.x.v1",
+            "x-sso-authorization-code-pkce",
+            "provider=x\n",
+            Request {
+                capabilities: vec![crate::x_sso_caprichio::CONTRACT.into()],
+                sso_x: Some(sso_x()),
+                ..Request::default()
+            },
+            NegotiationError::XSso(crate::x_sso_caprichio::Diagnostic::UnsupportedTarget),
+        ),
+        (
+            crate::meta_sso_caprichio::CONTRACT,
+            "goya.identity.sso.meta.v1",
+            "meta-sso-authorization-code-pkce",
+            "provider=meta\n",
+            Request {
+                capabilities: vec![crate::meta_sso_caprichio::CONTRACT.into()],
+                sso_meta: Some(sso_meta()),
+                ..Request::default()
+            },
+            NegotiationError::MetaSso(crate::meta_sso_caprichio::Diagnostic::UnsupportedTarget),
+        ),
+    ];
+    for (contract, id, recipe, provider_line, request, unsupported) in providers {
+        assert_eq!(contract, id);
+        assert!(supported_contracts().contains(&contract));
+        let negotiated = negotiate(&request, host()).unwrap();
+        assert_eq!(negotiated.len(), 1);
+        assert_eq!(negotiated[0].id, contract);
+        assert_eq!(negotiated[0].artifact.contract(), contract);
+        assert_eq!(negotiated[0].artifact.recipe(), recipe);
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains(provider_line));
+        assert!(negotiated[0]
+            .artifact
+            .canonical_ir()
+            .contains("token_exchange=none\n"));
+        assert_eq!(negotiated, negotiate(&request, host()).unwrap());
+
+        let missing = Request {
+            capabilities: vec![contract.into()],
+            ..Request::default()
+        };
+        assert_eq!(
+            negotiate(&missing, host()),
+            Err(NegotiationError::MissingDeclaration {
+                capability: contract
+            })
+        );
+
+        let mut cross_target = host();
+        cross_target.sso_microsoft_target = MicrosoftSsoTarget::CrossPlatform;
+        cross_target.sso_github_target = GithubSsoTarget::CrossPlatform;
+        cross_target.sso_x_target = XSsoTarget::CrossPlatform;
+        cross_target.sso_meta_target = MetaSsoTarget::CrossPlatform;
+        assert_eq!(negotiate(&request, cross_target), Err(unsupported));
+    }
+}
+

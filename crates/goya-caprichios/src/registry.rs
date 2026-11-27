@@ -63,6 +63,26 @@ use crate::colour_cue_caprichio::{
     ColourCueArtifact, ColourCueDeclaration, RuntimeCapabilities as ColourCueHost,
     Target as ColourCueTarget,
 };
+use crate::google_sso_caprichio::{
+    GoogleSsoArtifact, GoogleSsoDeclaration, RuntimeCapabilities as GoogleSsoHost,
+    Target as GoogleSsoTarget,
+};
+use crate::microsoft_sso_caprichio::{
+    MicrosoftSsoArtifact, MicrosoftSsoDeclaration, RuntimeCapabilities as MicrosoftSsoHost,
+    Target as MicrosoftSsoTarget,
+};
+use crate::github_sso_caprichio::{
+    GithubSsoArtifact, GithubSsoDeclaration, RuntimeCapabilities as GithubSsoHost,
+    Target as GithubSsoTarget,
+};
+use crate::x_sso_caprichio::{
+    XSsoArtifact, XSsoDeclaration, RuntimeCapabilities as XSsoHost,
+    Target as XSsoTarget,
+};
+use crate::meta_sso_caprichio::{
+    MetaSsoArtifact, MetaSsoDeclaration, RuntimeCapabilities as MetaSsoHost,
+    Target as MetaSsoTarget,
+};
 use crate::compression_caprichio::{
     Artifact as CompressionArtifact, Declaration as CompressionDeclaration,
     HostProfile as CompressionHost, Target as CompressionTarget,
@@ -236,6 +256,11 @@ pub struct Request {
     pub intel_xeon: Option<IntelXeonDeclaration>,
     pub accelerator_model: Option<AcceleratorDeclaration>,
     pub colour_cue: Option<ColourCueDeclaration>,
+    pub sso_google: Option<GoogleSsoDeclaration>,
+    pub sso_microsoft: Option<MicrosoftSsoDeclaration>,
+    pub sso_github: Option<GithubSsoDeclaration>,
+    pub sso_x: Option<XSsoDeclaration>,
+    pub sso_meta: Option<MetaSsoDeclaration>,
 }
 
 /// Host facts are supplied by the caller; the registry does not infer support
@@ -336,6 +361,16 @@ pub struct HostProfile {
     pub accelerator_model_host: AcceleratorModelHost,
     pub colour_cue_target: ColourCueTarget,
     pub colour_cue_host: ColourCueHost,
+    pub sso_google_target: GoogleSsoTarget,
+    pub sso_google_host: GoogleSsoHost,
+    pub sso_microsoft_target: MicrosoftSsoTarget,
+    pub sso_microsoft_host: MicrosoftSsoHost,
+    pub sso_github_target: GithubSsoTarget,
+    pub sso_github_host: GithubSsoHost,
+    pub sso_x_target: XSsoTarget,
+    pub sso_x_host: XSsoHost,
+    pub sso_meta_target: MetaSsoTarget,
+    pub sso_meta_host: MetaSsoHost,
 }
 
 #[path = "registry_artifact.rs"]
@@ -394,6 +429,11 @@ pub const fn supported_contracts() -> &'static [&'static str] {
         crate::google_pay_caprichio::CONTRACT,
         crate::samsung_pay_caprichio::CONTRACT,
         crate::keychain_caprichio::CONTRACT,
+        crate::github_sso_caprichio::CONTRACT,
+        crate::google_sso_caprichio::CONTRACT,
+        crate::meta_sso_caprichio::CONTRACT,
+        crate::microsoft_sso_caprichio::CONTRACT,
+        crate::x_sso_caprichio::CONTRACT,
         crate::input_validation_caprichio::CONTRACT,
         crate::memory_caprichio::CONTRACT,
         crate::CONTRACT,
@@ -456,6 +496,11 @@ pub enum NegotiationError {
     BluetoothAccess(crate::bluetooth_access_caprichio::Diagnostic),
     BluetoothProfile(crate::bluetooth_profile_caprichio::Diagnostic),
     ColourCue(crate::colour_cue_caprichio::Diagnostic),
+    GoogleSso(crate::google_sso_caprichio::Diagnostic),
+    MicrosoftSso(crate::microsoft_sso_caprichio::Diagnostic),
+    GithubSso(crate::github_sso_caprichio::Diagnostic),
+    XSso(crate::x_sso_caprichio::Diagnostic),
+    MetaSso(crate::meta_sso_caprichio::Diagnostic),
 }
 
 impl fmt::Display for NegotiationError {
@@ -576,6 +621,11 @@ impl fmt::Display for NegotiationError {
                 write!(f, "Bluetooth profile negotiation failed: {error}")
             }
             Self::ColourCue(error) => write!(f, "colour cue negotiation failed: {error}"),
+            Self::GoogleSso(error) => write!(f, "Google SSO negotiation failed: {error}"),
+            Self::MicrosoftSso(error) => write!(f, "Microsoft SSO negotiation failed: {error}"),
+            Self::GithubSso(error) => write!(f, "GitHub SSO negotiation failed: {error}"),
+            Self::XSso(error) => write!(f, "X SSO negotiation failed: {error}"),
+            Self::MetaSso(error) => write!(f, "Meta SSO negotiation failed: {error}"),
         }
     }
 }
