@@ -105,6 +105,8 @@ fn text_entry<'a>(entries: &'a [SourceEntry], path: &[usize]) -> Option<&'a Sour
 fn unsupported_entry(entries: &[SourceEntry]) -> Option<&SourceEntry> {
     entries.iter().find(|entry| match entry.kind.as_str() {
         "ontology" | "cell" | "button" | "interaction" => false,
+        // The GSSH/2 `@state` block the interactions read and write.
+        "state" | "state-key" => false,
         // Rendered as native accessibility modifiers (decision D14).
         "iden" => false,
         "property" => !matches!(entry.name.as_str(), "id" | "text"),
@@ -742,7 +744,7 @@ mod tests {
         }
         assert!(crate::static_column::preview(SOURCE, "app/main.gscene").is_err());
         assert!(crate::native_swift::preview(SOURCE, "app/main.gscene", initial()).is_err());
-        let parsed = goya_lang::parse_strict(SOURCE).unwrap();
+        let parsed = goya_lang::parse_strict_gssh2(SOURCE).unwrap();
         let mut application = goya_sdk::D1Application::new(&parsed.scene, initial()).unwrap();
         assert_eq!(application.values().get("count"), Some(&D1Value::Int(0)));
         assert_eq!(application.revision(), 0);

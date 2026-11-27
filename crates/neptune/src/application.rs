@@ -286,12 +286,16 @@ mod tests {
         wrong.insert("count".into(), D1Value::Bool(false));
         assert!(lower(SOURCE, "app/main.gscene", wrong).is_err());
         let conflict = SOURCE
-            .replace("write name: text", "write count: text")
+            // `rename` still reads `name`, so the only defect is the
+            // conflicting type of `count`.
+            .replace("write name: text", "read name: text; write count: text")
             .replace("set name = input.value", "set count = input.value");
         let diagnostic = lower(&conflict, "app/main.gscene", initial()).unwrap_err();
-        assert_eq!(diagnostic.code, "NPT-E3102");
+        // The language now refuses the conflicting write type itself.
+        assert_eq!(diagnostic.code, "GY-E1004");
         let range = diagnostic.range.unwrap();
-        assert!(conflict[range.start..range.end].starts_with("@interaction add"));
+        // It points at the action whose write disagrees with `@state`.
+        assert!(conflict[range.start..range.end].starts_with("@interaction rename"));
         let with_button = conflict.replace(
             "@button inc",
             "@button later { id: \"button.later\" } @button inc",
@@ -299,7 +303,7 @@ mod tests {
         let with_later = format!("{} @interaction later {{ id: \"action.later\"; trigger: button.later.activate; class: D1; state {{ write count: int; }} input {{ }} set count = 0; }} }}", &with_button[..with_button.len() - 1]);
         let diagnostic = lower(&with_later, "app/main.gscene", initial()).unwrap_err();
         let range = diagnostic.range.unwrap();
-        assert!(with_later[range.start..range.end].starts_with("@interaction add"));
+        assert!(with_later[range.start..range.end].starts_with("@interaction rename"));
         let mut oversized = initial();
         oversized.insert(
             "name".into(),

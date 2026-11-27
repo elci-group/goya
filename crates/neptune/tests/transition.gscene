@@ -1,11 +1,13 @@
 @ontology app {
+    @state { count: int = 0 session; previous: int = 0 session; }
     @button plus { id: "button.plus" }
+    @input amountField { id: "input.amount" text: "" }
     @interaction increment {
         id: "action.increment";
         trigger: button.plus.activate;
         class: D1;
         state { read count: int; write count: int; write previous: int; }
-        input { amount: int; }
+        input { amount: int from "input.amount"; }
         set count = state.count + input.amount;
         set previous = state.count;
     }

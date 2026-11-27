@@ -426,8 +426,10 @@ mod tests {
             } else {
                 format!("key{index}")
             };
-            buttons.push_str(&format!("@button b{index} {{ id: \"button.{index}\" }} "));
-            interactions.push_str(&format!("@interaction a{index} {{ id: \"action.{index}\"; trigger: button.b{index}.activate; class: D1; state {{ write {key}: text; }} input {{ value: text; }} set {key} = input.value; }} "));
+            buttons.push_str(&format!(
+                "@button b{index} {{ id: \"button.{index}\" }} @input field{index} {{ id: \"field.{index}\" }} "
+            ));
+            interactions.push_str(&format!("@interaction a{index} {{ id: \"action.{index}\"; trigger: button.b{index}.activate; class: D1; state {{ write {key}: text; }} input {{ value: text from \"field.{index}\"; }} set {key} = input.value; }} "));
             values.insert(
                 key,
                 D1Value::Text(if index == 17 {
@@ -437,8 +439,13 @@ mod tests {
                 }),
             );
         }
-        let source =
-            format!("@ontology app {{ @cell root {{ id: \"root\" {buttons} }} {interactions} }}");
+        let state: String = values
+            .keys()
+            .map(|key| format!("{key}: text = \"\" session; "))
+            .collect();
+        let source = format!(
+            "@ontology app {{ @state {{ {state}}} @cell root {{ id: \"root\" {buttons} }} {interactions} }}"
+        );
         let generated = preview(&source, "app/main.gscene", values.clone()).unwrap();
         let action = generated
             .actions

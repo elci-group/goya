@@ -523,7 +523,8 @@ mod tests {
 
     #[test]
     fn malformed_and_deep_input_are_rejected() {
-        assert_eq!(inspect("not a scene").unwrap_err().code, "NPT-E1002");
+        // The lexer admits these words; the Goya frontend rejects the syntax.
+        assert_eq!(inspect("not a scene").unwrap_err().code, "GY-E1000");
         let source = format!(
             "@ontology x {{ {} {} }}",
             "@cell a {".repeat(129),

@@ -1,15 +1,18 @@
 @ontology app {
+    @state { name: text = "" session; count: int = 0 session; }
     @cell root {
         id: "root"
         @button inc { id: "button.inc" }
         @button rename { id: "button.rename" }
+        @input valueField { id: "input.value" text: "" }
+        @input amountField { id: "input.amount" text: "" }
     }
     @interaction rename {
         id: "action.rename";
         trigger: button.rename.activate;
         class: D1;
         state { write name: text; }
-        input { value: text; }
+        input { value: text from "input.value"; }
         set name = input.value;
     }
     @interaction add {
@@ -17,7 +20,7 @@
         trigger: button.inc.activate;
         class: D1;
         state { read count: int; write count: int; }
-        input { amount: int; }
+        input { amount: int from "input.amount"; }
         set count = state.count + input.amount;
     }
 }
