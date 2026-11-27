@@ -43,3 +43,51 @@ cmd = ["cargo", "run", "-p", "goya-zcode-native", "--bin", "zcode-native", "--of
 expect_exit = 0
 timeout_secs = 120
 stdout_contains = ["headless acceptance PASS"]
+
+# Disparates programme (GY-ENT-001): extraction, coverage assessment and
+# contract/evidence artifacts.
+
+[[file]]
+path = "crates/goya-fair/src/lib.rs"
+required = true
+min_size_bytes = 1000
+forbid_regex = ["unimplemented!", "todo!"]
+
+[[file]]
+path = "crates/goya-disparate-electron/src/lib.rs"
+required = true
+min_size_bytes = 1000
+forbid_regex = ["unimplemented!", "todo!"]
+
+[[file]]
+path = "crates/goya-disparate-coverage/src/lib.rs"
+required = true
+min_size_bytes = 1000
+forbid_regex = ["unimplemented!", "todo!"]
+
+[[file]]
+path = "docs/disparates/contracts/fair-1.md"
+required = true
+min_size_bytes = 500
+
+[[file]]
+path = "docs/disparates/contracts/coverage-1.md"
+required = true
+min_size_bytes = 500
+
+[[file]]
+path = "evidence/GY-DISP-001.json"
+required = true
+min_size_bytes = 500
+
+[[file]]
+path = "evidence/GY-DISP-002.json"
+required = true
+min_size_bytes = 500
+
+[[command]]
+name = "disparates-crate-regressions"
+cmd = ["cargo", "test", "-p", "goya-fair", "-p", "goya-disparate-electron", "-p", "goya-disparate-coverage", "--offline"]
+expect_exit = 0
+timeout_secs = 120
+stdout_contains = ["test result: ok"]

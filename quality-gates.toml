@@ -111,3 +111,37 @@ result = "BLOCKED: signing is not implemented in compiler 0.0.1"
 format = "json"
 output_dir = "quality-gate-metrics"
 summary_file = "quality-gate-metrics/summary.json"
+
+# Disparates programme gates (GY-ENT-001), appended after the Emperor compiler
+# gates above. Same house rules apply: each script runs its command for real
+# and emits honest JSON to quality-gate-metrics/. The determinism gate uses
+# only the in-repo fixture application; foreign application code is never
+# executed.
+
+[[gate]]
+number = 14
+stage = "fair-schema-validation"
+description = "GY-FAIR/1 schema, validation and canonical serialisation tests"
+script = "scripts/quality-gates-gate14-fair-schema-validation.sh"
+command = "cargo test -p goya-fair --offline"
+
+[[gate]]
+number = 15
+stage = "disparate-electron-extraction"
+description = "GY-FAIR/1 semantic extraction of foreign (Electron) applications"
+script = "scripts/quality-gates-gate15-disparate-electron-extraction.sh"
+command = "cargo test -p goya-disparate-electron --offline"
+
+[[gate]]
+number = 16
+stage = "disparate-coverage-assessment"
+description = "GY-COVERAGE/1 representability assessment and capability-deficit tests"
+script = "scripts/quality-gates-gate16-disparate-coverage-assessment.sh"
+command = "cargo test -p goya-disparate-coverage --offline"
+
+[[gate]]
+number = 17
+stage = "extraction-determinism"
+description = "End-to-end extraction determinism: build disparate-extract if missing, run it twice on the in-repo fixture Electron app, cmp the two canonical FAIR outputs; any difference fails the gate"
+script = "scripts/quality-gates-gate17-extraction-determinism.sh"
+command = "test -x target/debug/disparate-extract || cargo build -p goya-disparate-electron --offline; ./target/debug/disparate-extract crates/goya-disparate-electron/fixtures/sample-electron-app <tmp>/run1.fair.json; ./target/debug/disparate-extract crates/goya-disparate-electron/fixtures/sample-electron-app <tmp>/run2.fair.json; cmp <tmp>/run1.fair.json <tmp>/run2.fair.json"

@@ -1163,7 +1163,9 @@ supersedes GY-FAIR/1 (owner approval, 26 November 2026). Full contract:
   `FAIR_CONTRACT` is `GY-FAIR/2`; `FAIR_1_CONTRACT` is `GY-FAIR/1`.
 - **Consumes**: none. Serde-only; no `goya-ir` types. The FAIR→Goya boundary is a
   future contract; reconstruction authorisation is withheld.
-- **Consumers**: `crates/goya-disparate-electron` (emits FAIR/2).
+- **Consumers**: `crates/goya-disparate-electron` (emits FAIR/2),
+  `crates/goya-disparate-coverage`, `crates/goya-disparate-replay`,
+  `crates/goya-disparates`.
 - **Invariants**: FAIR preserves ignorance — unresolved constructs are recorded,
   never dropped; every non-`extracted` element carries a reason code, which under
   FAIR/2 must be registered; relationships point at existing elements, and
@@ -1252,3 +1254,87 @@ GY-CHROMA/1 (colour themes) and goya-cue (colour cueing).
   never redirected. A binding without a text label is never published.
   Conformance: `fixtures/chromatics/*.chr` (14 fixtures, including §6
   declared inheritance and §21 identification).
+
+---
+
+# GY-DISP-001 — Electron extraction (`crates/goya-disparate-electron`)
+
+Status: Phase 1. Extractor v0.2.0 (26 November 2026) supersedes the v0.1.0
+line-oriented scanner. Corpus nomination, extractor, and run evidence:
+[docs/disparates/roadmap.md](disparates/roadmap.md),
+[evidence/disparates/reactotron-phase1/](../evidence/disparates/reactotron-phase1/run.json).
+
+- **Provides**: `extract_path(path, root_label, budgets) -> FairDocument`, which
+  extracts a directory or an `.asar` archive into GY-FAIR/2 deterministically,
+  offline and statically; `material::Budgets` (ingestion resource limits);
+  `ExtractError` (`Io`, `Invalid`, `Budget`, `Validation`).
+- **Consumes**: `goya-fair` (GY-FAIR/2), `goya-html-tokenizer`
+  (GY-HTML-TOKENS/1), `goya-css-syntax` (GY-CSS-SYNTAX/1), Oxc for JavaScript.
+- **Invariants**: foreign code is never executed; no LLM participation; dynamic
+  `require`/`eval` are preserved as `undetermined` elements with registered
+  reason codes, never dropped; native addon dependencies are classified
+  `unrepresentable` (`NATIVE_MODULE_OPAQUE`); byte-identical input plus
+  extractor version yields byte-identical canonical output; budget overruns are
+  refused, never truncated; a produced document that fails FAIR validation is
+  an extractor bug and is returned as `Validation`.
+- **Stability**: element emission order and ID rule are frozen per extractor
+  version; a recognition change is a new extractor version, not a silent
+  rewrite.
+
+## Ownership
+| Path | Owner |
+|---|---|
+| crates/goya-disparate-electron | Disparates programme |
+
+---
+
+# GY-COVERAGE/1 — Representability assessment (`crates/goya-disparate-coverage`)
+
+Status: Candidate (Disparates programme, assessment-only authority). Full contract:
+[docs/disparates/contracts/coverage-1.md](disparates/contracts/coverage-1.md).
+
+- **Provides**: `CapabilityMap` (versioned, serialisable assessment rules; first
+  match wins), `assess`, `DeficitReport::derive`, `default_map` (v1, grounded in
+  this register as of 2026-11-19), `disparate-assess` CLI.
+- **Consumes**: `goya-fair` (GY-FAIR/2). Assessed documents must re-validate.
+- **Invariants**: only `extracted` elements are assessed — existing
+  classifications are preserved, never downgraded; every outcome carries a
+  reason code, with `representable` codes naming the mapping
+  (`MAPPED_TO_*`) and absence claims requiring a stated check date
+  (`NO_GOYA_CAPABILITY_*`); unmatched constructs fall to `undetermined`
+  `NO_COVERAGE_RULE`; Goya capability deficits and assessment-method deficits
+  are distinct report categories; reports are byte-deterministic.
+- **Stability**: reason-code register grows by revision, never renamed; the map
+  is data — policy changes are map revisions, not code changes.
+
+## Ownership
+| Path | Owner |
+|---|---|
+| crates/goya-disparate-coverage | Disparates programme |
+
+---
+
+# GY-DISP-003 — Translation orchestration (`crates/goya-disparates`)
+
+Status: Candidate (Disparates programme). Thin deterministic pipeline driver:
+the full extraction → assessment → report flow as one API and one CLI.
+
+- **Provides**: `Pipeline` (`default_map` / `with_map`) and
+  `Pipeline::run(root) -> RunOutput` — GY-DISP-001 extraction (directory or
+  `.asar`, default budgets), GY-COVERAGE/1
+  assessment, deficit-report derivation, in that order; `disparate` CLI
+  (`disparate run <app-root> <output-prefix> [map.json]`) emitting canonical
+  `<prefix>.fair.json`, `<prefix>.assessed.fair.json`, `<prefix>.deficit.json`.
+- **Consumes**: `goya-fair` (GY-FAIR/2), `goya-disparate-electron`
+  (GY-DISP-001), `goya-disparate-coverage` (GY-COVERAGE/1). The capability map
+  is passed through unchanged; the orchestrator adds no assessment policy.
+- **Invariants**: deterministic — identical inputs and map yield
+  byte-identical canonical output; foreign code is never executed; no LLM
+  participation; stage ordering and output naming are frozen.
+- **Stability**: thin by contract — pipeline stages evolve under their own
+  contracts (GY-DISP-001, GY-COVERAGE/1); this crate only sequences them.
+
+## Ownership
+| Path | Owner |
+|---|---|
+| crates/goya-disparates | Disparates programme |

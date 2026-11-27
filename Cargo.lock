@@ -1345,6 +1345,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "goya-disparate-coverage"
+version = "0.1.8"
+dependencies = [
+ "goya-fair",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "goya-disparate-electron"
 version = "0.1.8"
 dependencies = [
@@ -1359,6 +1369,25 @@ dependencies = [
  "oxc_syntax",
  "serde_json",
  "sha2",
+]
+
+[[package]]
+name = "goya-disparate-replay"
+version = "0.1.8"
+dependencies = [
+ "goya-fair",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "goya-disparates"
+version = "0.1.8"
+dependencies = [
+ "goya-disparate-coverage",
+ "goya-disparate-electron",
+ "goya-fair",
+ "serde_json",
 ]
 
 [[package]]

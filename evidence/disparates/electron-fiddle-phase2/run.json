@@ -1,0 +1,62 @@
+{
+  "run": "electron-fiddle-phase2-extraction",
+  "date": "2026-11-19",
+  "corpus": {
+    "project": "electron/fiddle (whole repository at tag v0.4.0)",
+    "license": "MIT",
+    "location": "/home/sal/corpus/fiddle",
+    "pinned_commit": "82fb8290c386aac5654ce5fdb4eb4a6c7faa1654",
+    "selection_criteria_evidence": {
+      "single_window": "1 app-owned new BrowserWindow( site (src/main/windows.ts); additional BrowserWindow sites in src/content/*.ts and static/templates/** are fiddle template data, not app windows",
+      "no_native_modules": "no .node requires in src/; dependency list contains no known native addons (fs-extra, chokidar are pure JS)",
+      "bounded_ipc": "19 distinct channels declared in src/ipc-events.ts; 8 ipc_channel elements extracted, all from template data files (see honesty_notes)",
+      "reproducible": "pinned commit; extraction reads source bytes only"
+    }
+  },
+  "extractor": {
+    "name": "goya-disparate-electron",
+    "version": "0.1.0",
+    "character": "line-oriented lexical scanner; deterministic, offline, static; foreign code never executed",
+    "declared_limits": [
+      "no full AST parse: multi-line constructs are recognised per line",
+      "computed channel names are not resolved",
+      "hooks/event handlers are recognised as occurrence sites, not data-flow",
+      "no scan-scope mechanism: files shipped as application data (static/templates/**, src/content/*.ts) are scanned alongside app source and cannot be excluded by this extractor version"
+    ]
+  },
+  "output": {
+    "fair_document": "extraction.fair.json",
+    "validation": "GY-FAIR/1 validate(): pass (refusal to emit invalid documents exercised by the CLI)",
+    "elements": 401,
+    "manifest_files": 254,
+    "coverage_by_kind": {
+      "filesystem_operation": 93,
+      "os_api_call": 66,
+      "component": 73,
+      "state_store": 34,
+      "event_handler": 43,
+      "window_lifecycle": 45,
+      "child_process": 10,
+      "dynamic_module_resolution": 29,
+      "ipc_channel": 8
+    },
+    "representability": { "extracted": 372, "undetermined": 29 },
+    "undetermined": 29,
+    "unrepresentable": 0
+  },
+  "assessment": {
+    "tool": "goya-disparate-coverage (disparate-assess)",
+    "output": "extraction.assessed.fair.json / extraction.deficit.json",
+    "totals": { "representable": 169, "undetermined": 156, "unrepresentable": 76 }
+  },
+  "determinism_evidence": {
+    "method": "two independent extraction runs over the pinned corpus",
+    "result": "canonical JSON byte-identical (cmp clean); CLI stdout differed only in the echoed output path argument"
+  },
+  "honesty_notes": [
+    "static/templates/** and src/content/*.ts contain Electron API example fiddles shipped as application data: they are rendered and run inside the fiddle sandbox, never executed as Electron Fiddle's own process code. This extractor version has no scan-scope mechanism, so their constructs (most of the ipc_channel and window_lifecycle populations, and parts of other kinds) are included in the 401 elements. Counts are therefore an upper bound on app-slice semantics; no attempt was made to subtract them post hoc, since that would be unauditable.",
+    "All elements carry status `extracted` (or extractor `undetermined` for 29 computed requires) only: the representability figures in `assessment` come from the separate disparate-assess run against Goya capabilities and include no translation claims.",
+    "The 156 assessed `undetermined` elements include hooks and event handlers classified by scanner limits (occurrence sites, not data-flow); this is programme debt of the extractor, not evidence of missing Goya capabilities.",
+    "Extraction completeness is bounded by the declared scanner limits; a full-parser extractor revision or a scan-scope mechanism would be a new extractor version, not a silent rewrite."
+  ]
+}

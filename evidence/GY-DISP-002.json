@@ -1,0 +1,56 @@
+{
+  "work_package": "GY-DISP-002",
+  "title": "GY-COVERAGE/1 — representability assessment and capability-deficit report (Disparates)",
+  "wave": "disparates-phase1",
+  "date": "2026-11-19",
+  "scope": {
+    "objective": "Assess the Reactotron extraction against a versioned, serialisable map of Goya's actual capabilities and derive the first empirical capability-deficit report. Assessment authority only; no reconstruction.",
+    "affected": [
+      "crates/goya-disparate-coverage (GY-COVERAGE/1: CapabilityMap, assess, DeficitReport, disparate-assess CLI)",
+      "docs/disparates/contracts/coverage-1.md",
+      "docs/contracts.md (GY-COVERAGE/1 register entry)",
+      "docs/disparates/roadmap.md (representability milestone)",
+      "evidence/disparates/reactotron-phase1/reference.assessed.fair.json",
+      "evidence/disparates/reactotron-phase1/reference.deficit.json"
+    ],
+    "exclusions": [
+      "No reconstruction; FAIR-to-Goya remains unauthorised.",
+      "No claim that `representable` implies `translated` or `verified`.",
+      "The v1 map's absence claims reflect the contract register as checked on 2026-11-19 and grow by contract revision only."
+    ]
+  },
+  "repository_evidence": {
+    "coverage_tests": {
+      "command": "cargo test -p goya-disparate-coverage",
+      "result": "9 passed; 0 failed",
+      "covers": [
+        "default map validates (every rule outcome carries a reason code; evidence always present)",
+        "representable outcomes record goya_evidence as a semantics facet",
+        "child_process declared unrepresentable with NO_GOYA_CAPABILITY_CHILD_PROCESS",
+        "pre-existing undetermined/unrepresentable classifications preserved, never re-decided",
+        "unmatched constructs fall to NO_COVERAGE_RULE",
+        "semantics-facet rules apply first-match-wins (styled-components dynamic styling)",
+        "map rejects `extracted` outcomes, missing reason codes, and empty evidence",
+        "deficit report aggregates by reason code, sorts by blocking count, byte-deterministic"
+      ]
+    },
+    "corpus_assessment": {
+      "input": "evidence/disparates/reactotron-phase1/reference.fair.json (345 elements, Reactotron pinned at acdd7c73)",
+      "assessed_document": "reference.assessed.fair.json",
+      "deficit_report": "reference.deficit.json",
+      "totals": { "representable": 249, "undetermined": 75, "unrepresentable": 21 },
+      "deficits_by_block_size": [
+        { "reason": "HOOK_DATAFLOW_NOT_EXTRACTED", "blocked": 63, "category": "assessment-method deficit (programme debt, not Goya demand)" },
+        { "reason": "NO_GOYA_CAPABILITY_DESKTOP_OS_INTEGRATION", "blocked": 12, "category": "Goya capability deficit" },
+        { "reason": "PERSISTENCE_CAPABILITY_UNRESOLVED", "blocked": 12, "category": "Goya capability decision pending" },
+        { "reason": "NO_GOYA_CAPABILITY_CHILD_PROCESS", "blocked": 9, "category": "Goya capability deficit" }
+      ],
+      "determinism": "map and report serialisations are canonical; identical inputs yield identical output (tested)"
+    }
+  },
+  "honesty_notes": [
+    "72% of Reactotron's inventory is representable only in the assessment sense: a named Goya contract provides equivalent semantics. Nothing is translated, compiled or verified.",
+    "The largest blocking category (63 hook elements) is extractor immaturity, not a Goya deficit — the report separates the two categories deliberately so Goya development is not prioritised by programme debt.",
+    "The `representable` IPC disposition asserts architectural simplification (channels dissolve into actions), which is a semantic decision reconstruction must record and replay-verify later; it is not a transport-equivalence claim."
+  ]
+}

@@ -1,0 +1,28 @@
+// timeline_filter_show.gscenario — the draft contract's illustrative scenario,
+// made strict: bindings cite GY-FAIR/1 element IDs, every trigger identifier
+// resolves. Compiled form is canonical JSON (see compile_scenario).
+// Contract: docs/disparates/contracts/replay-1-draft.md (draft — not ratified).
+@scenario timeline_filter_show {
+  target: reactotron-app;
+  setup {
+    state: fresh;
+    window { size: (1280, 800); }
+    seed { file "arc/config.json" = payload "seed/config.json"; }
+  }
+  bindings {
+    input.filter: input-0002;
+    button.timeline: ui-0001;
+  }
+  step open_timeline {
+    trigger: button.timeline.activate; // v1 trigger vocabulary
+    expect { ui { visible "Timeline"; } }
+  }
+  step filter_styles {
+    trigger: input.filter.commit;
+    input { value: text "styles"; }
+    expect {
+      ui    { input "filter" = "styles"; }
+      store { file "arc/filters.json" contains key "styles" = true; }
+    }
+  }
+}

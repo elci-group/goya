@@ -1,0 +1,55 @@
+{
+  "run": "reactotron-phase1-extraction",
+  "date": "2026-11-18",
+  "corpus": {
+    "project": "infinitered/reactotron (apps/reactotron-app slice)",
+    "license": "MIT",
+    "location": "/home/sal/corpus/reactotron",
+    "pinned_commit": "acdd7c73e7ecf9d8d79f6fcf9201a48aefaf270a",
+    "selection_criteria_evidence": {
+      "single_window": "1 new BrowserWindow( site in src/main",
+      "no_native_modules": "no .node requires in app slice; dependency list contains no known native addons",
+      "bounded_ipc": "5 distinct ipcMain channels, 9 IPC registration/invocation sites",
+      "reproducible": "pinned commit; extraction reads source bytes only"
+    }
+  },
+  "extractor": {
+    "name": "goya-disparate-electron",
+    "version": "0.1.0",
+    "character": "line-oriented lexical scanner; deterministic, offline, static; foreign code never executed",
+    "declared_limits": [
+      "no full AST parse: multi-line constructs are recognised per line",
+      "computed channel names are not resolved (would surface as unresolved, none occurred in this run)",
+      "hooks/event handlers are recognised as occurrence sites, not data-flow"
+    ]
+  },
+  "output": {
+    "fair_document": "reference.fair.json",
+    "validation": "GY-FAIR/1 validate(): pass",
+    "elements": 345,
+    "manifest_files": 58,
+    "coverage_by_kind": {
+      "style_rule": 130,
+      "event_handler": 87,
+      "hook": 63,
+      "component": 22,
+      "os_api_call": 12,
+      "filesystem_operation": 9,
+      "ipc_channel": 9,
+      "child_process": 9,
+      "state_store": 3,
+      "window_lifecycle": 1
+    },
+    "representability": { "extracted": 345 },
+    "undetermined": 0,
+    "unrepresentable": 0
+  },
+  "determinism_evidence": {
+    "method": "two independent extraction runs over the pinned corpus",
+    "result": "canonical JSON byte-identical (diff -q clean)"
+  },
+  "honesty_notes": [
+    "All 345 elements carry status `extracted` only: representability assessment against Goya capabilities is a separate, later responsibility and is not claimed here.",
+    "Extraction completeness is bounded by the declared scanner limits; a full-parser extractor revision would be a new extractor version, not a silent rewrite."
+  ]
+}

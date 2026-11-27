@@ -1,0 +1,95 @@
+{
+  "version": "1",
+  "rules": [
+    {
+      "kind": "component",
+      "semantics": {},
+      "status": "representable",
+      "reason": "MAPPED_TO_SCENE_DECLARATION",
+      "goya_evidence": "GY-LANG/1 scene syntax; GY-IR/1 nodes",
+      "detail": "component structure maps to scene node declarations"
+    },
+    {
+      "kind": "event_handler",
+      "semantics": {},
+      "status": "representable",
+      "reason": "MAPPED_TO_ACTION_DECLARATION",
+      "goya_evidence": "GY-IR/1 actions; GY-RUNTIME/1 event dispatch",
+      "detail": "interaction handlers map to declared actions"
+    },
+    {
+      "kind": "ipc_channel",
+      "semantics": {},
+      "status": "representable",
+      "reason": "MAPPED_TO_ACTION_DISPATCH",
+      "goya_evidence": "GY-IR/1 actions; GY-RUNTIME/1 dispatch",
+      "detail": "renderer/main process messaging dissolves in Goya's single-process model; the channel's requests and responses become actions; this is architectural simplification, not 1:1 transport mapping"
+    },
+    {
+      "kind": "hook",
+      "semantics": {},
+      "status": "undetermined",
+      "reason": "HOOK_DATAFLOW_NOT_EXTRACTED",
+      "goya_evidence": "GY-STATE/1 covers value state; side-effect scheduling has no assessed equivalent",
+      "detail": "the extractor records hook occurrence sites without data-flow; useState maps to state transactions, effects do not map mechanically"
+    },
+    {
+      "kind": "style_rule",
+      "semantics": {},
+      "status": "representable",
+      "reason": "MAPPED_TO_SCENE_STYLING",
+      "goya_evidence": "GY-CHROMA/1 theming; GY-LAYOUT/1 deterministic layout",
+      "detail": "static visual declarations map to scene styling and layout constraints"
+    },
+    {
+      "kind": "window_lifecycle",
+      "semantics": {},
+      "status": "representable",
+      "reason": "MAPPED_TO_NATIVE_WINDOW_HOST",
+      "goya_evidence": "GY-WAYLAND/1; goya-window-management; Sash (Windows) and Emperor parity programme",
+      "detail": "application window lifecycle maps to the native windowing host"
+    },
+    {
+      "kind": "filesystem_operation",
+      "semantics": {},
+      "status": "undetermined",
+      "reason": "PERSISTENCE_CAPABILITY_UNRESOLVED",
+      "goya_evidence": "no filesystem-access contract exists in the register (checked 2026-11-19)",
+      "detail": "Goya has no declared user-filesystem capability; mapping requires a scoping and authority decision first"
+    },
+    {
+      "kind": "child_process",
+      "semantics": {},
+      "status": "unrepresentable",
+      "reason": "NO_GOYA_CAPABILITY_CHILD_PROCESS",
+      "goya_evidence": "no process-spawn capability exists in the register (checked 2026-11-19)",
+      "detail": "Goya provides no child-process model; foreign spawn/exec logic is blocked"
+    },
+    {
+      "kind": "state_store",
+      "semantics": {},
+      "status": "undetermined",
+      "reason": "PERSISTENCE_CAPABILITY_UNRESOLVED",
+      "goya_evidence": "GY-STATE/1 (in-memory transactions) and GY-HOTSWAP/1 (persisted-state migration) do not declare a disk-persistence contract",
+      "detail": "electron-store style key-value persistence has no declared equivalent"
+    },
+    {
+      "kind": "os_api_call",
+      "semantics": {
+        "api": "clipboard"
+      },
+      "status": "representable",
+      "reason": "MAPPED_TO_CLIPBOARD_CAPABILITY",
+      "goya_evidence": "GY-CLIPBOARD/1 (crates/goya-clipboard): capability-gated clipboard write, Verbatim and Deep Copy modes behind ClipboardCapability/CapabilityPolicy",
+      "detail": "clipboard write calls map to GY-CLIPBOARD/1 capability-gated clipboard write; removes api=clipboard elements from the desktop-OS-integration deficit"
+    },
+    {
+      "kind": "os_api_call",
+      "semantics": {},
+      "status": "unrepresentable",
+      "reason": "NO_GOYA_CAPABILITY_DESKTOP_OS_INTEGRATION",
+      "goya_evidence": "no desktop OS-integration contract (notifications, dialogs, shell, tray) exists in the register (checked 2026-11-19)",
+      "detail": "desktop OS integration is absent; each specific API is a candidate capability deficit"
+    }
+  ]
+}

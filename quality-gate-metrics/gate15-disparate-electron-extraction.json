@@ -1,0 +1,1 @@
+{"gate": 15, "stage": "disparate-electron-extraction", "status": "PASS", "failed": 0, "commands": [{"command": "cargo test -p goya-disparate-electron --offline", "exit_code": 0}], "timestamp": "2026-11-19T11:44:53Z"}

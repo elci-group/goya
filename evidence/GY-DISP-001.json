@@ -1,0 +1,62 @@
+{
+  "work_package": "GY-DISP-001",
+  "title": "Phase 1 — Electron + React semantic extraction of the nominated reference corpus (Disparates)",
+  "wave": "disparates-phase1",
+  "date": "2026-11-18",
+  "scope": {
+    "objective": "Extract the nominated reference application (Reactotron, pinned) into a validated, byte-deterministic GY-FAIR/1 document with element-level inventory; no representability claims, no Goya generation.",
+    "affected": [
+      "crates/goya-fair (ProjectProvenance: project name, framework detections with evidence, entry points — per fair-1 contract's document-level provenance requirement)",
+      "crates/goya-disparate-electron (extractor crate: discovery + line-oriented static scanner, `disparate-extract` CLI)",
+      "docs/disparates/roadmap.md (corpus nomination, phase status)",
+      "evidence/disparates/reactotron-phase1/"
+    ],
+    "exclusions": [
+      "No representability assessment against Goya capabilities (all elements `extracted`).",
+      "No reconstruction; FAIR-to-Goya remains unauthorised.",
+      "No claim of full-parser semantic extraction; scanner limits are declared in the extractor identity and run evidence.",
+      "Corpus located outside the repository (/home/sal/corpus/reactotron); only derived FAIR + evidence are committed."
+    ]
+  },
+  "repository_evidence": {
+    "extractor_tests": {
+      "command": "cargo test -p goya-disparate-electron",
+      "result": "9 passed; 0 failed",
+      "covers": [
+        "fixture extraction validates under GY-FAIR/1",
+        "IPC channels recorded for main and renderer sides",
+        "window lifecycle, preload bridge, OS API, components, hooks, event handlers, style rules, filesystem operations all present",
+        "dynamic require preserved as undetermined (DYNAMIC_REQUIRE_UNRESOLVED), never dropped",
+        "eval recorded as unknown kind with observed spelling (DYNAMIC_CODE_EVALUATION)",
+        "native addon dependency classified unrepresentable (NATIVE_MODULE_OPAQUE)",
+        "byte-identical extraction across runs",
+        "missing package.json rejected",
+        "every non-extracted element carries a register-form reason code"
+      ]
+    },
+    "fair_tests": {
+      "command": "cargo test -p goya-fair",
+      "result": "12 passed; 0 failed (ProjectProvenance extension)"
+    },
+    "corpus_run": {
+      "fair_document": "evidence/disparates/reactotron-phase1/reference.fair.json",
+      "run_manifest": "evidence/disparates/reactotron-phase1/run.json",
+      "elements": 345,
+      "manifest_files": 58,
+      "determinism": "two independent runs byte-identical (diff -q clean)",
+      "coverage_by_kind": {
+        "style_rule": 130, "event_handler": 87, "hook": 63, "component": 22,
+        "os_api_call": 12, "filesystem_operation": 9, "ipc_channel": 9,
+        "child_process": 9, "state_store": 3, "window_lifecycle": 1
+      }
+    },
+    "capability_deficit_discovery": {
+      "note": "not yet producible: representability assessment is a later responsibility. Observed constructs that will require Goya capability mapping at assessment time include: IPC channel semantics, child process management, desktop notifications/dialogs/shell, window lifecycle, electron-store persistence."
+    }
+  },
+  "honesty_notes": [
+    "Every element carries status `extracted`; nothing is claimed representable, translated or verified.",
+    "Phase 1 exit condition is only partially met: one reference application is extracted, but the extractor is a declared line-oriented lexical scanner; full AST-grade semantic extraction remains open and is recorded as the phase's continuing work.",
+    "Zero `undetermined` elements in this run reflects the corpus (no dynamic requires in the app slice), not extractor completeness."
+  ]
+}

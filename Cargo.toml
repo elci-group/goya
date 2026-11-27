@@ -92,6 +92,9 @@ members = [
     "crates/ie-gate",
     "crates/ie-uds",
     "crates/ie-conformance",
+    "crates/goya-disparate-coverage",
+    "crates/goya-disparate-replay",
+    "crates/goya-disparates",
 ]
 
 [workspace.package]
@@ -168,6 +171,10 @@ ie-cpu = { path = "crates/ie-cpu" }
 ie-loopback = { path = "crates/ie-loopback" }
 ie-gate = { path = "crates/ie-gate" }
 ie-uds = { path = "crates/ie-uds" }
+goya-disparate-electron = { path = "crates/goya-disparate-electron" }
+goya-disparate-coverage = { path = "crates/goya-disparate-coverage" }
+goya-disparate-replay = { path = "crates/goya-disparate-replay" }
+goya-disparates = { path = "crates/goya-disparates" }
 unicode-segmentation = "1.12"
 cosmic-text = "0.17"
 
