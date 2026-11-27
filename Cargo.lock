@@ -1288,6 +1288,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "goya-avr"
+version = "0.0.1"
+
+[[package]]
 name = "goya-bench"
 version = "0.1.8"
 dependencies = [

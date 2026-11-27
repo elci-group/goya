@@ -1,0 +1,9 @@
+[package]
+name = "goya-avr"
+version = "0.0.1"
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Anticipatory Vector Rendering (AVR) and Relational Graphical Variation Infrastructure (GVI-R) contracts (GOYA-GFX-AVR-001). Phase 0: logical contract only, no binary format."
+
+[dependencies]
