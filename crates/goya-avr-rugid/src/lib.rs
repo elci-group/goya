@@ -18,7 +18,7 @@
 pub mod adapter;
 
 #[cfg(feature = "rugid")]
-pub use adapter::{default_scene, RugidShapeSource};
+pub use adapter::{default_scene, RugidEnvironmentRoom, RugidNavigationSource, RugidShapeSource};
 
 /// Bridge identity recorded in canonical provenance.
 pub const BRIDGE_ID: &str = "goya-avr-rugid 0.0.1";

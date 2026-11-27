@@ -29,6 +29,7 @@ pub mod engine;
 pub mod graph;
 pub mod ingestion;
 pub mod inventory;
+pub mod navigation;
 pub mod relational;
 pub mod representation;
 pub mod residency;
@@ -61,6 +62,11 @@ pub use graph::{
     MAX_DEPENDENCY_DEPTH,
 };
 pub use ingestion::{Observer, ObservationPayload, SourceError, SpatialSource};
+pub use navigation::{
+    certify_navigation, compile_navigation, invalidated_observations, adjacent_nodes,
+    resolve_navigation, EnvironmentalSource, NavigationCompileError, NavigationRequest,
+    NavigationSpec, NavigationSpecError,
+};
 pub use inventory::{
     FidelityClass, FidelityRecord, Neighbourhood, ObservationInventory, ObservationRecord,
     ProvenanceId, ProvenanceRecord, ProvenanceRelation, RelationalAnchor, RepresentationId,

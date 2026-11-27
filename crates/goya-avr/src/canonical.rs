@@ -56,6 +56,12 @@ impl CanonicalStore {
         self.payloads.get(&id.0)
     }
 
+    /// Insert a rendered payload (used by the navigation compiler, which
+    /// builds stores incrementally per node).
+    pub fn insert(&mut self, id: u64, payload: crate::ingestion::ObservationPayload) {
+        self.payloads.insert(id, payload);
+    }
+
     pub fn len(&self) -> usize {
         self.payloads.len()
     }
@@ -87,7 +93,7 @@ pub struct CompileReport {
 }
 
 /// Deterministic canonical digest (§7.3).
-fn canonical_digest(
+pub(crate) fn canonical_digest(
     source_digest: &str,
     domain: &ObservationDomain,
     policy: &SamplingPolicy,
@@ -99,6 +105,29 @@ fn canonical_digest(
     hasher.update(crate::CONTRACT_VERSION.as_bytes());
     hasher.update(source_digest.as_bytes());
     hasher.update(format!("{domain:?}").as_bytes());
+    hasher.update(format!("{policy:?}").as_bytes());
+    for digest in payload_digests {
+        hasher.update(digest.as_bytes());
+    }
+    let digest = hasher.finalize();
+    let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+    format!("sha256:{hex}")
+}
+
+/// §7.3 identity for navigation environments: the environment digest,
+/// navigation spec and policy join the payload digests.
+pub(crate) fn navigation_digest(
+    source_digest: &str,
+    spec: &crate::navigation::NavigationSpec,
+    policy: &SamplingPolicy,
+    payload_digests: &[String],
+) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(crate::DIRECTIVE_ID.as_bytes());
+    hasher.update(crate::CONTRACT_VERSION.as_bytes());
+    hasher.update(source_digest.as_bytes());
+    hasher.update(format!("{spec:?}").as_bytes());
     hasher.update(format!("{policy:?}").as_bytes());
     for digest in payload_digests {
         hasher.update(digest.as_bytes());

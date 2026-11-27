@@ -115,6 +115,114 @@ pub fn default_scene() -> Scene {
     scene
 }
 
+
+/// One room of a navigation environment: a static Rugid model observed
+/// from discrete camera positions laid out along the room's x axis (§5.3).
+pub struct RugidEnvironmentRoom {
+    pub shape: ShapeType,
+    /// Model size at `reference_distance`.
+    pub base_size: f32,
+    /// World-space camera positions, one per navigation node. Model
+    /// offset at a node is the negation of the node position (camera at
+    /// `p` ≡ model at `−p` with Rugid's fixed −Z camera).
+    pub node_positions: Vec<(f32, f32, f32)>,
+}
+
+/// A multi-room Rugid environment exposed as an AVR
+/// [`EnvironmentalSource`](goya_avr::navigation::EnvironmentalSource).
+///
+/// Rugid has no environment/camera-node substrate (ADR-AVR-001 audit F1),
+/// so node movement is expressed through model offsets: a genuinely
+/// node-dependent render path over real Rugid geometry, lighting and
+/// projection, standing in for a future native substrate.
+pub struct RugidNavigationSource {
+    pub rooms: Vec<RugidEnvironmentRoom>,
+    pub reference_distance: f32,
+    /// Shared optics scene (lighting and material state, §6.1 L/M).
+    pub scene: Scene,
+    pub center: (f32, f32),
+}
+
+impl RugidNavigationSource {
+    pub fn new(rooms: Vec<RugidEnvironmentRoom>) -> Self {
+        Self { rooms, reference_distance: 2.0, scene: default_scene(), center: (400.0, 300.0) }
+    }
+
+    fn node_location(&self, node: u32) -> Option<(&RugidEnvironmentRoom, usize)> {
+        let mut accumulated = 0u32;
+        for room in &self.rooms {
+            if node < accumulated + room.node_positions.len() as u32 {
+                return Some((room, (node - accumulated) as usize));
+            }
+            accumulated += room.node_positions.len() as u32;
+        }
+        None
+    }
+}
+
+impl goya_avr::navigation::EnvironmentalSource for RugidNavigationSource {
+    fn source_digest(&self) -> String {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(BRIDGE_ID.as_bytes());
+        hasher.update(b"navigation-environment");
+        for room in &self.rooms {
+            hasher.update(format!("{:?}", room.shape).as_bytes());
+            hasher.update(room.base_size.to_le_bytes());
+            for (x, y, z) in &room.node_positions {
+                hasher.update(x.to_le_bytes());
+                hasher.update(y.to_le_bytes());
+                hasher.update(z.to_le_bytes());
+            }
+        }
+        hasher.update(self.reference_distance.to_le_bytes());
+        for light in &self.scene.lights {
+            hasher.update(format!("{light:?}").as_bytes());
+        }
+        hasher.update((self.scene.ambient_light.0 as u32).to_le_bytes());
+        hasher.update((self.scene.ambient_light.1 as u32).to_le_bytes());
+        hasher.update((self.scene.ambient_light.2 as u32).to_le_bytes());
+        let digest = hasher.finalize();
+        let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+        format!("sha256:{hex}")
+    }
+
+    fn render_node(
+        &self,
+        node: u32,
+        view: &Observer,
+    ) -> Result<ObservationPayload, SourceError> {
+        let Some((room, index)) = self.node_location(node) else {
+            return Err(SourceError::UnsupportedObservation);
+        };
+        if view.distance <= 0.0 {
+            return Err(SourceError::UnsupportedObservation);
+        }
+        let o = snap(view);
+        let (px, py, pz) = room.node_positions[index];
+        let offset = Point3D::new(-px, -py, -pz);
+        let rotation = Rotation3D::new(o.elevation_deg, o.azimuth_deg, 0.0);
+        let size = room.base_size * (self.reference_distance / o.distance);
+        if !size.is_finite() || size <= 0.0 {
+            return Err(SourceError::UnsupportedObservation);
+        }
+        let svg = shapes3d::render_shape(
+            room.shape,
+            self.center.0,
+            self.center.1,
+            size,
+            rotation,
+            1.0,
+            offset,
+            &self.scene,
+        );
+        if svg.is_empty() {
+            return Err(SourceError::RenderFailed("empty render".into()));
+        }
+        Ok(ObservationPayload { representation: RepresentationClass::Vec, bytes: svg.into_bytes() })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

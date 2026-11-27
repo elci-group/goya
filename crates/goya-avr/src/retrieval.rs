@@ -101,13 +101,19 @@ pub fn resolve_derived(
     request: &Observer,
     engine: Option<&dyn ReconstructionEngine>,
 ) -> DerivedResolution {
-    if !observer_in_domain(&derivation.inventory.domain, request) {
-        return DerivedResolution::Unsupported(UnsupportedReason::OutsideDomain);
-    }
-    let state = request.normalised().to_state();
+    resolve_derived_state(derivation, &request.normalised().to_state(), engine)
+}
 
+/// Resolve a quantised observation state against a derived inventory
+/// (§10.1). Used by the conventional orbit path and by navigation
+/// requests, whose states carry the extra `node` axis.
+pub fn resolve_derived_state(
+    derivation: &Derivation,
+    state: &crate::domain::ObservationState,
+    engine: Option<&dyn ReconstructionEngine>,
+) -> DerivedResolution {
     // Priority 1: primary index (directly addressable).
-    if let Some(id) = derivation.primary_index.get(&state) {
+    if let Some(id) = derivation.primary_index.get(state) {
         if let Some(entry) = derivation.entries.get(&id.0) {
             return materialise(derivation, entry, engine);
         }
@@ -118,7 +124,7 @@ pub fn resolve_derived(
         .inventory
         .observations
         .iter()
-        .find(|record| record.state == state)
+        .find(|record| &record.state == state)
     {
         if let Some(entry) = derivation.entries.get(&record.id.0) {
             return materialise(derivation, entry, engine);
