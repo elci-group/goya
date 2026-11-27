@@ -1,0 +1,122 @@
+{
+  "contract": "GY-FAIR/2",
+  "source": {
+    "root": "fixtures/sample-app",
+    "files": [
+      {
+        "path": "src/main.ts",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+        "path": "src/preload.ts",
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    ]
+  },
+  "extractor": {
+    "name": "goya-disparate-electron",
+    "version": "0.0.1",
+    "id_rule": "<file>#<kind>.<nnnn>, per kind per file in emission order"
+  },
+  "project": {
+    "entry_points": [
+      {
+        "path": "src/main.ts",
+        "role": "main",
+        "evidence": [
+          "src/main.ts#module_import.0001"
+        ]
+      }
+    ],
+    "framework_detections": [
+      {
+        "framework": "electron",
+        "version": null,
+        "evidence": [
+          "src/main.ts#module_import.0001"
+        ]
+      }
+    ]
+  },
+  "elements": [
+    {
+      "id": "src/main.ts#ipc_channel.0001",
+      "kind": "ipc_channel",
+      "provenance": {
+        "file": "src/main.ts",
+        "line": 9,
+        "span_start": 180,
+        "span_end": 240,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "channel": "doc:save",
+        "side": "main"
+      }
+    },
+    {
+      "id": "src/main.ts#module_import.0001",
+      "kind": "module_import",
+      "provenance": {
+        "file": "src/main.ts",
+        "line": 1,
+        "span_start": 0,
+        "span_end": 40,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "module": "electron"
+      }
+    },
+    {
+      "id": "src/preload.ts#ipc_channel.0001",
+      "kind": "ipc_channel",
+      "provenance": {
+        "file": "src/preload.ts",
+        "line": 4,
+        "span_start": 90,
+        "span_end": 130,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "channel": "doc:save",
+        "side": "renderer"
+      }
+    }
+  ],
+  "relationships": [
+    {
+      "id": "invokes:src/preload.ts#ipc_channel.0001->src/main.ts#ipc_channel.0001",
+      "subject": "src/preload.ts#ipc_channel.0001",
+      "relation": "invokes",
+      "object": "src/main.ts#ipc_channel.0001",
+      "basis": "derived",
+      "evidence": [
+        "src/main.ts#ipc_channel.0001",
+        "src/preload.ts#ipc_channel.0001"
+      ],
+      "provenance": {
+        "file": "src/preload.ts",
+        "line": 4,
+        "span_start": 90,
+        "span_end": 130,
+        "fallback_origin": false
+      }
+    }
+  ]
+}

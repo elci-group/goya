@@ -65,6 +65,7 @@ members = [
     "crates/goya-document",
     "crates/goya-webview",
     "crates/goya-plugin-host",
+    "crates/goya-casa",
     "crates/goya-graphics-container",
     "crates/goya-graphics-ir",
     "crates/goya-gva",
@@ -149,6 +150,12 @@ ie-cpu = { path = "crates/ie-cpu" }
 ie-loopback = { path = "crates/ie-loopback" }
 ie-gate = { path = "crates/ie-gate" }
 ie-uds = { path = "crates/ie-uds" }
+goya-css-syntax = { path = "crates/goya-css-syntax" }
+goya-html-tokenizer = { path = "crates/goya-html-tokenizer" }
+goya-fair = { path = "crates/goya-fair" }
+goya-disparate-electron = { path = "crates/goya-disparate-electron" }
+goya-chromatics = { path = "crates/goya-chromatics" }
+goya-cue = { path = "crates/goya-cue" }
 unicode-segmentation = "1.12"
 cosmic-text = "0.17"
 

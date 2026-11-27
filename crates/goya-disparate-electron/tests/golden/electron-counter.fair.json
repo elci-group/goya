@@ -1,0 +1,1629 @@
+{
+  "contract": "GY-FAIR/2",
+  "source": {
+    "root": "fixtures/disparates/electron-counter",
+    "files": [
+      {
+        "path": "README.md",
+        "sha256": "107630d199b455f3b38e4007c5ac1c8bc1131e8ff35384987886a71422b1e627"
+      },
+      {
+        "path": "package.json",
+        "sha256": "3f44f7a45b935780f0b8f79c87ce11183261248d814f0d7f23ec0e0572658ce9"
+      },
+      {
+        "path": "src/index.html",
+        "sha256": "764f4d72d6994cf881e81030677a88a93dcb30f87377ac8084b83cb0387a6919"
+      },
+      {
+        "path": "src/main.js",
+        "sha256": "b9362e8f38a20b760ad0f6d4ff16a376b36fc1ca59f7fec3fb573b98962253bb"
+      },
+      {
+        "path": "src/preload.js",
+        "sha256": "83acfba92c3680295dd71537f08e57424bd4e030b6219ed5dc3f3670027807d7"
+      },
+      {
+        "path": "src/renderer.js",
+        "sha256": "a815d69c89883933c150c73734aef42bacf597b5953a299c09be2aa290af86b4"
+      },
+      {
+        "path": "src/style.css",
+        "sha256": "2224e36ae5ff5f9f7051e3d047f8ac1e50d8c7664799bdb0edc04be3ecc356e3"
+      }
+    ]
+  },
+  "extractor": {
+    "name": "goya-disparate-electron",
+    "version": "0.2.0",
+    "id_rule": "<file>#<kind>.<nnnn>: nnnn (zero-padded to at least four digits) counts elements of that FAIR kind in that file, in emission order (source order within each pass), from 1. Files are processed in byte order of their relative paths; bridge calls are emitted after all JavaScript, and state stores after their file's walk."
+  },
+  "project": {
+    "entry_points": [
+      {
+        "path": "src/index.html",
+        "role": "renderer",
+        "evidence": [
+          "src/main.js#window_lifecycle.0002"
+        ]
+      },
+      {
+        "path": "src/main.js",
+        "role": "main",
+        "evidence": [
+          "package.json#package_manifest.0001"
+        ]
+      },
+      {
+        "path": "src/preload.js",
+        "role": "preload",
+        "evidence": [
+          "src/main.js#window_lifecycle.0001"
+        ]
+      },
+      {
+        "path": "src/renderer.js",
+        "role": "renderer",
+        "evidence": [
+          "src/index.html#component.0013"
+        ]
+      },
+      {
+        "path": "src/style.css",
+        "role": "renderer",
+        "evidence": [
+          "src/index.html#component.0006"
+        ]
+      }
+    ],
+    "framework_detections": [
+      {
+        "framework": "electron",
+        "version": "33.2.1",
+        "evidence": [
+          "package.json#package_manifest.0001",
+          "src/main.js#module_import.0002",
+          "src/preload.js#module_import.0001"
+        ]
+      }
+    ]
+  },
+  "elements": [
+    {
+      "id": "package.json#package_manifest.0001",
+      "kind": "package_manifest",
+      "provenance": {
+        "file": "package.json",
+        "line": 1,
+        "span_start": null,
+        "span_end": null,
+        "fallback_origin": true
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "devDependencies": {
+          "electron": "33.2.1"
+        },
+        "license": "MIT OR Apache-2.0",
+        "main": "src/main.js",
+        "name": "disparates-electron-counter",
+        "process": "unresolved",
+        "version": "0.1.0"
+      }
+    },
+    {
+      "id": "src/index.html#component.0001",
+      "kind": "component",
+      "provenance": {
+        "file": "src/index.html",
+        "line": 2,
+        "span_start": 16,
+        "span_end": 32,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "attributes": {
+          "lang": "en"
+        },
+        "process": "renderer",
+        "tag": "html"
+      }
+    },
+    {
+      "id": "src/index.html#component.0002",
+      "kind": "component",
+      "provenance": {
+        "file": "src/index.html",
+        "line": 3,
+        "span_start": 35,
+        "span_end": 41,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "attributes": {},
+        "parent": "src/index.html#component.0001",
+        "process": "renderer",
+        "tag": "head"
+      }
+    },
+    {
+      "id": "src/index.html#component.0003",
+      "kind": "component",
+      "provenance": {
+        "file": "src/index.html",
+        "line": 4,
+        "span_start": 46,
+        "span_end": 68,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "attributes": {
+          "charset": "utf-8"
+        },
+        "parent": "src/index.html#component.0002",
+        "process": "renderer",
+        "tag": "meta"
+      }
+    },
+    {
+      "id": "src/index.html#component.0004",
+      "kind": "component",
+      "provenance": {
+        "file": "src/index.html",
+        "line": 5,
+        "span_start": 73,
+        "span_end": 182,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "attributes": {
+          "content": "default-src 'self'; script-src 'self'; style-src 'self'",
+          "http-equiv": "Content-Security-Policy"
+        },
+        "parent": "src/index.html#component.0002",
+        "process": "renderer",
+        "tag": "meta"
+      }
+    },
+    {
+      "id": "src/index.html#component.0005",
+      "kind": "component",
+      "provenance": {
+        "file": "src/index.html",
+        "line": 6,
+        "span_start": 187,
+        "span_end": 194,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "attributes": {},
+        "parent": "src/index.html#component.0002",
+        "process": "renderer",
+        "tag": "title",
+        "text": "Count"
+      }
+    },
+    {
+      "id": "src/index.html#component.0006",
+      "kind": "component",
+      "provenance": {
+        "file": "src/index.html",
+        "line": 7,
+        "span_start": 212,
+        "span_end": 252,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "attributes": {
+          "href": "style.css",
+          "rel": "stylesheet"
+        },
+        "parent": "src/index.html#component.0002",
+        "process": "renderer",
+        "tag": "link"
+      }
+    },
+    {
+      "id": "src/index.html#component.0007",
+      "kind": "component",
+      "provenance": {
+        "file": "src/index.html",
+        "line": 9,
+        "span_start": 265,
+        "span_end": 271,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "attributes": {},
+        "parent": "src/index.html#component.0001",
+        "process": "renderer",
+        "tag": "body"
+      }
+    },
+    {
+      "id": "src/index.html#component.0008",
+      "kind": "component",
+      "provenance": {
+        "file": "src/index.html",
+        "line": 10,
+        "span_start": 276,
+        "span_end": 299,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "attributes": {
+          "id": "window-root"
+        },
+        "parent": "src/index.html#component.0007",
+        "process": "renderer",
+        "tag": "main"
+      }
+    },
+    {
+      "id": "src/index.html#component.0009",
+      "kind": "component",
+      "provenance": {
+        "file": "src/index.html",
+        "line": 11,
+        "span_start": 306,
+        "span_end": 328,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "attributes": {
+          "class": "caption"
+        },
+        "parent": "src/index.html#component.0008",
+        "process": "renderer",
+        "tag": "span",
+        "text": "Count"
+      }
+    },
+    {
+      "id": "src/index.html#component.0010",
+      "kind": "component",
+      "provenance": {
+        "file": "src/index.html",
+        "line": 12,
+        "span_start": 347,
+        "span_end": 482,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "attributes": {
+          "aria-description": "A whole number to add to the count",
+          "aria-label": "Amount",
+          "id": "window-amount",
+          "type": "text",
+          "value": "1"
+        },
+        "parent": "src/index.html#component.0008",
+        "process": "renderer",
+        "tag": "input"
+      }
+    },
+    {
+      "id": "src/index.html#component.0011",
+      "kind": "component",
+      "provenance": {
+        "file": "src/index.html",
+        "line": 14,
+        "span_start": 489,
+        "span_end": 551,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "attributes": {
+          "aria-label": "Add amount",
+          "id": "window-add",
+          "type": "button"
+        },
+        "parent": "src/index.html#component.0008",
+        "process": "renderer",
+        "tag": "button",
+        "text": "Add"
+      }
+    },
+    {
+      "id": "src/index.html#component.0012",
+      "kind": "component",
+      "provenance": {
+        "file": "src/index.html",
+        "line": 15,
+        "span_start": 570,
+        "span_end": 615,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "attributes": {
+          "aria-live": "polite",
+          "id": "window-total"
+        },
+        "parent": "src/index.html#component.0008",
+        "process": "renderer",
+        "tag": "output",
+        "text": "0"
+      }
+    },
+    {
+      "id": "src/index.html#component.0013",
+      "kind": "component",
+      "provenance": {
+        "file": "src/index.html",
+        "line": 17,
+        "span_start": 642,
+        "span_end": 668,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "attributes": {
+          "src": "renderer.js"
+        },
+        "parent": "src/index.html#component.0007",
+        "process": "renderer",
+        "tag": "script"
+      }
+    },
+    {
+      "id": "src/main.js#ipc_channel.0001",
+      "kind": "ipc_channel",
+      "provenance": {
+        "file": "src/main.js",
+        "line": 22,
+        "span_start": 638,
+        "span_end": 1052,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "channel": "counter:add",
+        "method": "handle",
+        "mutates": [
+          "count"
+        ],
+        "process": "main",
+        "reads": [
+          "count"
+        ],
+        "side": "main"
+      }
+    },
+    {
+      "id": "src/main.js#ipc_channel.0002",
+      "kind": "ipc_channel",
+      "provenance": {
+        "file": "src/main.js",
+        "line": 35,
+        "span_start": 1055,
+        "span_end": 1108,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "channel": "counter:get",
+        "method": "handle",
+        "process": "main",
+        "reads": [
+          "count"
+        ],
+        "side": "main"
+      }
+    },
+    {
+      "id": "src/main.js#logic_unit.0001",
+      "kind": "logic_unit",
+      "provenance": {
+        "file": "src/main.js",
+        "line": 14,
+        "span_start": 416,
+        "span_end": 636,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "async": false,
+        "form": "function_declaration",
+        "name": "parseCanonicalI64",
+        "parameters": 1,
+        "process": "main"
+      }
+    },
+    {
+      "id": "src/main.js#logic_unit.0002",
+      "kind": "logic_unit",
+      "provenance": {
+        "file": "src/main.js",
+        "line": 37,
+        "span_start": 1111,
+        "span_end": 1476,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "async": false,
+        "form": "function_declaration",
+        "name": "createWindow",
+        "parameters": 0,
+        "process": "main"
+      }
+    },
+    {
+      "id": "src/main.js#module_import.0001",
+      "kind": "module_import",
+      "provenance": {
+        "file": "src/main.js",
+        "line": 3,
+        "span_start": 28,
+        "span_end": 48,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "form": "require",
+        "module": "path",
+        "process": "main"
+      }
+    },
+    {
+      "id": "src/main.js#module_import.0002",
+      "kind": "module_import",
+      "provenance": {
+        "file": "src/main.js",
+        "line": 4,
+        "span_start": 90,
+        "span_end": 109,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "form": "require",
+        "module": "electron",
+        "process": "main"
+      }
+    },
+    {
+      "id": "src/main.js#state_store.0001",
+      "kind": "state_store",
+      "provenance": {
+        "file": "src/main.js",
+        "line": 10,
+        "span_start": 250,
+        "span_end": 260,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "assigned_at_lines": [
+          31
+        ],
+        "basis": "module-scope binding assigned inside a function",
+        "declaration": "let",
+        "initial": "0n",
+        "name": "count",
+        "process": "main"
+      }
+    },
+    {
+      "id": "src/main.js#window_lifecycle.0001",
+      "kind": "window_lifecycle",
+      "provenance": {
+        "file": "src/main.js",
+        "line": 38,
+        "span_start": 1154,
+        "span_end": 1418,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "api": "new BrowserWindow",
+        "options": {
+          "height": 160,
+          "title": "Count",
+          "useContentSize": true,
+          "webPreferences": {
+            "contextIsolation": true,
+            "nodeIntegration": false,
+            "preload": {
+              "expression": "path.join(__dirname, 'preload.js')"
+            },
+            "sandbox": true
+          },
+          "width": 320
+        },
+        "preload_path": "src/preload.js",
+        "process": "main"
+      }
+    },
+    {
+      "id": "src/main.js#window_lifecycle.0002",
+      "kind": "window_lifecycle",
+      "provenance": {
+        "file": "src/main.js",
+        "line": 50,
+        "span_start": 1422,
+        "span_end": 1473,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "api": "BrowserWindow(instance).loadFile",
+        "process": "main",
+        "resolved_path": "src/index.html"
+      }
+    },
+    {
+      "id": "src/main.js#window_lifecycle.0003",
+      "kind": "window_lifecycle",
+      "provenance": {
+        "file": "src/main.js",
+        "line": 53,
+        "span_start": 1478,
+        "span_end": 1493,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "api": "app.whenReady",
+        "process": "main"
+      }
+    },
+    {
+      "id": "src/main.js#window_lifecycle.0004",
+      "kind": "window_lifecycle",
+      "provenance": {
+        "file": "src/main.js",
+        "line": 55,
+        "span_start": 1515,
+        "span_end": 1567,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "api": "app.on",
+        "first_argument": "window-all-closed",
+        "process": "main"
+      }
+    },
+    {
+      "id": "src/main.js#window_lifecycle.0005",
+      "kind": "window_lifecycle",
+      "provenance": {
+        "file": "src/main.js",
+        "line": 56,
+        "span_start": 1553,
+        "span_end": 1563,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "api": "app.quit",
+        "process": "main"
+      }
+    },
+    {
+      "id": "src/preload.js#ipc_channel.0001",
+      "kind": "ipc_channel",
+      "provenance": {
+        "file": "src/preload.js",
+        "line": 6,
+        "span_start": 144,
+        "span_end": 189,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "channel": "counter:add",
+        "method": "invoke",
+        "process": "preload",
+        "side": "renderer"
+      }
+    },
+    {
+      "id": "src/preload.js#ipc_channel.0002",
+      "kind": "ipc_channel",
+      "provenance": {
+        "file": "src/preload.js",
+        "line": 7,
+        "span_start": 204,
+        "span_end": 237,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "channel": "counter:get",
+        "method": "invoke",
+        "process": "preload",
+        "side": "renderer"
+      }
+    },
+    {
+      "id": "src/preload.js#module_import.0001",
+      "kind": "module_import",
+      "provenance": {
+        "file": "src/preload.js",
+        "line": 3,
+        "span_start": 54,
+        "span_end": 73,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "form": "require",
+        "module": "electron",
+        "process": "preload"
+      }
+    },
+    {
+      "id": "src/preload.js#preload_bridge.0001",
+      "kind": "preload_bridge",
+      "provenance": {
+        "file": "src/preload.js",
+        "line": 5,
+        "span_start": 76,
+        "span_end": 241,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "key": "counter",
+        "members": {
+          "add": {
+            "ipc": [
+              "invoke counter:add"
+            ]
+          },
+          "get": {
+            "ipc": [
+              "invoke counter:get"
+            ]
+          }
+        },
+        "process": "preload"
+      }
+    },
+    {
+      "id": "src/renderer.js#bridge_call.0001",
+      "kind": "bridge_call",
+      "provenance": {
+        "file": "src/renderer.js",
+        "line": 23,
+        "span_start": 638,
+        "span_end": 658,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "bridge": "counter.get",
+        "process": "renderer"
+      }
+    },
+    {
+      "id": "src/renderer.js#event_handler.0001",
+      "kind": "event_handler",
+      "provenance": {
+        "file": "src/renderer.js",
+        "line": 8,
+        "span_start": 248,
+        "span_end": 322,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "event": "paste",
+        "prevents_default": true,
+        "process": "renderer",
+        "target": {
+          "dom_id": "window-amount"
+        },
+        "via": "addEventListener"
+      }
+    },
+    {
+      "id": "src/renderer.js#event_handler.0002",
+      "kind": "event_handler",
+      "provenance": {
+        "file": "src/renderer.js",
+        "line": 15,
+        "span_start": 432,
+        "span_end": 635,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "event": "click",
+        "mutates": [
+          "pending"
+        ],
+        "prevents_default": false,
+        "process": "renderer",
+        "reads": [
+          "pending"
+        ],
+        "target": {
+          "dom_id": "window-add"
+        },
+        "via": "addEventListener",
+        "window_calls": [
+          "window.counter.add"
+        ]
+      }
+    },
+    {
+      "id": "src/renderer.js#state_store.0001",
+      "kind": "state_store",
+      "provenance": {
+        "file": "src/renderer.js",
+        "line": 13,
+        "span_start": 402,
+        "span_end": 429,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "assigned_at_lines": [
+          17
+        ],
+        "basis": "module-scope binding assigned inside a function",
+        "declaration": "let",
+        "initial": "Promise.resolve()",
+        "name": "pending",
+        "process": "renderer"
+      }
+    },
+    {
+      "id": "src/style.css#style_rule.0001",
+      "kind": "style_rule",
+      "provenance": {
+        "file": "src/style.css",
+        "line": 3,
+        "span_start": 120,
+        "span_end": 163,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "declarations": [
+          {
+            "name": "margin",
+            "value": "0"
+          },
+          {
+            "name": "height",
+            "value": "100%"
+          }
+        ],
+        "process": "renderer",
+        "selector": "html, body"
+      }
+    },
+    {
+      "id": "src/style.css#style_rule.0002",
+      "kind": "style_rule",
+      "provenance": {
+        "file": "src/style.css",
+        "line": 8,
+        "span_start": 165,
+        "span_end": 234,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "declarations": [
+          {
+            "name": "position",
+            "value": "relative"
+          },
+          {
+            "name": "width",
+            "value": "100%"
+          },
+          {
+            "name": "height",
+            "value": "100%"
+          }
+        ],
+        "process": "renderer",
+        "selector": "#window-root"
+      }
+    },
+    {
+      "id": "src/style.css#style_rule.0003",
+      "kind": "style_rule",
+      "provenance": {
+        "file": "src/style.css",
+        "line": 14,
+        "span_start": 236,
+        "span_end": 365,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "declarations": [
+          {
+            "name": "position",
+            "value": "absolute"
+          },
+          {
+            "name": "left",
+            "value": "6.25%"
+          },
+          {
+            "name": "top",
+            "value": "37.5%"
+          },
+          {
+            "name": "width",
+            "value": "37.5%"
+          },
+          {
+            "name": "height",
+            "value": "18.75%"
+          },
+          {
+            "name": "box-sizing",
+            "value": "border-box"
+          }
+        ],
+        "process": "renderer",
+        "selector": "#window-amount"
+      }
+    },
+    {
+      "id": "src/style.css#style_rule.0004",
+      "kind": "style_rule",
+      "provenance": {
+        "file": "src/style.css",
+        "line": 23,
+        "span_start": 367,
+        "span_end": 489,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "declarations": [
+          {
+            "name": "position",
+            "value": "absolute"
+          },
+          {
+            "name": "left",
+            "value": "50%"
+          },
+          {
+            "name": "top",
+            "value": "37.5%"
+          },
+          {
+            "name": "width",
+            "value": "25%"
+          },
+          {
+            "name": "height",
+            "value": "18.75%"
+          },
+          {
+            "name": "box-sizing",
+            "value": "border-box"
+          }
+        ],
+        "process": "renderer",
+        "selector": "#window-add"
+      }
+    },
+    {
+      "id": "src/style.css#style_rule.0005",
+      "kind": "style_rule",
+      "provenance": {
+        "file": "src/style.css",
+        "line": 32,
+        "span_start": 491,
+        "span_end": 637,
+        "fallback_origin": false
+      },
+      "representability": {
+        "status": "extracted",
+        "reason": null,
+        "detail": null
+      },
+      "semantics": {
+        "declarations": [
+          {
+            "name": "position",
+            "value": "absolute"
+          },
+          {
+            "name": "left",
+            "value": "6.25%"
+          },
+          {
+            "name": "top",
+            "value": "68.75%"
+          },
+          {
+            "name": "width",
+            "value": "50%"
+          },
+          {
+            "name": "height",
+            "value": "18.75%"
+          },
+          {
+            "name": "white-space",
+            "value": "pre-wrap"
+          },
+          {
+            "name": "overflow",
+            "value": "hidden"
+          }
+        ],
+        "process": "renderer",
+        "selector": "#window-total"
+      }
+    }
+  ],
+  "relationships": [
+    {
+      "id": "contains:src/index.html#component.0001->src/index.html#component.0002",
+      "subject": "src/index.html#component.0001",
+      "relation": "contains",
+      "object": "src/index.html#component.0002",
+      "basis": "extracted",
+      "evidence": [],
+      "provenance": {
+        "file": "src/index.html",
+        "line": 3,
+        "span_start": 35,
+        "span_end": 41,
+        "fallback_origin": false
+      }
+    },
+    {
+      "id": "contains:src/index.html#component.0001->src/index.html#component.0007",
+      "subject": "src/index.html#component.0001",
+      "relation": "contains",
+      "object": "src/index.html#component.0007",
+      "basis": "extracted",
+      "evidence": [],
+      "provenance": {
+        "file": "src/index.html",
+        "line": 9,
+        "span_start": 265,
+        "span_end": 271,
+        "fallback_origin": false
+      }
+    },
+    {
+      "id": "contains:src/index.html#component.0002->src/index.html#component.0003",
+      "subject": "src/index.html#component.0002",
+      "relation": "contains",
+      "object": "src/index.html#component.0003",
+      "basis": "extracted",
+      "evidence": [],
+      "provenance": {
+        "file": "src/index.html",
+        "line": 4,
+        "span_start": 46,
+        "span_end": 68,
+        "fallback_origin": false
+      }
+    },
+    {
+      "id": "contains:src/index.html#component.0002->src/index.html#component.0004",
+      "subject": "src/index.html#component.0002",
+      "relation": "contains",
+      "object": "src/index.html#component.0004",
+      "basis": "extracted",
+      "evidence": [],
+      "provenance": {
+        "file": "src/index.html",
+        "line": 5,
+        "span_start": 73,
+        "span_end": 182,
+        "fallback_origin": false
+      }
+    },
+    {
+      "id": "contains:src/index.html#component.0002->src/index.html#component.0005",
+      "subject": "src/index.html#component.0002",
+      "relation": "contains",
+      "object": "src/index.html#component.0005",
+      "basis": "extracted",
+      "evidence": [],
+      "provenance": {
+        "file": "src/index.html",
+        "line": 6,
+        "span_start": 187,
+        "span_end": 194,
+        "fallback_origin": false
+      }
+    },
+    {
+      "id": "contains:src/index.html#component.0002->src/index.html#component.0006",
+      "subject": "src/index.html#component.0002",
+      "relation": "contains",
+      "object": "src/index.html#component.0006",
+      "basis": "extracted",
+      "evidence": [],
+      "provenance": {
+        "file": "src/index.html",
+        "line": 7,
+        "span_start": 212,
+        "span_end": 252,
+        "fallback_origin": false
+      }
+    },
+    {
+      "id": "contains:src/index.html#component.0007->src/index.html#component.0008",
+      "subject": "src/index.html#component.0007",
+      "relation": "contains",
+      "object": "src/index.html#component.0008",
+      "basis": "extracted",
+      "evidence": [],
+      "provenance": {
+        "file": "src/index.html",
+        "line": 10,
+        "span_start": 276,
+        "span_end": 299,
+        "fallback_origin": false
+      }
+    },
+    {
+      "id": "contains:src/index.html#component.0007->src/index.html#component.0013",
+      "subject": "src/index.html#component.0007",
+      "relation": "contains",
+      "object": "src/index.html#component.0013",
+      "basis": "extracted",
+      "evidence": [],
+      "provenance": {
+        "file": "src/index.html",
+        "line": 17,
+        "span_start": 642,
+        "span_end": 668,
+        "fallback_origin": false
+      }
+    },
+    {
+      "id": "contains:src/index.html#component.0008->src/index.html#component.0009",
+      "subject": "src/index.html#component.0008",
+      "relation": "contains",
+      "object": "src/index.html#component.0009",
+      "basis": "extracted",
+      "evidence": [],
+      "provenance": {
+        "file": "src/index.html",
+        "line": 11,
+        "span_start": 306,
+        "span_end": 328,
+        "fallback_origin": false
+      }
+    },
+    {
+      "id": "contains:src/index.html#component.0008->src/index.html#component.0010",
+      "subject": "src/index.html#component.0008",
+      "relation": "contains",
+      "object": "src/index.html#component.0010",
+      "basis": "extracted",
+      "evidence": [],
+      "provenance": {
+        "file": "src/index.html",
+        "line": 12,
+        "span_start": 347,
+        "span_end": 482,
+        "fallback_origin": false
+      }
+    },
+    {
+      "id": "contains:src/index.html#component.0008->src/index.html#component.0011",
+      "subject": "src/index.html#component.0008",
+      "relation": "contains",
+      "object": "src/index.html#component.0011",
+      "basis": "extracted",
+      "evidence": [],
+      "provenance": {
+        "file": "src/index.html",
+        "line": 14,
+        "span_start": 489,
+        "span_end": 551,
+        "fallback_origin": false
+      }
+    },
+    {
+      "id": "contains:src/index.html#component.0008->src/index.html#component.0012",
+      "subject": "src/index.html#component.0008",
+      "relation": "contains",
+      "object": "src/index.html#component.0012",
+      "basis": "extracted",
+      "evidence": [],
+      "provenance": {
+        "file": "src/index.html",
+        "line": 15,
+        "span_start": 570,
+        "span_end": 615,
+        "fallback_origin": false
+      }
+    },
+    {
+      "id": "exposes:src/preload.js#preload_bridge.0001->src/preload.js#ipc_channel.0001",
+      "subject": "src/preload.js#preload_bridge.0001",
+      "relation": "exposes",
+      "object": "src/preload.js#ipc_channel.0001",
+      "basis": "extracted",
+      "evidence": [],
+      "provenance": {
+        "file": "src/preload.js",
+        "line": 6,
+        "span_start": 144,
+        "span_end": 189,
+        "fallback_origin": false
+      }
+    },
+    {
+      "id": "exposes:src/preload.js#preload_bridge.0001->src/preload.js#ipc_channel.0002",
+      "subject": "src/preload.js#preload_bridge.0001",
+      "relation": "exposes",
+      "object": "src/preload.js#ipc_channel.0002",
+      "basis": "extracted",
+      "evidence": [],
+      "provenance": {
+        "file": "src/preload.js",
+        "line": 7,
+        "span_start": 204,
+        "span_end": 237,
+        "fallback_origin": false
+      }
+    },
+    {
+      "id": "handles:src/renderer.js#event_handler.0001->src/index.html#component.0010",
+      "subject": "src/renderer.js#event_handler.0001",
+      "relation": "handles",
+      "object": "src/index.html#component.0010",
+      "basis": "derived",
+      "evidence": [
+        "src/index.html#component.0010",
+        "src/renderer.js#event_handler.0001"
+      ],
+      "provenance": {
+        "file": "src/renderer.js",
+        "line": 8,
+        "span_start": 248,
+        "span_end": 322,
+        "fallback_origin": false
+      }
+    },
+    {
+      "id": "handles:src/renderer.js#event_handler.0002->src/index.html#component.0011",
+      "subject": "src/renderer.js#event_handler.0002",
+      "relation": "handles",
+      "object": "src/index.html#component.0011",
+      "basis": "derived",
+      "evidence": [
+        "src/index.html#component.0011",
+        "src/renderer.js#event_handler.0002"
+      ],
+      "provenance": {
+        "file": "src/renderer.js",
+        "line": 15,
+        "span_start": 432,
+        "span_end": 635,
+        "fallback_origin": false
+      }
+    },
+    {
+      "id": "invokes:src/preload.js#ipc_channel.0001->src/main.js#ipc_channel.0001",
+      "subject": "src/preload.js#ipc_channel.0001",
+      "relation": "invokes",
+      "object": "src/main.js#ipc_channel.0001",
+      "basis": "derived",
+      "evidence": [
+        "src/main.js#ipc_channel.0001",
+        "src/preload.js#ipc_channel.0001"
+      ],
+      "provenance": {
+        "file": "src/preload.js",
+        "line": 6,
+        "span_start": 144,
+        "span_end": 189,
+        "fallback_origin": false
+      }
+    },
+    {
+      "id": "invokes:src/preload.js#ipc_channel.0002->src/main.js#ipc_channel.0002",
+      "subject": "src/preload.js#ipc_channel.0002",
+      "relation": "invokes",
+      "object": "src/main.js#ipc_channel.0002",
+      "basis": "derived",
+      "evidence": [
+        "src/main.js#ipc_channel.0002",
+        "src/preload.js#ipc_channel.0002"
+      ],
+      "provenance": {
+        "file": "src/preload.js",
+        "line": 7,
+        "span_start": 204,
+        "span_end": 237,
+        "fallback_origin": false
+      }
+    },
+    {
+      "id": "invokes:src/renderer.js#bridge_call.0001->src/preload.js#preload_bridge.0001",
+      "subject": "src/renderer.js#bridge_call.0001",
+      "relation": "invokes",
+      "object": "src/preload.js#preload_bridge.0001",
+      "basis": "derived",
+      "evidence": [
+        "src/preload.js#preload_bridge.0001",
+        "src/renderer.js#bridge_call.0001"
+      ],
+      "provenance": {
+        "file": "src/renderer.js",
+        "line": 23,
+        "span_start": 638,
+        "span_end": 658,
+        "fallback_origin": false
+      }
+    },
+    {
+      "id": "invokes:src/renderer.js#event_handler.0002->src/preload.js#preload_bridge.0001",
+      "subject": "src/renderer.js#event_handler.0002",
+      "relation": "invokes",
+      "object": "src/preload.js#preload_bridge.0001",
+      "basis": "derived",
+      "evidence": [
+        "src/preload.js#preload_bridge.0001",
+        "src/renderer.js#event_handler.0002"
+      ],
+      "provenance": {
+        "file": "src/renderer.js",
+        "line": 15,
+        "span_start": 432,
+        "span_end": 635,
+        "fallback_origin": false
+      }
+    },
+    {
+      "id": "loads:src/main.js#window_lifecycle.0002->src/index.html#component.0001",
+      "subject": "src/main.js#window_lifecycle.0002",
+      "relation": "loads",
+      "object": "src/index.html#component.0001",
+      "basis": "derived",
+      "evidence": [
+        "src/index.html#component.0001",
+        "src/main.js#window_lifecycle.0002"
+      ],
+      "provenance": {
+        "file": "src/main.js",
+        "line": 50,
+        "span_start": 1422,
+        "span_end": 1473,
+        "fallback_origin": false
+      }
+    },
+    {
+      "id": "mutates:src/main.js#ipc_channel.0001->src/main.js#state_store.0001",
+      "subject": "src/main.js#ipc_channel.0001",
+      "relation": "mutates",
+      "object": "src/main.js#state_store.0001",
+      "basis": "derived",
+      "evidence": [
+        "src/main.js#ipc_channel.0001",
+        "src/main.js#state_store.0001"
+      ],
+      "provenance": {
+        "file": "src/main.js",
+        "line": 22,
+        "span_start": 638,
+        "span_end": 1052,
+        "fallback_origin": false
+      }
+    },
+    {
+      "id": "mutates:src/renderer.js#event_handler.0002->src/renderer.js#state_store.0001",
+      "subject": "src/renderer.js#event_handler.0002",
+      "relation": "mutates",
+      "object": "src/renderer.js#state_store.0001",
+      "basis": "derived",
+      "evidence": [
+        "src/renderer.js#event_handler.0002",
+        "src/renderer.js#state_store.0001"
+      ],
+      "provenance": {
+        "file": "src/renderer.js",
+        "line": 15,
+        "span_start": 432,
+        "span_end": 635,
+        "fallback_origin": false
+      }
+    },
+    {
+      "id": "reads:src/main.js#ipc_channel.0001->src/main.js#state_store.0001",
+      "subject": "src/main.js#ipc_channel.0001",
+      "relation": "reads",
+      "object": "src/main.js#state_store.0001",
+      "basis": "derived",
+      "evidence": [
+        "src/main.js#ipc_channel.0001",
+        "src/main.js#state_store.0001"
+      ],
+      "provenance": {
+        "file": "src/main.js",
+        "line": 22,
+        "span_start": 638,
+        "span_end": 1052,
+        "fallback_origin": false
+      }
+    },
+    {
+      "id": "reads:src/main.js#ipc_channel.0002->src/main.js#state_store.0001",
+      "subject": "src/main.js#ipc_channel.0002",
+      "relation": "reads",
+      "object": "src/main.js#state_store.0001",
+      "basis": "derived",
+      "evidence": [
+        "src/main.js#ipc_channel.0002",
+        "src/main.js#state_store.0001"
+      ],
+      "provenance": {
+        "file": "src/main.js",
+        "line": 35,
+        "span_start": 1055,
+        "span_end": 1108,
+        "fallback_origin": false
+      }
+    },
+    {
+      "id": "reads:src/renderer.js#event_handler.0002->src/renderer.js#state_store.0001",
+      "subject": "src/renderer.js#event_handler.0002",
+      "relation": "reads",
+      "object": "src/renderer.js#state_store.0001",
+      "basis": "derived",
+      "evidence": [
+        "src/renderer.js#event_handler.0002",
+        "src/renderer.js#state_store.0001"
+      ],
+      "provenance": {
+        "file": "src/renderer.js",
+        "line": 15,
+        "span_start": 432,
+        "span_end": 635,
+        "fallback_origin": false
+      }
+    },
+    {
+      "id": "styles:src/style.css#style_rule.0002->src/index.html#component.0008",
+      "subject": "src/style.css#style_rule.0002",
+      "relation": "styles",
+      "object": "src/index.html#component.0008",
+      "basis": "derived",
+      "evidence": [
+        "src/index.html#component.0008",
+        "src/style.css#style_rule.0002"
+      ],
+      "provenance": {
+        "file": "src/style.css",
+        "line": 8,
+        "span_start": 165,
+        "span_end": 234,
+        "fallback_origin": false
+      }
+    },
+    {
+      "id": "styles:src/style.css#style_rule.0003->src/index.html#component.0010",
+      "subject": "src/style.css#style_rule.0003",
+      "relation": "styles",
+      "object": "src/index.html#component.0010",
+      "basis": "derived",
+      "evidence": [
+        "src/index.html#component.0010",
+        "src/style.css#style_rule.0003"
+      ],
+      "provenance": {
+        "file": "src/style.css",
+        "line": 14,
+        "span_start": 236,
+        "span_end": 365,
+        "fallback_origin": false
+      }
+    },
+    {
+      "id": "styles:src/style.css#style_rule.0004->src/index.html#component.0011",
+      "subject": "src/style.css#style_rule.0004",
+      "relation": "styles",
+      "object": "src/index.html#component.0011",
+      "basis": "derived",
+      "evidence": [
+        "src/index.html#component.0011",
+        "src/style.css#style_rule.0004"
+      ],
+      "provenance": {
+        "file": "src/style.css",
+        "line": 23,
+        "span_start": 367,
+        "span_end": 489,
+        "fallback_origin": false
+      }
+    },
+    {
+      "id": "styles:src/style.css#style_rule.0005->src/index.html#component.0012",
+      "subject": "src/style.css#style_rule.0005",
+      "relation": "styles",
+      "object": "src/index.html#component.0012",
+      "basis": "derived",
+      "evidence": [
+        "src/index.html#component.0012",
+        "src/style.css#style_rule.0005"
+      ],
+      "provenance": {
+        "file": "src/style.css",
+        "line": 32,
+        "span_start": 491,
+        "span_end": 637,
+        "fallback_origin": false
+      }
+    }
+  ]
+}

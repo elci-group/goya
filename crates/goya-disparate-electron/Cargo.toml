@@ -1,0 +1,20 @@
+[package]
+name = "goya-disparate-electron"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Static, offline Electron extractor for the Disparates programme (DEL-TD-001, Delectable). Emits GY-FAIR/1."
+
+[dependencies]
+goya-fair.workspace = true
+oxc_allocator = "=0.146.0"
+oxc_ast = "=0.146.0"
+oxc_ast_visit = "=0.146.0"
+oxc_parser = "=0.146.0"
+oxc_span = "=0.146.0"
+oxc_syntax = "=0.146.0"
+goya-html-tokenizer.workspace = true
+goya-css-syntax.workspace = true
+serde_json = "1"
+sha2 = "0.10"
