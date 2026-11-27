@@ -270,6 +270,7 @@ mod tests {
                     goya_avr::encoding::EncodingClass::Anchor,
                     goya_avr::encoding::EncodingClass::Copy,
                     goya_avr::encoding::EncodingClass::Shared,
+                    goya_avr::encoding::EncodingClass::Delta,
                 ],
             },
             residency: goya_avr::derivation::ResidencyPolicy {
@@ -279,7 +280,7 @@ mod tests {
             max_silhouette_error_px: 1,
             allow_live_fallback: false,
         };
-        let derivation = derive(&report, &profile).expect("relational derivation");
+        let derivation = derive(&report, &profile, None).expect("relational derivation");
         assert_eq!(derivation.metrics.canonical_observations, 256);
         assert_eq!(derivation.metrics.directly_indexed, 16);
         assert_eq!(derivation.metrics.retained_observations, 256);
@@ -294,8 +295,8 @@ mod tests {
             let elevation = record.state.orientation[1] as f32 / 100.0;
             let distance = record.state.camera[0] as f32 / 256.0;
             let request = observer(azimuth, elevation, distance);
-            match resolve_derived(&derivation, &request) {
-                DerivedResolution::Exact { payload, tier } => {
+            match resolve_derived(&derivation, &request, None) {
+                DerivedResolution::Exact { payload, tier, .. } => {
                     match tier {
                         Tier::Hot => hot_seen += 1,
                         Tier::Cold => cold_seen += 1,
@@ -314,9 +315,97 @@ mod tests {
         // In-domain but under-observed states fail explicitly.
         let between = observer(1.0, 1.0, 2.0);
         assert_eq!(
-            resolve_derived(&derivation, &between),
+            resolve_derived(&derivation, &between, None),
             DerivedResolution::Unsupported(goya_avr::retrieval::UnsupportedReason::NotCompiled)
         );
+    }
+
+    #[test]
+    fn delta_encoding_compresses_real_svg_observations() {
+        // Phase 3 (§12.2): real Rugid SVG observations share most lines
+        // between neighbouring views, so differential encoding against the
+        // neighbourhood anchor must reduce persistent storage — and every
+        // delta must reconstruct bit-identically without re-rendering.
+        use goya_avr::derivation::{DerivationProfile, InventoryProfile};
+        use goya_avr::encoding::EncodingClass;
+        use goya_avr::retrieval::{resolve_derived, DerivedResolution};
+        use goya_avr::target::derive;
+
+        let source = RugidShapeSource::new(ShapeType::Cube, 100.0);
+        let policy = SamplingPolicy { initial_samples: 256, distance: 2.0, fov_deg: 60.0 };
+        let report = compile(&source, ObservationDomain::Spherical, &policy, &budget())
+            .expect("canonical compilation");
+
+        let profile = DerivationProfile {
+            profile: InventoryProfile::Relational,
+            canonical_digest: report.canonical_digest.clone(),
+            index: goya_avr::derivation::IndexPolicy {
+                primary_nodes: 16,
+                max_neighbourhood_size: 64,
+                preserve_canonical_granularity: true,
+                allow_pruning: false,
+            },
+            reconstruction: goya_avr::derivation::ReconstructionPolicy {
+                max_dependency_depth: 4,
+                allowed_encodings: vec![
+                    goya_avr::encoding::EncodingClass::Anchor,
+                    goya_avr::encoding::EncodingClass::Copy,
+                    goya_avr::encoding::EncodingClass::Shared,
+                    goya_avr::encoding::EncodingClass::Delta,
+                ],
+            },
+            residency: goya_avr::derivation::ResidencyPolicy {
+                asset_budget_bytes: u64::MAX,
+                prefetch_neighbourhoods: 1,
+            },
+            max_silhouette_error_px: 1,
+            allow_live_fallback: false,
+        };
+        let derivation = derive(&report, &profile, None).expect("relational derivation");
+
+        let delta_count = derivation
+            .encodings
+            .values()
+            .filter(|e| **e == EncodingClass::Delta)
+            .count();
+        assert!(
+            delta_count > 0,
+            "real SVG observations must delta-compress against their anchors"
+        );
+        assert!(
+            derivation.metrics.stored_payload_bytes < derivation.metrics.canonical_payload_bytes,
+            "differential encoding must reduce stored bytes (§12.5)"
+        );
+
+        // Every delta resolves exactly, bit-identical to a direct render.
+        let mut delta_resolved = 0;
+        for (id, encoding) in &derivation.encodings {
+            if *encoding != EncodingClass::Delta {
+                continue;
+            }
+            let record = derivation
+                .inventory
+                .observations
+                .iter()
+                .find(|r| r.id.0 == *id)
+                .expect("record");
+            let request = observer(
+                record.state.orientation[0] as f32 / 100.0,
+                record.state.orientation[1] as f32 / 100.0,
+                record.state.camera[0] as f32 / 256.0,
+            );
+            match resolve_derived(&derivation, &request, None) {
+                DerivedResolution::Exact { payload, fidelity, .. } => {
+                    assert_eq!(fidelity, goya_avr::inventory::FidelityClass::Exact);
+                    let direct = source.render(&request).expect("direct render");
+                    assert_eq!(payload.bytes, direct.bytes, "delta must be bit-identical");
+                    delta_resolved += 1;
+                }
+                other => panic!("delta {id} failed to resolve: {other:?}"),
+            }
+        }
+        assert_eq!(delta_resolved, delta_count);
+        assert_eq!(derivation.inventory.reconstruction.verify(), Ok(()));
     }
 
     #[test]

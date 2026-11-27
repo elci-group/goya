@@ -19,9 +19,11 @@
 
 pub mod canonical;
 pub mod certification;
+pub mod delta;
 pub mod derivation;
 pub mod domain;
 pub mod encoding;
+pub mod engine;
 pub mod graph;
 pub mod ingestion;
 pub mod inventory;
@@ -39,7 +41,9 @@ pub const DIRECTIVE_ID: &str = "GOYA-GFX-AVR-001";
 pub const CONTRACT_VERSION: &str = "avr-contract/0.0.1";
 
 pub use certification::{CertificationClass, VerificationClass};
+pub use delta::{DeltaError, DELTA_HEADER};
 pub use derivation::{DerivationProfile, IndexPolicy, ReconstructionPolicy, ResidencyPolicy};
+pub use engine::{EngineError, OpOutcome, ReconstructionEngine};
 pub use domain::{ObservationDomain, ObservationState, SubdivisionPolicy};
 pub use encoding::EncodingClass;
 pub use graph::{

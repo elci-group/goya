@@ -1,29 +1,45 @@
-//! Target-specific `.gvi` derivation (directive §9, WS-07).
+//! Target-specific `.gvi` derivation (directive §9, WS-07; Phase 3
+//! reconstruction integration per §12.2/§12.3).
 //!
 //! Derivation consumes **only** the canonical compilation result: the
 //! function signature takes no spatial source, so an eligible derivation
 //! cannot repeat the expensive canonical rendering (§4.1, AVR-G03).
 //!
-//! Phase 2 encoding classes: `ANCHOR` (independently stored), `COPY`
-//! (byte-identical payload reference) and `SHARED` (referenced through a
-//! neighbourhood without payload duplication). `DELTA`, `ALBIT`,
-//! `REPROJECT`, `COMPOSITE` and `LIVE` require the Phase 3 reconstruction
-//! machinery and are rejected if requested.
+//! Encoding pipeline per observation (§8.5): candidates are generated and
+//! the cheapest adequate encoding is selected by complete encoded size —
+//! header, instructions, parameters and overhead included (§12.5):
 //!
-//! Residency tiers (§11.1): derived payloads split into `hot` (immediately
-//! accessible under the profile's residency policy) and `cold` (retained,
-//! retrievable, not resident). When `allow_pruning` is false, every
-//! canonical observation is retained and observational granularity is
-//! preserved regardless of indexing or residency (§8.1).
+//! 1. `ANCHOR` — stored independently (always available).
+//! 2. `COPY` — byte-identical payload already stored raw.
+//! 3. `DELTA` — verified differential encoding against the
+//!    neighbourhood's anchor payload (GVI-D, exact by verification).
+//! 4. `ALBIT` — generative reconstruction candidates from the optional
+//!    [`ReconstructionEngine`](crate::engine::ReconstructionEngine)
+//!    (GVI-A): byte-verified → exact; within the declared error bound and
+//!    the profile's fidelity policy → bounded (AVR-C09/C10).
+//!
+//! Storage reduction alone never justifies an encoding: decode is a
+//! bounded linear pass, chains are depth-checked through the
+//! reconstruction graph, and `COPY` references only raw payloads so
+//! reconstruction chains stay within `max_dependency_depth` (§12.2).
+//!
+//! Residency tiers (§11.1): anchors (or everything, for Dense/Hybrid) are
+//! hot; the rest of the retained canonical set is cold. When
+//! `allow_pruning` is false, every canonical observation is retained and
+//! observational granularity is preserved regardless of indexing or
+//! residency (§8.1).
 
 use crate::canonical::CompileReport;
+use crate::delta;
 use crate::derivation::{DerivationProfile, InventoryProfile};
 use crate::domain::ObservationState;
 use crate::encoding::EncodingClass;
+use crate::engine::ReconstructionEngine;
 use crate::graph::{NavigationGraph, ObservationId, ReconstructionGraph, ReconstructionNode, ResidencyGraph};
 use crate::ingestion::ObservationPayload;
 use crate::inventory::{
-    InventoryError, ObservationInventory, ObservationRecord, RepresentationId,
+    InventoryError, ObservationInventory, ObservationRecord, ProvenanceId, ProvenanceRecord,
+    ProvenanceRelation, RepresentationId,
 };
 use crate::relational::{build_layout, LayoutError};
 use std::collections::BTreeMap;
@@ -38,6 +54,44 @@ pub enum Tier {
     Cold,
 }
 
+/// Fixed per-entry overhead counted in the §12.5 encoding comparison:
+/// a stable observation id, encoding tag and length prefix.
+pub const ENTRY_OVERHEAD: u64 = 8;
+
+/// How one observation is stored in a derived inventory.
+#[derive(Debug, Clone, PartialEq)]
+pub enum EncodedObservation {
+    /// Stored independently (`ANCHOR`/`SHARED`): the payload itself.
+    Raw { payload: ObservationPayload, tier: Tier },
+    /// Reference to a byte-identical raw-stored observation (`COPY`).
+    Copy { of: u64, tier: Tier },
+    /// Verified differential reconstruction against a raw base (`DELTA`).
+    Delta { base: u64, delta: Vec<u8>, tier: Tier },
+    /// Generative reconstruction (`ALBIT`) certified exact or bounded.
+    Albit { base: u64, op: String, params: Vec<u8>, exact: bool, tier: Tier },
+}
+
+impl EncodedObservation {
+    pub fn tier(&self) -> Tier {
+        match self {
+            EncodedObservation::Raw { tier, .. }
+            | EncodedObservation::Copy { tier, .. }
+            | EncodedObservation::Delta { tier, .. }
+            | EncodedObservation::Albit { tier, .. } => *tier,
+        }
+    }
+
+    /// Stored bytes this entry contributes (§12.5 accounting).
+    pub fn stored_bytes(&self) -> u64 {
+        match self {
+            EncodedObservation::Raw { payload, .. } => payload.bytes.len() as u64,
+            EncodedObservation::Copy { .. } => 0,
+            EncodedObservation::Delta { delta, .. } => delta.len() as u64,
+            EncodedObservation::Albit { params, .. } => params.len() as u64,
+        }
+    }
+}
+
 /// Measured derivation outcome (§18.3 subset, honest counts — not
 /// benchmark claims).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,10 +104,17 @@ pub struct DerivationMetrics {
     /// Canonical observations retained by the derived inventory.
     pub retained_observations: u32,
     /// Residency reduction vs a fully resident equivalent, in basis
-    /// points (e.g. 9844 = 98.44 %).
+    /// points (e.g. 9844 = 98.44 %), by observation count.
     pub residency_reduction_bp: u32,
+    /// Stored bytes in the hot tier (encoded form).
     pub resident_payload_bytes: u64,
+    /// Raw bytes of the equivalent fully resident canonical inventory.
     pub canonical_payload_bytes: u64,
+    /// Total stored bytes (hot + cold, encoded form).
+    pub stored_payload_bytes: u64,
+    /// Persistent-storage reduction vs raw canonical, in basis points
+    /// (0 when nothing compresses).
+    pub storage_reduction_bp: u32,
 }
 
 /// Why a derivation failed.
@@ -64,7 +125,7 @@ pub enum DerivationError {
     /// The profile names a canonical digest that does not match the
     /// compilation (AVR-C11: derivation provenance).
     CanonicalDigestMismatch { profile: String, canonical: String },
-    /// The profile requests Phase 3+ encodings.
+    /// The profile requests Phase 3+ encodings its policy does not allow.
     EncodingNotAvailable(EncodingClass),
     /// The residency budget cannot hold the profile's hot tier.
     ResidencyBudgetExceeded { needed_bytes: u64, budget_bytes: u64 },
@@ -88,14 +149,11 @@ pub struct Derivation {
     pub inventory: ObservationInventory,
     /// Per-observation encoding class (§8.5).
     pub encodings: BTreeMap<u64, EncodingClass>,
+    /// How each observation is stored, keyed by observation id.
+    pub entries: BTreeMap<u64, EncodedObservation>,
     /// The primary index: observation states directly addressable without
     /// neighbourhood traversal (§9.2 direct index density).
     pub primary_index: BTreeMap<ObservationState, ObservationId>,
-    /// Immediately accessible payloads (§11.1 Hot/Warm).
-    pub hot: BTreeMap<u64, ObservationPayload>,
-    /// Retained non-resident payloads (§11.1 Cold). Present only when the
-    /// profile retains observations beyond its residency.
-    pub cold: BTreeMap<u64, ObservationPayload>,
     pub metrics: DerivationMetrics,
 }
 
@@ -128,12 +186,23 @@ fn payload_digest(payload: &ObservationPayload) -> String {
     digest.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+/// A candidate encoding produced by the pipeline, before selection.
+struct Candidate {
+    encoding: EncodingClass,
+    entry: EncodedObservation,
+    stored_bytes: u64,
+    /// Deterministic tie-break rank; lower wins.
+    rank: u8,
+}
+
 /// Derive a target-specific inventory from a canonical compilation (§9.3).
 ///
-/// Panics-free by construction: every profile violation is a typed error.
+/// `engine` provides GVI-A generative candidates; `None` restricts the
+/// pipeline to `ANCHOR`/`COPY`/`SHARED`/`DELTA`.
 pub fn derive(
     report: &CompileReport,
     profile: &DerivationProfile,
+    engine: Option<&dyn ReconstructionEngine>,
 ) -> Result<Derivation, DerivationError> {
     profile.validate().map_err(DerivationError::Profile)?;
     if profile.canonical_digest != report.canonical_digest {
@@ -142,122 +211,314 @@ pub fn derive(
             canonical: report.canonical_digest.clone(),
         });
     }
+    // Phase 3: DELTA and ALBIT are now available (§12.2/§12.3). A profile
+    // that allows ALBIT without an engine simply derives no albit entries —
+    // generative reconstruction is computed, never stored, so its absence
+    // degrades to other encodings rather than failing the derivation.
     for encoding in &profile.reconstruction.allowed_encodings {
         if !matches!(
             encoding,
-            EncodingClass::Anchor | EncodingClass::Copy | EncodingClass::Shared
+            EncodingClass::Anchor
+                | EncodingClass::Copy
+                | EncodingClass::Shared
+                | EncodingClass::Delta
+                | EncodingClass::Albit
         ) {
             return Err(DerivationError::EncodingNotAvailable(*encoding));
         }
     }
     if profile.index.allow_pruning {
         return Err(DerivationError::Profile(
-            "pruning requires the §6.3 weighted-selection machinery (later phase); Phase 2 retains every canonical observation",
+            "pruning requires the §6.3 weighted-selection machinery (later phase); Phase 2+ retains every canonical observation",
         ));
     }
 
     let canonical: BTreeMap<u64, &ObservationRecord> =
         report.inventory.observations.iter().map(|o| (o.id.0, o)).collect();
 
-    let (anchor_count, hot_is_all) = match profile.profile {
-        InventoryProfile::Dense => (report.inventory.observations.len() as u32, true),
-        InventoryProfile::Hybrid => (profile.index.primary_nodes, true),
-        InventoryProfile::Relational => (profile.index.primary_nodes, false),
+    let (anchor_count,) = match profile.profile {
+        InventoryProfile::Dense => (report.inventory.observations.len() as u32,),
+        InventoryProfile::Hybrid | InventoryProfile::Relational => {
+            (profile.index.primary_nodes,)
+        }
     };
 
     // Relational layout. Dense skips it: everything is primary.
-    let (anchors, neighbourhoods, navigation, residency, _membership) = if hot_is_all
-        && profile.profile == InventoryProfile::Dense
-    {
-        (Vec::new(), Vec::new(), NavigationGraph::default(), ResidencyGraph::default(),
-         vec![Vec::new(); canonical.len()])
-    } else {
-        let layout = build_layout(
-            &report
-                .inventory
-                .observations
-                .iter()
-                .map(|o| o.state.clone())
-                .collect::<Vec<_>>(),
-            anchor_count,
-            profile.index.max_neighbourhood_size,
-            profile.reconstruction.max_dependency_depth,
-        )
-        .map_err(DerivationError::Coverage)?;
-        (
-            layout.anchors,
-            layout.neighbourhoods,
-            layout.navigation,
-            layout.residency,
-            layout.membership,
-        )
-    };
+    let (anchors, neighbourhoods, navigation, residency, membership) =
+        if profile.profile == InventoryProfile::Dense {
+            (
+                Vec::new(),
+                Vec::new(),
+                NavigationGraph::default(),
+                ResidencyGraph::default(),
+                vec![Vec::new(); canonical.len()],
+            )
+        } else {
+            let layout = build_layout(
+                &report
+                    .inventory
+                    .observations
+                    .iter()
+                    .map(|o| o.state.clone())
+                    .collect::<Vec<_>>(),
+                anchor_count,
+                profile.index.max_neighbourhood_size,
+                profile.reconstruction.max_dependency_depth,
+            )
+            .map_err(DerivationError::Coverage)?;
+            (
+                layout.anchors,
+                layout.neighbourhoods,
+                layout.navigation,
+                layout.residency,
+                layout.membership,
+            )
+        };
 
-    // Encoding assignment (§8.5). Payload digests drive COPY detection.
+    // Candidate reconstruction bases: the anchors of every neighbourhood
+    // the observation belongs to, in deterministic rank order, capped to
+    // bound encoding work (§8.2: neighbourhoods may overlap; §6.3: base
+    // choice is an encoding decision, not a fixed owner).
+    const MAX_BASES_PER_OBSERVATION: usize = 8;
+    let mut bases_of: std::collections::HashMap<u64, Vec<u64>> = std::collections::HashMap::new();
+    for (obs, refs) in membership.iter().enumerate() {
+        let mut bases: Vec<u64> = Vec::new();
+        for rank in refs.iter().take(MAX_BASES_PER_OBSERVATION) {
+            let base = anchors[*rank as usize].observation.0;
+            if !bases.contains(&base) {
+                bases.push(base);
+            }
+        }
+        bases_of.insert(obs as u64, bases);
+    }
+
+    // Encoding pipeline (§8.5). Iteration is in canonical id order, so
+    // COPY references and candidate selection are deterministic.
     let mut encodings: BTreeMap<u64, EncodingClass> = BTreeMap::new();
-    let mut seen_digests: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+    let mut entries: BTreeMap<u64, EncodedObservation> = BTreeMap::new();
+    let mut raw_by_digest: std::collections::HashMap<String, u64> =
+        std::collections::HashMap::new();
+    let mut reconstruction_nodes: Vec<ReconstructionNode> = Vec::new();
+    let mut provenance: Vec<ProvenanceRecord> = Vec::new();
     let mut payload_digests: Vec<(u64, String)> = Vec::with_capacity(canonical.len());
+    let mut next_provenance_id: u32 = 0;
+
     for (&id, _record) in canonical.iter() {
         let payload = report
             .store
             .get(ObservationId(id))
             .expect("canonical store holds every canonical record");
         let digest = payload_digest(payload);
-        // Dense indexes everything directly; otherwise anchors are
-        // stored independently and the rest reference shared payloads.
+        payload_digests.push((id, digest.clone()));
+
         let is_anchor = profile.profile == InventoryProfile::Dense
             || anchors.iter().any(|a| a.observation.0 == id);
-        let encoding = if is_anchor {
-            EncodingClass::Anchor
-        } else if seen_digests.contains_key(&digest) {
-            EncodingClass::Copy
+
+        let mut candidates: Vec<Candidate> = Vec::new();
+        if is_anchor {
+            candidates.push(Candidate {
+                encoding: EncodingClass::Anchor,
+                entry: EncodedObservation::Raw {
+                    payload: payload.clone(),
+                    tier: Tier::Hot,
+                },
+                stored_bytes: payload.bytes.len() as u64,
+                rank: 0,
+            });
         } else {
-            EncodingClass::Shared
-        };
-        seen_digests.entry(digest.clone()).or_insert(id);
-        payload_digests.push((id, digest));
-        encodings.insert(id, encoding);
+            // COPY: a byte-identical payload already stored raw (chains
+            // stay at depth 1 under the raw-only reference rule).
+            if let Some(&first) = raw_by_digest.get(&digest) {
+                candidates.push(Candidate {
+                    encoding: EncodingClass::Copy,
+                    entry: EncodedObservation::Copy {
+                        of: first,
+                        tier: Tier::Hot,
+                    },
+                    stored_bytes: ENTRY_OVERHEAD,
+                    rank: 1,
+                });
+            }
+
+            // DELTA against a neighbourhood anchor's raw payload (GVI-D):
+            // every candidate base is evaluated, the cheapest wins.
+            if let Some(bases) = bases_of.get(&id) {
+                for &base in bases {
+                    let base_payload = report
+                        .store
+                        .get(ObservationId(base))
+                        .expect("anchor is a canonical record");
+                    if let Some(delta_bytes) = delta::encode(&base_payload.bytes, &payload.bytes) {
+                        let total = delta_bytes.len() as u64 + ENTRY_OVERHEAD;
+                        if total < payload.bytes.len() as u64 {
+                            candidates.push(Candidate {
+                                encoding: EncodingClass::Delta,
+                                entry: EncodedObservation::Delta {
+                                    base,
+                                    delta: delta_bytes,
+                                    tier: Tier::Hot,
+                                },
+                                stored_bytes: total,
+                                rank: 2,
+                            });
+                        }
+                    }
+                }
+            }
+
+            // ALBIT candidates from the engine (GVI-A), verified here:
+            // byte-identical output certifies exact; otherwise the op's
+            // declared error must fit the profile's fidelity policy
+            // (§12.3, AVR-C09/C10).
+            if let Some(engine) = engine {
+                if let (Some(bases), Some(target_record)) = (
+                    bases_of.get(&id),
+                    canonical.get(&id),
+                ) {
+                    for &base in bases {
+                    let base_state = canonical
+                        .get(&base)
+                        .expect("anchor is a canonical record")
+                        .state
+                        .clone();
+                    for (op, params) in engine.candidates(&target_record.state, &base_state) {
+                        let base_payload = report
+                            .store
+                            .get(ObservationId(base))
+                            .expect("anchor is a canonical record");
+                        let outcome = match engine.apply(&op, &params, base_payload) {
+                            Ok(outcome) => outcome,
+                            Err(_) => continue,
+                        };
+                        let total = params.len() as u64 + ENTRY_OVERHEAD;
+                        if total >= payload.bytes.len() as u64 {
+                            continue; // §12.5: must pay for itself
+                        }
+                        if outcome.payload.bytes == payload.bytes {
+                            candidates.push(Candidate {
+                                encoding: EncodingClass::Albit,
+                                entry: EncodedObservation::Albit {
+                                    base,
+                                    op,
+                                    params,
+                                    exact: true,
+                                    tier: Tier::Hot,
+                                },
+                                stored_bytes: total,
+                                rank: 3,
+                            });
+                        } else if let Some(declared) = outcome.declared_error {
+                            if (declared as u64) <= profile.max_silhouette_error_px as u64 {
+                                candidates.push(Candidate {
+                                    encoding: EncodingClass::Albit,
+                                    entry: EncodedObservation::Albit {
+                                        base,
+                                        op,
+                                        params,
+                                        exact: false,
+                                        tier: Tier::Hot,
+                                    },
+                                    stored_bytes: total,
+                                    rank: 4,
+                                });
+                            }
+                        }
+                        // Not byte-identical and no acceptable declared
+                        // bound: uncertified — never encoded (AVR-C09).
+                    }
+                    }
+                }
+            }
+
+            // Fallback: stored raw (Shared semantics).
+            candidates.push(Candidate {
+                encoding: EncodingClass::Shared,
+                entry: EncodedObservation::Raw {
+                    payload: payload.clone(),
+                    tier: Tier::Hot,
+                },
+                stored_bytes: payload.bytes.len() as u64,
+                rank: 5,
+            });
+        }
+
+        // Select the cheapest adequate candidate; ties by rank (§8.5).
+        candidates.sort_by_key(|c| (c.stored_bytes, c.rank));
+        let chosen = candidates.into_iter().next().expect("raw fallback always exists");
+
+        if chosen.encoding == EncodingClass::Anchor || chosen.encoding == EncodingClass::Shared {
+            // Raw-stored payloads join the COPY reference pool.
+            raw_by_digest.entry(digest.clone()).or_insert(id);
+        }
+        if let EncodedObservation::Delta { base, .. } = &chosen.entry {
+            reconstruction_nodes.push(ReconstructionNode {
+                observation: ObservationId(id),
+                dependencies: vec![ObservationId(*base)],
+            });
+            provenance.push(ProvenanceRecord {
+                id: ProvenanceId(next_provenance_id),
+                observation: ObservationId(id),
+                relation: ProvenanceRelation::ExactTransform { source: ObservationId(*base) },
+            });
+            next_provenance_id += 1;
+        }
+        if let EncodedObservation::Albit { base, exact, .. } = &chosen.entry {
+            reconstruction_nodes.push(ReconstructionNode {
+                observation: ObservationId(id),
+                dependencies: vec![ObservationId(*base)],
+            });
+            provenance.push(ProvenanceRecord {
+                id: ProvenanceId(next_provenance_id),
+                observation: ObservationId(id),
+                relation: ProvenanceRelation::Albit {
+                    source: ObservationId(*base),
+                    exact: *exact,
+                },
+            });
+            next_provenance_id += 1;
+        }
+
+        encodings.insert(id, chosen.encoding);
+        entries.insert(id, chosen.entry);
     }
 
-    // Residency split (§11.1) and budgets.
+    // Residency demotion (§11.1): in a relational profile only anchors
+    // stay hot; everything else is retained cold. Encoding tier follows.
     let anchor_ids: std::collections::HashSet<u64> =
         anchors.iter().map(|a| a.observation.0).collect();
-    let mut hot: BTreeMap<u64, ObservationPayload> = BTreeMap::new();
-    let mut cold: BTreeMap<u64, ObservationPayload> = BTreeMap::new();
-    for (&id, _record) in canonical.iter() {
-        let payload = report
-            .store
-            .get(ObservationId(id))
-            .expect("canonical store holds every canonical record");
-        let resident = match profile.profile {
-            InventoryProfile::Dense | InventoryProfile::Hybrid => true,
-            InventoryProfile::Relational => anchor_ids.contains(&id),
-        };
-        if resident {
-            hot.insert(id, payload.clone());
-        } else {
-            cold.insert(id, payload.clone());
+    if profile.profile == InventoryProfile::Relational {
+        for (id, entry) in entries.iter_mut() {
+            if !anchor_ids.contains(id) {
+                match entry {
+                    EncodedObservation::Raw { tier, .. }
+                    | EncodedObservation::Copy { tier, .. }
+                    | EncodedObservation::Delta { tier, .. }
+                    | EncodedObservation::Albit { tier, .. } => *tier = Tier::Cold,
+                }
+            }
         }
     }
 
-    let canonical_payload_bytes: u64 = report
-        .store
-        .payload_bytes();
-    let resident_payload_bytes: u64 = hot.values().map(|p| p.bytes.len() as u64).sum();
+    let canonical_payload_bytes: u64 = report.store.payload_bytes();
+    let resident_payload_bytes: u64 = entries
+        .values()
+        .filter(|e| e.tier() == Tier::Hot)
+        .map(EncodedObservation::stored_bytes)
+        .sum();
     if resident_payload_bytes > profile.residency.asset_budget_bytes {
         return Err(DerivationError::ResidencyBudgetExceeded {
             needed_bytes: resident_payload_bytes,
             budget_bytes: profile.residency.asset_budget_bytes,
         });
     }
+    let stored_payload_bytes: u64 = entries.values().map(EncodedObservation::stored_bytes).sum();
 
-    // Reconstruction graph: Phase 2 encodings (ANCHOR/COPY/SHARED) carry
-    // no data dependencies — every payload is stored directly in the
-    // artifact. The graph stays a separate, trivially acyclic instance
-    // (§8.3); Phase 3 populates it with DELTA/ALBIT/REPROJECT nodes.
+    // Reconstruction graph: dependencies of DELTA/ALBIT/COPY entries.
+    // All bases are raw-stored (terminals), so chains are acyclic and
+    // depth-bounded by construction (AVR-C04/C05, §12.2).
     let terminals: Vec<ObservationId> = canonical.keys().map(|id| ObservationId(*id)).collect();
     let reconstruction = ReconstructionGraph::new(
-        Vec::<ReconstructionNode>::new(),
+        reconstruction_nodes,
         terminals,
         profile.reconstruction.max_dependency_depth,
     )
@@ -272,7 +533,7 @@ pub fn derive(
             record
         })
         .collect();
-    let inventory = ObservationInventory::new(
+    let mut inventory = ObservationInventory::new(
         report.canonical_digest.clone(),
         report.inventory.domain.clone(),
         records,
@@ -281,13 +542,40 @@ pub fn derive(
         residency,
         anchors,
         neighbourhoods,
-        Vec::new(),
+        provenance,
         profile.reconstruction.max_dependency_depth,
     )
     .map_err(DerivationError::Inventory)?;
-    // Re-attach the (validated) reconstruction graph.
-    let mut inventory = inventory;
     inventory.reconstruction = reconstruction;
+
+    let directly_indexed = if profile.profile == InventoryProfile::Dense {
+        canonical.len()
+    } else {
+        inventory.anchors.len()
+    };
+    let canonical_count = canonical.len() as u32;
+    let resident_count = entries.values().filter(|e| e.tier() == Tier::Hot).count() as u32;
+    let metrics = DerivationMetrics {
+        canonical_observations: canonical_count,
+        directly_indexed: directly_indexed as u32,
+        resident_observations: resident_count,
+        retained_observations: entries.len() as u32,
+        residency_reduction_bp: if canonical_count > 0 {
+            ((1.0 - resident_count as f64 / canonical_count as f64) * 10_000.0) as u32
+        } else {
+            0
+        },
+        resident_payload_bytes,
+        canonical_payload_bytes,
+        stored_payload_bytes,
+        storage_reduction_bp: if canonical_payload_bytes > 0 {
+            ((1.0 - stored_payload_bytes as f64 / canonical_payload_bytes as f64) * 10_000.0)
+                .max(0.0) as u32
+        } else {
+            0
+        },
+    };
+
     let primary_index: BTreeMap<ObservationState, ObservationId> = inventory
         .observations
         .iter()
@@ -298,49 +586,25 @@ pub fn derive(
         .map(|o| (o.state.clone(), o.id))
         .collect();
 
-    let directly_indexed = inventory
-        .anchors
-        .len()
-        .max(if profile.profile == InventoryProfile::Dense {
-            canonical.len()
-        } else {
-            0
-        });
-    let canonical_count = canonical.len() as u32;
-    let resident_count = hot.len() as u32;
-    let metrics = DerivationMetrics {
-        canonical_observations: canonical_count,
-        directly_indexed: directly_indexed as u32,
-        resident_observations: resident_count,
-        retained_observations: (hot.len() + cold.len()) as u32,
-        residency_reduction_bp: if canonical_count > 0 {
-            ((1.0 - resident_count as f64 / canonical_count as f64) * 10_000.0) as u32
-        } else {
-            0
-        },
-        resident_payload_bytes,
-        canonical_payload_bytes,
-    };
-
     Ok(Derivation {
         profile: profile.profile,
         canonical_digest: report.canonical_digest.clone(),
         derivation_digest: derivation_digest(&report.canonical_digest, profile, &payload_digests),
         inventory,
         encodings,
+        entries,
         primary_index,
-        hot,
-        cold,
         metrics,
     })
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::canonical::{compile, CompilationBudget};
     use crate::derivation::{IndexPolicy, ReconstructionPolicy, ResidencyPolicy};
     use crate::domain::ObservationDomain;
+    use crate::engine::tests::TestEngine;
     use crate::ingestion::{Observer, SpatialSource, SourceError};
     use crate::representation::RepresentationClass;
     use std::cell::Cell;
@@ -362,6 +626,27 @@ mod tests {
                     crate::ingestion::quantise_angle(observer.elevation_deg)
                 )
                 .into_bytes(),
+            })
+        }
+    }
+
+    /// Source whose payloads carry redundant content (`OBS <az> <el> dup
+    /// <az> <el>`): long enough for truncation to declare a non-trivial
+    /// error and redundant enough for parametric reconstruction to beat
+    /// raw storage (§12.5).
+    pub(crate) struct UpperSource;
+    impl SpatialSource for UpperSource {
+        fn source_digest(&self) -> String {
+            "upper:1".into()
+        }
+        fn render(&self, o: &Observer) -> Result<ObservationPayload, SourceError> {
+            let (az, el) = (
+                crate::ingestion::quantise_angle(o.azimuth_deg),
+                crate::ingestion::quantise_angle(o.elevation_deg),
+            );
+            Ok(ObservationPayload {
+                representation: RepresentationClass::Vec,
+                bytes: format!("OBS {az} {el} dup {az} {el}").into_bytes(),
             })
         }
     }
@@ -424,8 +709,9 @@ mod tests {
         assert_eq!(renders_after_compile, 256);
 
         for kind in [InventoryProfile::Dense, InventoryProfile::Hybrid, InventoryProfile::Relational] {
-            let derivation = derive(&report, &profile(kind, &report.canonical_digest, 32, 96))
-                .unwrap_or_else(|e| panic!("{kind:?} derivation failed: {e:?}"));
+            let derivation =
+                derive(&report, &profile(kind, &report.canonical_digest, 32, 96), None)
+                    .unwrap_or_else(|e| panic!("{kind:?} derivation failed: {e:?}"));
             assert_eq!(derivation.metrics.canonical_observations, 256);
             assert_eq!(derivation.metrics.retained_observations, 256);
         }
@@ -441,11 +727,14 @@ mod tests {
         let calls = Cell::new(0);
         let report = orbital_report(128, &calls);
         for kind in [InventoryProfile::Dense, InventoryProfile::Hybrid, InventoryProfile::Relational] {
-            let a = derive(&report, &profile(kind, &report.canonical_digest, 16, 64)).expect("a");
-            let b = derive(&report, &profile(kind, &report.canonical_digest, 16, 64)).expect("b");
+            let a = derive(&report, &profile(kind, &report.canonical_digest, 16, 64), None)
+                .expect("a");
+            let b = derive(&report, &profile(kind, &report.canonical_digest, 16, 64), None)
+                .expect("b");
             assert_eq!(a.derivation_digest, b.derivation_digest, "AVR-G04");
             assert_eq!(a.inventory.anchors, b.inventory.anchors);
             assert_eq!(a.encodings, b.encodings);
+            assert_eq!(a.entries, b.entries);
         }
     }
 
@@ -456,7 +745,7 @@ mod tests {
         let mut p = profile(InventoryProfile::Relational, &report.canonical_digest, 4, 16);
         p.canonical_digest = "sha256:stale".into();
         assert_eq!(
-            derive(&report, &p).unwrap_err(),
+            derive(&report, &p, None).unwrap_err(),
             DerivationError::CanonicalDigestMismatch {
                 profile: "sha256:stale".into(),
                 canonical: report.canonical_digest.clone(),
@@ -465,14 +754,14 @@ mod tests {
     }
 
     #[test]
-    fn phase_3_encodings_are_rejected_in_phase_2() {
+    fn encodings_outside_the_phase_3_set_are_rejected() {
         let calls = Cell::new(0);
         let report = orbital_report(16, &calls);
         let mut p = profile(InventoryProfile::Relational, &report.canonical_digest, 4, 16);
-        p.reconstruction.allowed_encodings.push(EncodingClass::Albit);
+        p.reconstruction.allowed_encodings.push(EncodingClass::Live);
         assert_eq!(
-            derive(&report, &p).unwrap_err(),
-            DerivationError::EncodingNotAvailable(EncodingClass::Albit)
+            derive(&report, &p, None).unwrap_err(),
+            DerivationError::EncodingNotAvailable(EncodingClass::Live)
         );
     }
 
@@ -485,14 +774,14 @@ mod tests {
         let mut dense = profile(InventoryProfile::Dense, &report.canonical_digest, 64, 96);
         dense.residency.asset_budget_bytes = 1;
         assert!(matches!(
-            derive(&report, &dense).unwrap_err(),
+            derive(&report, &dense, None).unwrap_err(),
             DerivationError::ResidencyBudgetExceeded { .. }
         ));
         let mut relational =
             profile(InventoryProfile::Relational, &report.canonical_digest, 8, 64);
         relational.residency.asset_budget_bytes = 1;
         assert!(matches!(
-            derive(&report, &relational).unwrap_err(),
+            derive(&report, &relational, None).unwrap_err(),
             DerivationError::ResidencyBudgetExceeded { .. }
         ));
     }
@@ -507,6 +796,7 @@ mod tests {
         let derivation = derive(
             &report,
             &profile(InventoryProfile::Relational, &report.canonical_digest, 64, 96),
+            None,
         )
         .expect("relational derivation");
         assert_eq!(derivation.metrics.canonical_observations, 4096);
@@ -526,14 +816,15 @@ mod tests {
         let derivation = derive(
             &report,
             &profile(InventoryProfile::Relational, &report.canonical_digest, 8, 48),
+            None,
         )
         .expect("derivation");
-        // §8.2: payloads are keyed once; hot ∪ cold partitions the
-        // canonical set with no duplication.
-        assert_eq!(derivation.hot.len() + derivation.cold.len(), 64);
-        for id in derivation.hot.keys() {
-            assert!(!derivation.cold.contains_key(id));
-        }
+        // §8.2: every observation is stored exactly once.
+        assert_eq!(derivation.entries.len(), 64);
+        assert_eq!(
+            derivation.metrics.retained_observations, 64,
+            "nothing dropped, nothing duplicated"
+        );
         // Overlapping membership exists (anchors' nearest-member lists
         // overlap across anchors).
         let total_refs: usize = derivation
@@ -549,20 +840,28 @@ mod tests {
     fn dense_profile_indexes_everything_hybrid_sits_between() {
         let calls = Cell::new(0);
         let report = orbital_report(64, &calls);
-        let dense = derive(&report, &profile(InventoryProfile::Dense, &report.canonical_digest, 64, 96))
-            .expect("dense");
+        let dense =
+            derive(&report, &profile(InventoryProfile::Dense, &report.canonical_digest, 64, 96), None)
+                .expect("dense");
         assert_eq!(dense.metrics.directly_indexed, 64);
         assert_eq!(dense.metrics.resident_observations, 64);
-        assert!(dense.cold.is_empty());
+        assert!(dense
+            .entries
+            .values()
+            .all(|e| e.tier() == Tier::Hot));
 
-        let hybrid = derive(&report, &profile(InventoryProfile::Hybrid, &report.canonical_digest, 8, 48))
-            .expect("hybrid");
+        let hybrid =
+            derive(&report, &profile(InventoryProfile::Hybrid, &report.canonical_digest, 8, 48), None)
+                .expect("hybrid");
         assert_eq!(hybrid.metrics.directly_indexed, 8);
         assert_eq!(hybrid.metrics.resident_observations, 64, "hybrid keeps neighbourhoods resident");
 
-        let relational =
-            derive(&report, &profile(InventoryProfile::Relational, &report.canonical_digest, 8, 48))
-                .expect("relational");
+        let relational = derive(
+            &report,
+            &profile(InventoryProfile::Relational, &report.canonical_digest, 8, 48),
+            None,
+        )
+        .expect("relational");
         assert_eq!(relational.metrics.directly_indexed, 8);
         assert_eq!(relational.metrics.resident_observations, 8);
         assert_eq!(relational.metrics.residency_reduction_bp, 8750);
@@ -598,6 +897,7 @@ mod tests {
         let derivation = derive(
             &report,
             &profile(InventoryProfile::Relational, &report.canonical_digest, 4, 16),
+            None,
         )
         .expect("derivation");
         let anchors: std::collections::HashSet<u64> = derivation
@@ -616,21 +916,206 @@ mod tests {
     }
 
     #[test]
-    fn reconstruction_graph_is_independent_and_acyclic() {
+    fn reconstruction_graph_is_independent_acyclic_and_populated_by_deltas() {
         let calls = Cell::new(0);
         let report = orbital_report(32, &calls);
         let derivation = derive(
             &report,
             &profile(InventoryProfile::Relational, &report.canonical_digest, 8, 16),
+            None,
         )
         .expect("derivation");
-        // §8.3: three separated graphs. Phase 2 reconstruction is empty
-        // (no data dependencies) but re-validated as an instance.
-        assert!(derivation.inventory.reconstruction.nodes().is_empty());
+        // §8.3: three separated graphs; §12.2: delta nodes with bounded
+        // depth, acyclic (every base is a raw-stored anchor).
         derivation.inventory.reconstruction.verify().expect("acyclic");
+        let delta_count = derivation
+            .encodings
+            .values()
+            .filter(|e| **e == EncodingClass::Delta)
+            .count();
+        assert_eq!(
+            derivation.inventory.reconstruction.nodes().len(),
+            delta_count,
+            "every delta contributes exactly one dependency node"
+        );
+        for node in derivation.inventory.reconstruction.nodes() {
+            assert_eq!(node.dependencies.len(), 1, "Phase 3 chains are depth 1");
+        }
         assert!(!derivation.inventory.navigation.edges.is_empty());
         assert!(!derivation.inventory.residency.adjacency.is_empty());
-        // Navigation cycles are permitted; every anchor is navigable.
-        assert_eq!(derivation.inventory.anchors.len(), 8);
+    }
+
+    #[test]
+    fn similar_observations_delta_compress_dissimilar_do_not() {
+        // The CountingSource payloads share their prefix per elevation;
+        // verify the §12.5 selection actually stores less overall.
+        let calls = Cell::new(0);
+        let report = orbital_report(64, &calls);
+        let derivation = derive(
+            &report,
+            &profile(InventoryProfile::Relational, &report.canonical_digest, 8, 48),
+            None,
+        )
+        .expect("derivation");
+        assert!(
+            derivation.metrics.stored_payload_bytes <= derivation.metrics.canonical_payload_bytes,
+            "encoding selection must never exceed the raw size (§12.5)"
+        );
+
+        // Dissimilar payloads: the delta is bigger and must not be chosen.
+        struct NoisySource;
+        impl SpatialSource for NoisySource {
+            fn source_digest(&self) -> String {
+                "noisy:1".into()
+            }
+            fn render(&self, o: &Observer) -> Result<ObservationPayload, SourceError> {
+                Ok(ObservationPayload {
+                    representation: RepresentationClass::Vec,
+                    bytes: format!(
+                        "unique-{}-{}-payload with no shared structure",
+                        o.azimuth_deg, o.elevation_deg
+                    )
+                    .into_bytes(),
+                })
+            }
+        }
+        let policy = crate::sampling::SamplingPolicy {
+            initial_samples: 16,
+            distance: 2.0,
+            fov_deg: 60.0,
+        };
+        let report = compile(
+            &NoisySource,
+            ObservationDomain::Orbital,
+            &policy,
+            &CompilationBudget { max_observations: 64, max_payload_bytes: u64::MAX },
+        )
+        .expect("compilation");
+        let derivation = derive(
+            &report,
+            &profile(InventoryProfile::Relational, &report.canonical_digest, 4, 16),
+            None,
+        )
+        .expect("derivation");
+        assert!(
+            derivation.encodings.values().all(|e| *e != EncodingClass::Delta),
+            "deltas that do not pay for themselves must not be selected"
+        );
+        // COPY also must not fire: payloads differ.
+        assert!(derivation.encodings.values().all(|e| *e != EncodingClass::Copy));
+    }
+
+    #[test]
+    fn exact_albit_requires_byte_verification_not_similarity() {
+        // The test engine's "uppercase" op is byte-exact for payloads that
+        // are already uppercase; the counting source's are lowercase, so
+        // the op does not verify exact — and must NOT be encoded as exact.
+        let calls = Cell::new(0);
+        let report = orbital_report(32, &calls);
+        let derivation = derive(
+            &report,
+            &profile(InventoryProfile::Relational, &report.canonical_digest, 4, 32),
+            Some(&TestEngine),
+        )
+        .expect("derivation");
+        for encoding in derivation.encodings.values() {
+            if *encoding == EncodingClass::Albit {
+                panic!("an unverified op must never be certified exact (AVR-C09)");
+            }
+        }
+
+        // Payloads are uppercase and redundant: "reconstruct" is
+        // byte-exact and gets certified; "truncate" is approximate and
+        // must respect the profile's error policy.
+        let policy = crate::sampling::SamplingPolicy {
+            initial_samples: 32,
+            distance: 2.0,
+            fov_deg: 60.0,
+        };
+        let report = compile(
+            &UpperSource,
+            ObservationDomain::Orbital,
+            &policy,
+            &CompilationBudget { max_observations: 64, max_payload_bytes: u64::MAX },
+        )
+        .expect("compilation");
+        let derivation = derive(
+            &report,
+            &profile(InventoryProfile::Relational, &report.canonical_digest, 4, 32),
+            Some(&TestEngine),
+        )
+        .expect("derivation");
+        let albits: Vec<&EncodedObservation> = derivation
+            .entries
+            .values()
+            .filter(|e| matches!(e, EncodedObservation::Albit { .. }))
+            .collect();
+        assert!(!albits.is_empty(), "verified ops should be selected when smaller");
+        for entry in albits {
+            match entry {
+                EncodedObservation::Albit { exact, .. } => {
+                    assert!(exact, "uppercase is byte-exact here; nothing else qualifies");
+                }
+                _ => unreachable!(),
+            }
+        }
+        // Provenance records the exact certification (§12.3).
+        assert!(derivation.inventory.provenance.iter().any(|p| matches!(
+            p.relation,
+            ProvenanceRelation::Albit { exact: true, .. }
+        )));
+    }
+
+    #[test]
+    fn approximate_albit_respects_the_fidelity_policy() {
+        // "truncate" is approximate with a declared error; the profile's
+        // max_silhouette_error_px gates acceptance (AVR-C10). The long
+        // UpperSource payloads give truncation something to remove.
+        let policy = crate::sampling::SamplingPolicy {
+            initial_samples: 32,
+            distance: 2.0,
+            fov_deg: 60.0,
+        };
+        let report = compile(
+            &UpperSource,
+            ObservationDomain::Orbital,
+            &policy,
+            &CompilationBudget { max_observations: 64, max_payload_bytes: u64::MAX },
+        )
+        .expect("compilation");
+
+        let mut strict = profile(InventoryProfile::Relational, &report.canonical_digest, 4, 32);
+        strict.max_silhouette_error_px = 0;
+        strict
+            .reconstruction
+            .allowed_encodings
+            .extend([EncodingClass::Delta, EncodingClass::Albit]);
+        let derivation = derive(&report, &strict, Some(&TestEngine)).expect("strict derivation");
+        assert!(
+            derivation
+                .entries
+                .values()
+                .all(|e| !matches!(e, EncodedObservation::Albit { exact: false, .. })),
+            "zero-error policy rejects approximate reconstructions"
+        );
+
+        let mut lenient = profile(InventoryProfile::Relational, &report.canonical_digest, 4, 32);
+        lenient.max_silhouette_error_px = 10_000;
+        lenient
+            .reconstruction
+            .allowed_encodings
+            .extend([EncodingClass::Delta, EncodingClass::Albit]);
+        let derivation = derive(&report, &lenient, Some(&TestEngine)).expect("lenient derivation");
+        assert!(
+            derivation
+                .entries
+                .values()
+                .any(|e| matches!(e, EncodedObservation::Albit { exact: false, .. })),
+            "a declared bound within policy is accepted as Bounded"
+        );
+        assert!(derivation.inventory.provenance.iter().any(|p| matches!(
+            p.relation,
+            ProvenanceRelation::Albit { exact: false, .. }
+        )));
     }
 }

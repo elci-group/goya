@@ -13,8 +13,11 @@
 //! (priorities 3–6) and live rendering (priority 7) arrive with Phases 2–3.
 
 use crate::canonical::CompileReport;
+use crate::delta;
+use crate::engine::ReconstructionEngine;
 use crate::ingestion::{observer_in_domain, ObservationPayload, Observer};
-use crate::target::{Derivation, Tier};
+use crate::inventory::FidelityClass;
+use crate::target::{Derivation, EncodedObservation, Tier};
 
 /// Result of resolving a requested observation.
 #[derive(Debug, Clone, PartialEq)]
@@ -31,10 +34,14 @@ pub enum UnsupportedReason {
     /// The request lies outside the inventory's observation domain
     /// (AVR-C14: unsupported observation rejection).
     OutsideDomain,
-    /// In-domain but not present in the canonical inventory. Locality,
-    /// reconstruction and live fallback are later phases; Phase 1 fails
-    /// explicitly.
+    /// In-domain but not present in the canonical inventory. Locality
+    /// accelerates resolution but never restricts valid interaction
+    /// (§10.1); a retained-but-unresolvable request fails explicitly.
     NotCompiled,
+    /// A reconstruction chain could not be materialised: the base entry
+    /// is missing, the depth bound is violated, no engine is available
+    /// for an `ALBIT` step, or an application failed (§10.3 priority 8).
+    ReconstructionUnavailable,
 }
 
 /// Resolve a requested observation against a canonical compilation
@@ -63,10 +70,16 @@ pub fn resolve<'a>(report: &'a CompileReport, request: &Observer) -> Resolution<
 
 /// Result of resolving against a derived (target-specific) inventory.
 #[derive(Debug, Clone, PartialEq)]
-pub enum DerivedResolution<'a> {
-    /// Priorities 1–2: exactly this observation, resident (`Hot`) or
-    /// retrieved from retained storage through its neighbourhood (`Cold`).
-    Exact { payload: &'a ObservationPayload, tier: Tier },
+pub enum DerivedResolution {
+    /// Priorities 1–5: the observation resolved to a concrete payload,
+    /// either stored directly or materialised through reconstruction
+    /// (copy, differential or generative). `fidelity` distinguishes an
+    /// exact payload from a certified bounded reconstruction (§10.3).
+    Exact {
+        payload: ObservationPayload,
+        tier: Tier,
+        fidelity: FidelityClass,
+    },
     /// Priority 8: explicit resolution failure — no substitution.
     Unsupported(UnsupportedReason),
 }
@@ -76,9 +89,18 @@ pub enum DerivedResolution<'a> {
 /// The primary index is consulted first; a relational miss falls through
 /// to the neighbourhood search over the retained observation table.
 /// Locality accelerates resolution but never restricts valid interaction:
-/// any in-domain request that the derivation retains resolves exactly,
-/// regardless of the neighbourhood the runtime currently occupies.
-pub fn resolve_derived<'a>(derivation: &'a Derivation, request: &Observer) -> DerivedResolution<'a> {
+/// any in-domain request that the derivation retains resolves, regardless
+/// of the neighbourhood the runtime currently occupies.
+///
+/// Encoded entries (`COPY`, `DELTA`, `ALBIT`) are materialised through
+/// their reconstruction chains, bounded by the inventory's maximum
+/// dependency depth (§12.2). A missing engine or a failed application is
+/// an explicit `Unsupported`, never a silent substitution (§4.3).
+pub fn resolve_derived(
+    derivation: &Derivation,
+    request: &Observer,
+    engine: Option<&dyn ReconstructionEngine>,
+) -> DerivedResolution {
     if !observer_in_domain(&derivation.inventory.domain, request) {
         return DerivedResolution::Unsupported(UnsupportedReason::OutsideDomain);
     }
@@ -86,26 +108,113 @@ pub fn resolve_derived<'a>(derivation: &'a Derivation, request: &Observer) -> De
 
     // Priority 1: primary index (directly addressable).
     if let Some(id) = derivation.primary_index.get(&state) {
-        if let Some(payload) = derivation.hot.get(&id.0) {
-            return DerivedResolution::Exact { payload, tier: Tier::Hot };
+        if let Some(entry) = derivation.entries.get(&id.0) {
+            return materialise(derivation, entry, engine);
         }
     }
-    // Priorities 2+: exact observation retained in the derived inventory
-    // (cold tier / neighbourhood storage).
+    // Priorities 2–5: exact observation retained in the derived inventory
+    // (cold tier / neighbourhood storage), possibly via reconstruction.
     if let Some(record) = derivation
         .inventory
         .observations
         .iter()
         .find(|record| record.state == state)
     {
-        if let Some(payload) = derivation.cold.get(&record.id.0) {
-            return DerivedResolution::Exact { payload, tier: Tier::Cold };
-        }
-        if let Some(payload) = derivation.hot.get(&record.id.0) {
-            return DerivedResolution::Exact { payload, tier: Tier::Hot };
+        if let Some(entry) = derivation.entries.get(&record.id.0) {
+            return materialise(derivation, entry, engine);
         }
     }
     DerivedResolution::Unsupported(UnsupportedReason::NotCompiled)
+}
+
+/// Materialise an entry through its reconstruction chain (§10.3
+/// priorities 1–5). `COPY` walks to its raw referent; `DELTA` and `ALBIT`
+/// materialise their base and apply the transformation. The chain depth
+/// is bounded by the reconstruction graph's maximum depth (§12.2), and
+/// the resolved payload is `Bounded` if any approximate step participated.
+fn materialise(
+    derivation: &Derivation,
+    entry: &EncodedObservation,
+    engine: Option<&dyn ReconstructionEngine>,
+) -> DerivedResolution {
+    let tier = entry.tier();
+    let mut exact = true;
+    match materialise_payload(derivation, entry, engine, 0, &mut exact) {
+        Ok(payload) => DerivedResolution::Exact {
+            payload,
+            tier,
+            fidelity: if exact {
+                FidelityClass::Exact
+            } else {
+                FidelityClass::Bounded
+            },
+        },
+        Err(reason) => DerivedResolution::Unsupported(reason),
+    }
+}
+
+/// Walk one entry to a concrete payload. `exact` is cleared by any
+/// approximate `ALBIT` step in the chain (§12.3: exact operations are
+/// certified at encoding time, not re-derived here).
+fn materialise_payload(
+    derivation: &Derivation,
+    entry: &EncodedObservation,
+    engine: Option<&dyn ReconstructionEngine>,
+    depth: u8,
+    exact: &mut bool,
+) -> Result<ObservationPayload, UnsupportedReason> {
+    if depth > derivation.inventory.reconstruction.max_depth() {
+        // Bounded chains cannot exceed the graph's certified depth
+        // (AVR-C05); treat a violation as resolution failure.
+        return Err(UnsupportedReason::ReconstructionUnavailable);
+    }
+    match entry {
+        EncodedObservation::Raw { payload, .. } => Ok(payload.clone()),
+        EncodedObservation::Copy { of, .. } => {
+            let base = derivation
+                .entries
+                .get(of)
+                .ok_or(UnsupportedReason::ReconstructionUnavailable)?;
+            materialise_payload(derivation, base, engine, depth + 1, exact)
+        }
+        EncodedObservation::Delta { base, delta, .. } => {
+            let base_entry = derivation
+                .entries
+                .get(base)
+                .ok_or(UnsupportedReason::ReconstructionUnavailable)?;
+            let base_payload =
+                materialise_payload(derivation, base_entry, engine, depth + 1, exact)?;
+            // Differential reconstruction: the delta self-verified at
+            // encoding time (AVR-C09); a failed application here means
+            // the inventory or engine contract is broken — fail explicitly.
+            let representation = base_payload.representation;
+            delta::apply(&base_payload.bytes, delta)
+                .map(|bytes| ObservationPayload { representation, bytes })
+                .map_err(|_| UnsupportedReason::ReconstructionUnavailable)
+        }
+        EncodedObservation::Albit {
+            base,
+            op,
+            params,
+            exact: op_exact,
+            ..
+        } => {
+            let base_entry = derivation
+                .entries
+                .get(base)
+                .ok_or(UnsupportedReason::ReconstructionUnavailable)?;
+            let base_payload =
+                materialise_payload(derivation, base_entry, engine, depth + 1, exact)?;
+            let engine = engine.ok_or(UnsupportedReason::ReconstructionUnavailable)?;
+            let outcome = engine
+                .apply(op, params, &base_payload)
+                .map_err(|_| UnsupportedReason::ReconstructionUnavailable)?;
+            if !op_exact {
+                *exact = false;
+            }
+            Ok(outcome.payload)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -251,5 +360,192 @@ mod tests {
             assert!(matches!(resolve(&report, request), Resolution::Exact(_)));
         }
         assert_eq!(counting.calls.get(), 4, "resolution must not re-render");
+    }
+
+    // ---- Phase 3: reconstruction-aware derived resolution (§10.3) ----
+
+    use crate::engine::tests::TestEngine;
+    use crate::encoding::EncodingClass;
+    use crate::derivation::InventoryProfile;
+    use crate::target::derive;
+
+    /// Rebuild the grid Observer for a quantised observation state (the
+    /// inverse of `Observer::to_state` via `snap`).
+    fn observer_of(state: &crate::domain::ObservationState) -> Observer {
+        Observer {
+            azimuth_deg: state.orientation[0] as f32 / 100.0,
+            elevation_deg: state.orientation[1] as f32 / 100.0,
+            distance: state.camera[0] as f32 / 256.0,
+            fov_deg: 60.0,
+        }
+    }
+
+    fn upper_report(n: u32) -> CompileReport {
+        let policy = crate::sampling::SamplingPolicy {
+            initial_samples: n,
+            distance: 2.0,
+            fov_deg: 60.0,
+        };
+        compile(
+            &crate::target::tests::UpperSource,
+            ObservationDomain::Orbital,
+            &policy,
+            &CompilationBudget { max_observations: 1024, max_payload_bytes: u64::MAX },
+        )
+        .expect("upper compilation")
+    }
+
+    fn encoded_profile(
+        report: &CompileReport,
+        anchors: u32,
+    ) -> crate::derivation::DerivationProfile {
+        let mut profile = crate::target::tests::profile(
+            InventoryProfile::Relational,
+            &report.canonical_digest,
+            anchors,
+            32,
+        );
+        profile
+            .reconstruction
+            .allowed_encodings
+            .extend([EncodingClass::Delta, EncodingClass::Albit]);
+        profile
+    }
+
+    #[test]
+    fn exact_albit_resolution_reconstructs_the_canonical_payload() {
+        // UpperSource + TestEngine: non-anchor entries are byte-verified
+        // exact ALBITs (`reconstruct` op).
+        let report = upper_report(32);
+        let derivation = derive(
+            &report,
+            &encoded_profile(&report, 4),
+            Some(&TestEngine),
+        )
+        .expect("derivation");
+        let albit_id = derivation
+            .entries
+            .iter()
+            .find(|(_, e)| matches!(e, crate::target::EncodedObservation::Albit { exact: true, .. }))
+            .map(|(id, _)| *id)
+            .expect("an exact albit entry exists");
+
+        let record = derivation
+            .inventory
+            .observations
+            .iter()
+            .find(|r| r.id.0 == albit_id)
+            .expect("record");
+        let request = observer_of(&record.state);
+        let expected = crate::target::tests::UpperSource
+            .render(&request)
+            .expect("direct render");
+
+        match resolve_derived(&derivation, &request, Some(&TestEngine)) {
+            DerivedResolution::Exact { payload, fidelity, .. } => {
+                assert_eq!(payload, expected, "reconstruction must be bit-identical");
+                assert_eq!(fidelity, FidelityClass::Exact);
+            }
+            other => panic!("expected exact reconstruction, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn albit_resolution_without_an_engine_fails_explicitly() {
+        // Generative reconstruction is computed, never stored: resolution
+        // without the engine is an explicit failure (§12.3, priority 8).
+        let report = upper_report(32);
+        let derivation = derive(&report, &encoded_profile(&report, 4), Some(&TestEngine))
+            .expect("derivation");
+        eprintln!("DEBUG {:?}", derivation.encodings.values().collect::<Vec<_>>());
+        let albit_id = derivation
+            .entries
+            .iter()
+            .find(|(_, e)| matches!(e, crate::target::EncodedObservation::Albit { .. }))
+            .map(|(id, _)| *id)
+            .expect("an albit entry exists");
+        let record = derivation
+            .inventory
+            .observations
+            .iter()
+            .find(|r| r.id.0 == albit_id)
+            .expect("record");
+        let request = observer_of(&record.state);
+
+        assert_eq!(
+            resolve_derived(&derivation, &request, None),
+            DerivedResolution::Unsupported(UnsupportedReason::ReconstructionUnavailable)
+        );
+    }
+
+    #[test]
+    fn delta_resolution_is_bit_identical_to_the_direct_render() {
+        // Multi-line payloads share their header/footer lines, so the
+        // line-based delta against the neighbourhood anchor wins (§12.2).
+        struct LayeredSource;
+        impl SpatialSource for LayeredSource {
+            fn source_digest(&self) -> String {
+                "layered:1".into()
+            }
+            fn render(&self, observer: &Observer) -> Result<ObservationPayload, SourceError> {
+                let (az, el) = (
+                    crate::ingestion::quantise_angle(observer.azimuth_deg),
+                    crate::ingestion::quantise_angle(observer.elevation_deg),
+                );
+                Ok(ObservationPayload {
+                    representation: RepresentationClass::Vec,
+                    // Large shared lines make the line-based LCS delta much
+                    // smaller than either raw payload (§12.5).
+                    bytes: format!(
+                        "layer\n{az}\n{el}\nshared-material-block\nshared-material-block\nshared-material-block\nend\n"
+                    )
+                    .into_bytes(),
+                })
+            }
+        }
+        let policy = crate::sampling::SamplingPolicy {
+            initial_samples: 32,
+            distance: 2.0,
+            fov_deg: 60.0,
+        };
+        let report = compile(
+            &LayeredSource,
+            ObservationDomain::Orbital,
+            &policy,
+            &CompilationBudget { max_observations: 1024, max_payload_bytes: u64::MAX },
+        )
+        .expect("compilation");
+        let derivation = derive(&report, &encoded_profile(&report, 4), None)
+            .expect("derivation");
+        assert!(
+            derivation
+                .encodings
+                .values()
+                .any(|e| *e == EncodingClass::Delta),
+            "layered payloads must delta-compress against their anchor"
+        );
+
+        let delta_id = derivation
+            .encodings
+            .iter()
+            .find(|(_, e)| **e == EncodingClass::Delta)
+            .map(|(id, _)| *id)
+            .expect("a delta entry exists");
+        let record = derivation
+            .inventory
+            .observations
+            .iter()
+            .find(|r| r.id.0 == delta_id)
+            .expect("record");
+        let request = observer_of(&record.state);
+        let expected = LayeredSource.render(&request).expect("direct render");
+
+        match resolve_derived(&derivation, &request, None) {
+            DerivedResolution::Exact { payload, fidelity, .. } => {
+                assert_eq!(payload, expected, "delta reconstruction must be bit-identical");
+                assert_eq!(fidelity, FidelityClass::Exact);
+            }
+            other => panic!("expected exact delta resolution, got {other:?}"),
+        }
     }
 }
