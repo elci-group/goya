@@ -1,0 +1,191 @@
+# ADR-AVC-001 — Adopt Ahead-of-Time Video Compilation (AOT-VC) as a temporal derivation family over GVI-R
+
+Status: Proposed (Phase 0 audit complete) | Date: 2026-11-27 | Owner: Goya Graphics | Directive: GOYA-GFX-AVC-001 | Supersedes: none
+
+## Context
+
+GOYA-GFX-AVC-001 proposes distributing video as a **precomputed timeline of addressable visual states** synchronised against a media clock, rather than as a compressed sample sequence: source video is decomposed at canonical compilation time into a deduplicated colour inventory, a pixel-state inventory (fill colour, 0–6 trim colours, independent light), a row/region inventory, and a temporal program of state-mutation instructions that a lightweight runtime resolves, dispatches and presents. The proposal positions this as Ahead-of-Time Video Compilation (AOT-VC) — video as a first-class participant in Goya's graphics infrastructure rather than an opaque multimedia surface. The directive requires Phase 0 to reconcile its claims with existing Goya contracts before implementation. This ADR records that reconciliation.
+
+## Audit findings
+
+### F1 — Most of the architecture already exists in GVI; the temporal dimension is the only genuinely new surface
+
+| Proposal element | Existing Goya artefact |
+| --- | --- |
+| Persistent, addressable visual states | `crates/goya-gvi` contract `GY-GVI/0` (`model.rs`, `index.rs`): projection inventory over a discrete parent state model, runtime cost `validation + lookup + presentation` |
+| `APPLY_DELTA` / differential events | `goya-gvi/src/diff.rs`: differential chains with bounded reconstruction depth (`max_depth`, `max_ancestors`) and the `DIFF` container tag |
+| `LOAD_STATE` checkpoints | GVI certification (`CERT`), content hashing (`HASH`), `COMPILER_ID` cache keys |
+| Exact vs approximate reconstruction | GVI-A (`operative.rs`, Albit/Operative profiles) — but the explicit `exact` provenance bit **does not exist yet** (AVR audit F4 deferred it to Phase 3) |
+| `SET_RUN` / row and region residency | `goya-gvi/src/packed.rs` and GVI-L (`lineless.rs`) |
+| Target compilation profiles (embedded → archival → interactive) | Diablos pipeline (`goya-diablos/src/graphics`) + `goya-caprichios` device/strategy taxonomy |
+| Provenance for per-target binaries | `.escene` producer contract (`goya-escene::producer`) |
+| Geometry/style/colour deduplication | GVA geometry pool and the `STYL`/`LSTY` shared palette |
+
+Consequence: AOT-VC is not a new subsystem adjacent to GVI. It is a **temporal derivation family over GVI-R**, in the same position AVR occupies as a spatial one. The canonical inventory model, budgets, certification and hashing machinery are reused, not reinvented.
+
+### F2 — State explosion is the Critical risk, and the proposal's own bandwidth model is the evidence
+
+The proposal's §5 payload model (up to 99.53 MB/s uncompressed at 10% pixel updates, 1080p/30) is the finite-state problem restated: per-pixel video colour is a **continuous domain**, and GVI's state model is finite and enumerable. The AVR audit already classified observation-state explosion as Critical and resolved it with the bounded-computation rule: continuous domains are discretised, approximated under declared tolerance, hybrid-resolved, or **rejected with an actionable diagnostic**. AOT-VC adopts that rule verbatim as the **colour-inventory closure rule**: for a given source, the compiler must either close the colour inventory under an explicitly bounded palette and declared tolerance, or fail closed — a photographic source that cannot close is routed to a conventional codec, never silently palette-crushed. The proposal's §10 target taxonomy is thereby made contractual: screen recordings, UI capture, pixel art and motion graphics are the sources for which closure is expected; photorealistic cinema is the source for which rejection is the expected deterministic outcome.
+
+### F3 — "Zero unexplained pixel differences in lossless mode" conflicts with trim-assisted reconstruction unless exactness is per-record from Phase 0
+
+Trim colours are derived interpolation anchors (the proposal's own §7 concedes they contain no independent source information). Every pixel reconstructed through trim-assisted interpolation is therefore **approximate by construction**. The proposal's acceptance target of zero unexplained pixel differences in lossless mode can only hold for fill-only records. Consequence: the GVI-A `exact` bit (AVR F4) lands in AOT-VC **Phase 0**, not Phase 3. Every pixel-state, row, region and checkpoint record carries an explicit exactness class; trim-assisted records are never certified exact; the `PRESENT` compositor reports the exactness coverage of each presented frame; and no acceptance claim of losslessness may be made per-frame without exact coverage = 100%.
+
+### F4 — Audio is absent from the proposal while its acceptance table demands ±20 ms synchronisation
+
+The proposed instruction set contains `SYNC`/`PRESENT` but no audio pipeline. Goya's audio stack (`goya-sonic`, `goya-spatial-audio`, `goya-audio-dsp`) is out of scope for visual compilation. Decision: **audio stays as an opaque, conventionally-coded sidecar**; the media clock is the only contract between the visual timeline and the audio track; AOT-VC never decodes, transforms or emits audio samples. A container descriptor section announces the sidecar's codec, duration and initial PTS offset so a player can honour ±20 ms without the visual contract knowing anything else about audio.
+
+### F5 — Timing must be fixed-point, not floating-point (the AVR F1 lesson applied to time)
+
+AVR found Rugid's `f32` spatial pipeline forces a reproducibility split between derivation and rendering. AOT-VC's media clock is created new, so the lesson is applied at design time: all timeline timestamps are **integer ticks over a rational timescale** (`u64` ticks + `u32` ticks-per-second, e.g. 30_000/1001 style NTSC rates representable exactly). No `f32`/`f64` timestamps enter the contract. This makes byte-identical compilation, checkpoint digests and `SYNC` ordering deterministic on every host.
+
+### F6 — Binary section tags: collision review (mirrors AVR F3)
+
+Existing container tags at audit time: GVI's `CERT, COST, DIFF, GEOM, HASH, INDX, LSTY, PARN, PROJ, SRCE, STAT, STYL, TRAN` and AVR's proposed `OBSV, ODOM, OREP, ANCH, NBRH, NAVG, RDEP, RSDY, FIDY, PROV`. Proposed AOT-VC sections `TIML, EVNT, CHKP, PALT, PIXS, ROWS, REGN, TRIM, EXCT, AUDS` (joined in Amendment 7 by `DELT`, the delta-registry section): **no collision** with any existing or proposed tag. All are `A–Z`/`0–9` four-byte tags per GY-GFXC/1 E1014. The review is encoded as an executable test in `crates/goya-avc` (`tags.rs`) that checks against the union of the GVI and AVR tag sets so it cannot rot. Final adoption is gated on Phase 2 and `.gvi` format version negotiation (§13.2 of GOYA-GFX-AVR-001), unchanged.
+
+### F7 — Namespace separation now spans three state spaces
+
+Per AVR F2, GVI variation states and AVR observation states must never share a namespace. AOT-VC adds a third: **temporal states** (frame-time-indexed visual checkpoints). The §11 ambition of a unified visual architecture is satisfied at the *inventory/container* level — one provenance model, one derivation pipeline, one `.escene` channel — not at the identifier level. `TemporalStateId`s never collide with GVI state ids or AVR observation ids, and each family carries its own directive tag in provenance records.
+
+### F8 — Trim topology requires three rules the proposal states but no contract yet enforces
+
+The proposal's §7 rules are adopted as normative contract types, not conventions: (1) **shared boundaries** — adjacent logical pixels reference the same trim definition for a shared edge, enforced structurally at inventory construction; (2) **linear-light averaging** — trim values are averages computed in a declared linear working space; no existing GVI colour document fixes a working space (audited: `gvi-lineless.md`, `colour-cue.md` are silent), so the AOT-VC working space is a new, single decision recorded in this ADR's decision section and changed only by ADR supersession; (3) **optional residency** — trim storage is permitted only where a boundary is non-uniform; solid regions store no trims, enforced by the row compiler contract.
+
+### F9 — Compilation profiles never carry default budgets
+
+The proposal's §9 profile table (embedded/mobile/TV/desktop/archival/interactive) maps onto Caprichios (AVR F6) and Diablos derivation (AVR F7). As with AVR decision 2, numeric budgets are illustrative until benchmarked: the AOT-VC compilation profile type has **no `Default` implementation**; every profile states its colour-inventory bound, checkpoint interval, reconstruction depth and residency budgets explicitly.
+
+## Decision
+
+1. **Adopt** AOT-VC as a temporal derivation family over GVI-R, per the reconciliations above. The proposal's logical model — media clock, timeline of checkpoints and events, pixel-state record (fill, 0–6 trims, light), hierarchical inventory, instruction classes — is accepted as the Phase-0 logical contract, implemented in a new `crates/goya-avc` (workspace member, `#![forbid(unsafe_code)]`, no runtime deps).
+2. **The bounded-computation rule governs closure.** Colour-inventory closure (F2) is a Phase-1 gate: the compiler either closes the inventory under declared bounds and tolerance or fails with an actionable diagnostic naming the un-closable region. No implicit degradation path exists.
+3. **Exactness is per-record from Phase 0** (F3): the `Exactness` class exists in the logical contract before any binary format does, and trim-assisted reconstruction is classified approximate by construction.
+4. **Audio is a sidecar** (F4): the media clock is the only visual↔audio contract; `AUDS` is a descriptor, not a sample container.
+5. **The media clock is fixed-point** (F5): `u64` ticks over a `u32` ticks-per-second rational; floating-point timestamps are rejected at the contract boundary.
+6. **The trim working space is scene-linear sRGB-derived (linear Rec. 709 primaries)**, with trim values stored as fixed-point linear-light quantities; averaging in any other space is a contract violation (F8).
+7. **Compatibility gates carried forward** from AVR decision 5: existing `.gvi` files remain readable; GVI colour semantics unchanged; Inquisition classes apply to every emitted inventory; binary format work deferred to Phase 2 behind the tag review test and version negotiation.
+8. **Phase 1 gate.** Canonical video compilation (frame decomposition, row compilation, temporal optimisation) begins only after the source-ingestion contract exists: which decoded frame formats are accepted, the decode→working-space conversion rule, and the closure parameters for the colour inventory. The first proof-of-concept target is a **screen-recording source**, where state closure is trivially achievable and the persistence model shows its largest win.
+
+## Consequences
+
+- `crates/goya-avc` is added as the contract home for AOT-VC (Phase 0 scope only: media clock, temporal model, pixel-state records, colour-inventory closure, instruction classes, trim topology, exactness classes, compilation profiles, tags, verification classes).
+- The GVI-A `exact` bit (AVR F4) is now scheduled for the AOT-VC contract first; when it lands in `goya-gvi`, the two crates share one provenance semantics.
+- `.escene` gains `C.VID_*` / `I.VID_*` / `S.VID_*` registry entries at Phase 2, following the AVR F5 pattern (annotations register through the existing producer contract, never a parallel channel).
+- Benchmarking baselines (mirroring AVR §18) must include: the existing flat-GVI lookup path, H.264/AV1 software decode, and — on targets that have it — hardware decode. Energy claims are made only from measurements on physical targets (the proposal's own §9 caveat, made contractual).
+- A video runtime that executes `TIML`/`EVNT`/`CHKP` programs does not exist and is **out of Phase-0 scope**; the contract types are written so a runtime can be built against them without renegotiation.
+
+## Risks
+
+| Risk | Severity | Audit adjustment |
+| --- | --- | --- |
+| State explosion on photographic sources | Critical | F2 — closure rule fails closed; rejection is the deterministic outcome for un-closable sources |
+| Approximate reconstruction silently certified exact | High | F3 — per-record exactness from Phase 0; `PRESENT` reports coverage |
+| Storage competitiveness vs H.264/AV1 unproven | High | Accepted: AOT-VC competes on runtime cost, inspectability and addressability, not bitrate; §8 of the proposal concedes this and Phase 2 benchmarks quantify it |
+| Trim interpolation darkening boundaries (gamma-space averaging) | Medium | F8 — linear working space fixed by decision 6 |
+| Timeline/audio drift on non-integer frame rates | Medium | F5 — rational timescale represents NTSC rates exactly |
+| New runtime surface (schedule/resolve/dispatch/present) duplicating GVI presentation | Medium | F1 — runtime consumes the shared inventory contract; presentation cost model is GVI's internal baseline |
+
+## Amendment 1 — source-ingestion contract exists; Phase-1 gate satisfied (contract level)
+
+`crates/goya-avc/src/ingestion.rs` implements decision 8's gate as executable contract, following the AVR `SpatialSource` pattern (ADR-AVR-001 F1):
+
+- **Accepted formats.** Byte-packed RGB-family frames (`Rgb8`, `Rgba8`, `Bgra8`). YUV-family decode output is rejected at the contract boundary with an actionable hint naming the required conversion: chroma resampling and matrix decisions belong to a decoder adapter, not to the visual-state contract. Malformed frame payloads (length vs declared geometry) are rejected structurally.
+- **Conversion rule.** sRGB EOTF decoded to scene-linear Rec. 709 (decision 6's working space) and quantised to Q24.8 with round-half-to-even (the GVI arithmetic convention). This is the contract's one floating-point stage, declared like AVR's f32 lesson: byte-identical output is claimable per host build, cross-host is tolerance-class.
+- **Closure parameters.** `IngestionParameters` (working space + media-clock timescale) binds explicitly; no `Default` (AVC-C09).
+
+`crates/goya-avc/src/compile.rs` implements the reference compilation sequence as executable contract: decode → working-space conversion → colour closure (fail-closed with the F2 diagnostic) → row decomposition and first-use-order deduplication → temporal optimisation (differential `SET_ROW` events over persistent state, per-frame positions at exact tick multiples) → interval-bounded `LOAD_STATE` checkpoints → `PRESENT` → budget validation. It also records the measurement the §5 bandwidth model needs: `CompileStats` carries naive vs persistent pixel-write counts for benchmark baselines.
+
+Proof-of-concept evidence (deterministic synthetic screen recording, 8×4, 3 frames, 3 colours): the persistent-state model issues 56 pixel writes against a naive 96 (the §5 baseline), the timeline compiles deterministically (byte-identical repeat builds), and an over-bound source fails closed with the remediation diagnostic. One quantisation finding: the sRGB EOTF maps near-black levels onto the same Q24.8 value (byte 1 → 0), so closure operates post-quantisation by design — palette counts are canonical-entry counts, not source-byte counts.
+
+Gate status: the Phase-1 gate is satisfied **at the contract level**. Canonical compilation of real sources additionally requires a decoder adapter for the MP4/MKV/WebM/MOV container families (process boundary, mirroring `goya-tov`'s adapter pattern); that adapter is Phase-1 implementation work, not a contract renegotiation.
+
+## Amendment 2 — decoder adapter exists (`goya-avc-decode`); audio sidecar descriptor implemented
+
+`crates/goya-avc-decode` implements the decoder adapter as a **process boundary around the ffmpeg/ffprobe CLI** (the `goya-tov` pattern, contract `avc-decode/0.1.0`): every path and filter expression is passed as its own OS argument, never through a shell; the tools are external and never vendored; absence is `ToolUnavailable` with the attempted path. The adapter's sole conversion responsibility — chroma and format normalisation — happens *inside the decoder process*: frames are always delivered as rawvideo RGB8, the family the ingestion contract accepts, so the visual-state contract never sees YUV or container semantics (decision 4, Amendment 1).
+
+Two contract completions accompany it:
+
+- **Audio sidecar descriptor (decision 4).** `AudioSidecar { codec, duration_ts, time_base, start_pts }` is the `AUDS` section's logical form: opaque codec name, integer duration and start timestamp in the stream's own time base — no floating-point timestamps enter even the sidecar descriptor (F5's lesson applied fully). A silent container yields no descriptor.
+- **Frame-count fallback.** Containers without `nb_frames` (many MKV/WebM) are probed with `-count_packets` and fall back to `nb_read_packets`; sources with neither are rejected as `UnsupportedSource` with the reason attached.
+
+The full pipeline is exercised end-to-end (`tests/container_round_trip.rs`): a deterministic rawvideo fixture is encoded to lossless FFV1 MKV, probed, decoded frame-by-frame through the adapter, and compiled through the reference pipeline — closure sees exactly the fixture's three colours, the persistent-state write counts hold, and repeat decode+compile runs are identical. The test self-skips on hosts without ffmpeg (it is never vendored), so the real-container round-trip must be re-executed on a host with the tools present; the hermetic surface (probe parsing, rational rates, filtergraph argument construction, tool-absence handling) is verified everywhere.
+
+Adapter scope remains deliberately narrow: per-frame `select=eq(n,i)` decoding is correct-but-slow and adequate for canonical compilation, which is an offline, compile-time cost. Batched or seeking decode strategies are runtime performance work, gated on the §18 benchmarking programme, and change nothing in this contract.
+
+## Amendment 3 — temporal optimisation quality: run packing, content-keyed deltas, light deferral
+
+The reference compiler's temporal pass is upgraded from whole-row declarations to three deterministic rules, all within the existing instruction contract:
+
+1. **Run packing (`SET_RUN`).** Within-row changes are grouped into maximal contiguous same-colour runs; each run is one event. Only a whole-row change, or a row fragmenting into **three or more runs**, is materialised as one whole-row `SET_ROW` — the fragment threshold is a fixed, deterministic rule, not a heuristic knob.
+2. **Content-keyed deltas (`APPLY_DELTA`, `delta.rs`).** A row transition is identified by its *content* pair (`ContentId` → `ContentId`), not by row position or frame index. The first occurrence materialises and registers a `RowDelta` (ascending, deduplicated pixel changes; precondition = current content; empty deltas never registered); every later occurrence of the same content transition — on **any row** — applies the delta by id. Delta reuse is therefore position-independent, and preconditions are checkable by a runtime that tracks row content: applying against unmatched content is a contract violation (AVC-C13), never a best-effort patch. Reference deltas are **depth-1 only** (precondition is concrete content, never another delta), so reconstruction cannot chain; production chaining is bounded by `MAX_DELTA_DEPTH` and remains Phase-2 work. `CompileStats` now breaks events down by kind (`row_events`/`run_events`/`delta_events`) with pixel-write accounting for each.
+3. **Light separation is deferred, deliberately.** Representing a pixel as (chroma index, light value) would change `ColourInventory` semantics — entries would become unit-luminance chroma, and the closure rule would operate on chroma, not colour. It also interacts with the near-black quantisation finding of Amendment 1: exact light-factor matching against byte-quantised source colours is fragile (sRGB byte 188 does not land exactly on half of byte 255 in Q24.8). Light-only optimisation therefore requires its own ADR amendment defining the chroma/light decomposition, the exactness consequences (which round-trips are `Exact`), and closure-on-chroma. `SET_L` stays contract-present but unexercised by the reference compiler.
+
+Evidence: the screen-recording POC now compiles its three frames as 4 `SET_ROW` + 2 `SET_RUN` + 1 `APPLY_DELTA` (35 persistent pixel writes against a naive 96), with the enter-transition delta registered once and applied on a *different row* in the final frame — demonstrating position-independent delta reuse. Scattered-change and equal-content paths are unit-tested, and compilation remains byte-identical on repeat runs.
+
+## Amendment 4 — reference playback runtime; per-frame `PRESENT`; the runtime found a contract bug
+
+`crates/goya-avc/src/runtime.rs` implements the reference interpreter: **resolve** (inventory references), **dispatch** (persistent-state mutations), **restore** (checkpoints), **present** (atomic snapshots with per-pixel exactness). Its declared subset is the fill-only path (`SET_ROW`, `SET_RUN`, `APPLY_DELTA`, `LOAD_STATE`, `SYNC`, `PRESENT`); trim and light instructions are rejected *explicitly*, never silently ignored — a runtime that pretended to apply them would break determinism. Delta application checks the target row's current content against the delta precondition by value; mismatch is `DeltaPrecondition` (AVC-C13).
+
+Three contract-level findings came out of making the timeline executable:
+
+1. **`PRESENT` is per-frame.** The compiler previously emitted a single terminal `PRESENT`; the directive's `PRESENT` ("atomically present the completed visual state") is a per-frame event — each frame's state is presented, which is what makes the timeline a playback program rather than a final-state dump. Fixed in the compiler; every frame now presents at its exact tick.
+2. **`APPLY_DELTA` needed an explicit row target.** The instruction originally carried only `delta_id`; with content-keyed deltas, several rows can legitimately hold the same content, so the runtime cannot infer the target — inferring it would corrupt sibling rows. `ApplyDelta { row, delta_id }` now targets one row, and the precondition check is per-row. This is exactly the class of bug the runtime exists to catch: the contract was underspecified until something executed it.
+3. **Checkpoint payloads are runtime-loadable.** `Checkpoint` now retains the payload its digest was computed over (`payload_bytes`, `from_parts`, `digest_is_intact` for the Phase-2 deserialisation path), and the payload encoding (row-content ids, LE, ascending rows) lives in the runtime module and is *imported by the compiler*, so the format cannot drift.
+
+Verification achieved: **the playback-correctness acceptance target is now demonstrated at POC scale** — the runtime reconstructs every presented frame of the screen-recording POC and each pixel is diffed against the source: zero unexplained differences, every pixel `Exact` (lossless mode). Replay from a checkpoint reproduces the full replay's final state, playback is deterministic (identical `PresentedFrame` vectors on repeat runs), precondition violations and unsupported instructions are rejected explicitly, and present-with-undeclared-rows is an error rather than a partial frame.
+
+## Amendment 5 — chroma/light decomposition: `SET_L` exercised, presentation by scaling, light-carrying checkpoints
+
+Amendment 3 deferred the chroma/light decomposition; this amendment defines it and exercises it. A pixel's visual state is now **(chroma index, light value)**: chroma is the inventory entry (closure still operates on full colour, F2 untouched — light is a *presentation* concern and never introduces inventory entries), light is a Q8.8 factor with unity `0x0100`. The presentation model is `scale_entry` (`crates/goya-avc/src/colour.rs`): each channel presents `(linear_rgb * light + 0x80) >> 8` in scene-linear Rec. 709 Q24.8 (F8) — the same half-up Q8.8 multiply as `Light::mul`, so compiler detection, runtime compounding and presentation cannot disagree about what a light value *means*.
+
+Contract decisions:
+
+1. **`SET_L` carries its exactness class.** `SetLight { target, light, exactness }` (decision 3): the compiler verified the scaled presentation against the source — `Exact`, or `Approximate(ToleranceBudget)` within the declared tolerance. The event's class applies to **every pixel of the span**, because light changes the presentation of all of them.
+2. **Light events fire only against unity-light rows** (a fixed deterministic compiler rule; no compile-time compounding). The runtime compounds (`Light::mul`) if a program ever stacks events, but the reference compiler never emits a stacked event. Detection is deterministic: the candidate factor comes from the first changed pixel's strongest channel, then verification is exhaustive over all pixels and channels; black sources and unrepresentable factors fall back to content writes.
+3. **Zero-tolerance (lossless) profiles never emit an inexact light event** — `detect_row_light` returns no candidate when the scaled presentation misses the source and the profile's tolerance is zero. Lossless playback-correctness is therefore preserved by construction, not by a runtime check.
+4. **Brightness restoration is a compile-time obligation** (found while building the light fixture): light persists, so a row dimmed by a light event whose chroma later returns to its original content would otherwise present *permanently dimmed* — `from == to` looks like a no-op. The temporal pass now restores unity light with a content declaration when a chroma-unchanged row is visually dimmed. This is the Amendment 4 pattern again: the state-persistence rule created a bug class only visible once the semantics were executable.
+5. **Checkpoints carry light.** The payload is now `(u32 content id, u16 light)` records, LE, ascending rows — a dimmed row restored from a seek stays dimmed. The compiler imports the encoder (Amendment 4's no-drift rule). Known limitation: the payload carries no exactness record, so restored light presents as declared content.
+6. **`CompileStats.light_events`** counts `SET_LIGHT` emissions, keeping the persistent-vs-naïve write accounting honest (a light event is a span-wide presentation change at one instruction's cost).
+
+Verification at POC scale: sRGB gray 200 → 146 is an *exact* Q24.8 half-light scaling (linear 148 → 74); the lossless profile takes the light path for it and the replay is pixel-exact with brightness restored on the following frame. Runtime tests cover: inexact light events mark exactly their span's pixels (`pixel_exact`), region light touches only the region, light on an undeclared row is rejected, checkpoint payloads round-trip `(content, light)` pairs, and `from_checkpoint` presents the dimmed state.
+
+## Amendment 6 — POC-scale economics measured; checkpoint state-point bug found and fixed
+
+The acceptance targets' economics claims are now **measured, not asserted**, at POC scale. `crates/goya-avc/tests/poc_economics.rs` compiles a deterministic synthetic screen recording — 320×180, 240 frames at 30 FPS, a 96×64 window drifting 1 px/frame, a 3×3 cursor on a wrapping diagonal — under the lossless profile, verifies **pixel-exact replay of every frame** against the source, deterministic repeat playback, and checkpointed mid-timeline seek reconstructing the full replay's final state, then measures the model's economics:
+
+| Measure | Value |
+| --- | --- |
+| Colour entries (closure) | 4 |
+| Distinct rows | 661 (from 43,200 frame-row slots — 65× dedup) |
+| Events: `SET_ROW` / `SET_RUN` / `APPLY_DELTA` | 355 / 1,135 / 13,281 |
+| Naïve pixel writes (re-declare every pixel every frame) | 13,824,000 |
+| Persistent-state pixel writes | 143,508 (**96.3× fewer**) |
+| Raw source bytes | 41,472,000 |
+| Modelled binary size (fixed-width arithmetic floor, no framing — the Phase-2 encoder does not exist) | 695,700 bytes (**59.6× smaller**) |
+| Checkpoints | 2 (90-tick interval = 3 s) |
+
+This is **not** a codec comparison: no H.264/AV1 baseline was run (Phase 2, per the Consequences section), and the size model is instruction/payload arithmetic, not a serialised binary. What it does establish is the §5/§10 claim's mechanism at POC scale: on screen-recording-like content the persistent-state model reduces issued pixel writes by two orders of magnitude, and content deduplication collapses temporal row redundancy.
+
+**Contract-level finding (the Amendment 4 pattern, third occurrence): checkpoint payloads named the wrong state point.** The checkpoint emitted at frame *i* stored frame *i*'s target content — but a runtime restoring at that checkpoint still executes frame *i*'s differential events (same tick), so every `APPLY_DELTA` after every checkpointed seek failed its precondition (`DeltaPrecondition`). The Phase-0/Amendment-4 POC never exercised checkpointed playback against a compiled timeline (3 frames never cross the 90-tick interval), so the bug was invisible until the economics workload played 240 frames. Fixed: a checkpoint payload now names the **previous frame's effective content and its light state** — the state the runtime is actually in when it reaches that tick. The economics test is the regression test for this: it fails on the old compiler with `DeltaPrecondition` and passes with the fix.
+
+## Amendment 7 — Phase 2 opens: the `GYAV` binary container
+
+`crates/goya-avc/src/container.rs` implements the Phase-2 binary format gated by decision 7: a deterministic, little-endian, section-tagged container — magic `GYAV`, `u16` version (1) with explicit newer-version rejection (version negotiation), source digest, dimensions, then fixed-order sections `PALT` (colour inventory with the bound and tolerance closure ran under), `ROWS`, `DELT` (new proposed tag, added to the F6 review), `EVNT`, `CHKP`.
+
+Contract decisions:
+
+1. **Round-trip equality is the format's correctness bar.** `decode(encode(v)) == v` (every contract type is `PartialEq`, so this is executable, not aspirational) and `encode(decode(b)) == b` — idempotence, which is the *byte-identical repeat builds* acceptance target realised at the container level. The PALT section therefore stores the closure's bound and tolerance: re-deriving them would not round-trip a tolerance-profile compilation.
+2. **Safe rejection is structural, not best-effort.** Every read is bounds-checked against its section payload; unknown tags, unknown instruction/target/exactness/cause variant bytes, duplicate sections, missing sections, trailing bytes, non-monotonic event streams (rejected by `Timeline::push` on decode) and zero timescales (F5) are explicit errors. Declared counts never drive an allocation — they drive a bounded read loop behind an exact-length check. Checkpoint digests are re-derived on decode; a tampered payload is a decode error, not a runtime surprise.
+3. **Verified at scale:** the economics workload (Amendment 6, 320×180 × 240 frames) round-trips exactly and replays identically after decode; the real `GYAV` container is **2,098,724 bytes — 19.76× below the 41.5 MB raw source** (uncompressed reference point; codec baselines remain Phase 2). Unit tests additionally sweep *every truncation prefix* of a container (each must be `Err`, never a panic) and reject bad magic, future versions, bad tags, tampered checkpoint payloads and impossible declared counts.
+
+## Amendment 8 — the `AUDS` section: audio descriptor travels with the container
+
+The audio sidecar (F4, decision 4) is now carried by the container. The `AudioSidecar` descriptor type moved from `goya-avc-decode` into `goya-avc` (`src/audio.rs`) — the container encodes it, so the contract crate owns it — and `goya-avc-decode` re-exports it under its existing public path (the adapter's surface is unchanged; the ffmpeg/ffprobe parse tests still pass tool-free).
+
+Contract decisions:
+
+1. **`CompiledVideo.audio: Option<AudioSidecar>`** is attached by the pipeline that probed the source, never derived from visual compilation — the ingestion contract remains visual-only, and a synthetic source compiles to a silent video.
+2. **`AUDS` is an optional section: absent, never empty.** A silent container has no `AUDS` tag anywhere in its bytes (executable assertion, including inside other sections' bodies); a silent *decode* of a descriptor-bearing container is a round-trip failure. The descriptor is encoded verbatim — codec name (UTF-8, length-prefixed), `i64` duration and start timestamps in the stream's own time base, rational time base with a zero denominator rejected at decode (F5: integers only, even for edit-list-shifted negative start timestamps; AVC-C07: descriptor, never samples).
+3. **Fixed-shape payload, safe rejection.** Trailing bytes inside the section and a zero time-base denominator are explicit decode errors; the section participates in the same truncation-sweep and duplicate-section rules as every other section.
+
+Verification: descriptor round-trips verbatim (codec, duration, rational time base, negative `start_ts`) with idempotent re-encode; silent containers contain no `AUDS` bytes and decode to `None`; malformed descriptors (zero denominator, trailing byte) are rejected. Full suite: 73 tests across `goya-avc` and `goya-avc-decode`, clippy zero warnings.

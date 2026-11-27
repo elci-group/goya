@@ -1,0 +1,28 @@
+[package]
+name = "goya-diablo-free-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Diablo Free runtime: FreeBSD native execution runtime for Goya applications."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+goya-diablos = { path = "../goya-diablos" }
+goya-runtime.workspace = true
+goya-gvi.workspace = true
+goya-gru.workspace = true
+goya-gva.workspace = true
+goya-chroma.workspace = true
+goya-state.workspace = true
+goya-ir.workspace = true
+goya-romantico.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+thiserror = "1"
+nix = "0.28"
+wayland-client = "0.31"
+rand = "0.8"

@@ -58,6 +58,11 @@ pub use scene::{
     EffectRequestDecl, EffectValueType, InteractionClass, InteractionDecl, InteractionExpr,
     InteractionType, InteractionValue, StateAssignment, TypedKey,
 };
+pub use scene::{
+    SpatialContent, SpatialDomain, SpatialFallback, SpatialFidelity, SpatialInteraction,
+    SpatialLifecycle, SpatialModel, SpatialMovement, SpatialObservation, SpatialRendering,
+    SpatialRenderingPolicy, SpatialSimulation, SpatialStrategy, SpatialViewport,
+};
 pub use transition::{
     compile_d1_interactions, compile_d2_interactions, CompiledD2Interaction, CompiledInteraction,
     TransitionError,

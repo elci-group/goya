@@ -1,0 +1,15 @@
+[package]
+name = "goya-manuscrito"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Analysis-only TypeScript project inventory for Manuscrito"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[[bin]]
+name = "manuscrito"
+path = "src/main.rs"

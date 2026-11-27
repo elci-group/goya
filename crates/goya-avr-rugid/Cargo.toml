@@ -1,0 +1,20 @@
+[package]
+name = "goya-avr-rugid"
+version = "0.0.1"
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "AVR bridge to the Rugid spatial engine: SpatialSource adapters over Rugid's headless vector render path (GOYA-GFX-AVR-001 Phase 1)."
+
+[dependencies]
+goya-avr = { path = "../goya-avr" }
+sha2 = "0.10"
+rugid = { path = "../../../RUGID", optional = true, default-features = false }
+
+[dev-dependencies]
+goya-lang = { path = "../goya-lang" }
+goya-escene = { path = "../goya-escene" }
+
+[features]
+default = []
+rugid = ["dep:rugid"]

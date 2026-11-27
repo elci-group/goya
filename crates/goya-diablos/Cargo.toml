@@ -1,0 +1,40 @@
+[package]
+name = "goya-diablos"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Diablos Core: shared BSD compilation infrastructure for Goya."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+goya-escene = { path = "../goya-escene" }
+goya-ir.workspace = true
+goya-state.workspace = true
+goya-runtime.workspace = true
+goya-chroma.workspace = true
+goya-caprichios.workspace = true
+goya-romantico.workspace = true
+goya-gvi.workspace = true
+goya-gru.workspace = true
+goya-gva.workspace = true
+goya-provenance.workspace = true
+goya-executable.workspace = true
+goya-determinism.workspace = true
+sash.workspace = true
+goya-lang.workspace = true
+nebula.workspace = true
+goya-layout.workspace = true
+goya-graphics-ir.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+thiserror = "1"
+async-trait = "0.1"
+hex = "0.4"
+rand = "0.8"
+
+[dev-dependencies]
+tempfile = "3"

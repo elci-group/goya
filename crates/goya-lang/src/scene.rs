@@ -198,7 +198,126 @@ pub struct SceneCell {
     /// `@iden { ... }`: the element's accessible identity (GSSH/4, decision
     /// D14). Required on every `@input` under GSSH/4.
     pub iden: Option<Iden>,
+    /// `@spatial.model` / `@spatial.viewport`: Rugid spatial content hosted
+    /// by this element (GOYA-GFX-AVR-001 §5.2/§5.3). Admitted only by
+    /// strict GSSH/4 admission; composition-correctness checks (AVR-C13)
+    /// live in `goya-avr::composition`.
+    pub spatial: Option<SpatialContent>,
     pub children: Vec<SceneCell>,
+}
+
+/// Spatial content hosted by an element (AVR directive §5).
+#[derive(Debug, Clone, PartialEq)]
+pub enum SpatialContent {
+    /// `@spatial.model` — embedded Rugid model (§5.2).
+    Model(SpatialModel),
+    /// `@spatial.viewport` — viewport into an independent Rugid
+    /// environment (§5.3).
+    Viewport(SpatialViewport),
+}
+
+/// An embedded Rugid model (§5.2).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SpatialModel {
+    /// `source: "…"` — the `.rugid` asset path.
+    pub source: String,
+    pub observation: SpatialObservation,
+    pub rendering: SpatialRendering,
+}
+
+/// A viewport into an independent Rugid environment (§5.3).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SpatialViewport {
+    /// `environment: "…"` — the `.rugid` environment asset.
+    pub environment: String,
+    /// `camera: "…"` — the environment's camera the viewport binds.
+    pub camera: String,
+    pub observation: SpatialObservation,
+    pub rendering: SpatialRendering,
+    pub lifecycle: SpatialLifecycle,
+}
+
+/// Permitted observation space declared for spatial content (§6.2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpatialDomain {
+    Spherical,
+    Hemispherical,
+    Orbital,
+    /// Environmental movement constrained to a navigation graph. Phase 4
+    /// parses the declaration; graph *content* arrives with Phase 6.
+    NavigationGraph,
+}
+
+/// Object interaction declared for a model (§5.2 `observation`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpatialInteraction {
+    Orbit,
+}
+
+/// Movement policy declared for a viewport (§5.3 `observation`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpatialMovement {
+    Constrained,
+}
+
+/// Declared observation block (§5.2/§5.3).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SpatialObservation {
+    pub domain: SpatialDomain,
+    pub interaction: Option<SpatialInteraction>,
+    pub movement: Option<SpatialMovement>,
+    /// `zoom: enabled` — bounded zoom bands.
+    pub zoom: bool,
+}
+
+/// Declared rendering block (§5.2/§5.3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SpatialRendering {
+    pub strategy: SpatialStrategy,
+    pub fidelity: Option<SpatialFidelity>,
+    /// `anticipation: enabled` (viewport form of the strategy knob).
+    pub anticipation: bool,
+    /// `fallback: live` — an explicit substitution authorisation (§4.3).
+    pub fallback: Option<SpatialFallback>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpatialStrategy {
+    Anticipatory,
+    Hybrid,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpatialFidelity {
+    High,
+    Standard,
+    Low,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpatialFallback {
+    Live,
+}
+
+/// Declared lifecycle block (§5.3): the simulation/rendering split is an
+/// explicit developer decision; suspending rendering must not inherently
+/// suspend simulation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SpatialLifecycle {
+    pub simulation: SpatialSimulation,
+    pub rendering: SpatialRenderingPolicy,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpatialSimulation {
+    Independent,
+    Bound,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpatialRenderingPolicy {
+    VisibilityBound,
+    Continuous,
 }
 
 /// Accessible identity of one element (`@iden`, GSSH/4, decision D14).

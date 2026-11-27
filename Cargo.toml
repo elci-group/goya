@@ -4,6 +4,7 @@ members = [
     "crates/goya-resolver",
     "crates/goya-viuda",
     "crates/goya-scene-runtime",
+    "crates/goya-manuscrito",
     "crates/goya-caprichios",
     "crates/nevada",
     "crates/arachnid",
@@ -47,6 +48,10 @@ members = [
     "crates/goya-wayland",
     "crates/goya-kumimanu",
     "crates/goya-window-management",
+    "crates/goya-diablos",
+    "crates/goya-escene",
+    "crates/goya-diablo-free",
+    "crates/goya-diablo-free-runtime",
     "crates/goya-lang",
     "crates/goya-change",
     "crates/goya-cue",
@@ -81,6 +86,10 @@ members = [
     "crates/goya-graphics-container",
     "crates/goya-graphics-ir",
     "crates/goya-gva",
+    "crates/goya-avr",
+    "crates/goya-avr-rugid",
+    "crates/goya-avc",
+    "crates/goya-avc-decode",
     "crates/goya-gvi",
     "crates/goya-gru",
     "crates/emperor",
@@ -135,6 +144,7 @@ goya-watermark = { path = "crates/goya-watermark" }
 goya-wayland = { path = "crates/goya-wayland" }
 goya-kumimanu = { path = "crates/goya-kumimanu" }
 goya-window-management = { path = "crates/goya-window-management" }
+sash = { path = "crates/sash" }
 goya-lang = { path = "crates/goya-lang" }
 goya-fair = { path = "crates/goya-fair" }
 goya-css-syntax = { path = "crates/goya-css-syntax" }
@@ -166,6 +176,9 @@ goya-gva = { path = "crates/goya-gva" }
 goya-gvi = { path = "crates/goya-gvi" }
 goya-scene-graphics = { path = "crates/goya-scene-graphics" }
 goya-gru = { path = "crates/goya-gru" }
+goya-diablos = { path = "crates/goya-diablos" }
+goya-diablo-free = { path = "crates/goya-diablo-free" }
+goya-diablo-free-runtime = { path = "crates/goya-diablo-free-runtime" }
 emperor-runtime = { path = "crates/emperor-runtime" }
 goya-freedesktop = { path = "crates/goya-freedesktop" }
 nebula = { path = "crates/nebula" }

@@ -1,0 +1,11 @@
+[package]
+name = "goya-avc-decode"
+version = "0.0.1"
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Decoder adapter bridging container video (MP4/MKV/WebM/MOV via ffmpeg/ffprobe) into the goya-avc ingestion contract (ADR-AVC-001 Amendment 2)."
+
+[dependencies]
+goya-avc = { path = "../goya-avc" }
+sha2 = "0.10"
