@@ -96,7 +96,8 @@ impl SubdivisionPolicy {
 ///
 /// Coordinates are abstract at this contract level: the Rugid spatial
 /// contract (ADR-AVR-001 F1) defines their concrete representation.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Ordered so quantised states can key a `BTreeMap` primary index (§9.2).
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ObservationState {
     /// Camera position, as fixed-point spatial coordinates.
     pub camera: [i64; 3],

@@ -25,10 +25,12 @@ pub mod encoding;
 pub mod graph;
 pub mod ingestion;
 pub mod inventory;
+pub mod relational;
 pub mod representation;
 pub mod retrieval;
 pub mod sampling;
 pub mod tags;
+pub mod target;
 
 /// Directive that defined this contract family.
 pub const DIRECTIVE_ID: &str = "GOYA-GFX-AVR-001";
@@ -51,4 +53,6 @@ pub use inventory::{
     ProvenanceId, ProvenanceRecord, ProvenanceRelation, RelationalAnchor, RepresentationId,
 };
 pub use representation::RepresentationClass;
+pub use relational::{RelationalLayout, LayoutError};
+pub use target::{Derivation, DerivationError, DerivationMetrics, Tier};
 pub use tags::{ProposedTag, EXISTING_GVI_TAGS};

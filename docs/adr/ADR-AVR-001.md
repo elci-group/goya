@@ -83,6 +83,20 @@ The Phase 1 gate above is discharged by the following decisions, implemented in 
 
 Phase 1 status: canonical inventory generation and exact retrieval are operational against real Rugid shapes (`Cube`, `F1Car`, `MercedesW14`) headlessly, with 48 contract tests in `goya-avr` and 7 bridge round-trip tests in `goya-avr-rugid`, clippy clean. Not yet covered: relational structure (Phase 2), compression/reconstruction (Phase 3), `.escene` emission for AVR decisions (WS-12).
 
+## Phase 2 decisions (implemented)
+
+Relational GVI (directive §22 Phase 2, WS-06/WS-07), implemented in `goya-avr` (`relational.rs`, `target.rs`) and exercised against real Rugid renders:
+
+- **Anchor selection (§8.4).** Greedy farthest-point sampling over quantised observation states, front-seeded, ties broken by lowest id — deterministic (AVR-G04). The full weighted objective `J = αB+βR+γT+δE+εH` is deferred until §18 benchmark evidence exists; fidelity/memory/latency hard constraints are enforced as typed errors, never weighted trade-offs.
+- **Coverage contract.** Coverage is defined over neighbourhood *references*: every canonical observation must appear in some anchor's nearest-member neighbourhood. A profile whose `primary_nodes`/`max_neighbourhood_size` cannot cover the canonical set is rejected with `CoverageImpossible` — observational granularity is never silently dropped (§8.1, §9.2).
+- **Three separated graphs (§8.3).** Navigation (anchor ring + anchor↔member edges, cycles permitted), reconstruction (empty in Phase 2 — no data dependencies yet, but an independently validated instance) and residency (anchor adjacency; predictive set empty until §11.2 runtime history exists).
+- **Encodings in Phase 2.** `ANCHOR`, `COPY` (byte-identical payload detection via digest) and `SHARED` (neighbourhood reference, single keyed payload — no duplication). `DELTA`/`ALBIT`/`REPROJECT`/`COMPOSITE`/`LIVE` are rejected in derivation until Phase 3.
+- **Derivation (§9).** `target::derive` consumes only the canonical compilation — the signature takes no spatial source, so eligible derivation cannot re-render (AVR-G03, §4.1). Profiles: Dense (all observations indexed and resident), Hybrid (anchors indexed, all neighbourhoods resident), Relational (anchors indexed and resident; everything else retained cold). Residency budgets are enforced per profile: a dense derivation under a tiny budget fails while relational fits — the budget chooses the profile, not the fidelity. Explicit `allow_pruning` is rejected until the §6.3 weighting machinery exists.
+- **Derived resolution (§10.3).** `resolve_derived` implements priorities 1–2 (exact resident / exact non-resident through the neighbourhood) and priority 8 (explicit failure). Tier is reported (`Hot`/`Cold`); locality never restricts valid requests.
+- **Measured artifact metrics (§18.3 subset).** Canonical/resident/retained counts, residency reduction in basis points. The §18.4 ≥80 % residency-reduction research target is asserted as a derived-artifact metric (4096 observations, 64 anchors → 98.4 %): a measurement of the artifact, not a benchmarked device result.
+
+Phase 2 status: 62 contract tests in `goya-avr`, 8 bridge tests in `goya-avr-rugid` (relational derivation over a real 256-observation Rugid cube: 16 hot anchors + 240 cold members, all resolving bit-identically to direct renders), clippy clean. Still open: compression/reconstruction (Phase 3), binary format (Phase 2 §13.1 tags remain a reviewed proposal), `.escene` emission (WS-12).
+
 ## Consequences
 
 - `crates/goya-avr` is added as the contract home for AVR/GVI-R (Phase 0 scope only: domains, representations, encoding classes, logical data model, graph separation, tags, verification classes, derivation profile).

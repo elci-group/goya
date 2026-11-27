@@ -14,6 +14,7 @@
 
 use crate::canonical::CompileReport;
 use crate::ingestion::{observer_in_domain, ObservationPayload, Observer};
+use crate::target::{Derivation, Tier};
 
 /// Result of resolving a requested observation.
 #[derive(Debug, Clone, PartialEq)]
@@ -58,6 +59,53 @@ pub fn resolve<'a>(report: &'a CompileReport, request: &Observer) -> Resolution<
         Some(payload) => Resolution::Exact(payload),
         None => Resolution::Unsupported(UnsupportedReason::NotCompiled),
     }
+}
+
+/// Result of resolving against a derived (target-specific) inventory.
+#[derive(Debug, Clone, PartialEq)]
+pub enum DerivedResolution<'a> {
+    /// Priorities 1–2: exactly this observation, resident (`Hot`) or
+    /// retrieved from retained storage through its neighbourhood (`Cold`).
+    Exact { payload: &'a ObservationPayload, tier: Tier },
+    /// Priority 8: explicit resolution failure — no substitution.
+    Unsupported(UnsupportedReason),
+}
+
+/// Resolve a request against a derived inventory (§10.1).
+///
+/// The primary index is consulted first; a relational miss falls through
+/// to the neighbourhood search over the retained observation table.
+/// Locality accelerates resolution but never restricts valid interaction:
+/// any in-domain request that the derivation retains resolves exactly,
+/// regardless of the neighbourhood the runtime currently occupies.
+pub fn resolve_derived<'a>(derivation: &'a Derivation, request: &Observer) -> DerivedResolution<'a> {
+    if !observer_in_domain(&derivation.inventory.domain, request) {
+        return DerivedResolution::Unsupported(UnsupportedReason::OutsideDomain);
+    }
+    let state = request.normalised().to_state();
+
+    // Priority 1: primary index (directly addressable).
+    if let Some(id) = derivation.primary_index.get(&state) {
+        if let Some(payload) = derivation.hot.get(&id.0) {
+            return DerivedResolution::Exact { payload, tier: Tier::Hot };
+        }
+    }
+    // Priorities 2+: exact observation retained in the derived inventory
+    // (cold tier / neighbourhood storage).
+    if let Some(record) = derivation
+        .inventory
+        .observations
+        .iter()
+        .find(|record| record.state == state)
+    {
+        if let Some(payload) = derivation.cold.get(&record.id.0) {
+            return DerivedResolution::Exact { payload, tier: Tier::Cold };
+        }
+        if let Some(payload) = derivation.hot.get(&record.id.0) {
+            return DerivedResolution::Exact { payload, tier: Tier::Hot };
+        }
+    }
+    DerivedResolution::Unsupported(UnsupportedReason::NotCompiled)
 }
 
 #[cfg(test)]

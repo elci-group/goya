@@ -242,6 +242,84 @@ mod tests {
     }
 
     #[test]
+    fn relational_derivation_resolves_real_rugid_observations() {
+        // Phase 2: derive a relational inventory from a real Rugid model;
+        // anchors resolve Hot, neighbourhood members resolve Cold, and
+        // both are bit-identical to a direct render of the same observer.
+        use goya_avr::derivation::{DerivationProfile, InventoryProfile};
+        use goya_avr::retrieval::{resolve_derived, DerivedResolution};
+        use goya_avr::target::{derive, Tier};
+
+        let source = RugidShapeSource::new(ShapeType::Cube, 100.0);
+        let policy = SamplingPolicy { initial_samples: 256, distance: 2.0, fov_deg: 60.0 };
+        let report = compile(&source, ObservationDomain::Spherical, &policy, &budget())
+            .expect("canonical compilation");
+
+        let profile = DerivationProfile {
+            profile: InventoryProfile::Relational,
+            canonical_digest: report.canonical_digest.clone(),
+            index: goya_avr::derivation::IndexPolicy {
+                primary_nodes: 16,
+                max_neighbourhood_size: 64,
+                preserve_canonical_granularity: true,
+                allow_pruning: false,
+            },
+            reconstruction: goya_avr::derivation::ReconstructionPolicy {
+                max_dependency_depth: 4,
+                allowed_encodings: vec![
+                    goya_avr::encoding::EncodingClass::Anchor,
+                    goya_avr::encoding::EncodingClass::Copy,
+                    goya_avr::encoding::EncodingClass::Shared,
+                ],
+            },
+            residency: goya_avr::derivation::ResidencyPolicy {
+                asset_budget_bytes: u64::MAX,
+                prefetch_neighbourhoods: 1,
+            },
+            max_silhouette_error_px: 1,
+            allow_live_fallback: false,
+        };
+        let derivation = derive(&report, &profile).expect("relational derivation");
+        assert_eq!(derivation.metrics.canonical_observations, 256);
+        assert_eq!(derivation.metrics.directly_indexed, 16);
+        assert_eq!(derivation.metrics.retained_observations, 256);
+        assert!(derivation.metrics.residency_reduction_bp >= 8000);
+
+        // Every retained observation resolves exactly; a sample of them is
+        // bit-identical to a direct render.
+        let mut hot_seen = 0;
+        let mut cold_seen = 0;
+        for record in &derivation.inventory.observations {
+            let azimuth = record.state.orientation[0] as f32 / 100.0;
+            let elevation = record.state.orientation[1] as f32 / 100.0;
+            let distance = record.state.camera[0] as f32 / 256.0;
+            let request = observer(azimuth, elevation, distance);
+            match resolve_derived(&derivation, &request) {
+                DerivedResolution::Exact { payload, tier } => {
+                    match tier {
+                        Tier::Hot => hot_seen += 1,
+                        Tier::Cold => cold_seen += 1,
+                    }
+                    if cold_seen <= 4 || hot_seen <= 4 {
+                        let direct = source.render(&request).expect("direct render");
+                        assert_eq!(payload.bytes, direct.bytes);
+                    }
+                }
+                other => panic!("retained observation failed to resolve: {other:?}"),
+            }
+        }
+        assert_eq!(hot_seen, 16, "anchors resolve from the hot tier");
+        assert_eq!(cold_seen, 240, "neighbourhood members resolve from the cold tier");
+
+        // In-domain but under-observed states fail explicitly.
+        let between = observer(1.0, 1.0, 2.0);
+        assert_eq!(
+            resolve_derived(&derivation, &between),
+            DerivedResolution::Unsupported(goya_avr::retrieval::UnsupportedReason::NotCompiled)
+        );
+    }
+
+    #[test]
     fn vehicle_shapes_compile_and_retrieve() {
         // §20 POC shapes: the bridge serves them without Rugid changes.
         for shape in [ShapeType::F1Car, ShapeType::MercedesW14] {

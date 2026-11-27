@@ -63,6 +63,11 @@ impl CanonicalStore {
     pub fn is_empty(&self) -> bool {
         self.payloads.is_empty()
     }
+
+    /// Total encoded payload bytes held by the store.
+    pub fn payload_bytes(&self) -> u64 {
+        self.payloads.values().map(|p| p.bytes.len() as u64).sum()
+    }
 }
 
 /// Result of a canonical compilation (§6.4 steps 9–10).
