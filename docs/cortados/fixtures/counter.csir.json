@@ -1,0 +1,100 @@
+{
+  "contract": "GY-CSIR-JAVA/0.1",
+  "edges": [
+    {
+      "evidence": [
+        "impl.original"
+      ],
+      "id": "edge.intent",
+      "object": "impl.original",
+      "relation": "derived_from",
+      "subject": "app.counter"
+    }
+  ],
+  "fair": null,
+  "frontend": {
+    "construction": "manual_fixture",
+    "name": "cortados-architecture-witness",
+    "version": "0.1"
+  },
+  "nodes": [
+    {
+      "domain": "interface",
+      "evidence": [
+        "impl.original"
+      ],
+      "fair_element_id": null,
+      "id": "app.counter",
+      "kind": "interface",
+      "level": "application",
+      "origin": {
+        "end_byte": 515,
+        "path": "Counter.java",
+        "raw_sha256": "505a5ff5eb7bb22a30568d99fba474193bc58f3ff890eae73dc37e1bf58af8fa",
+        "start_byte": 0
+      },
+      "payload": {
+        "intent": "add-to-session-counter",
+        "proof": "manual paired design, not extracted or verified Java equivalence",
+        "scope": "inputs 1,0,2 only"
+      },
+      "unresolved": []
+    },
+    {
+      "domain": "control",
+      "evidence": [],
+      "fair_element_id": null,
+      "id": "impl.original",
+      "kind": "unresolved",
+      "level": "implementation",
+      "origin": {
+        "end_byte": 515,
+        "path": "Counter.java",
+        "raw_sha256": "505a5ff5eb7bb22a30568d99fba474193bc58f3ff890eae73dc37e1bf58af8fa",
+        "start_byte": 0
+      },
+      "payload": {
+        "observed": "Entire Java oracle retained; no Java parser exists in this deliverable."
+      },
+      "unresolved": [
+        "COR-E200: general calls, loop, allocation and output are not native mappings in this fixture"
+      ]
+    }
+  ],
+  "profile_id": "CORTADOS-JAVA-SOURCE/17.0",
+  "source_manifest_sha256": "5845513510ea162d2f508b5d5caf49eab3e4a95987e1d706ca4347f17fd07ab6",
+  "sources": [
+    {
+      "path": "Counter.java",
+      "sha256": "505a5ff5eb7bb22a30568d99fba474193bc58f3ff890eae73dc37e1bf58af8fa"
+    }
+  ],
+  "transformations": [
+    {
+      "equivalence_requirements": [
+        "Java differential suite required for future conversion certification"
+      ],
+      "evidence": [
+        "impl.original"
+      ],
+      "id": "manual.pair",
+      "limitations": [
+        "hand paired",
+        "no parser or transpiler",
+        "Java execution not performed"
+      ],
+      "observable_effects": [
+        "state update",
+        "display count"
+      ],
+      "postconditions": [
+        "counts 1,1,3"
+      ],
+      "preconditions": [
+        "count starts at 0",
+        "input sequence exactly 1,0,2"
+      ],
+      "verified": false
+    }
+  ]
+}

@@ -1,0 +1,86 @@
+{
+  "artifacts": {
+    "README.md": "37a085884433100240f86794d97d985c91750efd97924e3a8b560ae4dca3858b",
+    "architecture.md": "c1c550c398cbd56b05f15dabf9bb72055bd309b90e9d67a89cfde9b18f71af0b",
+    "csir.schema.json": "eac4b3279f3b5950c0f28f6c07c552d54b65888978ab8628e40f65f38eb86b67",
+    "deliver.toml": "6416ed27c7a2ec832c584bfef2d78a5b01862d08251ca31577605864af685edd",
+    "fixtures/Counter.java": "505a5ff5eb7bb22a30568d99fba474193bc58f3ff890eae73dc37e1bf58af8fa",
+    "fixtures/counter.csir.json": "a68e1600f31a1b6cbefc66c1cc8278b180514277e22eae38c4b01d90f24c3b0d",
+    "fixtures/counter.gscene": "c18c11a27dcfe947e288c9ba5c00b226107410f0f7c53667620899551358bb3c",
+    "fixtures/scenarios.json": "717cce8893438eed0b720b9adf13e78f4a2273f76ca21c68297726b10bd29eb0",
+    "phase0-audit.json": "0c33ca399320a785a4c48887ee0d9810ac8ccbf3b95485fde9b90f9cf70e926b",
+    "profile.json": "2df104ac5d4f23d0cb74e232d567e9641bb2660e22d5879aad5efb39e83e1776",
+    "verify_phase0.py": "b222a0e81879f6e286898661487236849ff0141702761d12b53f91050a1b723a"
+  },
+  "authority": "User instruction: Use a luna swarm to close phase 0",
+  "certification": null,
+  "contract": "GY-CORTADOS-PHASE0-CLOSURE/0.1",
+  "decisions": [
+    {
+      "evidence": "architecture.md",
+      "id": "COR-D01",
+      "status": "closed"
+    },
+    {
+      "evidence": "architecture.md",
+      "id": "COR-D02",
+      "status": "closed"
+    },
+    {
+      "evidence": "architecture.md",
+      "id": "COR-D03",
+      "status": "closed"
+    },
+    {
+      "evidence": "architecture.md",
+      "id": "COR-D04",
+      "status": "closed"
+    },
+    {
+      "evidence": "architecture.md",
+      "id": "COR-D05",
+      "status": "closed"
+    },
+    {
+      "evidence": "architecture.md",
+      "id": "COR-D06",
+      "status": "closed"
+    },
+    {
+      "evidence": "architecture.md",
+      "id": "COR-D07",
+      "status": "closed"
+    }
+  ],
+  "directive": "GOYA-DIS-CORT-001",
+  "implementation_status": "not_started",
+  "later_gates": [
+    "Java parser/profile conformance and exact Unicode-escape offset mapping",
+    "Actual FAIR-linked Java extraction with bounded ingestion",
+    "Shared architecture approval for any new native semantics",
+    "Disparates reconstruction authority before automated conversion",
+    "Substantive minimum viable Cortado including collections, file I/O and exceptions",
+    "Java differential execution and production COR-G01 through COR-G14"
+  ],
+  "reviews": [
+    {
+      "agent": "java_profile",
+      "model": "gpt-6-luna",
+      "resolution": "Mappings adopted. Parser evidence remains Phase1; file/network effects rejected in present native profile. Final review corrected D1 snapshot/read-after-write and canonical numeric field-domain restrictions, initialization scope and diagnostic codes.",
+      "scope": "34 Java requirements and compatibility profile"
+    },
+    {
+      "agent": "contracts_review",
+      "model": "gpt-6-luna",
+      "resolution": "Sidecar boundary and evidence admission adopted; shared contracts unchanged. Final review clarified unimplemented interface schemas and keyed semantic checks by stable ID.",
+      "scope": "FAIR/CSIR, outputs, authority, security and certification"
+    },
+    {
+      "agent": "feasibility",
+      "model": "gpt-6-luna",
+      "resolution": "Architecture-only closure confirmed; corrected former MVP-before-Phase0 criterion.",
+      "scope": "Resolver witness and independent architectural closure review"
+    }
+  ],
+  "status": "closed_architecture_only"
+}

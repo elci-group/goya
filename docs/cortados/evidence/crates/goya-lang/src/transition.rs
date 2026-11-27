@@ -1,0 +1,1253 @@
+//! Conservative lowering of authored single-button D1 and static-journal D2 interactions.
+use std::collections::{BTreeMap, BTreeSet};
+use std::fmt;
+
+use goya_determinism::proofs::ExecutionProof;
+use goya_determinism::{DeterminismClass, ProcessDecl};
+use goya_executable::{
+    CapabilityLabel, D1Instruction, D1Outcome, D1Program, D1Snapshot, D1Value, D2Instruction,
+    D2Outcome, D2Program, EffectJournal, EffectResultType, InputSnapshot, StateContract,
+};
+use goya_ir::ActionId;
+
+use crate::scene::{
+    CellKind, EffectValueType, InteractionClass, InteractionDecl, InteractionExpr, InteractionType,
+    InteractionValue, Scene,
+};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TransitionError {
+    InvalidDeclaration,
+    TriggerNotFound,
+    TriggerAmbiguous,
+    TriggerAlreadyBound,
+    DuplicateInteractionName,
+    InvalidSchema,
+    UndeclaredRead,
+    TypeMismatch,
+    StateTypeMismatch,
+    InputTypeMismatch,
+    OutputTypeMismatch,
+    AssignmentMismatch,
+    UndeclaredEffect,
+    CapabilityMismatch,
+    DuplicateRequest,
+    RequestResultMismatch,
+    BridgeRejected(String),
+    VmRejected(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompiledD2Interaction {
+    name: String,
+    trigger: ActionId,
+    state_reads: Vec<crate::scene::TypedKey>,
+    state_writes: Vec<crate::scene::TypedKey>,
+    inputs: Vec<crate::scene::TypedKey>,
+    declaration: ProcessDecl,
+    proof: ExecutionProof,
+    program: D2Program,
+    capability_labels: Vec<CapabilityLabel>,
+}
+
+impl CompiledD2Interaction {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+    pub fn trigger(&self) -> ActionId {
+        self.trigger
+    }
+    pub fn declaration(&self) -> &ProcessDecl {
+        &self.declaration
+    }
+    pub fn proof(&self) -> &ExecutionProof {
+        &self.proof
+    }
+    pub fn capability_labels(&self) -> &[CapabilityLabel] {
+        &self.capability_labels
+    }
+    pub fn program_hash(&self) -> [u8; 32] {
+        self.program.program_hash()
+    }
+    pub fn state_reads(&self) -> &[crate::scene::TypedKey] {
+        &self.state_reads
+    }
+    pub fn state_writes(&self) -> &[crate::scene::TypedKey] {
+        &self.state_writes
+    }
+    pub fn inputs(&self) -> &[crate::scene::TypedKey] {
+        &self.inputs
+    }
+
+    /// Replay only caller supplied journal entries. This never invokes a host effect.
+    pub fn execute(
+        &self,
+        state: &D1Snapshot,
+        inputs: &InputSnapshot,
+        journal: &EffectJournal,
+    ) -> Result<D2Outcome, TransitionError> {
+        validate_runtime_values(
+            &self.state_reads,
+            &self.state_writes,
+            &self.inputs,
+            state,
+            inputs,
+        )?;
+        let outcome = self
+            .program
+            .execute(state, inputs, journal)
+            .map_err(|e| TransitionError::VmRejected(e.to_string()))?;
+        validate_output_types(&self.state_writes, &outcome.next_state)?;
+        Ok(outcome)
+    }
+
+    /// Build a bounded VEE worker request after enforcing the authored scalar
+    /// schema. This constructs a request only; network submission is explicit.
+    pub fn to_vee_request(
+        &self,
+        state: &D1Snapshot,
+        inputs: &InputSnapshot,
+        journal: &EffectJournal,
+        agent_id: &str,
+    ) -> Result<goya_vee::SubmitRequest, TransitionError> {
+        self.execute(state, inputs, journal)?;
+        goya_vee::request_from_d2_program(&self.program, state, inputs, journal, agent_id)
+            .map_err(|error| TransitionError::BridgeRejected(error.to_string()))
+    }
+}
+impl fmt::Display for TransitionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+impl std::error::Error for TransitionError {}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompiledInteraction {
+    name: String,
+    trigger: ActionId,
+    state_reads: Vec<crate::scene::TypedKey>,
+    state_writes: Vec<crate::scene::TypedKey>,
+    inputs: Vec<crate::scene::TypedKey>,
+    program: D1Program,
+}
+
+impl CompiledInteraction {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+    pub fn trigger(&self) -> ActionId {
+        self.trigger
+    }
+    /// Stable hash of the verified D1 bytecode, without exposing the raw VM
+    /// program or bypassing this interaction's typed execution checks.
+    pub fn program_hash(&self) -> [u8; 32] {
+        self.program.program_hash()
+    }
+    pub fn state_reads(&self) -> &[crate::scene::TypedKey] {
+        &self.state_reads
+    }
+    pub fn state_writes(&self) -> &[crate::scene::TypedKey] {
+        &self.state_writes
+    }
+    pub fn inputs(&self) -> &[crate::scene::TypedKey] {
+        &self.inputs
+    }
+
+    /// Execute the transition while enforcing its immutable authored schema.
+    /// The lower-level VM program is intentionally not exposed until a typed
+    /// bridge can preserve these checks end to end.
+    pub fn execute(
+        &self,
+        state: &D1Snapshot,
+        inputs: &InputSnapshot,
+    ) -> Result<D1Outcome, TransitionError> {
+        validate_runtime_values(
+            &self.state_reads,
+            &self.state_writes,
+            &self.inputs,
+            state,
+            inputs,
+        )?;
+        let outcome = self
+            .program
+            .execute(state, inputs)
+            .map_err(|e| TransitionError::VmRejected(e.to_string()))?;
+        validate_output_types(&self.state_writes, &outcome.next_state)?;
+        Ok(outcome)
+    }
+
+    /// Build a bounded VEE worker request after enforcing the authored scalar
+    /// schema. This constructs a request only; network submission is explicit.
+    pub fn to_vee_request(
+        &self,
+        state: &D1Snapshot,
+        inputs: &InputSnapshot,
+        agent_id: &str,
+    ) -> Result<goya_vee::SubmitRequest, TransitionError> {
+        self.execute(state, inputs)?;
+        goya_vee::request_from_d1_program(&self.program, state, inputs, agent_id)
+            .map_err(|error| TransitionError::BridgeRejected(error.to_string()))
+    }
+}
+
+/// Compile every authored interaction to the existing D1 bytecode verifier.
+/// Trigger numbering matches `lower`: buttons receive depth-first preorder IDs.
+pub fn compile_d1_interactions(scene: &Scene) -> Result<Vec<CompiledInteraction>, TransitionError> {
+    let triggers = validate_bindings(scene)?;
+    scene
+        .interactions
+        .iter()
+        .zip(triggers)
+        .filter(|(decl, _)| decl.class == InteractionClass::D1)
+        .map(|(i, trigger)| {
+            Ok(CompiledInteraction {
+                name: i.name.clone(),
+                trigger,
+                state_reads: i.state_reads.clone(),
+                state_writes: i.state_writes.clone(),
+                inputs: i.inputs.clone(),
+                program: compile_one(i)?,
+            })
+        })
+        .collect()
+}
+
+pub fn compile_d2_interactions(
+    scene: &Scene,
+) -> Result<Vec<CompiledD2Interaction>, TransitionError> {
+    let triggers = validate_bindings(scene)?;
+    scene
+        .interactions
+        .iter()
+        .zip(triggers)
+        .filter(|(decl, _)| decl.class == InteractionClass::D2)
+        .map(|(i, trigger)| {
+            let (declaration, proof, program, capability_labels) = compile_one_d2(i)?;
+            Ok(CompiledD2Interaction {
+                name: i.name.clone(),
+                trigger,
+                state_reads: i.state_reads.clone(),
+                state_writes: i.state_writes.clone(),
+                inputs: i.inputs.clone(),
+                declaration,
+                proof,
+                program,
+                capability_labels,
+            })
+        })
+        .collect()
+}
+
+/// Validate interaction declarations in the same phase order as the public
+/// compilers and report the declaration that first fails. Binding validation
+/// is global; D1 compilation precedes D2 compilation, matching strict
+/// admission's error precedence without repeatedly compiling prefixes.
+pub(crate) fn validate_interactions_with_origin(
+    scene: &Scene,
+) -> Result<(), (usize, TransitionError)> {
+    let triggers = validate_bindings_with_origin(scene)?;
+    for (index, interaction) in scene.interactions.iter().enumerate() {
+        if interaction.class == InteractionClass::D1 {
+            if let Err(error) = compile_one(interaction) {
+                return Err((index, error));
+            }
+        }
+    }
+    for (index, interaction) in scene.interactions.iter().enumerate() {
+        if interaction.class == InteractionClass::D2 {
+            if let Err(error) = compile_one_d2(interaction) {
+                return Err((index, error));
+            }
+        }
+    }
+    // Keep trigger construction in this validation phase: it ensures the
+    // bindings have the same cardinality/order used by the compilers.
+    debug_assert_eq!(triggers.len(), scene.interactions.len());
+    Ok(())
+}
+
+fn validate_bindings(scene: &Scene) -> Result<Vec<ActionId>, TransitionError> {
+    validate_bindings_with_origin(scene).map_err(|(_, error)| error)
+}
+
+fn validate_bindings_with_origin(scene: &Scene) -> Result<Vec<ActionId>, (usize, TransitionError)> {
+    let mut buttons = Vec::<(String, ActionId)>::new();
+    collect_buttons(&scene.root, &mut 0, &mut buttons);
+    let mut names = BTreeSet::new();
+    let mut bound_triggers = BTreeSet::new();
+    let mut triggers = Vec::with_capacity(scene.interactions.len());
+    for (index, i) in scene.interactions.iter().enumerate() {
+        if !names.insert(i.name.as_str()) {
+            return Err((index, TransitionError::DuplicateInteractionName));
+        }
+        let matches: Vec<_> = buttons
+            .iter()
+            .filter(|(name, _)| name == &i.trigger_button)
+            .collect();
+        let trigger = match matches.as_slice() {
+            [] => return Err((index, TransitionError::TriggerNotFound)),
+            [(_, id)] => *id,
+            _ => return Err((index, TransitionError::TriggerAmbiguous)),
+        };
+        if !bound_triggers.insert(trigger.0) {
+            return Err((index, TransitionError::TriggerAlreadyBound));
+        }
+        triggers.push(trigger);
+    }
+    Ok(triggers)
+}
+
+fn collect_buttons(
+    cell: &crate::scene::SceneCell,
+    next: &mut u64,
+    out: &mut Vec<(String, ActionId)>,
+) {
+    if cell.kind == CellKind::Button {
+        out.push((cell.name.clone(), ActionId(*next)));
+        *next += 1;
+    } else {
+        for child in &cell.children {
+            collect_buttons(child, next, out);
+        }
+    }
+}
+
+fn compile_one(i: &InteractionDecl) -> Result<D1Program, TransitionError> {
+    if i.class != InteractionClass::D1
+        || !i.declared_effects.is_empty()
+        || !i.requests.is_empty()
+        || i.name.is_empty()
+        || i.name.len() > 128
+        || i.assignments.is_empty()
+    {
+        return Err(TransitionError::InvalidDeclaration);
+    }
+    let reads = key_types(&i.state_reads)?;
+    let writes = key_types(&i.state_writes)?;
+    let inputs = key_types(&i.inputs)?;
+    for (key, ty) in &reads {
+        if writes.get(key).is_some_and(|write_ty| write_ty != ty) {
+            return Err(TransitionError::StateTypeMismatch);
+        }
+    }
+    let mut instructions = Vec::new();
+    let mut register = 0usize;
+    let mut assigned = BTreeSet::new();
+    let mut used_reads = BTreeSet::new();
+    let mut used_inputs = BTreeSet::new();
+    for assignment in &i.assignments {
+        let expected = *writes
+            .get(assignment.key.as_str())
+            .ok_or(TransitionError::AssignmentMismatch)?;
+        if !assigned.insert(assignment.key.as_str()) {
+            return Err(TransitionError::AssignmentMismatch);
+        }
+        let (actual, src) = compile_expr(
+            &assignment.value,
+            &mut instructions,
+            &mut register,
+            &reads,
+            &inputs,
+            &mut used_reads,
+            &mut used_inputs,
+        )?;
+        if actual != expected {
+            return Err(TransitionError::TypeMismatch);
+        }
+        instructions.push(D1Instruction::WriteState {
+            key: assignment.key.clone(),
+            src,
+        });
+    }
+    if assigned.len() != writes.len()
+        || used_reads.len() != reads.len()
+        || used_inputs.len() != inputs.len()
+    {
+        return Err(TransitionError::InvalidSchema);
+    }
+    let contract = StateContract::new(
+        reads.keys().map(|k| (*k).to_string()),
+        writes.keys().map(|k| (*k).to_string()),
+        inputs.keys().map(|k| (*k).to_string()),
+    )
+    .map_err(|e| TransitionError::VmRejected(e.to_string()))?;
+    let declaration = ProcessDecl {
+        name: i.name.clone(),
+        claims: DeterminismClass::StateDeterministic,
+        declared_effects: vec![],
+        state_contract: true,
+    };
+    let proof = ExecutionProof {
+        process: i.name.clone(),
+        class: DeterminismClass::StateDeterministic,
+        compiler_version: env!("CARGO_PKG_VERSION").to_string(),
+        schema_version: 1,
+        policy_version: 1,
+        target: "goya-d1-vm-v1".to_string(),
+    };
+    D1Program::compile(&declaration, &proof, contract, instructions)
+        .map_err(|e| TransitionError::VmRejected(e.to_string()))
+}
+
+fn compile_one_d2(
+    i: &InteractionDecl,
+) -> Result<(ProcessDecl, ExecutionProof, D2Program, Vec<CapabilityLabel>), TransitionError> {
+    if i.class != InteractionClass::D2
+        || i.name.is_empty()
+        || i.name.len() > 128
+        || i.assignments.is_empty()
+        || i.requests.is_empty()
+        || i.declared_effects.is_empty()
+    {
+        return Err(TransitionError::InvalidDeclaration);
+    }
+    let reads = key_types(&i.state_reads)?;
+    let writes = key_types(&i.state_writes)?;
+    let inputs = key_types(&i.inputs)?;
+    for (key, ty) in &reads {
+        if writes.get(key).is_some_and(|write_ty| write_ty != ty) {
+            return Err(TransitionError::StateTypeMismatch);
+        }
+    }
+    let mut declared = BTreeSet::new();
+    for effect in &i.declared_effects {
+        if !declared.insert(effect.as_str()) {
+            return Err(TransitionError::InvalidSchema);
+        }
+    }
+    let mut requests = BTreeMap::new();
+    let mut requested_effects = BTreeSet::new();
+    for request in &i.requests {
+        if request.name.is_empty()
+            || request.name.len() > 128
+            || requests.insert(request.name.as_str(), request).is_some()
+        {
+            return Err(TransitionError::DuplicateRequest);
+        }
+        let label = CapabilityLabel::new(request.capability.clone())
+            .map_err(|_| TransitionError::CapabilityMismatch)?;
+        if !declared.contains(request.effect_kind.as_str()) {
+            return Err(TransitionError::UndeclaredEffect);
+        }
+        if request.capability != request.effect_kind.as_str()
+            || label.as_str() != request.effect_kind.as_str()
+        {
+            return Err(TransitionError::CapabilityMismatch);
+        }
+        requested_effects.insert(request.effect_kind.as_str());
+    }
+    if requested_effects.len() != declared.len() {
+        return Err(TransitionError::InvalidSchema);
+    }
+
+    let mut instructions = Vec::new();
+    let mut register = 0usize;
+    let mut assigned = BTreeSet::new();
+    let mut request_registers = BTreeMap::new();
+    // Effect replay order is fixed by the source `requests` block, independent
+    // of assignment order or expression structure.
+    for request in &i.requests {
+        let capability = CapabilityLabel::new(request.capability.clone())
+            .map_err(|_| TransitionError::CapabilityMismatch)?;
+        let result_type = to_vm_result_type(request.result_type);
+        let value_type = to_interaction_type(request.result_type);
+        let reg = format!("r{register}");
+        register += 1;
+        instructions.push(D2Instruction::RequestEffect {
+            dst: reg.clone(),
+            capability,
+            request: request.request_utf8.as_bytes().to_vec(),
+            result_type,
+        });
+        request_registers.insert(request.name.as_str(), (value_type, reg));
+    }
+    let mut expr_compiler = D2ExpressionCompiler {
+        code: &mut instructions,
+        next: &mut register,
+        request_registers: &request_registers,
+        reads: &reads,
+        inputs: &inputs,
+        used_reads: BTreeSet::new(),
+        used_inputs: BTreeSet::new(),
+        used_requests: BTreeSet::new(),
+    };
+    for assignment in &i.assignments {
+        let expected = *writes
+            .get(assignment.key.as_str())
+            .ok_or(TransitionError::AssignmentMismatch)?;
+        if !assigned.insert(assignment.key.as_str()) {
+            return Err(TransitionError::AssignmentMismatch);
+        }
+        let (actual, src) = expr_compiler.compile(&assignment.value)?;
+        if actual != expected {
+            return Err(TransitionError::TypeMismatch);
+        }
+        expr_compiler.code.push(D2Instruction::WriteState {
+            key: assignment.key.clone(),
+            src,
+        });
+    }
+    if assigned.len() != writes.len()
+        || expr_compiler.used_reads.len() != reads.len()
+        || expr_compiler.used_inputs.len() != inputs.len()
+        || expr_compiler.used_requests.len() != requests.len()
+    {
+        return Err(TransitionError::InvalidSchema);
+    }
+    drop(expr_compiler);
+    let contract = StateContract::new(
+        reads.keys().map(|k| (*k).to_string()),
+        writes.keys().map(|k| (*k).to_string()),
+        inputs.keys().map(|k| (*k).to_string()),
+    )
+    .map_err(|e| TransitionError::VmRejected(e.to_string()))?;
+    let declaration = ProcessDecl {
+        name: i.name.clone(),
+        claims: DeterminismClass::EffectDeterministic,
+        declared_effects: i.declared_effects.clone(),
+        state_contract: false,
+    };
+    let proof = ExecutionProof {
+        process: i.name.clone(),
+        class: DeterminismClass::EffectDeterministic,
+        compiler_version: env!("CARGO_PKG_VERSION").to_string(),
+        schema_version: 1,
+        policy_version: 1,
+        target: "goya-d2-vm-v1".to_string(),
+    };
+    let program = D2Program::compile(&declaration, &proof, contract, instructions)
+        .map_err(|e| TransitionError::VmRejected(e.to_string()))?;
+    let capability_labels = i
+        .declared_effects
+        .iter()
+        .map(|effect| {
+            CapabilityLabel::new(effect.as_str()).map_err(|_| TransitionError::CapabilityMismatch)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok((declaration, proof, program, capability_labels))
+}
+
+struct D2ExpressionCompiler<'a> {
+    code: &'a mut Vec<D2Instruction>,
+    next: &'a mut usize,
+    request_registers: &'a BTreeMap<&'a str, (InteractionType, String)>,
+    reads: &'a BTreeMap<&'a str, InteractionType>,
+    inputs: &'a BTreeMap<&'a str, InteractionType>,
+    used_reads: BTreeSet<String>,
+    used_inputs: BTreeSet<String>,
+    used_requests: BTreeSet<String>,
+}
+
+impl D2ExpressionCompiler<'_> {
+    fn compile(
+        &mut self,
+        expr: &InteractionExpr,
+    ) -> Result<(InteractionType, String), TransitionError> {
+        match expr {
+            InteractionExpr::Literal(value) => {
+                let (ty, value) = match value {
+                    InteractionValue::Int(v) => (InteractionType::Int, D1Value::Int(*v)),
+                    InteractionValue::Text(v) => (InteractionType::Text, D1Value::Text(v.clone())),
+                    InteractionValue::Bool(v) => (InteractionType::Bool, D1Value::Bool(*v)),
+                };
+                let reg = format!("r{}", *self.next);
+                *self.next += 1;
+                self.code.push(D2Instruction::Constant {
+                    dst: reg.clone(),
+                    value,
+                });
+                Ok((ty, reg))
+            }
+            InteractionExpr::State(key) => {
+                let ty = *self
+                    .reads
+                    .get(key.as_str())
+                    .ok_or(TransitionError::UndeclaredRead)?;
+                self.used_reads.insert(key.clone());
+                let reg = format!("r{}", *self.next);
+                *self.next += 1;
+                self.code.push(D2Instruction::ReadState {
+                    dst: reg.clone(),
+                    key: key.clone(),
+                });
+                Ok((ty, reg))
+            }
+            InteractionExpr::Input(key) => {
+                let ty = *self
+                    .inputs
+                    .get(key.as_str())
+                    .ok_or(TransitionError::UndeclaredRead)?;
+                self.used_inputs.insert(key.clone());
+                let reg = format!("r{}", *self.next);
+                *self.next += 1;
+                self.code.push(D2Instruction::ReadInput {
+                    dst: reg.clone(),
+                    key: key.clone(),
+                });
+                Ok((ty, reg))
+            }
+            InteractionExpr::Effect(name) => {
+                let (value_type, reg) = self
+                    .request_registers
+                    .get(name.as_str())
+                    .ok_or(TransitionError::UndeclaredEffect)?;
+                if !self.used_requests.insert(name.clone()) {
+                    return Err(TransitionError::DuplicateRequest);
+                }
+                Ok((*value_type, reg.clone()))
+            }
+            InteractionExpr::Add(a, b) => {
+                let (ta, ra) = self.compile(a)?;
+                let (tb, rb) = self.compile(b)?;
+                if ta != InteractionType::Int || tb != InteractionType::Int {
+                    return Err(TransitionError::TypeMismatch);
+                }
+                let reg = format!("r{}", *self.next);
+                *self.next += 1;
+                self.code.push(D2Instruction::AddInt {
+                    dst: reg.clone(),
+                    left: ra,
+                    right: rb,
+                });
+                Ok((InteractionType::Int, reg))
+            }
+        }
+    }
+}
+
+fn key_types(
+    keys: &[crate::scene::TypedKey],
+) -> Result<BTreeMap<&str, InteractionType>, TransitionError> {
+    let mut out = BTreeMap::new();
+    for key in keys {
+        if key.name.is_empty()
+            || key.name.len() > 256
+            || out.insert(key.name.as_str(), key.value_type).is_some()
+        {
+            return Err(TransitionError::InvalidSchema);
+        }
+    }
+    Ok(out)
+}
+
+fn typed_union<'a>(
+    reads: &'a [crate::scene::TypedKey],
+    writes: &'a [crate::scene::TypedKey],
+) -> Result<BTreeMap<&'a str, InteractionType>, TransitionError> {
+    let mut all = key_types(reads)?;
+    for (key, ty) in key_types(writes)? {
+        if all.get(key).is_some_and(|existing| *existing != ty) {
+            return Err(TransitionError::StateTypeMismatch);
+        }
+        all.insert(key, ty);
+    }
+    Ok(all)
+}
+
+fn validate_runtime_values(
+    reads: &[crate::scene::TypedKey],
+    writes: &[crate::scene::TypedKey],
+    declared_inputs: &[crate::scene::TypedKey],
+    state: &D1Snapshot,
+    inputs: &InputSnapshot,
+) -> Result<(), TransitionError> {
+    let state_schema = typed_union(reads, writes)?;
+    if state.values().len() != state_schema.len()
+        || state.values().iter().any(|(key, value)| {
+            state_schema
+                .get(key.as_str())
+                .is_none_or(|ty| !value_has_type(value, *ty))
+        })
+    {
+        return Err(TransitionError::StateTypeMismatch);
+    }
+    if inputs.values().len() != declared_inputs.len()
+        || declared_inputs.iter().any(|item| {
+            inputs
+                .values()
+                .get(item.name.as_str())
+                .is_none_or(|value| !value_has_type(value, item.value_type))
+        })
+    {
+        return Err(TransitionError::InputTypeMismatch);
+    }
+    Ok(())
+}
+
+fn value_has_type(value: &D1Value, ty: InteractionType) -> bool {
+    matches!(
+        (value, ty),
+        (D1Value::Int(_), InteractionType::Int)
+            | (D1Value::Text(_), InteractionType::Text)
+            | (D1Value::Bool(_), InteractionType::Bool)
+    )
+}
+
+fn to_interaction_type(ty: EffectValueType) -> InteractionType {
+    match ty {
+        EffectValueType::Int64 => InteractionType::Int,
+        EffectValueType::Text => InteractionType::Text,
+        EffectValueType::Bool => InteractionType::Bool,
+    }
+}
+
+fn to_vm_result_type(ty: EffectValueType) -> EffectResultType {
+    match ty {
+        EffectValueType::Int64 => EffectResultType::Int64,
+        EffectValueType::Text => EffectResultType::Text,
+        EffectValueType::Bool => EffectResultType::Bool,
+    }
+}
+
+fn validate_output_types(
+    writes: &[crate::scene::TypedKey],
+    next_state: &BTreeMap<String, D1Value>,
+) -> Result<(), TransitionError> {
+    if writes.iter().any(|key| {
+        next_state
+            .get(&key.name)
+            .is_none_or(|value| !value_has_type(value, key.value_type))
+    }) {
+        return Err(TransitionError::OutputTypeMismatch);
+    }
+    Ok(())
+}
+
+fn compile_expr(
+    expr: &InteractionExpr,
+    code: &mut Vec<D1Instruction>,
+    next: &mut usize,
+    reads: &BTreeMap<&str, InteractionType>,
+    inputs: &BTreeMap<&str, InteractionType>,
+    used_reads: &mut BTreeSet<String>,
+    used_inputs: &mut BTreeSet<String>,
+) -> Result<(InteractionType, String), TransitionError> {
+    match expr {
+        InteractionExpr::Literal(value) => {
+            let (ty, value) = match value {
+                InteractionValue::Int(v) => (InteractionType::Int, D1Value::Int(*v)),
+                InteractionValue::Text(v) => (InteractionType::Text, D1Value::Text(v.clone())),
+                InteractionValue::Bool(v) => (InteractionType::Bool, D1Value::Bool(*v)),
+            };
+            let reg = format!("r{next}");
+            *next += 1;
+            code.push(D1Instruction::Constant {
+                dst: reg.clone(),
+                value,
+            });
+            Ok((ty, reg))
+        }
+        InteractionExpr::State(key) => {
+            let ty = *reads
+                .get(key.as_str())
+                .ok_or(TransitionError::UndeclaredRead)?;
+            used_reads.insert(key.clone());
+            let reg = format!("r{next}");
+            *next += 1;
+            code.push(D1Instruction::ReadState {
+                dst: reg.clone(),
+                key: key.clone(),
+            });
+            Ok((ty, reg))
+        }
+        InteractionExpr::Input(key) => {
+            let ty = *inputs
+                .get(key.as_str())
+                .ok_or(TransitionError::UndeclaredRead)?;
+            used_inputs.insert(key.clone());
+            let reg = format!("r{next}");
+            *next += 1;
+            code.push(D1Instruction::ReadInput {
+                dst: reg.clone(),
+                key: key.clone(),
+            });
+            Ok((ty, reg))
+        }
+        InteractionExpr::Add(a, b) => {
+            let (ta, ra) = compile_expr(a, code, next, reads, inputs, used_reads, used_inputs)?;
+            let (tb, rb) = compile_expr(b, code, next, reads, inputs, used_reads, used_inputs)?;
+            if ta != InteractionType::Int || tb != InteractionType::Int {
+                return Err(TransitionError::TypeMismatch);
+            }
+            let reg = format!("r{next}");
+            *next += 1;
+            code.push(D1Instruction::AddInt {
+                dst: reg.clone(),
+                left: ra,
+                right: rb,
+            });
+            Ok((InteractionType::Int, reg))
+        }
+        InteractionExpr::Effect(_) => Err(TransitionError::UndeclaredEffect),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use super::{validate_output_types, InteractionType};
+    use crate::{compile_d1_interactions, compile_d2_interactions, parse, TransitionError};
+    use goya_executable::{
+        CapabilityLabel, D1Snapshot, D1Value, EffectJournal, EffectResult, InputSnapshot,
+        JournalLimits,
+    };
+    use goya_ir::ActionId;
+    use goya_vee::{VeeClient, VeeExecutionState, VeeJsonValue};
+
+    const SOURCE: &str = "@ontology app { @button plus {} @interaction increment { trigger: button.plus.activate; class: D1; state { read count: int; write count: int; } input { amount: int; } set count = state.count + input.amount; } }";
+    const D2_SOURCE: &str = "@ontology app { @button go {} @interaction fetch { trigger: button.go.activate; class: D2; effects { network; } requests { lookup: effect network capability \"network\" request \"static request\" result int64; } state { write count: int; } input { } set count = effect.lookup; } }";
+
+    fn d2_compiled() -> crate::CompiledD2Interaction {
+        compile_d2_interactions(&parse(D2_SOURCE).unwrap())
+            .unwrap()
+            .remove(0)
+    }
+
+    fn journal_for(compiled: &crate::CompiledD2Interaction) -> EffectJournal {
+        EffectJournal::new_d2(
+            compiled.declaration(),
+            compiled.proof(),
+            compiled.capability_labels().iter().cloned(),
+            JournalLimits::default(),
+        )
+        .unwrap()
+    }
+
+    fn record_int(journal: &mut EffectJournal, request: &[u8], value: i64) {
+        let label = CapabilityLabel::new("network").unwrap();
+        let result = EffectResult::Int64(value).encode().unwrap();
+        journal.record(&label, request, &result).unwrap();
+    }
+
+    fn submit_and_check_live_result(
+        client: &mut VeeClient,
+        request: &goya_vee::SubmitRequest,
+        count: i64,
+    ) {
+        assert!(request.capabilities.is_empty());
+        let submitted = client.submit(request).expect("VEE accepts compiled worker");
+        assert_eq!(
+            submitted.success,
+            Some(true),
+            "VEE rejected request: {submitted:?}"
+        );
+        let execution_id = submitted.task_id.expect("VEE execution ID");
+        let expected =
+            format!("\"next_state\":{{\"count\":{{\"type\":\"int\",\"value\":\"{count}\"}}}}");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        loop {
+            let result = client.status(&execution_id).expect("VEE execution result");
+            match result.status {
+                VeeExecutionState::Completed => {
+                    let found = result.artifacts.iter().any(|artifact| {
+                        let VeeJsonValue::Object(fields) = artifact else {
+                            return false;
+                        };
+                        let Some((_, VeeJsonValue::Object(data))) =
+                            fields.iter().find(|(key, _)| key == "data")
+                        else {
+                            return false;
+                        };
+                        let Some((_, VeeJsonValue::String(content))) =
+                            data.iter().find(|(key, _)| key == "content")
+                        else {
+                            return false;
+                        };
+                        content.lines().any(|line| line.contains(&expected))
+                    });
+                    assert!(
+                        found,
+                        "compiled worker output did not contain {expected}: {result:?}"
+                    );
+                    return;
+                }
+                VeeExecutionState::Failed | VeeExecutionState::Cancelled => {
+                    panic!("compiled worker did not complete: {result:?}");
+                }
+                _ if std::time::Instant::now() < deadline => {
+                    std::thread::sleep(std::time::Duration::from_millis(250));
+                }
+                _ => panic!("compiled worker timed out: {result:?}"),
+            }
+        }
+    }
+
+    fn d2_state() -> D1Snapshot {
+        D1Snapshot::new(10, BTreeMap::from([("count".into(), D1Value::Int(0))])).unwrap()
+    }
+
+    #[test]
+    fn authored_interaction_compiles_binds_and_executes_d1() {
+        let scene = parse(SOURCE).unwrap();
+        let compiled = compile_d1_interactions(&scene).unwrap();
+        assert_eq!(compiled.len(), 1);
+        assert_eq!(compiled[0].trigger(), ActionId(0));
+        let state =
+            D1Snapshot::new(4, BTreeMap::from([("count".into(), D1Value::Int(9))])).unwrap();
+        let inputs =
+            InputSnapshot::new(BTreeMap::from([("amount".into(), D1Value::Int(3))])).unwrap();
+        let outcome = compiled[0].execute(&state, &inputs).unwrap();
+        assert_eq!(outcome.next_state["count"], D1Value::Int(12));
+        assert_eq!(outcome.revision_after, 5);
+    }
+
+    #[test]
+    fn d1_vee_bridge_checks_source_types_before_building_request() {
+        let compiled = compile_d1_interactions(&parse(SOURCE).unwrap())
+            .unwrap()
+            .remove(0);
+        let state =
+            D1Snapshot::new(4, BTreeMap::from([("count".into(), D1Value::Int(9))])).unwrap();
+        let inputs =
+            InputSnapshot::new(BTreeMap::from([("amount".into(), D1Value::Int(3))])).unwrap();
+        let request = compiled
+            .to_vee_request(&state, &inputs, "goya-lang-d1")
+            .unwrap();
+        assert_eq!(request.language, "python");
+        assert!(request.source_code.contains("GOYA_D1_PROGRAM_HASH"));
+
+        let wrong_state = D1Snapshot::new(
+            4,
+            BTreeMap::from([("count".into(), D1Value::Text("wrong".into()))]),
+        )
+        .unwrap();
+        assert_eq!(
+            compiled.to_vee_request(&wrong_state, &inputs, "goya-lang-d1"),
+            Err(TransitionError::StateTypeMismatch)
+        );
+    }
+
+    #[test]
+    fn undeclared_state_reads_are_rejected() {
+        let src = SOURCE.replace("read count: int;", "read other: int;");
+        let scene = parse(&src).unwrap();
+        assert_eq!(
+            compile_d1_interactions(&scene),
+            Err(TransitionError::UndeclaredRead)
+        );
+    }
+
+    #[test]
+    fn missing_trigger_and_d2_class_are_rejected() {
+        let scene = parse(&SOURCE.replace("button.plus", "button.missing")).unwrap();
+        assert_eq!(
+            compile_d1_interactions(&scene),
+            Err(TransitionError::TriggerNotFound)
+        );
+        assert!(parse(&SOURCE.replace("class: D1", "class: D2")).is_err());
+    }
+
+    #[test]
+    fn mismatched_state_contract_types_are_rejected() {
+        let src = SOURCE.replace("write count: int", "write count: text");
+        let scene = parse(&src).unwrap();
+        assert_eq!(
+            compile_d1_interactions(&scene),
+            Err(TransitionError::StateTypeMismatch)
+        );
+    }
+
+    #[test]
+    fn runtime_values_are_checked_against_authored_types() {
+        let scene = parse(SOURCE).unwrap();
+        let compiled = compile_d1_interactions(&scene).unwrap();
+        let state = D1Snapshot::new(
+            4,
+            BTreeMap::from([("count".into(), D1Value::Text("bad".into()))]),
+        )
+        .unwrap();
+        let inputs =
+            InputSnapshot::new(BTreeMap::from([("amount".into(), D1Value::Int(3))])).unwrap();
+        assert_eq!(
+            compiled[0].execute(&state, &inputs),
+            Err(TransitionError::StateTypeMismatch)
+        );
+    }
+
+    #[test]
+    fn trigger_ids_match_lowering_when_buttons_have_children() {
+        let src = "@ontology app { @button outer { @button hidden {} } @button target {} @interaction pick { trigger: button.target.activate; class: D1; state { write count: int; } input { amount: int; } set count = input.amount; } }";
+        let scene = parse(src).unwrap();
+        let compiled = compile_d1_interactions(&scene).unwrap();
+        assert_eq!(compiled[0].trigger(), ActionId(1));
+    }
+
+    #[test]
+    fn duplicate_interaction_names_and_button_bindings_are_rejected() {
+        let mut scene = parse(SOURCE).unwrap();
+        scene.interactions.push(scene.interactions[0].clone());
+        assert_eq!(
+            compile_d1_interactions(&scene),
+            Err(TransitionError::DuplicateInteractionName)
+        );
+        scene.interactions[1].name = "another".into();
+        assert_eq!(
+            compile_d1_interactions(&scene),
+            Err(TransitionError::TriggerAlreadyBound)
+        );
+    }
+
+    #[test]
+    fn duplicate_button_names_are_ambiguous() {
+        let src = SOURCE.replace("@button plus {}", "@button plus {} @button plus {}");
+        let scene = parse(&src).unwrap();
+        assert_eq!(
+            compile_d1_interactions(&scene),
+            Err(TransitionError::TriggerAmbiguous)
+        );
+    }
+
+    #[test]
+    fn output_types_are_checked() {
+        let writes = [crate::scene::TypedKey {
+            name: "count".into(),
+            value_type: InteractionType::Int,
+        }];
+        let output = BTreeMap::from([("count".into(), D1Value::Text("wrong".into()))]);
+        assert_eq!(
+            validate_output_types(&writes, &output),
+            Err(TransitionError::OutputTypeMismatch)
+        );
+    }
+
+    #[test]
+    fn identical_source_compiles_to_identical_trigger_and_hash() {
+        let first_scene = parse(SOURCE).unwrap();
+        let second_scene = parse(SOURCE).unwrap();
+        let first = compile_d1_interactions(&first_scene).unwrap();
+        let second = compile_d1_interactions(&second_scene).unwrap();
+        assert_eq!(first[0].trigger(), second[0].trigger());
+        assert_eq!(first[0].program_hash(), second[0].program_hash());
+    }
+
+    #[test]
+    fn static_d2_request_replays_from_caller_journal_without_live_effects() {
+        let compiled = d2_compiled();
+        let mut journal = journal_for(&compiled);
+        record_int(&mut journal, b"static request", 41);
+        let before = journal.entries().to_vec();
+        let outcome = compiled
+            .execute(&d2_state(), &InputSnapshot::default(), &journal)
+            .unwrap();
+        assert_eq!(outcome.next_state["count"], D1Value::Int(41));
+        assert_eq!(journal.entries(), before);
+    }
+
+    #[test]
+    fn d2_vee_bridge_requires_typed_valid_journal_and_builds_request_only() {
+        let compiled = d2_compiled();
+        let mut journal = journal_for(&compiled);
+        record_int(&mut journal, b"static request", 41);
+        let request = compiled
+            .to_vee_request(
+                &d2_state(),
+                &InputSnapshot::default(),
+                &journal,
+                "goya-lang-d2",
+            )
+            .unwrap();
+        assert_eq!(request.language, "python");
+        assert!(request.source_code.contains("GOYA_D2_PROGRAM_HASH"));
+
+        let wrong_state = D1Snapshot::new(
+            10,
+            BTreeMap::from([("count".into(), D1Value::Text("wrong".into()))]),
+        )
+        .unwrap();
+        assert_eq!(
+            compiled.to_vee_request(
+                &wrong_state,
+                &InputSnapshot::default(),
+                &journal,
+                "goya-lang-d2"
+            ),
+            Err(TransitionError::StateTypeMismatch)
+        );
+    }
+
+    /// Opt-in acceptance for authored source through typed compilation, VEE
+    /// worker generation, and a local loopback VEE execution.
+    #[test]
+    fn compiled_source_live_vee_submit_when_enabled() {
+        if std::env::var("GOYA_VEE_COMPILED_LIVE_SMOKE").as_deref() != Ok("1") {
+            return;
+        }
+        let host = std::env::var("GOYA_VEE_HOST").unwrap_or_else(|_| "127.0.0.1".into());
+        let port = std::env::var("GOYA_VEE_PORT")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(18997);
+        assert!(
+            host == "127.0.0.1" || host == "::1",
+            "live smoke must use loopback"
+        );
+        let mut client = VeeClient::connect(&host, port);
+        assert!(client.available(), "loopback VEE is not reachable");
+
+        let d1 = compile_d1_interactions(&parse(SOURCE).unwrap())
+            .unwrap()
+            .remove(0);
+        let d1_state =
+            D1Snapshot::new(4, BTreeMap::from([("count".into(), D1Value::Int(9))])).unwrap();
+        let d1_inputs =
+            InputSnapshot::new(BTreeMap::from([("amount".into(), D1Value::Int(3))])).unwrap();
+        let d1_request = d1
+            .to_vee_request(&d1_state, &d1_inputs, "goya-lang-d1-live")
+            .unwrap();
+        submit_and_check_live_result(&mut client, &d1_request, 12);
+
+        let d2 = d2_compiled();
+        let mut journal = journal_for(&d2);
+        record_int(&mut journal, b"static request", 4);
+        let d2_request = d2
+            .to_vee_request(
+                &d2_state(),
+                &InputSnapshot::default(),
+                &journal,
+                "goya-lang-d2-live",
+            )
+            .unwrap();
+        submit_and_check_live_result(&mut client, &d2_request, 4);
+    }
+
+    #[test]
+    fn d2_requires_exact_journal_replay() {
+        let compiled = d2_compiled();
+        let inputs = InputSnapshot::default();
+        let empty = journal_for(&compiled);
+        assert!(compiled.execute(&d2_state(), &inputs, &empty).is_err());
+
+        let mut wrong = journal_for(&compiled);
+        record_int(&mut wrong, b"different", 1);
+        assert!(compiled.execute(&d2_state(), &inputs, &wrong).is_err());
+
+        let mut extra = journal_for(&compiled);
+        record_int(&mut extra, b"static request", 1);
+        record_int(&mut extra, b"static request", 2);
+        assert!(compiled.execute(&d2_state(), &inputs, &extra).is_err());
+    }
+
+    #[test]
+    fn d2_rejects_wrong_result_encoding_and_expression_type() {
+        let compiled = d2_compiled();
+        let mut journal = journal_for(&compiled);
+        let label = CapabilityLabel::new("network").unwrap();
+        let wrong = EffectResult::Text("not int64".into()).encode().unwrap();
+        journal.record(&label, b"static request", &wrong).unwrap();
+        assert!(compiled
+            .execute(&d2_state(), &InputSnapshot::default(), &journal)
+            .is_err());
+
+        let src = D2_SOURCE.replace("write count: int", "write count: text");
+        assert_eq!(
+            compile_d2_interactions(&parse(&src).unwrap()),
+            Err(TransitionError::TypeMismatch)
+        );
+    }
+
+    #[test]
+    fn d2_replays_text_and_bool_result_types() {
+        for (result_ty, state_ty, expected) in [
+            ("text", "text", D1Value::Text("ready".into())),
+            ("bool", "bool", D1Value::Bool(true)),
+        ] {
+            let src = D2_SOURCE
+                .replace("result int64", &format!("result {result_ty}"))
+                .replace("write count: int", &format!("write count: {state_ty}"));
+            let compiled = compile_d2_interactions(&parse(&src).unwrap())
+                .unwrap()
+                .remove(0);
+            let mut journal = journal_for(&compiled);
+            let label = CapabilityLabel::new("network").unwrap();
+            let result = match expected.clone() {
+                D1Value::Text(value) => EffectResult::Text(value),
+                D1Value::Bool(value) => EffectResult::Bool(value),
+                D1Value::Int(_) => unreachable!(),
+            }
+            .encode()
+            .unwrap();
+            journal.record(&label, b"static request", &result).unwrap();
+            let initial = match expected {
+                D1Value::Text(_) => D1Value::Text(String::new()),
+                D1Value::Bool(_) => D1Value::Bool(false),
+                D1Value::Int(_) => unreachable!(),
+            };
+            let state = D1Snapshot::new(0, BTreeMap::from([("count".into(), initial)])).unwrap();
+            let outcome = compiled
+                .execute(&state, &InputSnapshot::default(), &journal)
+                .unwrap();
+            assert_eq!(outcome.next_state["count"], expected);
+        }
+    }
+
+    #[test]
+    fn d2_rejects_undeclared_and_mismatched_capability_labels() {
+        let undeclared = D2_SOURCE.replace("effects { network; }", "effects { clock; }");
+        assert_eq!(
+            compile_d2_interactions(&parse(&undeclared).unwrap()),
+            Err(TransitionError::UndeclaredEffect)
+        );
+        let mismatch = D2_SOURCE.replace("capability \"network\"", "capability \"clock\"");
+        assert_eq!(
+            compile_d2_interactions(&parse(&mismatch).unwrap()),
+            Err(TransitionError::CapabilityMismatch)
+        );
+    }
+
+    #[test]
+    fn d2_rejects_dynamic_request_bytes_and_duplicate_cross_class_bindings() {
+        let dynamic = D2_SOURCE.replace("request \"static request\"", "request input.query");
+        assert!(parse(&dynamic).is_err());
+
+        let mut scene = parse(D2_SOURCE).unwrap();
+        let mut duplicate = scene.interactions[0].clone();
+        duplicate.name = "also_go".into();
+        duplicate.class = crate::InteractionClass::D1;
+        scene.interactions.push(duplicate);
+        assert_eq!(
+            compile_d1_interactions(&scene),
+            Err(TransitionError::TriggerAlreadyBound)
+        );
+        assert_eq!(
+            compile_d2_interactions(&scene),
+            Err(TransitionError::TriggerAlreadyBound)
+        );
+    }
+
+    #[test]
+    fn d2_journal_order_is_request_declaration_order() {
+        let src = D2_SOURCE
+            .replace(
+                "lookup: effect network capability \"network\" request \"static request\" result int64;",
+                "first: effect network capability \"network\" request \"one\" result int64; second: effect network capability \"network\" request \"two\" result int64;",
+            )
+            .replace("set count = effect.lookup;", "set count = effect.second + effect.first;");
+        let compiled = compile_d2_interactions(&parse(&src).unwrap())
+            .unwrap()
+            .remove(0);
+        let mut journal = journal_for(&compiled);
+        // Entries follow declaration order, though the source expression references them in reverse.
+        record_int(&mut journal, b"one", 3);
+        record_int(&mut journal, b"two", 5);
+        let outcome = compiled
+            .execute(&d2_state(), &InputSnapshot::default(), &journal)
+            .unwrap();
+        assert_eq!(outcome.next_state["count"], D1Value::Int(8));
+    }
+
+    #[test]
+    fn d1_and_d2_compilers_select_only_their_class_and_d2_hash_is_stable() {
+        assert!(compile_d1_interactions(&parse(D2_SOURCE).unwrap())
+            .unwrap()
+            .is_empty());
+        assert!(compile_d2_interactions(&parse(SOURCE).unwrap())
+            .unwrap()
+            .is_empty());
+        let first = d2_compiled();
+        let second = d2_compiled();
+        assert_eq!(first.trigger(), second.trigger());
+        assert_eq!(first.program_hash(), second.program_hash());
+    }
+}

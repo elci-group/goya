@@ -1,0 +1,324 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "contract": {
+      "const": "GY-CSIR-JAVA/0.1"
+    },
+    "edges": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "evidence": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "id": {
+            "pattern": "^[a-z][a-z0-9_.-]*$",
+            "type": "string"
+          },
+          "object": {
+            "pattern": "^[a-z][a-z0-9_.-]*$",
+            "type": "string"
+          },
+          "relation": {
+            "enum": [
+              "contains",
+              "invokes",
+              "reads",
+              "mutates",
+              "captures",
+              "initializes",
+              "happens_before",
+              "derived_from"
+            ]
+          },
+          "subject": {
+            "pattern": "^[a-z][a-z0-9_.-]*$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "subject",
+          "relation",
+          "object",
+          "evidence"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "fair": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "frontend": {
+      "additionalProperties": false,
+      "properties": {
+        "construction": {
+          "enum": [
+            "manual_fixture",
+            "static_analysis"
+          ]
+        },
+        "name": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "version": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "construction"
+      ],
+      "type": "object"
+    },
+    "nodes": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "domain": {
+            "enum": [
+              "type",
+              "identity",
+              "control",
+              "memory",
+              "effects",
+              "concurrency",
+              "lifecycle",
+              "interface",
+              "graphics",
+              "dependency",
+              "provenance"
+            ]
+          },
+          "evidence": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "fair_element_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "pattern": "^[a-z][a-z0-9_.-]*$",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "unit",
+              "type",
+              "object",
+              "procedure",
+              "operation",
+              "allocation",
+              "effect",
+              "concurrency",
+              "lifecycle",
+              "interface",
+              "graphics",
+              "dependency",
+              "unresolved"
+            ]
+          },
+          "level": {
+            "enum": [
+              "implementation",
+              "application"
+            ]
+          },
+          "origin": {
+            "additionalProperties": false,
+            "properties": {
+              "end_byte": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "path": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "raw_sha256": {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              "start_byte": {
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "path",
+              "start_byte",
+              "end_byte",
+              "raw_sha256"
+            ],
+            "type": "object"
+          },
+          "payload": {
+            "type": "object"
+          },
+          "unresolved": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "domain",
+          "level",
+          "kind",
+          "origin",
+          "fair_element_id",
+          "payload",
+          "unresolved",
+          "evidence"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "profile_id": {
+      "const": "CORTADOS-JAVA-SOURCE/17.0"
+    },
+    "source_manifest_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "sources": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "sha256"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "transformations": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "equivalence_requirements": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "evidence": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "id": {
+            "pattern": "^[a-z][a-z0-9_.-]*$",
+            "type": "string"
+          },
+          "limitations": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "observable_effects": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "postconditions": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "preconditions": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "verified": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "preconditions",
+          "postconditions",
+          "observable_effects",
+          "equivalence_requirements",
+          "limitations",
+          "evidence",
+          "verified"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "contract",
+    "profile_id",
+    "frontend",
+    "source_manifest_sha256",
+    "sources",
+    "fair",
+    "nodes",
+    "edges",
+    "transformations"
+  ],
+  "title": "Cortados Java semantic sidecar design contract",
+  "type": "object"
+}

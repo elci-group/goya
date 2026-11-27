@@ -1,0 +1,36 @@
+@ontology counter {
+  @state { count: int = 0 session; }
+  @cell root {
+    id: "window.root";
+    text: "Count";
+    @input amount {
+      id: "window.amount";
+      text: "1";
+      position_p: (0.0625, 0.375, 0);
+      extent_p: (0.375, 0.1875, 0);
+      @iden { label: "Amount"; hint: "A whole number to add to the count"; }
+      gestures { copy: allow; paste: deny; }
+    }
+    @button add {
+      id: "window.add";
+      text: "Add";
+      position_p: (0.5, 0.375, 0);
+      extent_p: (0.25, 0.1875, 0);
+      @iden { label: "Add amount"; }
+    }
+    @cell total {
+      id: "window.total";
+      text-from: state.count;
+      position_p: (0.0625, 0.6875, 0);
+      extent_p: (0.5, 0.1875, 0);
+    }
+  }
+  @interaction add {
+    id: "action.add";
+    trigger: button.add.activate;
+    class: D1;
+    state { read count: int; write count: int; }
+    input { amount: int from "window.amount"; }
+    set count = state.count + input.amount;
+  }
+}

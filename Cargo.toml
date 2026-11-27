@@ -95,6 +95,8 @@ members = [
     "crates/goya-disparate-coverage",
     "crates/goya-disparate-replay",
     "crates/goya-disparates",
+    "crates/goya-cortados",
+    "crates/goya-casa",
 ]
 
 [workspace.package]

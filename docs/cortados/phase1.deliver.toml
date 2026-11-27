@@ -1,0 +1,34 @@
+[[file]]
+path = "crates/goya-cortados/src/main.rs"
+required = true
+min_size_bytes = 2000
+forbid_regex = ["todo!", "unimplemented!"]
+
+[[file]]
+path = "crates/goya-cortados/src/java.rs"
+required = true
+min_size_bytes = 3000
+forbid_regex = ["todo!", "unimplemented!"]
+
+[[file]]
+path = "docs/cortados/phase1.md"
+required = true
+min_size_bytes = 1000
+
+[[command]]
+name = "Cortados formatting"
+cmd = ["cargo", "fmt", "-p", "goya-cortados", "--", "--check"]
+timeout_secs = 30
+expect_exit = 0
+
+[[command]]
+name = "Cortados conformance and hostile inputs"
+cmd = ["cargo", "test", "-p", "goya-cortados", "--target-dir", "/tmp/goya-cortados-p1-target", "--locked", "--offline"]
+timeout_secs = 180
+expect_exit = 0
+
+[[command]]
+name = "Cortados lint"
+cmd = ["cargo", "clippy", "-p", "goya-cortados", "--all-targets", "--target-dir", "/tmp/goya-cortados-p1-target", "--locked", "--offline", "--", "-D", "warnings"]
+timeout_secs = 180
+expect_exit = 0

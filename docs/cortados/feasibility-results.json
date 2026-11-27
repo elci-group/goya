@@ -1,0 +1,274 @@
+{
+  "artifacts": {
+    "csir.schema.json": "eac4b3279f3b5950c0f28f6c07c552d54b65888978ab8628e40f65f38eb86b67",
+    "fixtures/Counter.java": "505a5ff5eb7bb22a30568d99fba474193bc58f3ff890eae73dc37e1bf58af8fa",
+    "fixtures/counter.csir.json": "a68e1600f31a1b6cbefc66c1cc8278b180514277e22eae38c4b01d90f24c3b0d",
+    "fixtures/counter.gscene": "c18c11a27dcfe947e288c9ba5c00b226107410f0f7c53667620899551358bb3c",
+    "fixtures/scenarios.json": "717cce8893438eed0b720b9adf13e78f4a2273f76ca21c68297726b10bd29eb0",
+    "profile.json": "2df104ac5d4f23d0cb74e232d567e9641bb2660e22d5879aad5efb39e83e1776",
+    "verify_phase0.py": "b222a0e81879f6e286898661487236849ff0141702761d12b53f91050a1b723a"
+  },
+  "certification": null,
+  "contract": "GY-CORTADOS-PHASE0-EVIDENCE/0.1",
+  "differential_equivalence": "not_established",
+  "execution_revision": "b408ee19a15037f440db49f1cabd5ad93f660452",
+  "java_reference": {
+    "java_available": false,
+    "javac_available": false,
+    "reason": "No reference execution requested by this harness; JDK absent in recorded environment.",
+    "status": "not_run"
+  },
+  "negative_cases": [
+    {
+      "id": "unknown_contract",
+      "status": "pass"
+    },
+    {
+      "id": "wrong_profile",
+      "status": "pass"
+    },
+    {
+      "id": "missing_required_field",
+      "status": "pass"
+    },
+    {
+      "id": "unknown_field",
+      "status": "pass"
+    },
+    {
+      "id": "manifest_digest",
+      "status": "pass"
+    },
+    {
+      "id": "source_digest",
+      "status": "pass"
+    },
+    {
+      "id": "path_traversal",
+      "status": "pass"
+    },
+    {
+      "id": "out_of_bounds_span",
+      "status": "pass"
+    },
+    {
+      "id": "boolean_byte_offset",
+      "status": "pass"
+    },
+    {
+      "id": "span_digest",
+      "status": "pass"
+    },
+    {
+      "id": "unmanifested_origin",
+      "status": "pass"
+    },
+    {
+      "id": "duplicate_node",
+      "status": "pass"
+    },
+    {
+      "id": "dangling_edge",
+      "status": "pass"
+    },
+    {
+      "id": "dangling_evidence",
+      "status": "pass"
+    },
+    {
+      "id": "unsupported_fair_reference",
+      "status": "pass"
+    },
+    {
+      "id": "unproved_intent",
+      "status": "pass"
+    },
+    {
+      "id": "dropped_unknown",
+      "status": "pass"
+    },
+    {
+      "id": "cyclic_evidence",
+      "status": "pass"
+    },
+    {
+      "id": "false_equivalence",
+      "status": "pass"
+    },
+    {
+      "id": "masquerading_parser",
+      "status": "pass"
+    }
+  ],
+  "resolver_cases": [
+    {
+      "command": [
+        "cargo",
+        "run",
+        "--offline",
+        "--locked",
+        "--quiet",
+        "--manifest-path",
+        "/tmp/goya-cortados-phase0/Cargo.toml",
+        "-p",
+        "goya-resolver",
+        "--bin",
+        "goya-resolve",
+        "--",
+        "/home/sal/goya/docs/cortados/fixtures/counter.gscene",
+        "--contract",
+        "GSSH/4-live",
+        "--viewport",
+        "320x160",
+        "--set",
+        "window.amount=1",
+        "--dispatch",
+        "action.add"
+      ],
+      "exit_code": 0,
+      "id": "counter_prefix_1",
+      "status": "pass",
+      "stderr": "",
+      "stdout": "dispatch action.add revision 1 affected window.total\nannouncement: count increased by 1, from 0 to 1\ncontract: GSSH/4-live\nphase: running\nrevision: 1\nir: unavailable\npersistence: classified-only\nperformance: standard recorded\naction action.add D1 trigger add\nstate count int 1 session\nfield window.amount 1\ndisplay window.total 1\n"
+    },
+    {
+      "command": [
+        "cargo",
+        "run",
+        "--offline",
+        "--locked",
+        "--quiet",
+        "--manifest-path",
+        "/tmp/goya-cortados-phase0/Cargo.toml",
+        "-p",
+        "goya-resolver",
+        "--bin",
+        "goya-resolve",
+        "--",
+        "/home/sal/goya/docs/cortados/fixtures/counter.gscene",
+        "--contract",
+        "GSSH/4-live",
+        "--viewport",
+        "320x160",
+        "--set",
+        "window.amount=1",
+        "--dispatch",
+        "action.add",
+        "--set",
+        "window.amount=0",
+        "--dispatch",
+        "action.add"
+      ],
+      "exit_code": 0,
+      "id": "counter_prefix_2",
+      "status": "pass",
+      "stderr": "",
+      "stdout": "dispatch action.add revision 1 affected window.total\nannouncement: count increased by 1, from 0 to 1\ndispatch action.add revision 2 affected -\ncontract: GSSH/4-live\nphase: running\nrevision: 2\nir: unavailable\npersistence: classified-only\nperformance: standard recorded\naction action.add D1 trigger add\nstate count int 1 session\nfield window.amount 0\ndisplay window.total 1\n"
+    },
+    {
+      "command": [
+        "cargo",
+        "run",
+        "--offline",
+        "--locked",
+        "--quiet",
+        "--manifest-path",
+        "/tmp/goya-cortados-phase0/Cargo.toml",
+        "-p",
+        "goya-resolver",
+        "--bin",
+        "goya-resolve",
+        "--",
+        "/home/sal/goya/docs/cortados/fixtures/counter.gscene",
+        "--contract",
+        "GSSH/4-live",
+        "--viewport",
+        "320x160",
+        "--set",
+        "window.amount=1",
+        "--dispatch",
+        "action.add",
+        "--set",
+        "window.amount=0",
+        "--dispatch",
+        "action.add",
+        "--set",
+        "window.amount=2",
+        "--dispatch",
+        "action.add"
+      ],
+      "exit_code": 0,
+      "id": "counter_prefix_3",
+      "status": "pass",
+      "stderr": "",
+      "stdout": "dispatch action.add revision 1 affected window.total\nannouncement: count increased by 1, from 0 to 1\ndispatch action.add revision 2 affected -\ndispatch action.add revision 3 affected window.total\nannouncement: count increased by 2, from 1 to 3\ncontract: GSSH/4-live\nphase: running\nrevision: 3\nir: unavailable\npersistence: classified-only\nperformance: standard recorded\naction action.add D1 trigger add\nstate count int 3 session\nfield window.amount 2\ndisplay window.total 3\n"
+    },
+    {
+      "command": [
+        "cargo",
+        "run",
+        "--offline",
+        "--locked",
+        "--quiet",
+        "--manifest-path",
+        "/tmp/goya-cortados-phase0/Cargo.toml",
+        "-p",
+        "goya-resolver",
+        "--bin",
+        "goya-resolve",
+        "--",
+        "/home/sal/goya/docs/cortados/fixtures/counter.gscene",
+        "--contract",
+        "GSSH/4-live",
+        "--viewport",
+        "320x160",
+        "--set",
+        "window.amount=01",
+        "--dispatch",
+        "action.add"
+      ],
+      "exit_code": 1,
+      "id": "noncanonical_input",
+      "status": "pass",
+      "stderr": "GY-RESOLVER-FIELD: field window.amount: field is not a canonical signed 64-bit decimal (bytes 864..896)\n",
+      "stdout": ""
+    },
+    {
+      "command": [
+        "cargo",
+        "run",
+        "--offline",
+        "--locked",
+        "--quiet",
+        "--manifest-path",
+        "/tmp/goya-cortados-phase0/Cargo.toml",
+        "-p",
+        "goya-resolver",
+        "--bin",
+        "goya-resolve",
+        "--",
+        "/home/sal/goya/docs/cortados/fixtures/counter.gscene",
+        "--contract",
+        "GSSH/4-live",
+        "--viewport",
+        "320x160",
+        "--set",
+        "window.amount=9223372036854775807",
+        "--dispatch",
+        "action.add",
+        "--set",
+        "window.amount=1",
+        "--dispatch",
+        "action.add"
+      ],
+      "exit_code": 1,
+      "id": "checked_i64_overflow",
+      "status": "pass",
+      "stderr": "GY-RESOLVER-ACTION: VmRejected(\"integer addition overflow\")\n",
+      "stdout": "dispatch action.add revision 1 affected window.total\nannouncement: count increased by 9223372036854775807, from 0 to 9223372036854775807\n"
+    }
+  ],
+  "scope": "architectural closure and hand-paired headless resolver feasibility only",
+  "structural_checks": "schema subset, canonical round-trip, hashes, spans, graph references, opaque preservation",
+  "verdict": "pass"
+}

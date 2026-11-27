@@ -1,0 +1,156 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/goya-caprichios",
+    "crates/nevada",
+    "crates/maja",
+    "crates/maja-semantic",
+    "crates/quitasol-semantic",
+    "crates/maja-frampton",
+    "crates/maja-runtime",
+    "crates/neptune",
+    "crates/dockyard",
+    "crates/sash",
+    "crates/sash-ir",
+    "crates/goya-parity",
+    "crates/goya-ir",
+    "crates/goya-state",
+    "crates/goya-romantico",
+    "crates/goya-layout",
+    "crates/goya-runtime",
+    "crates/goya-resolver",
+    "crates/goya-resolver-host",
+    "crates/goya-hello",
+    "crates/goya-chroma",
+    "crates/goya-provenance",
+    "crates/goya-clipboard",
+    "crates/goya-sonic",
+    "crates/goya-spatial-audio",
+    "crates/goya-audio-dsp",
+    "crates/goya-audio-linux",
+    "crates/goya-bridge",
+    "crates/goya-bridge-physics",
+    "crates/goya-rpi",
+    "crates/goya-speculation",
+    "crates/goya-determinism",
+    "crates/goya-executable",
+    "crates/goya-x402",
+    "crates/goya-economics",
+    "crates/goya-settlement",
+    "crates/goya-artifact",
+    "crates/goya-watermark",
+    "crates/goya-wayland",
+    "crates/goya-kumimanu",
+    "crates/goya-window-management",
+    "crates/goya-lang",
+    "crates/goya-change",
+    "crates/goya-rars",
+    "crates/goya-csr",
+    "crates/goya-hcar",
+    "crates/goya-fsc",
+    "crates/goya-ddh",
+    "crates/goya-csr-cpu",
+    "crates/goya-dgpm",
+    "crates/goya-hotswap",
+    "crates/goya-vee",
+    "crates/goya-rpi2",
+    "crates/goya-a11y",
+    "crates/goya-bench",
+    "crates/goya-tov",
+    "crates/goya-ecosystem",
+    "crates/goya-sdk",
+    "crates/goya-studio",
+    "crates/goya-zcode",
+    "crates/goya-zcode-native",
+    "crates/goya-document",
+    "crates/goya-webview",
+    "crates/goya-plugin-host",
+    "crates/goya-graphics-container",
+    "crates/goya-graphics-ir",
+    "crates/goya-gva",
+    "crates/goya-gvi",
+    "crates/goya-gru",
+    "crates/emperor",
+    "crates/emperor-runtime",
+    "crates/goya-freedesktop",
+    "crates/nebula",
+    "crates/ie-contract",
+    "crates/ie-cpu",
+    "crates/ie-loopback",
+    "crates/ie-gate",
+    "crates/ie-uds",
+    "crates/ie-conformance",
+]
+
+[workspace.package]
+version = "0.1.8"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+goya-ir = { path = "crates/goya-ir" }
+goya-state = { path = "crates/goya-state" }
+goya-romantico = { path = "crates/goya-romantico" }
+goya-layout = { path = "crates/goya-layout" }
+goya-runtime = { path = "crates/goya-runtime" }
+goya-resolver = { path = "crates/goya-resolver" }
+goya-resolver-host = { path = "crates/goya-resolver-host" }
+goya-chroma = { path = "crates/goya-chroma" }
+goya-provenance = { path = "crates/goya-provenance" }
+goya-clipboard = { path = "crates/goya-clipboard" }
+goya-sonic = { path = "crates/goya-sonic" }
+goya-spatial-audio = { path = "crates/goya-spatial-audio" }
+goya-audio-dsp = { path = "crates/goya-audio-dsp" }
+goya-audio-linux = { path = "crates/goya-audio-linux" }
+goya-bridge = { path = "crates/goya-bridge" }
+goya-bridge-physics = { path = "crates/goya-bridge-physics" }
+goya-rpi = { path = "crates/goya-rpi" }
+goya-speculation = { path = "crates/goya-speculation" }
+goya-determinism = { path = "crates/goya-determinism" }
+goya-executable = { path = "crates/goya-executable" }
+goya-x402 = { path = "crates/goya-x402" }
+goya-economics = { path = "crates/goya-economics" }
+goya-settlement = { path = "crates/goya-settlement" }
+goya-artifact = { path = "crates/goya-artifact" }
+goya-watermark = { path = "crates/goya-watermark" }
+goya-wayland = { path = "crates/goya-wayland" }
+goya-kumimanu = { path = "crates/goya-kumimanu" }
+goya-window-management = { path = "crates/goya-window-management" }
+goya-lang = { path = "crates/goya-lang" }
+goya-caprichios = { path = "crates/goya-caprichios" }
+goya-change = { path = "crates/goya-change" }
+goya-rars = { path = "crates/goya-rars" }
+goya-csr = { path = "crates/goya-csr" }
+goya-hcar = { path = "crates/goya-hcar" }
+goya-fsc = { path = "crates/goya-fsc" }
+goya-ddh = { path = "crates/goya-ddh" }
+goya-csr-cpu = { path = "crates/goya-csr-cpu" }
+goya-dgpm = { path = "crates/goya-dgpm" }
+goya-hotswap = { path = "crates/goya-hotswap" }
+goya-vee = { path = "crates/goya-vee" }
+goya-rpi2 = { path = "crates/goya-rpi2" }
+goya-a11y = { path = "crates/goya-a11y" }
+goya-bench = { path = "crates/goya-bench" }
+goya-tov = { path = "crates/goya-tov" }
+goya-ecosystem = { path = "crates/goya-ecosystem" }
+goya-sdk = { path = "crates/goya-sdk" }
+goya-webview = { path = "crates/goya-webview" }
+goya-studio = { path = "crates/goya-studio" }
+goya-graphics-container = { path = "crates/goya-graphics-container" }
+goya-graphics-ir = { path = "crates/goya-graphics-ir" }
+goya-gva = { path = "crates/goya-gva" }
+goya-gvi = { path = "crates/goya-gvi" }
+goya-gru = { path = "crates/goya-gru" }
+emperor-runtime = { path = "crates/emperor-runtime" }
+goya-freedesktop = { path = "crates/goya-freedesktop" }
+nebula = { path = "crates/nebula" }
+ie-contract = { path = "crates/ie-contract" }
+ie-cpu = { path = "crates/ie-cpu" }
+ie-loopback = { path = "crates/ie-loopback" }
+ie-gate = { path = "crates/ie-gate" }
+ie-uds = { path = "crates/ie-uds" }
+unicode-segmentation = "1.12"
+cosmic-text = "0.17"
+
+[profile.release]
+debug = true

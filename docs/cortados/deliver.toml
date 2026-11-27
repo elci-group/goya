@@ -1,0 +1,28 @@
+[[file]]
+path = "docs/cortados/README.md"
+required = true
+min_size_bytes = 8000
+require_regex = ["GOYA-DIS-CORT-001", "COR-G14", "Java Memory Model", "FAIR/2", "Decision register"]
+forbid_regex = ["TODO", "FIXME"]
+
+[[file]]
+path = "docs/cortados/phase0-audit.json"
+required = true
+min_size_bytes = 1000
+require_regex = ["GY-CORTADOS-AUDIT/0", "not_started", "sha256"]
+
+[[file]]
+path = "docs/cortados/phase0-closure.json"
+required = true
+require_regex = ["closed_architecture_only", "gpt-6-luna"]
+
+[[file]]
+path = "docs/cortados/feasibility-results.json"
+required = true
+require_regex = ["GY-CORTADOS-PHASE0-EVIDENCE/0.1", "not_established"]
+
+[[command]]
+name = "Phase 0 contracts, evidence and live resolver execution"
+cmd = ["python3", "docs/cortados/verify_phase0.py"]
+timeout_secs = 180
+expect_exit = 0

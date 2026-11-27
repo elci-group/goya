@@ -1,0 +1,2 @@
+// Metadata only. Cortados must never execute this file.
+throw new GradleException("Cortados must not execute build scripts")

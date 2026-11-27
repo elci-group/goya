@@ -1,0 +1,59 @@
+{
+  "construction": "manual_pair_not_conversion",
+  "contract": "GY-CORTADOS-FEASIBILITY/0.1",
+  "excluded": [
+    "Java differential parity",
+    "automated conversion",
+    "general Java int overflow",
+    "MVP completion",
+    "file I/O",
+    "concurrency",
+    "platform surface conformance",
+    "performance"
+  ],
+  "goya_negative_cases": [
+    {
+      "diagnostic": "GY-RESOLVER-FIELD",
+      "id": "noncanonical_input",
+      "inputs": [
+        "01"
+      ]
+    },
+    {
+      "diagnostic": "GY-RESOLVER-ACTION",
+      "id": "checked_i64_overflow",
+      "inputs": [
+        "9223372036854775807",
+        "1"
+      ]
+    }
+  ],
+  "inputs": [
+    "1",
+    "0",
+    "2"
+  ],
+  "java_output": [
+    "1|1|1",
+    "2|1|1",
+    "3|3|3"
+  ],
+  "oracle": "Independent finite arithmetic expectation; Java execution not required or claimed.",
+  "prefix_results": [
+    {
+      "count": 1,
+      "display": "1",
+      "revision": 1
+    },
+    {
+      "count": 1,
+      "display": "1",
+      "revision": 2
+    },
+    {
+      "count": 3,
+      "display": "3",
+      "revision": 3
+    }
+  ]
+}

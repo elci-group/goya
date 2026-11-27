@@ -1,0 +1,773 @@
+{
+  "base_revision": "b408ee19a15037f440db49f1cabd5ad93f660452",
+  "certification": null,
+  "closure_record": "docs/cortados/phase0-closure.json",
+  "coordination": {
+    "database": "/tmp/goya-cortados-coordination-20261126/locksmith.db",
+    "persistence": "Temporary loopback service",
+    "resource": "goya/docs/cortados"
+  },
+  "date": "2026-11-26",
+  "directive": "GOYA-DIS-CORT-001",
+  "directive_version": "1.0",
+  "environment_observations": [
+    "bart unavailable; used targeted rg and source reads.",
+    "Checkout temporarily changed to 238825a8e14b8322dfe11fb2625efb3227992934 on iberia/contract-v0.1 with conflicted Cargo.toml, then returned to baseline on Casa. Hashes were captured after baseline restoration.",
+    "Witness validation uses detached /tmp/goya-cortados-phase0 at baseline. Available audited sources archived; disappeared untracked graphics sources are explicitly unavailable."
+  ],
+  "implementation_status": "not_started",
+  "java_semantic_requirements": [
+    {
+      "admission_rule": "Only source-width range-proved scalar addition; reject all unsupported operators and overflow-capable paths. Prove bounds over the complete declared input/state scope; source-valid out-of-scope behavior must trigger conversion refusal or explicit scope restriction, never silent runtime truncation.",
+      "architecture_disposition": "conditional_mapping",
+      "closure": "Preserve int32/int64 overflow, shifts, promotions, division edge cases and evaluation order or prove range bounds.",
+      "evidence": [
+        "crates/goya-lang/src/scene.rs",
+        "crates/goya-executable/src/d1_vm.rs"
+      ],
+      "id": "COR-S001",
+      "requirement": "Fixed-width arithmetic",
+      "status": "requires_semantic_evidence"
+    },
+    {
+      "admission_rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback.",
+      "architecture_disposition": "reject_native",
+      "closure": "Define Java float/double rounding, NaN, signed zero, casts and formatting.",
+      "evidence": [
+        "crates/goya-lang/src/scene.rs",
+        "crates/goya-executable/src/d1_vm.rs"
+      ],
+      "id": "COR-S002",
+      "requirement": "Floating point",
+      "status": "requires_semantic_evidence"
+    },
+    {
+      "admission_rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback.",
+      "architecture_disposition": "reject_native",
+      "closure": "Define allocation, aliases, null, reference equality, identity hashes and cycles.",
+      "evidence": [
+        "crates/goya-lang/src/scene.rs"
+      ],
+      "id": "COR-S003",
+      "requirement": "Identity",
+      "status": "requires_semantic_evidence"
+    },
+    {
+      "admission_rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback.",
+      "architecture_disposition": "reject_native",
+      "closure": "Preserve overload resolution, virtual dispatch and superclass construction.",
+      "evidence": [
+        "crates/goya-lang/src/scene.rs",
+        "crates/goya-executable/src/d1_vm.rs"
+      ],
+      "id": "COR-S004",
+      "requirement": "Inheritance",
+      "status": "requires_semantic_evidence"
+    },
+    {
+      "admission_rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback.",
+      "architecture_disposition": "reject_native",
+      "closure": "Preserve interface/default-method dispatch and initialization.",
+      "evidence": [
+        "crates/goya-lang/src/scene.rs",
+        "crates/goya-executable/src/d1_vm.rs"
+      ],
+      "id": "COR-S005",
+      "requirement": "Interfaces",
+      "status": "requires_semantic_evidence"
+    },
+    {
+      "admission_rule": "Only erased metadata whose attributed residual behavior is already representable; reject observable casts or runtime type behavior.",
+      "architecture_disposition": "conditional_mapping",
+      "closure": "Preserve erasure, constraints, casts and erasure-dependent behavior.",
+      "evidence": [
+        "crates/goya-lang/src/scene.rs"
+      ],
+      "id": "COR-S006",
+      "requirement": "Generics",
+      "status": "requires_semantic_evidence"
+    },
+    {
+      "admission_rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback.",
+      "architecture_disposition": "reject_native",
+      "closure": "Preserve bounds, covariance, runtime component types, stores and applicable exceptions.",
+      "evidence": [
+        "crates/goya-lang/src/scene.rs"
+      ],
+      "id": "COR-S007",
+      "requirement": "Arrays",
+      "status": "requires_semantic_evidence"
+    },
+    {
+      "admission_rule": "Only event-triggered scalar assignments with at most one write per key and all reads evaluated against the original snapshot; reject Java read-after-write dependencies unless substitution proves equivalent parallel updates. No general runtime branches, loops, calls or recursion.",
+      "architecture_disposition": "conditional_mapping",
+      "closure": "Define branches, loops, calls, recursion and abrupt completion or prove specialization.",
+      "evidence": [
+        "crates/goya-lang/src/scene.rs",
+        "crates/goya-executable/src/d1_vm.rs"
+      ],
+      "id": "COR-S008",
+      "requirement": "Control flow",
+      "status": "requires_semantic_evidence"
+    },
+    {
+      "admission_rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback.",
+      "architecture_disposition": "reject_native",
+      "closure": "Preserve types, propagation, evaluation order and observable side effects.",
+      "evidence": [
+        "crates/goya-lang/src/scene.rs",
+        "crates/goya-executable/src/d1_vm.rs"
+      ],
+      "id": "COR-S009",
+      "requirement": "Exceptions",
+      "status": "requires_semantic_evidence"
+    },
+    {
+      "admission_rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback.",
+      "architecture_disposition": "reject_native",
+      "closure": "Preserve cleanup on all abrupt exits, try-with-resources order and suppressed exceptions.",
+      "evidence": [
+        "crates/goya-lang/src/scene.rs",
+        "crates/goya-executable/src/d1_vm.rs"
+      ],
+      "id": "COR-S010",
+      "requirement": "Finally",
+      "status": "requires_semantic_evidence"
+    },
+    {
+      "admission_rule": "Only Java compile-time constant variables with proof that class-initialization triggers, failure, ordering and reflection are unobservable; reject general static final initialization.",
+      "architecture_disposition": "conditional_mapping",
+      "closure": "Preserve triggers, ordering, recursion, locking and failure; never run during ingestion.",
+      "evidence": [
+        "crates/goya-resolver/src/admission.rs",
+        "crates/goya-lang/src/scene.rs"
+      ],
+      "id": "COR-S011",
+      "requirement": "Static initialization",
+      "status": "requires_semantic_evidence"
+    },
+    {
+      "admission_rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback.",
+      "architecture_disposition": "reject_native",
+      "closure": "Preserve capture, invocation and observable identity behavior.",
+      "evidence": [
+        "crates/goya-lang/src/scene.rs"
+      ],
+      "id": "COR-S012",
+      "requirement": "Lambdas",
+      "status": "requires_semantic_evidence"
+    },
+    {
+      "admission_rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback.",
+      "architecture_disposition": "reject_native",
+      "closure": "Verify nulls, equality/hash behavior, ordering, iteration and mutation per API.",
+      "evidence": [
+        "crates/goya-lang/src/scene.rs"
+      ],
+      "id": "COR-S013",
+      "requirement": "Collections",
+      "status": "requires_semantic_evidence"
+    },
+    {
+      "admission_rule": "Only well-formed Unicode text passed losslessly as literal/display; reject UTF-16 indexing and code-unit-sensitive behavior.",
+      "architecture_disposition": "conditional_mapping",
+      "closure": "Preserve Java char/String indexing, surrogate behavior and relevant exceptions.",
+      "evidence": [
+        "crates/goya-lang/src/scene.rs"
+      ],
+      "id": "COR-S014",
+      "requirement": "UTF-16 text",
+      "status": "requires_semantic_evidence"
+    },
+    {
+      "admission_rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback.",
+      "architecture_disposition": "reject_native",
+      "closure": "Resolve finite inventory or declare bounded metadata and explicit unsupported behavior.",
+      "evidence": [
+        "crates/goya-fair/src/lib.rs",
+        "crates/goya-lang/src/scene.rs"
+      ],
+      "id": "COR-S015",
+      "requirement": "Reflection",
+      "status": "requires_semantic_evidence"
+    },
+    {
+      "admission_rule": "Only metadata proven to have no runtime/processor effect; processors never execute in ingestion.",
+      "architecture_disposition": "conditional_mapping",
+      "closure": "Preserve meaningful effects; ordinary ingestion must not run processors.",
+      "evidence": [
+        "crates/goya-fair/src/lib.rs",
+        "crates/goya-lang/src/scene.rs"
+      ],
+      "id": "COR-S016",
+      "requirement": "Annotations",
+      "status": "requires_semantic_evidence"
+    },
+    {
+      "admission_rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback.",
+      "architecture_disposition": "reject_native",
+      "closure": "Prove a closed inventory or declare authorized residual boundary.",
+      "evidence": [
+        "crates/goya-fair/src/lib.rs",
+        "crates/goya-lang/src/scene.rs"
+      ],
+      "id": "COR-S017",
+      "requirement": "Dynamic class loading",
+      "status": "requires_semantic_evidence"
+    },
+    {
+      "admission_rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback.",
+      "architecture_disposition": "reject_native",
+      "closure": "Verify replacement ABI, side effects and capabilities or declare external dependency.",
+      "evidence": [
+        "crates/goya-fair/src/lib.rs"
+      ],
+      "id": "COR-S018",
+      "requirement": "JNI",
+      "status": "requires_semantic_evidence"
+    },
+    {
+      "admission_rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback.",
+      "architecture_disposition": "reject_native",
+      "closure": "Recover and verify bounded generated behavior or refuse native certification.",
+      "evidence": [
+        "crates/goya-fair/src/lib.rs",
+        "crates/goya-lang/src/scene.rs"
+      ],
+      "id": "COR-S019",
+      "requirement": "Proxies and generated classes",
+      "status": "requires_semantic_evidence"
+    },
+    {
+      "admission_rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback.",
+      "architecture_disposition": "reject_native",
+      "closure": "Account for providers and dynamic registration; conservatively preserve unknown reachability.",
+      "evidence": [
+        "crates/goya-fair/src/lib.rs"
+      ],
+      "id": "COR-S020",
+      "requirement": "Service discovery",
+      "status": "requires_semantic_evidence"
+    },
+    {
+      "admission_rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback.",
+      "architecture_disposition": "reject_native",
+      "closure": "Define weak/soft/phantom references, queues, native resource lifetime and supported GC-sensitive behavior.",
+      "evidence": [
+        "crates/goya-state/src/lib.rs",
+        "crates/goya-lang/src/scene.rs"
+      ],
+      "id": "COR-S021",
+      "requirement": "Garbage collection and references",
+      "status": "requires_semantic_evidence"
+    },
+    {
+      "admission_rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback.",
+      "architecture_disposition": "reject_native",
+      "closure": "Define Java monitor ownership and reentrancy.",
+      "evidence": [
+        "crates/goya-state/src/lib.rs",
+        "crates/goya-executable/src/d1_vm.rs"
+      ],
+      "id": "COR-S022",
+      "requirement": "Monitors",
+      "status": "requires_semantic_evidence"
+    },
+    {
+      "admission_rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback.",
+      "architecture_disposition": "reject_native",
+      "closure": "Preserve ordering and visibility; demonstrate no introduced races.",
+      "evidence": [
+        "crates/goya-state/src/lib.rs",
+        "crates/goya-executable/src/d1_vm.rs"
+      ],
+      "id": "COR-S023",
+      "requirement": "Happens-before",
+      "status": "requires_semantic_evidence"
+    },
+    {
+      "admission_rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback.",
+      "architecture_disposition": "reject_native",
+      "closure": "Define publication and supported atomic operation semantics.",
+      "evidence": [
+        "crates/goya-state/src/lib.rs",
+        "crates/goya-executable/src/d1_vm.rs"
+      ],
+      "id": "COR-S024",
+      "requirement": "Volatile and atomics",
+      "status": "requires_semantic_evidence"
+    },
+    {
+      "admission_rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback.",
+      "architecture_disposition": "reject_native",
+      "closure": "Preserve interrupt state and operation-specific behavior.",
+      "evidence": [
+        "crates/goya-state/src/lib.rs",
+        "crates/goya-executable/src/d1_vm.rs"
+      ],
+      "id": "COR-S025",
+      "requirement": "Interruption",
+      "status": "requires_semantic_evidence"
+    },
+    {
+      "admission_rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback.",
+      "architecture_disposition": "reject_native",
+      "closure": "Define wait sets, lock release/reacquisition, notification and timeouts.",
+      "evidence": [
+        "crates/goya-state/src/lib.rs",
+        "crates/goya-executable/src/d1_vm.rs"
+      ],
+      "id": "COR-S026",
+      "requirement": "Wait and notification",
+      "status": "requires_semantic_evidence"
+    },
+    {
+      "admission_rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback.",
+      "architecture_disposition": "reject_native",
+      "closure": "Preserve submission, completion, cancellation and failure contracts.",
+      "evidence": [
+        "crates/goya-state/src/lib.rs",
+        "crates/goya-executable/src/d1_vm.rs"
+      ],
+      "id": "COR-S027",
+      "requirement": "Executors and futures",
+      "status": "requires_semantic_evidence"
+    },
+    {
+      "admission_rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback.",
+      "architecture_disposition": "reject_native",
+      "closure": "Preserve supported local and inherited local behavior.",
+      "evidence": [
+        "crates/goya-state/src/lib.rs",
+        "crates/goya-executable/src/d1_vm.rs"
+      ],
+      "id": "COR-S028",
+      "requirement": "Thread-local state",
+      "status": "requires_semantic_evidence"
+    },
+    {
+      "admission_rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback.",
+      "architecture_disposition": "reject_native",
+      "closure": "Demonstrate locking and scheduling transformations preserve required observations.",
+      "evidence": [
+        "crates/goya-state/src/lib.rs",
+        "crates/goya-executable/src/d1_vm.rs"
+      ],
+      "id": "COR-S029",
+      "requirement": "Deadlock-sensitive changes",
+      "status": "requires_semantic_evidence"
+    },
+    {
+      "admission_rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback.",
+      "architecture_disposition": "reject_native",
+      "closure": "Declare supported Java profile and lifecycle/scheduling semantics or explicit exclusion.",
+      "evidence": [
+        "crates/goya-state/src/lib.rs",
+        "crates/goya-executable/src/d1_vm.rs"
+      ],
+      "id": "COR-S030",
+      "requirement": "Virtual threads",
+      "status": "requires_semantic_evidence"
+    },
+    {
+      "admission_rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback.",
+      "architecture_disposition": "reject_native",
+      "closure": "Verify actual scoped host file effects, ordering and failures; replay alone is insufficient.",
+      "evidence": [
+        "crates/goya-executable/src/d2_vm.rs",
+        "crates/goya-lang/src/handoff.rs"
+      ],
+      "id": "COR-S031",
+      "requirement": "File persistence",
+      "status": "requires_semantic_evidence"
+    },
+    {
+      "admission_rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback.",
+      "architecture_disposition": "reject_native",
+      "closure": "Verify authorized adapters, protocols, transactions and authorization boundaries.",
+      "evidence": [
+        "crates/goya-executable/src/d2_vm.rs"
+      ],
+      "id": "COR-S032",
+      "requirement": "Network and transactions",
+      "status": "requires_semantic_evidence"
+    },
+    {
+      "admission_rule": "Only finite admitted headless scenes and explicit D1 event bindings. Source must already restrict numeric input to the same canonical decimal/source-width domain, or carry an explicit narrowed execution scope; GSSH rejects +1, 01 and -0 that Java may accept. Reject framework event/lifecycle behavior and unsupported parsing without proof.",
+      "architecture_disposition": "conditional_mapping",
+      "closure": "Verify framework event ordering, EDT, bindings, custom controls and proportional layout.",
+      "evidence": [
+        "crates/goya-lang/src/scene.rs",
+        "crates/goya-resolver/src/admission.rs"
+      ],
+      "id": "COR-S033",
+      "requirement": "Interface and lifecycle",
+      "status": "requires_semantic_evidence"
+    },
+    {
+      "admission_rule": "Graphics source integration observed initially is absent from the frozen resolver baseline; reject Java graphical behavior until fidelity, bounded reachability and target admission are independently established.",
+      "architecture_disposition": "reject_native",
+      "closure": "Verify recovery, fidelity, finite reachability and target admission; handle unbounded/raster content correctly.",
+      "evidence": [
+        "crates/goya-scene-graphics/src/lib.rs",
+        "crates/goya-lang/src/scene.rs"
+      ],
+      "id": "COR-S034",
+      "requirement": "Graphics",
+      "status": "requires_semantic_evidence"
+    }
+  ],
+  "phase0_complete": true,
+  "phase0_scope": "Architecture reconciliation only; missing runtime semantics explicitly rejected, no Cortados conversion or certification.",
+  "release_gates": [
+    {
+      "id": "COR-G01",
+      "reason": "No Cortados implementation or Java conversion evidence.",
+      "status": "not_assessed"
+    },
+    {
+      "id": "COR-G02",
+      "reason": "No Cortados implementation or Java conversion evidence.",
+      "status": "not_assessed"
+    },
+    {
+      "id": "COR-G03",
+      "reason": "No Cortados implementation or Java conversion evidence.",
+      "status": "not_assessed"
+    },
+    {
+      "id": "COR-G04",
+      "reason": "No Cortados implementation or Java conversion evidence.",
+      "status": "not_assessed"
+    },
+    {
+      "id": "COR-G05",
+      "reason": "No Cortados implementation or Java conversion evidence.",
+      "status": "not_assessed"
+    },
+    {
+      "id": "COR-G06",
+      "reason": "No Cortados implementation or Java conversion evidence.",
+      "status": "not_assessed"
+    },
+    {
+      "id": "COR-G07",
+      "reason": "No Cortados implementation or Java conversion evidence.",
+      "status": "not_assessed"
+    },
+    {
+      "id": "COR-G08",
+      "reason": "No Cortados implementation or Java conversion evidence.",
+      "status": "not_assessed"
+    },
+    {
+      "id": "COR-G09",
+      "reason": "No Cortados implementation or Java conversion evidence.",
+      "status": "not_assessed"
+    },
+    {
+      "id": "COR-G10",
+      "reason": "No Cortados implementation or Java conversion evidence.",
+      "status": "not_assessed"
+    },
+    {
+      "id": "COR-G11",
+      "reason": "No Cortados implementation or Java conversion evidence.",
+      "status": "not_assessed"
+    },
+    {
+      "id": "COR-G12",
+      "reason": "No Cortados implementation or Java conversion evidence.",
+      "status": "not_assessed"
+    },
+    {
+      "id": "COR-G13",
+      "reason": "No Cortados implementation or Java conversion evidence.",
+      "status": "not_assessed"
+    },
+    {
+      "id": "COR-G14",
+      "reason": "No Cortados implementation or Java conversion evidence.",
+      "status": "not_assessed"
+    }
+  ],
+  "schema": "GY-CORTADOS-AUDIT/0",
+  "scope": "Architectural audit against archived committed baseline and separately labeled retained working-tree artifacts. Two vanished graphics artifacts are historical observations, not revalidated current support. Execution isolated from concurrent live edits.",
+  "semantic_domains": [
+    {
+      "domain": "Type",
+      "evidence": [
+        "crates/goya-lang/src/scene.rs"
+      ],
+      "status": "requires_cortados_contract"
+    },
+    {
+      "domain": "Identity",
+      "evidence": [
+        "crates/goya-lang/src/scene.rs"
+      ],
+      "status": "requires_cortados_contract"
+    },
+    {
+      "domain": "Control",
+      "evidence": [
+        "crates/goya-executable/src/d1_vm.rs"
+      ],
+      "status": "requires_cortados_contract"
+    },
+    {
+      "domain": "Memory",
+      "evidence": [
+        "crates/goya-state/src/lib.rs"
+      ],
+      "status": "requires_cortados_contract"
+    },
+    {
+      "domain": "Effects",
+      "evidence": [
+        "crates/goya-executable/src/d2_vm.rs"
+      ],
+      "status": "requires_cortados_contract"
+    },
+    {
+      "domain": "Concurrency",
+      "evidence": [
+        "crates/goya-state/src/lib.rs",
+        "crates/goya-executable/src/d1_vm.rs"
+      ],
+      "status": "requires_cortados_contract"
+    },
+    {
+      "domain": "Lifecycle",
+      "evidence": [
+        "crates/goya-resolver/src/admission.rs"
+      ],
+      "status": "requires_cortados_contract"
+    },
+    {
+      "domain": "Interface",
+      "evidence": [
+        "crates/goya-lang/src/scene.rs"
+      ],
+      "status": "requires_cortados_contract"
+    },
+    {
+      "domain": "Graphics",
+      "evidence": [
+        "crates/goya-scene-graphics/src/lib.rs"
+      ],
+      "status": "requires_cortados_contract"
+    },
+    {
+      "domain": "Dependency",
+      "evidence": [
+        "crates/goya-fair/src/lib.rs"
+      ],
+      "status": "requires_cortados_contract"
+    },
+    {
+      "domain": "Provenance",
+      "evidence": [
+        "crates/goya-fair/src/lib.rs",
+        "crates/goya-lang/src/handoff.rs"
+      ],
+      "status": "requires_cortados_contract"
+    }
+  ],
+  "sources": {
+    "Cargo.toml": {
+      "available": true,
+      "bytes": 5234,
+      "origin": "committed_baseline",
+      "revision": "b408ee19a15037f440db49f1cabd5ad93f660452",
+      "sha256": "eb959d0682ce747728dc62e5027c565118d0e721feb859d25437150f053be394",
+      "snapshot": "docs/cortados/evidence/Cargo.toml"
+    },
+    "crates/goya-diablos/src/certification/inquisition.rs": {
+      "available": true,
+      "bytes": 3981,
+      "origin": "retained_working_tree_artifact",
+      "revision": null,
+      "sha256": "e6c1995e9228afee49f8866c7e7c17083fa9d5fa903ab1c5760b1f4b31580cbf",
+      "snapshot": "docs/cortados/evidence/crates/goya-diablos/src/certification/inquisition.rs"
+    },
+    "crates/goya-disparate-electron/README.md": {
+      "available": true,
+      "bytes": 8104,
+      "origin": "retained_working_tree_artifact",
+      "revision": null,
+      "sha256": "28c6796968f27e5e979f2a583fc7e9b0e079cdd6c8ced6cad7b38006d4ae64b9",
+      "snapshot": "docs/cortados/evidence/crates/goya-disparate-electron/README.md"
+    },
+    "crates/goya-executable/src/d1_vm.rs": {
+      "available": true,
+      "bytes": 50124,
+      "origin": "committed_baseline",
+      "revision": "b408ee19a15037f440db49f1cabd5ad93f660452",
+      "sha256": "7e9558ab433203b74621a4f617f8cfe68ab5ff59ba1e1abba7b0b052b4ad8a62",
+      "snapshot": "docs/cortados/evidence/crates/goya-executable/src/d1_vm.rs"
+    },
+    "crates/goya-executable/src/d2_vm.rs": {
+      "available": true,
+      "bytes": 43764,
+      "origin": "committed_baseline",
+      "revision": "b408ee19a15037f440db49f1cabd5ad93f660452",
+      "sha256": "ca673be2ccb5a7831add2fb520e14c3b7b431cae7b4dbd20fb9be21a3a925208",
+      "snapshot": "docs/cortados/evidence/crates/goya-executable/src/d2_vm.rs"
+    },
+    "crates/goya-executable/src/lib.rs": {
+      "available": true,
+      "bytes": 8639,
+      "origin": "committed_baseline",
+      "revision": "b408ee19a15037f440db49f1cabd5ad93f660452",
+      "sha256": "a6c7254aa652560cac66368cbc5a30c7bc9c970dc2e0571ad37cf0f7cf5a739e",
+      "snapshot": "docs/cortados/evidence/crates/goya-executable/src/lib.rs"
+    },
+    "crates/goya-fair/src/lib.rs": {
+      "available": true,
+      "bytes": 36118,
+      "origin": "retained_working_tree_artifact",
+      "revision": null,
+      "sha256": "c20370cbc98fee14b888aa4607c2e509e9e706102757e3f99780d07f5d46dd0d",
+      "snapshot": "docs/cortados/evidence/crates/goya-fair/src/lib.rs"
+    },
+    "crates/goya-lang/src/gestures.rs": {
+      "available": true,
+      "bytes": 19938,
+      "origin": "committed_baseline",
+      "revision": "b408ee19a15037f440db49f1cabd5ad93f660452",
+      "sha256": "e2a30280f0efad5edeb0ede45ff8e7659c2dfa8fe128cad18fbc1305064c1799",
+      "snapshot": "docs/cortados/evidence/crates/goya-lang/src/gestures.rs"
+    },
+    "crates/goya-lang/src/graphic.rs": {
+      "available": false,
+      "bytes": 18264,
+      "origin": "historical_observation_unavailable",
+      "reason": "Working-tree artifact disappeared during concurrent checkout changes; last-observed hash retained but cannot be revalidated. No present native mapping relies on it.",
+      "sha256": "d03c903f018c075b627859d992fc32f7e16b794bad784f7aaeb2f73c07bea774",
+      "snapshot": null
+    },
+    "crates/goya-lang/src/handoff.rs": {
+      "available": true,
+      "bytes": 15499,
+      "origin": "committed_baseline",
+      "revision": "b408ee19a15037f440db49f1cabd5ad93f660452",
+      "sha256": "52879981c714669e81b49214eede2eb21c998f2cbb4730a3e0ac44acfb5e9d9f",
+      "snapshot": "docs/cortados/evidence/crates/goya-lang/src/handoff.rs"
+    },
+    "crates/goya-lang/src/intents.rs": {
+      "available": true,
+      "bytes": 12679,
+      "origin": "committed_baseline",
+      "revision": "b408ee19a15037f440db49f1cabd5ad93f660452",
+      "sha256": "71df6753860294b249cdb6f21afcbec6803e0ac13059fa66b56d5cfdd8401f72",
+      "snapshot": "docs/cortados/evidence/crates/goya-lang/src/intents.rs"
+    },
+    "crates/goya-lang/src/lib.rs": {
+      "available": true,
+      "bytes": 35303,
+      "origin": "committed_baseline",
+      "revision": "b408ee19a15037f440db49f1cabd5ad93f660452",
+      "sha256": "833fa6dc15ca51b8eae7dab1099f1ed6c5ec7814307d7f780283a6254dd16a92",
+      "snapshot": "docs/cortados/evidence/crates/goya-lang/src/lib.rs"
+    },
+    "crates/goya-lang/src/scene.rs": {
+      "available": true,
+      "bytes": 33297,
+      "origin": "committed_baseline",
+      "revision": "b408ee19a15037f440db49f1cabd5ad93f660452",
+      "sha256": "3f3cf1ff51fd05710758b365e5c1812d877c38c1b080202ffb3bb9ebada35a15",
+      "snapshot": "docs/cortados/evidence/crates/goya-lang/src/scene.rs"
+    },
+    "crates/goya-lang/src/transition.rs": {
+      "available": true,
+      "bytes": 46312,
+      "origin": "committed_baseline",
+      "revision": "b408ee19a15037f440db49f1cabd5ad93f660452",
+      "sha256": "4103e053e3e63595d9535ae2ddb6f6e34dc3956bf8227ed40b13ba93622bd0dd",
+      "snapshot": "docs/cortados/evidence/crates/goya-lang/src/transition.rs"
+    },
+    "crates/goya-resolver/src/admission.rs": {
+      "available": true,
+      "bytes": 7303,
+      "origin": "committed_baseline",
+      "revision": "b408ee19a15037f440db49f1cabd5ad93f660452",
+      "sha256": "f727773b8731bc3daae8b33444a9c9b5ed050134efaa928029f998c9e8208b5a",
+      "snapshot": "docs/cortados/evidence/crates/goya-resolver/src/admission.rs"
+    },
+    "crates/goya-resolver/src/execution.rs": {
+      "available": true,
+      "bytes": 14027,
+      "origin": "committed_baseline",
+      "revision": "b408ee19a15037f440db49f1cabd5ad93f660452",
+      "sha256": "41974c8f44672023ce3722269537d10e10e614031a21229888506a2d90c20967",
+      "snapshot": "docs/cortados/evidence/crates/goya-resolver/src/execution.rs"
+    },
+    "crates/goya-scene-graphics/src/lib.rs": {
+      "available": false,
+      "bytes": 20316,
+      "origin": "historical_observation_unavailable",
+      "reason": "Working-tree artifact disappeared during concurrent checkout changes; last-observed hash retained but cannot be revalidated. No present native mapping relies on it.",
+      "sha256": "c7323c43b34ec5951ab988248351304276069f577b19b3714c19dec3c51de616",
+      "snapshot": null
+    },
+    "crates/goya-state/src/lib.rs": {
+      "available": true,
+      "bytes": 8318,
+      "origin": "committed_baseline",
+      "revision": "b408ee19a15037f440db49f1cabd5ad93f660452",
+      "sha256": "20c192c201c02df159ea3d96347926870762f77a83b178bedcffea43883e3caa",
+      "snapshot": "docs/cortados/evidence/crates/goya-state/src/lib.rs"
+    },
+    "docs/disparates/contracts/fair-2.md": {
+      "available": true,
+      "bytes": 5961,
+      "origin": "retained_working_tree_artifact",
+      "revision": null,
+      "sha256": "ebd2b81adc4a3ce15256870429344ad8b581c88f5023afe4eafb1ade6dc84ae5",
+      "snapshot": "docs/cortados/evidence/docs/disparates/contracts/fair-2.md"
+    },
+    "docs/disparates/roadmap.md": {
+      "available": true,
+      "bytes": 6243,
+      "origin": "retained_working_tree_artifact",
+      "revision": null,
+      "sha256": "16aca9c6b89f509ef9dbb99e98222deb3a316912b9908efa3079a3f8d4c30af2",
+      "snapshot": "docs/cortados/evidence/docs/disparates/roadmap.md"
+    },
+    "docs/graphics/README.md": {
+      "available": true,
+      "bytes": 8519,
+      "origin": "committed_baseline",
+      "revision": "b408ee19a15037f440db49f1cabd5ad93f660452",
+      "sha256": "10ee9d8b46cd4984513740f589fd4568f5b07b946123a722ceb174aaa28c76d0",
+      "snapshot": "docs/cortados/evidence/docs/graphics/README.md"
+    },
+    "docs/gssh/GSSH-2.md": {
+      "available": true,
+      "bytes": 20969,
+      "origin": "committed_baseline",
+      "revision": "b408ee19a15037f440db49f1cabd5ad93f660452",
+      "sha256": "592396d87475b5d0689c0516132f978a92085ba58906623b4f1d6a16658ecdf6",
+      "snapshot": "docs/cortados/evidence/docs/gssh/GSSH-2.md"
+    },
+    "docs/romantico/protocol.md": {
+      "available": true,
+      "bytes": 4400,
+      "origin": "committed_baseline",
+      "revision": "b408ee19a15037f440db49f1cabd5ad93f660452",
+      "sha256": "f7808d50f37a9d1d717c442e36e5771a3f1be5d25e205f3640be4eae0ffd24be",
+      "snapshot": "docs/cortados/evidence/docs/romantico/protocol.md"
+    }
+  },
+  "validation": [
+    {
+      "command": "cargo test -p goya-fair -p goya-executable -p goya-resolver --offline --quiet",
+      "exit_code": 0,
+      "scope": "Existing infrastructure only; not Cortados admission.",
+      "tests_failed": 0,
+      "tests_passed": 93
+    }
+  ],
+  "working_tree_dirty": true
+}

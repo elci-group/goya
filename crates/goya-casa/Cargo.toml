@@ -1,0 +1,55 @@
+[package]
+name = "goya-casa"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "CASA — CSS-to-.gscene semantic transformation infrastructure (GOYA-DIS-CASA-001)"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "casa"
+path = "src/cli/main.rs"
+
+[dependencies]
+# Workspace dependencies
+goya-css-syntax = { path = "../goya-css-syntax" }
+goya-html-tokenizer = { path = "../goya-html-tokenizer" }
+goya-fair = { path = "../goya-fair" }
+goya-disparate-electron = { path = "../goya-disparate-electron" }
+goya-lang = { path = "../goya-lang" }
+goya-gvi = { path = "../goya-gvi" }
+goya-gva = { path = "../goya-gva" }
+goya-gru = { path = "../goya-gru" }
+goya-graphics-ir = { path = "../goya-graphics-ir" }
+goya-caprichios = { path = "../goya-caprichios" }
+goya-chromatics = { path = "../goya-chromatics" }
+goya-cue = { path = "../goya-cue" }
+goya-ir = { path = "../goya-ir" }
+goya-state = { path = "../goya-state" }
+goya-runtime = { path = "../goya-runtime" }
+goya-layout = { path = "../goya-layout" }
+goya-romantico = { path = "../goya-romantico" }
+goya-provenance = { path = "../goya-provenance" }
+goya-change = { path = "../goya-change" }
+goya-artifact = { path = "../goya-artifact" }
+
+# External dependencies
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+thiserror = "1"
+clap = { version = "4", features = ["derive"] }
+cssparser = "0.29"
+selectors = "0.24"
+arc-swap = "1"
+parking_lot = "0.12"
+
+[dev-dependencies]
+proptest = "1"
+criterion = "0.5"
+
+[profile.release]
+debug = true

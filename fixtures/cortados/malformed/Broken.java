@@ -1,0 +1,2 @@
+class Broken {
+    int value = ;

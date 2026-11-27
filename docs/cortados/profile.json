@@ -1,0 +1,479 @@
+{
+  "contract": "GY-CORTADOS-PROFILE/0.1",
+  "id": "CORTADOS-JAVA-SOURCE/17.0",
+  "implementation_available": false,
+  "native": {
+    "complete_mvc": false,
+    "execution_path": "GY-RESOLVER/0.1 headless",
+    "fallback": "none",
+    "gssh": "GSSH/4-live",
+    "mode": "strict-native",
+    "profile": "CORTADOS-NATIVE-SCALAR/0.1",
+    "requirement_coverage": "All 34 requirements from the initial audit; all 11 CSIR domains; source-profile requirements listed separately.",
+    "requirements": [
+      {
+        "diagnostic": "COR-E200",
+        "disposition": "conditional_mapping",
+        "evidence": [
+          "crates/goya-lang/src/scene.rs",
+          "crates/goya-executable/src/d1_vm.rs"
+        ],
+        "future_closure": "Preserve int32/int64 overflow, shifts, promotions, division edge cases and evaluation order or prove range bounds.",
+        "id": "COR-S001",
+        "requirement": "Fixed-width arithmetic",
+        "rule": "Only source-width range-proved scalar addition; reject all unsupported operators and overflow-capable paths. Prove bounds over the complete declared input/state scope; source-valid out-of-scope behavior must trigger conversion refusal or explicit scope restriction, never silent runtime truncation."
+      },
+      {
+        "diagnostic": "COR-E200",
+        "disposition": "reject_native",
+        "evidence": [
+          "crates/goya-lang/src/scene.rs",
+          "crates/goya-executable/src/d1_vm.rs"
+        ],
+        "future_closure": "Define Java float/double rounding, NaN, signed zero, casts and formatting.",
+        "id": "COR-S002",
+        "requirement": "Floating point",
+        "rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback."
+      },
+      {
+        "diagnostic": "COR-E200",
+        "disposition": "reject_native",
+        "evidence": [
+          "crates/goya-lang/src/scene.rs"
+        ],
+        "future_closure": "Define allocation, aliases, null, reference equality, identity hashes and cycles.",
+        "id": "COR-S003",
+        "requirement": "Identity",
+        "rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback."
+      },
+      {
+        "diagnostic": "COR-E200",
+        "disposition": "reject_native",
+        "evidence": [
+          "crates/goya-lang/src/scene.rs",
+          "crates/goya-executable/src/d1_vm.rs"
+        ],
+        "future_closure": "Preserve overload resolution, virtual dispatch and superclass construction.",
+        "id": "COR-S004",
+        "requirement": "Inheritance",
+        "rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback."
+      },
+      {
+        "diagnostic": "COR-E200",
+        "disposition": "reject_native",
+        "evidence": [
+          "crates/goya-lang/src/scene.rs",
+          "crates/goya-executable/src/d1_vm.rs"
+        ],
+        "future_closure": "Preserve interface/default-method dispatch and initialization.",
+        "id": "COR-S005",
+        "requirement": "Interfaces",
+        "rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback."
+      },
+      {
+        "diagnostic": "COR-E200",
+        "disposition": "conditional_mapping",
+        "evidence": [
+          "crates/goya-lang/src/scene.rs"
+        ],
+        "future_closure": "Preserve erasure, constraints, casts and erasure-dependent behavior.",
+        "id": "COR-S006",
+        "requirement": "Generics",
+        "rule": "Only erased metadata whose attributed residual behavior is already representable; reject observable casts or runtime type behavior."
+      },
+      {
+        "diagnostic": "COR-E200",
+        "disposition": "reject_native",
+        "evidence": [
+          "crates/goya-lang/src/scene.rs"
+        ],
+        "future_closure": "Preserve bounds, covariance, runtime component types, stores and applicable exceptions.",
+        "id": "COR-S007",
+        "requirement": "Arrays",
+        "rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback."
+      },
+      {
+        "diagnostic": "COR-E200",
+        "disposition": "conditional_mapping",
+        "evidence": [
+          "crates/goya-lang/src/scene.rs",
+          "crates/goya-executable/src/d1_vm.rs"
+        ],
+        "future_closure": "Define branches, loops, calls, recursion and abrupt completion or prove specialization.",
+        "id": "COR-S008",
+        "requirement": "Control flow",
+        "rule": "Only event-triggered scalar assignments with at most one write per key and all reads evaluated against the original snapshot; reject Java read-after-write dependencies unless substitution proves equivalent parallel updates. No general runtime branches, loops, calls or recursion."
+      },
+      {
+        "diagnostic": "COR-E200",
+        "disposition": "reject_native",
+        "evidence": [
+          "crates/goya-lang/src/scene.rs",
+          "crates/goya-executable/src/d1_vm.rs"
+        ],
+        "future_closure": "Preserve types, propagation, evaluation order and observable side effects.",
+        "id": "COR-S009",
+        "requirement": "Exceptions",
+        "rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback."
+      },
+      {
+        "diagnostic": "COR-E200",
+        "disposition": "reject_native",
+        "evidence": [
+          "crates/goya-lang/src/scene.rs",
+          "crates/goya-executable/src/d1_vm.rs"
+        ],
+        "future_closure": "Preserve cleanup on all abrupt exits, try-with-resources order and suppressed exceptions.",
+        "id": "COR-S010",
+        "requirement": "Finally",
+        "rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback."
+      },
+      {
+        "diagnostic": "COR-E200",
+        "disposition": "conditional_mapping",
+        "evidence": [
+          "crates/goya-resolver/src/admission.rs",
+          "crates/goya-lang/src/scene.rs"
+        ],
+        "future_closure": "Preserve triggers, ordering, recursion, locking and failure; never run during ingestion.",
+        "id": "COR-S011",
+        "requirement": "Static initialization",
+        "rule": "Only Java compile-time constant variables with proof that class-initialization triggers, failure, ordering and reflection are unobservable; reject general static final initialization."
+      },
+      {
+        "diagnostic": "COR-E200",
+        "disposition": "reject_native",
+        "evidence": [
+          "crates/goya-lang/src/scene.rs"
+        ],
+        "future_closure": "Preserve capture, invocation and observable identity behavior.",
+        "id": "COR-S012",
+        "requirement": "Lambdas",
+        "rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback."
+      },
+      {
+        "diagnostic": "COR-E200",
+        "disposition": "reject_native",
+        "evidence": [
+          "crates/goya-lang/src/scene.rs"
+        ],
+        "future_closure": "Verify nulls, equality/hash behavior, ordering, iteration and mutation per API.",
+        "id": "COR-S013",
+        "requirement": "Collections",
+        "rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback."
+      },
+      {
+        "diagnostic": "COR-E200",
+        "disposition": "conditional_mapping",
+        "evidence": [
+          "crates/goya-lang/src/scene.rs"
+        ],
+        "future_closure": "Preserve Java char/String indexing, surrogate behavior and relevant exceptions.",
+        "id": "COR-S014",
+        "requirement": "UTF-16 text",
+        "rule": "Only well-formed Unicode text passed losslessly as literal/display; reject UTF-16 indexing and code-unit-sensitive behavior."
+      },
+      {
+        "diagnostic": "COR-E210",
+        "disposition": "reject_native",
+        "evidence": [
+          "crates/goya-fair/src/lib.rs",
+          "crates/goya-lang/src/scene.rs"
+        ],
+        "future_closure": "Resolve finite inventory or declare bounded metadata and explicit unsupported behavior.",
+        "id": "COR-S015",
+        "requirement": "Reflection",
+        "rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback."
+      },
+      {
+        "diagnostic": "COR-E200",
+        "disposition": "conditional_mapping",
+        "evidence": [
+          "crates/goya-fair/src/lib.rs",
+          "crates/goya-lang/src/scene.rs"
+        ],
+        "future_closure": "Preserve meaningful effects; ordinary ingestion must not run processors.",
+        "id": "COR-S016",
+        "requirement": "Annotations",
+        "rule": "Only metadata proven to have no runtime/processor effect; processors never execute in ingestion."
+      },
+      {
+        "diagnostic": "COR-E210",
+        "disposition": "reject_native",
+        "evidence": [
+          "crates/goya-fair/src/lib.rs",
+          "crates/goya-lang/src/scene.rs"
+        ],
+        "future_closure": "Prove a closed inventory or declare authorized residual boundary.",
+        "id": "COR-S017",
+        "requirement": "Dynamic class loading",
+        "rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback."
+      },
+      {
+        "diagnostic": "COR-E220",
+        "disposition": "reject_native",
+        "evidence": [
+          "crates/goya-fair/src/lib.rs"
+        ],
+        "future_closure": "Verify replacement ABI, side effects and capabilities or declare external dependency.",
+        "id": "COR-S018",
+        "requirement": "JNI",
+        "rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback."
+      },
+      {
+        "diagnostic": "COR-E210",
+        "disposition": "reject_native",
+        "evidence": [
+          "crates/goya-fair/src/lib.rs",
+          "crates/goya-lang/src/scene.rs"
+        ],
+        "future_closure": "Recover and verify bounded generated behavior or refuse native certification.",
+        "id": "COR-S019",
+        "requirement": "Proxies and generated classes",
+        "rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback."
+      },
+      {
+        "diagnostic": "COR-E210",
+        "disposition": "reject_native",
+        "evidence": [
+          "crates/goya-fair/src/lib.rs"
+        ],
+        "future_closure": "Account for providers and dynamic registration; conservatively preserve unknown reachability.",
+        "id": "COR-S020",
+        "requirement": "Service discovery",
+        "rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback."
+      },
+      {
+        "diagnostic": "COR-E200",
+        "disposition": "reject_native",
+        "evidence": [
+          "crates/goya-state/src/lib.rs",
+          "crates/goya-lang/src/scene.rs"
+        ],
+        "future_closure": "Define weak/soft/phantom references, queues, native resource lifetime and supported GC-sensitive behavior.",
+        "id": "COR-S021",
+        "requirement": "Garbage collection and references",
+        "rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback."
+      },
+      {
+        "diagnostic": "COR-E410",
+        "disposition": "reject_native",
+        "evidence": [
+          "crates/goya-state/src/lib.rs",
+          "crates/goya-executable/src/d1_vm.rs"
+        ],
+        "future_closure": "Define Java monitor ownership and reentrancy.",
+        "id": "COR-S022",
+        "requirement": "Monitors",
+        "rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback."
+      },
+      {
+        "diagnostic": "COR-E410",
+        "disposition": "reject_native",
+        "evidence": [
+          "crates/goya-state/src/lib.rs",
+          "crates/goya-executable/src/d1_vm.rs"
+        ],
+        "future_closure": "Preserve ordering and visibility; demonstrate no introduced races.",
+        "id": "COR-S023",
+        "requirement": "Happens-before",
+        "rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback."
+      },
+      {
+        "diagnostic": "COR-E410",
+        "disposition": "reject_native",
+        "evidence": [
+          "crates/goya-state/src/lib.rs",
+          "crates/goya-executable/src/d1_vm.rs"
+        ],
+        "future_closure": "Define publication and supported atomic operation semantics.",
+        "id": "COR-S024",
+        "requirement": "Volatile and atomics",
+        "rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback."
+      },
+      {
+        "diagnostic": "COR-E410",
+        "disposition": "reject_native",
+        "evidence": [
+          "crates/goya-state/src/lib.rs",
+          "crates/goya-executable/src/d1_vm.rs"
+        ],
+        "future_closure": "Preserve interrupt state and operation-specific behavior.",
+        "id": "COR-S025",
+        "requirement": "Interruption",
+        "rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback."
+      },
+      {
+        "diagnostic": "COR-E410",
+        "disposition": "reject_native",
+        "evidence": [
+          "crates/goya-state/src/lib.rs",
+          "crates/goya-executable/src/d1_vm.rs"
+        ],
+        "future_closure": "Define wait sets, lock release/reacquisition, notification and timeouts.",
+        "id": "COR-S026",
+        "requirement": "Wait and notification",
+        "rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback."
+      },
+      {
+        "diagnostic": "COR-E410",
+        "disposition": "reject_native",
+        "evidence": [
+          "crates/goya-state/src/lib.rs",
+          "crates/goya-executable/src/d1_vm.rs"
+        ],
+        "future_closure": "Preserve submission, completion, cancellation and failure contracts.",
+        "id": "COR-S027",
+        "requirement": "Executors and futures",
+        "rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback."
+      },
+      {
+        "diagnostic": "COR-E410",
+        "disposition": "reject_native",
+        "evidence": [
+          "crates/goya-state/src/lib.rs",
+          "crates/goya-executable/src/d1_vm.rs"
+        ],
+        "future_closure": "Preserve supported local and inherited local behavior.",
+        "id": "COR-S028",
+        "requirement": "Thread-local state",
+        "rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback."
+      },
+      {
+        "diagnostic": "COR-E410",
+        "disposition": "reject_native",
+        "evidence": [
+          "crates/goya-state/src/lib.rs",
+          "crates/goya-executable/src/d1_vm.rs"
+        ],
+        "future_closure": "Demonstrate locking and scheduling transformations preserve required observations.",
+        "id": "COR-S029",
+        "requirement": "Deadlock-sensitive changes",
+        "rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback."
+      },
+      {
+        "diagnostic": "COR-E410",
+        "disposition": "reject_native",
+        "evidence": [
+          "crates/goya-state/src/lib.rs",
+          "crates/goya-executable/src/d1_vm.rs"
+        ],
+        "future_closure": "Declare supported Java profile and lifecycle/scheduling semantics or explicit exclusion.",
+        "id": "COR-S030",
+        "requirement": "Virtual threads",
+        "rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback."
+      },
+      {
+        "diagnostic": "COR-E200",
+        "disposition": "reject_native",
+        "evidence": [
+          "crates/goya-executable/src/d2_vm.rs",
+          "crates/goya-lang/src/handoff.rs"
+        ],
+        "future_closure": "Verify actual scoped host file effects, ordering and failures; replay alone is insufficient.",
+        "id": "COR-S031",
+        "requirement": "File persistence",
+        "rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback."
+      },
+      {
+        "diagnostic": "COR-E200",
+        "disposition": "reject_native",
+        "evidence": [
+          "crates/goya-executable/src/d2_vm.rs"
+        ],
+        "future_closure": "Verify authorized adapters, protocols, transactions and authorization boundaries.",
+        "id": "COR-S032",
+        "requirement": "Network and transactions",
+        "rule": "Reachable behavior requiring this semantic domain blocks native conversion; no implicit JVM/compatibility fallback."
+      },
+      {
+        "diagnostic": "COR-E300",
+        "disposition": "conditional_mapping",
+        "evidence": [
+          "crates/goya-lang/src/scene.rs",
+          "crates/goya-resolver/src/admission.rs"
+        ],
+        "future_closure": "Verify framework event ordering, EDT, bindings, custom controls and proportional layout.",
+        "id": "COR-S033",
+        "requirement": "Interface and lifecycle",
+        "rule": "Only finite admitted headless scenes and explicit D1 event bindings. Source must already restrict numeric input to the same canonical decimal/source-width domain, or carry an explicit narrowed execution scope; GSSH rejects +1, 01 and -0 that Java may accept. Reject framework event/lifecycle behavior and unsupported parsing without proof."
+      },
+      {
+        "diagnostic": "COR-E320",
+        "disposition": "reject_native",
+        "evidence": [
+          "crates/goya-scene-graphics/src/lib.rs",
+          "crates/goya-lang/src/scene.rs"
+        ],
+        "future_closure": "Verify recovery, fidelity, finite reachability and target admission; handle unbounded/raster content correctly.",
+        "id": "COR-S034",
+        "requirement": "Graphics",
+        "rule": "Graphics source integration observed initially is absent from the frozen resolver baseline; reject Java graphical behavior until fidelity, bounded reachability and target admission are independently established."
+      }
+    ]
+  },
+  "security": {
+    "archives": {
+      "admitted": false,
+      "max_compressed_bytes": 268435456,
+      "max_entries": 20000,
+      "max_entry_bytes": 33554432,
+      "max_expanded_bytes": 536870912,
+      "max_nested_expansion": 0,
+      "max_ratio": 100
+    },
+    "execute_input": false,
+    "follow_symlinks": false,
+    "limits": {
+      "max_ast_depth": 256,
+      "max_entries": 20000,
+      "max_file_bytes": 33554432,
+      "max_path_bytes": 1048576,
+      "max_path_depth": 64,
+      "max_seconds_per_file": 60,
+      "max_tokens_per_file": 8000000,
+      "max_total_bytes": 536870912
+    },
+    "offline": true
+  },
+  "source": {
+    "compiler_options": "Record release/source/target/encoding values when literal; mismatches or computed values require diagnostics.",
+    "deferred_formats": [
+      ".class",
+      ".jar",
+      ".war",
+      ".aar",
+      ".dex",
+      ".fxml",
+      "Android XML semantic recovery"
+    ],
+    "encoding": "UTF-8",
+    "generated_sources": "Only explicitly supplied source; processors/plugins remain disabled.",
+    "grammar_coverage_required": [
+      "records",
+      "sealed classes",
+      "text blocks",
+      "switch expressions",
+      "local and anonymous classes",
+      "module-info.java",
+      "all non-preview Java SE 17 source forms"
+    ],
+    "input_formats": [
+      "directory",
+      ".java",
+      ".properties",
+      "pom.xml",
+      "build.gradle",
+      "build.gradle.kts",
+      "module-info.java"
+    ],
+    "module_policy": "Inventory packages/modules and supplied classpath/module-path; unresolved symbols block completeness, never imply absent code.",
+    "parse_completeness": "Phase1 evidence required; source eligibility is not a claim of parsing, attribution or native execution support.",
+    "preview": false,
+    "release": 17,
+    "source_roots": "Explicit supplied roots; never execute build configuration to infer roots.",
+    "symbol_policy": "Only explicitly supplied versioned Java17 symbol inventories; absent JDK/API symbols stay unresolved.",
+    "unicode_escapes": "Translate per Java lexical rules before tokenization; map translated offsets to exact original UTF-8 byte ranges."
+  },
+  "status": "architecture_baseline"
+}

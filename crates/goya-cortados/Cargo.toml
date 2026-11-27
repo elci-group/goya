@@ -1,0 +1,21 @@
+[package]
+name = "goya-cortados"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Offline Java source analysis and FAIR-linked CSIR for Cortados"
+
+[dependencies]
+goya-fair = { path = "../goya-fair" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tree-sitter = "=0.25.10"
+tree-sitter-java = "=0.23.5"
+libc = "0.2"
+unicode-normalization = "0.1"
+
+[[bin]]
+name = "cortados"
+path = "src/main.rs"

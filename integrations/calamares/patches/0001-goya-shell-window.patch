@@ -1,0 +1,160 @@
+diff --git a/src/calamares/CalamaresWindow.cpp b/src/calamares/CalamaresWindow.cpp
+index bad0480..79eb5d2 100644
+--- a/src/calamares/CalamaresWindow.cpp
++++ b/src/calamares/CalamaresWindow.cpp
+@@ -33,6 +33,10 @@
+ #include <QFile>
+ #include <QFileInfo>
+ #include <QLabel>
++#include <QJsonArray>
++#include <QJsonDocument>
++#include <QJsonObject>
++#include <QHash>
+ #ifdef WITH_QML
+ #include <QQmlContext>
+ #include <QQmlEngine>
+@@ -41,6 +45,118 @@
+ #endif
+ #include <QTreeView>
+ 
++// The wizard chrome is laid out from the canonical GSSH/4 scene in goya/shell.gscene.
++// The generated JSON is embedded as a resource; ViewManager still owns the
++// current module widget, validation, navigation, and install jobs.
++static QWidget*
++createGoyaShell( Calamares::ViewManager* manager, QWidget* parent )
++{
++    QFile source( QStringLiteral( ":/goya-shell.layout.json" ) );
++    if ( !source.open( QIODevice::ReadOnly ) )
++    {
++        return nullptr;
++    }
++    const auto document = QJsonDocument::fromJson( source.readAll() );
++    if ( !document.isObject() || document.object().value( QStringLiteral( "contract" ) ).toString() != QStringLiteral( "GSSH/4" ) )
++    {
++        return nullptr;
++    }
++    QHash< QString, QJsonObject > nodes;
++    for ( const auto& value : document.object().value( QStringLiteral( "nodes" ) ).toArray() )
++    {
++        const auto node = value.toObject();
++        nodes.insert( node.value( QStringLiteral( "id" ) ).toString(), node );
++    }
++    for ( const auto& id : { "shell.header", "shell.sidebar", "shell.content", "shell.footer", "shell.back", "shell.next", "shell.quit" } )
++    {
++        if ( !nodes.contains( QString::fromLatin1( id ) ) )
++        {
++            return nullptr;
++        }
++    }
++    auto color = [ &nodes ]( const char* id ) {
++        const auto rgb = nodes.value( QString::fromLatin1( id ) ).value( QStringLiteral( "fill" ) ).toInt();
++        return QStringLiteral( "#%1" ).arg( rgb, 6, 16, QLatin1Char( '0' ) );
++    };
++    auto panel = [ &color ]( const char* id, QWidget* owner ) {
++        auto* widget = new QWidget( owner );
++        widget->setStyleSheet( QStringLiteral( "background-color: %1;" ).arg( color( id ) ) );
++        return widget;
++    };
++    auto* root = panel( "shell.root", parent );
++    auto* header = panel( "shell.header", root );
++    auto* sidebar = panel( "shell.sidebar", root );
++    auto* footer = panel( "shell.footer", root );
++    auto* title = new QLabel( nodes.value( QStringLiteral( "shell.title" ) ).value( QStringLiteral( "text" ) ).toString(), header );
++    title->setStyleSheet( QStringLiteral( "color: white; font-weight: bold; font-size: %1px;" )
++                              .arg( nodes.value( QStringLiteral( "shell.title" ) ).value( QStringLiteral( "text_size" ) ).toInt() ) );
++    auto* headerLayout = new QHBoxLayout( header );
++    headerLayout->addWidget( title );
++    auto* step = new QLabel( sidebar );
++    step->setStyleSheet( QStringLiteral( "color: white; font-size: 18px;" ) );
++    auto* progress = new QLabel( sidebar );
++    progress->setStyleSheet( QStringLiteral( "color: #b8cbd4;" ) );
++    auto* sidebarLayout = new QVBoxLayout( sidebar );
++    sidebarLayout->addWidget( step );
++    sidebarLayout->addWidget( progress );
++    sidebarLayout->addStretch();
++    auto refreshStep = [ manager, step, progress ]() {
++        const auto* current = manager->currentStep();
++        step->setText( current ? current->prettyName() : QString() );
++        progress->setText( QStringLiteral( "%1 / %2" ).arg( manager->currentStepIndex() + 1 ).arg( manager->viewSteps().size() ) );
++    };
++    QObject::connect( manager, &Calamares::ViewManager::currentStepChanged, root, refreshStep );
++    refreshStep();
++    auto button = [ &nodes, &color, footer ]( const char* id ) {
++        const auto node = nodes.value( QString::fromLatin1( id ) );
++        auto* result = new QPushButton( node.value( QStringLiteral( "text" ) ).toString(), footer );
++        result->setStyleSheet( QStringLiteral( "background-color: %1; color: white; font-size: %2px; padding: 10px 18px;" )
++                                   .arg( color( id ) )
++                                   .arg( node.value( QStringLiteral( "text_size" ) ).toInt() ) );
++        return result;
++    };
++    auto* back = button( "shell.back" );
++    auto* next = button( "shell.next" );
++    auto* quit = button( "shell.quit" );
++    QObject::connect( back, &QPushButton::clicked, manager, &Calamares::ViewManager::back );
++    QObject::connect( next, &QPushButton::clicked, manager, &Calamares::ViewManager::next );
++    QObject::connect( quit, &QPushButton::clicked, manager, &Calamares::ViewManager::quit );
++    QObject::connect( manager, &Calamares::ViewManager::backEnabledChanged, back, &QPushButton::setEnabled );
++    QObject::connect( manager, &Calamares::ViewManager::nextEnabledChanged, next, &QPushButton::setEnabled );
++    QObject::connect( manager, &Calamares::ViewManager::quitEnabledChanged, quit, &QPushButton::setEnabled );
++    QObject::connect( manager, &Calamares::ViewManager::backLabelChanged, back, &QPushButton::setText );
++    QObject::connect( manager, &Calamares::ViewManager::nextLabelChanged, next, &QPushButton::setText );
++    QObject::connect( manager, &Calamares::ViewManager::quitLabelChanged, quit, &QPushButton::setText );
++    QObject::connect( manager, &Calamares::ViewManager::quitTooltipChanged, quit, &QPushButton::setToolTip );
++    QObject::connect( manager, &Calamares::ViewManager::backAndNextVisibleChanged, back, &QPushButton::setVisible );
++    QObject::connect( manager, &Calamares::ViewManager::backAndNextVisibleChanged, next, &QPushButton::setVisible );
++    QObject::connect( manager, &Calamares::ViewManager::quitVisibleChanged, quit, &QPushButton::setVisible );
++    back->setEnabled( manager->backEnabled() );
++    next->setEnabled( manager->nextEnabled() );
++    quit->setEnabled( manager->quitEnabled() );
++    back->setVisible( manager->backAndNextVisible() );
++    next->setVisible( manager->backAndNextVisible() );
++    quit->setVisible( manager->quitVisible() );
++    auto* footerLayout = new QHBoxLayout( footer );
++    footerLayout->addStretch();
++    footerLayout->addWidget( back );
++    footerLayout->addWidget( next );
++    footerLayout->addWidget( quit );
++    auto* body = new QWidget( root );
++    auto* bodyLayout = new QHBoxLayout( body );
++    bodyLayout->setContentsMargins( 0, 0, 0, 0 );
++    bodyLayout->setSpacing( 0 );
++    bodyLayout->addWidget( sidebar, nodes.value( QStringLiteral( "shell.sidebar" ) ).value( QStringLiteral( "width" ) ).toInt() );
++    bodyLayout->addWidget( manager->centralWidget(), nodes.value( QStringLiteral( "shell.content" ) ).value( QStringLiteral( "width" ) ).toInt() );
++    auto* rootLayout = new QVBoxLayout( root );
++    rootLayout->setContentsMargins( 0, 0, 0, 0 );
++    rootLayout->setSpacing( 0 );
++    rootLayout->addWidget( header, nodes.value( QStringLiteral( "shell.header" ) ).value( QStringLiteral( "height" ) ).toInt() );
++    rootLayout->addWidget( body, nodes.value( QStringLiteral( "shell.content" ) ).value( QStringLiteral( "height" ) ).toInt() );
++    rootLayout->addWidget( footer, nodes.value( QStringLiteral( "shell.footer" ) ).value( QStringLiteral( "height" ) ).toInt() );
++    return root;
++}
++
+ static QSize
+ desktopSize( QWidget* w )
+ {
+@@ -454,6 +570,14 @@ CalamaresWindow::CalamaresWindow( QWidget* parent )
+     {
+         connect( m_viewManager, &Calamares::ViewManager::ensureSize, this, &CalamaresWindow::ensureSize );
+     }
++    if ( QWidget* goyaShell = createGoyaShell( m_viewManager, baseWidget ) )
++    {
++        auto* layout = new QVBoxLayout( baseWidget );
++        Calamares::unmarginLayout( layout );
++        layout->addWidget( goyaShell );
++        m_viewManager->setPanelSides( Qt::Vertical );
++        return;
++    }
+     // NOTE: Although the ViewManager has a signal cancelEnabled() that
+     //       signals when the state of the cancel button changes (in
+     //       particular, to disable cancel during the exec phase),
+diff --git a/src/calamares/calamares.qrc b/src/calamares/calamares.qrc
+index 5733ea0..abfa296 100644
+--- a/src/calamares/calamares.qrc
++++ b/src/calamares/calamares.qrc
+@@ -6,5 +6,6 @@
+     <qresource>
+         <file alias="calamares-sidebar.qml">calamares-sidebar.qml</file>
+         <file alias="calamares-navigation.qml">calamares-navigation.qml</file>
++        <file alias="goya-shell.layout.json">../../goya/shell.layout.json</file>
+     </qresource>
+ </RCC>

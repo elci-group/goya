@@ -1,0 +1,152 @@
+{
+  "contract": "GSSH/4",
+  "nodes": [
+    {
+      "button": false,
+      "fill": 1054752,
+      "height": 600,
+      "id": "shell.root",
+      "name": "root",
+      "parent": null,
+      "text": null,
+      "text_size": null,
+      "width": 960,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "button": false,
+      "fill": 1386293,
+      "height": 72,
+      "id": "shell.header",
+      "name": "header",
+      "parent": "root",
+      "text": null,
+      "text_size": null,
+      "width": 960,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "button": false,
+      "fill": null,
+      "height": 46,
+      "id": "shell.title",
+      "name": "title",
+      "parent": "header",
+      "text": "Install",
+      "text_size": 19,
+      "width": 595,
+      "x": 38,
+      "y": 12
+    },
+    {
+      "button": false,
+      "fill": 1847360,
+      "height": 456,
+      "id": "shell.sidebar",
+      "name": "sidebar",
+      "parent": "root",
+      "text": null,
+      "text_size": null,
+      "width": 211,
+      "x": 0,
+      "y": 72
+    },
+    {
+      "button": false,
+      "fill": null,
+      "height": 45,
+      "id": "shell.step",
+      "name": "step_label",
+      "parent": "sidebar",
+      "text": "Welcome",
+      "text_size": 19,
+      "width": 177,
+      "x": 16,
+      "y": 99
+    },
+    {
+      "button": false,
+      "fill": null,
+      "height": 36,
+      "id": "shell.progress",
+      "name": "progress_label",
+      "parent": "sidebar",
+      "text": "Step 1",
+      "text_size": 14,
+      "width": 177,
+      "x": 16,
+      "y": 154
+    },
+    {
+      "button": false,
+      "fill": 16251130,
+      "height": 456,
+      "id": "shell.content",
+      "name": "content",
+      "parent": "root",
+      "text": null,
+      "text_size": null,
+      "width": 748,
+      "x": 211,
+      "y": 72
+    },
+    {
+      "button": false,
+      "fill": 1386293,
+      "height": 72,
+      "id": "shell.footer",
+      "name": "footer",
+      "parent": "root",
+      "text": null,
+      "text_size": null,
+      "width": 960,
+      "x": 0,
+      "y": 528
+    },
+    {
+      "button": true,
+      "fill": 3427166,
+      "height": 47,
+      "id": "shell.back",
+      "name": "back",
+      "parent": "footer",
+      "text": "Back",
+      "text_size": 19,
+      "width": 96,
+      "x": 614,
+      "y": 540
+    },
+    {
+      "button": true,
+      "fill": 2128500,
+      "height": 47,
+      "id": "shell.next",
+      "name": "next",
+      "parent": "footer",
+      "text": "Next",
+      "text_size": 19,
+      "width": 96,
+      "x": 720,
+      "y": 540
+    },
+    {
+      "button": true,
+      "fill": 7492695,
+      "height": 47,
+      "id": "shell.quit",
+      "name": "quit",
+      "parent": "footer",
+      "text": "Cancel",
+      "text_size": 17,
+      "width": 96,
+      "x": 825,
+      "y": 540
+    }
+  ],
+  "viewport": [
+    960,
+    600
+  ]
+}

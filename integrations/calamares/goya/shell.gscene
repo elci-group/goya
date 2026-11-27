@@ -1,0 +1,76 @@
+// Calamares wizard chrome. The active module owns the content viewport.
+@ontology calamares_shell {
+    @cell root {
+        id: "shell.root";
+        fill: #101820;
+        @cell header {
+            id: "shell.header";
+            position_p: (0, 0, 0);
+            extent_p: (1, 0.12, 0);
+            fill: #152735;
+            @cell title {
+                id: "shell.title";
+                position_p: (0.04, 0.18, 0);
+                extent_p: (0.62, 0.64, 0);
+                text: "Install";
+                text-size-p: 0.42;
+            }
+        }
+        @cell sidebar {
+            id: "shell.sidebar";
+            position_p: (0, 0.12, 0);
+            extent_p: (0.22, 0.76, 0);
+            fill: #1c3040;
+            @cell step_label {
+                id: "shell.step";
+                position_p: (0.08, 0.06, 0);
+                extent_p: (0.84, 0.1, 0);
+                text: "Welcome";
+                text-size-p: 0.42;
+            }
+            @cell progress_label {
+                id: "shell.progress";
+                position_p: (0.08, 0.18, 0);
+                extent_p: (0.84, 0.08, 0);
+                text: "Step 1";
+                text-size-p: 0.4;
+            }
+        }
+        @cell content {
+            id: "shell.content";
+            position_p: (0.22, 0.12, 0);
+            extent_p: (0.78, 0.76, 0);
+            fill: #f7f8fa;
+        }
+        @cell footer {
+            id: "shell.footer";
+            position_p: (0, 0.88, 0);
+            extent_p: (1, 0.12, 0);
+            fill: #152735;
+            @button back {
+                id: "shell.back";
+                position_p: (0.64, 0.17, 0);
+                extent_p: (0.1, 0.66, 0);
+                fill: #344b5e;
+                text: "Back";
+                text-size-p: 0.42;
+            }
+            @button next {
+                id: "shell.next";
+                position_p: (0.75, 0.17, 0);
+                extent_p: (0.1, 0.66, 0);
+                fill: #207a74;
+                text: "Next";
+                text-size-p: 0.42;
+            }
+            @button quit {
+                id: "shell.quit";
+                position_p: (0.86, 0.17, 0);
+                extent_p: (0.1, 0.66, 0);
+                fill: #725457;
+                text: "Cancel";
+                text-size-p: 0.36;
+            }
+        }
+    }
+}

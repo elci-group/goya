@@ -1,0 +1,25 @@
+[[file]]
+path = "shell.gscene"
+required = true
+require_regex = ['id: "shell.content"', 'id: "shell.next"']
+
+[[file]]
+path = "src/main.rs"
+required = true
+
+[[file]]
+path = "shell.layout.json"
+required = true
+require_regex = ['"contract": "GSSH/4"', '"id": "shell.next"']
+
+[[command]]
+name = "scene validation"
+cmd = ["cargo", "run", "--offline", "--", "check", "shell.gscene"]
+expect_exit = 0
+timeout_secs = 120
+
+[[command]]
+name = "scene and layout tests"
+cmd = ["cargo", "test", "--offline"]
+expect_exit = 0
+timeout_secs = 120
