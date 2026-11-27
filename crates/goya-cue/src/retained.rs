@@ -152,7 +152,7 @@ mod tests {
 
         for y in 0..4 {
             for x in 0..8 {
-                let inside = x >= 2 && x < 4 && y >= 1 && y < 3;
+                let inside = (2..4).contains(&x) && (1..3).contains(&y);
                 if inside {
                     assert_eq!(at(&frame, x, y), at(&full, x, y), "inside {x},{y}");
                 } else {

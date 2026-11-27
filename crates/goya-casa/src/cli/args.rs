@@ -8,11 +8,11 @@ pub struct AnalyseArgs {
     /// Input CSS file(s)
     #[arg(short, long)]
     pub input: Vec<PathBuf>,
-    
+
     /// Output format
     #[arg(short, long, value_enum, default_value = "text")]
     pub format: OutputFormat,
-    
+
     /// Strict mode - fail on unsupported constructs
     #[arg(long)]
     pub strict: bool,
@@ -23,27 +23,27 @@ pub struct ConvertArgs {
     /// Input CSS file
     #[arg(short, long)]
     pub input: PathBuf,
-    
+
     /// Structural context (JSON)
     #[arg(short, long)]
     pub context: Option<PathBuf>,
-    
+
     /// Environmental constraints (JSON)
     #[arg(long)]
     pub environment: Option<PathBuf>,
-    
+
     /// Output .gscene file
     #[arg(short, long)]
     pub output: PathBuf,
-    
+
     /// Optimisation profile
     #[arg(long, value_enum, default_value = "balanced")]
     pub profile: OptimisationProfile,
-    
+
     /// Strict mode
     #[arg(long)]
     pub strict: bool,
-    
+
     /// Conversion report output
     #[arg(long)]
     pub report: Option<PathBuf>,
@@ -54,7 +54,7 @@ pub struct ValidateArgs {
     /// Artifact to validate
     #[arg(short, long)]
     pub artifact: PathBuf,
-    
+
     /// Validation level
     #[arg(long, value_enum, default_value = "full")]
     pub level: ValidationLevel,
@@ -65,7 +65,7 @@ pub struct InspectArgs {
     /// Input CSS file
     #[arg(short, long)]
     pub input: PathBuf,
-    
+
     /// Inspection target
     #[arg(long, value_enum, default_value = "ir")]
     pub target: InspectionTarget,
@@ -76,11 +76,11 @@ pub struct CompareArgs {
     /// Reference output
     #[arg(long)]
     pub reference: PathBuf,
-    
+
     /// Native output
     #[arg(long)]
     pub native: PathBuf,
-    
+
     /// Comparison mode
     #[arg(long, value_enum, default_value = "visual")]
     pub mode: ComparisonMode,
@@ -91,7 +91,7 @@ pub struct BenchmarkArgs {
     /// Benchmark workload
     #[arg(long, value_enum)]
     pub workload: BenchmarkWorkload,
-    
+
     /// Number of iterations
     #[arg(long, default_value = "10")]
     pub iterations: usize,
@@ -102,7 +102,7 @@ pub struct ExplainArgs {
     /// Input CSS file
     #[arg(short, long)]
     pub input: PathBuf,
-    
+
     /// Specific property/selector to explain
     #[arg(long)]
     pub target: Option<String>,

@@ -83,7 +83,7 @@ pub fn time_paths(
     let mut front = alloc_frame(width, height);
     let mut back = vec![0u32; front.len()];
     for (i, px) in front.iter_mut().enumerate() {
-        *px = (i as u32).wrapping_mul(0x45D9_F3B) ^ 0xA5A5_A5A5;
+        *px = (i as u32).wrapping_mul(0x045D_9F3B) ^ 0xA5A5_A5A5;
     }
 
     let full = sample(
@@ -251,7 +251,7 @@ fn p99_index(n: usize) -> usize {
         n - 1
     } else {
         let span = (n - 1) as u128;
-        ((span * 99 + 99) / 100) as usize
+        (span * 99).div_ceil(100) as usize
     }
 }
 

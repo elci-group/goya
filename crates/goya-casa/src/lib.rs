@@ -6,24 +6,24 @@
 //! Goya's native geometry, graphics, appearance, state management and adaptive
 //! presentation infrastructure.
 
-pub mod ingestion;
-pub mod cascade;
-pub mod ir;
-pub mod context;
-pub mod geometry;
-pub mod appearance;
-pub mod typography;
-pub mod animation;
 pub mod adaptive;
+pub mod animation;
+pub mod appearance;
 pub mod behavioural;
-pub mod resources;
-pub mod optimisation;
-pub mod emission;
-pub mod validation;
-pub mod diagnostics;
-pub mod modes;
+pub mod cascade;
 pub mod cli;
+pub mod context;
+pub mod diagnostics;
+pub mod emission;
+pub mod geometry;
+pub mod ingestion;
 pub mod integration;
+pub mod ir;
+pub mod modes;
+pub mod optimisation;
+pub mod resources;
+pub mod typography;
+pub mod validation;
 
 /// CASA directive identifier
 pub const DIRECTIVE_ID: &str = "GOYA-DIS-CASA-001";
@@ -36,6 +36,8 @@ pub const CONTRACT: &str = "GY-CASA/1.0";
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
     fn crate_compiles() {
         // Verify the crate compiles and exports correctly

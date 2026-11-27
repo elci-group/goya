@@ -250,6 +250,43 @@ pub fn decide(dirty: &[PixelRect], model: &CostModel) -> Invalidation {
     }
 }
 
+/// Properties of a retained front-buffer copy available to the presenter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PresentCopy {
+    /// Size of the retained frame copy in bytes.
+    pub frame_bytes: u64,
+    /// Whether the compositor can present the retained copy directly.
+    pub copies_front: bool,
+}
+
+/// Decide between presenting a retained front-buffer copy and local
+/// invalidation. Falls back to [`decide`] when no usable copy exists.
+/// Cost units are relative as in [`CostModel`]; copying charges 1.0 per MiB.
+pub fn decide_retained(
+    dirty: &[PixelRect],
+    model: &CostModel,
+    present: PresentCopy,
+) -> Invalidation {
+    if !present.copies_front {
+        return decide(dirty, model);
+    }
+    let mut total = match dirty.first() {
+        Some(first) => *first,
+        None => return Invalidation::FullFrame, // nothing to do; present the copy
+    };
+    for r in &dirty[1..] {
+        total = total.union(r);
+    }
+    let local_cost =
+        model.resolve + model.commit + (total.area() as f64 / 1000.0) * model.per_kpixel;
+    let copy_cost = present.frame_bytes as f64 / (1024.0 * 1024.0);
+    if copy_cost < local_cost {
+        Invalidation::FullFrame
+    } else {
+        Invalidation::Local(total)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -371,6 +408,51 @@ mod tests {
             .collect();
         assert!(matches!(
             decide(&spread, &CostModel::default()),
+            Invalidation::FullFrame
+        ));
+    }
+
+    #[test]
+    fn decide_retained_falls_back_without_copy() {
+        let small = [PixelRect {
+            x: 300,
+            y: 300,
+            width: 200,
+            height: 60,
+        }];
+        let model = CostModel::default();
+        // No usable retained copy: identical to the plain decision.
+        assert_eq!(
+            decide_retained(
+                &small,
+                &model,
+                PresentCopy {
+                    frame_bytes: 0,
+                    copies_front: false,
+                }
+            ),
+            decide(&small, &model)
+        );
+    }
+
+    #[test]
+    fn decide_retained_uses_free_copy_over_local_raster() {
+        let small = [PixelRect {
+            x: 300,
+            y: 300,
+            width: 200,
+            height: 60,
+        }];
+        // A free retained copy beats any local raster work.
+        assert!(matches!(
+            decide_retained(
+                &small,
+                &CostModel::default(),
+                PresentCopy {
+                    frame_bytes: 0,
+                    copies_front: true,
+                }
+            ),
             Invalidation::FullFrame
         ));
     }

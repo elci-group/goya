@@ -1,10 +1,14 @@
 //! CASA command-line interface entry point.
 
 use clap::{Parser, Subcommand};
-use goya_casa::cli::{commands, args};
+use goya_casa::cli::{args, commands};
 
 #[derive(Parser)]
-#[command(name = "casa", version, about = "CASA — CSS-to-.gscene semantic transformation")]
+#[command(
+    name = "casa",
+    version,
+    about = "CASA — CSS-to-.gscene semantic transformation"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -32,7 +36,7 @@ enum Commands {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
-    
+
     match cli.command {
         Commands::Analyse(args) => commands::analyse(args),
         Commands::Convert(args) => commands::convert(args),

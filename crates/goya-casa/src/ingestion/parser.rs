@@ -1,6 +1,6 @@
 //! CSS parser integration with goya-css-syntax.
 
-use goya_css_syntax::{parse_stylesheet, Rule, DeclarationItem};
+use goya_css_syntax::{parse_stylesheet, DeclarationItem, Rule};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -20,8 +20,10 @@ pub struct SourceMap {
     // Byte spans into original input
 }
 
-impl ParsedStylesheet {
-    pub fn from_str(input: &str) -> Result<Self, ParseError> {
+impl std::str::FromStr for ParsedStylesheet {
+    type Err = ParseError;
+
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
         let rules = parse_stylesheet(input);
         Ok(Self {
             rules,

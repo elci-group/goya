@@ -1,0 +1,39 @@
+# CASA pipeline CI (GY-DIS-CASA-001 Phase 0): goya-casa + its support crates
+name: casa
+on:
+  push:
+    branches: [Casa]
+  pull_request:
+    paths:
+      - "crates/goya-casa/**"
+      - "crates/goya-css-syntax/**"
+      - "crates/goya-html-tokenizer/**"
+      - "crates/goya-fair/**"
+      - "crates/goya-disparate-electron/**"
+      - "crates/goya-chromatics/**"
+      - "crates/goya-cue/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/casa.yml"
+
+jobs:
+  casa:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Install xkbcommon development library
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev
+      - name: Build
+        run: cargo build -p goya-casa -p goya-css-syntax -p goya-html-tokenizer -p goya-fair -p goya-disparate-electron -p goya-chromatics -p goya-cue
+      - name: Tests (unit + integration)
+        run: cargo test -p goya-casa -p goya-css-syntax -p goya-html-tokenizer -p goya-fair -p goya-disparate-electron -p goya-chromatics -p goya-cue --lib --tests
+      - name: Clippy (deny warnings)
+        run: cargo clippy -p goya-casa -p goya-css-syntax -p goya-html-tokenizer -p goya-fair -p goya-disparate-electron -p goya-chromatics -p goya-cue --all-targets -- -D warnings
+      - name: Format
+        run: cargo fmt -p goya-casa -p goya-css-syntax -p goya-html-tokenizer -p goya-fair -p goya-disparate-electron -p goya-chromatics -p goya-cue -- --check
+      - name: casa CLI smoke
+        run: cargo run -q -p goya-casa --bin casa -- capabilities
