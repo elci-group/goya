@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goya.invalid/schemas/manuscrito-analysis-report-1.json",
+  "title": "Manuscrito analysis-only report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "mode", "translated", "project_root", "source_files", "tsconfig_files", "package_manifests", "lockfiles", "package_manifest", "package_name", "dependencies", "diagnostics"],
+  "properties": {
+    "schema": { "const": "goya.manuscrito.analysis/1" },
+    "mode": { "const": "analysis-only" },
+    "translated": { "const": false },
+    "project_root": { "type": "string" },
+    "source_files": { "type": "array", "items": { "$ref": "#/$defs/sourceFile" } },
+    "tsconfig_files": { "type": "array", "items": { "type": "string" } },
+    "package_manifests": { "type": "array", "items": { "type": "string" } },
+    "lockfiles": { "type": "array", "items": { "type": "string" } },
+    "package_manifest": { "type": ["string", "null"] },
+    "package_name": { "type": ["string", "null"] },
+    "dependencies": { "type": "array", "items": { "$ref": "#/$defs/dependency" } },
+    "diagnostics": { "type": "array", "items": { "type": "string" } }
+  },
+  "$defs": {
+    "sourceFile": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "kind"],
+      "properties": { "path": { "type": "string" }, "kind": { "enum": ["typescript", "typescript-jsx", "javascript", "declaration", "project-config"] } }
+    },
+    "dependency": {
+      "type": "object", "additionalProperties": false,
+      "required": ["name", "version_spec", "declaration", "classification"],
+      "properties": {
+        "name": { "type": "string" }, "version_spec": { "type": "string" },
+        "declaration": { "enum": ["dependency", "development", "peer", "optional"] },
+        "classification": { "const": "unclassified" }
+      }
+    }
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goya.invalid/schemas/manuscrito-gscene-gaps-1.json",
+  "title": "Manuscrito canonical Goya language capability gap report",
+  "type": "object",
+  "required": ["schema", "status", "canonical_language", "basis", "profiles_considered", "source_report_status", "source_module_count", "translated", "canonical_output_emitted", "domains", "limitations"],
+  "properties": {
+    "schema": { "const": "goya.manuscrito.gscene-gaps/1" },
+    "status": { "enum": ["analysis-only", "incomplete"] },
+    "canonical_language": { "const": "GY-LANG/1" },
+    "basis": { "type": "string" },
+    "profiles_considered": { "type": "array", "items": { "type": "string" } },
+    "source_report_status": { "type": ["string", "null"] },
+    "source_module_count": { "type": "integer", "minimum": 0 },
+    "translated": { "const": false },
+    "canonical_output_emitted": { "const": false },
+    "domains": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["domain", "evidence_count", "support", "reason"],
+        "properties": {
+          "domain": { "type": "string" },
+          "evidence_count": { "type": "integer", "minimum": 0 },
+          "support": { "enum": ["unsupported", "partial_domain_specific"] },
+          "reason": { "type": "string" }
+        }
+      }
+    },
+    "limitations": { "type": "array", "items": { "type": "string" } }
+  }
+}
