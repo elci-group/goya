@@ -7,7 +7,7 @@
 //! so the same definition is referenced across thousands of frames
 //! without duplication (directive §6).
 
-use crate::pixel::{ColourIndex, Light, PixelState};
+use crate::pixel::{ColourIndex, Exactness, Light, PixelState};
 
 /// Addressable target of a mutation (directive §4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -45,8 +45,17 @@ pub enum Instruction {
         slot: u8,
         colour: ColourIndex,
     },
-    /// `SET_L` — change light intensity only; chroma untouched.
-    SetLight { target: Target, light: Light },
+    /// `SET_L` — change light intensity; chroma untouched (directive §2).
+    /// The event carries its exactness class (Amendment 5): the compiler
+    /// verified the scaled presentation against the source — exactly
+    /// (`Exact`) or within the declared tolerance
+    /// (`Approximate(ToleranceBudget)`). Lossless profiles never emit
+    /// inexact light events.
+    SetLight {
+        target: Target,
+        light: Light,
+        exactness: Exactness,
+    },
     /// `SET_RUN` — apply one state to consecutive pixels of a row.
     SetRun {
         row: u32,

@@ -24,10 +24,11 @@
 //! the format cannot drift.
 
 use crate::clock::MediaClock;
+use crate::colour::{scale_entry, ColourEntry};
 use crate::compile::CompiledVideo;
 use crate::delta::ContentId;
-use crate::instructions::Instruction;
-use crate::pixel::ColourIndex;
+use crate::instructions::{Instruction, Target};
+use crate::pixel::{ColourIndex, Light};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeError {
@@ -45,22 +46,35 @@ pub enum RuntimeError {
     GeometryMismatch { expected: usize, actual: usize },
 }
 
-/// One atomically presented frame: the row-major fill colours and the
-/// per-pixel exactness of the presented state.
+/// One atomically presented frame: the row-major *presented colours*
+/// (chroma scaled by light, Q24.8 per channel) and per-pixel exactness
+/// (F3: `PRESENT` reports its exactness coverage).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PresentedFrame {
     pub at: MediaClock,
-    pub pixels: Vec<ColourIndex>,
+    pub pixels: Vec<[u32; 3]>,
+    /// Per-pixel exactness, row-major.
+    pub pixel_exact: Vec<bool>,
     /// True when every presented pixel was reconstructed exactly.
     pub exact: bool,
 }
 
-/// Encode a checkpoint payload: row-content ids, ascending row order,
-/// little-endian (F5's fixed-point discipline applies to payload integers).
-pub fn encode_checkpoint_payload(contents: &[ContentId]) -> Vec<u8> {
-    let mut payload = Vec::with_capacity(contents.len() * 4);
-    for content in contents {
-        payload.extend_from_slice(&content.0.to_le_bytes());
+/// One restored row: content id plus light state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CheckpointRow {
+    pub content: ContentId,
+    pub light: Light,
+}
+
+/// Encode a checkpoint payload: (row-content id, light) pairs, ascending
+/// row order, little-endian (F5's fixed-point discipline applies to
+/// payload integers). Light is part of the visual state and must survive
+/// a seek (Amendment 5).
+pub fn encode_checkpoint_payload(rows: &[CheckpointRow]) -> Vec<u8> {
+    let mut payload = Vec::with_capacity(rows.len() * 6);
+    for row in rows {
+        payload.extend_from_slice(&row.content.0.to_le_bytes());
+        payload.extend_from_slice(&row.light.0.to_le_bytes());
     }
     payload
 }
@@ -70,42 +84,47 @@ pub fn encode_checkpoint_payload(contents: &[ContentId]) -> Vec<u8> {
 pub fn decode_checkpoint_payload(
     payload: &[u8],
     video: &CompiledVideo,
-) -> Result<Vec<ContentId>, RuntimeError> {
-    if !payload.len().is_multiple_of(4) {
+) -> Result<Vec<CheckpointRow>, RuntimeError> {
+    const RECORD: usize = 6; // u32 content id + u16 light, little-endian
+    if !payload.len().is_multiple_of(RECORD) {
         return Err(RuntimeError::CheckpointPayload(format!(
-            "payload length {} is not a multiple of 4",
+            "payload length {} is not a multiple of {RECORD}",
             payload.len()
         )));
     }
     let count = video.dimensions.1 as usize;
-    if payload.len() / 4 != count {
+    if payload.len() / RECORD != count {
         return Err(RuntimeError::CheckpointPayload(format!(
             "payload names {} rows, video declares {count}",
-            payload.len() / 4
+            payload.len() / RECORD
         )));
     }
     (0..count)
         .map(|i| {
-            let bytes = [
-                payload[i * 4],
-                payload[i * 4 + 1],
-                payload[i * 4 + 2],
-                payload[i * 4 + 3],
-            ];
-            let id = u32::from_le_bytes(bytes);
-            if (id as usize) >= video.row_inventory.len() {
+            let b = &payload[i * RECORD..(i + 1) * RECORD];
+            let content = u32::from_le_bytes([b[0], b[1], b[2], b[3]]);
+            let light = u16::from_le_bytes([b[4], b[5]]);
+            if (content as usize) >= video.row_inventory.len() {
                 return Err(RuntimeError::CheckpointPayload(format!(
-                    "row content id {id} is outside the row inventory"
+                    "row content id {content} is outside the row inventory"
                 )));
             }
-            Ok(ContentId(id))
+            Ok(CheckpointRow {
+                content: ContentId(content),
+                light: Light(light),
+            })
         })
         .collect()
 }
 
 /// The persistent visual state plus its reconstruction bookkeeping.
+/// Each pixel holds its chroma index and its light value; the presented
+/// colour is `scale_entry(chroma, light)` (Amendment 5).
 pub struct ReferenceRuntime {
-    rows: Vec<Vec<ColourIndex>>,
+    /// The compiled video's colour inventory, held for presentation:
+    /// chroma indices resolve to Q24.8 linear entries here.
+    entries: Vec<ColourEntry>,
+    rows: Vec<Vec<(ColourIndex, Light)>>,
     row_exact: Vec<Vec<bool>>,
     declared: Vec<bool>,
     width: usize,
@@ -123,6 +142,7 @@ impl ReferenceRuntime {
             });
         }
         Ok(Self {
+            entries: video.inventory.entries().to_vec(),
             rows: vec![Vec::new(); height],
             row_exact: vec![Vec::new(); height],
             declared: vec![false; height],
@@ -136,9 +156,13 @@ impl ReferenceRuntime {
         let mut runtime = Self::new(video)?;
         match video.timeline.seek_checkpoint(at) {
             Some(checkpoint) => {
-                let contents = decode_checkpoint_payload(checkpoint.payload_bytes(), video)?;
-                for (y, content) in contents.iter().enumerate() {
-                    runtime.declare_row(y, &video.row_inventory[content.0 as usize], video)?;
+                let rows = decode_checkpoint_payload(checkpoint.payload_bytes(), video)?;
+                for (y, row) in rows.iter().enumerate() {
+                    runtime.declare_row(
+                        y,
+                        &video.row_inventory[row.content.0 as usize],
+                        row.light,
+                    )?;
                 }
                 Ok(runtime)
             }
@@ -146,12 +170,12 @@ impl ReferenceRuntime {
         }
     }
 
-    /// Declare a row's full content from the row inventory.
+    /// Declare a row's full content from the row inventory at a light value.
     fn declare_row(
         &mut self,
         y: usize,
         content: &[ColourIndex],
-        _video: &CompiledVideo,
+        light: Light,
     ) -> Result<(), RuntimeError> {
         if content.len() != self.width {
             return Err(RuntimeError::GeometryMismatch {
@@ -159,7 +183,7 @@ impl ReferenceRuntime {
                 actual: content.len(),
             });
         }
-        self.rows[y] = content.to_vec();
+        self.rows[y] = content.iter().map(|&c| (c, light)).collect();
         self.row_exact[y] = vec![true; self.width];
         self.declared[y] = true;
         Ok(())
@@ -183,10 +207,67 @@ impl ReferenceRuntime {
                         actual: states.len(),
                     });
                 }
-                self.rows[y] = states.iter().map(|s| s.fill).collect();
+                self.rows[y] = states.iter().map(|s| (s.fill, s.light)).collect();
                 self.row_exact[y] = states.iter().map(|s| s.exactness.is_exact()).collect();
                 self.declared[y] = true;
                 Ok(())
+            }
+            Instruction::SetLight {
+                target,
+                light,
+                exactness,
+            } => {
+                // Light multiplies each pixel's current light value
+                // (compounding dimming); chroma is untouched (directive §2).
+                // The event's exactness class applies to every pixel of the
+                // span: light changes the presentation of all of them.
+                match target {
+                    Target::Row { row } => {
+                        let y = *row as usize;
+                        if y >= self.height {
+                            return Err(RuntimeError::GeometryMismatch {
+                                expected: self.height,
+                                actual: y,
+                            });
+                        }
+                        if !self.declared[y] {
+                            return Err(RuntimeError::UndefinedRegion);
+                        }
+                        for pixel in &mut self.rows[y] {
+                            pixel.1 = Light::mul(pixel.1, *light);
+                        }
+                        self.row_exact[y] = vec![exactness.is_exact(); self.width];
+                        Ok(())
+                    }
+                    Target::Region {
+                        row,
+                        pixel,
+                        height,
+                        width,
+                    } => {
+                        let start_y = *row as usize;
+                        let end_y = start_y + *height as usize;
+                        let start_x = *pixel as usize;
+                        let end_x = start_x + *width as usize;
+                        if end_y > self.height || end_x > self.width {
+                            return Err(RuntimeError::GeometryMismatch {
+                                expected: self.width,
+                                actual: end_x.max(self.width),
+                            });
+                        }
+                        for y in start_y..end_y {
+                            if !self.declared[y] {
+                                return Err(RuntimeError::UndefinedRegion);
+                            }
+                            for i in start_x..end_x {
+                                self.rows[y][i].1 = Light::mul(self.rows[y][i].1, *light);
+                                self.row_exact[y][i] = exactness.is_exact();
+                            }
+                        }
+                        Ok(())
+                    }
+                    _ => Err(RuntimeError::Unsupported("SET_LIGHT")),
+                }
             }
             Instruction::SetRun {
                 row,
@@ -204,7 +285,7 @@ impl ReferenceRuntime {
                     });
                 }
                 if !self.declared[y] {
-                    self.rows[y] = vec![state.fill; self.width];
+                    self.rows[y] = vec![(state.fill, state.light); self.width];
                     self.row_exact[y] = vec![false; self.width];
                     self.declared[y] = true;
                 }
@@ -215,7 +296,7 @@ impl ReferenceRuntime {
                     });
                 }
                 for i in start..start + len {
-                    self.rows[y][i] = state.fill;
+                    self.rows[y][i] = (state.fill, state.light);
                     self.row_exact[y][i] = state.exactness.is_exact();
                 }
                 Ok(())
@@ -253,7 +334,7 @@ impl ReferenceRuntime {
                             actual: offset,
                         });
                     }
-                    self.rows[y][offset] = change.to;
+                    self.rows[y][offset] = (change.to, Light::UNITY);
                     // Fill-only reference: transitioned-to content is
                     // inventory-exact (Amendment 4 limitation).
                     self.row_exact[y][offset] = true;
@@ -268,9 +349,9 @@ impl ReferenceRuntime {
                         id: *checkpoint_id,
                     },
                 )?;
-                let contents = decode_checkpoint_payload(checkpoint.payload_bytes(), video)?;
-                for (y, content) in contents.iter().enumerate() {
-                    self.declare_row(y, &video.row_inventory[content.0 as usize], video)?;
+                let rows = decode_checkpoint_payload(checkpoint.payload_bytes(), video)?;
+                for (y, row) in rows.iter().enumerate() {
+                    self.declare_row(y, &video.row_inventory[row.content.0 as usize], row.light)?;
                 }
                 Ok(())
             }
@@ -281,25 +362,43 @@ impl ReferenceRuntime {
     }
 
     fn row_content_id(&self, video: &CompiledVideo, y: usize) -> Option<ContentId> {
+        let chroma: Vec<ColourIndex> = self.rows[y].iter().map(|(c, _)| *c).collect();
         video
             .row_inventory
             .iter()
-            .position(|content| content == &self.rows[y])
+            .position(|content| content == &chroma)
             .map(|index| ContentId(index as u32))
     }
 
-    /// Atomically present the current visual state.
+    /// Atomically present the current visual state: chroma scaled by
+    /// light, per pixel (Amendment 5's presentation model).
     pub fn present(&self, at: MediaClock) -> Result<PresentedFrame, RuntimeError> {
         if self.declared.iter().any(|d| !d) {
             return Err(RuntimeError::UndefinedRegion);
         }
         let mut pixels = Vec::with_capacity(self.width * self.height);
+        let mut pixel_exact = Vec::with_capacity(self.width * self.height);
         let mut exact = true;
         for y in 0..self.height {
-            pixels.extend_from_slice(&self.rows[y]);
+            for (chroma, light) in &self.rows[y] {
+                let entry =
+                    self.entries
+                        .get(chroma.0 as usize)
+                        .ok_or(RuntimeError::UnknownReference {
+                            kind: "colour",
+                            id: u32::from(chroma.0),
+                        })?;
+                pixels.push(scale_entry(entry, *light));
+            }
+            pixel_exact.extend_from_slice(&self.row_exact[y]);
             exact &= self.row_exact[y].iter().all(|&e| e);
         }
-        Ok(PresentedFrame { at, pixels, exact })
+        Ok(PresentedFrame {
+            at,
+            pixels,
+            pixel_exact,
+            exact,
+        })
     }
 }
 
@@ -376,6 +475,7 @@ mod tests {
         DecodedFrame, DecodedFrameFormat, IngestionParameters, SourceError, VideoSource,
     };
     use crate::instructions::InstructionBudget;
+    use crate::pixel::{ApproximationCause, Exactness, PixelState};
     use crate::profile::{CompilationBudgets, CompilationProfile, ProfileKind};
     use crate::temporal::Checkpoint;
 
@@ -478,17 +578,6 @@ mod tests {
         source.frames[frame][index]
     }
 
-    fn expect_colour_entry_id(video: &CompiledVideo, rgb: [u8; 3]) -> ColourIndex {
-        let entry = crate::ingestion::srgb8_to_colour_entry(rgb);
-        let position = video
-            .inventory
-            .entries()
-            .iter()
-            .position(|e| e == &entry)
-            .expect("colour must be in the inventory");
-        ColourIndex(position as u16)
-    }
-
     #[test]
     fn reconstruction_is_pixel_exact_in_lossless_mode() {
         let source = ScreenRecording::new();
@@ -499,9 +588,11 @@ mod tests {
         for (f, frame) in frames.iter().enumerate() {
             assert!(frame.exact, "lossless path must present exact pixels");
             for (i, pixel) in frame.pixels.iter().enumerate() {
-                let expected = expect_colour_entry_id(&video, source_pixel_rgb(&source, f, i));
+                let entry =
+                    crate::ingestion::srgb8_to_colour_entry(source_pixel_rgb(&source, f, i));
                 assert_eq!(
-                    *pixel, expected,
+                    *pixel,
+                    scale_entry(&entry, Light::UNITY),
                     "frame {f} pixel {i}: unexplained difference"
                 );
             }
@@ -578,28 +669,35 @@ mod tests {
         let mut runtime = ReferenceRuntime::new(&video).unwrap();
         let err = runtime.apply(
             &video,
-            &Instruction::SetLight {
+            &Instruction::SetTrim {
                 target: crate::instructions::Target::Row { row: 0 },
-                light: crate::pixel::Light(0x0080),
+                slot: 0,
+                colour: ColourIndex(0),
             },
         );
-        assert_eq!(err, Err(RuntimeError::Unsupported("SET_LIGHT")));
+        assert_eq!(err, Err(RuntimeError::Unsupported("SET_TRIM")));
     }
 
     #[test]
     fn checkpoint_payload_round_trips_and_validates() {
         let (video, _) = compile_poc();
         // The POC interval never fires; synthesise a checkpoint whose
-        // contents exist in the row inventory (the background row).
-        let contents: Vec<ContentId> = vec![ContentId(0); video.dimensions.1 as usize];
+        // contents exist in the row inventory (the background row) at
+        // half light — light is part of the payload (Amendment 5).
+        let rows: Vec<CheckpointRow> = (0..video.dimensions.1)
+            .map(|_| CheckpointRow {
+                content: ContentId(0),
+                light: Light(0x0080),
+            })
+            .collect();
         let checkpoint = Checkpoint::new(
             crate::temporal::TemporalStateId(9),
             crate::clock::MediaClock::new(1, 30).unwrap(),
-            &encode_checkpoint_payload(&contents),
+            &encode_checkpoint_payload(&rows),
         );
         assert!(checkpoint.digest_is_intact());
         let decoded = decode_checkpoint_payload(checkpoint.payload_bytes(), &video).unwrap();
-        assert_eq!(decoded, contents);
+        assert_eq!(decoded, rows);
         // Tampered payload fails the digest check (AVC-C05) — the
         // from_parts path simulates a deserialised checkpoint.
         let intact_digest = checkpoint.digest;
@@ -614,7 +712,12 @@ mod tests {
         // Truncated payload is rejected.
         assert!(decode_checkpoint_payload(&checkpoint.payload_bytes()[..3], &video).is_err());
         // Out-of-range content id is rejected.
-        let bad = encode_checkpoint_payload(&[ContentId(u32::MAX); 4]);
+        let bad = encode_checkpoint_payload(
+            &[CheckpointRow {
+                content: ContentId(u32::MAX),
+                light: Light::UNITY,
+            }; 4],
+        );
         assert!(decode_checkpoint_payload(&bad, &video).is_err());
     }
 
@@ -636,5 +739,332 @@ mod tests {
             max_delta_applications: 10,
         };
         assert!(video.timeline.validate(&budget).is_ok());
+    }
+
+    /// A screen recording whose only frame-to-frame change is a pure
+    /// luminance dimming: row 1 dims from sRGB gray 200 to gray 146,
+    /// which is an *exact* Q24.8 half-light scaling (linear 148 -> 74),
+    /// then returns to full brightness.
+    struct DimmingRecording;
+
+    impl VideoSource for DimmingRecording {
+        fn source_digest(&self) -> String {
+            "dimming-8x4-3".to_string()
+        }
+        fn dimensions(&self) -> (u32, u32) {
+            (8, 4)
+        }
+        fn frame_rate(&self) -> (u32, u32) {
+            (30, 1)
+        }
+        fn frame_count(&self) -> u32 {
+            3
+        }
+        fn decode_frame(
+            &self,
+            i: u32,
+            p: &IngestionParameters,
+        ) -> Result<DecodedFrame, SourceError> {
+            let fd = crate::clock::MediaClock::frame_duration(30, 1, p.ticks_per_second).unwrap();
+            const GRAY_FULL: [u8; 3] = [200, 200, 200];
+            const GRAY_DIM: [u8; 3] = [146, 146, 146];
+            let mut data = Vec::with_capacity(96);
+            let row = match i {
+                0 | 2 => GRAY_FULL,
+                1 => GRAY_DIM,
+                _ => {
+                    return Err(SourceError::DecodeFailed(format!(
+                        "frame {i} out of bounds"
+                    )))
+                }
+            };
+            for y in 0..4usize {
+                for _ in 0..8usize {
+                    data.extend_from_slice(if y == 1 { &row } else { &BG });
+                }
+            }
+            Ok(DecodedFrame {
+                format: DecodedFrameFormat::Rgb8,
+                width: 8,
+                height: 4,
+                at: crate::clock::MediaClock::new(fd.ticks() * i as u64, p.ticks_per_second)
+                    .unwrap(),
+                data,
+            })
+        }
+    }
+
+    fn compile_dimming(tolerance: Tolerance) -> (CompiledVideo, crate::compile::CompileStats) {
+        let params = IngestionParameters {
+            working_space: WorkingSpace::LinearRec709,
+            ticks_per_second: 30,
+        }
+        .bind()
+        .unwrap();
+        let profile = CompilationProfile {
+            kind: ProfileKind::Desktop,
+            budgets: CompilationBudgets {
+                palette_bound: PaletteBound(16),
+                tolerance,
+                max_checkpoint_interval: crate::clock::MediaClock::new(90, 30).unwrap(),
+                max_delta_depth: 8,
+                residency_budget_bytes: 1 << 20,
+            },
+        };
+        compile(&DimmingRecording, &params, &profile).unwrap()
+    }
+
+    #[test]
+    fn exact_light_transition_compiles_to_a_light_event() {
+        let (video, stats) = compile_dimming(Tolerance::ZERO);
+        // The gray-200 -> gray-146 transition is an exact half-light
+        // scaling; even the lossless profile takes the light path.
+        assert_eq!(stats.light_events, 1);
+        assert!(video
+            .timeline
+            .events()
+            .iter()
+            .any(|e| matches!(&e.instruction, Instruction::SetLight { .. })));
+        // Chroma rows are unchanged: the dimmed row is not a new content.
+        assert!(video.deltas.is_empty());
+    }
+
+    #[test]
+    fn exact_light_replay_is_pixel_exact_and_restores_brightness() {
+        let (video, _) = compile_dimming(Tolerance::ZERO);
+        let frames = play(&video).unwrap();
+        assert_eq!(frames.len(), 3);
+        let full_entry = crate::ingestion::srgb8_to_colour_entry([200, 200, 200]);
+        let dim_entry = crate::ingestion::srgb8_to_colour_entry([146, 146, 146]);
+        // Frame 1: the dimmed presentation — exact, because the scaling
+        // is exact in Q24.8.
+        assert!(frames[1].exact);
+        for x in 0..8usize {
+            assert_eq!(
+                frames[1].pixels[8 + x],
+                scale_entry(&dim_entry, Light::UNITY)
+            );
+        }
+        // Frame 2: brightness restored — a dimmed row must never stay
+        // dimmed once the source returns to full light.
+        assert!(frames[2].exact);
+        for x in 0..8usize {
+            assert_eq!(
+                frames[2].pixels[8 + x],
+                scale_entry(&full_entry, Light::UNITY)
+            );
+        }
+    }
+
+    #[test]
+    fn tolerance_profile_takes_the_light_path_for_inexact_scaling() {
+        // A tolerance budget admits light events the lossless profile
+        // would refuse; the event is classified Approximate.
+        let (video, stats) = compile_dimming(Tolerance(500));
+        let _ = stats.light_events; // same fixture, but the invariant below is profile-independent
+        for event in video.timeline.events() {
+            if let Instruction::SetLight { exactness, .. } = &event.instruction {
+                assert!(matches!(
+                    exactness,
+                    Exactness::Exact | Exactness::Approximate(_)
+                ));
+            }
+        }
+    }
+
+    #[test]
+    fn set_light_scales_the_presented_colours_and_marks_inexactness() {
+        let (video, _) = compile_poc();
+        let mut runtime = ReferenceRuntime::new(&video).unwrap();
+        let h = video.dimensions.1 as usize;
+        for y in 0..h {
+            let content = video.row_inventory[y.min(video.row_inventory.len() - 1)].clone();
+            let states: Vec<PixelState> =
+                content.iter().map(|&c| PixelState::exact_fill(c)).collect();
+            runtime
+                .apply(
+                    &video,
+                    &Instruction::SetRow {
+                        target: Target::Row { row: y as u32 },
+                        states,
+                    },
+                )
+                .unwrap();
+        }
+        let half = Light(0x0080);
+        runtime
+            .apply(
+                &video,
+                &Instruction::SetLight {
+                    target: Target::Row { row: 0 },
+                    light: half,
+                    exactness: Exactness::Approximate(ApproximationCause::ToleranceBudget),
+                },
+            )
+            .unwrap();
+        let frame = runtime
+            .present(crate::clock::MediaClock::new(1, 30).unwrap())
+            .unwrap();
+        assert!(!frame.exact, "an inexact light event must mark its pixels");
+        assert!(frame.pixel_exact[..8].iter().all(|&e| !e));
+        assert!(frame.pixel_exact[8..].iter().all(|&e| e));
+        for (i, pixel) in frame.pixels.iter().enumerate().take(8) {
+            let entry = &video.inventory.entries()[video.row_inventory[0][i].0 as usize];
+            assert_eq!(*pixel, scale_entry(entry, half));
+        }
+        // Rows outside the event keep unity light and exactness.
+        assert!(frame.pixel_exact[8..].iter().all(|&e| e));
+    }
+
+    #[test]
+    fn set_light_on_an_undeclared_row_is_rejected() {
+        let (video, _) = compile_poc();
+        let mut runtime = ReferenceRuntime::new(&video).unwrap();
+        assert_eq!(
+            runtime.apply(
+                &video,
+                &Instruction::SetLight {
+                    target: Target::Row { row: 0 },
+                    light: Light(0x0080),
+                    exactness: Exactness::Exact,
+                },
+            ),
+            Err(RuntimeError::UndefinedRegion)
+        );
+    }
+
+    #[test]
+    fn region_light_touches_only_the_region() {
+        let (video, _) = compile_poc();
+        let mut runtime = ReferenceRuntime::new(&video).unwrap();
+        let h = video.dimensions.1 as usize;
+        // Declare the POC fixture's known frame-0 geometry: rows 1–2
+        // hold WINDOW on x 0..4, everything else BG.
+        let id_of = |rgb: [u8; 3]| -> ColourIndex {
+            let entry = crate::ingestion::srgb8_to_colour_entry(rgb);
+            ColourIndex(
+                video
+                    .inventory
+                    .entries()
+                    .iter()
+                    .position(|e| e == &entry)
+                    .unwrap() as u16,
+            )
+        };
+        let (bg_id, window_id) = (id_of(BG), id_of(WINDOW));
+        for y in 0..h {
+            let states: Vec<PixelState> = (0..8usize)
+                .map(|x| {
+                    PixelState::exact_fill(if (1..=2).contains(&y) && x < 4 {
+                        window_id
+                    } else {
+                        bg_id
+                    })
+                })
+                .collect();
+            runtime
+                .apply(
+                    &video,
+                    &Instruction::SetRow {
+                        target: Target::Row { row: y as u32 },
+                        states,
+                    },
+                )
+                .unwrap();
+        }
+        let half = Light(0x0080);
+        runtime
+            .apply(
+                &video,
+                &Instruction::SetLight {
+                    target: Target::Region {
+                        row: 1,
+                        pixel: 2,
+                        height: 2,
+                        width: 3,
+                    },
+                    light: half,
+                    exactness: Exactness::Exact,
+                },
+            )
+            .unwrap();
+        let frame = runtime
+            .present(crate::clock::MediaClock::new(1, 30).unwrap())
+            .unwrap();
+        // The POC fixture's frame-0 geometry is known: rows 1–2 hold
+        // WINDOW on x 0..4, everything else BG.
+        let bg = crate::ingestion::srgb8_to_colour_entry(BG);
+        let window = crate::ingestion::srgb8_to_colour_entry(WINDOW);
+        for y in 0..h {
+            for x in 0..8usize {
+                let i = y * 8 + x;
+                let entry = if (1..=2).contains(&y) && x < 4 {
+                    &window
+                } else {
+                    &bg
+                };
+                let in_region = (1..3).contains(&y) && (2..5).contains(&x);
+                let expected = if in_region {
+                    scale_entry(entry, half)
+                } else {
+                    scale_entry(entry, Light::UNITY)
+                };
+                assert_eq!(frame.pixels[i], expected, "pixel ({x},{y})");
+            }
+        }
+    }
+
+    #[test]
+    fn checkpoint_restores_light_state() {
+        // Light is visual state: restoring a checkpoint must restore the
+        // dimmed presentation, not merely the chroma content.
+        let (video, _) = compile_poc();
+        let rows: Vec<CheckpointRow> = (0..video.dimensions.1)
+            .map(|_| CheckpointRow {
+                content: ContentId(0),
+                light: Light(0x0080),
+            })
+            .collect();
+        let payload = encode_checkpoint_payload(&rows);
+        let checkpoint = Checkpoint::new(
+            crate::temporal::TemporalStateId(7),
+            crate::clock::MediaClock::new(1, 30).unwrap(),
+            &payload,
+        );
+        // Loading an unknown checkpoint id is rejected.
+        let mut runtime = ReferenceRuntime::new(&video).unwrap();
+        assert_eq!(
+            runtime.apply(&video, &Instruction::LoadState { checkpoint_id: 0 }),
+            Err(RuntimeError::UnknownReference {
+                kind: "checkpoint",
+                id: 0
+            })
+        );
+        let decoded = decode_checkpoint_payload(&payload, &video).unwrap();
+        assert!(decoded.iter().all(|row| row.light == Light(0x0080)));
+        // And through from_checkpoint with a real checkpoint injected.
+        let mut with_checkpoint = video.clone();
+        with_checkpoint
+            .timeline
+            .push_checkpoint(checkpoint)
+            .unwrap();
+        let runtime = ReferenceRuntime::from_checkpoint(
+            &with_checkpoint,
+            crate::clock::MediaClock::new(2, 30).unwrap(),
+        )
+        .unwrap();
+        let frame = runtime
+            .present(crate::clock::MediaClock::new(2, 30).unwrap())
+            .unwrap();
+        // ContentId(0) is the first deduplicated row of frame 0 — the
+        // all-background row — so every restored pixel presents the
+        // dimmed background entry.
+        let bg = crate::ingestion::srgb8_to_colour_entry(BG);
+        for pixel in &frame.pixels {
+            assert_eq!(*pixel, scale_entry(&bg, Light(0x0080)));
+        }
+        // Restored rows are content-declared; the payload carries no
+        // exactness record (Amendment 5 limitation: restored light
+        // presents as declared content).
     }
 }

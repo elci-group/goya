@@ -44,8 +44,8 @@ pub const CONTRACT_VERSION: &str = "avc-contract/0.0.1";
 pub use certification::VerificationClass;
 pub use clock::MediaClock;
 pub use colour::{
-    ClosureVerdict, ColourEntry, ColourInventory, PaletteBound, RejectionDiagnostic, Tolerance,
-    WorkingSpace,
+    scale_entry, within_tolerance, ClosureVerdict, ColourEntry, ColourInventory, PaletteBound,
+    RejectionDiagnostic, Tolerance, WorkingSpace,
 };
 pub use compile::{compile, CompileError, CompileStats, CompiledVideo, RowId};
 pub use delta::{ContentId, PixelChange, RowDelta};
@@ -59,8 +59,8 @@ pub use instructions::{
 pub use pixel::{ApproximationCause, ColourIndex, Exactness, Light, PixelState, MAX_TRIMS};
 pub use profile::{CompilationBudgets, CompilationProfile, ProfileKind};
 pub use runtime::{
-    decode_checkpoint_payload, encode_checkpoint_payload, play, play_from, PresentedFrame,
-    ReferenceRuntime, RuntimeError,
+    decode_checkpoint_payload, encode_checkpoint_payload, play, play_from, CheckpointRow,
+    PresentedFrame, ReferenceRuntime, RuntimeError,
 };
 pub use tags::{ProposedTag, EXISTING_CONTAINER_TAGS};
 pub use temporal::{Checkpoint, EventId, ScheduledEvent, TemporalStateId, Timeline, TimelineError};

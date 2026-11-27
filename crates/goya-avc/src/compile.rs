@@ -19,11 +19,14 @@
 use std::collections::HashMap;
 
 use crate::clock::MediaClock;
-use crate::colour::{ClosureVerdict, ColourEntry, ColourInventory, RejectionDiagnostic};
+use crate::colour::{
+    scale_entry, within_tolerance, ClosureVerdict, ColourEntry, ColourInventory,
+    RejectionDiagnostic, Tolerance,
+};
 use crate::delta::{ContentId, RowDelta};
 use crate::ingestion::{srgb8_to_colour_entry, IngestionParameters, SourceError, VideoSource};
 use crate::instructions::{Instruction, InstructionBudget, Target};
-use crate::pixel::{ColourIndex, PixelState};
+use crate::pixel::{ApproximationCause, ColourIndex, Exactness, Light, PixelState};
 use crate::profile::{CompilationProfile, ProfileError};
 use crate::temporal::{Checkpoint, EventId, TemporalStateId, Timeline, TimelineError};
 
@@ -76,6 +79,8 @@ pub struct CompileStats {
     pub run_events: usize,
     /// `APPLY_DELTA` events (repeated transitions).
     pub delta_events: usize,
+    /// `SET_LIGHT` events (pure luminance transitions, Amendment 5).
+    pub light_events: usize,
     pub checkpoints: usize,
     /// Naïve cost of re-declaring every pixel of every frame (the §5
     /// baseline), for benchmark comparison.
@@ -197,7 +202,12 @@ pub fn compile(
         Ok(())
     };
 
-    let mut previous: Option<&Vec<u32>> = None;
+    let mut previous: Option<Vec<u32>> = None;
+    // Per-row-position light state (Amendment 5): content writes reset it
+    // to unity; light events compound it. The reference compiler emits a
+    // light event only against a unity-light row (no compounding), a
+    // fixed deterministic rule.
+    let mut row_light = vec![Light::UNITY; height as usize];
     for (frame_index, rows) in frame_rows.iter().enumerate() {
         // Frame positions start at tick 0 (F5): frame i sits at
         // i * frame_duration exactly.
@@ -212,8 +222,18 @@ pub fn compile(
         // cannot drift between compiler and runtime (Amendment 4).
         let since_checkpoint = at.ticks() - last_checkpoint_tick;
         if frame_index > 0 && since_checkpoint >= profile.budgets.max_checkpoint_interval.ticks() {
+            // Checkpoints carry light as well as chroma content:
+            // a dimmed row restored from a checkpoint must stay dimmed
+            // (Amendment 5 — light is part of the visual state).
             let payload = crate::runtime::encode_checkpoint_payload(
-                &rows.iter().map(|&r| ContentId(r)).collect::<Vec<_>>(),
+                &rows
+                    .iter()
+                    .enumerate()
+                    .map(|(y, &r)| crate::runtime::CheckpointRow {
+                        content: ContentId(r),
+                        light: row_light[y],
+                    })
+                    .collect::<Vec<_>>(),
             );
             timeline
                 .push_checkpoint(Checkpoint::new(
@@ -226,6 +246,7 @@ pub fn compile(
             last_checkpoint_tick = at.ticks();
         }
 
+        let mut effective: Vec<u32> = rows.clone();
         match previous {
             None => {
                 // Initial state: every row declared once (the frame-1 write set).
@@ -244,13 +265,66 @@ pub fn compile(
                 }
             }
             Some(prev) => {
-                // Differential: only rows whose content changed are re-declared.
+                // Differential: only rows whose presented content changed
+                // are re-declared — or dimmed via a light event when the
+                // presented change is a pure luminance scaling (Amendment 5).
                 for (y, row_id) in rows.iter().enumerate() {
-                    if prev[y] == *row_id {
-                        continue;
-                    }
                     let from = prev[y];
                     let to = *row_id;
+                    if from == to {
+                        // Chroma-unchanged — but if the row is currently
+                        // dimmed by a light event, the presented brightness
+                        // must be restored (light persists otherwise,
+                        // Amendment 5): a unity-light content declaration.
+                        if row_light[y] != Light::UNITY {
+                            emit(
+                                &mut timeline,
+                                &mut event_id,
+                                at,
+                                Instruction::SetRow {
+                                    target: Target::Row { row: y as u32 },
+                                    states: fill_states(&row_inventory[from as usize]),
+                                },
+                            )?;
+                            persistent_writes += width as u64;
+                            stats.row_events += 1;
+                            row_light[y] = Light::UNITY;
+                        }
+                        continue;
+                    }
+                    // Light path first: same chroma, scaled presentation.
+                    // Only against unity-light rows (no compounding) and
+                    // only within the declared tolerance; a zero-tolerance
+                    // (lossless) profile never emits an inexact light event.
+                    if row_light[y] == Light::UNITY {
+                        if let Some((light, exact)) = detect_row_light(
+                            &inventory_entries(&row_inventory[from as usize], &inventory),
+                            &inventory_entries(&row_inventory[to as usize], &inventory),
+                            profile.budgets.tolerance,
+                        ) {
+                            emit(
+                                &mut timeline,
+                                &mut event_id,
+                                at,
+                                Instruction::SetLight {
+                                    target: Target::Row { row: y as u32 },
+                                    light,
+                                    exactness: if exact {
+                                        Exactness::Exact
+                                    } else {
+                                        Exactness::Approximate(ApproximationCause::ToleranceBudget)
+                                    },
+                                },
+                            )?;
+                            stats.light_events += 1;
+                            row_light[y] = light;
+                            // Chroma content is unchanged: the dimmed colour
+                            // row stays in the inventory (admitted by
+                            // closure) but is not referenced.
+                            effective[y] = from;
+                            continue;
+                        }
+                    }
                     // Repeated transition: apply the precomputed delta.
                     if let Some(&delta_id) = delta_index.get(&(from, to)) {
                         emit(
@@ -264,6 +338,7 @@ pub fn compile(
                         )?;
                         stats.delta_events += 1;
                         persistent_writes += deltas[delta_id as usize].write_count();
+                        row_light[y] = Light::UNITY; // delta writes normalise to unity
                         continue;
                     }
                     // First occurrence: materialise, register the delta.
@@ -313,10 +388,13 @@ pub fn compile(
                         }
                         emit(&mut timeline, &mut event_id, at, instruction)?;
                     }
+                    // Content writes carry unity light (fill_states), so
+                    // the row's light state resets with the content.
+                    row_light[y] = Light::UNITY;
                 }
             }
         }
-        previous = Some(rows);
+        previous = Some(effective);
 
         // `PRESENT`: atomically present the completed visual state —
         // once per frame (directive §4; a runtime presents every frame,
@@ -361,6 +439,78 @@ fn row_changes(from: &[ColourIndex], to: &[ColourIndex]) -> Vec<(u32, ColourInde
         .filter(|(_, (a, b))| a != b)
         .map(|(offset, (_, b))| (offset as u32, *b))
         .collect()
+}
+
+/// The canonical entries of a row content.
+fn inventory_entries(content: &[ColourIndex], inventory: &ColourInventory) -> Vec<ColourEntry> {
+    content
+        .iter()
+        .map(|&c| inventory.entries()[c.0 as usize])
+        .collect()
+}
+
+/// Detect a pure luminance scaling between two rows of presented colour
+/// (Amendment 5): find one light value `l` such that every pixel of the
+/// row presents `scale(chroma, l)` within `tolerance` of the target.
+/// Returns the light and whether the match is exact; `None` when no
+/// single factor works, the factor is not representable, or the match is
+/// inexact under a zero-tolerance (lossless) profile. The candidate is
+/// derived from the first changed pixel's strongest channel — a fixed,
+/// deterministic rule; the verification is exhaustive over all pixels
+/// and channels.
+fn detect_row_light(
+    from: &[ColourEntry],
+    to: &[ColourEntry],
+    tolerance: Tolerance,
+) -> Option<(Light, bool)> {
+    debug_assert_eq!(from.len(), to.len());
+    let mut candidate: Option<u64> = None;
+    for (f, t) in from.iter().zip(to.iter()) {
+        if f.linear_rgb == t.linear_rgb {
+            continue;
+        }
+        // Strongest channel of the source pixel drives the candidate.
+        let ch = f
+            .linear_rgb
+            .iter()
+            .enumerate()
+            .max_by_key(|(_, v)| **v)
+            .map(|(i, _)| i)
+            .unwrap_or(0);
+        let fmv = u64::from(f.linear_rgb[ch]);
+        let tmv = u64::from(t.linear_rgb[ch]);
+        if fmv == 0 {
+            // Black never brightens through a light multiply.
+            return None;
+        }
+        // l = round(256 * tmv / fmv), half-up.
+        let l = (256 * tmv + fmv / 2) / fmv;
+        if l == 0 || l == 256 || l > u64::from(u16::MAX) {
+            // Unity is not a light event; zero is a black-out handled as a
+            // content change; unrepresentable factors fall back.
+            return None;
+        }
+        candidate = Some(l);
+        break;
+    }
+    let l = Light(u16::try_from(candidate?).ok()?);
+    let mut exact = true;
+    for (f, t) in from.iter().zip(to.iter()) {
+        let scaled = scale_entry(f, l);
+        for (scaled_ch, target_ch) in scaled.iter().zip(t.linear_rgb.iter()) {
+            if scaled_ch != target_ch {
+                let (scaled_ch, target_ch) = (*scaled_ch, *target_ch);
+                exact = false;
+                if !within_tolerance(scaled_ch, target_ch, tolerance) {
+                    return None;
+                }
+            }
+        }
+    }
+    if !exact && tolerance == Tolerance::ZERO {
+        return None; // lossless profiles never go approximate via light
+    }
+    Some((l, exact))
 }
 
 /// A contiguous run of changed pixels sharing one destination colour.

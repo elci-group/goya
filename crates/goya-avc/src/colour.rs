@@ -9,6 +9,9 @@
 //! close are routed to conventional codecs — never silently
 //! palette-crushed.
 
+use crate::ingestion::LINEAR_UNITY;
+use crate::pixel::Light;
+
 /// The trim averaging working space (F8, decision 6): scene-linear
 /// Rec. 709 primaries. Averaging in any other space (notably gamma-encoded
 /// sRGB) darkens boundaries measurably and is a contract violation.
@@ -17,6 +20,23 @@
 #[non_exhaustive]
 pub enum WorkingSpace {
     LinearRec709,
+}
+
+/// Whether two Q24.8 linear-light quantities agree within `tolerance`
+/// (declared in basis points of unity light). Exact equality is the
+/// `Tolerance::ZERO` special case.
+pub fn within_tolerance(a: u32, b: u32, tolerance: Tolerance) -> bool {
+    let diff = u64::from(a.abs_diff(b));
+    diff * 10_000 <= u64::from(tolerance.0) * u64::from(LINEAR_UNITY)
+}
+
+/// The presentation model of the chroma/light decomposition
+/// (Amendment 5): a pixel presents its chroma entry scaled by its light
+/// value — the same Q8.8 half-up multiply as [`Light::mul`], per channel.
+pub fn scale_entry(entry: &ColourEntry, light: Light) -> [u32; 3] {
+    entry
+        .linear_rgb
+        .map(|c| (c * u32::from(light.0) + 0x80) >> 8)
 }
 
 /// A declared tolerance for approximate reconstruction, in parts per
