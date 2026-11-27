@@ -89,6 +89,11 @@ impl CapabilityMap {
                 if !code.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_') {
                     return Err(format!("rule {idx}: reason code {code:?} is not register form"));
                 }
+                if !goya_fair::is_registered(code) {
+                    return Err(format!(
+                        "rule {idx}: reason code {code:?} is not in the FAIR/2 register (codes are added by contract revision)"
+                    ));
+                }
             }
             if rule.goya_evidence.trim().is_empty() {
                 return Err(format!("rule {idx}: goya_evidence is required even for absent capabilities (cite the checked contract space)"));
@@ -707,7 +712,7 @@ mod tests {
                     m
                 },
                 status: RepresentabilityStatus::Undetermined,
-                reason: Some("STYLED_COMPONENTS_DYNAMIC".into()),
+                reason: Some("INLINE_STYLE_NOT_ANALYSED".into()),
                 goya_evidence: "dynamic JS styling has no static scene equivalent".into(),
                 detail: "runtime-computed styling is not mechanically expressible".into(),
             },
@@ -722,12 +727,20 @@ mod tests {
         .unwrap();
         assert_eq!(
             assessment.document.elements[0].representability.reason.as_deref(),
-            Some("STYLED_COMPONENTS_DYNAMIC")
+            Some("INLINE_STYLE_NOT_ANALYSED")
         );
         assert_eq!(
             assessment.document.elements[1].representability.status,
             RepresentabilityStatus::Representable
         );
+    }
+
+    #[test]
+    fn map_rejects_unregistered_reason_codes() {
+        let mut map = default_map();
+        map.rules[0].reason = Some("STYLED_COMPONENTS_DYNAMIC".into());
+        let err = map.validate().unwrap_err();
+        assert!(err.contains("not in the FAIR/2 register"), "{err}");
     }
 
     #[test]

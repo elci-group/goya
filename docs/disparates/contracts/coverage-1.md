@@ -5,7 +5,7 @@ Assessment authority only; no reconstruction is authorised under this revision.
 
 ## Purpose
 
-GY-COVERAGE/1 upgrades GY-FAIR/1 `extracted` elements to honest representability
+GY-COVERAGE/1 upgrades GY-FAIR `extracted` elements to honest representability
 classifications by assessing them against a versioned, serialisable **capability
 map** — and derives the programme's engineering-intelligence output: the
 capability-deficit report, aggregating what actually blocks migration by reason code.
@@ -27,7 +27,9 @@ capability-deficit report, aggregating what actually blocks migration by reason 
 
 ## Consumes
 
-- `goya-fair` (GY-FAIR/1). Assessed documents must re-validate under GY-FAIR/1.
+- `goya-fair` (GY-FAIR/2). Assessed documents must re-validate under GY-FAIR/2,
+  so every code a map emits must be in the FAIR/2 register
+  ([reason-codes.md](reason-codes.md)); `CapabilityMap::validate` refuses others.
 
 ## Rules
 
@@ -45,7 +47,7 @@ capability-deficit report, aggregating what actually blocks migration by reason 
   Absence claims (`NO_GOYA_CAPABILITY_*`) require a stated check date.
   Elements with no matching rule become `undetermined` with
   `NO_COVERAGE_RULE`; the map must grow by contract revision, never silently.
-- Assessment preserves the GY-FAIR/1 semantics payload; `goya_evidence` is
+- Assessment preserves the FAIR semantics payload; `goya_evidence` is
   recorded as an added facet, not a replacement.
 - Two distinct blocking categories must not be conflated, and consumers of the
   report must be able to tell them apart:
@@ -72,7 +74,7 @@ capability-deficit report, aggregating what actually blocks migration by reason 
 
 ## Invariants
 
-- Assessed documents validate under GY-FAIR/1.
+- Assessed documents validate under GY-FAIR/2.
 - Reports are deterministic: identical inputs yield byte-identical canonical
   output; deficits sort by blocking count descending.
 - The map is data: serialisable, versioned, reviewable, testable — assessment
